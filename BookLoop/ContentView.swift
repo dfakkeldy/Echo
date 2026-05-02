@@ -5,6 +5,7 @@ import MediaPlayer
 import UniformTypeIdentifiers
 import UIKit
 import QuickLookThumbnailing
+import WatchConnectivity
 
 // MARK: - Beginner notes (Xcode settings you MUST enable)
 //
@@ -20,7 +21,7 @@ import QuickLookThumbnailing
 // MARK: - Model
 
 @Observable
-final class PlayerModel {
+final class PlayerModel: NSObject, WCSessionDelegate {
     struct Track: Identifiable, Equatable {
         var id: String { url.absoluteString }
         let url: URL
@@ -89,8 +90,66 @@ final class PlayerModel {
 
     private let persistence = Persistence()
 
-    init() {
+    override init() {
         speed = 1.25
+        super.init()
+        setupWatchConnectivity()
+    }
+
+    private func setupWatchConnectivity() {
+        if WCSession.isSupported() {
+            let session = WCSession.default
+            session.delegate = self
+            session.activate()
+        }
+    }
+    
+    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
+    func sessionDidBecomeInactive(_ session: WCSession) {}
+    func sessionDidDeactivate(_ session: WCSession) {
+        session.activate()
+    }
+    
+    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+        DispatchQueue.main.async {
+            if let command = message["command"] as? String {
+                switch command {
+                case "play": self.play()
+                case "pause": self.pause()
+                case "next": self.nextTrack()
+                case "previous": self.previousTrackOrRestart()
+                case "skipBackward": self.skipBackward30()
+                default: break
+                }
+            }
+        }
+    }
+    
+    private func syncToWatch() {
+        guard WCSession.default.activationState == .activated else { return }
+        
+        var context: [String: Any] = [:]
+        context["isPlaying"] = isPlaying
+        
+        let title = chapters.count >= 2 ? (currentSubtitle.isEmpty ? "Chapter \((currentChapterIndex ?? 0) + 1)" : currentSubtitle) : currentTitle
+        context["title"] = title
+        
+        if let image = thumbnailImage {
+            let targetSize = CGSize(width: 200, height: 200)
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let scaledImage = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: targetSize))
+            }
+            if let jpegData = scaledImage.jpegData(compressionQuality: 0.6) {
+                context["thumbnailData"] = jpegData
+            }
+        }
+        
+        do {
+            try WCSession.default.updateApplicationContext(context)
+        } catch {
+            print("Failed to sync to watch: \(error)")
+        }
     }
 
     deinit {
@@ -257,6 +316,7 @@ final class PlayerModel {
         isPlaying = true
 
         updateNowPlayingInfo(isPaused: false)
+        syncToWatch()
     }
 
     func pause() {
@@ -270,6 +330,7 @@ final class PlayerModel {
 
         // CRUCIAL: keep Now Playing metadata, but mark paused + playbackRate = 0.0
         updateNowPlayingInfo(isPaused: true)
+        syncToWatch()
         
         // Save progress when paused
         if let player = player {
@@ -927,9 +988,11 @@ final class PlayerModel {
             let representation = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             thumbnailImage = representation.uiImage
             updateNowPlayingInfo(isPaused: !isPlaying)
+            syncToWatch()
         } catch {
             thumbnailImage = nil
             updateNowPlayingInfo(isPaused: !isPlaying)
+            syncToWatch()
         }
     }
 
@@ -1014,6 +1077,7 @@ final class PlayerModel {
             currentChapterIndex = nil
             currentSubtitle = ""
             updateNowPlayingInfo(isPaused: !isPlaying)
+            syncToWatch()
         }
     }
 
@@ -1032,6 +1096,7 @@ final class PlayerModel {
                     currentSubtitle = "Chapter \(idx + 1)"
                 }
                 updateNowPlayingInfo(isPaused: !isPlaying)
+                syncToWatch()
             }
         }
     }
