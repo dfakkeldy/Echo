@@ -50,6 +50,7 @@ final class PlayerModel {
     // Progress (for UI)
     private(set) var progressFraction: Double = 0.0
     private(set) var progressText: String = "--:--"
+    private(set) var elapsedText: String = "--:--"
     private(set) var durationSeconds: Double? = nil
     private(set) var thumbnailImage: UIImage? = nil
 
@@ -57,6 +58,7 @@ final class PlayerModel {
     private(set) var chapters: [Chapter] = []
     private(set) var currentChapterIndex: Int? = nil
     private var isSeekingForChapterLoop: Bool = false
+    private var isManualSeeking: Bool = false
 
     // iOS 26: avoid UIScreen.main usage; set from SwiftUI environment.
     private var displayScale: CGFloat = 2.0
@@ -97,10 +99,19 @@ final class PlayerModel {
     // MARK: Folder + track loading
 
     func loadFolder(_ url: URL) {
-        stop() // stop current playback when selecting a new folder
+        stop() // stop current playback when selecting a new folder/file
 
         folderURL = url
-        tracks = loadTracks(from: url)
+        
+        var isDir: ObjCBool = false
+        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        
+        if isDir.boolValue {
+            tracks = loadTracks(from: url)
+        } else {
+            tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
+        }
+        
         currentIndex = 0
 
         if let first = tracks.first {
@@ -190,6 +201,10 @@ final class PlayerModel {
     }
 
     func nextTrack() {
+        if chapters.count >= 2 {
+            nextChapter()
+            return
+        }
         guard !tracks.isEmpty else { return }
         let newIndex = (currentIndex + 1) % tracks.count
         prepareToPlay(index: newIndex, autoplay: true)
@@ -203,7 +218,12 @@ final class PlayerModel {
         guard !tracks.isEmpty else { return }
         let elapsed = player?.currentTime().seconds ?? 0
         if elapsed.isFinite, elapsed > 5 {
-            player?.seek(to: .zero)
+            isManualSeeking = true
+            player?.seek(to: .zero) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.isManualSeeking = false
+                }
+            }
             updateNowPlayingElapsedTime()
             updateProgressFromPlayer()
             return
@@ -230,7 +250,10 @@ final class PlayerModel {
             seekToChapter(at: next.index)
         } else {
             // Already at or beyond the final chapter start.
-            return
+            // Go to next track.
+            guard !tracks.isEmpty else { return }
+            let newIndex = (currentIndex + 1) % tracks.count
+            prepareToPlay(index: newIndex, autoplay: true)
         }
     }
 
@@ -264,11 +287,13 @@ final class PlayerModel {
         guard let player else { return }
         let current = player.currentTime().seconds
         let target = max(0, current - 30)
-        player.seek(
-            to: CMTime(seconds: target, preferredTimescale: 600),
-            toleranceBefore: .zero,
-            toleranceAfter: .zero
-        )
+        isManualSeeking = true
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600)) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isManualSeeking = false
+                self?.updateCurrentChapterFromPlayerTime()
+            }
+        }
         updateNowPlayingElapsedTime()
     }
 
@@ -281,6 +306,7 @@ final class PlayerModel {
             player?.rate = speed
         }
         updateNowPlayingInfo(isPaused: !isPlaying)
+        updateProgressFromPlayer()
     }
 
     private func stop() {
@@ -288,7 +314,8 @@ final class PlayerModel {
         isPlaying = false
         currentTitle = "No track selected"
         progressFraction = 0
-        progressText = "--%"
+        progressText = "--:--"
+        elapsedText = "--:--"
 
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
         if let timeObserver, let player { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
@@ -306,6 +333,7 @@ final class PlayerModel {
         chapters = []
         currentChapterIndex = nil
         isSeekingForChapterLoop = false
+        isManualSeeking = false
 
         // Clean old observers
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
@@ -402,16 +430,12 @@ final class PlayerModel {
             // not necessarily the whole file.
             if chapters.count >= 2, let idx = currentChapterIndex {
                 let c = chapters[idx]
-                player.seek(
-                    to: CMTime(seconds: c.startSeconds, preferredTimescale: 600),
-                    toleranceBefore: .zero,
-                    toleranceAfter: .zero
-                ) { [weak self] _ in
+                player.seek(to: CMTime(seconds: c.startSeconds, preferredTimescale: 600)) { [weak self] _ in
                     DispatchQueue.main.async {
                         guard let self else { return }
                         if self.isPlaying {
                             self.applySpeedToCurrentItem()
-                            self.player?.playImmediately(atRate: self.speed)
+                            self.player?.play()
                         } else {
                             self.updateNowPlayingInfo(isPaused: true)
                         }
@@ -423,16 +447,12 @@ final class PlayerModel {
             }
 
             // Fallback: restart the whole track.
-            player.seek(
-                to: .zero,
-                toleranceBefore: .zero,
-                toleranceAfter: .zero
-            ) { [weak self] _ in
+            player.seek(to: .zero) { [weak self] _ in
                 DispatchQueue.main.async {
                     guard let self else { return }
                     if self.isPlaying {
                         self.applySpeedToCurrentItem()
-                        self.player?.playImmediately(atRate: self.speed)
+                        self.player?.play()
                     } else {
                         // Even if not playing, keep metadata stable + paused state
                         self.updateNowPlayingInfo(isPaused: true)
@@ -598,38 +618,53 @@ final class PlayerModel {
         guard current.isFinite else { return }
 
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = current
+        
+        if chapters.count >= 2, let idx = currentChapterIndex {
+            let c = chapters[idx]
+            let chapterElapsed = max(0, current - c.startSeconds)
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = chapterElapsed
+        } else {
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = current
+        }
+        
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     private func updateNowPlayingInfo(isPaused: Bool) {
         let center = MPNowPlayingInfoCenter.default()
 
-        let duration: Double? = {
-            if let d = durationSeconds, d.isFinite, d > 0 { return d }
-            return nil
-        }()
-
-        let elapsed: Double? = {
-            guard let t = player?.currentTime().seconds, t.isFinite else { return nil }
-            return t
-        }()
-
         var info = center.nowPlayingInfo ?? [:]
-        info[MPMediaItemPropertyTitle] = currentTitle
-        if !currentSubtitle.isEmpty {
-            info[MPMediaItemPropertyAlbumTitle] = currentSubtitle
+        
+        let elapsed = player?.currentTime().seconds
+        
+        if chapters.count >= 2, let idx = currentChapterIndex {
+            let c = chapters[idx]
+            let chapterDuration = c.endSeconds - c.startSeconds
+            let chapterElapsed = max(0, (elapsed ?? c.startSeconds) - c.startSeconds)
+            
+            info[MPMediaItemPropertyTitle] = currentSubtitle.isEmpty ? "Chapter \(idx + 1)" : currentSubtitle
+            info[MPMediaItemPropertyAlbumTitle] = currentTitle
+            info[MPMediaItemPropertyPlaybackDuration] = chapterDuration
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = chapterElapsed
         } else {
-            info.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
+            info[MPMediaItemPropertyTitle] = currentTitle
+            if !currentSubtitle.isEmpty {
+                info[MPMediaItemPropertyAlbumTitle] = currentSubtitle
+            } else {
+                info.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
+            }
+            if let d = durationSeconds, d.isFinite, d > 0 {
+                info[MPMediaItemPropertyPlaybackDuration] = d
+            }
+            if let e = elapsed, e.isFinite {
+                info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = e
+            }
         }
 
         if let image = thumbnailImage {
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             info[MPMediaItemPropertyArtwork] = artwork
         }
-
-        if let duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
-        if let elapsed { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed }
 
         // CRUCIAL: do not clear metadata on pause; just set rate appropriately.
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPaused ? 0.0 : speed
@@ -641,23 +676,42 @@ final class PlayerModel {
         guard let player else {
             progressFraction = 0
             progressText = "--:--"
+            elapsedText = "--:--"
             return
         }
 
         let elapsed = player.currentTime().seconds
+        
+        if chapters.count >= 2, let idx = currentChapterIndex {
+            let c = chapters[idx]
+            let chapterDuration = c.endSeconds - c.startSeconds
+            let chapterElapsed = elapsed - c.startSeconds
+            
+            if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
+                let frac = min(1, max(0, chapterElapsed / chapterDuration))
+                progressFraction = frac
+                let remaining = max(0, chapterDuration - chapterElapsed) / Double(speed)
+                progressText = "-\(formatTime(remaining))"
+                elapsedText = formatTime(max(0, chapterElapsed) / Double(speed))
+                return
+            }
+        }
+
         let duration = durationSeconds ?? 0
 
         guard elapsed.isFinite, duration.isFinite, duration > 0 else {
             progressFraction = 0
             progressText = "--:--"
+            elapsedText = "--:--"
             return
         }
 
         let frac = min(1, max(0, elapsed / duration))
         progressFraction = frac
 
-        let remaining = max(0, duration - elapsed)
+        let remaining = max(0, duration - elapsed) / Double(speed)
         progressText = "-\(formatTime(remaining))"
+        elapsedText = formatTime(max(0, elapsed) / Double(speed))
     }
 
     private func formatTime(_ seconds: Double) -> String {
@@ -738,15 +792,24 @@ final class PlayerModel {
 
         // Most audiobooks expose chapters via AVAsset timed chapter metadata groups.
         // This API is available broadly and avoids newer marker-group types that may not exist in all SDKs.
-        let groups = asset.chapterMetadataGroups(
-            withTitleLocale: Locale.current,
-            containingItemsWithCommonKeys: []
-        )
+        let locales = asset.availableChapterLocales
+        let groups: [AVTimedMetadataGroup]
+        if let firstLocale = locales.first {
+            groups = asset.chapterMetadataGroups(
+                withTitleLocale: firstLocale,
+                containingItemsWithCommonKeys: nil
+            )
+        } else {
+            groups = asset.chapterMetadataGroups(
+                withTitleLocale: Locale.current,
+                containingItemsWithCommonKeys: nil
+            )
+        }
 
         var built: [Chapter] = []
         built.reserveCapacity(groups.count)
 
-        for (i, g) in groups.enumerated() {
+        for g in groups {
             let start = g.timeRange.start.seconds
             let end = (g.timeRange.start + g.timeRange.duration).seconds
 
@@ -758,8 +821,14 @@ final class PlayerModel {
             }
 
             if start.isFinite, end.isFinite, end > start {
-                built.append(Chapter(index: i, title: title, startSeconds: start, endSeconds: end))
+                built.append(Chapter(index: 0, title: title, startSeconds: start, endSeconds: end))
             }
+        }
+        
+        // Ensure chronological order and exact index alignment
+        built.sort { $0.startSeconds < $1.startSeconds }
+        for i in 0..<built.count {
+            built[i] = Chapter(index: i, title: built[i].title, startSeconds: built[i].startSeconds, endSeconds: built[i].endSeconds)
         }
 
         // Some files return a single "chapter" spanning whole book; treat that as "no chapters".
@@ -779,8 +848,9 @@ final class PlayerModel {
         let t = player.currentTime().seconds
         guard t.isFinite else { return }
 
-        // Use `<= endSeconds` so we still resolve the chapter at exact boundaries.
-        if let idx = chapters.firstIndex(where: { t >= $0.startSeconds && t <= $0.endSeconds }) {
+        // Find the last chapter where t >= startSeconds.
+        // This avoids matching the previous chapter when t is exactly on the boundary.
+        if let idx = chapters.lastIndex(where: { t >= $0.startSeconds }) {
             if currentChapterIndex != idx {
                 currentChapterIndex = idx
                 let c = chapters[idx]
@@ -796,10 +866,11 @@ final class PlayerModel {
 
     private func currentChapterForTime(_ t: Double) -> Chapter? {
         guard chapters.count >= 2 else { return nil }
-        return chapters.first(where: { t >= $0.startSeconds && t <= $0.endSeconds })
+        return chapters.last(where: { t >= $0.startSeconds })
     }
 
     private func applyChapterLoopIfNeeded() {
+        guard !isManualSeeking else { return }
         guard loopModeOn, chapters.count >= 2, let idx = currentChapterIndex, let player else { return }
         guard !isSeekingForChapterLoop else { return }
 
@@ -811,17 +882,13 @@ final class PlayerModel {
         // Use a wider window to reliably catch the chapter end.
         if t >= (c.endSeconds - 1.5) {
             isSeekingForChapterLoop = true
-            player.seek(
-                to: CMTime(seconds: c.startSeconds, preferredTimescale: 600),
-                toleranceBefore: .zero,
-                toleranceAfter: .zero
-            ) { [weak self] _ in
+            player.seek(to: CMTime(seconds: c.startSeconds, preferredTimescale: 600)) { [weak self] _ in
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.isSeekingForChapterLoop = false
                     if self.isPlaying {
                         self.applySpeedToCurrentItem()
-                        self.player?.playImmediately(atRate: self.speed)
+                        self.player?.play()
                     }
                     self.updateNowPlayingElapsedTime()
                     self.updateProgressFromPlayer()
@@ -833,18 +900,20 @@ final class PlayerModel {
     private func seekToChapter(at index: Int) {
         guard chapters.indices.contains(index), let player else { return }
         let c = chapters[index]
-        player.seek(
-            to: CMTime(seconds: c.startSeconds, preferredTimescale: 600),
-            toleranceBefore: .zero,
-            toleranceAfter: .zero
-        ) { [weak self] _ in
+        
+        // Seek slightly past the boundary to avoid rounding errors matching the previous chapter
+        let targetSeconds = c.startSeconds + 0.05
+        
+        isManualSeeking = true
+        player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600)) { [weak self] _ in
             DispatchQueue.main.async {
+                self?.isManualSeeking = false
                 self?.updateCurrentChapterFromPlayerTime()
                 self?.updateNowPlayingElapsedTime()
                 self?.updateProgressFromPlayer()
                 if self?.isPlaying == true {
                     self?.applySpeedToCurrentItem()
-                    self?.player?.playImmediately(atRate: self?.speed ?? 1.0)
+                    self?.player?.play()
                 }
             }
         }
@@ -867,7 +936,8 @@ struct FolderPicker: UIViewControllerRepresentable {
     let onPickFolder: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+        let m4bType = UTType(filenameExtension: "m4b") ?? .audio
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder, m4bType, .audio], asCopy: false)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker
@@ -927,10 +997,10 @@ struct ContentView: View {
                 }
 
                 VStack(alignment: .center, spacing: 6) {
-                    Text("Current Title")
+                    Text(model.chapters.count >= 2 ? "Current Chapter" : "Current Title")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(model.currentTitle)
+                    Text(model.chapters.count >= 2 ? (model.currentSubtitle.isEmpty ? "Chapter \(model.currentChapterIndex ?? 0 + 1)" : model.currentSubtitle) : model.currentTitle)
                         .font(.title2.weight(.semibold))
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
@@ -980,6 +1050,10 @@ struct ContentView: View {
             }
 
             HStack(spacing: 12) {
+                Text(model.elapsedText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
                 ProgressView(value: model.progressFraction)
                     .frame(maxWidth: .infinity)
                 Text(model.progressText)
@@ -1024,7 +1098,7 @@ struct ContentView: View {
                 Button {
                     showingFolderPicker = true
                 } label: {
-                    Label("Select Folder", systemImage: "folder")
+                    Label("Select Folder or File", systemImage: "folder")
                         .font(.title3.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 56)
                 }
