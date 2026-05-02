@@ -39,7 +39,7 @@ final class PlayerModel {
 
     // UI state
     var loopModeOn: Bool = true
-    var speed: Float = 1.25 // default 1.25x (your requirement)
+    var speed: Float
 
     private(set) var folderURL: URL?
     var tracks: [Track] = []
@@ -88,6 +88,10 @@ final class PlayerModel {
     private var currentFileSecurityScopeURL: URL?
 
     private let persistence = Persistence()
+
+    init() {
+        speed = 1.25
+    }
 
     deinit {
         // `deinit` is not actor-isolated; keep cleanup synchronous.
@@ -157,11 +161,17 @@ final class PlayerModel {
             tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
         }
         
-        currentIndex = 0
+        if let folderKey = folderURL?.absoluteString,
+           let savedTrackId = persistence.getLastTrack(for: folderKey),
+           let idx = tracks.firstIndex(where: { $0.id == savedTrackId }) {
+            currentIndex = idx
+        } else {
+            currentIndex = 0
+        }
 
-        if let first = tracks.first {
-            currentTitle = first.title
-            prepareToPlay(index: 0, autoplay: autoplay)
+        if tracks.indices.contains(currentIndex) {
+            currentTitle = tracks[currentIndex].title
+            prepareToPlay(index: currentIndex, autoplay: autoplay)
         } else {
             currentTitle = "No .mp3/.m4a/.m4b files found"
             updateNowPlayingInfo(isPaused: true) // keep something stable in Now Playing
@@ -403,6 +413,7 @@ final class PlayerModel {
 
     func setSpeed(_ newSpeed: Float) {
         speed = newSpeed
+        persistence.saveSpeed(for: currentTitle, speed: speed)
         // Ensure speed persists after loops/track changes:
         applySpeedToCurrentItem()
 
@@ -439,6 +450,13 @@ final class PlayerModel {
         currentIndex = index
         currentTitle = tracks[index].title
         currentSubtitle = ""
+        
+        if let folderURL = folderURL {
+            persistence.saveLastTrack(for: folderURL.absoluteString, trackId: tracks[index].id)
+        }
+        
+        // Load the specific speed for this book
+        speed = persistence.getSpeed(for: currentTitle) ?? 1.25
         chapters = []
         currentChapterIndex = nil
         isSeekingForChapterBoundary = false
@@ -1330,7 +1348,6 @@ struct ContentView: View {
         .onAppear {
             // Configure remote commands early so the Watch/Now Playing UI is stable once audio starts.
             // (The model also guards to configure only once.)
-            model.setSpeed(1.25) // ensure default speed is applied everywhere
             model.setDisplayScale(displayScale)
             model.restoreLastSelectionIfPossible()
         }
@@ -1394,6 +1411,30 @@ private struct Persistence {
     private let defaults = UserDefaults.standard
     private let bookmarkKey = "BookLoop.selection.bookmark"
     private let progressKey = "BookLoop.progress.dictionary"
+    private let speedKey = "BookLoop.playback.speed.dictionary"
+    private let lastTrackKey = "BookLoop.lastTrack.dictionary"
+    
+    func saveLastTrack(for folderKey: String, trackId: String) {
+        var dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
+        dict[folderKey] = trackId
+        defaults.set(dict, forKey: lastTrackKey)
+    }
+    
+    func getLastTrack(for folderKey: String) -> String? {
+        let dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
+        return dict[folderKey]
+    }
+    
+    func saveSpeed(for title: String, speed: Float) {
+        var dict = defaults.dictionary(forKey: speedKey) as? [String: Float] ?? [:]
+        dict[title] = speed
+        defaults.set(dict, forKey: speedKey)
+    }
+    
+    func getSpeed(for title: String) -> Float? {
+        let dict = defaults.dictionary(forKey: speedKey) as? [String: Float] ?? [:]
+        return dict[title]
+    }
 
     func saveOrder(for key: String, ids: [String]) {
         defaults.set(ids, forKey: "order_\(key)")
