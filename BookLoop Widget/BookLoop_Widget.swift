@@ -61,20 +61,37 @@ struct BookLoop_WidgetEntryView : View {
     var entry: Provider.Entry
 
     var body: some View {
-        Gauge(value: entry.progressFraction) {
-            EmptyView()
-        } currentValueLabel: {
+        ZStack {
             if let data = entry.thumbnailData, let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
                     .clipShape(Circle())
+                    .padding(4)
             } else {
                 Image(systemName: "music.note")
             }
+
+            Circle()
+                .stroke(Color.gray.opacity(0.3), lineWidth: 4)
+
+            Circle()
+                .trim(from: 0, to: entry.progressFraction)
+                .stroke(Color.green, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+
+            GeometryReader { geo in
+                let radius = geo.size.width / 2
+                let angle = entry.progressFraction * 2 * .pi - .pi / 2
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 6, height: 6)
+                    .position(
+                        x: radius + radius * CGFloat(cos(angle)),
+                        y: radius + radius * CGFloat(sin(angle))
+                    )
+            }
         }
-        .gaugeStyle(.accessoryCircular)
-        .tint(.green)
         .containerBackground(.fill.tertiary, for: .widget)
         .widgetURL(URL(string: "bookloop://"))
     }
