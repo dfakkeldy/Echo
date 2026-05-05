@@ -25,6 +25,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
         DispatchQueue.main.async {
             let defaults = UserDefaults(suiteName: "group.com.bookloop")
+            if let crownAction = applicationContext["crownAction"] as? String {
+                defaults?.set(crownAction, forKey: "crownAction")
+            }
             if let isPlaying = applicationContext["isPlaying"] as? Bool {
                 self.isPlaying = isPlaying
                 defaults?.set(isPlaying, forKey: "isPlaying")
@@ -50,21 +53,27 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
     
-    func sendCommand(_ command: String) {
+    func sendCommand(_ command: String, params: [String: Any]? = nil) {
         if WCSession.default.isReachable {
-            WCSession.default.sendMessage(["command": command], replyHandler: nil, errorHandler: { error in
+            var message: [String: Any] = ["command": command]
+            if let params = params {
+                for (key, value) in params {
+                    message[key] = value
+                }
+            }
+            WCSession.default.sendMessage(message, replyHandler: nil, errorHandler: { error in
                 print("Error sending command: \(error)")
             })
         }
         
         // Haptic feedback
         switch command {
-        case "play":
-            WKInterfaceDevice.current().play(.start)
-        case "pause":
-            WKInterfaceDevice.current().play(.stop)
-        case "next", "previous", "skipBackward":
+        case "play", "pause", "toggle":
             WKInterfaceDevice.current().play(.click)
+        case "next", "skipForward":
+            WKInterfaceDevice.current().play(.directionUp)
+        case "skipBackward", "previous":
+            WKInterfaceDevice.current().play(.directionDown)
         default:
             break
         }
@@ -73,6 +82,10 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
 struct ContentView: View {
     @State private var viewModel = WatchViewModel()
+    @AppStorage("crownAction", store: UserDefaults(suiteName: "group.com.bookloop")) private var crownAction = "volume"
+    @State private var crownAccumulator: Double = 0.0
+    @State private var lastAccumulator: Double = 0.0
+    @FocusState private var isFocused: Bool
     
     var body: some View {
         ZStack {
@@ -124,9 +137,12 @@ struct ContentView: View {
                         viewModel.sendCommand("skipBackward")
                     } label: {
                         Image(systemName: "gobackward.30")
-                            .font(.title2)
+                            .font(.system(size: 20))
+                            .frame(width: 38, height: 38)
+                            .padding(15)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(.borderedProminent)
                     
                     ZStack {
                         Circle()
@@ -150,18 +166,48 @@ struct ContentView: View {
                                 .clipShape(Circle())
                         }
                         .buttonStyle(PlainButtonStyle())
+                        
+                        // Hidden button for the double tap gesture to avoid the UIHostingController warning
+                        Button("") {
+                            viewModel.sendCommand(viewModel.isPlaying ? "pause" : "play")
+                            viewModel.isPlaying.toggle()
+                        }
+                        .opacity(0)
+                        .handGestureShortcut(.primaryAction)
                     }
                     
                     Button {
                         viewModel.sendCommand("next")
                     } label: {
                         Image(systemName: "forward.end.fill")
-                            .font(.title2)
+                            .font(.system(size: 20))
+                            .frame(width: 38, height: 38)
+                            .padding(15)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(.borderedProminent)
                 }
                 .padding(.top, 6)
             }
+        }
+        .focusable(true)
+        .focused($isFocused)
+        .digitalCrownRotation($crownAccumulator)
+        .onChange(of: crownAccumulator) { oldValue, newValue in
+            let delta = newValue - lastAccumulator
+            lastAccumulator = newValue
+            
+            if crownAction == "scrub" {
+                viewModel.sendCommand("scrubDelta", params: ["delta": delta])
+            } else {
+                viewModel.sendCommand("volumeDelta", params: ["delta": delta])
+            }
+        }
+        .onAppear {
+            isFocused = true
+        }
+        .onChange(of: crownAction) { oldValue, newValue in
+            isFocused = true
         }
     }
 }

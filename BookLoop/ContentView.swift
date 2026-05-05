@@ -63,6 +63,8 @@ final class PlayerModel: NSObject, WCSessionDelegate {
     private(set) var currentChapterIndex: Int? = nil
     private var isSeekingForChapterBoundary: Bool = false
     private var isManualSeeking: Bool = false
+    
+    private var pauseTimestamp: Date? = nil
 
     // iOS 26: avoid UIScreen.main usage; set from SwiftUI environment.
     private var displayScale: CGFloat = 2.0
@@ -133,6 +135,25 @@ final class PlayerModel: NSObject, WCSessionDelegate {
                 case "next": self.nextTrack()
                 case "previous": self.previousTrackOrRestart()
                 case "skipBackward": self.skipBackward30()
+                case "skipForward": self.skipForward30()
+                case "seek":
+                    if let fraction = message["fraction"] as? Double {
+                        self.seek(toFraction: fraction)
+                    }
+                case "scrubDelta":
+                    if let d = message["delta"] as? Double {
+                        let current = self.player?.currentTime().seconds ?? 0
+                        let duration = self.durationSeconds ?? 0
+                        // Make scrubbing gentle: e.g. 15 seconds per unit of delta
+                        let target = max(0, min(duration, current + (d * 15.0)))
+                        self.seek(toSeconds: target)
+                    }
+                case "volumeDelta":
+                    if let d = message["delta"] as? Double {
+                        let currentVol = self.player?.volume ?? 1.0
+                        let newVol = max(0, min(1, currentVol + Float(d * 0.05)))
+                        self.player?.volume = newVol
+                    }
                 case "toggle": self.togglePlayPause()
                 default: break
                 }
@@ -150,7 +171,7 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         }
     }
     
-    private func syncToWatch() {
+    func syncToWatch() {
         guard WCSession.default.activationState == .activated else { return }
         
         var context: [String: Any] = [:]
@@ -159,6 +180,9 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         
         let title = chapters.count >= 2 ? (currentSubtitle.isEmpty ? "Chapter \((currentChapterIndex ?? 0) + 1)" : currentSubtitle) : currentTitle
         context["title"] = title
+        
+        let crownAction = UserDefaults.standard.string(forKey: "crownAction") ?? "volume"
+        context["crownAction"] = crownAction
         
         if let data = watchThumbnailData {
             context["thumbnailData"] = data
@@ -348,6 +372,36 @@ final class PlayerModel: NSObject, WCSessionDelegate {
     }
 
     func play() {
+        // Check for rewind before playing
+        if let pausedAt = pauseTimestamp {
+            let pausedDuration = Date().timeIntervalSince(pausedAt)
+            if UserDefaults.standard.bool(forKey: "isRewindEnabled"),
+               pausedDuration >= Double(UserDefaults.standard.integer(forKey: "rewindPauseDuration")) {
+                let rewindAmount = Double(UserDefaults.standard.integer(forKey: "rewindAmount"))
+                if let player = player {
+                    let current = player.currentTime().seconds
+                    var target = max(0, current - rewindAmount)
+                    
+                    // Don't rewind past the start of the current chapter
+                    if chapters.count >= 2, let idx = currentChapterIndex {
+                        let c = chapters[idx]
+                        if target < c.startSeconds {
+                            target = c.startSeconds
+                        }
+                    }
+
+                    isManualSeeking = true
+                    player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                        DispatchQueue.main.async {
+                            self?.isManualSeeking = false
+                            self?.updateCurrentChapterFromPlayerTime()
+                        }
+                    }
+                }
+            }
+            pauseTimestamp = nil
+        }
+
         // Release any pause background task claim immediately on resume.
         endBackgroundTask()
 
@@ -374,6 +428,10 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         // CRUCIAL: do NOT deactivate AVAudioSession when paused.
         player?.pause()
         isPlaying = false
+        
+        if pauseTimestamp == nil {
+            pauseTimestamp = Date()
+        }
 
         // Battery-friendly: do NOT keep a background task running while paused.
         // (We still keep Now Playing metadata + playbackRate=0.0 so the UI stays stable.)
@@ -434,6 +492,11 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         }
         if let newIndex = findNextEnabledTrackIndex() {
             prepareToPlay(index: newIndex, autoplay: true)
+        } else {
+            // Loop the entire playlist if we reached the end
+            if let firstEnabled = tracks.firstIndex(where: { $0.isEnabled }) {
+                prepareToPlay(index: firstEnabled, autoplay: true)
+            }
         }
     }
 
@@ -482,6 +545,11 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         } else {
             if let newIndex = findNextEnabledTrackIndex() {
                 prepareToPlay(index: newIndex, autoplay: true)
+            } else {
+                // Loop the entire playlist if we reached the end
+                if let firstEnabled = tracks.firstIndex(where: { $0.isEnabled }) {
+                    prepareToPlay(index: firstEnabled, autoplay: true)
+                }
             }
         }
     }
@@ -542,9 +610,25 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         updateNowPlayingElapsedTime()
     }
 
-    func seek(toFraction fraction: Double) {
+    func seek(toSeconds targetSeconds: Double) {
         guard let player else { return }
-        
+        isManualSeeking = true
+        player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isManualSeeking = false
+                self?.updateCurrentChapterFromPlayerTime()
+                self?.updateNowPlayingElapsedTime()
+                self?.updateProgressFromPlayer()
+                if self?.isPlaying == true {
+                    self?.player?.defaultRate = self?.speed ?? 1.0
+                    self?.player?.playImmediately(atRate: self?.speed ?? 1.0)
+                    self?.applySpeedToCurrentItem()
+                }
+            }
+        }
+    }
+
+    func seek(toFraction fraction: Double) {
         let safeFraction = min(1, max(0, fraction))
         
         if chapters.count >= 2, let idx = currentChapterIndex {
@@ -552,47 +636,22 @@ final class PlayerModel: NSObject, WCSessionDelegate {
             let chapterDuration = c.endSeconds - c.startSeconds
             if chapterDuration > 0 {
                 let targetSeconds = c.startSeconds + (chapterDuration * safeFraction)
-                
-                isManualSeeking = true
-                player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                    DispatchQueue.main.async {
-                        self?.isManualSeeking = false
-                        self?.updateCurrentChapterFromPlayerTime()
-                        self?.updateNowPlayingElapsedTime()
-                        self?.updateProgressFromPlayer()
-                        if self?.isPlaying == true {
-                            self?.player?.defaultRate = self?.speed ?? 1.0
-                            self?.player?.playImmediately(atRate: self?.speed ?? 1.0)
-                            self?.applySpeedToCurrentItem()
-                        }
-                    }
-                }
+                seek(toSeconds: targetSeconds)
             }
         } else {
             let duration = durationSeconds ?? 0
             if duration > 0 {
                 let targetSeconds = duration * safeFraction
-                isManualSeeking = true
-                player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                    DispatchQueue.main.async {
-                        self?.isManualSeeking = false
-                        self?.updateCurrentChapterFromPlayerTime()
-                        self?.updateNowPlayingElapsedTime()
-                        self?.updateProgressFromPlayer()
-                        if self?.isPlaying == true {
-                            self?.player?.defaultRate = self?.speed ?? 1.0
-                            self?.player?.playImmediately(atRate: self?.speed ?? 1.0)
-                            self?.applySpeedToCurrentItem()
-                        }
-                    }
-                }
+                seek(toSeconds: targetSeconds)
             }
         }
     }
 
     func setSpeed(_ newSpeed: Float) {
         speed = newSpeed
-        persistence.saveSpeed(for: currentTitle, speed: speed)
+        if let key = folderURL?.absoluteString {
+            persistence.saveSpeed(for: key, speed: speed)
+        }
         // Ensure speed persists after loops/track changes:
         applySpeedToCurrentItem()
 
@@ -635,7 +694,11 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         }
         
         // Load the specific speed for this book
-        speed = persistence.getSpeed(for: currentTitle) ?? 1.25
+        if let key = folderURL?.absoluteString {
+            speed = persistence.getSpeed(for: key) ?? 1.25
+        } else {
+            speed = 1.25
+        }
         chapters = []
         currentChapterIndex = nil
         isSeekingForChapterBoundary = false
@@ -1444,6 +1507,18 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
             }
 
+            Spacer()
+
+            if model.chapters.count >= 2 {
+                Text("Chapter \((model.currentChapterIndex ?? 0) + 1) of \(model.chapters.count)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if !model.tracks.isEmpty {
+                Text("Track \(model.currentIndex + 1) of \(model.tracks.count)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack(spacing: 12) {
                 Text(model.elapsedText)
                     .font(.footnote)
@@ -1481,40 +1556,52 @@ struct ContentView: View {
                     } else {
                         model.previousTrackOrRestart()
                     }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } label: {
                     Image(systemName: "backward.end.fill")
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(.primary)
+                        .frame(width: 64, height: 64)
+                        .contentShape(Rectangle())
                 }
                 
                 Spacer()
 
                 Button {
                     model.skipBackward30()
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } label: {
                     Image(systemName: "gobackward.30")
                         .font(.system(size: 28, weight: .regular))
                         .foregroundStyle(.primary)
+                        .frame(width: 64, height: 64)
+                        .contentShape(Rectangle())
                 }
                 
                 Spacer()
 
                 Button {
                     model.togglePlayPause()
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } label: {
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 44, weight: .bold))
                         .foregroundStyle(.primary)
+                        .frame(width: 76, height: 76)
+                        .contentShape(Rectangle())
                 }
                 
                 Spacer()
                 
                 Button {
                     model.skipForward30()
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } label: {
                     Image(systemName: "goforward.30")
                         .font(.system(size: 28, weight: .regular))
                         .foregroundStyle(.primary)
+                        .frame(width: 64, height: 64)
+                        .contentShape(Rectangle())
                 }
                 
                 Spacer()
@@ -1525,28 +1612,19 @@ struct ContentView: View {
                     } else {
                         model.nextTrack()
                     }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } label: {
                     Image(systemName: "forward.end.fill")
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(.primary)
+                        .frame(width: 64, height: 64)
+                        .contentShape(Rectangle())
                 }
                 
                 Spacer()
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 24)
-
-            if model.chapters.count >= 2 {
-                Text("Chapter \((model.currentChapterIndex ?? 0) + 1) of \(model.chapters.count)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else if !model.tracks.isEmpty {
-                Text("Track \(model.currentIndex + 1) of \(model.tracks.count)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
             
             // Custom Bottom Toolbar to avoid UIKitToolbar errors
             VStack(spacing: 0) {
@@ -1554,9 +1632,12 @@ struct ContentView: View {
                 HStack {
                     Button {
                         model.loopModeOn.toggle()
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     } label: {
                         Image(systemName: model.loopModeOn ? "infinity.circle.fill" : "infinity.circle")
                             .font(.title2)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     
                     Spacer()
@@ -1620,7 +1701,7 @@ struct ContentView: View {
             PlaylistView(model: model)
         }
         .sheet(isPresented: $showingSettings) {
-            SettingsView()
+            SettingsView(model: model)
         }
         .onAppear {
             // Configure remote commands early so the Watch/Now Playing UI is stable once audio starts.
@@ -1634,14 +1715,37 @@ struct ContentView: View {
 }
 
 struct SettingsView: View {
+    @Bindable var model: PlayerModel
     @AppStorage("isDarkMode") private var isDarkMode = true
+    @AppStorage("isRewindEnabled") private var isRewindEnabled = false
+    @AppStorage("rewindPauseDuration") private var rewindPauseDuration = 60 // 1 minute default
+    @AppStorage("rewindAmount") private var rewindAmount = 15 // 15 seconds default
     @Environment(\.dismiss) private var dismiss
+
+    @State private var localCrownAction: String = UserDefaults.standard.string(forKey: "crownAction") ?? "volume"
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Toggle("Dark Mode", isOn: $isDarkMode)
+                }
+                Section(header: Text("Watch Settings")) {
+                    Picker("Digital Crown", selection: $localCrownAction) {
+                        Text("Volume Control").tag("volume")
+                        Text("Scrubbing").tag("scrub")
+                    }
+                    .onChange(of: localCrownAction) { oldValue, newValue in
+                        UserDefaults.standard.set(newValue, forKey: "crownAction")
+                        model.syncToWatch()
+                    }
+                }
+                Section(header: Text("Smart Rewind"), footer: Text("Automatically rewind playback after being paused for a specific duration.")) {
+                    Toggle("Enable Smart Rewind", isOn: $isRewindEnabled)
+                    if isRewindEnabled {
+                        Stepper("Pause Duration: \(rewindPauseDuration)s", value: $rewindPauseDuration, in: 5...3600, step: 5)
+                        Stepper("Rewind Amount: \(rewindAmount)s", value: $rewindAmount, in: 5...300, step: 5)
+                    }
                 }
             }
             .navigationTitle("Settings")
