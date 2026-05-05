@@ -15,24 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CCC48E9A2FA6AB330003458B"
-               BuildableName = "BookLoop Watch App Watch App.app"
-               BlueprintName = "BookLoop Watch App Watch App"
-               ReferencedContainer = "container:BookLoop.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "CC08EC582F9522F600206D2F"
                BuildableName = "BookLoop.app"
                BlueprintName = "BookLoop"
-               ReferencedContainer = "container:BookLoop.xcodeproj">
+               ReferencedContainer = "container:AuDioHD.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -49,10 +35,10 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CCC48EA62FA6AB340003458B"
-               BuildableName = "BookLoop Watch App Watch AppTests.xctest"
-               BlueprintName = "BookLoop Watch App Watch AppTests"
-               ReferencedContainer = "container:BookLoop.xcodeproj">
+               BlueprintIdentifier = "CC08EC652F9522F800206D2F"
+               BuildableName = "BookLoopTests.xctest"
+               BlueprintName = "BookLoopTests"
+               ReferencedContainer = "container:AuDioHD.xcodeproj">
             </BuildableReference>
          </TestableReference>
          <TestableReference
@@ -60,10 +46,10 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CCC48EB02FA6AB340003458B"
-               BuildableName = "BookLoop Watch App Watch AppUITests.xctest"
-               BlueprintName = "BookLoop Watch App Watch AppUITests"
-               ReferencedContainer = "container:BookLoop.xcodeproj">
+               BlueprintIdentifier = "CC08EC6F2F9522F800206D2F"
+               BuildableName = "BookLoopUITests.xctest"
+               BlueprintName = "BookLoopUITests"
+               ReferencedContainer = "container:AuDioHD.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -83,10 +69,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "CCC48E9A2FA6AB330003458B"
-            BuildableName = "BookLoop Watch App Watch App.app"
-            BlueprintName = "BookLoop Watch App Watch App"
-            ReferencedContainer = "container:BookLoop.xcodeproj">
+            BlueprintIdentifier = "CC08EC582F9522F600206D2F"
+            BuildableName = "BookLoop.app"
+            BlueprintName = "BookLoop"
+            ReferencedContainer = "container:AuDioHD.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -100,10 +86,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "CCC48E9A2FA6AB330003458B"
-            BuildableName = "BookLoop Watch App Watch App.app"
-            BlueprintName = "BookLoop Watch App Watch App"
-            ReferencedContainer = "container:BookLoop.xcodeproj">
+            BlueprintIdentifier = "CC08EC582F9522F600206D2F"
+            BuildableName = "BookLoop.app"
+            BlueprintName = "BookLoop"
+            ReferencedContainer = "container:AuDioHD.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

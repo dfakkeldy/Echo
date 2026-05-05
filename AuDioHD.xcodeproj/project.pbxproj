@@ -131,36 +131,26 @@
 		};
 		CC08EC692F9522F800206D2F /* BookLoopTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = BookLoopTests;
 			sourceTree = "<group>";
 		};
 		CC08EC732F9522F800206D2F /* BookLoopUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = BookLoopUITests;
 			sourceTree = "<group>";
 		};
 		CCC48E9C2FA6AB330003458B /* BookLoop Watch App Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "BookLoop Watch App Watch App";
 			sourceTree = "<group>";
 		};
 		CCC48EAA2FA6AB340003458B /* BookLoop Watch App Watch AppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "BookLoop Watch App Watch AppTests";
 			sourceTree = "<group>";
 		};
 		CCC48EB42FA6AB340003458B /* BookLoop Watch App Watch AppUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "BookLoop Watch App Watch AppUITests";
 			sourceTree = "<group>";
 		};
@@ -447,7 +437,7 @@
 					};
 				};
 			};
-			buildConfigurationList = CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "BookLoop" */;
+			buildConfigurationList = CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "AuDioHD" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -1166,7 +1156,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "BookLoop" */ = {
+		CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "AuDioHD" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CC08EC782F9522F800206D2F /* Debug */,
