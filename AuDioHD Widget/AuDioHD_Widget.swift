@@ -73,18 +73,18 @@ struct AuDioHD_WidgetEntryView : View {
             }
 
             Circle()
-                .stroke(Color.gray.opacity(0.3), lineWidth: 4)
+                .stroke(.secondary.opacity(0.3), lineWidth: 4)
 
             Circle()
                 .trim(from: 0, to: entry.progressFraction)
-                .stroke(Color.green, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .stroke(.tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
 
             GeometryReader { geo in
                 let radius = geo.size.width / 2
                 let angle = entry.progressFraction * 2 * .pi - .pi / 2
                 Circle()
-                    .fill(Color.red)
+                    .fill(.tint)
                     .frame(width: 6, height: 6)
                     .position(
                         x: radius + radius * CGFloat(cos(angle)),

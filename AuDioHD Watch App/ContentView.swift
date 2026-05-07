@@ -136,7 +136,6 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.thumbnailImage = nil
             }
             WidgetCenter.shared.reloadAllTimelines()
-            WKInterfaceDevice.current().play(.success)
         }
     }
 
@@ -180,6 +179,23 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             loopModeOn.toggle()
         default:
             sendCommand(action.command)
+        }
+    }
+}
+
+// MARK: - Accessibility Helper
+
+private struct ToggleTraitModifier: ViewModifier {
+    let isToggle: Bool
+    let value: String?
+
+    func body(content: Content) -> some View {
+        if isToggle {
+            content
+                .accessibilityAddTraits(.isToggle)
+                .accessibilityValue(value ?? "")
+        } else {
+            content
         }
     }
 }
@@ -316,7 +332,6 @@ private struct TopSlotButton: View {
 
     var body: some View {
         if action == .empty {
-            // Reserve nothing — keeps the title's breathing room intact.
             EmptyView()
         } else {
             Button {
@@ -327,15 +342,31 @@ private struct TopSlotButton: View {
                     .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabelText)
+            .modifier(ToggleTraitModifier(isToggle: action == .loopMode, value: action == .loopMode ? (viewModel.loopModeOn ? "On" : "Off") : nil))
         }
     }
 
     private var iconName: String {
-        // Special-case loopMode so it reflects current state visually.
         if action == .loopMode {
             return viewModel.loopModeOn ? "infinity.circle.fill" : "infinity.circle"
         }
         return action.iconName
+    }
+
+    private var accessibilityLabelText: String {
+        switch action {
+        case .playPause: return viewModel.isPlaying ? "Pause" : "Play"
+        case .skipForward: return "Skip forward 30 seconds"
+        case .skipBackward: return "Skip back 30 seconds"
+        case .nextTrack: return "Next track"
+        case .previousTrack: return "Previous track"
+        case .loopMode: return "Loop mode"
+        case .speed: return "Playback speed"
+        case .sleepTimer: return "Sleep timer"
+        case .bookmark: return "Bookmark"
+        case .empty: return ""
+        }
     }
 }
 
@@ -375,6 +406,23 @@ private struct SideTransportButton: View {
         }
         .buttonStyle(.borderedProminent)
         .disabled(action == .empty)
+        .accessibilityLabel(accessibilityLabelText)
+        .modifier(ToggleTraitModifier(isToggle: action == .loopMode, value: action == .loopMode ? (viewModel.loopModeOn ? "On" : "Off") : nil))
+    }
+
+    private var accessibilityLabelText: String {
+        switch action {
+        case .playPause: return viewModel.isPlaying ? "Pause" : "Play"
+        case .skipForward: return "Skip forward 30 seconds"
+        case .skipBackward: return "Skip back 30 seconds"
+        case .nextTrack: return "Next track"
+        case .previousTrack: return "Previous track"
+        case .loopMode: return "Loop mode"
+        case .speed: return "Playback speed"
+        case .sleepTimer: return "Sleep timer"
+        case .bookmark: return "Bookmark"
+        case .empty: return "Empty slot"
+        }
     }
 }
 
@@ -404,6 +452,7 @@ private struct CenterTransportButton: View {
                     .clipShape(Circle())
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel(resolvedAction == .playPause ? (viewModel.isPlaying ? "Pause" : "Play") : resolvedAction.iconName)
 
             // Hidden helper for the double-tap primary-action shortcut.
             Button("") {

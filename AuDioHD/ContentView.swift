@@ -1498,8 +1498,7 @@ struct CustomFontModifier: ViewModifier {
         }
         
         if appFont == "Helvetica" {
-            // Use system font for default to ensure perfect dynamic type support if preferred
-            return AnyView(content.font(.system(size: size, weight: weight, design: .default)))
+            return AnyView(content.font(.system(style, design: .default, weight: weight)))
         } else {
             return AnyView(content.font(.custom(appFont, size: size, relativeTo: style).weight(weight)))
         }
@@ -1510,6 +1509,11 @@ extension View {
     func customFont(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> some View {
         self.modifier(CustomFontModifier(style: style, weight: weight))
     }
+
+    func accessibleButton(_ label: String) -> some View {
+        self.accessibilityLabel(label)
+    }
+
 }
 
 struct ContentView: View {
@@ -1623,7 +1627,8 @@ struct ContentView: View {
                         .frame(width: 64, height: 64)
                         .contentShape(Rectangle())
                 }
-                
+                .accessibilityLabel(model.chapters.count >= 2 ? "Previous chapter" : "Previous track")
+
                 Spacer()
 
                 Button {
@@ -1636,7 +1641,8 @@ struct ContentView: View {
                         .frame(width: 64, height: 64)
                         .contentShape(Rectangle())
                 }
-                
+                .accessibilityLabel("Skip back 30 seconds")
+
                 Spacer()
 
                 Button {
@@ -1649,9 +1655,10 @@ struct ContentView: View {
                         .frame(width: 76, height: 76)
                         .contentShape(Rectangle())
                 }
-                
+                .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+
                 Spacer()
-                
+
                 Button {
                     model.skipForward30()
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1662,7 +1669,8 @@ struct ContentView: View {
                         .frame(width: 64, height: 64)
                         .contentShape(Rectangle())
                 }
-                
+                .accessibilityLabel("Skip forward 30 seconds")
+
                 Spacer()
 
                 Button {
@@ -1679,6 +1687,7 @@ struct ContentView: View {
                         .frame(width: 64, height: 64)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel(model.chapters.count >= 2 ? "Next chapter" : "Next track")
                 
                 Spacer()
             }
@@ -1698,9 +1707,12 @@ struct ContentView: View {
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
-                    
+                    .accessibilityLabel("Loop mode")
+                    .accessibilityValue(model.loopModeOn ? "On" : "Off")
+                    .accessibilityAddTraits(.isToggle)
+
                     Spacer()
-                    
+
                     Button {
                         let speeds: [Float] = [1.0, 1.25, 1.5, 2.0, 10.0]
                         if let index = speeds.firstIndex(of: model.speed) {
@@ -1714,33 +1726,43 @@ struct ContentView: View {
                             .customFont(.headline)
                             .frame(minWidth: 44, minHeight: 44)
                     }
-                    
+                    .accessibilityLabel("Playback speed, \(String(format: "%g", model.speed)) times")
+
                     Spacer()
-                    
+
                     Button {
                         showingFolderPicker = true
                     } label: {
                         Image(systemName: "folder")
                             .font(.title2)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
-                    
+                    .accessibilityLabel("Open folder")
+
                     Spacer()
-                    
+
                     Button {
                         showingPlaylist = true
                     } label: {
                         Image(systemName: "list.bullet")
                             .font(.title2)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
-                    
+                    .accessibilityLabel("Playlist")
+
                     Spacer()
-                    
+
                     Button {
                         showingSettings = true
                     } label: {
                         Image(systemName: "gearshape")
                             .font(.title2)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("Settings")
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 12)
@@ -2082,7 +2104,7 @@ struct WatchAppSettingsView: View {
                     .padding(.horizontal, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
+                            .fill(.quaternary)
                     )
                     .onChange(of: crownAction) { _, _ in
                         model.syncToWatch()
@@ -2110,7 +2132,7 @@ struct WatchAppSettingsView: View {
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
+                            .fill(.quaternary)
                     )
                 }
 
@@ -2134,7 +2156,7 @@ struct WatchAppSettingsView: View {
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
+                        .fill(.quaternary)
                 )
 
                 // MARK: Force Sync
