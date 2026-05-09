@@ -1,13 +1,13 @@
 //
-//  AuDioHDUITestsLaunchTests.swift
-//  AuDioHDUITests
+//  OrbitAudioBooksUITestsLaunchTests.swift
+//  OrbitAudioBooksUITests
 //
 //  Created by Dan Fakkeldy on 2026-04-19.
 //
 
 import XCTest
 
-final class AuDioHDUITestsLaunchTests: XCTestCase {
+final class OrbitAudioBooksUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

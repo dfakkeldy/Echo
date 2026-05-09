@@ -1,13 +1,13 @@
 //
-//  AuDioHD_Watch_App_Watch_AppUITestsLaunchTests.swift
-//  AuDioHD Watch App Watch AppUITests
+//  Orbit_Audiobooks_Watch_AppUITestsLaunchTests.swift
+//  Orbit Audiobooks Watch AppUITests
 //
 //  Created by Dan Fakkeldy on 2026-05-02.
 //
 
 import XCTest
 
-final class AuDioHD_Watch_App_Watch_AppUITestsLaunchTests: XCTestCase {
+final class Orbit_Audiobooks_Watch_AppUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

@@ -19,25 +19,25 @@ struct Provider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
-        let defaults = UserDefaults(suiteName: "group.com.audiohd")
+        let defaults = UserDefaults(suiteName: "group.com.orbitaudiobooks")
         let title = defaults?.string(forKey: "title") ?? "No track"
         let isPlaying = defaults?.bool(forKey: "isPlaying") ?? false
         let progressFraction = defaults?.double(forKey: "progressFraction") ?? 0.0
         let thumbnailData = safelyDownsampledData(defaults?.data(forKey: "thumbnailData"))
-        
+
         let entry = SimpleEntry(date: Date(), title: title, isPlaying: isPlaying, progressFraction: progressFraction, thumbnailData: thumbnailData)
         completion(entry)
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> ()) {
-        let defaults = UserDefaults(suiteName: "group.com.audiohd")
+        let defaults = UserDefaults(suiteName: "group.com.orbitaudiobooks")
         let title = defaults?.string(forKey: "title") ?? "No track"
         let isPlaying = defaults?.bool(forKey: "isPlaying") ?? false
         let progressFraction = defaults?.double(forKey: "progressFraction") ?? 0.0
         let thumbnailData = safelyDownsampledData(defaults?.data(forKey: "thumbnailData"))
 
         let entry = SimpleEntry(date: Date(), title: title, isPlaying: isPlaying, progressFraction: progressFraction, thumbnailData: thumbnailData)
-        
+
         // Refresh periodically, but mostly we rely on reloadAllTimelines() when data changes
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
@@ -56,7 +56,7 @@ struct SimpleEntry: TimelineEntry {
     }
 }
 
-struct AuDioHD_WidgetEntryView : View {
+struct Orbit_Audiobooks_WidgetEntryView : View {
     @Environment(\.widgetFamily) var family
     var entry: Provider.Entry
 
@@ -93,18 +93,18 @@ struct AuDioHD_WidgetEntryView : View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(URL(string: "audiohd://"))
+        .widgetURL(URL(string: "orbitaudiobooks://"))
     }
 }
 
-struct AuDioHD_Widget: Widget {
-    let kind: String = "AuDioHD_Widget"
+struct Orbit_Audiobooks_Widget: Widget {
+    let kind: String = "Orbit_Audiobooks_Widget"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: Provider()) { entry in
-            AuDioHD_WidgetEntryView(entry: entry)
+            Orbit_Audiobooks_WidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("AuDioHD")
+        .configurationDisplayName("Orbit Audiobooks")
         .description("Quick access to your current audiobook.")
         .supportedFamilies([.accessoryCircular])
     }
