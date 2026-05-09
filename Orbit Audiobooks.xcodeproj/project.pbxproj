@@ -10,7 +10,7 @@
 		CC00BC502FA6B66400323F38 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */; };
 		CC00BC522FA6B66400323F38 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC512FA6B66400323F38 /* SwiftUI.framework */; };
 		CC00BC612FA6B66500323F38 /* Orbit Audiobooks WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC00BC4D2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CCC48EBB2FA6AB350003458B /* Orbit Audiobooks Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Orbit Audiobooks Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CCC48EBB2FA6AB350003458B /* Orbit Audiobooks Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Orbit Audiobooks Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,14 +26,14 @@
 			containerPortal = CC08EC512F9522F600206D2F /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = CC08EC582F9522F600206D2F;
-			remoteInfo = AuDioHD;
+			remoteInfo = "Orbit Audiobooks";
 		};
 		CC08EC712F9522F800206D2F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = CC08EC512F9522F600206D2F /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = CC08EC582F9522F600206D2F;
-			remoteInfo = AuDioHD;
+			remoteInfo = "Orbit Audiobooks";
 		};
 		CCC48EA82FA6AB340003458B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -49,7 +49,7 @@
 			remoteGlobalIDString = CCC48E9A2FA6AB330003458B;
 			remoteInfo = "Orbit Audiobooks Watch App";
 		};
-		CCC48EB92FA6AB350003458B /* PBXContainerItemProxy */ = {
+		CCDFBD502FAFDB11000BEBE2 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = CC08EC512F9522F600206D2F /* Project object */;
 			proxyType = 1;
@@ -274,13 +274,13 @@
 			buildRules = (
 			);
 			dependencies = (
-				CCC48EBA2FA6AB350003458B /* PBXTargetDependency */,
+				CCDFBD512FAFDB11000BEBE2 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				CC08EC5B2F9522F600206D2F /* OrbitAudioBooks */,
 			);
 			name = "Orbit Audiobooks";
-			productName = AuDioHD;
+			productName = "Orbit Audiobooks";
 			productReference = CC08EC592F9522F600206D2F /* Orbit Audiobooks.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -554,10 +554,11 @@
 			target = CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */;
 			targetProxy = CCC48EB22FA6AB340003458B /* PBXContainerItemProxy */;
 		};
-		CCC48EBA2FA6AB350003458B /* PBXTargetDependency */ = {
+		CCDFBD512FAFDB11000BEBE2 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilter = ios;
 			target = CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */;
-			targetProxy = CCC48EB92FA6AB350003458B /* PBXContainerItemProxy */;
+			targetProxy = CCDFBD502FAFDB11000BEBE2 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -582,7 +583,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.AuDioHD.watchkitapp.AuDioHD-Widget";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -617,7 +618,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.AuDioHD.watchkitapp.AuDioHD-Widget";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -670,7 +671,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
+				ENABLE_TESTABILITY = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -760,7 +761,9 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OrbitAudioBooks/Info.plist;
@@ -781,7 +784,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.Orbit-Audiobooks";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -795,7 +798,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
-				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Debug;
 		};
@@ -810,7 +812,9 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OrbitAudioBooks/Info.plist;
@@ -831,7 +835,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.Orbit-Audiobooks";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -845,7 +849,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
-				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Release;
 		};
@@ -856,23 +859,27 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.Orbit-AudiobooksTests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Orbit Audiobooks.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Orbit Audiobooks";
 				VERSIONING_SYSTEM = "apple-generic";
-				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Debug;
 		};
@@ -887,19 +894,19 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.Orbit-AudiobooksTests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Orbit Audiobooks.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Orbit Audiobooks";
 				VERSIONING_SYSTEM = "apple-generic";
-				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Release;
 		};
@@ -909,23 +916,27 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.Orbit-AudiobooksUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_TARGET_NAME = AuDioHD;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = "Orbit Audiobooks";
 				VERSIONING_SYSTEM = "apple-generic";
-				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Debug;
 		};
@@ -939,19 +950,19 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.Orbit-AudiobooksUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_TARGET_NAME = AuDioHD;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = "Orbit Audiobooks";
 				VERSIONING_SYSTEM = "apple-generic";
-				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Release;
 		};
@@ -970,13 +981,13 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "Dan.Orbit-Audiobooks";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.orbit.audiobooks;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = Dan.AuDioHD.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -1007,13 +1018,13 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "Dan.Orbit-Audiobooks";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.orbit.audiobooks;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = Dan.AuDioHD.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -1039,7 +1050,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.AuDioHD-Watch-App-Watch-AppTests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1063,7 +1074,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.AuDioHD-Watch-App-Watch-AppTests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1087,7 +1098,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.AuDioHD-Watch-App-Watch-AppUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1110,7 +1121,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "Dan.AuDioHD-Watch-App-Watch-AppUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;

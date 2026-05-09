@@ -39,7 +39,7 @@ func voiceMemoGain(for url: URL) -> Float {
 //
 // NOTE on Info.plist:
 // To record voice memos on iOS, your Info.plist must contain:
-//   NSMicrophoneUsageDescription = "AuDioHD records short voice memos so you can attach narrated notes to your audiobook bookmarks."
+//   NSMicrophoneUsageDescription = "Orbit Audiobooks records short voice memos so you can attach narrated notes to your audiobook bookmarks."
 //
 struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     var id: UUID
@@ -432,7 +432,7 @@ struct EditBookmarkView: View {
         case .granted:
             beginRecording()
         case .denied:
-            showAlert("Microphone access is denied. Enable microphone access for AuDioHD in Settings.")
+            showAlert("Microphone access is denied. Enable microphone access for Orbit Audiobooks in Settings.")
         case .undetermined:
             AVAudioApplication.requestRecordPermission { isGranted in
                 Task { @MainActor in

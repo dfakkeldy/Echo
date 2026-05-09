@@ -69,7 +69,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var page1Slots: [WatchAction] = [.empty, .empty, .skipBackward, .playPause, .skipForward]
     var page2Slots: [WatchAction] = [.loopMode, .empty, .speed, .sleepTimer, .bookmark]
 
-    private let defaults = UserDefaults(suiteName: "group.com.audiohd")
+    private let defaults = UserDefaults(suiteName: "group.com.orbitaudiobooks")
 
     override init() {
         super.init()
@@ -475,7 +475,7 @@ private struct ToggleTraitModifier: ViewModifier {
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = WatchViewModel()
-    @AppStorage("crownAction", store: UserDefaults(suiteName: "group.com.audiohd")) private var crownAction = "volume"
+    @AppStorage("crownAction", store: UserDefaults(suiteName: "group.com.orbitaudiobooks")) private var crownAction = "volume"
     @State private var crownAccumulator: Double = 0.0
     @State private var selectedPage: Int = 0
     @State private var isShowingNewBookmark = false
@@ -920,7 +920,7 @@ private struct NewBookmarkView: View {
         case .granted:
             beginRecording()
         case .denied:
-            showAlert("Microphone access is denied. Enable microphone access for AuDioHD in Settings.")
+            showAlert("Microphone access is denied. Enable microphone access for Orbit Audiobooks in Settings.")
         case .undetermined:
             AVAudioApplication.requestRecordPermission { isGranted in
                 Task { @MainActor in

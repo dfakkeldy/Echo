@@ -3184,11 +3184,11 @@ struct PlaylistView: View {
 
 private struct Persistence {
     private let defaults = UserDefaults.standard
-    private let bookmarkKey = "AuDioHD.selection.bookmark"
-    private let progressKey = "AuDioHD.progress.dictionary"
-    private let speedKey = "AuDioHD.playback.speed.dictionary"
-    private let loopModeKey = "AuDioHD.playback.loopMode.dictionary"
-    private let lastTrackKey = "AuDioHD.lastTrack.dictionary"
+    private let bookmarkKey = "OrbitAudiobooks.selection.bookmark"
+    private let progressKey = "OrbitAudiobooks.progress.dictionary"
+    private let speedKey = "OrbitAudiobooks.playback.speed.dictionary"
+    private let loopModeKey = "OrbitAudiobooks.playback.loopMode.dictionary"
+    private let lastTrackKey = "OrbitAudiobooks.lastTrack.dictionary"
     
     func saveLastTrack(for folderKey: String, trackId: String) {
         var dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
