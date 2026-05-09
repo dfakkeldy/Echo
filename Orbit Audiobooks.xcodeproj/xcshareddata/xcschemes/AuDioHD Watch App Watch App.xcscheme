@@ -15,10 +15,24 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "CCC48E9A2FA6AB330003458B"
+               BuildableName = "Orbit Audiobooks Watch App.app"
+               BlueprintName = "Orbit Audiobooks Watch App"
+               ReferencedContainer = "container:Orbit Audiobooks.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "CC08EC582F9522F600206D2F"
-               BuildableName = "AuDioHD.app"
-               BlueprintName = "AuDioHD"
-               ReferencedContainer = "container:AuDioHD.xcodeproj">
+               BuildableName = "Orbit Audiobooks.app"
+               BlueprintName = "Orbit Audiobooks"
+               ReferencedContainer = "container:Orbit Audiobooks.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -35,10 +49,10 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CC08EC652F9522F800206D2F"
-               BuildableName = "AuDioHDTests.xctest"
-               BlueprintName = "AuDioHDTests"
-               ReferencedContainer = "container:AuDioHD.xcodeproj">
+               BlueprintIdentifier = "CCC48EA62FA6AB340003458B"
+               BuildableName = "Orbit Audiobooks Watch AppTests.xctest"
+               BlueprintName = "Orbit Audiobooks Watch AppTests"
+               ReferencedContainer = "container:Orbit Audiobooks.xcodeproj">
             </BuildableReference>
          </TestableReference>
          <TestableReference
@@ -46,10 +60,10 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CC08EC6F2F9522F800206D2F"
-               BuildableName = "AuDioHDUITests.xctest"
-               BlueprintName = "AuDioHDUITests"
-               ReferencedContainer = "container:AuDioHD.xcodeproj">
+               BlueprintIdentifier = "CCC48EB02FA6AB340003458B"
+               BuildableName = "Orbit Audiobooks Watch AppUITests.xctest"
+               BlueprintName = "Orbit Audiobooks Watch AppUITests"
+               ReferencedContainer = "container:Orbit Audiobooks.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -69,10 +83,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "CC08EC582F9522F600206D2F"
-            BuildableName = "AuDioHD.app"
-            BlueprintName = "AuDioHD"
-            ReferencedContainer = "container:AuDioHD.xcodeproj">
+            BlueprintIdentifier = "CCC48E9A2FA6AB330003458B"
+            BuildableName = "Orbit Audiobooks Watch App.app"
+            BlueprintName = "Orbit Audiobooks Watch App"
+            ReferencedContainer = "container:Orbit Audiobooks.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -86,10 +100,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "CC08EC582F9522F600206D2F"
-            BuildableName = "AuDioHD.app"
-            BlueprintName = "AuDioHD"
-            ReferencedContainer = "container:AuDioHD.xcodeproj">
+            BlueprintIdentifier = "CCC48E9A2FA6AB330003458B"
+            BuildableName = "Orbit Audiobooks Watch App.app"
+            BlueprintName = "Orbit Audiobooks Watch App"
+            ReferencedContainer = "container:Orbit Audiobooks.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

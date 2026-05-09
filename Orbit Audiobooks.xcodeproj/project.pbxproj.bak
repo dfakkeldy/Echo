@@ -9,8 +9,8 @@
 /* Begin PBXBuildFile section */
 		CC00BC502FA6B66400323F38 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */; };
 		CC00BC522FA6B66400323F38 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC512FA6B66400323F38 /* SwiftUI.framework */; };
-		CC00BC612FA6B66500323F38 /* AuDioHD WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC00BC4D2FA6B66400323F38 /* AuDioHD WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CCC48EBB2FA6AB350003458B /* AuDioHD Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* AuDioHD Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC00BC612FA6B66500323F38 /* Orbit Audiobooks WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC00BC4D2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CCC48EBB2FA6AB350003458B /* Orbit Audiobooks Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Orbit Audiobooks Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -79,7 +79,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				CC00BC612FA6B66500323F38 /* AuDioHD WidgetExtension.appex in Embed Foundation Extensions */,
+				CC00BC612FA6B66500323F38 /* Orbit Audiobooks WidgetExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -90,7 +90,7 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
-				CCC48EBB2FA6AB350003458B /* AuDioHD Watch App.app in Embed Watch Content */,
+				CCC48EBB2FA6AB350003458B /* Orbit Audiobooks Watch App.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -98,41 +98,41 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		CC00BC4D2FA6B66400323F38 /* AuDioHD WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "AuDioHD WidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC00BC4D2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Orbit Audiobooks WidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		CC00BC512FA6B66400323F38 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		CC08EC592F9522F600206D2F /* AuDioHD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AuDioHD.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		CC08EC662F9522F800206D2F /* AuDioHDTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AuDioHDTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		CC08EC702F9522F800206D2F /* AuDioHDUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AuDioHDUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		CCC48E9B2FA6AB330003458B /* AuDioHD Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AuDioHD Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		CCC48EA72FA6AB340003458B /* AuDioHD Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "AuDioHD Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		CCC48EB12FA6AB340003458B /* AuDioHD Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "AuDioHD Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC08EC592F9522F600206D2F /* Orbit Audiobooks.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Orbit Audiobooks.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC08EC662F9522F800206D2F /* Orbit AudiobooksTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit AudiobooksTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC08EC702F9522F800206D2F /* Orbit AudiobooksUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit AudiobooksUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CCC48E9B2FA6AB330003458B /* Orbit Audiobooks Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Orbit Audiobooks Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CCC48EA72FA6AB340003458B /* Orbit Audiobooks Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit Audiobooks Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CCC48EB12FA6AB340003458B /* Orbit Audiobooks Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit Audiobooks Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCCF730B2FAFAC14006FB746 /* Orbit AudioBooks.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Orbit AudioBooks.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCCF73172FAFAC16006FB746 /* Orbit AudioBooksTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit AudioBooksTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCCF73212FAFAC16006FB746 /* Orbit AudioBooksUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Orbit AudioBooksUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		CC00BC662FA6B66500323F38 /* Exceptions for "AuDioHD Widget" folder in "AuDioHD WidgetExtension" target */ = {
+		CC00BC662FA6B66500323F38 /* Exceptions for "AuDioHD Widget" folder in "Orbit Audiobooks WidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = CC00BC4C2FA6B66400323F38 /* AuDioHD WidgetExtension */;
+			target = CC00BC4C2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension */;
 		};
-		CC08EC842F95256B00206D2F /* Exceptions for "AuDioHD" folder in "AuDioHD" target */ = {
+		CC08EC842F95256B00206D2F /* Exceptions for "Orbit_AudioBooks" folder in "Orbit Audiobooks" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = CC08EC582F9522F600206D2F /* AuDioHD */;
+			target = CC08EC582F9522F600206D2F /* Orbit Audiobooks */;
 		};
-		CCA11E012FA6C00100323F38 /* Exceptions for "AuDioHD Watch App" folder in "AuDioHD Watch App" target */ = {
+		CCA11E012FA6C00100323F38 /* Exceptions for "AuDioHD Watch App" folder in "Orbit Audiobooks Watch App" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = CCC48E9A2FA6AB330003458B /* AuDioHD Watch App */;
+			target = CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -140,17 +140,17 @@
 		CC00BC532FA6B66400323F38 /* AuDioHD Widget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				CC00BC662FA6B66500323F38 /* Exceptions for "AuDioHD Widget" folder in "AuDioHD WidgetExtension" target */,
+				CC00BC662FA6B66500323F38 /* Exceptions for "AuDioHD Widget" folder in "Orbit Audiobooks WidgetExtension" target */,
 			);
 			path = "AuDioHD Widget";
 			sourceTree = "<group>";
 		};
-		CC08EC5B2F9522F600206D2F /* AuDioHD */ = {
+		CC08EC5B2F9522F600206D2F /* Orbit_AudioBooks */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				CC08EC842F95256B00206D2F /* Exceptions for "AuDioHD" folder in "AuDioHD" target */,
+				CC08EC842F95256B00206D2F /* Exceptions for "Orbit_AudioBooks" folder in "Orbit Audiobooks" target */,
 			);
-			path = AuDioHD;
+			path = Orbit_AudioBooks;
 			sourceTree = "<group>";
 		};
 		CC08EC692F9522F800206D2F /* AuDioHDTests */ = {
@@ -166,7 +166,7 @@
 		CCC48E9C2FA6AB330003458B /* AuDioHD Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				CCA11E012FA6C00100323F38 /* Exceptions for "AuDioHD Watch App" folder in "AuDioHD Watch App" target */,
+				CCA11E012FA6C00100323F38 /* Exceptions for "AuDioHD Watch App" folder in "Orbit Audiobooks Watch App" target */,
 			);
 			path = "AuDioHD Watch App";
 			sourceTree = "<group>";
@@ -286,7 +286,7 @@
 		CC08EC502F9522F600206D2F = {
 			isa = PBXGroup;
 			children = (
-				CC08EC5B2F9522F600206D2F /* AuDioHD */,
+				CC08EC5B2F9522F600206D2F /* Orbit_AudioBooks */,
 				CC08EC692F9522F800206D2F /* AuDioHDTests */,
 				CC08EC732F9522F800206D2F /* AuDioHDUITests */,
 				CCC48E9C2FA6AB330003458B /* AuDioHD Watch App */,
@@ -304,13 +304,13 @@
 		CC08EC5A2F9522F600206D2F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				CC08EC592F9522F600206D2F /* AuDioHD.app */,
-				CC08EC662F9522F800206D2F /* AuDioHDTests.xctest */,
-				CC08EC702F9522F800206D2F /* AuDioHDUITests.xctest */,
-				CCC48E9B2FA6AB330003458B /* AuDioHD Watch App.app */,
-				CCC48EA72FA6AB340003458B /* AuDioHD Watch AppTests.xctest */,
-				CCC48EB12FA6AB340003458B /* AuDioHD Watch AppUITests.xctest */,
-				CC00BC4D2FA6B66400323F38 /* AuDioHD WidgetExtension.appex */,
+				CC08EC592F9522F600206D2F /* Orbit Audiobooks.app */,
+				CC08EC662F9522F800206D2F /* Orbit AudiobooksTests.xctest */,
+				CC08EC702F9522F800206D2F /* Orbit AudiobooksUITests.xctest */,
+				CCC48E9B2FA6AB330003458B /* Orbit Audiobooks Watch App.app */,
+				CCC48EA72FA6AB340003458B /* Orbit Audiobooks Watch AppTests.xctest */,
+				CCC48EB12FA6AB340003458B /* Orbit Audiobooks Watch AppUITests.xctest */,
+				CC00BC4D2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension.appex */,
 				CCCF730B2FAFAC14006FB746 /* Orbit AudioBooks.app */,
 				CCCF73172FAFAC16006FB746 /* Orbit AudioBooksTests.xctest */,
 				CCCF73212FAFAC16006FB746 /* Orbit AudioBooksUITests.xctest */,
@@ -321,9 +321,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		CC00BC4C2FA6B66400323F38 /* AuDioHD WidgetExtension */ = {
+		CC00BC4C2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CC00BC652FA6B66500323F38 /* Build configuration list for PBXNativeTarget "AuDioHD WidgetExtension" */;
+			buildConfigurationList = CC00BC652FA6B66500323F38 /* Build configuration list for PBXNativeTarget "Orbit Audiobooks WidgetExtension" */;
 			buildPhases = (
 				CC00BC492FA6B66400323F38 /* Sources */,
 				CC00BC4A2FA6B66400323F38 /* Frameworks */,
@@ -336,14 +336,14 @@
 			fileSystemSynchronizedGroups = (
 				CC00BC532FA6B66400323F38 /* AuDioHD Widget */,
 			);
-			name = "AuDioHD WidgetExtension";
+			name = "Orbit Audiobooks WidgetExtension";
 			productName = "AuDioHD WidgetExtension";
-			productReference = CC00BC4D2FA6B66400323F38 /* AuDioHD WidgetExtension.appex */;
+			productReference = CC00BC4D2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		CC08EC582F9522F600206D2F /* AuDioHD */ = {
+		CC08EC582F9522F600206D2F /* Orbit Audiobooks */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CC08EC7A2F9522F800206D2F /* Build configuration list for PBXNativeTarget "AuDioHD" */;
+			buildConfigurationList = CC08EC7A2F9522F800206D2F /* Build configuration list for PBXNativeTarget "Orbit Audiobooks" */;
 			buildPhases = (
 				CC08EC552F9522F600206D2F /* Sources */,
 				CC08EC562F9522F600206D2F /* Frameworks */,
@@ -356,16 +356,16 @@
 				CCC48EBA2FA6AB350003458B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				CC08EC5B2F9522F600206D2F /* AuDioHD */,
+				CC08EC5B2F9522F600206D2F /* Orbit_AudioBooks */,
 			);
-			name = AuDioHD;
+			name = "Orbit Audiobooks";
 			productName = AuDioHD;
-			productReference = CC08EC592F9522F600206D2F /* AuDioHD.app */;
+			productReference = CC08EC592F9522F600206D2F /* Orbit Audiobooks.app */;
 			productType = "com.apple.product-type.application";
 		};
-		CC08EC652F9522F800206D2F /* AuDioHDTests */ = {
+		CC08EC652F9522F800206D2F /* Orbit AudiobooksTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CC08EC7D2F9522F800206D2F /* Build configuration list for PBXNativeTarget "AuDioHDTests" */;
+			buildConfigurationList = CC08EC7D2F9522F800206D2F /* Build configuration list for PBXNativeTarget "Orbit AudiobooksTests" */;
 			buildPhases = (
 				CC08EC622F9522F800206D2F /* Sources */,
 				CC08EC632F9522F800206D2F /* Frameworks */,
@@ -379,14 +379,14 @@
 			fileSystemSynchronizedGroups = (
 				CC08EC692F9522F800206D2F /* AuDioHDTests */,
 			);
-			name = AuDioHDTests;
+			name = "Orbit AudiobooksTests";
 			productName = AuDioHDTests;
-			productReference = CC08EC662F9522F800206D2F /* AuDioHDTests.xctest */;
+			productReference = CC08EC662F9522F800206D2F /* Orbit AudiobooksTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		CC08EC6F2F9522F800206D2F /* AuDioHDUITests */ = {
+		CC08EC6F2F9522F800206D2F /* Orbit AudiobooksUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CC08EC802F9522F800206D2F /* Build configuration list for PBXNativeTarget "AuDioHDUITests" */;
+			buildConfigurationList = CC08EC802F9522F800206D2F /* Build configuration list for PBXNativeTarget "Orbit AudiobooksUITests" */;
 			buildPhases = (
 				CC08EC6C2F9522F800206D2F /* Sources */,
 				CC08EC6D2F9522F800206D2F /* Frameworks */,
@@ -400,14 +400,14 @@
 			fileSystemSynchronizedGroups = (
 				CC08EC732F9522F800206D2F /* AuDioHDUITests */,
 			);
-			name = AuDioHDUITests;
+			name = "Orbit AudiobooksUITests";
 			productName = AuDioHDUITests;
-			productReference = CC08EC702F9522F800206D2F /* AuDioHDUITests.xctest */;
+			productReference = CC08EC702F9522F800206D2F /* Orbit AudiobooksUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		CCC48E9A2FA6AB330003458B /* AuDioHD Watch App */ = {
+		CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CCC48EBC2FA6AB350003458B /* Build configuration list for PBXNativeTarget "AuDioHD Watch App" */;
+			buildConfigurationList = CCC48EBC2FA6AB350003458B /* Build configuration list for PBXNativeTarget "Orbit Audiobooks Watch App" */;
 			buildPhases = (
 				CCC48E972FA6AB330003458B /* Sources */,
 				CCC48E982FA6AB330003458B /* Frameworks */,
@@ -422,14 +422,14 @@
 			fileSystemSynchronizedGroups = (
 				CCC48E9C2FA6AB330003458B /* AuDioHD Watch App */,
 			);
-			name = "AuDioHD Watch App";
+			name = "Orbit Audiobooks Watch App";
 			productName = "AuDioHD Watch App";
-			productReference = CCC48E9B2FA6AB330003458B /* AuDioHD Watch App.app */;
+			productReference = CCC48E9B2FA6AB330003458B /* Orbit Audiobooks Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
-		CCC48EA62FA6AB340003458B /* AuDioHD Watch AppTests */ = {
+		CCC48EA62FA6AB340003458B /* Orbit Audiobooks Watch AppTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CCC48EBF2FA6AB350003458B /* Build configuration list for PBXNativeTarget "AuDioHD Watch AppTests" */;
+			buildConfigurationList = CCC48EBF2FA6AB350003458B /* Build configuration list for PBXNativeTarget "Orbit Audiobooks Watch AppTests" */;
 			buildPhases = (
 				CCC48EA32FA6AB340003458B /* Sources */,
 				CCC48EA42FA6AB340003458B /* Frameworks */,
@@ -443,14 +443,14 @@
 			fileSystemSynchronizedGroups = (
 				CCC48EAA2FA6AB340003458B /* AuDioHD Watch AppTests */,
 			);
-			name = "AuDioHD Watch AppTests";
+			name = "Orbit Audiobooks Watch AppTests";
 			productName = "AuDioHD Watch AppTests";
-			productReference = CCC48EA72FA6AB340003458B /* AuDioHD Watch AppTests.xctest */;
+			productReference = CCC48EA72FA6AB340003458B /* Orbit Audiobooks Watch AppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		CCC48EB02FA6AB340003458B /* AuDioHD Watch AppUITests */ = {
+		CCC48EB02FA6AB340003458B /* Orbit Audiobooks Watch AppUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CCC48EC22FA6AB350003458B /* Build configuration list for PBXNativeTarget "AuDioHD Watch AppUITests" */;
+			buildConfigurationList = CCC48EC22FA6AB350003458B /* Build configuration list for PBXNativeTarget "Orbit Audiobooks Watch AppUITests" */;
 			buildPhases = (
 				CCC48EAD2FA6AB340003458B /* Sources */,
 				CCC48EAE2FA6AB340003458B /* Frameworks */,
@@ -464,9 +464,9 @@
 			fileSystemSynchronizedGroups = (
 				CCC48EB42FA6AB340003458B /* AuDioHD Watch AppUITests */,
 			);
-			name = "AuDioHD Watch AppUITests";
+			name = "Orbit Audiobooks Watch AppUITests";
 			productName = "AuDioHD Watch AppUITests";
-			productReference = CCC48EB12FA6AB340003458B /* AuDioHD Watch AppUITests.xctest */;
+			productReference = CCC48EB12FA6AB340003458B /* Orbit Audiobooks Watch AppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		CCCF730A2FAFAC14006FB746 /* Orbit AudioBooks */ = {
@@ -585,7 +585,7 @@
 					};
 				};
 			};
-			buildConfigurationList = CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "AuDioHD" */;
+			buildConfigurationList = CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "Orbit Audiobooks" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -599,13 +599,13 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				CC08EC582F9522F600206D2F /* AuDioHD */,
-				CC08EC652F9522F800206D2F /* AuDioHDTests */,
-				CC08EC6F2F9522F800206D2F /* AuDioHDUITests */,
-				CCC48E9A2FA6AB330003458B /* AuDioHD Watch App */,
-				CCC48EA62FA6AB340003458B /* AuDioHD Watch AppTests */,
-				CCC48EB02FA6AB340003458B /* AuDioHD Watch AppUITests */,
-				CC00BC4C2FA6B66400323F38 /* AuDioHD WidgetExtension */,
+				CC08EC582F9522F600206D2F /* Orbit Audiobooks */,
+				CC08EC652F9522F800206D2F /* Orbit AudiobooksTests */,
+				CC08EC6F2F9522F800206D2F /* Orbit AudiobooksUITests */,
+				CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */,
+				CCC48EA62FA6AB340003458B /* Orbit Audiobooks Watch AppTests */,
+				CCC48EB02FA6AB340003458B /* Orbit Audiobooks Watch AppUITests */,
+				CC00BC4C2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension */,
 				CCCF730A2FAFAC14006FB746 /* Orbit AudioBooks */,
 				CCCF73162FAFAC16006FB746 /* Orbit AudioBooksTests */,
 				CCCF73202FAFAC16006FB746 /* Orbit AudioBooksUITests */,
@@ -762,32 +762,32 @@
 /* Begin PBXTargetDependency section */
 		CC00BC602FA6B66500323F38 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CC00BC4C2FA6B66400323F38 /* AuDioHD WidgetExtension */;
+			target = CC00BC4C2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension */;
 			targetProxy = CC00BC5F2FA6B66500323F38 /* PBXContainerItemProxy */;
 		};
 		CC08EC682F9522F800206D2F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CC08EC582F9522F600206D2F /* AuDioHD */;
+			target = CC08EC582F9522F600206D2F /* Orbit Audiobooks */;
 			targetProxy = CC08EC672F9522F800206D2F /* PBXContainerItemProxy */;
 		};
 		CC08EC722F9522F800206D2F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CC08EC582F9522F600206D2F /* AuDioHD */;
+			target = CC08EC582F9522F600206D2F /* Orbit Audiobooks */;
 			targetProxy = CC08EC712F9522F800206D2F /* PBXContainerItemProxy */;
 		};
 		CCC48EA92FA6AB340003458B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CCC48E9A2FA6AB330003458B /* AuDioHD Watch App */;
+			target = CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */;
 			targetProxy = CCC48EA82FA6AB340003458B /* PBXContainerItemProxy */;
 		};
 		CCC48EB32FA6AB340003458B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CCC48E9A2FA6AB330003458B /* AuDioHD Watch App */;
+			target = CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */;
 			targetProxy = CCC48EB22FA6AB340003458B /* PBXContainerItemProxy */;
 		};
 		CCC48EBA2FA6AB350003458B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CCC48E9A2FA6AB330003458B /* AuDioHD Watch App */;
+			target = CCC48E9A2FA6AB330003458B /* Orbit Audiobooks Watch App */;
 			targetProxy = CCC48EB92FA6AB350003458B /* PBXContainerItemProxy */;
 		};
 		CCCF73192FAFAC16006FB746 /* PBXTargetDependency */ = {
@@ -1111,7 +1111,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AuDioHD.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AuDioHD";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Orbit Audiobooks.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Orbit Audiobooks";
 				VERSIONING_SYSTEM = "apple-generic";
 				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
@@ -1138,7 +1138,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AuDioHD.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AuDioHD";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Orbit Audiobooks.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Orbit Audiobooks";
 				VERSIONING_SYSTEM = "apple-generic";
 				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
@@ -1211,7 +1211,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = Dan.AuDioHD;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "Dan.Orbit-Audiobooks";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1248,7 +1248,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = Dan.AuDioHD;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "Dan.Orbit-Audiobooks";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1289,7 +1289,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AuDioHD Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AuDioHD Watch App";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Orbit Audiobooks Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Orbit Audiobooks Watch App";
 				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 26.4;
 			};
@@ -1313,7 +1313,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AuDioHD Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AuDioHD Watch App";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Orbit Audiobooks Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Orbit Audiobooks Watch App";
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";
 				WATCHOS_DEPLOYMENT_TARGET = 26.4;
@@ -1524,7 +1524,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		CC00BC652FA6B66500323F38 /* Build configuration list for PBXNativeTarget "AuDioHD WidgetExtension" */ = {
+		CC00BC652FA6B66500323F38 /* Build configuration list for PBXNativeTarget "Orbit Audiobooks WidgetExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CC00BC632FA6B66500323F38 /* Debug */,
@@ -1533,7 +1533,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "AuDioHD" */ = {
+		CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "Orbit Audiobooks" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CC08EC782F9522F800206D2F /* Debug */,
@@ -1542,7 +1542,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CC08EC7A2F9522F800206D2F /* Build configuration list for PBXNativeTarget "AuDioHD" */ = {
+		CC08EC7A2F9522F800206D2F /* Build configuration list for PBXNativeTarget "Orbit Audiobooks" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CC08EC7B2F9522F800206D2F /* Debug */,
@@ -1551,7 +1551,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CC08EC7D2F9522F800206D2F /* Build configuration list for PBXNativeTarget "AuDioHDTests" */ = {
+		CC08EC7D2F9522F800206D2F /* Build configuration list for PBXNativeTarget "Orbit AudiobooksTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CC08EC7E2F9522F800206D2F /* Debug */,
@@ -1560,7 +1560,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CC08EC802F9522F800206D2F /* Build configuration list for PBXNativeTarget "AuDioHDUITests" */ = {
+		CC08EC802F9522F800206D2F /* Build configuration list for PBXNativeTarget "Orbit AudiobooksUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CC08EC812F9522F800206D2F /* Debug */,
@@ -1569,7 +1569,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CCC48EBC2FA6AB350003458B /* Build configuration list for PBXNativeTarget "AuDioHD Watch App" */ = {
+		CCC48EBC2FA6AB350003458B /* Build configuration list for PBXNativeTarget "Orbit Audiobooks Watch App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CCC48EBD2FA6AB350003458B /* Debug */,
@@ -1578,7 +1578,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CCC48EBF2FA6AB350003458B /* Build configuration list for PBXNativeTarget "AuDioHD Watch AppTests" */ = {
+		CCC48EBF2FA6AB350003458B /* Build configuration list for PBXNativeTarget "Orbit Audiobooks Watch AppTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CCC48EC02FA6AB350003458B /* Debug */,
@@ -1587,7 +1587,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CCC48EC22FA6AB350003458B /* Build configuration list for PBXNativeTarget "AuDioHD Watch AppUITests" */ = {
+		CCC48EC22FA6AB350003458B /* Build configuration list for PBXNativeTarget "Orbit Audiobooks Watch AppUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CCC48EC32FA6AB350003458B /* Debug */,
