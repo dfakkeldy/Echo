@@ -20,7 +20,7 @@ import WatchConnectivity
 // MARK: - Model
 
 @Observable
-final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
+final class PlayerModel: NSObject, WCSessionDelegate {
     struct Track: Identifiable, Equatable {
         var id: String { url.absoluteString }
         let url: URL
@@ -70,7 +70,9 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
     private(set) var isPlayingVoiceMemo: Bool = false
     /// 0...1 progress of the currently playing voice memo, for the overlay UI.
     private(set) var voiceMemoProgress: Double = 0.0
-    @ObservationIgnored private var voiceMemoPlayer: AVAudioPlayer?
+    @ObservationIgnored private var voiceMemoEngine: AVAudioEngine?
+    @ObservationIgnored private var voiceMemoPlayerNode: AVAudioPlayerNode?
+    @ObservationIgnored private var voiceMemoDuration: Double = 0
     @ObservationIgnored private var voiceMemoProgressTimer: Timer?
 
     /// Boundary observer that fires when playback hits a bookmark with a memo.
@@ -1999,36 +2001,52 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
     }
 
     private func startVoiceMemoPlayback(url: URL) {
-        // Pause the main audiobook player without changing isPlaying logic.
         player?.pause()
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .spokenAudio, options: [])
             try session.setActive(true)
 
-            let p = try AVAudioPlayer(contentsOf: url)
-            p.delegate = self
-            p.volume = 1.0
-            p.prepareToPlay()
-            voiceMemoPlayer = p
+            let audioFile = try AVAudioFile(forReading: url)
+            let engine = AVAudioEngine()
+            let playerNode = AVAudioPlayerNode()
+            engine.attach(playerNode)
+            engine.connect(playerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
+
+            engine.mainMixerNode.outputVolume = voiceMemoGain(for: url)
+
+            try engine.start()
+
+            let duration = Double(audioFile.length) / audioFile.processingFormat.sampleRate
+            voiceMemoEngine = engine
+            voiceMemoPlayerNode = playerNode
+            voiceMemoDuration = duration
             isPlayingVoiceMemo = true
             voiceMemoProgress = 0.0
-            p.play()
-            // AVAudioPlayer doesn't have a built-in time observer; drive the
-            // overlay ProgressView with a Timer that ticks while the memo plays.
+
+            playerNode.scheduleFile(audioFile, at: nil) { [weak self] in
+                DispatchQueue.main.async { self?.voiceMemoDidFinish() }
+            }
+            playerNode.play()
+
             voiceMemoProgressTimer?.invalidate()
             voiceMemoProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                guard let self, let player = self.voiceMemoPlayer, player.duration > 0 else { return }
-                self.voiceMemoProgress = min(1.0, max(0.0, player.currentTime / player.duration))
+                guard let self,
+                      let node = self.voiceMemoPlayerNode,
+                      node.isPlaying,
+                      let lastTime = node.lastRenderTime,
+                      let playerTime = node.playerTime(forNodeTime: lastTime)
+                else { return }
+                let current = Double(playerTime.sampleTime) / playerTime.sampleRate
+                self.voiceMemoProgress = min(1.0, max(0.0, current / self.voiceMemoDuration))
             }
-            // Reflect paused state in Now Playing.
-            updateNowPlayingInfo(isPaused: true)
 
+            updateNowPlayingInfo(isPaused: true)
         } catch {
             print("Voice memo playback error: \(error)")
-            // Fall back to resuming main audio.
             isPlayingVoiceMemo = false
-            voiceMemoPlayer = nil
+            voiceMemoEngine = nil
+            voiceMemoPlayerNode = nil
             if isPlaying {
                 player?.playImmediately(atRate: speed)
             }
@@ -2036,11 +2054,13 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
     }
 
     func stopVoiceMemo() {
-        voiceMemoPlayer?.stop()
+        voiceMemoPlayerNode?.stop()
+        voiceMemoEngine?.stop()
         voiceMemoProgressTimer?.invalidate()
         voiceMemoProgressTimer = nil
         voiceMemoProgress = 0.0
-        voiceMemoPlayer = nil
+        voiceMemoPlayerNode = nil
+        voiceMemoEngine = nil
         isPlayingVoiceMemo = false
 
         player?.play()
@@ -2048,27 +2068,21 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
         updateNowPlayingInfo(isPaused: false)
     }
 
-    // AVAudioPlayerDelegate
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.voiceMemoProgressTimer?.invalidate()
-            self.voiceMemoProgressTimer = nil
-            self.voiceMemoProgress = 0.0
-            self.voiceMemoPlayer = nil
-            self.isPlayingVoiceMemo = false
+    private func voiceMemoDidFinish() {
+        voiceMemoPlayerNode?.stop()
+        voiceMemoEngine?.stop()
+        voiceMemoProgressTimer?.invalidate()
+        voiceMemoProgressTimer = nil
+        voiceMemoProgress = 0.0
+        voiceMemoPlayerNode = nil
+        voiceMemoEngine = nil
+        isPlayingVoiceMemo = false
 
-            // Seamlessly resume the audiobook.
-            if self.isPlaying {
-                self.player?.playImmediately(atRate: self.speed)
-                self.applySpeedToCurrentItem()
-                self.updateNowPlayingInfo(isPaused: false)
-            }
+        if isPlaying {
+            player?.playImmediately(atRate: speed)
+            applySpeedToCurrentItem()
+            updateNowPlayingInfo(isPaused: false)
         }
-    }
-
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        audioPlayerDidFinishPlaying(player, successfully: false)
     }
 
     private func persistSelection(url: URL) {

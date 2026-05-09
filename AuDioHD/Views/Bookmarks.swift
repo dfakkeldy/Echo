@@ -2,6 +2,34 @@ import SwiftUI
 import AVFoundation
 import Observation
 
+// MARK: - Voice Memo Gain Normalization
+
+func peakAmplitude(of url: URL) -> Float? {
+    guard let file = try? AVAudioFile(forReading: url) else { return nil }
+    let format = file.processingFormat
+    let frameCount = AVAudioFrameCount(file.length)
+    guard frameCount > 0,
+          let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)
+    else { return nil }
+    do { try file.read(into: buffer) } catch { return nil }
+    guard let channelData = buffer.floatChannelData else { return nil }
+    var peak: Float = 0
+    for ch in 0..<Int(format.channelCount) {
+        for frame in 0..<Int(buffer.frameLength) {
+            let s = abs(channelData[ch][frame])
+            if s > peak { peak = s }
+        }
+    }
+    return peak
+}
+
+func voiceMemoGain(for url: URL) -> Float {
+    let targetPeak: Float = 0.9
+    let maxGain: Float = 3.0
+    guard let peak = peakAmplitude(of: url), peak > 0.001 else { return 1.0 }
+    return min(targetPeak / peak, maxGain)
+}
+
 // MARK: - Bookmark Model
 //
 // A Bookmark represents a saved moment in a particular audiobook. It can be
@@ -253,7 +281,8 @@ struct EditBookmarkView: View {
     @State private var voiceMemoFileName: String?
 
     @State private var recorder = VoiceMemoRecorder()
-    @State private var previewPlayer: AVAudioPlayer?
+    @State private var previewEngine: AVAudioEngine?
+    @State private var previewPlayerNode: AVAudioPlayerNode?
     @State private var isPreviewPlaying: Bool = false
     @State private var alertMessage: String = ""
     @State private var isShowingAlert: Bool = false
@@ -484,15 +513,24 @@ struct EditBookmarkView: View {
             stopPreview()
             return
         }
-        // Locate the memo via the model so it works whether it's beside the
-        // audiobook or in the legacy Documents/VoiceMemos directory.
         let probe = Bookmark(timestamp: 0, voiceMemoFileName: fileName)
         guard let url = probe.voiceMemoURL(in: model.folderURL) else { return }
         do {
-            let p = try AVAudioPlayer(contentsOf: url)
-            p.prepareToPlay()
-            p.play()
-            previewPlayer = p
+            let audioFile = try AVAudioFile(forReading: url)
+            let engine = AVAudioEngine()
+            let playerNode = AVAudioPlayerNode()
+            engine.attach(playerNode)
+            engine.connect(playerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
+            engine.mainMixerNode.outputVolume = voiceMemoGain(for: url)
+            try engine.start()
+
+            playerNode.scheduleFile(audioFile, at: nil) { [self] in
+                DispatchQueue.main.async { self.stopPreview() }
+            }
+            playerNode.play()
+
+            previewEngine = engine
+            previewPlayerNode = playerNode
             isPreviewPlaying = true
         } catch {
             print("Preview error: \(error)")
@@ -500,8 +538,10 @@ struct EditBookmarkView: View {
     }
 
     private func stopPreview() {
-        previewPlayer?.stop()
-        previewPlayer = nil
+        previewPlayerNode?.stop()
+        previewEngine?.stop()
+        previewPlayerNode = nil
+        previewEngine = nil
         isPreviewPlaying = false
     }
 
