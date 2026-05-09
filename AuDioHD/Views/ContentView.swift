@@ -165,6 +165,10 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
         handleMessage(userInfo)
     }
+
+    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        handleWatchBookmarkFile(file)
+    }
     
     private func handleMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)? = nil) {
         DispatchQueue.main.async {
@@ -202,6 +206,10 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
                 case "toggleLoopMode":
                     self.setLoopMode(!self.loopModeOn)
                     self.syncToWatch()
+                case "addBookmark":
+                    _ = self.addBookmarkAtCurrentTime()
+                case "addWatchTextBookmark":
+                    self.addWatchBookmark(from: message)
                 case "requestState":
                     break
                 default: break
@@ -237,6 +245,12 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
         var context: [String: Any] = [:]
         context["isPlaying"] = isPlaying
         context["progressFraction"] = progressFraction
+        context["currentTime"] = player?.currentTime().seconds ?? 0
+        context["bookmarkStorageKey"] = bookmarksStorageKey
+        context["folderKey"] = folderURL?.absoluteString
+        if tracks.indices.contains(currentIndex) {
+            context["trackId"] = tracks[currentIndex].id
+        }
         
         let title = chapters.count >= 2 ? (currentSubtitle.isEmpty ? "Chapter \((currentChapterIndex ?? 0) + 1)" : currentSubtitle) : currentTitle
         context["title"] = title
@@ -254,6 +268,33 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
         }
 
         return context
+    }
+
+    private func handleWatchBookmarkFile(_ file: WCSessionFile) {
+        guard let command = file.metadata?["command"] as? String, command == "addWatchVoiceBookmark" else {
+            return
+        }
+
+        let fileName = (file.metadata?["voiceMemoFileName"] as? String) ?? file.fileURL.lastPathComponent
+        let safeFileName = URL(fileURLWithPath: fileName).lastPathComponent
+        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(safeFileName)
+
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.copyItem(at: file.fileURL, to: destinationURL)
+        } catch {
+            print("Watch voice bookmark copy failed: \(error)")
+            return
+        }
+
+        var metadata = file.metadata ?? [:]
+        metadata["voiceMemoFileName"] = safeFileName
+
+        DispatchQueue.main.async {
+            self.addWatchBookmark(from: metadata)
+        }
     }
 
     deinit {
@@ -379,7 +420,14 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
     }
 
     func restoreLastSelectionIfPossible() {
-        guard let url = persistence.restoreBookmark() else { return }
+        guard let url = persistence.restoreBookmark() else {
+            #if DEBUG && targetEnvironment(simulator)
+            if let sampleURL = MockMediaProvider.sampleAudiobookURL() {
+                loadFolder(sampleURL, autoplay: false)
+            }
+            #endif
+            return
+        }
         loadFolder(url, autoplay: false)
     }
 
@@ -909,7 +957,8 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
                 self?.updateProgressFromPlayer()
                 self?.enforceEnabledState()
                 self?.applyChapterLoopIfNeeded()
-                if let t = self?.player?.currentTime().seconds {
+                if UserDefaults.standard.bool(forKey: "playBookmarksInline"),
+                   let t = self?.player?.currentTime().seconds {
                     self?.checkBookmarkVoiceMemoTrigger(at: t)
                 }
             }
@@ -1726,6 +1775,39 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
         installBookmarkBoundaryObserver()
     }
 
+    private func addWatchBookmark(from payload: [String: Any]) {
+        guard let storageKey = payload["bookmarkStorageKey"] as? String else { return }
+
+        let folderKey = payload["folderKey"] as? String
+        let trackId = payload["trackId"] as? String
+        let note = (payload["note"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceMemoFileName = payload["voiceMemoFileName"] as? String
+        let incomingTimestamp = payload["timestamp"] as? Double
+        let timestamp = max(0, incomingTimestamp?.isFinite == true ? incomingTimestamp ?? 0 : 0)
+
+        let isCurrentBook = storageKey == bookmarksStorageKey
+        var targetBookmarks = isCurrentBook ? bookmarks : persistence.loadBookmarks(for: storageKey)
+        let scopedCount = targetBookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
+
+        let bookmark = Bookmark(
+            title: "Bookmark \(scopedCount + 1)",
+            folderKey: folderKey,
+            trackId: trackId,
+            timestamp: timestamp,
+            note: note?.isEmpty == true ? nil : note,
+            voiceMemoFileName: voiceMemoFileName
+        )
+
+        targetBookmarks.append(bookmark)
+        targetBookmarks.sort { $0.timestamp < $1.timestamp }
+        persistence.saveBookmarks(targetBookmarks, for: storageKey)
+
+        if isCurrentBook {
+            bookmarks = targetBookmarks
+            installBookmarkBoundaryObserver()
+        }
+    }
+
     func toggleBookmarkEnabled(id: UUID) {
         guard let idx = bookmarks.firstIndex(where: { $0.id == id }) else { return }
         bookmarks[idx].isEnabled.toggle()
@@ -1767,7 +1849,7 @@ final class PlayerModel: NSObject, WCSessionDelegate, AVAudioPlayerDelegate {
         guard let player else { return }
         let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
         let times: [NSValue] = bookmarks.compactMap { bm in
-            guard bm.voiceMemoFileName != nil else { return nil }
+            guard bm.isEnabled, bm.voiceMemoFileName != nil else { return nil }
             if let bt = bm.trackId, let ct = trackId, bt != ct { return nil }
             guard bm.timestamp.isFinite, bm.timestamp > 0 else { return nil }
             return NSValue(time: CMTime(seconds: bm.timestamp, preferredTimescale: 600))
@@ -2690,10 +2772,8 @@ struct PlaylistView: View {
 
     @ViewBuilder
     private func bookmarkRow(_ bm: Bookmark) -> some View {
-        // Tapping the row toggles the enabled state (matching chapters/tracks).
-        // A separate "jump" affordance is exposed via swipe actions.
         Button {
-            model.toggleBookmarkEnabled(id: bm.id)
+            model.jumpToBookmark(bm)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: bm.voiceMemoFileName != nil ? "mic.fill" : "note.text")
@@ -2716,11 +2796,11 @@ struct PlaylistView: View {
         .listRowBackground(Color.accentColor.opacity(bm.isEnabled ? 0.06 : 0.02))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
-                model.jumpToBookmark(bm)
+                model.toggleBookmarkEnabled(id: bm.id)
             } label: {
-                Label("Jump", systemImage: "play.fill")
+                Label(bm.isEnabled ? "Disable" : "Enable", systemImage: bm.isEnabled ? "bookmark.slash" : "bookmark")
             }
-            .tint(.green)
+            .tint(bm.isEnabled ? .orange : .green)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {

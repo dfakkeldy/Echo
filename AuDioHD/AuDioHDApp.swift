@@ -9,6 +9,12 @@ import SwiftUI
 
 @main
 struct AuDioHDApp: App {
+    init() {
+        #if DEBUG && targetEnvironment(simulator)
+        MockMediaProvider.seedSampleAudiobookIfNeeded()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

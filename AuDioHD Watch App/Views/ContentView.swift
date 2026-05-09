@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import WatchConnectivity
 import WatchKit
 import Observation
@@ -60,6 +61,10 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var thumbnailImage: UIImage? = nil
     var progressFraction: Double = 0.0
     var loopModeOn: Bool = false
+    var bookmarkStorageKey: String? = nil
+    var folderKey: String? = nil
+    var trackId: String? = nil
+    var currentTime: Double = 0
 
     var page1Slots: [WatchAction] = [.empty, .empty, .skipBackward, .playPause, .skipForward]
     var page2Slots: [WatchAction] = [.loopMode, .empty, .speed, .sleepTimer, .bookmark]
@@ -81,6 +86,10 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         title = defaults?.string(forKey: "title") ?? "No track selected"
         progressFraction = defaults?.double(forKey: "progressFraction") ?? 0.0
         loopModeOn = defaults?.bool(forKey: "loopModeOn") ?? false
+        currentTime = defaults?.double(forKey: "currentTime") ?? 0
+        bookmarkStorageKey = defaults?.string(forKey: "bookmarkStorageKey")
+        folderKey = defaults?.string(forKey: "folderKey")
+        trackId = defaults?.string(forKey: "trackId")
 
         if let thumbnailData = defaults?.data(forKey: "thumbnailData"),
            let image = UIImage(data: thumbnailData) {
@@ -137,6 +146,22 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             if let progressFraction = state["progressFraction"] as? Double {
                 self.progressFraction = progressFraction
                 self.defaults?.set(progressFraction, forKey: "progressFraction")
+            }
+            if let currentTime = state["currentTime"] as? Double {
+                self.currentTime = currentTime
+                self.defaults?.set(currentTime, forKey: "currentTime")
+            }
+            if let bookmarkStorageKey = state["bookmarkStorageKey"] as? String {
+                self.bookmarkStorageKey = bookmarkStorageKey
+                self.defaults?.set(bookmarkStorageKey, forKey: "bookmarkStorageKey")
+            }
+            if let folderKey = state["folderKey"] as? String {
+                self.folderKey = folderKey
+                self.defaults?.set(folderKey, forKey: "folderKey")
+            }
+            if let trackId = state["trackId"] as? String {
+                self.trackId = trackId
+                self.defaults?.set(trackId, forKey: "trackId")
             }
             if let loopModeOn = state["loopModeOn"] as? Bool {
                 self.loopModeOn = loopModeOn
@@ -241,6 +266,161 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             sendCommand(action.command)
         }
     }
+
+    func queueTextBookmark(note: String) throws {
+        var payload = try bookmarkPayload(command: "addWatchTextBookmark")
+        payload["note"] = note
+        WCSession.default.transferUserInfo(payload)
+        WKInterfaceDevice.current().play(.success)
+    }
+
+    func queueVoiceBookmark(fileURL: URL) throws {
+        var metadata = try bookmarkPayload(command: "addWatchVoiceBookmark")
+        metadata["voiceMemoFileName"] = fileURL.lastPathComponent
+        WCSession.default.transferFile(fileURL, metadata: metadata)
+        WKInterfaceDevice.current().play(.success)
+    }
+
+    private func bookmarkPayload(command: String) throws -> [String: Any] {
+        guard WCSession.isSupported() else {
+            throw WatchBookmarkError.watchConnectivityUnavailable
+        }
+
+        let session = WCSession.default
+        guard session.activationState == .activated else {
+            throw WatchBookmarkError.watchConnectivityInactive
+        }
+
+        guard let bookmarkStorageKey else {
+            throw WatchBookmarkError.noActiveBook
+        }
+
+        var payload: [String: Any] = [
+            "command": command,
+            "bookmarkID": UUID().uuidString,
+            "bookmarkStorageKey": bookmarkStorageKey,
+            "timestamp": max(0, currentTime),
+            "createdAt": Date().timeIntervalSince1970
+        ]
+
+        if let folderKey {
+            payload["folderKey"] = folderKey
+        }
+        if let trackId {
+            payload["trackId"] = trackId
+        }
+
+        return payload
+    }
+}
+
+private enum WatchBookmarkError: LocalizedError {
+    case watchConnectivityUnavailable
+    case watchConnectivityInactive
+    case noActiveBook
+
+    var errorDescription: String? {
+        switch self {
+        case .watchConnectivityUnavailable:
+            return "Watch sync is not available on this device."
+        case .watchConnectivityInactive:
+            return "Watch sync is still starting. Try again in a moment."
+        case .noActiveBook:
+            return "Start playback on iPhone before creating a bookmark."
+        }
+    }
+}
+
+// MARK: - Watch Voice Memo Recorder
+
+@Observable
+final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
+    static let maximumDuration: TimeInterval = 30
+
+    private(set) var isRecording: Bool = false
+    private(set) var elapsed: TimeInterval = 0
+
+    private var recorder: AVAudioRecorder?
+    private var timer: Timer?
+    private(set) var recordingURL: URL?
+
+    func startRecording() throws {
+        let directory = try Self.recordingsDirectory()
+        let fileURL = directory.appendingPathComponent("watch-memo-\(UUID().uuidString).m4a")
+
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .default, options: [])
+        try session.setActive(true)
+
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 22_050.0,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+        ]
+
+        let audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
+        audioRecorder.delegate = self
+        audioRecorder.prepareToRecord()
+        audioRecorder.record(forDuration: Self.maximumDuration)
+
+        recorder = audioRecorder
+        recordingURL = fileURL
+        elapsed = 0
+        isRecording = true
+        startTimer()
+    }
+
+    @discardableResult
+    func stopRecording() -> URL? {
+        recorder?.stop()
+        recorder = nil
+        timer?.invalidate()
+        timer = nil
+        isRecording = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        return recordingURL
+    }
+
+    func discardRecording() {
+        if isRecording {
+            _ = stopRecording()
+        }
+        if let recordingURL {
+            try? FileManager.default.removeItem(at: recordingURL)
+        }
+        recordingURL = nil
+        elapsed = 0
+    }
+
+    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        timer?.invalidate()
+        timer = nil
+        isRecording = false
+        elapsed = min(recorder.currentTime, Self.maximumDuration)
+    }
+
+    private func startTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            guard let self, let recorder = self.recorder else { return }
+            self.elapsed = min(recorder.currentTime, Self.maximumDuration)
+            if self.elapsed >= Self.maximumDuration {
+                _ = self.stopRecording()
+            }
+        }
+    }
+
+    private static func recordingsDirectory() throws -> URL {
+        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("WatchVoiceMemos", isDirectory: true)
+
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        return directory
+    }
 }
 
 // MARK: - Accessibility Helper
@@ -268,6 +448,7 @@ struct ContentView: View {
     @AppStorage("crownAction", store: UserDefaults(suiteName: "group.com.audiohd")) private var crownAction = "volume"
     @State private var crownAccumulator: Double = 0.0
     @State private var selectedPage: Int = 0
+    @State private var isShowingNewBookmark = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -285,9 +466,13 @@ struct ContentView: View {
             }
 
             TabView(selection: $selectedPage) {
-                PlayerPage(slots: viewModel.page1Slots, viewModel: viewModel)
+                PlayerPage(slots: viewModel.page1Slots, viewModel: viewModel) {
+                    isShowingNewBookmark = true
+                }
                     .tag(0)
-                PlayerPage(slots: viewModel.page2Slots, viewModel: viewModel)
+                PlayerPage(slots: viewModel.page2Slots, viewModel: viewModel) {
+                    isShowingNewBookmark = true
+                }
                     .tag(1)
             }
             .tabViewStyle(.page)
@@ -295,6 +480,9 @@ struct ContentView: View {
         .focusable()
         .digitalCrownRotation($crownAccumulator)
         .focused($isFocused)
+        .sheet(isPresented: $isShowingNewBookmark) {
+            NewBookmarkView(viewModel: viewModel)
+        }
         .onChange(of: crownAccumulator) { oldValue, newValue in
             let delta = newValue - oldValue
             if crownAction == "scrub" {
@@ -331,6 +519,7 @@ struct ContentView: View {
 private struct PlayerPage: View {
     let slots: [WatchAction]
     let viewModel: WatchViewModel
+    let onBookmark: () -> Void
 
     var body: some View {
         ZStack {
@@ -370,7 +559,8 @@ private struct PlayerPage: View {
                     leftSlot: slots[2],
                     centerSlot: slots[3],
                     rightSlot: slots[4],
-                    viewModel: viewModel
+                    viewModel: viewModel,
+                    onBookmark: onBookmark
                 )
                 .padding(.top, 6)
             }
@@ -378,10 +568,10 @@ private struct PlayerPage: View {
             // Top-row slots (anchored to the top — well above the title).
             VStack {
                 HStack {
-                    TopSlotButton(action: slots[0], viewModel: viewModel)
+                    TopSlotButton(action: slots[0], viewModel: viewModel, onBookmark: onBookmark)
                         .padding(.leading, 8)
                     Spacer()
-                    TopSlotButton(action: slots[1], viewModel: viewModel)
+                    TopSlotButton(action: slots[1], viewModel: viewModel, onBookmark: onBookmark)
                         .padding(.trailing, 8)
                 }
                 .padding(.top, 8)
@@ -396,13 +586,18 @@ private struct PlayerPage: View {
 private struct TopSlotButton: View {
     let action: WatchAction
     let viewModel: WatchViewModel
+    let onBookmark: () -> Void
 
     var body: some View {
         if action == .empty {
             EmptyView()
         } else {
             Button {
-                viewModel.handle(action)
+                if action == .bookmark {
+                    onBookmark()
+                } else {
+                    viewModel.handle(action)
+                }
             } label: {
                 Image(systemName: iconName)
                     .font(.system(size: 24))
@@ -444,14 +639,15 @@ private struct TransportRow: View {
     let centerSlot: WatchAction
     let rightSlot: WatchAction
     let viewModel: WatchViewModel
+    let onBookmark: () -> Void
 
     var body: some View {
         HStack(spacing: 20) {
-            SideTransportButton(action: leftSlot, viewModel: viewModel)
+            SideTransportButton(action: leftSlot, viewModel: viewModel, onBookmark: onBookmark)
 
-            CenterTransportButton(action: centerSlot, viewModel: viewModel)
+            CenterTransportButton(action: centerSlot, viewModel: viewModel, onBookmark: onBookmark)
 
-            SideTransportButton(action: rightSlot, viewModel: viewModel)
+            SideTransportButton(action: rightSlot, viewModel: viewModel, onBookmark: onBookmark)
         }
     }
 }
@@ -459,10 +655,15 @@ private struct TransportRow: View {
 private struct SideTransportButton: View {
     let action: WatchAction
     let viewModel: WatchViewModel
+    let onBookmark: () -> Void
 
     var body: some View {
         Button {
-            viewModel.handle(action)
+            if action == .bookmark {
+                onBookmark()
+            } else {
+                viewModel.handle(action)
+            }
         } label: {
             Image(systemName: action == .empty ? "plus" : action.iconName)
                 .font(.system(size: 20))
@@ -496,6 +697,7 @@ private struct SideTransportButton: View {
 private struct CenterTransportButton: View {
     let action: WatchAction
     let viewModel: WatchViewModel
+    let onBookmark: () -> Void
 
     var body: some View {
         ZStack {
@@ -510,7 +712,11 @@ private struct CenterTransportButton: View {
                 .rotationEffect(.degrees(-90))
 
             Button {
-                viewModel.handle(resolvedAction)
+                if resolvedAction == .bookmark {
+                    onBookmark()
+                } else {
+                    viewModel.handle(resolvedAction)
+                }
             } label: {
                 Image(systemName: centerIconName)
                     .font(.system(size: 22))
@@ -523,7 +729,11 @@ private struct CenterTransportButton: View {
 
             // Hidden helper for the double-tap primary-action shortcut.
             Button("") {
-                viewModel.handle(resolvedAction)
+                if resolvedAction == .bookmark {
+                    onBookmark()
+                } else {
+                    viewModel.handle(resolvedAction)
+                }
             }
             .opacity(0)
             .handGestureShortcut(.primaryAction)
@@ -543,6 +753,161 @@ private struct CenterTransportButton: View {
         default:
             return resolvedAction.iconName
         }
+    }
+}
+
+// MARK: - New Bookmark
+
+private struct NewBookmarkView: View {
+    let viewModel: WatchViewModel
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var note = ""
+    @State private var recorder = WatchVoiceMemoRecorder()
+    @State private var alertMessage = ""
+    @State private var isShowingAlert = false
+
+    private var recordingProgress: Double {
+        min(recorder.elapsed / WatchVoiceMemoRecorder.maximumDuration, 1)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 12) {
+                    TextField("Dictated note", text: $note, axis: .vertical)
+                        .lineLimit(2...4)
+                        .textInputAutocapitalization(.sentences)
+
+                    Button {
+                        saveTextBookmark()
+                    } label: {
+                        Label("Save Note", systemImage: "text.bubble.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    VStack(spacing: 8) {
+                        ZStack {
+                            Circle()
+                                .stroke(.secondary.opacity(0.25), lineWidth: 6)
+                            Circle()
+                                .trim(from: 0, to: recordingProgress)
+                                .stroke(.red, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                            Image(systemName: recorder.isRecording ? "stop.fill" : "mic.fill")
+                                .font(.title3)
+                                .foregroundStyle(recorder.isRecording ? .red : .primary)
+                        }
+                        .frame(width: 56, height: 56)
+                        .accessibilityHidden(true)
+
+                        Text(recordingDurationText)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+
+                        Button {
+                            recorder.isRecording ? finishVoiceBookmark() : startVoiceBookmark()
+                        } label: {
+                            Label(recorder.isRecording ? "Stop" : "Record", systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(recorder.isRecording ? .red : .accentColor)
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+            .navigationTitle("New Bookmark")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", role: .cancel) {
+                        recorder.discardRecording()
+                        dismiss()
+                    }
+                }
+            }
+            .alert("Bookmark Not Saved", isPresented: $isShowingAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
+            }
+            .onChange(of: recorder.isRecording) { oldValue, newValue in
+                if oldValue, !newValue, recorder.elapsed >= WatchVoiceMemoRecorder.maximumDuration {
+                    finishVoiceBookmark()
+                }
+            }
+            .onDisappear {
+                if recorder.isRecording {
+                    _ = recorder.stopRecording()
+                }
+            }
+        }
+    }
+
+    private var recordingDurationText: String {
+        "\(Int(recorder.elapsed.rounded(.down)))s / \(Int(WatchVoiceMemoRecorder.maximumDuration))s"
+    }
+
+    private func saveTextBookmark() {
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedNote.isEmpty else { return }
+
+        do {
+            try viewModel.queueTextBookmark(note: trimmedNote)
+            dismiss()
+        } catch {
+            showAlert(error.localizedDescription)
+        }
+    }
+
+    private func startVoiceBookmark() {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            beginRecording()
+        case .denied:
+            showAlert("Microphone access is denied. Enable microphone access for AuDioHD in Settings.")
+        case .undetermined:
+            AVAudioApplication.requestRecordPermission { isGranted in
+                Task { @MainActor in
+                    isGranted ? beginRecording() : showAlert("Microphone access is required to record a voice bookmark.")
+                }
+            }
+        @unknown default:
+            showAlert("Microphone access is unavailable.")
+        }
+    }
+
+    private func beginRecording() {
+        do {
+            try recorder.startRecording()
+            WKInterfaceDevice.current().play(.start)
+        } catch {
+            showAlert(error.localizedDescription)
+        }
+    }
+
+    private func finishVoiceBookmark() {
+        guard let fileURL = recorder.stopRecording() else {
+            showAlert("No recording was captured.")
+            return
+        }
+
+        do {
+            try viewModel.queueVoiceBookmark(fileURL: fileURL)
+            dismiss()
+        } catch {
+            recorder.discardRecording()
+            showAlert(error.localizedDescription)
+        }
+    }
+
+    private func showAlert(_ message: String) {
+        alertMessage = message
+        isShowingAlert = true
     }
 }
 
