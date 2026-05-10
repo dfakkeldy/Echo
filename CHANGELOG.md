@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 0.6 (Build 8)
+
+- Internal maintenance and version synchronization.
 - Relicensed project from GPL-3.0 to MIT.
 - Major project cleanup: removed legacy `BookLoop` / `LoopPlayer` projects, orphaned watch target, redundant icons, and junk files.
 - Renamed legacy `BookLoop*`-named Swift files to match the `Orbit Audiobooks` target.
