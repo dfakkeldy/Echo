@@ -114,6 +114,10 @@ final class PlayerModel: NSObject, WCSessionDelegate {
     @ObservationIgnored private var lastBookmarkCheckSecond: Double?
     @ObservationIgnored private var voiceMemoGainCache: [String: Float] = [:]
 
+    /// Tracks the last track ID for which we sent a thumbnail payload to the watch.
+    /// Used to avoid re-sending heavy image data on every 0.5-second sync.
+    @ObservationIgnored private var lastSyncedThumbnailTrackId: String?
+
     // iOS 26: avoid UIScreen.main usage; set from SwiftUI environment.
     private var displayScale: CGFloat = 2.0
 
@@ -323,6 +327,18 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         } else {
             session.transferUserInfo(context)
         }
+
+        // Send heavy thumbnail data via transferUserInfo ONLY when the track changes.
+        let currentTrackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        if let trackId = currentTrackId, trackId != lastSyncedThumbnailTrackId,
+           let thumbnailData = watchThumbnailData {
+            lastSyncedThumbnailTrackId = trackId
+            let thumbnailPayload: [String: Any] = [
+                "trackId": trackId,
+                "thumbnailData": thumbnailData
+            ]
+            session.transferUserInfo(thumbnailPayload)
+        }
     }
 
     private func watchStateContext() -> [String: Any] {
@@ -360,10 +376,6 @@ final class PlayerModel: NSObject, WCSessionDelegate {
         case .endOfChapter:
             context["sleepTimerMode"] = "endOfChapter"
             context["sleepTimerRemainingSeconds"] = 0
-        }
-
-        if let data = watchThumbnailData {
-            context["thumbnailData"] = data
         }
 
         return context
@@ -1709,12 +1721,24 @@ final class PlayerModel: NSObject, WCSessionDelegate {
             sourceImage = loadAppIconImage()
         }
 
-        if let sourceImage {
+        guard let sourceImage else {
+            await MainActor.run {
+                thumbnailImage = nil
+                watchThumbnailData = nil
+                updateNowPlayingInfo(isPaused: !isPlaying)
+                syncToWatch()
+            }
+            return
+        }
+
+        // Run all UIGraphicsImageRenderer work off the MainActor via a detached task.
+        let displayScale = self.displayScale
+        let result = await Task.detached(priority: .userInitiated) { () -> (UIImage, Data?) in
             let displaySize = CGSize(width: 300, height: 300)
             let displayFormat = UIGraphicsImageRendererFormat()
             displayFormat.scale = displayScale
             let displayRenderer = UIGraphicsImageRenderer(size: displaySize, format: displayFormat)
-            thumbnailImage = displayRenderer.image { _ in
+            let thumbnailImage = displayRenderer.image { _ in
                 sourceImage.draw(in: CGRect(origin: .zero, size: displaySize))
             }
 
@@ -1725,14 +1749,18 @@ final class PlayerModel: NSObject, WCSessionDelegate {
             let watchImage = watchRenderer.image { _ in
                 sourceImage.draw(in: CGRect(origin: .zero, size: watchSize))
             }
-            watchThumbnailData = watchImage.jpegData(compressionQuality: 0.6)
-        } else {
-            thumbnailImage = nil
-            watchThumbnailData = nil
-        }
+            let watchThumbnailData = watchImage.jpegData(compressionQuality: 0.6)
 
-        updateNowPlayingInfo(isPaused: !isPlaying)
-        syncToWatch()
+            return (thumbnailImage, watchThumbnailData)
+        }.value
+
+        // Update @Observable properties back on MainActor
+        await MainActor.run {
+            thumbnailImage = result.0
+            watchThumbnailData = result.1
+            updateNowPlayingInfo(isPaused: !isPlaying)
+            syncToWatch()
+        }
     }
 
     private func embeddedArtworkImage(for url: URL) async -> UIImage? {
@@ -2599,8 +2627,6 @@ struct ContentView: View {
     @State private var showingFolderPicker = false
     @State private var showingPlaylist = false
     @State private var showingSettings = false
-    @State private var isScrubbing = false
-    @State private var scrubFraction: Double = 0.0
     @State private var newBookmarkDraft: BookmarkDraft? = nil
     @State private var editingBookmarkID: UUID? = nil
     @Environment(\.displayScale) private var displayScale
@@ -2663,35 +2689,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 12) {
-                Text(model.elapsedText)
-                    .customFont(.footnote)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                
-                Slider(
-                    value: $scrubFraction,
-                    in: 0...1,
-                    onEditingChanged: { editing in
-                        isScrubbing = editing
-                        if !editing {
-                            model.seek(toFraction: scrubFraction)
-                        }
-                    }
-                )
-                .frame(maxWidth: .infinity)
-                .tint(.primary)
-                .onChange(of: model.progressFraction) { _, newValue in
-                    if !isScrubbing {
-                        scrubFraction = newValue
-                    }
-                }
-                
-                Text(model.progressText)
-                    .customFont(.footnote)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
+            PlayerScrubberView(model: model)
 
             HStack {
                 Spacer()
