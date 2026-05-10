@@ -3649,7 +3649,15 @@ private struct DropSlot: View {
             content
         }
         .frame(width: width, height: height)
+        // Expand the invisible hit-target to satisfy Apple HIG's 44x44 minimum
+        // interaction size (and a bit more for comfortable drag-and-drop).
+        // The visible dashed placeholder above keeps its original proportions;
+        // the surrounding padding becomes a transparent "catch area".
+        .padding(max(0, (max(60, width + 20) - width) / 2))
+        .frame(minWidth: 60, minHeight: 60)
+        .contentShape(Rectangle())
         .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
+
             guard let provider = providers.first else { return false }
             provider.loadObject(ofClass: NSString.self) { string, _ in
                 if let raw = string as? String,
@@ -3683,39 +3691,56 @@ private struct DropSlot: View {
 
     @ViewBuilder
     private var background: some View {
+        let isEmpty = slot == .empty
+        let dashed = StrokeStyle(lineWidth: 2, dash: [5, 5])
+        let solidColor = Color.white.opacity(isTargeted ? 0.6 : 0.25)
+        let dashColor = Color.gray.opacity(isTargeted ? 0.9 : 0.7)
+
         switch shape {
         case .squircle:
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(isTargeted ? 0.6 : 0.25), lineWidth: 1)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(slot == .empty ? 0.05 : 0.12))
-                )
+            if isEmpty {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(dashColor, style: dashed)
+            } else {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(solidColor, lineWidth: 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                    )
+            }
         case .circle:
-            Circle()
-                .stroke(Color.white.opacity(isTargeted ? 0.6 : 0.25), lineWidth: 1)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(slot == .empty ? 0.05 : 0.12))
-                )
+            if isEmpty {
+                Circle()
+                    .stroke(dashColor, style: dashed)
+            } else {
+                Circle()
+                    .stroke(solidColor, lineWidth: 1)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.12))
+                    )
+            }
         case .topGlyph:
-            // Top icons in the real watch UI float free (no chip), so we keep
-            // the background invisible unless a drop is being targeted.
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(isTargeted ? 0.6 : 0.0), lineWidth: 1)
+            // Always show a placeholder outline in the designer so slots [0]
+            // and [1] are visible even when empty. The real watch UI keeps
+            // these invisible when empty — that's handled on the watch side.
+            if isEmpty {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(dashColor, style: dashed)
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.white.opacity(isTargeted ? 0.6 : 0.0), lineWidth: 1)
+            }
         }
     }
 
     @ViewBuilder
     private var content: some View {
         if slot == .empty {
-            if shape == .topGlyph {
-                EmptyView()
-            } else {
-                Image(systemName: "plus")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.35))
-            }
+            Image(systemName: "plus")
+                .font(.system(size: shape == .topGlyph ? 12 : 16, weight: .medium))
+                .foregroundStyle(.white.opacity(0.35))
         } else {
             Image(systemName: slot.iconName)
                 .font(.system(size: shape == .topGlyph ? 16 : 20, weight: .semibold))
