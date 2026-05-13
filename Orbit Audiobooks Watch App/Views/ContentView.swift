@@ -904,7 +904,7 @@ private struct TopSlotButton: View {
                     } else if action == .sleepTimer {
                         ZStack {
                             Image(systemName: viewModel.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
-                                .font(.system(size: 22))
+                                .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
                             if viewModel.sleepTimerMode == "minutes" && viewModel.sleepTimerRemainingSeconds > 0 {
                                 Text(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))
@@ -986,21 +986,21 @@ private struct SleepTimerView: View {
         NavigationStack {
             List {
                 Section {
-                    timerButton(label: "15 Minutes", isOn: isMinutes(15)) {
+                    timerButton(label: "15 Minutes", systemImage: "15.circle", isOn: isMinutes(15)) {
                         viewModel.setSleepTimerMinutes(15); dismiss()
                     }
-                    timerButton(label: "30 Minutes", isOn: isMinutes(30)) {
+                    timerButton(label: "30 Minutes", systemImage: "30.circle", isOn: isMinutes(30)) {
                         viewModel.setSleepTimerMinutes(30); dismiss()
                     }
-                    timerButton(label: "45 Minutes", isOn: isMinutes(45)) {
+                    timerButton(label: "45 Minutes", systemImage: "45.circle", isOn: isMinutes(45)) {
                         viewModel.setSleepTimerMinutes(45); dismiss()
                     }
-                    timerButton(label: "60 Minutes", isOn: isMinutes(60)) {
+                    timerButton(label: "1 Hour", systemImage: "1.circle", isOn: isMinutes(60)) {
                         viewModel.setSleepTimerMinutes(60); dismiss()
                     }
                 }
                 Section {
-                    timerButton(label: "End of Chapter", isOn: viewModel.sleepTimerMode == "endOfChapter") {
+                    timerButton(label: "End of Chapter", systemImage: "book.closed", isOn: viewModel.sleepTimerMode == "endOfChapter") {
                         viewModel.setSleepTimerEndOfChapter(); dismiss()
                     }
                 }
@@ -1027,10 +1027,10 @@ private struct SleepTimerView: View {
     }
 
     @ViewBuilder
-    private func timerButton(label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func timerButton(label: String, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
-                Text(label)
+                Label(label, systemImage: systemImage)
                 Spacer()
                 if isOn {
                     Image(systemName: "checkmark")
@@ -1103,7 +1103,7 @@ private struct SideTransportButton: View {
                 } else if action == .sleepTimer {
                     ZStack {
                         Image(systemName: viewModel.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
-                            .font(.system(size: 20))
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
                         if viewModel.sleepTimerMode == "minutes" && viewModel.sleepTimerRemainingSeconds > 0 {
                             Text(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))

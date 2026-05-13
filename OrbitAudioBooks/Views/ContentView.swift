@@ -2927,7 +2927,7 @@ struct ContentView: View {
                         Button {
                             model.setSleepTimer(.minutes(60))
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        } label: { Label("60 Minutes", systemImage: "60.circle") }
+                        } label: { Label("1 Hour", systemImage: "1.circle") }
                         Divider()
                         Button {
                             model.setSleepTimer(.endOfChapter)
@@ -2944,7 +2944,6 @@ struct ContentView: View {
                         HStack(spacing: 4) {
                             Image(systemName: model.sleepTimerMode.isActive ? "moon.zzz.fill" : "moon.zzz")
                                 .font(.title2)
-                                .foregroundStyle(model.sleepTimerMode.isActive ? Color.accentColor : Color.primary)
                             // Minimalist countdown when a time-based sleep timer
                             // is active. Format mm:ss for compactness.
                             if case .minutes = model.sleepTimerMode,
