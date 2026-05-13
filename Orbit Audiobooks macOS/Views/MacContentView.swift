@@ -11,7 +11,9 @@ import UniformTypeIdentifiers
 
 struct MacContentView: View {
     @EnvironmentObject private var player: MacPlayerModel
-    @State private var isShowingOpenPanel: Bool = false
+    @StateObject private var transcriptionManager = TranscriptionManager()
+    @StateObject private var transcriptStore = TranscriptStore()
+    @State private var searchText: String = ""
     @State private var lastOpenToken: UUID = UUID()
 
     var body: some View {
@@ -19,25 +21,41 @@ struct MacContentView: View {
             BookmarksSidebar()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
-            PlayerPane()
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    showOpenPanel()
-                } label: {
-                    Label("Open", systemImage: "folder")
+            HStack {
+                VStack {
+                    if transcriptionManager.isTranscribing {
+                        VStack {
+                            ProgressView(value: transcriptionManager.progress, total: 1.0)
+                            Text(transcriptionManager.status)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding()
+                    }
+                    PlayerPane()
                 }
-                .help("Open an audiobook file (⌘O)")
+                
+                TranscriptPane(searchText: $searchText)
+                    .frame(width: 300)
             }
-            ToolbarItem(placement: .primaryAction) {
+        }
+        .environmentObject(transcriptionManager)
+        .environmentObject(transcriptStore)
+        .toolbar {
+            ToolbarItem(placement: .secondaryAction) {
+                TextField("Search transcript...", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+            }
+            ToolbarItem(placement: .secondaryAction) {
                 Button {
-                    player.addBookmarkAtCurrentTime()
+                    if let url = player.currentURL {
+                        Task { try? await transcriptionManager.transcribe(url: url) }
+                    }
                 } label: {
-                    Label("Add Bookmark", systemImage: "bookmark")
+                    Label("Transcribe", systemImage: "text.quote")
                 }
-                .disabled(!player.hasMedia)
-                .help("Add bookmark at current time (⌘B)")
+                .disabled(!player.hasMedia || transcriptionManager.isTranscribing)
             }
         }
         .onChange(of: player.openFileRequestToken) { _, newValue in
@@ -48,7 +66,7 @@ struct MacContentView: View {
         }
     }
 
-    private func showOpenPanel() {
+    func showOpenPanel() {
         let panel = NSOpenPanel()
         panel.title = "Open Audiobook"
         panel.allowsMultipleSelection = false

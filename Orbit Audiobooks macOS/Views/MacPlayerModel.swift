@@ -103,8 +103,9 @@ final class MacPlayerModel: ObservableObject {
         // Time observer for UI progress.
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self else { return }
-            Task { @MainActor in
+            guard let self = self else { return }
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
                 self.currentTime = time.seconds.isFinite ? time.seconds : 0
                 if let dur = self.player?.currentItem?.duration.seconds, dur.isFinite, dur > 0 {
                     self.duration = dur
@@ -117,9 +118,10 @@ final class MacPlayerModel: ObservableObject {
             object: item,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.isPlaying = false
-                self?.currentTime = self?.duration ?? 0
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                self.isPlaying = false
+                self.currentTime = self.duration
             }
         }
 
