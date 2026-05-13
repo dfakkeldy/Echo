@@ -146,6 +146,26 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         return dir
     }
 
+    static func markdownExport(for bookmarks: [Bookmark]) -> String {
+        var output = "# Audiobook Bookmarks\n\n"
+        for bookmark in bookmarks {
+            let timestamp = Int(bookmark.timestamp)
+            let mins = (timestamp % 3600) / 60
+            let secs = timestamp % 60
+            let timeString = String(format: "%02d:%02d", mins, secs)
+            
+            output += "## \(timeString)\n"
+            if let note = bookmark.note {
+                output += "\(note)\n\n"
+            }
+            if let memo = bookmark.voiceMemoFileName {
+                output += "- [Voice Memo](\(memo))\n"
+            }
+            output += "[Play in App](orbitaudio://play?time=\(bookmark.timestamp))\n\n"
+        }
+        return output
+    }
+
     /// Resolves the on-disk URL for the `[BookName].json` bookmark sidecar
     /// associated with an audiobook.
     ///

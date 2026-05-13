@@ -15,8 +15,19 @@
 	</array>
 	<key>UIAppFonts</key>
 	<array>
-		<string>Lexend.ttf</string>
-		<string>OpenDyslexic-Regular.otf</string>
+	<string>Lexend.ttf</string>
+	<string>OpenDyslexic-Regular.otf</string>
 	</array>
-</dict>
-</plist>
+	<key>CFBundleURLTypes</key>
+	<array>
+	<dict>
+	<key>CFBundleURLName</key>
+	<string>com.orbitaudiobooks.orbit</string>
+	<key>CFBundleURLSchemes</key>
+	<array>
+	<string>orbitaudio</string>
+	</array>
+	</dict>
+	</array>
+	</dict>
+	</plist>
