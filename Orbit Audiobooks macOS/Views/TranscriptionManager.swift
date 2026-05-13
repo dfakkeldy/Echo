@@ -3,6 +3,7 @@ import Speech
 import AVFoundation
 import Combine
 import CryptoKit
+import AppKit
 
 struct TranscriptionSegment: Codable {
     let text: String
@@ -17,6 +18,19 @@ class TranscriptionManager: ObservableObject {
     @Published var status: String = ""
     
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    
+    func exportTranscript(for audioURL: URL, segments: [TranscriptionSegment]) throws {
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.json]
+        savePanel.nameFieldStringValue = audioURL.deletingPathExtension().appendingPathExtension("transcript.json").lastPathComponent
+        savePanel.directoryURL = audioURL.deletingLastPathComponent()
+        
+        if savePanel.runModal() == .OK, let url = savePanel.url {
+            let data = try JSONEncoder().encode(segments)
+            try data.write(to: url, options: .atomic)
+            print("Successfully exported transcript to: \(url.path)")
+        }
+    }
     
     func transcribe(url: URL) async throws -> URL? {
         isTranscribing = true

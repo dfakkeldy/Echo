@@ -4,6 +4,7 @@ import CryptoKit
 struct TranscriptPane: View {
     @EnvironmentObject var transcriptStore: TranscriptStore
     @EnvironmentObject var player: MacPlayerModel
+    @StateObject private var transcriptionManager = TranscriptionManager()
     @Binding var searchText: String
 
     var currentHash: String {
@@ -23,22 +24,32 @@ struct TranscriptPane: View {
 // ...
 
     var body: some View {
-        List {
-            ForEach(filteredSegments, id: \.startTime) { segment in
-                Button {
-                    player.seek(to: segment.startTime)
-                } label: {
-                    Text(segment.text)
-                        .font(.body)
-                        .padding(.vertical, 4)
+        VStack {
+            if !segments.isEmpty {
+                Button("Export Transcript") {
+                    if let url = player.currentURL {
+                        try? transcriptionManager.exportTranscript(for: url, segments: segments)
+                    }
                 }
-                .buttonStyle(.plain)
+                .padding()
             }
-        }
-        .overlay {
-            if segments.isEmpty && !player.currentURL.isNil {
-                Text("Transcribe to see text here.")
-                    .foregroundStyle(.secondary)
+            List {
+                ForEach(filteredSegments, id: \.startTime) { segment in
+                    Button {
+                        player.seek(to: segment.startTime)
+                    } label: {
+                        Text(segment.text)
+                            .font(.body)
+                            .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .overlay {
+                if segments.isEmpty && !player.currentURL.isNil {
+                    Text("Transcribe to see text here.")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
