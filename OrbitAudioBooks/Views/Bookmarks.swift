@@ -187,7 +187,11 @@ final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
     func startRecording(in folderURL: URL?) throws {
         let session = AVAudioSession.sharedInstance()
         // Use playAndRecord so microphone + speaker routing are configured for memo capture.
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        var options: AVAudioSession.CategoryOptions = []
+        #if !os(watchOS)
+        options = [.defaultToSpeaker, .allowBluetoothHFP]
+        #endif
+        try session.setCategory(.playAndRecord, mode: .default, options: options)
         try session.setActive(true)
 
         let fileName = "memo-\(UUID().uuidString).m4a"
@@ -277,6 +281,7 @@ final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
 
 // MARK: - Edit Bookmark Sheet
 
+#if !os(watchOS)
 struct EditBookmarkView: View {
     @Bindable var model: PlayerModel
     /// The id of the bookmark being edited.
@@ -588,3 +593,4 @@ struct EditBookmarkView: View {
         return String(format: "%02d:%02d:%02d", h, m, s)
     }
 }
+#endif

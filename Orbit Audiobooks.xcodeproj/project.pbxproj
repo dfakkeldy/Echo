@@ -114,6 +114,13 @@
 			);
 			target = CC08EC582F9522F600206D2F /* Orbit Audiobooks */;
 		};
+		CC33EBB42FB41C610035179D /* Exceptions for "OrbitAudioBooks" folder in "Orbit Audiobooks WidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Views/Bookmarks.swift,
+			);
+			target = CC00BC4C2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension */;
+		};
 		CCA11E012FA6C00100323F38 /* Exceptions for "Orbit Audiobooks Watch App" folder in "Orbit Audiobooks Watch App" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -144,6 +151,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				CC08EC842F95256B00206D2F /* Exceptions for "OrbitAudioBooks" folder in "Orbit Audiobooks" target */,
+				CC33EBB42FB41C610035179D /* Exceptions for "OrbitAudioBooks" folder in "Orbit Audiobooks WidgetExtension" target */,
 			);
 			path = OrbitAudioBooks;
 			sourceTree = "<group>";
@@ -439,7 +447,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					CC00BC4C2FA6B66400323F38 = {
 						CreatedOnToolsVersion = 26.4.1;
@@ -624,6 +632,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 8;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -663,6 +672,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 8;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -799,10 +809,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = NO;
+				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -822,6 +833,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -861,6 +873,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -877,6 +890,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
