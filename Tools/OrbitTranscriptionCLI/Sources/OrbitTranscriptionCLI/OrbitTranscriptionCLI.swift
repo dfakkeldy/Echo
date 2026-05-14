@@ -70,10 +70,14 @@ struct OrbitTranscriptionCLI: AsyncParsableCommand {
         var segments: [TranscriptionSegment] = []
         for result in results {
             for segment in result.segments {
+                let text = segment.text
+                    .replacing(/<\|[^|]*\|>/, with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                guard !text.isEmpty else { continue }
                 segments.append(TranscriptionSegment(
-                    text: segment.text.trimmingCharacters(in: .whitespaces),
-                    startTime: TimeInterval(segment.start),
-                    endTime: TimeInterval(segment.end)
+                    text: text,
+                    startTime: (TimeInterval(segment.start) * 1000).rounded() / 1000,
+                    endTime: (TimeInterval(segment.end) * 1000).rounded() / 1000
                 ))
             }
         }
