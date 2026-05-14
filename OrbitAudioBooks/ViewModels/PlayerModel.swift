@@ -1,0 +1,2767 @@
+import SwiftUI
+import Observation
+import AVFoundation
+import MediaPlayer
+import WatchConnectivity
+import UIKit
+import ImageIO
+
+enum LoopMode: String, Codable {
+    case off
+    case chapter
+    case bookmark
+}
+
+// MARK: - Sleep Timer Mode
+
+enum SleepTimerMode: Equatable {
+    case off
+    case minutes(Int)
+    case endOfChapter
+
+    var isActive: Bool {
+        if case .off = self { return false }
+        return true
+    }
+}
+
+// MARK: - Model
+
+@Observable
+final class PlayerModel: NSObject, WCSessionDelegate {
+    struct TranscriptionSegment: Codable, Identifiable {
+        var id: String { "\(startTime)-\(endTime)" }
+        let text: String
+        let startTime: TimeInterval
+        let endTime: TimeInterval
+    }
+    
+    struct Track: Identifiable, Equatable {
+        var id: String { url.absoluteString }
+        let url: URL
+        let title: String
+        var isEnabled: Bool = true
+    }
+
+    struct Chapter: Identifiable, Equatable {
+        var id: String { "\(index)-\(title ?? "unknown")" }
+        let index: Int
+        let title: String?
+        let startSeconds: Double
+        let endSeconds: Double
+        var isEnabled: Bool = true
+    }
+
+    // UI state
+    var loopMode: LoopMode = .off
+    var speed: Float
+
+    // Sleep timer state (observable)
+    private(set) var sleepTimerMode: SleepTimerMode = .off
+    /// Remaining seconds for time-based sleep timer modes. 0 when inactive.
+    private(set) var sleepTimerRemainingSeconds: Int = 0
+    @ObservationIgnored private var sleepTimer: Timer?
+    @ObservationIgnored private var sleepTimerEndDate: Date?
+
+    private(set) var folderURL: URL?
+    var tracks: [Track] = []
+    private(set) var currentIndex: Int = 0
+
+    private(set) var isPlaying: Bool = false
+    private(set) var currentTitle: String = "No track selected"
+    private(set) var currentSubtitle: String = "" // e.g. "Chapter 3: Something"
+
+    // Progress (for UI)
+    private(set) var progressFraction: Double = 0.0
+    private(set) var progressText: String = "--:--"
+    private(set) var elapsedText: String = "--:--"
+    private(set) var durationSeconds: Double? = nil
+    private(set) var thumbnailImage: UIImage? = nil
+    private(set) var watchThumbnailData: Data? = nil
+
+    // Chapters (for .m4b with chapter markers)
+    var chapters: [Chapter] = []
+    
+    // Transcript
+    var transcription: [TranscriptionSegment] = []
+    
+    private(set) var currentChapterIndex: Int? = nil
+    private var isSeekingForChapterBoundary: Bool = false
+    private var isManualSeeking: Bool = false
+    
+    private var pauseTimestamp: Date? = nil
+
+    private func loadTranscript(for url: URL) {
+        let fileName = url.deletingPathExtension().lastPathComponent + ".transcript.json"
+        let transcriptURL = url.deletingLastPathComponent().appendingPathComponent(fileName)
+        
+        guard FileManager.default.fileExists(atPath: transcriptURL.path) else {
+            self.transcription = []
+            return
+        }
+        
+        do {
+            let data = try Data(contentsOf: transcriptURL)
+            self.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
+        } catch {
+            print("Failed to load transcript: \(error)")
+            self.transcription = []
+        }
+    }
+
+    // MARK: Bookmarks
+    var bookmarks: [Bookmark] = []
+    private(set) var isPlayingVoiceMemo: Bool = false
+    /// 0...1 progress of the currently playing voice memo, for the overlay UI.
+    private(set) var voiceMemoProgress: Double = 0.0
+    @ObservationIgnored private var voiceMemoEngine: AVAudioEngine?
+    @ObservationIgnored private var voiceMemoPlayerNode: AVAudioPlayerNode?
+    @ObservationIgnored private var voiceMemoDuration: Double = 0
+    @ObservationIgnored private var voiceMemoProgressTimer: Timer?
+
+    /// Boundary observer that fires when playback hits a bookmark with a memo.
+    @ObservationIgnored private var bookmarkBoundaryObserver: Any?
+    /// Boundary observer for bookmark-loop endpoints (precise loop-back trigger).
+    @ObservationIgnored private var bookmarkLoopBoundaryObserver: Any?
+    /// Track timestamps of recently triggered bookmarks to avoid retrigger loops.
+    @ObservationIgnored private var lastTriggeredBookmarkID: UUID?
+    @ObservationIgnored private var lastTriggeredAtPlayerSecond: Double = -1
+    @ObservationIgnored private var lastBookmarkCheckSecond: Double?
+    @ObservationIgnored private var voiceMemoGainCache: [String: Float] = [:]
+
+    /// Tracks the last track ID for which we sent a thumbnail payload to the watch.
+    /// Used to avoid re-sending heavy image data on every 0.5-second sync.
+    @ObservationIgnored private var lastSyncedThumbnailTrackId: String?
+
+    // iOS 26: avoid UIScreen.main usage; set from SwiftUI environment.
+    private var displayScale: CGFloat = 2.0
+
+    func setDisplayScale(_ scale: CGFloat) {
+        displayScale = scale
+    }
+
+    // Playback
+    internal var player: AVPlayer?
+    private var endObserver: NSObjectProtocol?
+    private var timeObserver: Any?
+    private var chapterBoundaryObserver: Any?
+    private var interruptionObserver: NSObjectProtocol?
+
+    // Background task used while paused to reduce the chance of the app being
+    // evicted from the system "Now Playing" slot during short pauses.
+    private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    // Security-scoped access:
+    // - Keep the selected folder/file open while the app runs.
+    // - Also keep the currently playing file open (some providers require per-file access).
+    private var hasSelectionSecurityScopeAccess: Bool = false
+    private var selectionSecurityScopeURL: URL?
+    private var hasCurrentFileSecurityScopeAccess: Bool = false
+    private var currentFileSecurityScopeURL: URL?
+
+    private let persistence = Persistence()
+
+    @ObservationIgnored private var _volumeView: MPVolumeView?
+
+    private func setSystemVolume(_ level: Float) {
+        if _volumeView == nil {
+            let view = MPVolumeView(frame: CGRect(x: -2000, y: -2000, width: 0, height: 0))
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = scene.windows.first {
+                window.addSubview(view)
+            }
+            _volumeView = view
+        }
+        guard let slider = _volumeView?.subviews.compactMap({ $0 as? UISlider }).first else { return }
+        slider.value = level
+        slider.sendActions(for: .valueChanged)
+    }
+
+    override init() {
+        speed = 1.25
+        super.init()
+        UserDefaults.standard.register(defaults: [
+            "playBookmarksInline": true,
+            "isRewindEnabled": false,
+            "rewindPauseSecondsThreshold": 30,
+            "rewindAmountAfterSeconds": 10,
+            "rewindPauseMinutesThreshold": 5,
+            "rewindAmountAfterMinutes": 30,
+            "rewindPauseHoursThreshold": 1,
+            "rewindAmountAfterHours": 90,
+            "rewindHoursToChapterStart": false,
+            "watchQuickBookmarkTimeoutSeconds": 5
+        ])
+        setupWatchConnectivity()
+    }
+
+    private func setupWatchConnectivity() {
+        if WCSession.isSupported() {
+            let session = WCSession.default
+            session.delegate = self
+            session.activate()
+        }
+    }
+    
+    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        guard activationState == .activated else {
+            if let error {
+                print("WatchConnectivity activation failed: \(error)")
+            }
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.syncToWatch()
+        }
+    }
+    func sessionDidBecomeInactive(_ session: WCSession) {}
+    func sessionDidDeactivate(_ session: WCSession) {
+        session.activate()
+    }
+    
+    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+        handleMessage(message)
+    }
+    
+    func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+        handleMessage(message, replyHandler: replyHandler)
+    }
+    
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
+        handleMessage(userInfo)
+    }
+
+    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        handleWatchBookmarkFile(file)
+    }
+    
+    private func handleMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)? = nil) {
+        DispatchQueue.main.async {
+            var commandResult: String?
+            if let command = message["command"] as? String {
+                switch command {
+                case "play": self.play()
+                case "pause": self.pause()
+                case "next":
+                    if self.skipForwardNavigation() { commandResult = "bookmarkJump" }
+                case "previous":
+                    if self.skipBackwardNavigation() { commandResult = "bookmarkJump" }
+                case "skipBackward":
+                    if self.skipBackward30() { commandResult = "bookmarkJump" }
+                case "skipForward":
+                    if self.skipForward30() { commandResult = "bookmarkJump" }
+                case "seek":
+                    if let fraction = message["fraction"] as? Double {
+                        self.seek(toFraction: fraction)
+                    }
+                case "scrubDelta":
+                    if let d = message["delta"] as? Double {
+                        let sens = UserDefaults.standard.double(forKey: "crownScrubSensitivity")
+                        let mult = sens > 0 ? sens : 0.5
+                        let current = self.player?.currentTime().seconds ?? 0
+                        let duration = self.durationSeconds ?? 0
+                        let target = max(0, min(duration, current + (d * 30.0 * mult)))
+                        self.seek(toSeconds: target)
+                    }
+                case "volumeDelta":
+                    if let d = message["delta"] as? Double {
+                        let sens = UserDefaults.standard.double(forKey: "crownVolumeSensitivity")
+                        let mult = sens > 0 ? sens : 0.05
+                        let session = AVAudioSession.sharedInstance()
+                        let currentVol = session.outputVolume
+                        let newVol = max(0, min(1, currentVol + Float(d * 0.4 * mult)))
+                        self.setSystemVolume(newVol)
+                    }
+                case "toggle": self.togglePlayPause()
+                case "toggleLoopMode", "cycleLoopMode":
+                    self.cycleLoopMode()
+                case "cycleSpeed":
+                    if let newSpeed = message["playbackSpeed"] as? Double {
+                        self.setSpeed(Float(newSpeed))
+                    } else {
+                        let speeds: [Float] = [1.0, 1.25, 1.5, 2.0]
+                        let idx = speeds.firstIndex(of: self.speed) ?? -1
+                        let next = speeds[(idx + 1) % speeds.count]
+                        self.setSpeed(next)
+                    }
+                case "setSleepTimer":
+                    if let modeStr = message["sleepTimerMode"] as? String {
+                        switch modeStr {
+                        case "off":
+                            self.setSleepTimer(.off)
+                        case "endOfChapter":
+                            self.setSleepTimer(.endOfChapter)
+                        case "minutes":
+                            let mins = (message["sleepTimerMinutes"] as? Int) ?? 15
+                            self.setSleepTimer(.minutes(mins))
+                        default: break
+                        }
+                    }
+                case "cancelSleepTimer":
+                    self.cancelSleepTimer()
+                case "addBookmark":
+                    _ = self.addBookmarkAtCurrentTime()
+                case "addWatchTextBookmark":
+                    self.addWatchBookmark(from: message)
+                case "addWatchVoiceBookmark":
+                    self.addWatchVoiceBookmark(from: message)
+                case "requestState":
+                    break
+                default: break
+                }
+            }
+            var reply = self.watchStateContext()
+            if let commandResult {
+                reply["commandResult"] = commandResult
+            }
+            replyHandler?(reply)
+        }
+    }
+    
+    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+        guard session.activationState == .activated else { return }
+        DispatchQueue.main.async {
+            if let command = applicationContext["command"] as? String {
+                if command == "toggle" {
+                    self.togglePlayPause()
+                }
+            }
+        }
+    }
+    
+    func syncToWatch() {
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+
+        let context = watchStateContext()
+
+        if session.isReachable {
+            session.sendMessage(context, replyHandler: nil) { error in
+                print("Immediate watch sync failed: \(error)")
+                WCSession.default.transferUserInfo(context)
+            }
+        } else {
+            session.transferUserInfo(context)
+        }
+
+        // Send heavy thumbnail data via transferUserInfo ONLY when the track changes.
+        let currentTrackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        if let trackId = currentTrackId, trackId != lastSyncedThumbnailTrackId,
+           let thumbnailData = watchThumbnailData {
+            lastSyncedThumbnailTrackId = trackId
+            let thumbnailPayload: [String: Any] = [
+                "trackId": trackId,
+                "thumbnailData": thumbnailData
+            ]
+            session.transferUserInfo(thumbnailPayload)
+        }
+    }
+
+    private func watchStateContext() -> [String: Any] {
+        var context: [String: Any] = [:]
+        context["isPlaying"] = isPlaying
+        context["progressFraction"] = progressFraction
+        context["currentTime"] = player?.currentTime().seconds ?? 0
+        context["bookmarkStorageKey"] = bookmarksStorageKey
+        context["folderKey"] = folderURL?.absoluteString
+        if tracks.indices.contains(currentIndex) {
+            context["trackId"] = tracks[currentIndex].id
+        }
+        
+        let title = chapters.count >= 2 ? (currentSubtitle.isEmpty ? "Chapter \((currentChapterIndex ?? 0) + 1)" : currentSubtitle) : currentTitle
+        context["title"] = title
+        
+        // Dual-progress: total book progress (time-based when possible)
+        // For single-file M4B, currentTime is the absolute file position and
+        // durationSeconds is the full file duration — dividing yields true
+        // time-based book progress instead of a chapter-count approximation.
+        if let duration = durationSeconds, duration.isFinite, duration > 0 {
+            let totalElapsed = player?.currentTime().seconds ?? 0
+            context["totalProgressFraction"] = min(1, max(0, totalElapsed / duration))
+            context["totalBookDuration"] = duration
+        } else {
+            // Fallback: track-count-based for multi-file playlists where
+            // individual track durations aren't aggregated.
+            let totalCount = Double(tracks.count)
+            context["totalProgressFraction"] = totalCount > 0 ? (Double(currentIndex) + progressFraction) / totalCount : 0.0
+        }
+        
+        let crownAction = UserDefaults.standard.string(forKey: "crownAction") ?? "volume"
+        context["crownAction"] = crownAction
+        context["isHapticFeedbackEnabled"] = AppGroupDefaults.isHapticFeedbackEnabled
+        context["watchQuickBookmarkTimeoutSeconds"] = AppGroupDefaults.watchQuickBookmarkTimeoutSeconds
+        context["loopMode"] = loopMode.rawValue
+        context["playbackSpeed"] = Double(speed)
+        
+        context["watchPage1"] = UserDefaults.standard.string(forKey: "watchPage1") ?? "empty,empty,skipBackward,playPause,skipForward"
+        context["watchPage2"] = UserDefaults.standard.string(forKey: "watchPage2") ?? "loopMode,empty,speed,sleepTimer,bookmark"
+        context["linearBarMode"] = UserDefaults.standard.string(forKey: "linearBarMode") ?? "total"
+        context["linearBarHidden"] = UserDefaults.standard.bool(forKey: "linearBarHidden")
+        context["circularRingMode"] = UserDefaults.standard.string(forKey: "circularRingMode") ?? "chapter"
+        context["circularRingHidden"] = UserDefaults.standard.bool(forKey: "circularRingHidden")
+        context["hasThumbnail"] = watchThumbnailData != nil
+
+        // Sleep timer state for watch UI.
+        switch sleepTimerMode {
+        case .off:
+            context["sleepTimerMode"] = "off"
+            context["sleepTimerRemainingSeconds"] = 0
+        case .minutes(let mins):
+            context["sleepTimerMode"] = "minutes"
+            context["sleepTimerMinutes"] = mins
+            context["sleepTimerRemainingSeconds"] = sleepTimerRemainingSeconds
+        case .endOfChapter:
+            context["sleepTimerMode"] = "endOfChapter"
+            context["sleepTimerRemainingSeconds"] = 0
+        }
+
+        return context
+    }
+
+    private func handleWatchBookmarkFile(_ file: WCSessionFile) {
+        guard let command = file.metadata?["command"] as? String, command == "addWatchVoiceBookmark" else {
+            return
+        }
+
+        let fileName = (file.metadata?["voiceMemoFileName"] as? String) ?? file.fileURL.lastPathComponent
+        let safeFileName = URL(fileURLWithPath: fileName).lastPathComponent
+        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(safeFileName)
+
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.copyItem(at: file.fileURL, to: destinationURL)
+        } catch {
+            print("Watch voice bookmark copy failed: \(error)")
+            return
+        }
+
+        var metadata = file.metadata ?? [:]
+        metadata["voiceMemoFileName"] = safeFileName
+
+        DispatchQueue.main.async {
+            self.addWatchBookmark(from: metadata)
+        }
+    }
+
+    private func addWatchVoiceBookmark(from payload: [String: Any]) {
+        guard let voiceMemoData = payload["voiceMemoData"] as? Data else {
+            return
+        }
+
+        let fileName = (payload["voiceMemoFileName"] as? String) ?? "watch-memo-\(UUID().uuidString).m4a"
+        let safeFileName = URL(fileURLWithPath: fileName).lastPathComponent
+        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(safeFileName)
+        var metadata = payload
+        metadata["voiceMemoFileName"] = safeFileName
+        metadata.removeValue(forKey: "voiceMemoData")
+
+        Task.detached(priority: .utility) {
+            do {
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try voiceMemoData.write(to: destinationURL, options: .atomic)
+            } catch {
+                print("Watch voice bookmark write failed: \(error)")
+                return
+            }
+
+            await MainActor.run {
+                self.addWatchBookmark(from: metadata)
+            }
+        }
+    }
+
+    deinit {
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        if let timeObserver, let player { player.removeTimeObserver(timeObserver) }
+        if let chapterBoundaryObserver, let player { player.removeTimeObserver(chapterBoundaryObserver) }
+        if let bookmarkBoundaryObserver, let player { player.removeTimeObserver(bookmarkBoundaryObserver) }
+        if let bookmarkLoopBoundaryObserver, let player { player.removeTimeObserver(bookmarkLoopBoundaryObserver) }
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+        voiceMemoProgressTimer?.invalidate()
+        voiceMemoPlayerNode?.stop()
+        voiceMemoEngine?.stop()
+        voiceMemoEngine = nil
+        endBackgroundTask()
+        stopAllSecurityScope()
+    }
+
+    // MARK: Folder + track loading
+
+    func moveTracks(from source: IndexSet, to destination: Int) {
+        let currentURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil
+        tracks.move(fromOffsets: source, toOffset: destination)
+        if let currentURL, let newIdx = tracks.firstIndex(where: { $0.url == currentURL }) {
+            currentIndex = newIdx
+        }
+        if let folderURL = folderURL {
+            persistence.saveOrder(for: folderURL.absoluteString, ids: tracks.map { $0.id })
+        }
+    }
+
+    func moveChapters(from source: IndexSet, to destination: Int) {
+        let currentID = (currentChapterIndex != nil && chapters.indices.contains(currentChapterIndex!)) ? chapters[currentChapterIndex!].id : nil
+        chapters.move(fromOffsets: source, toOffset: destination)
+        if let currentID, let newIdx = chapters.firstIndex(where: { $0.id == currentID }) {
+            currentChapterIndex = newIdx
+        }
+        if let currentTrackURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil {
+            persistence.saveOrder(for: currentTrackURL.absoluteString, ids: chapters.map { $0.id })
+        }
+        installChapterBoundaryObservers()
+    }
+
+    func toggleTrackEnabled(at index: Int) {
+        tracks[index].isEnabled.toggle()
+        if let folderURL = folderURL {
+            var states = persistence.loadEnabledState(for: folderURL.absoluteString) ?? [:]
+            states[tracks[index].id] = tracks[index].isEnabled
+            persistence.saveEnabledState(for: folderURL.absoluteString, states: states)
+        }
+    }
+    
+    func toggleChapterEnabled(at index: Int) {
+        chapters[index].isEnabled.toggle()
+        if let currentTrackURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil {
+            var states = persistence.loadEnabledState(for: currentTrackURL.absoluteString) ?? [:]
+            states[chapters[index].id] = chapters[index].isEnabled
+            persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
+        }
+        installChapterBoundaryObservers()
+    }
+
+    func resetPlaylist() {
+        if chapters.count >= 2 {
+            chapters.sort { $0.startSeconds < $1.startSeconds }
+            for i in 0..<chapters.count {
+                chapters[i].isEnabled = true
+            }
+            if let currentTrackURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil {
+                persistence.saveOrder(for: currentTrackURL.absoluteString, ids: chapters.map { $0.id })
+                var states: [String: Bool] = [:]
+                for c in chapters { states[c.id] = true }
+                persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
+            }
+            updateCurrentChapterFromPlayerTime()
+            installChapterBoundaryObservers()
+        } else {
+            let currentURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil
+            tracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            for i in 0..<tracks.count {
+                tracks[i].isEnabled = true
+            }
+            if let folderURL = folderURL {
+                persistence.saveOrder(for: folderURL.absoluteString, ids: tracks.map { $0.id })
+                var states: [String: Bool] = [:]
+                for t in tracks { states[t.id] = true }
+                persistence.saveEnabledState(for: folderURL.absoluteString, states: states)
+            }
+            if let currentURL, let newIdx = tracks.firstIndex(where: { $0.url == currentURL }) {
+                currentIndex = newIdx
+            }
+        }
+    }
+
+    func loadFolder(_ url: URL, autoplay: Bool = true) {
+        stop() // stop current playback when selecting a new folder/file
+
+        folderURL = url
+        
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+        
+        var isDir: ObjCBool = false
+        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        
+        if isDir.boolValue {
+            tracks = loadTracks(from: url)
+        } else {
+            tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
+        }
+        
+        if let folderKey = folderURL?.absoluteString,
+           let savedTrackId = persistence.getLastTrack(for: folderKey),
+           let idx = tracks.firstIndex(where: { $0.id == savedTrackId }) {
+            currentIndex = idx
+        } else {
+            currentIndex = 0
+        }
+
+        if tracks.indices.contains(currentIndex) {
+            currentTitle = tracks[currentIndex].title
+            prepareToPlay(index: currentIndex, autoplay: autoplay)
+        } else {
+            currentTitle = "No .mp3/.m4a/.m4b files found"
+            updateNowPlayingInfo(isPaused: true) // keep something stable in Now Playing
+        }
+
+        persistSelection(url: url)
+    }
+
+    func restoreLastSelectionIfPossible() {
+        guard let url = persistence.restoreBookmark() else {
+            #if DEBUG && targetEnvironment(simulator)
+            if let sampleURL = MockMediaProvider.sampleAudiobookURL() {
+                loadFolder(sampleURL, autoplay: false)
+            }
+            #endif
+            return
+        }
+        loadFolder(url, autoplay: false)
+    }
+
+    private func loadTracks(from folder: URL) -> [Track] {
+        // Important: for folders from Files app, access can be security-scoped.
+        let didStart = folder.startAccessingSecurityScopedResource()
+        defer { if didStart { folder.stopAccessingSecurityScopedResource() } }
+
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.isRegularFileKey, .nameKey]
+
+        guard let urls = try? fm.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        let allowed = Set(["mp3", "m4a", "m4b"])
+        var loadedTracks: [Track] = urls.compactMap { url in
+            let ext = url.pathExtension.lowercased()
+            guard allowed.contains(ext) else { return nil }
+            return Track(url: url, title: url.deletingPathExtension().lastPathComponent)
+        }
+
+        loadedTracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        
+        let folderKey = folder.absoluteString
+        if let savedStates = persistence.loadEnabledState(for: folderKey) {
+            for i in 0..<loadedTracks.count {
+                if let isEnabled = savedStates[loadedTracks[i].id] {
+                    loadedTracks[i].isEnabled = isEnabled
+                }
+            }
+        }
+        
+        if let savedOrder = persistence.loadOrder(for: folderKey) {
+            var orderedTracks: [Track] = []
+            var remainingTracks = loadedTracks
+            for id in savedOrder {
+                if let idx = remainingTracks.firstIndex(where: { $0.id == id }) {
+                    orderedTracks.append(remainingTracks.remove(at: idx))
+                }
+            }
+            orderedTracks.append(contentsOf: remainingTracks)
+            loadedTracks = orderedTracks
+        }
+
+        return loadedTracks
+    }
+
+    // MARK: Playback controls
+
+    private func smartRewindAmount(for pausedDuration: TimeInterval) -> Double {
+        let defaults = UserDefaults.standard
+
+        let secondsThreshold = defaults.integer(forKey: "rewindPauseSecondsThreshold")
+        let secondsAmount = defaults.integer(forKey: "rewindAmountAfterSeconds")
+
+        let minutesThreshold = defaults.integer(forKey: "rewindPauseMinutesThreshold")
+        let minutesAmount = defaults.integer(forKey: "rewindAmountAfterMinutes")
+
+        let hoursThreshold = defaults.integer(forKey: "rewindPauseHoursThreshold")
+        let hoursAmount = defaults.integer(forKey: "rewindAmountAfterHours")
+
+        var rewindAmount = 0
+        if pausedDuration >= Double(secondsThreshold) {
+            rewindAmount = secondsAmount
+        }
+        if pausedDuration >= Double(minutesThreshold * 60) {
+            rewindAmount = minutesAmount
+        }
+        if pausedDuration >= Double(hoursThreshold * 3600) {
+            rewindAmount = hoursAmount
+        }
+
+        // Backward compatibility with previous single-level rewind settings.
+        if rewindAmount == 0 {
+            let legacyThreshold = defaults.integer(forKey: "rewindPauseDuration")
+            let legacyAmount = defaults.integer(forKey: "rewindAmount")
+            if legacyThreshold > 0, pausedDuration >= Double(legacyThreshold) {
+                rewindAmount = legacyAmount
+            }
+        }
+
+        return Double(rewindAmount)
+    }
+
+    private func shouldJumpToChapterStartForHoursLevel(pausedDuration: TimeInterval) -> Bool {
+        let defaults = UserDefaults.standard
+        let hoursThreshold = defaults.integer(forKey: "rewindPauseHoursThreshold")
+        let hoursToChapterStart = defaults.bool(forKey: "rewindHoursToChapterStart")
+        return hoursToChapterStart && pausedDuration >= Double(hoursThreshold * 3600)
+    }
+
+    func togglePlayPause() {
+        if isPlaying { pause() } else { play() }
+    }
+
+    func play() {
+        // Check for rewind before playing
+        if let pausedAt = pauseTimestamp {
+            let pausedDuration = Date().timeIntervalSince(pausedAt)
+            if UserDefaults.standard.bool(forKey: "isRewindEnabled") {
+                if let player = player {
+                    let current = player.currentTime().seconds
+                    let rewindAmount = smartRewindAmount(for: pausedDuration)
+                    var target = current
+
+                    if shouldJumpToChapterStartForHoursLevel(pausedDuration: pausedDuration),
+                       chapters.count >= 2,
+                       let idx = currentChapterIndex {
+                        target = chapters[idx].startSeconds
+                    } else if rewindAmount > 0 {
+                        target = max(0, current - rewindAmount)
+                        
+                        // Don't rewind past the start of the current chapter
+                        if chapters.count >= 2, let idx = currentChapterIndex {
+                            let c = chapters[idx]
+                            if target < c.startSeconds {
+                                target = c.startSeconds
+                            }
+                        }
+                    }
+
+                    if target != current {
+                        isManualSeeking = true
+                        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                            DispatchQueue.main.async {
+                                self?.isManualSeeking = false
+                                self?.updateCurrentChapterFromPlayerTime()
+                            }
+                        }
+                    }
+                }
+            }
+            pauseTimestamp = nil
+        }
+
+        // Release any pause background task claim immediately on resume.
+        endBackgroundTask()
+
+        guard !tracks.isEmpty else { return }
+        if player == nil { prepareToPlay(index: currentIndex, autoplay: false) }
+
+        configureAudioSessionIfNeeded()
+        startSelectionSecurityScopeIfNeeded()
+        startCurrentFileSecurityScopeIfNeeded()
+
+        // Ensure the current item is configured for speech-quality playback before starting.
+        applySpeedToCurrentItem()
+
+        player?.defaultRate = speed
+        player?.rate = speed
+        isPlaying = true
+        if let currentSecond = player?.currentTime().seconds, currentSecond.isFinite {
+            checkBookmarkVoiceMemoTrigger(at: currentSecond, previousSeconds: nil)
+            lastBookmarkCheckSecond = currentSecond
+        }
+
+        updateNowPlayingInfo(isPaused: false)
+        syncToWatch()
+    }
+
+    func pause() {
+        // CRUCIAL: do NOT deactivate AVAudioSession when paused.
+        player?.pause()
+        isPlaying = false
+        
+        if pauseTimestamp == nil {
+            pauseTimestamp = Date()
+        }
+
+        // Battery-friendly: do NOT keep a background task running while paused.
+        // (We still keep Now Playing metadata + playbackRate=0.0 so the UI stays stable.)
+        endBackgroundTask()
+
+        // CRUCIAL: keep Now Playing metadata, but mark paused + playbackRate = 0.0
+        updateNowPlayingInfo(isPaused: true)
+        syncToWatch()
+        
+        // Save progress when paused
+        if let player = player, let folder = folderURL?.absoluteString, tracks.indices.contains(currentIndex) {
+            persistence.saveBookProgress(for: folder, trackId: tracks[currentIndex].id, time: player.currentTime().seconds)
+        }
+    }
+
+    private func endBackgroundTask() {
+        guard pauseBackgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(pauseBackgroundTask)
+        pauseBackgroundTask = .invalid
+    }
+
+    private func findNextEnabledTrackIndex() -> Int? {
+        guard !tracks.isEmpty else { return nil }
+        for i in (currentIndex + 1)..<tracks.count {
+            if tracks[i].isEnabled { return i }
+        }
+        return nil
+    }
+
+    private func findPrevEnabledTrackIndex() -> Int? {
+        guard !tracks.isEmpty else { return nil }
+        for i in stride(from: currentIndex - 1, through: 0, by: -1) {
+            if tracks[i].isEnabled { return i }
+        }
+        return nil
+    }
+
+    private func findNextEnabledChapterIndex(after idx: Int) -> Int? {
+        guard chapters.count >= 2 else { return nil }
+        for i in (idx + 1)..<chapters.count {
+            if chapters[i].isEnabled { return i }
+        }
+        return nil
+    }
+
+    private func findPrevEnabledChapterIndex(before idx: Int) -> Int? {
+        guard chapters.count >= 2 else { return nil }
+        for i in stride(from: idx - 1, through: 0, by: -1) {
+            if chapters[i].isEnabled { return i }
+        }
+        return nil
+    }
+
+    func nextTrack() {
+        if chapters.count >= 2 {
+            nextChapter()
+            return
+        }
+        if let newIndex = findNextEnabledTrackIndex() {
+            prepareToPlay(index: newIndex, autoplay: true)
+        } else {
+            // Loop the entire playlist if we reached the end
+            if let firstEnabled = tracks.firstIndex(where: { $0.isEnabled }) {
+                prepareToPlay(index: firstEnabled, autoplay: true)
+            }
+        }
+    }
+
+    func previousTrackOrRestart() {
+        if chapters.count >= 2 {
+            previousChapterOrRestart()
+            return
+        }
+        guard !tracks.isEmpty else { return }
+        let elapsed = player?.currentTime().seconds ?? 0
+        if elapsed.isFinite, elapsed > 5 {
+            isManualSeeking = true
+            player?.seek(to: .zero) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.isManualSeeking = false
+                    self?.updateCurrentChapterFromPlayerTime()
+                }
+            }
+            updateNowPlayingElapsedTime()
+            updateProgressFromPlayer()
+            return
+        }
+
+        if let newIndex = findPrevEnabledTrackIndex() {
+            prepareToPlay(index: newIndex, autoplay: true)
+        } else {
+            // If it's the first track and elapsed < 5, just restart it.
+            isManualSeeking = true
+            player?.seek(to: .zero) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.isManualSeeking = false
+                    self?.updateCurrentChapterFromPlayerTime()
+                }
+            }
+        }
+    }
+
+    func nextChapter() {
+        guard chapters.count >= 2 else {
+            nextTrack()
+            return
+        }
+        let currentIdx = currentChapterIndex ?? -1
+        if let nextIdx = findNextEnabledChapterIndex(after: currentIdx) {
+            seekToChapter(at: nextIdx)
+        } else {
+            if let newIndex = findNextEnabledTrackIndex() {
+                prepareToPlay(index: newIndex, autoplay: true)
+            } else {
+                // Loop the entire playlist if we reached the end
+                if let firstEnabled = tracks.firstIndex(where: { $0.isEnabled }) {
+                    prepareToPlay(index: firstEnabled, autoplay: true)
+                }
+            }
+        }
+    }
+
+    func previousChapterOrRestart() {
+        guard chapters.count >= 2 else {
+            previousTrackOrRestart()
+            return
+        }
+        guard let player else { return }
+
+        let t = player.currentTime().seconds
+        guard t.isFinite else { return }
+
+        if let _ = currentChapterIndex, let current = currentChapterForTime(t), (t - current.startSeconds) > 5 {
+            seekToChapter(at: current.index)
+            return
+        }
+
+        let currentIdx = currentChapterIndex ?? 0
+        if let prevIdx = findPrevEnabledChapterIndex(before: currentIdx) {
+            seekToChapter(at: prevIdx)
+        } else {
+            if let firstEnabled = findNextEnabledChapterIndex(after: -1) {
+                seekToChapter(at: firstEnabled)
+            } else {
+                seekToChapter(at: chapters.first?.index ?? 0)
+            }
+        }
+    }
+
+    private var enabledCurrentTrackBookmarks: [Bookmark] {
+        currentTrackBookmarks.filter { $0.isEnabled && $0.timestamp.isFinite }
+    }
+
+    private func jumpToNextBookmark(from currentTime: Double) -> Bool {
+        let bookmarks = enabledCurrentTrackBookmarks
+        guard let target = bookmarks.first(where: { $0.timestamp > currentTime + 1.0 }) ?? bookmarks.first else {
+            return false
+        }
+        jumpToBookmark(target)
+        return true
+    }
+
+    private func jumpToPreviousBookmark(from currentTime: Double) -> Bool {
+        let bookmarks = enabledCurrentTrackBookmarks
+        guard let target = bookmarks.last(where: { $0.timestamp < currentTime - 2.0 }) ?? bookmarks.last else {
+            return false
+        }
+        jumpToBookmark(target)
+        return true
+    }
+
+    @discardableResult
+    func skipBackwardNavigation() -> Bool {
+        if loopMode == .bookmark,
+           let current = player?.currentTime().seconds,
+           current.isFinite,
+           jumpToPreviousBookmark(from: current) {
+            return true
+        }
+
+        if chapters.count >= 2 {
+            previousChapterOrRestart()
+        } else {
+            previousTrackOrRestart()
+        }
+        return false
+    }
+
+    @discardableResult
+    func skipForwardNavigation() -> Bool {
+        if loopMode == .bookmark,
+           let current = player?.currentTime().seconds,
+           current.isFinite,
+           jumpToNextBookmark(from: current) {
+            return true
+        }
+
+        if chapters.count >= 2 {
+            nextChapter()
+        } else {
+            nextTrack()
+        }
+        return false
+    }
+
+    @discardableResult
+    func skipBackward30() -> Bool {
+        guard let player else { return false }
+        let current = player.currentTime().seconds
+        guard current.isFinite else { return false }
+
+        if loopMode == .bookmark {
+            if jumpToPreviousBookmark(from: current) {
+                return true
+            }
+            if chapters.count >= 2 {
+                previousChapterOrRestart()
+            } else {
+                previousTrackOrRestart()
+            }
+            return false
+        }
+
+        let target = max(0, current - 30 * Double(speed))
+        isManualSeeking = true
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isManualSeeking = false
+                self?.updateCurrentChapterFromPlayerTime()
+            }
+        }
+        updateNowPlayingElapsedTime()
+        return false
+    }
+
+    @discardableResult
+    func skipForward30() -> Bool {
+        guard let player else { return false }
+        let current = player.currentTime().seconds
+        guard current.isFinite else { return false }
+
+        if loopMode == .bookmark {
+            if jumpToNextBookmark(from: current) {
+                return true
+            }
+            if chapters.count >= 2 {
+                nextChapter()
+            } else {
+                nextTrack()
+            }
+            return false
+        }
+
+        let duration = durationSeconds ?? 0
+        let target = min(duration, current + 30 * Double(speed))
+        isManualSeeking = true
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isManualSeeking = false
+                self?.updateCurrentChapterFromPlayerTime()
+            }
+        }
+        updateNowPlayingElapsedTime()
+        return false
+    }
+
+    func seek(toSeconds targetSeconds: Double) {
+        guard let player else { return }
+        isManualSeeking = true
+        player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isManualSeeking = false
+                self?.updateCurrentChapterFromPlayerTime()
+                self?.updateNowPlayingElapsedTime()
+                self?.updateProgressFromPlayer()
+                if self?.isPlaying == true {
+                    self?.player?.defaultRate = self?.speed ?? 1.0
+                    self?.player?.playImmediately(atRate: self?.speed ?? 1.0)
+                    self?.applySpeedToCurrentItem()
+                }
+            }
+        }
+    }
+
+    func seek(toFraction fraction: Double) {
+        let safeFraction = min(1, max(0, fraction))
+        
+        if chapters.count >= 2, let idx = currentChapterIndex {
+            let c = chapters[idx]
+            let chapterDuration = c.endSeconds - c.startSeconds
+            if chapterDuration > 0 {
+                let targetSeconds = c.startSeconds + (chapterDuration * safeFraction)
+                seek(toSeconds: targetSeconds)
+            }
+        } else {
+            let duration = durationSeconds ?? 0
+            if duration > 0 {
+                let targetSeconds = duration * safeFraction
+                seek(toSeconds: targetSeconds)
+            }
+        }
+    }
+
+    func setSpeed(_ newSpeed: Float) {
+        speed = newSpeed
+        if let key = folderURL?.absoluteString {
+            persistence.saveSpeed(for: key, speed: speed)
+        }
+        // Ensure speed persists after loops/track changes:
+        applySpeedToCurrentItem()
+
+        if isPlaying {
+            player?.rate = speed
+        }
+        updateNowPlayingInfo(isPaused: !isPlaying)
+        updateProgressFromPlayer()
+        syncToWatch()
+    }
+
+    func setLoopMode(_ mode: LoopMode) {
+        loopMode = mode
+        if let key = folderURL?.absoluteString {
+            persistence.saveLoopMode(for: key, loopMode: mode.rawValue)
+        }
+        installBookmarkLoopBoundaryObserver()
+        syncToWatch()
+    }
+
+    func cycleLoopMode() {
+        let hasBookmarks = !bookmarks.isEmpty
+        switch loopMode {
+        case .off:
+            setLoopMode(.chapter)
+        case .chapter:
+            setLoopMode(hasBookmarks ? .bookmark : .off)
+        case .bookmark:
+            setLoopMode(.off)
+        }
+    }
+
+    // MARK: - Sleep Timer
+
+    /// Configure the sleep timer.
+    /// - `.minutes(n)` schedules a one-shot pause after n minutes.
+    /// - `.endOfChapter` arms a flag; pause is triggered when the current
+    ///   chapter concludes (handled inside `applyChapterLoopIfNeeded`).
+    /// - `.off` cancels any active timer.
+    func setSleepTimer(_ mode: SleepTimerMode) {
+        cancelSleepTimerInternal()
+        sleepTimerMode = mode
+
+        switch mode {
+        case .off:
+            sleepTimerRemainingSeconds = 0
+            sleepTimerEndDate = nil
+        case .minutes(let minutes):
+            let total = max(1, minutes) * 60
+            sleepTimerRemainingSeconds = total
+            sleepTimerEndDate = Date().addingTimeInterval(TimeInterval(total))
+            // 1-second tick to update countdown UI; on fire we pause.
+            sleepTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                guard let end = self.sleepTimerEndDate else { return }
+                let remaining = max(0, Int(end.timeIntervalSinceNow.rounded(.up)))
+                self.sleepTimerRemainingSeconds = remaining
+                if remaining <= 0 {
+                    self.sleepTimerDidFire()
+                } else {
+                    self.syncToWatch()
+                }
+            }
+            if let timer = sleepTimer {
+                RunLoop.main.add(timer, forMode: .common)
+            }
+        case .endOfChapter:
+            // No wall-clock countdown; trigger handled at chapter boundary.
+            sleepTimerRemainingSeconds = 0
+            sleepTimerEndDate = nil
+        }
+
+        syncToWatch()
+    }
+
+    func cancelSleepTimer() {
+        setSleepTimer(.off)
+    }
+
+    private func cancelSleepTimerInternal() {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+    }
+
+    private func sleepTimerDidFire() {
+        cancelSleepTimerInternal()
+        sleepTimerMode = .off
+        sleepTimerRemainingSeconds = 0
+        sleepTimerEndDate = nil
+        if isPlaying { pause() }
+        syncToWatch()
+    }
+
+    /// Called from chapter-end logic to honor `.endOfChapter` sleep mode.
+    private func evaluateSleepTimerAtChapterEnd() {
+        guard case .endOfChapter = sleepTimerMode else { return }
+        sleepTimerDidFire()
+    }
+
+    private func stop() {
+        player?.pause()
+        isPlaying = false
+        currentTitle = "No track selected"
+        progressFraction = 0
+        progressText = "--:--"
+        elapsedText = "--:--"
+
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
+        if let timeObserver, let player { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
+        removeChapterBoundaryObserver()
+        removeBookmarkLoopBoundaryObserver()
+        player = nil
+
+        stopCurrentFileSecurityScopeIfNeeded()
+    }
+
+    private func prepareToPlay(index: Int, autoplay: Bool) {
+        guard tracks.indices.contains(index) else { return }
+
+        // Save progress before changing track
+        if let player = player, let folder = folderURL?.absoluteString, tracks.indices.contains(currentIndex) {
+            persistence.saveBookProgress(for: folder, trackId: tracks[currentIndex].id, time: player.currentTime().seconds)
+        }
+
+        currentIndex = index
+        currentTitle = tracks[index].title
+        currentSubtitle = ""
+        thumbnailImage = nil
+        watchThumbnailData = nil
+        
+        loadTranscript(for: tracks[index].url)
+        
+        if let folderURL = folderURL {
+            persistence.saveLastTrack(for: folderURL.absoluteString, trackId: tracks[index].id)
+        }
+        
+        // Load the specific speed for this book
+        if let key = folderURL?.absoluteString {
+            speed = persistence.getSpeed(for: key) ?? 1.25
+            if let raw = persistence.getLoopMode(for: key), let mode = LoopMode(rawValue: raw) {
+                loopMode = mode
+            } else {
+                loopMode = .off
+            }
+        } else {
+            speed = 1.25
+            loopMode = .off
+        }
+        chapters = []
+        currentChapterIndex = nil
+        isSeekingForChapterBoundary = false
+        isManualSeeking = false
+        lastBookmarkCheckSecond = nil
+
+        // Clean old observers
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
+        if let timeObserver, let player { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
+        removeChapterBoundaryObserver()
+        removeBookmarkLoopBoundaryObserver()
+
+        // For Files/iCloud-provider URLs:
+        // - keep the security scope open BEFORE touching the file (creating items, loading duration, etc.)
+        // - ensure the file is downloaded (best-effort)
+        startSelectionSecurityScopeIfNeeded()
+        stopCurrentFileSecurityScopeIfNeeded()
+        startCurrentFileSecurityScopeForURL(tracks[index].url)
+
+        let trackURL = tracks[index].url
+        Task { [weak self] in
+            guard let self else { return }
+            await self.ensureItemIsAvailable(url: trackURL)
+        }
+
+        let item = AVPlayerItem(url: trackURL)
+        // Pitch-preserving time stretch (better for audiobooks at 1.25x).
+        // `.timeDomain` generally sounds more natural than `.varispeed` (which changes pitch).
+        item.audioTimePitchAlgorithm = .timeDomain
+        item.preferredForwardBufferDuration = 10
+
+        if player == nil {
+            player = AVPlayer(playerItem: item)
+            player?.automaticallyWaitsToMinimizeStalling = true
+        } else {
+            player?.replaceCurrentItem(with: item)
+        }
+
+        player?.defaultRate = speed
+
+        applySpeedToCurrentItem()
+        configureRemoteCommandsIfNeeded()
+        attachObserversForCurrentItem()
+
+        // Prime Now Playing metadata even before play (helps show stable controls)
+        updateNowPlayingInfo(isPaused: true)
+        updateProgressFromPlayer()
+        syncToWatch()
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.loadChaptersForCurrentItem()
+            await self.loadDurationForNowPlaying()
+            await self.generateThumbnail(for: trackURL)
+            
+            await MainActor.run {
+                if autoplay {
+                    self.play()
+                }
+            }
+        }
+    }
+
+    private func attachObserversForCurrentItem() {
+        guard let item = player?.currentItem else { return }
+
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.handleTrackEnded()
+            }
+        }
+
+        timeObserver = player?.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] _ in
+            autoreleasepool {
+                self?.updateNowPlayingElapsedTime()
+                self?.updateCurrentChapterFromPlayerTime()
+                self?.updateProgressFromPlayer()
+                self?.enforceEnabledState()
+                self?.applyChapterLoopIfNeeded()
+                self?.applyBookmarkLoopIfNeeded()
+                if UserDefaults.standard.bool(forKey: "playBookmarksInline"),
+                   let self,
+                   let t = self.player?.currentTime().seconds,
+                   t.isFinite {
+                    self.checkBookmarkVoiceMemoTrigger(at: t, previousSeconds: self.lastBookmarkCheckSecond)
+                    self.lastBookmarkCheckSecond = t
+                }
+            }
+        }
+    }
+    
+    private func enforceEnabledState() {
+        guard !isManualSeeking else { return }
+        if chapters.count >= 2 {
+            if let idx = currentChapterIndex, !chapters[idx].isEnabled {
+                if let nextIdx = findNextEnabledChapterIndex(after: idx) {
+                    seekToChapter(at: nextIdx)
+                } else if loopMode == .chapter, let firstIdx = findNextEnabledChapterIndex(after: -1) {
+                    seekToChapter(at: firstIdx)
+                } else {
+                    nextTrack()
+                }
+            }
+        } else {
+            if tracks.indices.contains(currentIndex), !tracks[currentIndex].isEnabled {
+                nextTrack()
+            }
+        }
+    }
+
+    private func handleTrackEnded() {
+        guard let player else { return }
+
+        // If the user armed an end-of-chapter sleep timer, the natural file
+        // end also counts as the end of the current (last) chapter.
+        if case .endOfChapter = sleepTimerMode {
+            evaluateSleepTimerAtChapterEnd()
+            return
+        }
+
+        if chapters.count >= 2 {
+            if loopMode == .chapter {
+                // If it hits the absolute end of the file, just loop the current (last) chapter.
+                if let idx = currentChapterIndex {
+                    let c = chapters[idx]
+                    let targetSeconds = c.startSeconds + 0.05
+                    progressFraction = 0
+                    player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                        DispatchQueue.main.async {
+                            guard let self else { return }
+                            if self.isPlaying {
+                                self.player?.defaultRate = self.speed
+                                self.player?.playImmediately(atRate: self.speed)
+                                self.applySpeedToCurrentItem()
+                            } else {
+                                self.updateNowPlayingInfo(isPaused: true)
+                            }
+                            self.updateProgressFromPlayer()
+                        }
+                    }
+                    return
+                }
+            }
+            nextTrack()
+            return
+        }
+
+        if loopMode == .chapter {
+            progressFraction = 0
+            player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if self.isPlaying {
+                        self.player?.defaultRate = self.speed
+                        self.player?.playImmediately(atRate: self.speed)
+                        self.applySpeedToCurrentItem()
+                    } else {
+                        self.updateNowPlayingInfo(isPaused: true)
+                    }
+                    self.updateProgressFromPlayer()
+                }
+            }
+        } else {
+            nextTrack()
+        }
+    }
+
+    private func applySpeedToCurrentItem() {
+        // Keep the pitch-preserving algorithm even after loops/track changes.
+        player?.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        if isPlaying {
+            player?.defaultRate = speed
+            player?.rate = speed
+        }
+    }
+
+    // MARK: AVAudioSession (background audio)
+
+    private func configureAudioSessionIfNeeded() {
+        // Configure for background playback.
+        // Note: do NOT deactivate on pause (your requirement).
+        let session = AVAudioSession.sharedInstance()
+        do {
+            // `.spokenAudio` is a good fit for audiobooks.
+            try session.setCategory(.playback, mode: .spokenAudio, options: [])
+            try session.setActive(true)
+            setupInterruptionObserver()
+        } catch {
+            // For a skeleton app, we keep this simple.
+            // If you want, you can surface this error in the UI later.
+            print("AudioSession error: \(error)")
+        }
+    }
+
+    private func setupInterruptionObserver() {
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard
+                let userInfo = notification.userInfo,
+                let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+                let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+            else { return }
+
+            switch type {
+            case .began:
+                self.pause()
+            case .ended:
+                let optionsValue = (userInfo[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    self.play()
+                }
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    // MARK: Security-scoped resource handling
+
+    private func startSelectionSecurityScopeIfNeeded() {
+        guard hasSelectionSecurityScopeAccess == false else { return }
+        guard let url = folderURL else { return }
+        selectionSecurityScopeURL = url
+        hasSelectionSecurityScopeAccess = url.startAccessingSecurityScopedResource()
+    }
+
+    private func stopSelectionSecurityScopeIfNeeded() {
+        guard hasSelectionSecurityScopeAccess, let url = selectionSecurityScopeURL else { return }
+        url.stopAccessingSecurityScopedResource()
+        hasSelectionSecurityScopeAccess = false
+        selectionSecurityScopeURL = nil
+    }
+
+    private func startCurrentFileSecurityScopeIfNeeded() {
+        guard hasCurrentFileSecurityScopeAccess == false else { return }
+        guard tracks.indices.contains(currentIndex) else { return }
+        let url = tracks[currentIndex].url
+        currentFileSecurityScopeURL = url
+        hasCurrentFileSecurityScopeAccess = url.startAccessingSecurityScopedResource()
+    }
+
+    private func startCurrentFileSecurityScopeForURL(_ url: URL) {
+        guard hasCurrentFileSecurityScopeAccess == false else { return }
+        currentFileSecurityScopeURL = url
+        hasCurrentFileSecurityScopeAccess = url.startAccessingSecurityScopedResource()
+    }
+
+    private func stopCurrentFileSecurityScopeIfNeeded() {
+        guard hasCurrentFileSecurityScopeAccess, let url = currentFileSecurityScopeURL else { return }
+        url.stopAccessingSecurityScopedResource()
+        hasCurrentFileSecurityScopeAccess = false
+        currentFileSecurityScopeURL = nil
+    }
+
+    private func stopAllSecurityScope() {
+        stopCurrentFileSecurityScopeIfNeeded()
+        stopSelectionSecurityScopeIfNeeded()
+    }
+
+    // MARK: Now Playing + Remote controls (Apple Watch / Control Center)
+
+    private var didConfigureRemoteCommands = false
+
+    private func configureRemoteCommandsIfNeeded() {
+        guard !didConfigureRemoteCommands else { return }
+        didConfigureRemoteCommands = true
+
+        let center = MPRemoteCommandCenter.shared()
+
+        // Show only: Play/Pause, Skip Backward (30s), Next Track
+        center.playCommand.isEnabled = true
+        center.pauseCommand.isEnabled = true
+        center.togglePlayPauseCommand.isEnabled = true
+
+        center.nextTrackCommand.isEnabled = true
+
+        center.skipBackwardCommand.isEnabled = true
+        center.skipBackwardCommand.preferredIntervals = [30]
+
+        // Explicitly DISABLE "Previous Track" and "Skip Forward"
+        center.previousTrackCommand.isEnabled = false
+        center.skipForwardCommand.isEnabled = false
+
+        // Some UIs also show "Change Playback Position" — disable for a simpler Watch UI.
+        center.changePlaybackPositionCommand.isEnabled = false
+
+        center.playCommand.addTarget { [weak self] _ in
+            DispatchQueue.main.async { self?.play() }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            DispatchQueue.main.async { self?.pause() }
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            DispatchQueue.main.async { self?.togglePlayPause() }
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            DispatchQueue.main.async { self?.skipForwardNavigation() }
+            return .success
+        }
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            DispatchQueue.main.async { self?.skipBackward30() }
+            return .success
+        }
+    }
+
+    private func updateNowPlayingElapsedTime() {
+        guard let player else { return }
+        let current = player.currentTime().seconds
+        guard current.isFinite else { return }
+
+        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        
+        if chapters.count >= 2, let idx = currentChapterIndex {
+            let c = chapters[idx]
+            let chapterElapsed = max(0, current - c.startSeconds)
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = chapterElapsed
+        } else {
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = current
+        }
+        
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func updateNowPlayingInfo(isPaused: Bool) {
+        let center = MPNowPlayingInfoCenter.default()
+
+        var info = center.nowPlayingInfo ?? [:]
+        
+        let elapsed = player?.currentTime().seconds
+        
+        if chapters.count >= 2, let idx = currentChapterIndex {
+            let c = chapters[idx]
+            let chapterDuration = c.endSeconds - c.startSeconds
+            let chapterElapsed = max(0, (elapsed ?? c.startSeconds) - c.startSeconds)
+            
+            info[MPMediaItemPropertyTitle] = currentSubtitle.isEmpty ? "Chapter \(idx + 1)" : currentSubtitle
+            info[MPMediaItemPropertyAlbumTitle] = currentTitle
+            info[MPMediaItemPropertyPlaybackDuration] = chapterDuration
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = chapterElapsed
+        } else {
+            info[MPMediaItemPropertyTitle] = currentTitle
+            if !currentSubtitle.isEmpty {
+                info[MPMediaItemPropertyAlbumTitle] = currentSubtitle
+            } else {
+                info.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
+            }
+            if let d = durationSeconds, d.isFinite, d > 0 {
+                info[MPMediaItemPropertyPlaybackDuration] = d
+            }
+            if let e = elapsed, e.isFinite {
+                info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = e
+            }
+        }
+
+        if let image = thumbnailImage {
+            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            info[MPMediaItemPropertyArtwork] = artwork
+        }
+
+        // CRUCIAL: do not clear metadata on pause; just set rate appropriately.
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPaused ? 0.0 : speed
+
+        center.nowPlayingInfo = info
+    }
+
+    private func updateProgressFromPlayer() {
+        guard let player else {
+            progressFraction = 0
+            progressText = "--:--"
+            elapsedText = "--:--"
+            return
+        }
+
+        let elapsed = player.currentTime().seconds
+
+        if chapters.count >= 2 {
+            if let idx = currentChapterIndex {
+                let c = chapters[idx]
+                if elapsed.isFinite, elapsed < c.startSeconds - 0.1 || elapsed >= c.endSeconds + 0.1 {
+                    updateCurrentChapterFromPlayerTime()
+                }
+            } else {
+                updateCurrentChapterFromPlayerTime()
+            }
+
+            if let idx = currentChapterIndex {
+                let c = chapters[idx]
+                let chapterDuration = c.endSeconds - c.startSeconds
+                let chapterElapsed = elapsed - c.startSeconds
+
+                if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
+                    let frac = min(1, max(0, chapterElapsed / chapterDuration))
+                    let didChange = abs(progressFraction - frac) > 0.005
+                    progressFraction = frac
+                    let remaining = max(0, chapterDuration - chapterElapsed) / Double(speed)
+                    progressText = "-\(formatTime(remaining))"
+                    elapsedText = formatTime(max(0, chapterElapsed) / Double(speed))
+                    if didChange { syncToWatch() }
+                    return
+                }
+            }
+        }
+
+        let duration = durationSeconds ?? 0
+
+        guard elapsed.isFinite, duration.isFinite, duration > 0 else {
+            progressFraction = 0
+            progressText = "--:--"
+            elapsedText = "--:--"
+            return
+        }
+
+        let frac = min(1, max(0, elapsed / duration))
+        let didChange = abs(progressFraction - frac) > 0.005
+        progressFraction = frac
+
+        let remaining = max(0, duration - elapsed) / Double(speed)
+        progressText = "-\(formatTime(remaining))"
+        elapsedText = formatTime(max(0, elapsed) / Double(speed))
+        if didChange { syncToWatch() }
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%d:%02d", m, s)
+        }
+    }
+
+    // MARK: iCloud / Files provider helpers
+
+    private func ensureItemIsAvailable(url: URL) async {
+        // Best-effort: if it’s an iCloud ubiquitous item, request download.
+        // If it’s already local, this is basically a no-op.
+        do {
+            let values = try url.resourceValues(forKeys: [
+                .isUbiquitousItemKey,
+                .ubiquitousItemDownloadingStatusKey
+            ])
+
+            guard values.isUbiquitousItem == true else { return }
+
+            let status = values.ubiquitousItemDownloadingStatus ?? URLUbiquitousItemDownloadingStatus.current
+            if status != URLUbiquitousItemDownloadingStatus.current {
+                try FileManager.default.startDownloadingUbiquitousItem(at: url)
+            }
+        } catch {
+            // Keep silent for a beginner skeleton; AVPlayer will surface failure if truly unreadable.
+            print("ensureItemIsAvailable error: \(error)")
+        }
+    }
+
+    private func loadDurationForNowPlaying() async {
+        guard let asset = player?.currentItem?.asset else { return }
+        do {
+            let d = try await asset.load(.duration)
+            let seconds = d.seconds
+            if seconds.isFinite, seconds > 0 {
+                durationSeconds = seconds
+                updateNowPlayingInfo(isPaused: !isPlaying)
+                updateProgressFromPlayer()
+                
+                // Once asset is ready, check for saved progress and seek
+                if let folder = folderURL?.absoluteString,
+                   let progress = persistence.getBookProgress(for: folder),
+                   tracks.indices.contains(currentIndex),
+                   progress.trackId == tracks[currentIndex].id,
+                   progress.time > 0, progress.time < seconds {
+                    let savedTime = progress.time
+                    await MainActor.run {
+                        self.isManualSeeking = true
+                        self.player?.seek(to: CMTime(seconds: savedTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                            DispatchQueue.main.async {
+                                self?.isManualSeeking = false
+                                self?.updateCurrentChapterFromPlayerTime()
+                                self?.updateNowPlayingElapsedTime()
+                                self?.updateProgressFromPlayer()
+                                if self?.isPlaying == true {
+                                    self?.player?.defaultRate = self?.speed ?? 1.0
+                                    self?.player?.playImmediately(atRate: self?.speed ?? 1.0)
+                                    self?.applySpeedToCurrentItem()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("Duration load error: \(error)")
+        }
+    }
+
+    private func generateThumbnail(for url: URL) async {
+        let sourceImage: UIImage?
+        if let embedded = await embeddedArtworkImage(for: url) {
+            sourceImage = embedded
+        } else if let folderImage = await folderArtworkImage(near: url) {
+            sourceImage = folderImage
+        } else {
+            sourceImage = loadAppIconImage()
+        }
+
+        guard let sourceImage else {
+            await MainActor.run {
+                thumbnailImage = nil
+                watchThumbnailData = nil
+                updateNowPlayingInfo(isPaused: !isPlaying)
+                syncToWatch()
+            }
+            return
+        }
+
+        // Run all UIGraphicsImageRenderer work off the MainActor via a detached task.
+        let displayScale = self.displayScale
+        let result = await Task.detached(priority: .userInitiated) { () -> (UIImage, Data?) in
+            let displaySize = CGSize(width: 300, height: 300)
+            let displayFormat = UIGraphicsImageRendererFormat()
+            displayFormat.scale = displayScale
+            let displayRenderer = UIGraphicsImageRenderer(size: displaySize, format: displayFormat)
+            let thumbnailImage = displayRenderer.image { _ in
+                sourceImage.draw(in: CGRect(origin: .zero, size: displaySize))
+            }
+
+            let watchSize = CGSize(width: 60, height: 60)
+            let watchFormat = UIGraphicsImageRendererFormat()
+            watchFormat.scale = 1.0
+            let watchRenderer = UIGraphicsImageRenderer(size: watchSize, format: watchFormat)
+            let watchImage = watchRenderer.image { _ in
+                sourceImage.draw(in: CGRect(origin: .zero, size: watchSize))
+            }
+            let watchThumbnailData = watchImage.jpegData(compressionQuality: 0.6)
+
+            return (thumbnailImage, watchThumbnailData)
+        }.value
+
+        // Update @Observable properties back on MainActor
+        await MainActor.run {
+            thumbnailImage = result.0
+            watchThumbnailData = result.1
+            updateNowPlayingInfo(isPaused: !isPlaying)
+            syncToWatch()
+        }
+    }
+
+    private func embeddedArtworkImage(for url: URL) async -> UIImage? {
+        let asset = AVURLAsset(url: url)
+        let metadata = (try? await asset.load(.commonMetadata)) ?? []
+
+        let maxPixelSize = 600
+        for item in metadata where item.commonKey == .commonKeyArtwork {
+            guard let data = try? await item.load(.dataValue) else { continue }
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { continue }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+            ]
+            if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                return UIImage(cgImage: cgImage)
+            }
+        }
+
+        return nil
+    }
+
+    private func folderArtworkImage(near url: URL) async -> UIImage? {
+        let folderURL = url.deletingLastPathComponent()
+        let imageExtensions = ["jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff"]
+        let imageExtensionSet = Set(imageExtensions)
+
+        let files = listFilesInFolder(folderURL)
+        let images = files.filter { fileURL in
+            imageExtensionSet.contains(fileURL.pathExtension.lowercased())
+        }
+
+        if !images.isEmpty {
+            let preferred = images.first { fileURL in
+                fileURL.deletingPathExtension().lastPathComponent.lowercased() == "cover"
+            }
+
+            let selected = preferred ?? images.sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+            }.first
+
+            if let selected, let image = await loadImageFile(at: selected) {
+                return image
+            }
+        }
+
+        // If directory enumeration is blocked, still try direct cover.* paths.
+        for ext in imageExtensions {
+            let candidate = folderURL.appendingPathComponent("cover").appendingPathExtension(ext)
+            if let image = await loadImageFile(at: candidate) {
+                return image
+            }
+        }
+
+        return nil
+    }
+
+    private func listFilesInFolder(_ folderURL: URL) -> [URL] {
+        if let files = try? FileManager.default.contentsOfDirectory(
+            at: folderURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            return files
+        }
+
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+
+        return (try? FileManager.default.contentsOfDirectory(
+            at: folderURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+    }
+
+    private func loadImageFile(at imageURL: URL) async -> UIImage? {
+        await ensureItemIsAvailable(url: imageURL)
+
+        let didStart = imageURL.startAccessingSecurityScopedResource()
+        defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
+
+        let maxPixelSize = 600
+        guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else { return nil }
+        let downsampleOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, downsampleOptions as CFDictionary) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private func loadChaptersForCurrentItem() async {
+        guard let asset = player?.currentItem?.asset else { return }
+
+        // Only bother for common audiobook container types.
+        let ext = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url.pathExtension.lowercased() : ""
+        guard ext == "m4b" || ext == "m4a" else { return }
+
+        // Most audiobooks expose chapters via AVAsset timed chapter metadata groups.
+        var groups: [AVTimedMetadataGroup] = []
+        
+        do {
+            let locales = try await asset.load(.availableChapterLocales)
+            if let firstLocale = locales.first {
+                groups = try await asset.loadChapterMetadataGroups(
+                    withTitleLocale: firstLocale,
+                    containingItemsWithCommonKeys: []
+                )
+            } else {
+                groups = try await asset.loadChapterMetadataGroups(
+                    withTitleLocale: Locale.current,
+                    containingItemsWithCommonKeys: []
+                )
+            }
+        } catch {
+            groups = []
+        }
+
+        var built: [Chapter] = []
+        built.reserveCapacity(groups.count)
+
+        for g in groups {
+            let start = g.timeRange.start.seconds
+            let end = (g.timeRange.start + g.timeRange.duration).seconds
+
+            var title: String? = nil
+            if let item = g.items.first(where: { $0.commonKey?.rawValue == AVMetadataKey.commonKeyTitle.rawValue }) {
+                title = try? await item.load(.stringValue)
+            } else if let item = g.items.first {
+                title = try? await item.load(.stringValue)
+            }
+
+            if start.isFinite, end.isFinite, end > start {
+                built.append(Chapter(index: 0, title: title, startSeconds: start, endSeconds: end))
+            }
+        }
+        
+        // Ensure chronological order and exact index alignment
+        built.sort { $0.startSeconds < $1.startSeconds }
+        for i in 0..<built.count {
+            built[i] = Chapter(index: i, title: built[i].title, startSeconds: built[i].startSeconds, endSeconds: built[i].endSeconds)
+        }
+
+        let trackKey = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url.absoluteString : ""
+        if let savedStates = persistence.loadEnabledState(for: trackKey) {
+            for i in 0..<built.count {
+                if let isEnabled = savedStates[built[i].id] {
+                    built[i].isEnabled = isEnabled
+                }
+            }
+        }
+        if let savedOrder = persistence.loadOrder(for: trackKey) {
+            var orderedChapters: [Chapter] = []
+            var remainingChapters = built
+            for id in savedOrder {
+                if let idx = remainingChapters.firstIndex(where: { $0.id == id }) {
+                    orderedChapters.append(remainingChapters.remove(at: idx))
+                }
+            }
+            orderedChapters.append(contentsOf: remainingChapters)
+            built = orderedChapters
+        }
+
+        // Some files return a single "chapter" spanning whole book; treat that as "no chapters".
+        if built.count >= 2 {
+            chapters = built
+            updateCurrentChapterFromPlayerTime()
+            installChapterBoundaryObservers()
+        } else {
+            chapters = []
+            currentChapterIndex = nil
+            currentSubtitle = ""
+            removeChapterBoundaryObserver()
+            updateNowPlayingInfo(isPaused: !isPlaying)
+            syncToWatch()
+        }
+    }
+
+    private func updateCurrentChapterFromPlayerTime() {
+        guard chapters.count >= 2, let player else { return }
+        let t = player.currentTime().seconds
+        guard t.isFinite else { return }
+
+        // Find all chapters that contain the current time
+        let matching = chapters.filter { t >= $0.startSeconds && t < $0.endSeconds }
+        
+        // Pick the most specific one (shortest duration) to ignore global/overlapping chapters
+        if let bestMatch = matching.min(by: { ($0.endSeconds - $0.startSeconds) < ($1.endSeconds - $1.startSeconds) }),
+           let idx = chapters.firstIndex(of: bestMatch) {
+            
+            if currentChapterIndex != idx {
+                currentChapterIndex = idx
+                let c = chapters[idx]
+                if let title = c.title, !title.isEmpty {
+                    currentSubtitle = title
+                } else {
+                    currentSubtitle = "Chapter \(idx + 1)"
+                }
+                updateNowPlayingInfo(isPaused: !isPlaying)
+                syncToWatch()
+            }
+        }
+    }
+
+    private func currentChapterForTime(_ t: Double) -> Chapter? {
+        guard chapters.count >= 2 else { return nil }
+        let matching = chapters.filter { t >= $0.startSeconds && t < $0.endSeconds }
+        return matching.min(by: { ($0.endSeconds - $0.startSeconds) < ($1.endSeconds - $1.startSeconds) })
+    }
+
+    private func applyChapterLoopIfNeeded() {
+        guard !isManualSeeking else { return }
+        guard chapters.count >= 2, let idx = currentChapterIndex, let player else { return }
+        guard !isSeekingForChapterBoundary else { return }
+
+        let t = player.currentTime().seconds
+        guard t.isFinite else { return }
+
+        let c = chapters[idx]
+        if t >= (c.endSeconds - 0.5) {
+            // Honor an armed end-of-chapter sleep timer first.
+            if case .endOfChapter = sleepTimerMode {
+                evaluateSleepTimerAtChapterEnd()
+                return
+            }
+            if loopMode == .chapter {
+                // Loop the CURRENT chapter.
+                isSeekingForChapterBoundary = true
+                progressFraction = 0
+                let targetSeconds = c.startSeconds + 0.05
+                player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                    self?.resumeAfterSeek()
+                }
+            } else {
+                if let nextIdx = findNextEnabledChapterIndex(after: idx) {
+                    let nextC = chapters[nextIdx]
+                    if abs(nextC.startSeconds - c.endSeconds) < 1.0 && nextIdx == idx + 1 {
+                        // Contiguous chapters — let AVPlayer seamlessly continue.
+                    } else {
+                        // Skip disabled chapters or gaps.
+                        isSeekingForChapterBoundary = true
+                        progressFraction = 0
+                        player.seek(to: CMTime(seconds: nextC.startSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                            self?.resumeAfterSeek()
+                        }
+                    }
+                } else {
+                    // This is the LAST chapter and loop is OFF. Go to next track.
+                    DispatchQueue.main.async { [weak self] in
+                        self?.isSeekingForChapterBoundary = false
+                        self?.nextTrack()
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyBookmarkLoopIfNeeded() {
+        guard loopMode == .bookmark, !isManualSeeking, !isSeekingForChapterBoundary else { return }
+        guard let player else { return }
+        let t = player.currentTime().seconds
+        guard t.isFinite else { return }
+
+        let sorted = currentTrackBookmarks.filter { $0.isEnabled }
+        guard sorted.count >= 2 else { return }
+
+        // Strict `<` keeps the end-boundary in the approaching segment so the
+        // loop-back fires *before* the segment shifts forward.
+        guard let startIdx = sorted.lastIndex(where: { $0.timestamp < t }) else { return }
+        let endIdx = startIdx + 1
+        guard endIdx < sorted.count else {
+            // Playhead overshot the last boundary — loop to the last segment start.
+            if sorted.count >= 2, t - sorted[sorted.count - 1].timestamp < 1.0 {
+                let lastSegmentStart = sorted.count - 2
+                isSeekingForChapterBoundary = true
+                player.seek(to: CMTime(seconds: sorted[lastSegmentStart].timestamp + 0.05, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                    self?.resumeAfterSeek()
+                }
+            }
+            return
+        }
+
+        // Look-ahead covers one polling interval (0.25 s) scaled by playback speed.
+        let lookAhead = max(0.5, 0.3 * Double(speed))
+        if t >= sorted[endIdx].timestamp - lookAhead {
+            isSeekingForChapterBoundary = true
+            player.seek(to: CMTime(seconds: sorted[startIdx].timestamp + 0.05, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                self?.resumeAfterSeek()
+            }
+        }
+    }
+
+    private func removeBookmarkLoopBoundaryObserver() {
+        if let bookmarkLoopBoundaryObserver, let player {
+            player.removeTimeObserver(bookmarkLoopBoundaryObserver)
+        }
+        bookmarkLoopBoundaryObserver = nil
+    }
+
+    private func installBookmarkLoopBoundaryObserver() {
+        removeBookmarkLoopBoundaryObserver()
+        guard let player, loopMode == .bookmark else { return }
+        let sorted = currentTrackBookmarks.filter { $0.isEnabled }
+        guard sorted.count >= 2 else { return }
+
+        let times: [NSValue] = sorted.dropFirst().compactMap { bm in
+            let boundary = bm.timestamp - 0.05
+            guard boundary > 0, boundary.isFinite else { return nil }
+            return NSValue(time: CMTime(seconds: boundary, preferredTimescale: 600))
+        }
+        guard !times.isEmpty else { return }
+
+        bookmarkLoopBoundaryObserver = player.addBoundaryTimeObserver(
+            forTimes: times,
+            queue: .main
+        ) { [weak self] in
+            self?.applyBookmarkLoopIfNeeded()
+        }
+    }
+
+    private func removeChapterBoundaryObserver() {
+        if let chapterBoundaryObserver, let player {
+            player.removeTimeObserver(chapterBoundaryObserver)
+        }
+        chapterBoundaryObserver = nil
+    }
+
+    private func installChapterBoundaryObservers() {
+        removeChapterBoundaryObserver()
+        guard let player, chapters.count >= 2 else { return }
+
+        let times: [NSValue] = chapters.compactMap { c in
+            guard c.isEnabled else { return nil }
+            let boundary = c.endSeconds - 0.5
+            guard boundary > 0, boundary.isFinite else { return nil }
+            return NSValue(time: CMTime(seconds: boundary, preferredTimescale: 600))
+        }
+        guard !times.isEmpty else { return }
+
+        chapterBoundaryObserver = player.addBoundaryTimeObserver(
+            forTimes: times,
+            queue: .main
+        ) { [weak self] in
+            self?.applyChapterLoopIfNeeded()
+        }
+    }
+
+    private func resumeAfterSeek() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isSeekingForChapterBoundary = false
+            if self.isPlaying {
+                self.player?.defaultRate = self.speed
+                self.player?.playImmediately(atRate: self.speed)
+                self.applySpeedToCurrentItem()
+            } else {
+                self.updateNowPlayingInfo(isPaused: true)
+            }
+            self.updateNowPlayingElapsedTime()
+            self.updateCurrentChapterFromPlayerTime()
+            self.updateProgressFromPlayer()
+        }
+    }
+
+    private func seekToChapter(at index: Int) {
+        guard chapters.indices.contains(index), let player else { return }
+        let c = chapters[index]
+        
+        // Seek slightly past the boundary to avoid rounding errors matching the previous chapter
+        let targetSeconds = c.startSeconds + 0.05
+        
+        isManualSeeking = true
+        player.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isManualSeeking = false
+                self?.updateCurrentChapterFromPlayerTime()
+                self?.updateNowPlayingElapsedTime()
+                self?.updateProgressFromPlayer()
+                if self?.isPlaying == true {
+                    self?.player?.defaultRate = self?.speed ?? 1.0
+                    self?.player?.playImmediately(atRate: self?.speed ?? 1.0)
+                    self?.applySpeedToCurrentItem()
+                }
+            }
+        }
+    }
+
+    // MARK: - Bookmarks API
+
+    /// Key used to store bookmarks for the currently loaded book.
+    private var bookmarksStorageKey: String? {
+        if let f = folderURL?.absoluteString { return f }
+        if tracks.indices.contains(currentIndex) { return tracks[currentIndex].id }
+        return nil
+    }
+
+    func loadBookmarksForCurrentBook() {
+        guard let key = bookmarksStorageKey else {
+            bookmarks = []
+            installBookmarkBoundaryObserver()
+            return
+        }
+        bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted { $0.timestamp < $1.timestamp }
+        installBookmarkBoundaryObserver()
+    }
+
+    private func persistBookmarks() {
+        guard let key = bookmarksStorageKey else { return }
+        persistence.saveBookmarks(bookmarks, for: key, folderURL: folderURL)
+    }
+
+    /// Bookmarks scoped to the currently playing track (if any), sorted.
+    var currentTrackBookmarks: [Bookmark] {
+        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        return bookmarks
+            .filter { $0.trackId == nil || $0.trackId == trackId }
+            .sorted { $0.timestamp < $1.timestamp }
+    }
+
+    @discardableResult
+    func addBookmarkAtCurrentTime() -> Bookmark? {
+        guard let player else { return nil }
+        let t = player.currentTime().seconds
+        guard t.isFinite else { return nil }
+        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        // Auto-numbered default title scoped to the current track.
+        let scopedCount = bookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
+        let bm = Bookmark(
+            title: "Bookmark \(scopedCount + 1)",
+            folderKey: folderURL?.absoluteString,
+            trackId: trackId,
+            timestamp: t
+        )
+        bookmarks.append(bm)
+        bookmarks.sort { $0.timestamp < $1.timestamp }
+        persistBookmarks()
+        installBookmarkBoundaryObserver()
+        return bm
+    }
+
+    func bookmarkDraftAtCurrentTime() -> BookmarkDraft? {
+        guard let player else { return nil }
+        let t = player.currentTime().seconds
+        guard t.isFinite else { return nil }
+        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        let scopedCount = bookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
+        return BookmarkDraft(
+            title: "Bookmark \(scopedCount + 1)",
+            folderKey: folderURL?.absoluteString,
+            trackId: trackId,
+            timestamp: t
+        )
+    }
+
+    @discardableResult
+    func appendBookmark(
+        from draft: BookmarkDraft,
+        title: String,
+        timestamp: TimeInterval,
+        note: String?,
+        voiceMemoFileName: String?
+    ) -> Bookmark {
+        let bm = Bookmark(
+            id: draft.id,
+            title: title,
+            folderKey: draft.folderKey,
+            trackId: draft.trackId,
+            timestamp: timestamp,
+            note: note,
+            voiceMemoFileName: voiceMemoFileName
+        )
+        bookmarks.append(bm)
+        bookmarks.sort { $0.timestamp < $1.timestamp }
+        persistBookmarks()
+        installBookmarkBoundaryObserver()
+        return bm
+    }
+
+    func updateBookmark(id: UUID, title: String, timestamp: TimeInterval, note: String?, voiceMemoFileName: String?) {
+        guard let idx = bookmarks.firstIndex(where: { $0.id == id }) else { return }
+        bookmarks[idx].title = title
+        bookmarks[idx].timestamp = timestamp
+        bookmarks[idx].note = note
+        bookmarks[idx].voiceMemoFileName = voiceMemoFileName
+        bookmarks.sort { $0.timestamp < $1.timestamp }
+        persistBookmarks()
+        installBookmarkBoundaryObserver()
+    }
+
+    private func addWatchBookmark(from payload: [String: Any]) {
+        guard let storageKey = payload["bookmarkStorageKey"] as? String else { return }
+
+        let folderKey = payload["folderKey"] as? String
+        let trackId = payload["trackId"] as? String
+        let note = (payload["note"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceMemoFileName = payload["voiceMemoFileName"] as? String
+        let incomingTimestamp = payload["timestamp"] as? Double
+        let timestamp = max(0, incomingTimestamp?.isFinite == true ? incomingTimestamp ?? 0 : 0)
+
+        let isCurrentBook = storageKey == bookmarksStorageKey
+        // Only the currently-loaded book has live security scope, so sidecar
+        // I/O is restricted to that case; other books fall back to UserDefaults.
+        let targetFolderURL: URL? = isCurrentBook ? folderURL : nil
+        var targetBookmarks = isCurrentBook
+            ? bookmarks
+            : persistence.loadBookmarks(for: storageKey, folderURL: targetFolderURL)
+        let scopedCount = targetBookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
+
+        let bookmark = Bookmark(
+            title: "Bookmark \(scopedCount + 1)",
+            folderKey: folderKey,
+            trackId: trackId,
+            timestamp: timestamp,
+            note: note?.isEmpty == true ? nil : note,
+            voiceMemoFileName: voiceMemoFileName
+        )
+
+        targetBookmarks.append(bookmark)
+        targetBookmarks.sort { $0.timestamp < $1.timestamp }
+        persistence.saveBookmarks(targetBookmarks, for: storageKey, folderURL: targetFolderURL)
+
+        if isCurrentBook {
+            bookmarks = targetBookmarks
+            installBookmarkBoundaryObserver()
+        }
+    }
+
+    func toggleBookmarkEnabled(id: UUID) {
+        guard let idx = bookmarks.firstIndex(where: { $0.id == id }) else { return }
+        bookmarks[idx].isEnabled.toggle()
+        persistBookmarks()
+        installBookmarkBoundaryObserver()
+    }
+
+    /// Reorder bookmarks. Only meaningful for bookmarks that share the same
+    /// scope (e.g. the current track), since their natural ordering is by
+    /// timestamp. Persists the new ordering and refreshes the boundary observer.
+    func moveBookmarks(from source: IndexSet, to destination: Int) {
+        bookmarks.move(fromOffsets: source, toOffset: destination)
+        persistBookmarks()
+        installBookmarkBoundaryObserver()
+    }
+
+    func deleteBookmark(id: UUID) {
+
+        if let idx = bookmarks.firstIndex(where: { $0.id == id }) {
+            // Clean up the on-disk voice memo if any.
+            if let url = bookmarks[idx].voiceMemoURL(in: folderURL) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            bookmarks.remove(at: idx)
+            persistBookmarks()
+            installBookmarkBoundaryObserver()
+
+            if loopMode == .bookmark && bookmarks.isEmpty {
+                setLoopMode(.off)
+            }
+        }
+    }
+
+    /// Install a boundary observer that fires precisely when playback crosses
+    /// any bookmark with an attached voice memo, in addition to the
+    /// periodic-observer-based safety net. Boundary observers are far more
+    /// precise than 0.25s polling.
+    private func installBookmarkBoundaryObserver() {
+        if let bookmarkBoundaryObserver, let player {
+            player.removeTimeObserver(bookmarkBoundaryObserver)
+        }
+        bookmarkBoundaryObserver = nil
+        guard let player else { return }
+        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        let times: [NSValue] = bookmarks.compactMap { bm in
+            guard bm.isEnabled, bm.voiceMemoFileName != nil else { return nil }
+            if let bt = bm.trackId, let ct = trackId, bt != ct { return nil }
+            guard bm.timestamp.isFinite, bm.timestamp > 0 else { return nil }
+            return NSValue(time: CMTime(seconds: bm.timestamp, preferredTimescale: 600))
+        }
+        guard !times.isEmpty else {
+            installBookmarkLoopBoundaryObserver()
+            return
+        }
+        bookmarkBoundaryObserver = player.addBoundaryTimeObserver(
+            forTimes: times,
+            queue: .main
+        ) { [weak self] in
+            guard let self, let t = self.player?.currentTime().seconds else { return }
+            self.checkBookmarkVoiceMemoTrigger(at: t, previousSeconds: self.lastBookmarkCheckSecond)
+            self.lastBookmarkCheckSecond = t
+        }
+        installBookmarkLoopBoundaryObserver()
+    }
+
+    /// Jump playback to a bookmark's timestamp (without firing the voice memo overlay).
+    func jumpToBookmark(_ bm: Bookmark) {
+        // Suppress retrigger when the user manually navigates to a bookmark.
+        lastTriggeredBookmarkID = bm.id
+        lastTriggeredAtPlayerSecond = bm.timestamp
+        seek(toSeconds: bm.timestamp)
+    }
+
+    // MARK: Audio Source Switching
+
+    private enum AudioSource { case mainPlayer, voiceMemo }
+
+    /// Explicitly transitions audio between the main AVPlayer and voice memo
+    /// engine.  Pausing the primary player first prevents overlapping streams;
+    /// reconfiguring the AVAudioSession on each transition ensures routing and
+    /// ducking are correct.
+    private func switchAudioSource(to source: AudioSource) {
+        let session = AVAudioSession.sharedInstance()
+        switch source {
+        case .voiceMemo:
+            player?.pause()
+            try? session.setCategory(.playback, mode: .spokenAudio,
+                                     options: [.interruptSpokenAudioAndMixWithOthers, .duckOthers])
+            try? session.setActive(true)
+        case .mainPlayer:
+            voiceMemoPlayerNode?.stop()
+            voiceMemoEngine?.stop()
+            voiceMemoEngine?.reset()
+            voiceMemoProgressTimer?.invalidate()
+            voiceMemoProgressTimer = nil
+            voiceMemoProgress = 0.0
+            voiceMemoPlayerNode = nil
+            voiceMemoEngine = nil
+            isPlayingVoiceMemo = false
+            try? session.setCategory(.playback, mode: .spokenAudio, options: [])
+            try? session.setActive(true)
+        }
+    }
+
+    // MARK: Voice Memo Interception
+
+    /// Called from the boundary + periodic time observers. Detects when
+    /// playback crosses a bookmark with an attached voice memo and intercepts
+    /// playback (when `playBookmarksInline` is enabled).
+    private func checkBookmarkVoiceMemoTrigger(at currentSeconds: Double, previousSeconds: Double?) {
+        guard !isPlayingVoiceMemo, isPlaying, !isManualSeeking else { return }
+        // In bookmark-loop mode the player repeatedly traverses bookmark
+        // boundaries by design; firing the voice memo each time would create
+        // an unwanted overlay loop, so suppress memo triggers entirely.
+        guard loopMode != .bookmark else { return }
+        guard currentSeconds.isFinite else { return }
+        // Honor user preference.
+        guard UserDefaults.standard.bool(forKey: "playBookmarksInline") else { return }
+
+        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+
+        let toleranceBefore: Double = 0.1
+        let toleranceAfter: Double = 0.75
+        let candidates = bookmarks.filter { bm in
+            guard bm.isEnabled else { return false }
+            guard bm.voiceMemoFileName != nil else { return false }
+            if let bt = bm.trackId, let ct = trackId, bt != ct { return false }
+
+            if let previousSeconds, previousSeconds.isFinite {
+                let lowerBound = min(previousSeconds, currentSeconds) - toleranceBefore
+                let upperBound = max(previousSeconds, currentSeconds) + toleranceBefore
+                if bm.timestamp >= lowerBound && bm.timestamp <= upperBound {
+                    return true
+                }
+            }
+
+            let delta = currentSeconds - bm.timestamp
+            return delta >= -toleranceBefore && delta <= toleranceAfter
+        }
+
+        guard let bm = candidates.max(by: { $0.timestamp < $1.timestamp }) else { return }
+
+        // Suppress duplicate firings for the same bookmark.
+        if lastTriggeredBookmarkID == bm.id,
+           abs(currentSeconds - lastTriggeredAtPlayerSecond) < 5 {
+            return
+        }
+        guard let memoURL = bm.voiceMemoURL(in: folderURL),
+              FileManager.default.fileExists(atPath: memoURL.path) else { return }
+
+        lastTriggeredBookmarkID = bm.id
+        lastTriggeredAtPlayerSecond = currentSeconds
+        startVoiceMemoPlayback(url: memoURL)
+    }
+
+    private func cachedVoiceMemoGain(for url: URL) -> Float {
+        let key = url.absoluteString
+        if let cached = voiceMemoGainCache[key] { return cached }
+        let gain = voiceMemoGain(for: url)
+        voiceMemoGainCache[key] = gain
+        return gain
+    }
+
+    private func startVoiceMemoPlayback(url: URL) {
+        switchAudioSource(to: .voiceMemo)
+        do {
+            let audioFile = try AVAudioFile(forReading: url)
+            let engine = AVAudioEngine()
+            let playerNode = AVAudioPlayerNode()
+            engine.attach(playerNode)
+            engine.connect(playerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
+
+            engine.mainMixerNode.outputVolume = cachedVoiceMemoGain(for: url)
+
+            try engine.start()
+
+            let duration = Double(audioFile.length) / audioFile.processingFormat.sampleRate
+            voiceMemoEngine = engine
+            voiceMemoPlayerNode = playerNode
+            voiceMemoDuration = duration
+            isPlayingVoiceMemo = true
+            voiceMemoProgress = 0.0
+
+            playerNode.scheduleFile(audioFile, at: nil) { [weak self] in
+                DispatchQueue.main.async { self?.voiceMemoDidFinish() }
+            }
+            playerNode.play()
+
+            voiceMemoProgressTimer?.invalidate()
+            voiceMemoProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                guard let self,
+                      let node = self.voiceMemoPlayerNode,
+                      node.isPlaying,
+                      let lastTime = node.lastRenderTime,
+                      let playerTime = node.playerTime(forNodeTime: lastTime)
+                else { return }
+                let current = Double(playerTime.sampleTime) / playerTime.sampleRate
+                self.voiceMemoProgress = min(1.0, max(0.0, current / self.voiceMemoDuration))
+            }
+
+            updateNowPlayingInfo(isPaused: true)
+        } catch {
+            print("Voice memo playback error: \(error)")
+            switchAudioSource(to: .mainPlayer)
+            if isPlaying {
+                player?.playImmediately(atRate: speed)
+            }
+        }
+    }
+
+    func stopVoiceMemo() {
+        switchAudioSource(to: .mainPlayer)
+
+        player?.play()
+        applySpeedToCurrentItem()
+        updateNowPlayingInfo(isPaused: false)
+    }
+
+    private func voiceMemoDidFinish() {
+        switchAudioSource(to: .mainPlayer)
+
+        if isPlaying {
+            player?.playImmediately(atRate: speed)
+            applySpeedToCurrentItem()
+            updateNowPlayingInfo(isPaused: false)
+        }
+    }
+
+    private func persistSelection(url: URL) {
+        // Refresh security scope for the new selection.
+        stopSelectionSecurityScopeIfNeeded()
+        selectionSecurityScopeURL = url
+        hasSelectionSecurityScopeAccess = url.startAccessingSecurityScopedResource()
+
+        // Save security-scoped bookmark so it restores after relaunch.
+        persistence.saveBookmark(url: url)
+
+        // Load bookmarks for this book.
+        loadBookmarksForCurrentBook()
+    }
+}
+
+private struct Persistence {
+    private let defaults = UserDefaults.standard
+    private let bookmarkKey = "OrbitAudiobooks.selection.bookmark"
+    private let progressKey = "OrbitAudiobooks.progress.dictionary"
+    private let speedKey = "OrbitAudiobooks.playback.speed.dictionary"
+    private let loopModeKey = "OrbitAudiobooks.playback.loopMode.dictionary"
+    private let lastTrackKey = "OrbitAudiobooks.lastTrack.dictionary"
+    
+    func saveLastTrack(for folderKey: String, trackId: String) {
+        var dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
+        dict[folderKey] = trackId
+        defaults.set(dict, forKey: lastTrackKey)
+    }
+    
+    func getLastTrack(for folderKey: String) -> String? {
+        let dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
+        return dict[folderKey]
+    }
+    
+    func saveSpeed(for title: String, speed: Float) {
+        var dict = defaults.dictionary(forKey: speedKey) as? [String: Float] ?? [:]
+        dict[title] = speed
+        defaults.set(dict, forKey: speedKey)
+    }
+    
+    func getSpeed(for title: String) -> Float? {
+        let dict = defaults.dictionary(forKey: speedKey) as? [String: Float] ?? [:]
+        return dict[title]
+    }
+    
+    func saveLoopMode(for key: String, loopMode: String) {
+        var dict = defaults.dictionary(forKey: loopModeKey) as? [String: String] ?? [:]
+        dict[key] = loopMode
+        defaults.set(dict, forKey: loopModeKey)
+    }
+
+    func getLoopMode(for key: String) -> String? {
+        let dict = defaults.dictionary(forKey: loopModeKey) as? [String: String] ?? [:]
+        return dict[key]
+    }
+
+    func saveOrder(for key: String, ids: [String]) {
+        defaults.set(ids, forKey: "order_\(key)")
+    }
+    
+    func loadOrder(for key: String) -> [String]? {
+        defaults.stringArray(forKey: "order_\(key)")
+    }
+    
+    func saveEnabledState(for key: String, states: [String: Bool]) {
+        defaults.set(states, forKey: "enabled_\(key)")
+    }
+    
+    func loadEnabledState(for key: String) -> [String: Bool]? {
+        defaults.dictionary(forKey: "enabled_\(key)") as? [String: Bool]
+    }
+
+    func saveBookProgress(for folderKey: String, trackId: String, time: Double) {
+        var dict = defaults.dictionary(forKey: progressKey) as? [String: [String: Any]] ?? [:]
+        dict[folderKey] = ["trackId": trackId, "time": time]
+        defaults.set(dict, forKey: progressKey)
+    }
+
+    func getBookProgress(for folderKey: String) -> (trackId: String, time: Double)? {
+        let dict = defaults.dictionary(forKey: progressKey) as? [String: [String: Any]] ?? [:]
+        if let item = dict[folderKey], let trackId = item["trackId"] as? String, let time = item["time"] as? Double {
+            return (trackId, time)
+        }
+        return nil
+    }
+
+    func saveBookmark(url: URL) {
+        do {
+            let data = try url.bookmarkData(
+                // iOS does not support `.withSecurityScope` bookmarks; the security scope is applied
+                // when you call `startAccessingSecurityScopedResource()` on the resolved URL.
+                options: [.minimalBookmark],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            defaults.set(data, forKey: bookmarkKey)
+        } catch {
+            print("Bookmark save failed: \(error)")
+        }
+    }
+
+    // MARK: - Bookmarks (per-book) persistence
+
+    private func bookmarksKey(for key: String) -> String { "bookmarks_\(key)" }
+
+    /// Writes the bookmark list for a book. When `folderURL` is provided, the
+    /// list is written to a `[BookName].json` sidecar alongside the audiobook
+    /// (the primary store) and *also* mirrored to UserDefaults as a backup
+    /// for cases where the audiobook's volume becomes unavailable.
+    func saveBookmarks(_ bookmarks: [Bookmark], for key: String, folderURL: URL? = nil) {
+        let data: Data
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            data = try encoder.encode(bookmarks)
+        } catch {
+            print("Bookmark encode failed: \(error)")
+            return
+        }
+
+        if let folderURL {
+            writeSidecar(data: data, folderURL: folderURL)
+        }
+
+        defaults.set(data, forKey: bookmarksKey(for: key))
+    }
+
+    /// Loads the bookmark list for a book. Prefers the `[BookName].json`
+    /// sidecar (if `folderURL` is provided and the file exists); falls back
+    /// to UserDefaults. If the sidecar is missing but UserDefaults has data,
+    /// the sidecar is created (one-shot migration).
+    func loadBookmarks(for key: String, folderURL: URL? = nil) -> [Bookmark] {
+        if let folderURL,
+           let bookmarks = readSidecar(folderURL: folderURL) {
+            return bookmarks
+        }
+
+        let defaultsBookmarks: [Bookmark]
+        if let data = defaults.data(forKey: bookmarksKey(for: key)),
+           let decoded = try? JSONDecoder().decode([Bookmark].self, from: data) {
+            defaultsBookmarks = decoded
+        } else {
+            defaultsBookmarks = []
+        }
+
+        if let folderURL, !defaultsBookmarks.isEmpty {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let data = try? encoder.encode(defaultsBookmarks) {
+                writeSidecar(data: data, folderURL: folderURL)
+            }
+        }
+
+        return defaultsBookmarks
+    }
+
+    /// Acquires security-scoped access to the audiobook location and writes
+    /// the sidecar atomically. Failure is logged but non-fatal: callers
+    /// always have the UserDefaults backup to fall back to.
+    private func writeSidecar(data: Data, folderURL: URL) {
+        let sidecar = Bookmark.sidecarURL(for: folderURL)
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+        do {
+            try data.write(to: sidecar, options: .atomic)
+        } catch {
+            print("Bookmark sidecar write failed at \(sidecar.path): \(error)")
+        }
+    }
+
+    /// Reads and decodes the sidecar JSON for the audiobook. Returns nil if
+    /// no sidecar exists or the file cannot be decoded; callers should fall
+    /// back to UserDefaults in that case.
+    private func readSidecar(folderURL: URL) -> [Bookmark]? {
+        let sidecar = Bookmark.sidecarURL(for: folderURL)
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+        guard FileManager.default.fileExists(atPath: sidecar.path),
+              let data = try? Data(contentsOf: sidecar) else { return nil }
+        return try? JSONDecoder().decode([Bookmark].self, from: data)
+    }
+
+    func restoreBookmark() -> URL? {
+        guard let data = defaults.data(forKey: bookmarkKey) else { return nil }
+
+        var isStale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+
+            // If stale, resave a fresh bookmark (best-effort).
+            if isStale {
+                saveBookmark(url: url)
+            }
+
+            return url
+        } catch {
+            print("Bookmark restore failed: \(error)")
+            return nil
+        }
+    }
+}
