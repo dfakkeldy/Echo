@@ -54,3 +54,8 @@ out.txt
 out2.txt
 .env
 .env.local
+
+# --- Python ---
+__pycache__/
+.venv/
+*.pyc
