@@ -35,7 +35,7 @@ enum DesignerWatchAction: String, Codable, CaseIterable, Identifiable {
 }
 
 struct WatchAppSettingsView: View {
-    @Bindable var model: PlayerModel
+    @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     @Environment(\.dismiss) private var dismiss
 

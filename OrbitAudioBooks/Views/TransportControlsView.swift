@@ -1,8 +1,7 @@
 import SwiftUI
-import Observation
 
 struct TransportControlsView: View {
-    @Bindable var model: PlayerModel
+    @Environment(PlayerModel.self) private var model
 
     var body: some View {
         HStack {

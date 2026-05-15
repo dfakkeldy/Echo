@@ -1,11 +1,10 @@
 import SwiftUI
-import Observation
 
 // MARK: - UI (single screen)
 
 struct ContentView: View {
     @Binding var pendingDeepLink: PlayerDeepLink?
-    @State private var model = PlayerModel()
+    @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     @Environment(StoreManager.self) private var storeManager
     @State private var showingFolderPicker = false
@@ -21,8 +20,6 @@ struct ContentView: View {
     }
 
     var body: some View {
-        @Bindable var model = model
-
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
             ZStack {
@@ -52,32 +49,29 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            PlayerScrubberView(model: model)
+            PlayerScrubberView()
 
-            TransportControlsView(model: model)
+            TransportControlsView()
             }
             // Apply gray-out + opacity to the ENTIRE primary player block at once.
             .grayscale(model.isPlayingVoiceMemo ? 1.0 : 0.0)
             .opacity(model.isPlayingVoiceMemo ? 0.5 : 1.0)
             .allowsHitTesting(!model.isPlayingVoiceMemo)
-            .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
 
             // Single floating "Playing Voice Memo" badge centered over the
             // grayed-out player block.
             if model.isPlayingVoiceMemo {
-                VoiceMemoOverlayView(model: model)
+                VoiceMemoOverlayView()
             }
 
             }
             .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
 
             BottomToolbarView(
-                model: model,
                 showingPlaylist: $showingPlaylist,
                 onCreateBookmark: { draft in newBookmarkDraft = draft }
             )
         }
-        .environment(model)
         .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
         .padding(.horizontal)
         .padding(.top)
@@ -107,19 +101,19 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showingPlaylist) {
-            PlaylistView(model: model)
+            PlaylistView()
         }
         .sheet(isPresented: $showingSettings) {
-            SettingsView(model: model)
+            SettingsView()
         }
         .sheet(item: Binding(
             get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
             set: { editingBookmarkID = $0?.id }
         )) { wrapper in
-            EditBookmarkView(model: model, bookmarkID: wrapper.id, draft: nil)
+            EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
         }
         .sheet(item: $newBookmarkDraft) { draft in
-            EditBookmarkView(model: model, bookmarkID: nil, draft: draft)
+            EditBookmarkView(bookmarkID: nil, draft: draft)
         }
         .onAppear {
             // Configure remote commands early so the Watch/Now Playing UI is stable once audio starts.

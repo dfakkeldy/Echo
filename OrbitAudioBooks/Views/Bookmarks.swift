@@ -368,7 +368,7 @@ final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
 
 #if !os(watchOS)
 struct EditBookmarkView: View {
-    @Bindable var model: PlayerModel
+    @Environment(PlayerModel.self) private var model
     /// The id of the bookmark being edited.
     let bookmarkID: UUID?
     let draft: BookmarkDraft?

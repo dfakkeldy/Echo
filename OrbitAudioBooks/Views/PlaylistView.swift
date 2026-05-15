@@ -30,19 +30,14 @@ enum PlaylistRow: Identifiable {
 }
 
 struct PlaylistView: View {
-    @Bindable var model: PlayerModel
+    @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     @Environment(\.dismiss) private var dismiss
     @State private var editingBookmarkID: UUID? = nil
 
     private enum PlaylistTab: Hashable { case items, bookmarks }
-    @State private var selectedTab: PlaylistTab
+    @State private var selectedTab: PlaylistTab = .items
     @State private var showChapters: Bool = false
-
-    init(model: PlayerModel) {
-        self.model = model
-        _selectedTab = State(initialValue: model.loopMode == .bookmark ? .bookmarks : .items)
-    }
 
     private func formatDuration(_ seconds: Double) -> String {
         let h = Int(seconds) / 3600
@@ -173,7 +168,7 @@ struct PlaylistView: View {
                 get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
                 set: { editingBookmarkID = $0?.id }
             )) { wrapper in
-                EditBookmarkView(model: model, bookmarkID: wrapper.id, draft: nil)
+                EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
             }
         }
         .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))

@@ -2,7 +2,7 @@ import SwiftUI
 import StoreKit
 
 struct SettingsView: View {
-    @Bindable var model: PlayerModel
+    @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     @Environment(StoreManager.self) private var storeManager
     @Environment(\.dismiss) private var dismiss
@@ -43,7 +43,7 @@ struct SettingsView: View {
                 }
                 Section {
                     NavigationLink("Watch App") {
-                        WatchAppSettingsView(model: model)
+                        WatchAppSettingsView()
                     }
                 }
                 Section {

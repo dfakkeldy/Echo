@@ -1,8 +1,7 @@
 import SwiftUI
-import Observation
 
 struct BottomToolbarView: View {
-    @Bindable var model: PlayerModel
+    @Environment(PlayerModel.self) private var model
     @Binding var showingPlaylist: Bool
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
 

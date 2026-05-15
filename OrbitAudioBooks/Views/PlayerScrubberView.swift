@@ -3,7 +3,7 @@ import SwiftUI
 /// Extracted scrubber HStack that only observes `PlayerModel` via `@Bindable`,
 /// isolating the 0.5-second observation updates from the main `ContentView`.
 struct PlayerScrubberView: View {
-    @Bindable var model: PlayerModel
+    @Environment(PlayerModel.self) private var model
 
     @State private var scrubFraction: Double = 0.0
     @State private var isScrubbing = false
