@@ -10,7 +10,13 @@ enum AppGroupDefaults {
     private static let migrationKey = "didMigrateWidgetDefaultsToAppGroup"
 
     static var shared: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            #if DEBUG
+            assertionFailure("Unable to open app-group UserDefaults suite: \(suiteName)")
+            #endif
+            return .standard
+        }
+        return defaults
     }
 
     static var isHapticFeedbackEnabled: Bool {
@@ -128,6 +134,20 @@ enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .bookmark:      return "addBookmark"
         case .empty:         return ""
         }
+    }
+}
+
+enum WatchSlotConfiguration {
+    static func actions(from raw: String) -> [WatchAction] {
+        padded(raw.split(separator: ",").compactMap { WatchAction(rawValue: String($0)) })
+    }
+
+    static func padded(_ slots: [WatchAction]) -> [WatchAction] {
+        var actions = Array(slots.prefix(5))
+        while actions.count < 5 {
+            actions.append(.empty)
+        }
+        return actions
     }
 }
 
@@ -261,13 +281,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     }
 
     private func parseSlots(_ raw: String) -> [WatchAction] {
-        raw.split(separator: ",").compactMap { WatchAction(rawValue: String($0)) }
+        WatchSlotConfiguration.actions(from: raw)
     }
 
     private func padded(_ slots: [WatchAction]) -> [WatchAction] {
-        var s = slots
-        while s.count < 5 { s.append(.empty) }
-        return Array(s.prefix(5))
+        WatchSlotConfiguration.padded(slots)
     }
 
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {

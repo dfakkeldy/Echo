@@ -72,6 +72,10 @@ final class StoreManager {
         await refreshPurchasedProducts()
     }
 
+    func recordStoreError(_ error: Error) {
+        lastStoreError = error.localizedDescription
+    }
+
     private func listenForTransactionUpdates() async {
         for await result in Transaction.updates {
             do {

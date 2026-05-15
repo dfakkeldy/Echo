@@ -4,9 +4,12 @@ import Observation
 /// Centralized source of truth for user preference keys.
 @Observable
 final class SettingsManager {
+    static let systemFontName = "System"
+    private static let legacySystemFontName = "Helvetica"
+
     enum Defaults {
         static let isDarkMode = true
-        static let appFont = "Helvetica"
+        static let appFont = "Lexend"
         static let isRewindEnabled = false
         static let rewindPauseSecondsThreshold = 30
         static let rewindAmountAfterSeconds = 10
@@ -109,7 +112,12 @@ final class SettingsManager {
         Self.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
         isDarkMode = defaults.bool(forKey: Keys.isDarkMode)
-        appFont = defaults.string(forKey: Keys.appFont) ?? Defaults.appFont
+        let storedAppFont = defaults.string(forKey: Keys.appFont) ?? Defaults.appFont
+        let normalizedAppFont = Self.normalizedAppFont(storedAppFont)
+        appFont = normalizedAppFont
+        if normalizedAppFont != storedAppFont {
+            defaults.set(normalizedAppFont, forKey: Keys.appFont)
+        }
         isRewindEnabled = defaults.bool(forKey: Keys.isRewindEnabled)
         rewindPauseSecondsThreshold = defaults.integer(forKey: Keys.rewindPauseSecondsThreshold)
         rewindAmountAfterSeconds = defaults.integer(forKey: Keys.rewindAmountAfterSeconds)
@@ -165,5 +173,9 @@ final class SettingsManager {
             Keys.isHapticFeedbackEnabled: Defaults.isHapticFeedbackEnabled,
             Keys.watchQuickBookmarkTimeoutSeconds: Defaults.watchQuickBookmarkTimeoutSeconds
         ])
+    }
+
+    static func normalizedAppFont(_ appFont: String) -> String {
+        appFont == legacySystemFontName ? systemFontName : appFont
     }
 }

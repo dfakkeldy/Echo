@@ -4,6 +4,7 @@ import Observation
 // MARK: - UI (single screen)
 
 struct ContentView: View {
+    @Binding var pendingDeepLink: PlayerDeepLink?
     @State private var model = PlayerModel()
     @Environment(SettingsManager.self) private var settings
     @Environment(StoreManager.self) private var storeManager
@@ -13,6 +14,10 @@ struct ContentView: View {
     @State private var newBookmarkDraft: BookmarkDraft? = nil
     @State private var editingBookmarkID: UUID? = nil
     @Environment(\.displayScale) private var displayScale
+
+    init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
+        _pendingDeepLink = pendingDeepLink
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -75,7 +80,7 @@ struct ContentView: View {
                 onCreateBookmark: { draft in newBookmarkDraft = draft }
             )
         }
-        .environment(\.font, settings.appFont == "Helvetica" ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
+        .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
         .padding(.horizontal)
         .padding(.top)
         .toolbar {
@@ -124,11 +129,21 @@ struct ContentView: View {
             model.setSettingsManager(settings)
             model.setDisplayScale(displayScale)
             model.restoreLastSelectionIfPossible()
+            applyPendingDeepLinkIfNeeded()
+        }
+        .onChange(of: pendingDeepLink) { _, _ in
+            applyPendingDeepLinkIfNeeded()
         }
         .task {
             await storeManager.requestProducts()
         }
         .preferredColorScheme(settings.isDarkMode ? .dark : .light)
         }
+    }
+
+    private func applyPendingDeepLinkIfNeeded() {
+        guard let pendingDeepLink else { return }
+        model.handleDeepLink(pendingDeepLink)
+        self.pendingDeepLink = nil
     }
 }

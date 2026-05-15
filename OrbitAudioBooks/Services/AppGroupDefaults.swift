@@ -9,7 +9,13 @@ enum AppGroupDefaults {
     /// The shared `UserDefaults` instance backed by the app-group suite,
     /// falling back to `.standard` if the suite is unavailable.
     static var shared: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            #if DEBUG
+            assertionFailure("Unable to open app-group UserDefaults suite: \(suiteName)")
+            #endif
+            return .standard
+        }
+        return defaults
     }
 
     /// Whether haptic feedback is enabled for Watch interactions.

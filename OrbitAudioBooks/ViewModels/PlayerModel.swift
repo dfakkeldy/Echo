@@ -119,6 +119,7 @@ final class PlayerModel {
     /// Timestamp recorded when playback was last paused, used to calculate
     /// rewind amounts on resume. `nil` while playing.
     private var pauseTimestamp: Date? = nil
+    private var pendingDeepLinkSeekTime: TimeInterval?
 
     /// Whether the current seek operation was initiated by a chapter boundary jump.
     private var isSeekingForChapterBoundary: Bool = false
@@ -605,6 +606,7 @@ final class PlayerModel {
         if tracks.indices.contains(currentIndex) {
             currentTitle = tracks[currentIndex].title
             prepareToPlay(index: currentIndex, autoplay: autoplay)
+            applyPendingDeepLinkSeekIfPossible()
         } else {
             currentTitle = "No .mp3/.m4a/.m4b files found"
             updateNowPlayingInfo(isPaused: true) // keep something stable in Now Playing
@@ -626,6 +628,22 @@ final class PlayerModel {
             return
         }
         loadFolder(url, autoplay: false)
+    }
+
+    func handleDeepLink(_ deepLink: PlayerDeepLink) {
+        switch deepLink {
+        case .play(let time):
+            if let time {
+                if audioEngine.player != nil {
+                    seek(toSeconds: time)
+                } else {
+                    pendingDeepLinkSeekTime = time
+                }
+            }
+            if audioEngine.player != nil, !isPlaying {
+                play()
+            }
+        }
     }
 
     private func loadTracks(from folder: URL) -> [Track] {
@@ -1111,6 +1129,12 @@ final class PlayerModel {
                 }
             }
         }
+    }
+
+    private func applyPendingDeepLinkSeekIfPossible() {
+        guard audioEngine.player != nil, let target = pendingDeepLinkSeekTime else { return }
+        pendingDeepLinkSeekTime = nil
+        seek(toSeconds: target)
     }
 
     /// Seeks to a fractional position (0...1) within the current chapter or
@@ -1682,7 +1706,11 @@ final class PlayerModel {
                 updateProgressFromPlayer()
                 
                 // Once asset is ready, check for saved progress and seek
-                if let folder = folderURL?.absoluteString,
+                if pendingDeepLinkSeekTime != nil {
+                    await MainActor.run {
+                        self.applyPendingDeepLinkSeekIfPossible()
+                    }
+                } else if let folder = folderURL?.absoluteString,
                    let progress = persistence.getBookProgress(for: folder),
                    tracks.indices.contains(currentIndex),
                    progress.trackId == tracks[currentIndex].id,
