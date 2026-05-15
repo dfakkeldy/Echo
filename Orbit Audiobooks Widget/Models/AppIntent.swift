@@ -6,7 +6,13 @@ enum AppGroupDefaults {
     static let suiteName = "group.com.orbitaudiobooks"
 
     static var shared: UserDefaults {
-        UserDefaults(suiteName: suiteName) ?? .standard
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            #if DEBUG
+            assertionFailure("Unable to open app-group UserDefaults suite: \(suiteName)")
+            #endif
+            return .standard
+        }
+        return defaults
     }
     
     static var isHapticFeedbackEnabled: Bool {

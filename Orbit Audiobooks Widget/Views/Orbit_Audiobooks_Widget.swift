@@ -90,7 +90,7 @@ struct Orbit_Audiobooks_WidgetEntryView : View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(URL(string: "orbitaudiobooks://"))
+        .widgetURL(URL(string: "orbitaudio://play"))
     }
 }
 

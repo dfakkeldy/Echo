@@ -24,18 +24,15 @@ struct MacContentView: View {
             HStack {
                 VStack {
                     if transcriptionManager.isTranscribing {
-                        VStack {
-                            ProgressView(value: transcriptionManager.progress, total: 1.0)
-                            Text(transcriptionManager.status)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding()
+                        Text(transcriptionManager.status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 8)
                     }
                     PlayerPane()
                 }
-                
-                TranscriptPane(searchText: $searchText)
+
+                TranscriptPane(transcriptionManager: transcriptionManager, searchText: $searchText)
                     .frame(width: 300)
             }
         }
@@ -48,14 +45,22 @@ struct MacContentView: View {
                     .frame(width: 200)
             }
             ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    if let url = player.currentURL {
-                        Task { try? await transcriptionManager.transcribe(url: url) }
+                if transcriptionManager.isTranscribing {
+                    Button {
+                        transcriptionManager.cancelTranscription()
+                    } label: {
+                        Label("Cancel", systemImage: "stop.circle")
                     }
-                } label: {
-                    Label("Transcribe", systemImage: "text.quote")
+                } else {
+                    Button {
+                        if let url = player.currentURL {
+                            Task { try? await transcriptionManager.transcribe(url: url) }
+                        }
+                    } label: {
+                        Label("Transcribe", systemImage: "text.quote")
+                    }
+                    .disabled(!player.hasMedia)
                 }
-                .disabled(!player.hasMedia || transcriptionManager.isTranscribing)
             }
         }
         .onChange(of: player.openFileRequestToken) { _, newValue in

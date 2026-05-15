@@ -11,6 +11,7 @@ import SwiftUI
 struct Orbit_AudioBooksApp: App {
     @State private var settings = SettingsManager()
     @State private var storeManager = StoreManager()
+    @State private var pendingDeepLink: PlayerDeepLink?
 
     init() {
         #if DEBUG && targetEnvironment(simulator)
@@ -20,7 +21,7 @@ struct Orbit_AudioBooksApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(pendingDeepLink: $pendingDeepLink)
                 .environment(settings)
                 .environment(storeManager)
                 .onOpenURL { url in
@@ -30,14 +31,6 @@ struct Orbit_AudioBooksApp: App {
     }
 
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "orbitaudio", url.host == "play" else { return }
-        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        if let timeQuery = components?.queryItems?.first(where: { $0.name == "time" }),
-           let timeValue = Double(timeQuery.value ?? "") {
-            NotificationCenter.default.post(
-                name: NSNotification.Name("SeekToTimestamp"),
-                object: timeValue
-            )
-        }
+        pendingDeepLink = PlayerDeepLink(url: url)
     }
 }

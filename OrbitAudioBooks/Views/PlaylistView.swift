@@ -176,7 +176,7 @@ struct PlaylistView: View {
                 EditBookmarkView(model: model, bookmarkID: wrapper.id, draft: nil)
             }
         }
-        .environment(\.font, settings.appFont == "Helvetica" ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
+        .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
     }
 
     @ViewBuilder

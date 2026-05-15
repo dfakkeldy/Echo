@@ -24,7 +24,7 @@ struct CustomFontModifier: ViewModifier {
         @unknown default: size = 17
         }
 
-        if appFont == "Helvetica" {
+        if SettingsManager.normalizedAppFont(appFont) == SettingsManager.systemFontName {
             return AnyView(content.font(.system(style, design: .default, weight: weight)))
         } else {
             return AnyView(content.font(.custom(appFont, size: size, relativeTo: style).weight(weight)))
@@ -35,7 +35,7 @@ struct CustomFontModifier: ViewModifier {
 // MARK: - View Extensions
 
 extension View {
-    func customFont(_ style: Font.TextStyle, weight: Font.Weight = .regular, appFont: String = "Helvetica") -> some View {
+    func customFont(_ style: Font.TextStyle, weight: Font.Weight = .regular, appFont: String = SettingsManager.systemFontName) -> some View {
         self.modifier(CustomFontModifier(appFont: appFont, style: style, weight: weight))
     }
 
