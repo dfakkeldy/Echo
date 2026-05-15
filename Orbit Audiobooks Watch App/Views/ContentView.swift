@@ -903,24 +903,31 @@ struct ContentView: View {
             switch artworkLayout {
             case .immersive:
                 ZStack {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: 14)
-                        .opacity(0.72)
-                        .ignoresSafeArea()
+                    Color.black
 
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 168, height: 168)
-                        .opacity(0.68)
+                        .frame(width: 236, height: 236)
+                        .blur(radius: 10)
+                        .opacity(0.30)
+
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 206, height: 206)
+                        .opacity(0.58)
                 }
-                .overlay(Color.black.opacity(0.38))
+                .overlay(Color.black.opacity(0.30))
                 .overlay(artworkScrim)
                 .ignoresSafeArea()
             case .classic:
-                Color.black.ignoresSafeArea()
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+                    .blur(radius: 40)
+                    .overlay(Color.black.opacity(0.6))
             }
         } else {
             Color.black.ignoresSafeArea()
@@ -963,58 +970,97 @@ private struct PlayerPage: View {
 
     var body: some View {
         ZStack {
-            VStack(spacing: layout == .classic ? 9 : 8) {
-                if layout == .classic {
-                    Spacer(minLength: 30)
-                    classicArtwork
-                } else {
+            if layout == .classic {
+                classicContent
+            } else {
+                VStack(spacing: 8) {
                     Spacer(minLength: 42)
-                }
 
-                titleView
-                
-                // Linear progress bar (configurable mode + visibility)
-                if !viewModel.linearBarHidden {
-                    let linearProgress = viewModel.linearBarMode == "chapter"
-                        ? viewModel.progressFraction
-                        : viewModel.totalProgressFraction
-                    ProgressView(value: linearProgress, total: 1.0)
-                        .progressViewStyle(.linear)
-                        .tint(.green)
-                        .padding(.horizontal, 16)
-                        .scaleEffect(y: 0.5) // Thin bar
-                        .animation(viewModel.progressAnimationSuppressed ? nil : .linear(duration: 0.5), value: linearProgress)
-                }
+                    titleView
 
-                if layout == .classic {
-                    Color.clear.frame(height: 8)
-                } else {
+                    progressBar
+
                     Spacer(minLength: 12)
-                }
 
-                TransportRow(
-                    leftSlot: slots[2],
-                    centerSlot: slots[3],
-                    rightSlot: slots[4],
-                    viewModel: viewModel,
-                    onBookmark: onBookmark,
-                    onSleepTimer: onSleepTimer
-                )
-                .padding(.bottom, layout == .classic ? 28 : 8)
+                    TransportRow(
+                        leftSlot: slots[2],
+                        centerSlot: slots[3],
+                        rightSlot: slots[4],
+                        viewModel: viewModel,
+                        usesImmersiveChrome: true,
+                        onBookmark: onBookmark,
+                        onSleepTimer: onSleepTimer
+                    )
+                    .padding(.bottom, 8)
+                }
             }
             
             // Top-row slots
             VStack {
                 HStack {
-                    TopSlotButton(action: slots[0], viewModel: viewModel, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
+                    TopSlotButton(
+                        action: slots[0],
+                        viewModel: viewModel,
+                        usesImmersiveChrome: layout == .immersive,
+                        onBookmark: onBookmark,
+                        onSleepTimer: onSleepTimer
+                    )
                         .padding(.leading, 8)
                     Spacer()
-                    TopSlotButton(action: slots[1], viewModel: viewModel, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
+                    TopSlotButton(
+                        action: slots[1],
+                        viewModel: viewModel,
+                        usesImmersiveChrome: layout == .immersive,
+                        onBookmark: onBookmark,
+                        onSleepTimer: onSleepTimer
+                    )
                         .padding(.trailing, 8)
                 }
                 .padding(.top, 8)
                 Spacer()
             }
+        }
+    }
+
+    private var classicContent: some View {
+        VStack(spacing: 8) {
+            classicArtwork
+
+            Text(viewModel.title)
+                .font(.system(.caption, design: .rounded))
+                .fontWeight(.medium)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .padding(.horizontal)
+
+            progressBar
+
+            TransportRow(
+                leftSlot: slots[2],
+                centerSlot: slots[3],
+                rightSlot: slots[4],
+                viewModel: viewModel,
+                usesImmersiveChrome: false,
+                onBookmark: onBookmark,
+                onSleepTimer: onSleepTimer
+            )
+            .padding(.top, 6)
+        }
+    }
+
+    @ViewBuilder
+    private var progressBar: some View {
+        if !viewModel.linearBarHidden {
+            let linearProgress = viewModel.linearBarMode == "chapter"
+                ? viewModel.progressFraction
+                : viewModel.totalProgressFraction
+            ProgressView(value: linearProgress, total: 1.0)
+                .progressViewStyle(.linear)
+                .tint(.green)
+                .padding(.horizontal, 16)
+                .scaleEffect(y: 0.5)
+                .animation(viewModel.progressAnimationSuppressed ? nil : .linear(duration: 0.5), value: linearProgress)
         }
     }
 
@@ -1064,6 +1110,7 @@ private struct PlayerPage: View {
 private struct TopSlotButton: View {
     let action: WatchAction
     let viewModel: WatchViewModel
+    let usesImmersiveChrome: Bool
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
 
@@ -1111,9 +1158,13 @@ private struct TopSlotButton: View {
                     }
                 }
                 .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(.ultraThinMaterial, in: Circle())
-                .contentShape(Circle())
+                .frame(minWidth: 44, minHeight: 44)
+                .background {
+                    if usesImmersiveChrome {
+                        Circle().fill(.ultraThinMaterial)
+                    }
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(accessibilityLabelText)
@@ -1250,27 +1301,33 @@ private struct TransportRow: View {
     let centerSlot: WatchAction
     let rightSlot: WatchAction
     let viewModel: WatchViewModel
+    let usesImmersiveChrome: Bool
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
 
     var body: some View {
         HStack(spacing: 20) {
-            SideTransportButton(action: leftSlot, viewModel: viewModel, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
+            SideTransportButton(action: leftSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
 
             CenterTransportButton(action: centerSlot, viewModel: viewModel, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
 
-            SideTransportButton(action: rightSlot, viewModel: viewModel, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
+            SideTransportButton(action: rightSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
-        .padding(.horizontal, 10)
+        .padding(.horizontal, usesImmersiveChrome ? 10 : 0)
+        .padding(.vertical, usesImmersiveChrome ? 6 : 0)
+        .background {
+            if usesImmersiveChrome {
+                Capsule().fill(.ultraThinMaterial)
+            }
+        }
+        .padding(.horizontal, usesImmersiveChrome ? 10 : 0)
     }
 }
 
 private struct SideTransportButton: View {
     let action: WatchAction
     let viewModel: WatchViewModel
+    let usesImmersiveChrome: Bool
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
 
@@ -1314,12 +1371,17 @@ private struct SideTransportButton: View {
                         .font(.system(size: 20))
                 }
             }
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
+            .frame(width: usesImmersiveChrome ? 44 : 38, height: usesImmersiveChrome ? 44 : 38)
+            .padding(usesImmersiveChrome ? 0 : 15)
+            .contentShape(Rectangle())
             .opacity(action == .empty ? 0.35 : 1.0)
         }
-        .buttonStyle(.plain)
-        .background(.ultraThinMaterial, in: Circle())
+        .transportButtonStyle(usesImmersiveChrome: usesImmersiveChrome)
+        .background {
+            if usesImmersiveChrome {
+                Circle().fill(.ultraThinMaterial)
+            }
+        }
         .disabled(action == .empty)
         .accessibilityLabel(accessibilityLabelText)
         .modifier(ToggleTraitModifier(isToggle: action == .loopMode, value: action == .loopMode ? loopModeAccessibilityValue : nil))
@@ -1356,6 +1418,17 @@ private struct SideTransportButton: View {
         case .sleepTimer: return "Sleep timer"
         case .bookmark: return "Bookmark"
         case .empty: return "Empty slot"
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func transportButtonStyle(usesImmersiveChrome: Bool) -> some View {
+        if usesImmersiveChrome {
+            self.buttonStyle(.plain)
+        } else {
+            self.buttonStyle(.borderedProminent)
         }
     }
 }
