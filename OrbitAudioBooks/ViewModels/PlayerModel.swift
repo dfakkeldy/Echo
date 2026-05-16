@@ -2480,10 +2480,22 @@ final class PlayerModel {
         if let idx = bookmarks.firstIndex(where: { $0.id == id }) {
             // Clean up the on-disk voice memo if any.
             if let url = bookmarks[idx].voiceMemoURL(in: folderURL) {
-                try? FileManager.default.removeItem(at: url)
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch {
+#if DEBUG
+                    print("Failed to remove voice memo at \(url.path): \(error)")
+#endif
+                }
             }
             if let url = bookmarks[idx].bookmarkImageURL(in: folderURL) {
-                try? FileManager.default.removeItem(at: url)
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch {
+#if DEBUG
+                    print("Failed to remove bookmark image at \(url.path): \(error)")
+#endif
+                }
             }
             bookmarks.remove(at: idx)
             bookmarkArtworkCache.removeAll()
@@ -2491,7 +2503,7 @@ final class PlayerModel {
             installBookmarkBoundaryObserver()
             updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
 
-            if loopMode == .bookmark && bookmarks.isEmpty {
+            if loopMode == .bookmark && currentTrackBookmarks.isEmpty {
                 setLoopMode(.off)
             }
         }

@@ -1,5 +1,6 @@
 import SwiftUI
 import WatchKit
+import AVFoundation
 
 // MARK: - Watch Bookmarks List
 //
@@ -38,6 +39,7 @@ struct WatchBookmarksView: View {
 private struct WatchBookmarkRow: View {
     let bookmark: WatchBookmark
     @State private var isPlaying = false
+    @State private var audioPlayer: AVAudioPlayer?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -61,10 +63,7 @@ private struct WatchBookmarkRow: View {
             // carry an audio payload. Generic bookmarks render no button.
             if bookmark.hasAudio {
                 Button {
-                    isPlaying.toggle()
-                    if AppGroupDefaults.shared.bool(forKey: "isHapticFeedbackEnabled") {
-                        WKInterfaceDevice.current().play(.click)
-                    }
+                    togglePlayback()
                 } label: {
                     Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                         .font(.title3)
@@ -72,6 +71,31 @@ private struct WatchBookmarkRow: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(isPlaying ? "Stop voice memo" : "Play voice memo")
             }
+        }
+    }
+
+    private func togglePlayback() {
+        if isPlaying {
+            audioPlayer?.stop()
+            audioPlayer = nil
+            isPlaying = false
+            return
+        }
+
+        guard let url = bookmark.audioURL,
+              FileManager.default.fileExists(atPath: url.path)
+        else { return }
+
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.prepareToPlay()
+            player.play()
+            audioPlayer = player
+            isPlaying = true
+        } catch {
+#if DEBUG
+            print("Watch bookmark audio playback failed: \(error)")
+#endif
         }
     }
 

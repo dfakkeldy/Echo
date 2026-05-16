@@ -63,6 +63,14 @@ final class SettingsManager {
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let appGroupDefaults: UserDefaults
+    @ObservationIgnored private let isAppGroupAvailable: Bool
+
+    /// Guards watch-facing writes so settings don't silently land in `.standard`
+    /// when the App Group suite is unavailable (Watch cannot read standard defaults).
+    private func appGroupSet(_ value: Any?, forKey key: String) {
+        guard isAppGroupAvailable else { return }
+        appGroupDefaults.set(value, forKey: key)
+    }
 
     // MARK: - Appearance
 
@@ -86,22 +94,22 @@ final class SettingsManager {
 
     // MARK: - Watch
 
-    var crownAction: String { didSet { appGroupDefaults.set(crownAction, forKey: Keys.crownAction) } }
+    var crownAction: String { didSet { appGroupSet(crownAction, forKey: Keys.crownAction) } }
     var crownVolumeSensitivity: Double { didSet { defaults.set(crownVolumeSensitivity, forKey: Keys.crownVolumeSensitivity) } }
     var crownScrubSensitivity: Double { didSet { defaults.set(crownScrubSensitivity, forKey: Keys.crownScrubSensitivity) } }
-    var watchPage1: String { didSet { appGroupDefaults.set(watchPage1, forKey: Keys.watchPage1) } }
-    var watchPage2: String { didSet { appGroupDefaults.set(watchPage2, forKey: Keys.watchPage2) } }
-    var linearBarMode: String { didSet { appGroupDefaults.set(linearBarMode, forKey: Keys.linearBarMode) } }
-    var linearBarHidden: Bool { didSet { appGroupDefaults.set(linearBarHidden, forKey: Keys.linearBarHidden) } }
-    var circularRingMode: String { didSet { appGroupDefaults.set(circularRingMode, forKey: Keys.circularRingMode) } }
-    var circularRingHidden: Bool { didSet { appGroupDefaults.set(circularRingHidden, forKey: Keys.circularRingHidden) } }
-    var watchArtworkLayout: String { didSet { appGroupDefaults.set(watchArtworkLayout, forKey: Keys.watchArtworkLayout) } }
-    var watchBackgroundStyle: String { didSet { appGroupDefaults.set(watchBackgroundStyle, forKey: Keys.watchBackgroundStyle) } }
-    var isHapticFeedbackEnabled: Bool { didSet { appGroupDefaults.set(isHapticFeedbackEnabled, forKey: Keys.isHapticFeedbackEnabled) } }
+    var watchPage1: String { didSet { appGroupSet(watchPage1, forKey: Keys.watchPage1) } }
+    var watchPage2: String { didSet { appGroupSet(watchPage2, forKey: Keys.watchPage2) } }
+    var linearBarMode: String { didSet { appGroupSet(linearBarMode, forKey: Keys.linearBarMode) } }
+    var linearBarHidden: Bool { didSet { appGroupSet(linearBarHidden, forKey: Keys.linearBarHidden) } }
+    var circularRingMode: String { didSet { appGroupSet(circularRingMode, forKey: Keys.circularRingMode) } }
+    var circularRingHidden: Bool { didSet { appGroupSet(circularRingHidden, forKey: Keys.circularRingHidden) } }
+    var watchArtworkLayout: String { didSet { appGroupSet(watchArtworkLayout, forKey: Keys.watchArtworkLayout) } }
+    var watchBackgroundStyle: String { didSet { appGroupSet(watchBackgroundStyle, forKey: Keys.watchBackgroundStyle) } }
+    var isHapticFeedbackEnabled: Bool { didSet { appGroupSet(isHapticFeedbackEnabled, forKey: Keys.isHapticFeedbackEnabled) } }
     var watchQuickBookmarkTimeoutSeconds: Int {
         didSet {
             let clampedValue = max(1, watchQuickBookmarkTimeoutSeconds)
-            appGroupDefaults.set(clampedValue, forKey: Keys.watchQuickBookmarkTimeoutSeconds)
+            appGroupSet(clampedValue, forKey: Keys.watchQuickBookmarkTimeoutSeconds)
             if watchQuickBookmarkTimeoutSeconds != clampedValue {
                 watchQuickBookmarkTimeoutSeconds = clampedValue
             }
@@ -113,19 +121,23 @@ final class SettingsManager {
         appGroupDefaults: UserDefaults = {
             guard let d = UserDefaults(suiteName: "group.com.orbitaudiobooks") else {
                 assertionFailure("Unable to open app-group UserDefaults suite: group.com.orbitaudiobooks")
-                return .standard
+                // Use a distinct fallback suite so watch-facing settings don't
+                // leak into .standard where the Watch cannot read them.
+                return UserDefaults(suiteName: "group.com.orbitaudiobooks.fallback") ?? .standard
             }
             return d
         }()
     ) {
         self.defaults = defaults
         self.appGroupDefaults = appGroupDefaults
+        self.isAppGroupAvailable = appGroupDefaults != defaults
 
         Self.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
         // One-time migration: copy watch-facing settings from standard defaults
         // to the App Group suite so the Watch and Widget can read them directly.
-        if !appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2") {
+        if isAppGroupAvailable,
+           !appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2") {
             let watchKeys: [(String, () -> Any?)] = [
                 (Keys.crownAction, { defaults.object(forKey: Keys.crownAction) }),
                 (Keys.watchPage1, { defaults.object(forKey: Keys.watchPage1) }),
@@ -186,7 +198,7 @@ final class SettingsManager {
         appGroupDefaults: UserDefaults = {
             guard let d = UserDefaults(suiteName: "group.com.orbitaudiobooks") else {
                 assertionFailure("Unable to open app-group UserDefaults suite: group.com.orbitaudiobooks")
-                return .standard
+                return UserDefaults(suiteName: "group.com.orbitaudiobooks.fallback") ?? .standard
             }
             return d
         }()
