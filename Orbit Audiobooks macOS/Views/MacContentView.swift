@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import CryptoKit
 
 struct MacContentView: View {
     @EnvironmentObject private var player: MacPlayerModel
@@ -29,7 +30,24 @@ struct MacContentView: View {
                             .foregroundStyle(.secondary)
                             .padding(.top, 8)
                     }
-                    PlayerPane()
+                    ZStack {
+                        PlayerPane()
+
+                        // Live subtitle overlay — shows the current segment during playback.
+                        if let subtitle = currentSubtitleSegment {
+                            VStack {
+                                Spacer()
+                                Text(subtitle.text)
+                                    .font(.title3)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                                    .padding(.vertical, 12)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .padding(.bottom, 16)
+                            }
+                        }
+                    }
                 }
 
                 TranscriptPane(searchText: $searchText)
@@ -69,6 +87,19 @@ struct MacContentView: View {
                 showOpenPanel()
             }
         }
+    }
+
+    /// The transcription segment covering the current playback time, if available.
+    private var currentSubtitleSegment: TranscriptionSegment? {
+        guard player.isPlaying,
+              let url = player.currentURL,
+              player.currentTime > 0 else { return nil }
+
+        let data = Data(url.path.utf8)
+        let hash = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+        guard let segments = transcriptStore.transcriptions[hash], !segments.isEmpty else { return nil }
+
+        return segments.first { player.currentTime >= $0.startTime && player.currentTime <= $0.endTime }
     }
 
     func showOpenPanel() {
