@@ -75,13 +75,19 @@ struct MacContentView: View {
         let panel = NSOpenPanel()
         panel.title = "Open Audiobook"
         panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         panel.canChooseFiles = true
+        panel.message = "Select an audiobook file or folder containing audio files."
         let audioTypes: [UTType] = [.audio, .mp3, .mpeg4Audio]
             .compactMap { $0 }
         panel.allowedContentTypes = audioTypes
         if panel.runModal() == .OK, let url = panel.url {
-            player.open(url: url)
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                player.loadFolder(url: url)
+            } else {
+                player.open(url: url)
+            }
         }
     }
 }
@@ -183,6 +189,12 @@ private struct PlayerPane: View {
                 .lineLimit(2)
                 .padding(.horizontal)
 
+            if player.hasMultipleTracks {
+                Text("Track \(player.currentTrackIndex + 1) of \(player.tracks.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Progress slider + times
             VStack(spacing: 6) {
                 Slider(
@@ -206,6 +218,15 @@ private struct PlayerPane: View {
 
             // Transport
             HStack(spacing: 24) {
+                Button {
+                    player.previousTrack()
+                } label: {
+                    Image(systemName: "backward.end.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .disabled(!player.hasMultipleTracks)
+
                 Button {
                     player.skip(by: -30)
                 } label: {
@@ -232,6 +253,15 @@ private struct PlayerPane: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!player.hasMedia)
+
+                Button {
+                    player.nextTrack()
+                } label: {
+                    Image(systemName: "forward.end.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .disabled(!player.hasMultipleTracks)
             }
 
             // Speed picker

@@ -140,12 +140,6 @@ class TranscriptionManager: ObservableObject {
             currentProcess = nil
         }
 
-        guard let cliURL = resolveCLIBinary() else {
-            appendLog(.error, "OrbitTranscriptionCLI binary not found.")
-            appendLog(.status, "Build it with: cd Tools/OrbitTranscriptionCLI && swift build")
-            return nil
-        }
-
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let transcriptDir = appSupport.appendingPathComponent("Transcripts", isDirectory: true)
         if !FileManager.default.fileExists(atPath: transcriptDir.path) {
@@ -158,6 +152,26 @@ class TranscriptionManager: ObservableObject {
 
         let didStart = url.startAccessingSecurityScopedResource()
         defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+
+        // Check for existing transcript before launching CLI.
+        if let cachedURL = findExistingTranscript(audioURL: url, cacheURL: transcriptURL) {
+            appendLog(.status, "Found existing transcript: \(cachedURL.lastPathComponent)")
+            if let loaded = loadTranscriptFromDisk(cachedURL) {
+                liveSegments = loaded
+                progress = 1.0
+                status = "Loaded \(loaded.count) segments from cache"
+                appendLog(.completed, "Loaded \(loaded.count) segments from existing transcript.")
+                completedTranscriptURL = cachedURL
+                NotificationCenter.default.post(name: NSNotification.Name("TranscriptDidUpdate"), object: nil)
+                return cachedURL
+            }
+        }
+
+        guard let cliURL = resolveCLIBinary() else {
+            appendLog(.error, "OrbitTranscriptionCLI binary not found.")
+            appendLog(.status, "Build it with: cd Tools/OrbitTranscriptionCLI && swift build")
+            return nil
+        }
 
         appendLog(.status, "Launching CLI: \(cliURL.lastPathComponent)")
         appendLog(.status, "Audio: \(url.lastPathComponent)")
@@ -220,6 +234,31 @@ class TranscriptionManager: ObservableObject {
             appendLog(.error, "CLI exited with code \(process.terminationStatus)")
             return nil
         }
+    }
+
+    // MARK: - Existing transcript detection
+
+    /// Checks for an existing transcript file: first the central cache, then a sidecar
+    /// alongside the audio file. Returns the URL if found, nil otherwise.
+    private func findExistingTranscript(audioURL: URL, cacheURL: URL) -> URL? {
+        // 1. Central cache (hash-keyed in Application Support).
+        if FileManager.default.fileExists(atPath: cacheURL.path) {
+            return cacheURL
+        }
+
+        // 2. Sidecar file alongside the audio (<audio_stem>.transcript.json).
+        let sidecarURL = audioURL.deletingPathExtension().appendingPathExtension("transcript.json")
+        if FileManager.default.fileExists(atPath: sidecarURL.path) {
+            return sidecarURL
+        }
+
+        return nil
+    }
+
+    /// Loads transcription segments from a JSON file on disk.
+    private func loadTranscriptFromDisk(_ url: URL) -> [TranscriptionSegment]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode([TranscriptionSegment].self, from: data)
     }
 
     // MARK: - Binary resolution

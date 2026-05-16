@@ -123,6 +123,15 @@ final class PlayerModel {
     var transcription: [TranscriptionSegment] = []
     /// The index of the currently active chapter, or `nil` when chapters are unavailable.
     private(set) var currentChapterIndex: Int? = nil
+    /// Per-chapter word frequency maps, computed after transcript and chapters are loaded.
+    var chapterWordClouds: [Int: [WordFrequency]] = [:]
+    /// Rolling 5-minute window word frequencies for the current track.
+    var rollingWordClouds: [(startTime: TimeInterval, frequencies: [WordFrequency])] = []
+    /// Word cloud for the currently playing chapter (derived from `currentChapterIndex`).
+    var currentChapterWordCloud: [WordFrequency] {
+        guard let idx = currentChapterIndex else { return [] }
+        return chapterWordClouds[idx] ?? []
+    }
     /// Timestamp recorded when playback was last paused, used to calculate
     /// rewind amounts on resume. `nil` while playing.
     private var pauseTimestamp: Date? = nil
@@ -148,10 +157,38 @@ final class PlayerModel {
         do {
             let data = try Data(contentsOf: transcriptURL)
             self.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
+            computeWordClouds()
         } catch {
             print("Failed to load transcript: \(error)")
             self.transcription = []
         }
+    }
+
+    /// Computes word frequencies for the full track, per-chapter, and rolling windows.
+    /// Called after both transcript and chapter data are available.
+    private func computeWordClouds() {
+        guard !transcription.isEmpty else { return }
+
+        // Full-track word frequencies.
+        let fullFrequencies = WordFrequencyComputer.compute(from: transcription)
+
+        // Per-chapter frequencies.
+        if !chapters.isEmpty {
+            chapterWordClouds = WordFrequencyComputer.computePerChapter(
+                segments: transcription,
+                chapters: chapters
+            )
+        } else {
+            // No chapters: store full frequencies under index 0 as the only "chapter."
+            chapterWordClouds = [0: fullFrequencies]
+        }
+
+        // Rolling 5-minute windows.
+        rollingWordClouds = WordFrequencyComputer.computeRollingWindows(
+            segments: transcription,
+            windowDuration: 300,
+            step: 60
+        )
     }
 
     // MARK: - Bookmarks
@@ -428,6 +465,14 @@ final class PlayerModel {
         case .endOfChapter:
             context["sleepTimerMode"] = "endOfChapter"
             context["sleepTimerRemainingSeconds"] = 0
+        }
+
+        // Word cloud data: top 10 words for the current chapter.
+        let cloud = currentChapterWordCloud.prefix(10)
+        if !cloud.isEmpty, let jsonData = try? JSONEncoder().encode(Array(cloud)),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            context["wordCloudJSON"] = jsonString
+            context["wordCloudChapterIndex"] = currentChapterIndex ?? 0
         }
 
         return context
@@ -1999,6 +2044,7 @@ final class PlayerModel {
             updateNowPlayingInfo(isPaused: !isPlaying)
             syncToWatch()
         }
+        computeWordClouds()
     }
 
     private func updateCurrentChapterFromPlayerTime() {

@@ -47,8 +47,13 @@ final class MacPlayerModel: ObservableObject {
     }
     @Published private(set) var bookmarks: [MacBookmark] = []
     @Published var openFileRequestToken: UUID = UUID() // bumped to ask UI to show opener
+    @Published private(set) var tracks: [URL] = []
+    @Published private(set) var currentTrackIndex: Int = 0
+
+    private static let audioExtensions: Set<String> = ["mp3", "m4b", "m4a", "wav", "flac"]
 
     var hasMedia: Bool { currentURL != nil }
+    var hasMultipleTracks: Bool { tracks.count > 1 }
     var progressFraction: Double {
         guard duration > 0 else { return 0 }
         return min(1, max(0, currentTime / duration))
@@ -94,6 +99,11 @@ final class MacPlayerModel: ObservableObject {
 
         currentURL = url
         currentTitle = url.deletingPathExtension().lastPathComponent
+        // If tracks is empty (single-file open, not folder), populate with this file.
+        if tracks.isEmpty {
+            tracks = [url]
+            currentTrackIndex = 0
+        }
 
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
@@ -135,6 +145,42 @@ final class MacPlayerModel: ObservableObject {
         }
 
         loadBookmarks(for: url)
+    }
+
+    func loadFolder(url folderURL: URL) {
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil) else {
+            return
+        }
+
+        let audioFiles = contents
+            .filter { Self.audioExtensions.contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+        guard !audioFiles.isEmpty else { return }
+
+        tracks = audioFiles
+        currentTrackIndex = 0
+        open(url: audioFiles[0])
+    }
+
+    func nextTrack() {
+        guard hasMultipleTracks else { return }
+        let nextIndex = currentTrackIndex + 1
+        guard nextIndex < tracks.count else { return }
+        currentTrackIndex = nextIndex
+        open(url: tracks[nextIndex])
+    }
+
+    func previousTrack() {
+        guard hasMultipleTracks else { return }
+        let prevIndex = currentTrackIndex - 1
+        guard prevIndex >= 0 else { return }
+        currentTrackIndex = prevIndex
+        open(url: tracks[prevIndex])
     }
 
     private func restoreLastFile() {

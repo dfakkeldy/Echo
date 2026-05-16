@@ -13,4 +13,6 @@ struct Chapter: Identifiable, Equatable {
     let endSeconds: Double
     /// Whether the chapter is included during sequential playback.
     var isEnabled: Bool = true
+    /// Pre-computed word frequencies for this chapter (nil until generated).
+    var wordCloudFrequencies: [WordFrequency]?
 }

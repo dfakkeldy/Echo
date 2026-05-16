@@ -145,6 +145,13 @@ struct WatchBookmark: Identifiable, Equatable, Hashable {
     }
 }
 
+/// A word and its occurrence count received from the iPhone for word cloud display.
+struct WatchWordFrequency: Identifiable, Codable, Hashable {
+    var id: String { word }
+    let word: String
+    let count: Int
+}
+
 // MARK: - View Model
 
 @Observable
@@ -194,6 +201,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var circularRingHidden: Bool = false
     var watchArtworkLayout: String = "immersive"
     var watchBackgroundStyle: String = "artwork"
+
+    /// Top words for the current chapter, received from the iPhone.
+    var currentWordCloud: [WatchWordFrequency] = []
 
     let availableSpeeds: [Double] = [1.0, 1.25, 1.5, 2.0]
     var currentSpeedIndex: Int = 0
@@ -435,6 +445,12 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.defaults.removeObject(forKey: "thumbnailData")
                 self.thumbnailImage = nil
             }
+            if let wordCloudJSON = state["wordCloudJSON"] as? String,
+               let jsonData = wordCloudJSON.data(using: .utf8),
+               let words = try? JSONDecoder().decode([WatchWordFrequency].self, from: jsonData) {
+                self.currentWordCloud = words
+            }
+
             if state["commandResult"] as? String == "bookmarkJump" {
                 WKInterfaceDevice.current().play(.success)
             }
@@ -828,6 +844,8 @@ struct ContentView: View {
                     onSleepTimer: { isShowingSleepTimer = true }
                 )
                     .tag(1)
+                WordCloudPage(viewModel: viewModel)
+                    .tag(2)
             }
             .tabViewStyle(.page)
         }
@@ -962,6 +980,65 @@ private struct WatchControlBackground<S: Shape>: View {
 // - Title, progress, and transport controls sit in material-backed regions
 //   so they stay legible over changing artwork.
 // - The 3-button transport row stays at the bottom with play/pause centered.
+
+// MARK: - Word Cloud Page
+
+private struct WordCloudPage: View {
+    let viewModel: WatchViewModel
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("Current Chapter")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            if viewModel.currentWordCloud.isEmpty {
+                Text("No word cloud yet.\nTranscribe on your iPhone\nto see top words here.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            } else {
+                wordGrid
+            }
+        }
+        .padding(.horizontal, 8)
+    }
+
+    private var wordGrid: some View {
+        let words = viewModel.currentWordCloud.prefix(10)
+        let maxCount = words.first?.count ?? 1
+
+        return VStack(spacing: 4) {
+            ForEach(Array(words.enumerated()), id: \.element.id) { _, word in
+                Text(word.word)
+                    .font(.system(size: fontSize(for: word.count, max: maxCount), design: .rounded))
+                    .fontWeight(fontWeight(for: word.count, max: maxCount))
+                    .foregroundStyle(.primary.opacity(opacity(for: word.count, max: maxCount)))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func fontSize(for count: Int, max: Int) -> CGFloat {
+        let fraction = CGFloat(count) / CGFloat(max)
+        return 8 + fraction * 12  // 8pt → 20pt
+    }
+
+    private func fontWeight(for count: Int, max: Int) -> Font.Weight {
+        let fraction = CGFloat(count) / CGFloat(max)
+        if fraction > 0.7 { return .bold }
+        if fraction > 0.4 { return .semibold }
+        if fraction > 0.2 { return .medium }
+        return .regular
+    }
+
+    private func opacity(for count: Int, max: Int) -> Double {
+        let fraction = CGFloat(count) / CGFloat(max)
+        return 0.4 + Double(fraction) * 0.6
+    }
+}
+
+// MARK: - Player Page
 
 private struct PlayerPage: View {
     let slots: [WatchAction]
