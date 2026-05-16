@@ -13,6 +13,8 @@ struct BottomToolbarView: View {
                 Spacer()
                 speedButton
                 Spacer()
+                volumeBoostButton
+                Spacer()
                 sleepTimerMenu
                 Spacer()
                 addBookmarkButton
@@ -79,6 +81,22 @@ struct BottomToolbarView: View {
                 .frame(minWidth: 44, minHeight: 44)
         }
         .accessibilityLabel("Playback speed, \(String(format: "%g", model.speed)) times")
+    }
+
+    // MARK: - Volume Boost
+
+    private var volumeBoostButton: some View {
+        Button {
+            model.setVolumeBoost(enabled: !model.isVolumeBoostEnabled)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        } label: {
+            Image(systemName: model.isVolumeBoostEnabled ? "speaker.wave.3.fill" : "speaker.wave.3")
+                .font(.title2)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Volume Boost")
+        .accessibilityValue(model.isVolumeBoostEnabled ? "On" : "Off")
     }
 
     // MARK: - Sleep Timer

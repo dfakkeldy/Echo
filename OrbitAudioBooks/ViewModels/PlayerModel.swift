@@ -53,6 +53,8 @@ final class PlayerModel {
     var loopMode: LoopMode = .off
     /// Playback speed multiplier. Persisted per-book.
     var speed: Float
+    /// Whether volume boost (+9 dB) is active.
+    var isVolumeBoostEnabled: Bool = false
 
     // MARK: - Sleep timer state
 
@@ -95,13 +97,7 @@ final class PlayerModel {
     private(set) var durationSeconds: Double? = nil
     /// Current playback position in seconds. Views should use this instead of
     /// reaching into the underlying AVPlayer.
-    var currentPlaybackTime: TimeInterval {
-        let playerTime = audioEngine.player?.currentTime().seconds
-        if let playerTime, playerTime.isFinite {
-            return playerTime
-        }
-        return audioEngine.currentTime
-    }
+    var currentPlaybackTime: TimeInterval { audioEngine.currentTime }
     /// The artwork image displayed in Now Playing and the player UI.
     private(set) var thumbnailImage: UIImage? = nil
     /// The artwork currently displayed by the player. Picture bookmarks can
@@ -171,10 +167,6 @@ final class PlayerModel {
     /// Progress timer fired at 0.1 s intervals during voice-memo playback.
     @ObservationIgnored private var voiceMemoProgressTimer: Timer?
 
-    /// Boundary observer that fires when playback hits a bookmark with a voice memo.
-    @ObservationIgnored private var bookmarkBoundaryObserver: Any?
-    /// Boundary observer for bookmark-loop endpoints used for precise loop-back triggering.
-    @ObservationIgnored private var bookmarkLoopBoundaryObserver: Any?
     /// UUID of the most recently triggered bookmark, used to prevent retrigger loops.
     @ObservationIgnored private var lastTriggeredBookmarkID: UUID?
     /// Player time at which the most recent bookmark was triggered, used to suppress duplicate firings.
@@ -203,10 +195,6 @@ final class PlayerModel {
     }
 
     // MARK: - Playback infrastructure
-
-    /// The underlying AVPlayer instance driving audio playback.
-    /// Boundary observer for chapter end triggers.
-    private var chapterBoundaryObserver: Any?
 
     /// Background task claim held during pause to reduce the chance of eviction
     /// from the system Now Playing slot.
@@ -490,8 +478,8 @@ final class PlayerModel {
     }
 
     deinit {
-        removeChapterBoundaryObserver()
-        removeBookmarkLoopBoundaryObserver()
+        
+        
         audioEngine.cleanup()
         voiceMemoProgressTimer?.invalidate()
         voiceMemoPlayerNode?.stop()
@@ -531,7 +519,7 @@ final class PlayerModel {
         if let currentTrackURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil {
             persistence.saveOrder(for: currentTrackURL.absoluteString, ids: chapters.map { $0.id })
         }
-        installChapterBoundaryObservers()
+        
     }
 
     /// Toggles the enabled state of a track, which determines whether it is
@@ -556,7 +544,7 @@ final class PlayerModel {
             states[chapters[index].id] = chapters[index].isEnabled
             persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
         }
-        installChapterBoundaryObservers()
+        
     }
 
     /// Resets the playlist to its default order, re-enabling all tracks or
@@ -574,7 +562,7 @@ final class PlayerModel {
                 persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
             }
             updateCurrentChapterFromPlayerTime()
-            installChapterBoundaryObservers()
+            
         } else {
             let currentURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil
             tracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -655,13 +643,13 @@ final class PlayerModel {
         switch deepLink {
         case .play(let time):
             if let time {
-                if audioEngine.player != nil {
+                if audioEngine.isItemLoaded {
                     seek(toSeconds: time)
                 } else {
                     pendingDeepLinkSeekTime = time
                 }
             }
-            if audioEngine.player != nil, !isPlaying {
+            if audioEngine.isItemLoaded, !isPlaying {
                 play()
             }
         }
@@ -771,7 +759,7 @@ final class PlayerModel {
         if let pausedAt = pauseTimestamp {
             let pausedDuration = Date().timeIntervalSince(pausedAt)
             if settingsManager?.isRewindEnabled ?? SettingsManager.Defaults.isRewindEnabled {
-                if audioEngine.player != nil {
+                if audioEngine.isItemLoaded {
                     let current = audioEngine.currentTime
                     let rewindAmount = smartRewindAmount(for: pausedDuration)
                     var target = current
@@ -810,7 +798,7 @@ final class PlayerModel {
         endBackgroundTask()
 
         guard !tracks.isEmpty else { return }
-        if audioEngine.player == nil { prepareToPlay(index: currentIndex, autoplay: false) }
+        if !audioEngine.isItemLoaded { prepareToPlay(index: currentIndex, autoplay: false) }
 
         configureAudioSessionIfNeeded()
         startSelectionSecurityScopeIfNeeded()
@@ -851,7 +839,7 @@ final class PlayerModel {
         syncToWatch()
         
         // Save progress when paused
-        if audioEngine.player != nil, let folder = folderURL?.absoluteString, tracks.indices.contains(currentIndex) {
+        if audioEngine.isItemLoaded, let folder = folderURL?.absoluteString, tracks.indices.contains(currentIndex) {
             persistence.saveBookProgress(for: folder, trackId: tracks[currentIndex].id, time: audioEngine.currentTime)
         }
     }
@@ -920,10 +908,10 @@ final class PlayerModel {
             return
         }
         guard !tracks.isEmpty else { return }
-        let elapsed = audioEngine.player?.currentTime().seconds ?? 0
+        let elapsed = audioEngine.currentTime
         if elapsed.isFinite, elapsed > 5 {
             isManualSeeking = true
-            audioEngine.player?.seek(to: .zero) { [weak self] _ in
+            audioEngine.seek(to: 0) { [weak self] _ in
                 DispatchQueue.main.async {
                     self?.isManualSeeking = false
                     self?.updateCurrentChapterFromPlayerTime()
@@ -939,7 +927,7 @@ final class PlayerModel {
         } else {
             // If it's the first track and elapsed < 5, just restart it.
             isManualSeeking = true
-            audioEngine.player?.seek(to: .zero) { [weak self] _ in
+            audioEngine.seek(to: 0) { [weak self] _ in
                 DispatchQueue.main.async {
                     self?.isManualSeeking = false
                     self?.updateCurrentChapterFromPlayerTime()
@@ -978,7 +966,7 @@ final class PlayerModel {
             previousTrackOrRestart()
             return
         }
-        guard audioEngine.player != nil else { return }
+        guard audioEngine.isItemLoaded else { return }
 
         let t = audioEngine.currentTime
         guard t.isFinite else { return }
@@ -1030,9 +1018,8 @@ final class PlayerModel {
     @discardableResult
     func skipBackwardNavigation() -> Bool {
         if loopMode == .bookmark,
-           let current = audioEngine.player?.currentTime().seconds,
-           current.isFinite,
-           jumpToPreviousBookmark(from: current) {
+           audioEngine.currentTime.isFinite,
+           jumpToPreviousBookmark(from: audioEngine.currentTime) {
             return true
         }
 
@@ -1050,9 +1037,8 @@ final class PlayerModel {
     @discardableResult
     func skipForwardNavigation() -> Bool {
         if loopMode == .bookmark,
-           let current = audioEngine.player?.currentTime().seconds,
-           current.isFinite,
-           jumpToNextBookmark(from: current) {
+           audioEngine.currentTime.isFinite,
+           jumpToNextBookmark(from: audioEngine.currentTime) {
             return true
         }
 
@@ -1069,7 +1055,7 @@ final class PlayerModel {
     /// - Returns: `true` if the skip resulted in a bookmark jump.
     @discardableResult
     func skipBackward30() -> Bool {
-        guard audioEngine.player != nil else { return false }
+        guard audioEngine.isItemLoaded else { return false }
         let current = audioEngine.currentTime
         guard current.isFinite else { return false }
 
@@ -1087,7 +1073,7 @@ final class PlayerModel {
 
         let target = max(0, current - 30)
         isManualSeeking = true
-        audioEngine.player?.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        audioEngine.seek(to:target) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.isManualSeeking = false
                 self?.updateCurrentChapterFromPlayerTime()
@@ -1102,7 +1088,7 @@ final class PlayerModel {
     /// - Returns: `true` if the skip resulted in a bookmark jump.
     @discardableResult
     func skipForward30() -> Bool {
-        guard audioEngine.player != nil else { return false }
+        guard audioEngine.isItemLoaded else { return false }
         let current = audioEngine.currentTime
         guard current.isFinite else { return false }
 
@@ -1121,7 +1107,7 @@ final class PlayerModel {
         let duration = durationSeconds ?? 0
         let target = min(duration, current + 30)
         isManualSeeking = true
-        audioEngine.player?.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        audioEngine.seek(to:target) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.isManualSeeking = false
                 self?.updateCurrentChapterFromPlayerTime()
@@ -1135,7 +1121,7 @@ final class PlayerModel {
     /// metadata, chapter state, and progress after the seek completes.
     /// - Parameter targetSeconds: The target time in seconds.
     func seek(toSeconds targetSeconds: Double) {
-        guard audioEngine.player != nil else { return }
+        guard audioEngine.isItemLoaded else { return }
         isManualSeeking = true
         audioEngine.seek(to: targetSeconds) { [weak self] _ in
             DispatchQueue.main.async {
@@ -1154,7 +1140,7 @@ final class PlayerModel {
     }
 
     private func applyPendingDeepLinkSeekIfPossible() {
-        guard audioEngine.player != nil, let target = pendingDeepLinkSeekTime else { return }
+        guard audioEngine.isItemLoaded, let target = pendingDeepLinkSeekTime else { return }
         pendingDeepLinkSeekTime = nil
         seek(toSeconds: target)
     }
@@ -1196,6 +1182,12 @@ final class PlayerModel {
         syncToWatch()
     }
 
+    /// Toggles volume boost (+9 dB) on or off.
+    func setVolumeBoost(enabled: Bool) {
+        isVolumeBoostEnabled = enabled
+        audioEngine.setVolumeBoost(enabled: enabled)
+    }
+
     /// Sets the loop mode and persists the preference for the current book.
     /// - Parameter mode: The desired loop mode (off, chapter, or bookmark).
     func setLoopMode(_ mode: LoopMode) {
@@ -1203,7 +1195,7 @@ final class PlayerModel {
         if let key = folderURL?.absoluteString {
             persistence.saveLoopMode(for: key, loopMode: mode.rawValue)
         }
-        installBookmarkLoopBoundaryObserver()
+        
         syncToWatch()
     }
 
@@ -1296,8 +1288,8 @@ final class PlayerModel {
         progressText = "--:--"
         elapsedText = "--:--"
 
-        removeChapterBoundaryObserver()
-        removeBookmarkLoopBoundaryObserver()
+        
+        
         audioEngine.stop()
 
         stopCurrentFileSecurityScopeIfNeeded()
@@ -1346,8 +1338,8 @@ final class PlayerModel {
         isManualSeeking = false
         lastBookmarkCheckSecond = nil
 
-        removeChapterBoundaryObserver()
-        removeBookmarkLoopBoundaryObserver()
+        
+        
 
         // For Files/iCloud-provider URLs:
         startSelectionSecurityScopeIfNeeded()
@@ -1405,7 +1397,7 @@ final class PlayerModel {
     }
 
     private func handleTrackEnded() {
-        guard audioEngine.player != nil else { return }
+        guard audioEngine.isItemLoaded else { return }
 
         // If the user armed an end-of-chapter sleep timer, the natural file
         // end also counts as the end of the current (last) chapter.
@@ -1460,8 +1452,7 @@ final class PlayerModel {
     }
 
     private func applySpeedToCurrentItem() {
-        // Keep the pitch-preserving algorithm even after loops/track changes.
-        audioEngine.player?.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        // AVAudioUnitVarispeed handles rate natively.
         audioEngine.setSpeed(speed)
         if isPlaying {
             audioEngine.playImmediately(atRate: speed)
@@ -1572,7 +1563,7 @@ final class PlayerModel {
     }
 
     private func updateNowPlayingElapsedTime() {
-        guard audioEngine.player != nil else { return }
+        guard audioEngine.isItemLoaded else { return }
         let current = audioEngine.currentTime
         guard current.isFinite else { return }
 
@@ -1594,12 +1585,12 @@ final class PlayerModel {
 
         var info = center.nowPlayingInfo ?? [:]
         
-        let elapsed = audioEngine.player?.currentTime().seconds
+        let elapsed = audioEngine.currentTime
         
         if chapters.count >= 2, let idx = currentChapterIndex {
             let c = chapters[idx]
             let chapterDuration = c.endSeconds - c.startSeconds
-            let chapterElapsed = max(0, (elapsed ?? c.startSeconds) - c.startSeconds)
+            let chapterElapsed = max(0, elapsed - c.startSeconds)
             
             info[MPMediaItemPropertyTitle] = currentSubtitle.isEmpty ? "Chapter \(idx + 1)" : currentSubtitle
             info[MPMediaItemPropertyAlbumTitle] = currentTitle
@@ -1615,8 +1606,8 @@ final class PlayerModel {
             if let d = durationSeconds, d.isFinite, d > 0 {
                 info[MPMediaItemPropertyPlaybackDuration] = d
             }
-            if let e = elapsed, e.isFinite {
-                info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = e
+            if elapsed.isFinite {
+                info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
             }
         }
 
@@ -1632,7 +1623,7 @@ final class PlayerModel {
     }
 
     private func updateProgressFromPlayer() {
-        guard audioEngine.player != nil else {
+        guard audioEngine.isItemLoaded else {
             progressFraction = 0
             progressText = "--:--"
             elapsedText = "--:--"
@@ -1724,31 +1715,27 @@ final class PlayerModel {
     }
 
     private func loadDurationForNowPlaying() async {
-        guard let asset = audioEngine.player?.currentItem?.asset else { return }
-        do {
-            let d = try await asset.load(.duration)
-            let seconds = d.seconds
-            if seconds.isFinite, seconds > 0 {
-                durationSeconds = seconds
-                updateNowPlayingInfo(isPaused: !isPlaying)
-                updateProgressFromPlayer()
-                
-                // Once asset is ready, check for saved progress and seek
-                if pendingDeepLinkSeekTime != nil {
-                    await MainActor.run {
-                        self.applyPendingDeepLinkSeekIfPossible()
-                    }
-                } else if let folder = folderURL?.absoluteString,
-                   let progress = persistence.getBookProgress(for: folder),
-                   tracks.indices.contains(currentIndex),
-                   progress.trackId == tracks[currentIndex].id,
-                   progress.time > 0, progress.time < seconds {
-                    let savedTime = progress.time
-                    await MainActor.run {
-                        self.isManualSeeking = true
-                        audioEngine.player?.seek(to: CMTime(seconds: savedTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                            DispatchQueue.main.async {
-                                self?.isManualSeeking = false
+        guard let seconds = audioEngine.duration, seconds > 0 else { return }
+        durationSeconds = seconds
+        updateNowPlayingInfo(isPaused: !isPlaying)
+        updateProgressFromPlayer()
+
+        // Once asset is ready, check for saved progress and seek
+        if pendingDeepLinkSeekTime != nil {
+            await MainActor.run {
+                self.applyPendingDeepLinkSeekIfPossible()
+            }
+        } else if let folder = folderURL?.absoluteString,
+           let progress = persistence.getBookProgress(for: folder),
+           tracks.indices.contains(currentIndex),
+           progress.trackId == tracks[currentIndex].id,
+           progress.time > 0, progress.time < seconds {
+            let savedTime = progress.time
+            await MainActor.run {
+                self.isManualSeeking = true
+                audioEngine.seek(to: savedTime) { [weak self] _ in
+                    DispatchQueue.main.async {
+                        self?.isManualSeeking = false
                                 self?.updateCurrentChapterFromPlayerTime()
                                 self?.updateNowPlayingElapsedTime()
                                 self?.updateProgressFromPlayer()
@@ -1761,10 +1748,6 @@ final class PlayerModel {
                     }
                 }
             }
-        } catch {
-            print("Duration load error: \(error)")
-        }
-    }
 
     private func generateThumbnail(for url: URL) async {
         let sourceImage: UIImage?
@@ -1915,7 +1898,9 @@ final class PlayerModel {
     }
 
     private func loadChaptersForCurrentItem() async {
-        guard let asset = audioEngine.player?.currentItem?.asset else { return }
+        guard audioEngine.isItemLoaded,
+              tracks.indices.contains(currentIndex) else { return }
+        let asset = AVAsset(url: tracks[currentIndex].url)
 
         // Only bother for common audiobook container types.
         let ext = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url.pathExtension.lowercased() : ""
@@ -1990,19 +1975,19 @@ final class PlayerModel {
         if built.count >= 2 {
             chapters = built
             updateCurrentChapterFromPlayerTime()
-            installChapterBoundaryObservers()
+            
         } else {
             chapters = []
             currentChapterIndex = nil
             currentSubtitle = ""
-            removeChapterBoundaryObserver()
+            
             updateNowPlayingInfo(isPaused: !isPlaying)
             syncToWatch()
         }
     }
 
     private func updateCurrentChapterFromPlayerTime() {
-        guard chapters.count >= 2, audioEngine.player != nil else { return }
+        guard chapters.count >= 2, audioEngine.isItemLoaded else { return }
         let t = audioEngine.currentTime
         guard t.isFinite else { return }
 
@@ -2035,7 +2020,7 @@ final class PlayerModel {
 
     private func applyChapterLoopIfNeeded() {
         guard !isManualSeeking else { return }
-        guard chapters.count >= 2, let idx = currentChapterIndex, audioEngine.player != nil else { return }
+        guard chapters.count >= 2, let idx = currentChapterIndex, audioEngine.isItemLoaded else { return }
         guard !isSeekingForChapterBoundary else { return }
 
         let t = audioEngine.currentTime
@@ -2053,7 +2038,7 @@ final class PlayerModel {
                 isSeekingForChapterBoundary = true
                 progressFraction = 0
                 let targetSeconds = c.startSeconds + 0.05
-                audioEngine.player?.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                audioEngine.seek(to:targetSeconds) { [weak self] _ in
                     self?.resumeAfterSeek()
                 }
             } else {
@@ -2065,7 +2050,7 @@ final class PlayerModel {
                         // Skip disabled chapters or gaps.
                         isSeekingForChapterBoundary = true
                         progressFraction = 0
-                        audioEngine.player?.seek(to: CMTime(seconds: nextC.startSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                        audioEngine.seek(to:nextC.startSeconds) { [weak self] _ in
                             self?.resumeAfterSeek()
                         }
                     }
@@ -2082,7 +2067,7 @@ final class PlayerModel {
 
     private func applyBookmarkLoopIfNeeded() {
         guard loopMode == .bookmark, !isManualSeeking, !isSeekingForChapterBoundary else { return }
-        guard audioEngine.player != nil else { return }
+        guard audioEngine.isItemLoaded else { return }
         let t = audioEngine.currentTime
         guard t.isFinite else { return }
 
@@ -2098,7 +2083,7 @@ final class PlayerModel {
             if sorted.count >= 2, t - sorted[sorted.count - 1].timestamp < 1.0 {
                 let lastSegmentStart = sorted.count - 2
                 isSeekingForChapterBoundary = true
-                audioEngine.player?.seek(to: CMTime(seconds: sorted[lastSegmentStart].timestamp + 0.05, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                audioEngine.seek(to:sorted[lastSegmentStart].timestamp + 0.05) { [weak self] _ in
                     self?.resumeAfterSeek()
                 }
             }
@@ -2109,64 +2094,9 @@ final class PlayerModel {
         let lookAhead = max(0.5, 0.3 * Double(speed))
         if t >= sorted[endIdx].timestamp - lookAhead {
             isSeekingForChapterBoundary = true
-            audioEngine.player?.seek(to: CMTime(seconds: sorted[startIdx].timestamp + 0.05, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            audioEngine.seek(to:sorted[startIdx].timestamp + 0.05) { [weak self] _ in
                 self?.resumeAfterSeek()
             }
-        }
-    }
-
-    private func removeBookmarkLoopBoundaryObserver() {
-        if let bookmarkLoopBoundaryObserver, let player = audioEngine.player {
-            player.removeTimeObserver(bookmarkLoopBoundaryObserver)
-        }
-        bookmarkLoopBoundaryObserver = nil
-    }
-
-    private func installBookmarkLoopBoundaryObserver() {
-        removeBookmarkLoopBoundaryObserver()
-        guard let player = audioEngine.player, loopMode == .bookmark else { return }
-        let sorted = currentTrackBookmarks.filter { $0.isEnabled }
-        guard sorted.count >= 2 else { return }
-
-        let times: [NSValue] = sorted.dropFirst().compactMap { bm in
-            let boundary = bm.timestamp - 0.05
-            guard boundary > 0, boundary.isFinite else { return nil }
-            return NSValue(time: CMTime(seconds: boundary, preferredTimescale: 600))
-        }
-        guard !times.isEmpty else { return }
-
-        bookmarkLoopBoundaryObserver = player.addBoundaryTimeObserver(
-            forTimes: times,
-            queue: .main
-        ) { [weak self] in
-            self?.applyBookmarkLoopIfNeeded()
-        }
-    }
-
-    private func removeChapterBoundaryObserver() {
-        if let chapterBoundaryObserver, let player = audioEngine.player {
-            player.removeTimeObserver(chapterBoundaryObserver)
-        }
-        chapterBoundaryObserver = nil
-    }
-
-    private func installChapterBoundaryObservers() {
-        removeChapterBoundaryObserver()
-        guard let player = audioEngine.player, chapters.count >= 2 else { return }
-
-        let times: [NSValue] = chapters.compactMap { c in
-            guard c.isEnabled else { return nil }
-            let boundary = c.endSeconds - 0.5
-            guard boundary > 0, boundary.isFinite else { return nil }
-            return NSValue(time: CMTime(seconds: boundary, preferredTimescale: 600))
-        }
-        guard !times.isEmpty else { return }
-
-        chapterBoundaryObserver = player.addBoundaryTimeObserver(
-            forTimes: times,
-            queue: .main
-        ) { [weak self] in
-            self?.applyChapterLoopIfNeeded()
         }
     }
 
@@ -2187,14 +2117,14 @@ final class PlayerModel {
     }
 
     private func seekToChapter(at index: Int) {
-        guard chapters.indices.contains(index), audioEngine.player != nil else { return }
+        guard chapters.indices.contains(index), audioEngine.isItemLoaded else { return }
         let c = chapters[index]
         
         // Seek slightly past the boundary to avoid rounding errors matching the previous chapter
         let targetSeconds = c.startSeconds + 0.05
         
         isManualSeeking = true
-        audioEngine.player?.seek(to: CMTime(seconds: targetSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        audioEngine.seek(to:targetSeconds) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.isManualSeeking = false
                 self?.updateCurrentChapterFromPlayerTime()
@@ -2223,12 +2153,12 @@ final class PlayerModel {
     func loadBookmarksForCurrentBook() {
         guard let key = bookmarksStorageKey else {
             bookmarks = []
-            installBookmarkBoundaryObserver()
+            
             updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
             return
         }
         bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted { $0.timestamp < $1.timestamp }
-        installBookmarkBoundaryObserver()
+        
         updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
     }
 
@@ -2316,7 +2246,7 @@ final class PlayerModel {
     /// - Returns: The newly created bookmark, or `nil` if playback is unavailable.
     @discardableResult
     func addBookmarkAtCurrentTime() -> Bookmark? {
-        guard audioEngine.player != nil else { return nil }
+        guard audioEngine.isItemLoaded else { return nil }
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
         let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
@@ -2331,7 +2261,7 @@ final class PlayerModel {
         bookmarks.append(bm)
         bookmarks.sort { $0.timestamp < $1.timestamp }
         persistBookmarks()
-        installBookmarkBoundaryObserver()
+        
         return bm
     }
 
@@ -2339,7 +2269,7 @@ final class PlayerModel {
     /// persisting it. Useful for presenting a pre-filled editor before saving.
     /// - Returns: A draft bookmark, or `nil` if playback is unavailable.
     func bookmarkDraftAtCurrentTime() -> BookmarkDraft? {
-        guard audioEngine.player != nil else { return nil }
+        guard audioEngine.isItemLoaded else { return nil }
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
         let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
@@ -2382,7 +2312,7 @@ final class PlayerModel {
         bookmarks.append(bm)
         bookmarks.sort { $0.timestamp < $1.timestamp }
         persistBookmarks()
-        installBookmarkBoundaryObserver()
+        
         updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
         return bm
     }
@@ -2411,7 +2341,7 @@ final class PlayerModel {
         bookmarks.sort { $0.timestamp < $1.timestamp }
         bookmarkArtworkCache.removeAll()
         persistBookmarks()
-        installBookmarkBoundaryObserver()
+        
         updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
     }
 
@@ -2449,7 +2379,7 @@ final class PlayerModel {
 
         if isCurrentBook {
             bookmarks = targetBookmarks
-            installBookmarkBoundaryObserver()
+            
         }
     }
 
@@ -2460,7 +2390,7 @@ final class PlayerModel {
         guard let idx = bookmarks.firstIndex(where: { $0.id == id }) else { return }
         bookmarks[idx].isEnabled.toggle()
         persistBookmarks()
-        installBookmarkBoundaryObserver()
+        
         updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
     }
 
@@ -2471,7 +2401,7 @@ final class PlayerModel {
     func moveBookmarks(from source: IndexSet, to destination: Int) {
         bookmarks.move(fromOffsets: source, toOffset: destination)
         persistBookmarks()
-        installBookmarkBoundaryObserver()
+        
         updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
     }
 
@@ -2503,45 +2433,13 @@ final class PlayerModel {
             bookmarks.remove(at: idx)
             bookmarkArtworkCache.removeAll()
             persistBookmarks()
-            installBookmarkBoundaryObserver()
+            
             updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
 
             if loopMode == .bookmark && currentTrackBookmarks.isEmpty {
                 setLoopMode(.off)
             }
         }
-    }
-
-    /// Install a boundary observer that fires precisely when playback crosses
-    /// any bookmark with an attached voice memo, in addition to the
-    /// periodic-observer-based safety net. Boundary observers are far more
-    /// precise than 0.25s polling.
-    private func installBookmarkBoundaryObserver() {
-        if let bookmarkBoundaryObserver, let player = audioEngine.player {
-            player.removeTimeObserver(bookmarkBoundaryObserver)
-        }
-        bookmarkBoundaryObserver = nil
-        guard let player = audioEngine.player else { return }
-        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
-        let times: [NSValue] = bookmarks.compactMap { bm in
-            guard bm.isEnabled, bm.voiceMemoFileName != nil else { return nil }
-            if let bt = bm.trackId, let ct = trackId, bt != ct { return nil }
-            guard bm.timestamp.isFinite, bm.timestamp > 0 else { return nil }
-            return NSValue(time: CMTime(seconds: bm.timestamp, preferredTimescale: 600))
-        }
-        guard !times.isEmpty else {
-            installBookmarkLoopBoundaryObserver()
-            return
-        }
-        bookmarkBoundaryObserver = player.addBoundaryTimeObserver(
-            forTimes: times,
-            queue: .main
-        ) { [weak self] in
-            guard let self, let t = self.audioEngine.player?.currentTime().seconds else { return }
-            self.checkBookmarkVoiceMemoTrigger(at: t, previousSeconds: self.lastBookmarkCheckSecond)
-            self.lastBookmarkCheckSecond = t
-        }
-        installBookmarkLoopBoundaryObserver()
     }
 
     /// Jumps playback to a bookmark's timestamp, suppressing the voice-memo
@@ -2566,7 +2464,7 @@ final class PlayerModel {
         let session = AVAudioSession.sharedInstance()
         switch source {
         case .voiceMemo:
-            audioEngine.player?.pause()
+            audioEngine.pause()
             try? session.setCategory(.playback, mode: .spokenAudio,
                                      options: [.interruptSpokenAudioAndMixWithOthers, .duckOthers])
             try? session.setActive(true)

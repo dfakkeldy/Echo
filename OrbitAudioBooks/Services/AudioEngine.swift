@@ -12,10 +12,13 @@ protocol AudioEngineDelegate: AnyObject {
 
 // MARK: - AudioEngine
 
-/// Encapsulates AVPlayer, AVAudioSession, and time/end/interruption observers.
-/// PlayerModel accesses `player` directly for domain-specific boundary observers
-/// (chapter boundaries, bookmark boundaries) and receives time/end/interruption
-/// events through the delegate protocol.
+/// Encapsulates AVAudioEngine-powered playback through an
+/// AVAudioPlayerNode → AVAudioUnitEQ → AVAudioUnitVarispeed chain.
+/// PlayerModel receives time/end/interruption events through the
+/// delegate protocol. Chapter and bookmark boundary detection are
+/// driven by the periodic time callback (0.25 s) rather than AVPlayer
+/// boundary observers so that the engine migration keeps all of that
+/// logic identical.
 @Observable
 final class AudioEngine {
     // MARK: - Observable State
@@ -24,19 +27,32 @@ final class AudioEngine {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval?
     private(set) var speed: Float = 1.25
+    private(set) var isVolumeBoostEnabled = false
 
-    // MARK: - AVPlayer Access (for boundary observers)
-
-    private(set) var player: AVPlayer?
+    /// Whether an audio file is loaded and ready.
+    var isItemLoaded: Bool { audioFile != nil && playerNode != nil }
 
     // MARK: - Delegate
 
     weak var delegate: AudioEngineDelegate?
 
-    // MARK: - Private State
+    // MARK: - Engine & Nodes
 
-    private var timeObserver: Any?
-    private var endObserver: NSObjectProtocol?
+    private var engine: AVAudioEngine?
+    private var playerNode: AVAudioPlayerNode?
+    private var eqNode: AVAudioUnitEQ?
+    private var varispeedNode: AVAudioUnitVarispeed?
+    private var audioFile: AVAudioFile?
+
+    // MARK: - Time Tracking
+
+    /// The seek position at the start of the currently playing segment.
+    /// `currentTime = seekOffset + Double(sampleTime) / sampleRate`
+    private var seekOffset: TimeInterval = 0
+    private var timeTimer: Timer?
+
+    // MARK: - Interruption State
+
     private var interruptionObserver: NSObjectProtocol?
     private var mediaServicesLostObserver: NSObjectProtocol?
     private var mediaServicesResetObserver: NSObjectProtocol?
@@ -60,156 +76,244 @@ final class AudioEngine {
         }
         setupInterruptionObserver()
         setupMediaServicesObservers()
+        configureEngineGraph()
+    }
+
+    /// Build the node graph once; the engine is started on first `play()`.
+    private func configureEngineGraph() {
+        guard engine == nil else { return }
+        let engine = AVAudioEngine()
+        let playerNode = AVAudioPlayerNode()
+        let eqNode = AVAudioUnitEQ()
+        let varispeedNode = AVAudioUnitVarispeed()
+
+        engine.attach(playerNode)
+        engine.attach(eqNode)
+        engine.attach(varispeedNode)
+
+        engine.connect(playerNode, to: eqNode, format: nil)
+        engine.connect(eqNode, to: varispeedNode, format: nil)
+        engine.connect(varispeedNode, to: engine.mainMixerNode, format: nil)
+
+        engine.prepare()
+
+        self.engine = engine
+        self.playerNode = playerNode
+        self.eqNode = eqNode
+        self.varispeedNode = varispeedNode
     }
 
     // MARK: - Playback Controls
 
     func play() {
-        guard let player, !isPlaying else { return }
-        player.defaultRate = speed
-        player.rate = speed
+        guard let playerNode, engine != nil, isItemLoaded, !isPlaying else { return }
+        startEngineIfNeeded()
+        varispeedNode?.rate = speed
+        playerNode.play()
         isPlaying = true
+        startTimeTimer()
     }
 
     func playImmediately(atRate rate: Float) {
         setSpeed(rate)
-        player?.playImmediately(atRate: rate)
-        isPlaying = player != nil
+        guard let playerNode, engine != nil, isItemLoaded else { return }
+        startEngineIfNeeded()
+        varispeedNode?.rate = rate
+        playerNode.play()
+        isPlaying = true
+        startTimeTimer()
     }
 
     func pause() {
-        player?.pause()
+        playerNode?.pause()
         isPlaying = false
+        stopTimeTimer()
     }
 
     func seek(to targetSeconds: Double, completion: ((Bool) -> Void)? = nil) {
-        guard let player else { return }
-        player.seek(
-            to: CMTime(seconds: targetSeconds, preferredTimescale: 600),
-            toleranceBefore: .zero,
-            toleranceAfter: .zero
-        ) { [weak self] finished in
-            guard let self else {
-                completion?(finished)
-                return
-            }
-            let current = player.currentTime().seconds
-            if current.isFinite {
-                self.currentTime = current
-            } else if targetSeconds.isFinite {
-                self.currentTime = targetSeconds
-            }
-            completion?(finished)
+        guard let playerNode, let audioFile, engine != nil else {
+            completion?(false)
+            return
         }
+
+        let sampleRate = audioFile.processingFormat.sampleRate
+        let totalFrames = audioFile.length
+        let clampedTime = max(0, min(targetSeconds, Double(totalFrames) / sampleRate))
+        let startFrame = AVAudioFramePosition(clampedTime * sampleRate)
+        let framesToPlay = AVAudioFrameCount(totalFrames - startFrame)
+
+        guard framesToPlay > 0 else {
+            completion?(false)
+            return
+        }
+
+        let wasPlaying = isPlaying
+        isPlaying = false
+        stopTimeTimer()
+        playerNode.stop()
+        seekOffset = clampedTime
+        currentTime = clampedTime
+
+        scheduleSegment(file: audioFile, from: startFrame, frames: framesToPlay)
+
+        if wasPlaying {
+            startEngineIfNeeded()
+            playerNode.play()
+            isPlaying = true
+            startTimeTimer()
+        }
+        completion?(true)
     }
 
     func setSpeed(_ newSpeed: Float) {
         speed = newSpeed
-        if let player {
-            player.defaultRate = speed
-        }
-        if isPlaying {
-            player?.rate = speed
-        }
+        varispeedNode?.rate = newSpeed
+    }
+
+    // MARK: - Volume Boost
+
+    /// Toggles a +9 dB global gain on the EQ node.
+    func setVolumeBoost(enabled: Bool) {
+        isVolumeBoostEnabled = enabled
+        eqNode?.globalGain = enabled ? 9.0 : 0.0
     }
 
     // MARK: - Item Management
 
-    /// Replaces the current playing item. Sets up time and end observers.
+    /// Loads an audio file and schedules it from the given startTime.
+    /// Maintains the play/pause state across item replacement.
     func replaceCurrentItem(with url: URL, startTime: TimeInterval? = nil) {
-        removeTimeObserver()
-        removeEndObserver()
-        currentTime = startTime ?? 0
+        let wasPlaying = isPlaying
+        isPlaying = false
+        stopTimeTimer()
+        playerNode?.stop()
+
+        let initialOffset = startTime ?? 0
+        seekOffset = initialOffset
+        currentTime = initialOffset
         duration = nil
 
-        let item = AVPlayerItem(url: url)
-        item.audioTimePitchAlgorithm = .timeDomain
-        item.preferredForwardBufferDuration = 10
+        guard let playerNode, engine != nil else { return }
 
-        if player == nil {
-            player = AVPlayer(playerItem: item)
-            player?.automaticallyWaitsToMinimizeStalling = true
-        } else {
-            player?.replaceCurrentItem(with: item)
-        }
+        do {
+            let file = try AVAudioFile(forReading: url)
+            audioFile = file
 
-        player?.defaultRate = speed
-        if let startTime, startTime > 0 {
-            player?.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
-        }
+            let sampleRate = file.processingFormat.sampleRate
+            let fileDuration = Double(file.length) / sampleRate
+            duration = fileDuration
 
-        addTimeObserver()
-        addEndObserver()
+            let clampedOffset = max(0, min(initialOffset, fileDuration))
+            let startFrame = AVAudioFramePosition(clampedOffset * sampleRate)
+            let framesToPlay = AVAudioFrameCount(file.length - startFrame)
 
-        Task { [weak self] in
-            guard let self, let asset = self.player?.currentItem?.asset else { return }
-            if let cmDuration = try? await asset.load(.duration) {
-                await MainActor.run {
-                    self.duration = cmDuration.seconds
-                }
+            guard framesToPlay > 0 else { return }
+
+            seekOffset = clampedOffset
+            currentTime = clampedOffset
+
+            scheduleSegment(file: file, from: startFrame, frames: framesToPlay)
+
+            if wasPlaying {
+                startEngineIfNeeded()
+                varispeedNode?.rate = speed
+                playerNode.play()
+                isPlaying = true
+                startTimeTimer()
             }
+        } catch {
+            print("AudioEngine: replaceCurrentItem error: \(error)")
+            audioFile = nil
+            duration = nil
         }
     }
 
-    /// Stops playback and releases the AVPlayer.
+    /// Stops playback and tears down the engine.
     func stop() {
-        player?.pause()
         isPlaying = false
+        playerNode?.pause()
+        playerNode?.stop()
+        engine?.stop()
         currentTime = 0
         duration = nil
+        seekOffset = 0
 
-        removeTimeObserver()
-        removeEndObserver()
+        stopTimeTimer()
         removeInterruptionObserver()
         removeMediaServicesObservers()
-        player = nil
+        audioFile = nil
         audioSessionConfigured = false
     }
 
     func cleanup() {
         stop()
+        engine = nil
+        playerNode = nil
+        eqNode = nil
+        varispeedNode = nil
     }
 
-    // MARK: - Observers
+    // MARK: - Private Helpers
 
-    private func addTimeObserver() {
-        removeTimeObserver()
-        timeObserver = player?.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
-            queue: .main
-        ) { [weak self] time in
-            guard let self, time.seconds.isFinite else { return }
-            self.currentTime = time.seconds
-            self.delegate?.audioEngineDidUpdateTime(self, currentTime: time.seconds)
+    private func startEngineIfNeeded() {
+        guard let engine, !engine.isRunning else { return }
+        do {
+            try engine.start()
+        } catch {
+            print("AudioEngine: engine start error: \(error)")
         }
     }
 
-    private func removeTimeObserver() {
-        if let obs = timeObserver, let player {
-            player.removeTimeObserver(obs)
+    private func scheduleSegment(file: AVAudioFile,
+                                  from startFrame: AVAudioFramePosition,
+                                  frames: AVAudioFrameCount) {
+        playerNode?.scheduleSegment(
+            file,
+            startingFrame: startFrame,
+            frameCount: frames,
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isPlaying = false
+                self.stopTimeTimer()
+                self.currentTime = self.duration ?? self.currentTime
+                self.delegate?.audioEngineDidPlayToEnd(self)
+            }
         }
-        timeObserver = nil
     }
 
-    private func addEndObserver() {
-        removeEndObserver()
-        guard let item = player?.currentItem else { return }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            self.delegate?.audioEngineDidPlayToEnd(self)
+    // MARK: - Time Timer
+
+    private func startTimeTimer() {
+        stopTimeTimer()
+        timeTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.updateCurrentTime()
+        }
+        if let timer = timeTimer {
+            RunLoop.main.add(timer, forMode: .common)
         }
     }
 
-    private func removeEndObserver() {
-        if let obs = endObserver {
-            NotificationCenter.default.removeObserver(obs)
-        }
-        endObserver = nil
+    private func stopTimeTimer() {
+        timeTimer?.invalidate()
+        timeTimer = nil
     }
+
+    private func updateCurrentTime() {
+        guard let playerNode, isPlaying else { return }
+        guard let nodeTime = playerNode.lastRenderTime,
+              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else { return }
+
+        let position = Double(playerTime.sampleTime) / playerTime.sampleRate
+        let time = seekOffset + position
+        guard time.isFinite else { return }
+
+        currentTime = time
+        delegate?.audioEngineDidUpdateTime(self, currentTime: time)
+    }
+
+    // MARK: - Interruption Observers
 
     private func setupInterruptionObserver() {
         guard interruptionObserver == nil else { return }
@@ -226,8 +330,9 @@ final class AudioEngine {
 
             switch type {
             case .began:
-                audioSessionConfigured = false
+                self.audioSessionConfigured = false
                 self.isPlaying = false
+                self.stopTimeTimer()
                 self.delegate?.audioEngineInterruptionBegan(self)
             case .ended:
                 let optionsValue = (userInfo[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
@@ -256,6 +361,7 @@ final class AudioEngine {
         ) { [weak self] _ in
             guard let self else { return }
             self.isPlaying = false
+            self.stopTimeTimer()
             self.delegate?.audioEngineInterruptionBegan(self)
         }
 
