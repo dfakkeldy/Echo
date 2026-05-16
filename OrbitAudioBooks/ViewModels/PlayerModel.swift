@@ -348,6 +348,9 @@ final class PlayerModel {
                 }
             }
             var reply = self.watchStateContext()
+            if let thumbnailData = self.watchThumbnailData {
+                reply["thumbnailData"] = thumbnailData
+            }
             if let commandResult {
                 reply["commandResult"] = commandResult
             }
