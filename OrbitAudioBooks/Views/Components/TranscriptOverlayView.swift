@@ -15,6 +15,15 @@ struct TranscriptOverlayView<Content: View>: View {
     @State private var displayMode: TranscriptDisplayMode = .transcript
     @State private var searchText: String = ""
 
+    /// Pro unlock is required in production; debug builds bypass for testing.
+    private var hasTranscriptAccess: Bool {
+#if DEBUG
+        true
+#else
+        storeManager.hasUnlockedPro
+#endif
+    }
+
     private var filteredSegments: [TranscriptionSegment] {
         if searchText.isEmpty { return player.transcription }
         return player.transcription.filter {
@@ -26,7 +35,7 @@ struct TranscriptOverlayView<Content: View>: View {
         ZStack(alignment: .bottom) {
             content
 
-            if storeManager.hasUnlockedPro, !player.transcription.isEmpty {
+            if hasTranscriptAccess, !player.transcription.isEmpty {
                 VStack(spacing: 0) {
                     // Always-visible header with mode picker and expand/collapse button.
                     HStack {
