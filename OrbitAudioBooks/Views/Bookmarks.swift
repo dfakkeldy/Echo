@@ -417,7 +417,7 @@ struct EditBookmarkView: View {
 
                         Spacer()
 
-                        Text(formatHMS(timestamp))
+                        Text(NowPlayingController.formatTime(timestamp))
                             .font(.system(.title3, design: .monospaced))
                             .frame(maxWidth: .infinity)
 
@@ -782,12 +782,5 @@ struct EditBookmarkView: View {
         }
     }
 
-    private func formatHMS(_ seconds: TimeInterval) -> String {
-        let total = max(0, Int(seconds.rounded(.down)))
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        return String(format: "%02d:%02d:%02d", h, m, s)
-    }
 }
 #endif
