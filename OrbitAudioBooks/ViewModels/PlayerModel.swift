@@ -53,6 +53,10 @@ final class PlayerModel {
     /// Convenience accessor for the shared playback state owned by PlaybackController.
     private var state: PlaybackState { playbackController.state }
 
+    // MARK: - Services (continued)
+
+    let playlistManager: PlaylistManager
+
     // MARK: - UI state (pass-through to PlaybackController)
 
     var loopMode: LoopMode {
@@ -241,6 +245,7 @@ final class PlayerModel {
     init() {
         SettingsManager.registerDefaults()
 
+        playlistManager = PlaylistManager(state: playbackController.state, persistence: persistence)
         playbackController.delegate = self
 
         watchSyncManager.onMessage = { [weak self] message, reply in
@@ -363,6 +368,9 @@ final class PlayerModel {
         playbackController.coordinator_startSecurityScope = { [weak self] in
             self?.startSelectionSecurityScopeIfNeeded()
             self?.startCurrentFileSecurityScopeIfNeeded()
+        }
+        playlistManager.coordinator_postResetRefresh = { [weak self] in
+            self?.updateCurrentChapterFromPlayerTime()
         }
     }
 
@@ -606,89 +614,23 @@ final class PlayerModel {
     ///   - source: The indices of tracks to move.
     ///   - destination: The index to insert the tracks at.
     func moveTracks(from source: IndexSet, to destination: Int) {
-        let currentURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil
-        state.tracks.move(fromOffsets: source, toOffset: destination)
-        if let currentURL, let newIdx = state.tracks.firstIndex(where: { $0.url == currentURL }) {
-            state.currentIndex = newIdx
-        }
-        if let folderURL = folderURL {
-            persistence.saveOrder(for: folderURL.absoluteString, ids: tracks.map { $0.id })
-        }
+        playlistManager.moveTracks(from: source, to: destination)
     }
 
-    /// Reorders chapters within the current track and persists the new order.
-    /// - Parameters:
-    ///   - source: The indices of chapters to move.
-    ///   - destination: The index to insert the chapters at.
     func moveChapters(from source: IndexSet, to destination: Int) {
-        let currentID = (currentChapterIndex != nil && state.chapters.indices.contains(currentChapterIndex!)) ? state.chapters[currentChapterIndex!].id : nil
-        state.chapters.move(fromOffsets: source, toOffset: destination)
-        if let currentID, let newIdx = state.chapters.firstIndex(where: { $0.id == currentID }) {
-            state.currentChapterIndex = newIdx
-        }
-        if let currentTrackURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil {
-            persistence.saveOrder(for: currentTrackURL.absoluteString, ids: chapters.map { $0.id })
-        }
-        
+        playlistManager.moveChapters(from: source, to: destination)
     }
 
-    /// Toggles the enabled state of a track, which determines whether it is
-    /// included during sequential playback. Persists the change.
-    /// - Parameter index: The index of the track in the `tracks` array.
     func toggleTrackEnabled(at index: Int) {
-        state.tracks[index].isEnabled.toggle()
-        if let folderURL = folderURL {
-            var states = persistence.loadEnabledState(for: folderURL.absoluteString) ?? [:]
-            states[state.tracks[index].id] = state.tracks[index].isEnabled
-            persistence.saveEnabledState(for: folderURL.absoluteString, states: states)
-        }
+        playlistManager.toggleTrackEnabled(at: index)
     }
-    
-    /// Toggles the enabled state of a chapter, which determines whether it is
-    /// included during sequential chapter navigation. Persists the change.
-    /// - Parameter index: The index of the chapter in the `chapters` array.
+
     func toggleChapterEnabled(at index: Int) {
-        state.chapters[index].isEnabled.toggle()
-        if let currentTrackURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil {
-            var states = persistence.loadEnabledState(for: currentTrackURL.absoluteString) ?? [:]
-            states[state.chapters[index].id] = state.chapters[index].isEnabled
-            persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
-        }
-
+        playlistManager.toggleChapterEnabled(at: index)
     }
 
-    /// Resets the playlist to its default order, re-enabling all tracks or
-    /// chapters (depending on the content) and persisting the changes.
     func resetPlaylist() {
-        if state.chapters.count >= 2 {
-            state.chapters.sort { $0.startSeconds < $1.startSeconds }
-            for i in 0..<state.chapters.count {
-                state.chapters[i].isEnabled = true
-            }
-            if let currentTrackURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil {
-                persistence.saveOrder(for: currentTrackURL.absoluteString, ids: chapters.map { $0.id })
-                var states: [String: Bool] = [:]
-                for c in state.chapters { states[c.id] = true }
-                persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
-            }
-            updateCurrentChapterFromPlayerTime()
-
-        } else {
-            let currentURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil
-            state.tracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-            for i in 0..<state.tracks.count {
-                state.tracks[i].isEnabled = true
-            }
-            if let folderURL = folderURL {
-                persistence.saveOrder(for: folderURL.absoluteString, ids: tracks.map { $0.id })
-                var states: [String: Bool] = [:]
-                for t in state.tracks { states[t.id] = true }
-                persistence.saveEnabledState(for: folderURL.absoluteString, states: states)
-            }
-            if let currentURL, let newIdx = state.tracks.firstIndex(where: { $0.url == currentURL }) {
-                state.currentIndex = newIdx
-            }
-        }
+        playlistManager.resetPlaylist()
     }
 
     /// Loads a folder or single audio file as the active playlist. If the URL is a
@@ -709,7 +651,7 @@ final class PlayerModel {
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
         
         if isDir.boolValue {
-            tracks = loadTracks(from: url)
+            tracks = playlistManager.loadTracks(from: url)
         } else {
             tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
         }
@@ -759,53 +701,6 @@ final class PlayerModel {
         case .queueSeek:
             break
         }
-    }
-
-    private func loadTracks(from folder: URL) -> [Track] {
-        // Important: for folders from Files app, access can be security-scoped.
-        let didStart = folder.startAccessingSecurityScopedResource()
-        defer { if didStart { folder.stopAccessingSecurityScopedResource() } }
-
-        let fm = FileManager.default
-        let keys: [URLResourceKey] = [.isRegularFileKey, .nameKey]
-
-        guard let urls = try? fm.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        let allowed = Set(["mp3", "m4a", "m4b"])
-        var loadedTracks: [Track] = urls.compactMap { url in
-            let ext = url.pathExtension.lowercased()
-            guard allowed.contains(ext) else { return nil }
-            return Track(url: url, title: url.deletingPathExtension().lastPathComponent)
-        }
-
-        loadedTracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        
-        let folderKey = folder.absoluteString
-        if let savedStates = persistence.loadEnabledState(for: folderKey) {
-            for i in 0..<loadedTracks.count {
-                if let isEnabled = savedStates[loadedTracks[i].id] {
-                    loadedTracks[i].isEnabled = isEnabled
-                }
-            }
-        }
-        
-        if let savedOrder = persistence.loadOrder(for: folderKey) {
-            var orderedTracks: [Track] = []
-            var remainingTracks = loadedTracks
-            for id in savedOrder {
-                if let idx = remainingTracks.firstIndex(where: { $0.id == id }) {
-                    orderedTracks.append(remainingTracks.remove(at: idx))
-                }
-            }
-            orderedTracks.append(contentsOf: remainingTracks)
-            loadedTracks = orderedTracks
-        }
-
-        return loadedTracks
     }
 
     // MARK: Playback controls
