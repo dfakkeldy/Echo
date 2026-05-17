@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var showingFolderPicker = false
     @State private var showingPlaylist = false
     @State private var showingSettings = false
+    @State private var showingHelp = false
     @State private var newBookmarkDraft: BookmarkDraft? = nil
     @State private var editingBookmarkID: UUID? = nil
     @State private var isTranscriptExpanded = false
@@ -89,6 +90,15 @@ struct ContentView: View {
                 .accessibilityLabel(Text("Open folder"))
             }
 
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showingHelp = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .accessibilityLabel(Text("Help"))
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showingSettings = true
@@ -109,6 +119,17 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showingHelp) {
+            NavigationStack {
+                HelpView()
+                    .navigationTitle("Help")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingHelp = false }
+                        }
+                    }
+            }
         }
         .sheet(item: Binding(
             get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
