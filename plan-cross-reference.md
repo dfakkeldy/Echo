@@ -5,7 +5,7 @@
 | # | Plan | Complexity | Category |
 |---|------|-----------|----------|
 | B12 | Volume Control Cleanup | Small | Bug fix |
-| B13 | Watch State Consistency | Small | Bug fix |
+| B13 | Watch State Consistency | Small | Bug fix | ✅ DONE |
 | B16 | Bookmark Cleanup Logging | Small | Bug fix |
 | A1 | PlayerModel Decomposition | Very Large | Architecture |
 | A2 | Watch ContentView Decomposition | Medium | Architecture |
@@ -62,10 +62,10 @@ PLIST (Playlist) ──── depends on: A1 (manifest in extracted Persistence)
 
 These four have zero dependencies on each other and can be done in parallel (separate worktrees).
 
-### Phase 1: Bug Fixes
+### Phase 1: Bug Fixes ✅ COMPLETE
 | Order | Plan | Reason |
 |-------|------|--------|
-| 1.1 | **B13 — Watch State Consistency** | Fix the bug before A2 decomposes the file. |
+| 1.1 | **B13 — Watch State Consistency** ✅ | Fixed. Consistent optimistic updates with rollback across all watch controls. |
 
 ### Phase 2: Architecture Refactoring
 | Order | Plan | Reason |
@@ -234,3 +234,24 @@ M4B then adds the aggregation without changing the protocol signature.
 | Maximum parallel workstreams | 4 (Phase 0) |
 | Sequential dependency chain (longest path) | A5 → A1 → M4B → CAR (4 steps) |
 | Plans revised after code review | A5 (protocol approach), A6 (reduced scope) |
+
+## Completion Status (May 2026)
+
+| Plan | Status | Date |
+|------|--------|------|
+| A5 — Protocol Extraction | ✅ Done | 2026-05-15 |
+| A6 — AudioEngine Gain API | ✅ Done | 2026-05-15 |
+| B12 — Volume Control Cleanup | ✅ Done | 2026-05-15 |
+| B13 — Watch State Consistency | ✅ Done | 2026-05-16 |
+| A1 — PlayerModel Decomposition | 🔄 In Progress | — |
+| L10N — Localization & Settings | 🔄 In Progress | — |
+| B16 — Bookmark Cleanup Logging | ⏳ Pending | — |
+| A2 — Watch ContentView Decomposition | ⏳ Pending | — |
+| A3 — Cross-Target Deduplication | ⏳ Pending | — |
+| A4 — Accessibility Audit | ⏳ Pending | — |
+| A7 — Typed Watch Configuration | ⏳ Pending | — |
+| M4B — Audio Queue M4B Folders | ⏳ Pending | — |
+| DASH — Modular Dashboard UI | ⏳ Pending | — |
+| CAR — CarPlay Integration | ⏳ Pending | — |
+| SQL — SQL Database Integration | ⏳ Pending | — |
+| PLIST — Playlist Packaging | ⏳ Pending | — |
