@@ -5,6 +5,7 @@ import MediaPlayer
 import WatchConnectivity
 import UIKit
 import ImageIO
+import os.log
 
 /// Playback loop behavior for the current audiobook.
 enum LoopMode: String, Codable {
@@ -2252,18 +2253,14 @@ final class PlayerModel {
                 do {
                     try FileManager.default.removeItem(at: url)
                 } catch {
-#if DEBUG
-                    print("Failed to remove voice memo at \(url.path): \(error)")
-#endif
+                    os_log(.error, "Failed to remove voice memo: %{private}@", error.localizedDescription)
                 }
             }
             if let url = bookmarks[idx].bookmarkImageURL(in: folderURL) {
                 do {
                     try FileManager.default.removeItem(at: url)
                 } catch {
-#if DEBUG
-                    print("Failed to remove bookmark image at \(url.path): \(error)")
-#endif
+                    os_log(.error, "Failed to remove bookmark image: %{private}@", error.localizedDescription)
                 }
             }
             bookmarks.remove(at: idx)

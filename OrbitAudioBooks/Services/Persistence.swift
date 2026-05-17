@@ -1,4 +1,5 @@
 import Foundation
+import os.log
 
 /// UserDefaults-backed persistence for book progress, bookmarks, speed,
 /// ordering, and security-scoped bookmark restoration.
@@ -171,9 +172,7 @@ struct Persistence {
         do {
             try data.write(to: sidecar, options: .atomic)
         } catch {
-#if DEBUG
-            print("Bookmark sidecar write failed at \(sidecar.path): \(error)")
-#endif
+            os_log(.error, "Bookmark sidecar write failed: %{private}@", error.localizedDescription)
         }
     }
 

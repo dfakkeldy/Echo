@@ -58,16 +58,6 @@ struct PlaylistView: View {
         return String(format: "%02d:%02d", m, s)
     }
 
-    /// Indices into `model.bookmarks` for the bookmarks that are visible in the
-    /// current track scope (i.e. those returned by `currentTrackBookmarks`).
-    private var visibleBookmarkIndices: [Int] {
-        let trackId = model.tracks.indices.contains(model.currentIndex) ? model.tracks[model.currentIndex].id : nil
-        return model.bookmarks.indices.filter { i in
-            let bm = model.bookmarks[i]
-            return bm.trackId == nil || bm.trackId == trackId
-        }
-    }
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -99,14 +89,17 @@ struct PlaylistView: View {
                     }
                     .environment(\.editMode, .constant(.active))
                 } else {
-                    let sortedBookmarks: [Bookmark] = {
-                        let trackId = model.tracks.indices.contains(model.currentIndex) ? model.tracks[model.currentIndex].id : nil
-                        return model.bookmarks
-                            .filter { $0.trackId == nil || $0.trackId == trackId }
-                            .sorted { $0.timestamp < $1.timestamp }
-                    }()
+                    let trackTitleMap: [String: String] = Dictionary(
+                        uniqueKeysWithValues: model.tracks.map { ($0.id, $0.title) }
+                    )
+                    let grouped = Dictionary(grouping: model.bookmarks) { $0.trackId }
+                    let sortedKeys = grouped.keys.sorted { a, b in
+                        let ia = a.flatMap { tid in model.tracks.firstIndex(where: { $0.id == tid }) } ?? Int.max
+                        let ib = b.flatMap { tid in model.tracks.firstIndex(where: { $0.id == tid }) } ?? Int.max
+                        return ia < ib
+                    }
 
-                    if sortedBookmarks.isEmpty && !showChapters {
+                    if model.bookmarks.isEmpty && !showChapters {
                         ContentUnavailableView(
                             "No Bookmarks",
                             systemImage: "bookmark",
@@ -140,9 +133,11 @@ struct PlaylistView: View {
                                 }
                             }
 
-                            if !sortedBookmarks.isEmpty {
-                                Section(showChapters ? "Bookmarks" : "") {
-                                    ForEach(sortedBookmarks, id: \.id) { bm in
+                            ForEach(sortedKeys, id: \.self) { trackId in
+                                let bookmarks = (grouped[trackId] ?? []).sorted { $0.timestamp < $1.timestamp }
+                                let header: String = trackId.flatMap { trackTitleMap[$0] } ?? "Folder Bookmarks"
+                                Section(header) {
+                                    ForEach(bookmarks, id: \.id) { bm in
                                         bookmarkRow(bm)
                                     }
                                 }
