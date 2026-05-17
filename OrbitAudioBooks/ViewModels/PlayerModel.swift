@@ -829,9 +829,9 @@ final class PlayerModel {
         endBackgroundTask()
 
         guard !tracks.isEmpty else { return }
-        if !audioEngine.isItemLoaded { prepareToPlay(index: currentIndex, autoplay: false) }
-
         configureAudioSessionIfNeeded()
+
+        if !audioEngine.isItemLoaded { prepareToPlay(index: currentIndex, autoplay: false) }
         startSelectionSecurityScopeIfNeeded()
         startCurrentFileSecurityScopeIfNeeded()
 
@@ -1384,6 +1384,7 @@ final class PlayerModel {
         }
 
         // AudioEngine handles AVPlayerItem creation, observers, and duration loading.
+        configureAudioSessionIfNeeded()
         audioEngine.replaceCurrentItem(with: trackURL)
 
         applySpeedToCurrentItem()

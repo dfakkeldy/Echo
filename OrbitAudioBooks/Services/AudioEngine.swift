@@ -57,6 +57,7 @@ final class AudioEngine {
     private var mediaServicesLostObserver: NSObjectProtocol?
     private var mediaServicesResetObserver: NSObjectProtocol?
     private var audioSessionConfigured = false
+    private var seekGeneration = 0
 
     deinit {
         cleanup()
@@ -86,7 +87,11 @@ final class AudioEngine {
         let playerNode = AVAudioPlayerNode()
         let eqNode = AVAudioUnitEQ()
         let timePitchNode = AVAudioUnitTimePitch()
-        timePitchNode.pitch = 0
+        // A tiny non-zero pitch prevents the audio unit's internal passthrough
+        // optimisation when rate=1.0, which would otherwise ignore rate changes
+        // back to unity (e.g. 3x → 1x stuck at 3x). 0.01 cents is ~100x below
+        // the ~5-cent just-noticeable pitch difference.
+        timePitchNode.pitch = 0.01
 
         engine.attach(playerNode)
         engine.attach(eqNode)
@@ -151,6 +156,7 @@ final class AudioEngine {
         let wasPlaying = isPlaying
         isPlaying = false
         stopTimeTimer()
+        seekGeneration += 1
         playerNode.stop()
         seekOffset = clampedTime
         currentTime = clampedTime
@@ -218,6 +224,7 @@ final class AudioEngine {
         let wasPlaying = isPlaying
         isPlaying = false
         stopTimeTimer()
+        seekGeneration += 1
         playerNode?.stop()
 
         let initialOffset = startTime ?? 0
@@ -299,6 +306,7 @@ final class AudioEngine {
     private func scheduleSegment(file: AVAudioFile,
                                   from startFrame: AVAudioFramePosition,
                                   frames: AVAudioFrameCount) {
+        let generation = seekGeneration
         playerNode?.scheduleSegment(
             file,
             startingFrame: startFrame,
@@ -307,6 +315,7 @@ final class AudioEngine {
         ) { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard generation == self.seekGeneration else { return }
                 self.isPlaying = false
                 self.stopTimeTimer()
                 self.currentTime = self.duration ?? self.currentTime
