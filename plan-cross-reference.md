@@ -20,6 +20,7 @@
 | CAR | CarPlay Integration | Large | Feature |
 | SQL | SQL Database Integration | Large | Feature |
 | PLIST | Playlist Packaging (Manifest + ZIP) | Medium | Feature |
+| BKMG | Bookmark Playlist Grouping | Small | Feature |
 
 ---
 
@@ -46,6 +47,7 @@ DASH (Dashboard) ─── depends on: A1, A5, L10N ─────────�
 CAR (CarPlay) ────── depends on: A1, A6, M4B ───────────────────────────────────┘│
 SQL (Database) ───── depends on: A1 ─────────────────────────────────────────────┘
 PLIST (Playlist) ──── depends on: A1 (manifest in extracted Persistence) ─────────┘
+BKMG (Bookmark Grouping) ─ no dependencies, no dependents (self-contained UI change)
 ```
 
 ---
@@ -154,6 +156,7 @@ M4B then adds the aggregation without changing the protocol signature.
 - Phase 0: A5, L10N, B16, A6+B12 — all four at once
 - Phase 2: A2 + A3 + A7 — three at once (after B13 and A1)
 - Phase 3: M4B + DASH + SQL + PLIST — four at once (after A1 is done, they touch different extracted components)
+- Any time: BKMG — zero dependencies, single file, can be done in any phase
 
 ### Must be sequential:
 - A5 → A1 (protocols define boundaries for decomposition)
@@ -224,11 +227,11 @@ M4B then adds the aggregation without changing the protocol signature.
 
 | Metric | Count |
 |--------|-------|
-| Total plans | 16 (15 files, A6+B12 combined) |
+| Total plans | 17 (16 files, A6+B12 combined) |
 | Independent (Phase 0) | 4 workstreams |
 | Bug fixes | 3 |
 | Architecture refactors | 7 |
-| Feature additions | 6 |
+| Feature additions | 7 |
 | Plans touching PlayerModel | 9 |
 | Plans touching AudioEngine | 3 |
 | Maximum parallel workstreams | 4 (Phase 0) |
@@ -255,3 +258,4 @@ M4B then adds the aggregation without changing the protocol signature.
 | CAR — CarPlay Integration | ⏳ Pending | — |
 | SQL — SQL Database Integration | ⏳ Pending | — |
 | PLIST — Playlist Packaging | ⏳ Pending | — |
+| BKMG — Bookmark Playlist Grouping | ⏳ Pending | — |
