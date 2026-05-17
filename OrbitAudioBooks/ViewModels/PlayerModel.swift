@@ -47,110 +47,90 @@ final class PlayerModel {
     let playbackController = PlaybackController()
     let watchSyncManager = WatchSyncManager()
 
-    /// Temporary bridge — allows existing callers to access the audio engine
-    /// through `audioEngine` while methods are gradually moved to PlaybackController.
     var audioEngine: AudioEngine { playbackController.audioEngine }
     @ObservationIgnored private weak var settingsManager: SettingsManager?
 
-    // MARK: - UI state
+    /// Convenience accessor for the shared playback state owned by PlaybackController.
+    private var state: PlaybackState { playbackController.state }
 
-    /// The current playback loop mode (off, chapter, or bookmark).
+    // MARK: - UI state (pass-through to PlaybackController)
+
     var loopMode: LoopMode {
         get { playbackController.loopMode }
         set { playbackController.loopMode = newValue }
     }
-    /// Playback speed multiplier. Persisted per-book.
     var speed: Float {
         get { playbackController.speed }
         set { playbackController.speed = newValue }
     }
-    /// Whether volume boost (+9 dB) is active.
     var isVolumeBoostEnabled: Bool {
         get { playbackController.isVolumeBoostEnabled }
         set { playbackController.isVolumeBoostEnabled = newValue }
     }
 
-    // MARK: - Sleep timer state
+    // MARK: - Sleep timer state (pass-through to SleepTimerManager)
 
-    /// The currently armed sleep-timer mode.
     var sleepTimerMode: SleepTimerMode { sleepTimerManager.mode }
-    /// Remaining seconds for time-based sleep timer modes.
     var sleepTimerRemainingSeconds: Int { sleepTimerManager.remainingSeconds }
 
-    // MARK: - Playlist state
+    // MARK: - Playlist state (pass-through to PlaybackState)
 
-    /// The folder or single file currently loaded as the active playlist.
-    private(set) var folderURL: URL?
-    /// The ordered list of audio tracks in the current playlist.
-    var tracks: [Track] = []
-    /// The index into `tracks` of the currently loaded item.
-    private(set) var currentIndex: Int = 0
+    var folderURL: URL? { state.folderURL }
+    var tracks: [Track] {
+        get { state.tracks }
+        set { state.tracks = newValue }
+    }
+    var currentIndex: Int { state.currentIndex }
 
-    // MARK: - Playback state
+    // MARK: - Playback state (pass-through to PlaybackState)
 
-    /// Whether the player is currently playing.
-    private(set) var isPlaying: Bool = false
-    /// The title of the currently playing track.
-    private(set) var currentTitle: String = String(localized: "No track selected")
-    /// The subtitle of the currently playing track, typically the chapter name.
-    private(set) var currentSubtitle: String = ""
+    var isPlaying: Bool { state.isPlaying }
+    var currentTitle: String { state.currentTitle }
+    var currentSubtitle: String { state.currentSubtitle }
 
-    // MARK: - Progress
+    // MARK: - Progress (pass-through to PlaybackState)
 
-    /// Playback progress as a fraction from 0.0 to 1.0, scoped to the current
-    /// chapter when chapters are available, or the full track otherwise.
-    private(set) var progressFraction: Double = 0.0
-    /// Remaining time formatted as a string (e.g. "-12:34").
-    private(set) var progressText: String = "--:--"
-    /// Elapsed time formatted as a string (e.g. "1:23").
-    private(set) var elapsedText: String = "--:--"
-    /// The total duration of the current item, in seconds, or `nil` if unknown.
-    private(set) var durationSeconds: Double? = nil
-    /// Current playback position in seconds. Views should use this instead of
-    /// reaching into the underlying AVPlayer.
+    var progressFraction: Double { state.progressFraction }
+    var progressText: String { state.progressText }
+    var elapsedText: String { state.elapsedText }
+    var durationSeconds: Double? { state.durationSeconds }
     var currentPlaybackTime: TimeInterval { audioEngine.currentTime }
-    /// The artwork image displayed in Now Playing and the player UI.
-    private(set) var thumbnailImage: UIImage? = nil
-    /// The artwork currently displayed by the player. Picture bookmarks can
-    /// temporarily replace the base audiobook cover.
-    private(set) var currentDisplayArtwork: UIImage? = nil
-    private(set) var currentDisplayArtworkVersion: Int = 0
-    /// A downscaled JPEG representation of the current display artwork for Watch transfer.
-    private(set) var watchThumbnailData: Data? = nil
+    var thumbnailImage: UIImage? { state.thumbnailImage }
+    var currentDisplayArtwork: UIImage? { state.currentDisplayArtwork }
+    var currentDisplayArtworkVersion: Int { state.currentDisplayArtworkVersion }
+    var watchThumbnailData: Data? { state.watchThumbnailData }
     @ObservationIgnored private var baseWatchThumbnailData: Data? = nil
     @ObservationIgnored private var currentDisplayArtworkKey: String?
     @ObservationIgnored private var bookmarkArtworkCache: [String: (image: UIImage, watchData: Data?)] = [:]
 
-    // MARK: - Chapters
+    // MARK: - Chapters (pass-through to PlaybackState)
 
-    /// Chapters parsed from the current track's M4B/M4A metadata.
-    /// Empty when the track has no chapter markers.
-    var chapters: [Chapter] = []
-    /// Transcription segments for the current track, loaded from a sidecar JSON.
-    var transcription: [TranscriptionSegment] = []
-    /// The index of the currently active chapter, or `nil` when chapters are unavailable.
-    private(set) var currentChapterIndex: Int? = nil
-    /// Per-chapter word frequency maps, computed after transcript and chapters are loaded.
-    var chapterWordClouds: [Int: [WordFrequency]] = [:]
-    /// Rolling 5-minute window word frequencies for the current track.
-    var rollingWordClouds: [(startTime: TimeInterval, frequencies: [WordFrequency])] = []
-    /// Word cloud for the currently playing chapter (derived from `currentChapterIndex`).
-    var currentChapterWordCloud: [WordFrequency] {
-        guard let idx = currentChapterIndex else { return [] }
-        return chapterWordClouds[idx] ?? []
+    var chapters: [Chapter] {
+        get { state.chapters }
+        set { state.chapters = newValue }
     }
-    /// Timestamp recorded when playback was last paused, used to calculate
-    /// rewind amounts on resume. `nil` while playing.
-    private var pauseTimestamp: Date? = nil
+    var transcription: [TranscriptionSegment] {
+        get { state.transcription }
+        set { state.transcription = newValue }
+    }
+    var currentChapterIndex: Int? { state.currentChapterIndex }
+    var chapterWordClouds: [Int: [WordFrequency]] {
+        get { state.chapterWordClouds }
+        set { state.chapterWordClouds = newValue }
+    }
+    var rollingWordClouds: [(startTime: TimeInterval, frequencies: [WordFrequency])] {
+        get { state.rollingWordClouds }
+        set { state.rollingWordClouds = newValue }
+    }
+    var currentChapterWordCloud: [WordFrequency] {
+        guard let idx = state.currentChapterIndex else { return [] }
+        return state.chapterWordClouds[idx] ?? []
+    }
+
     var deepLinkHandler = DeepLinkHandler()
     let nowPlayingController = NowPlayingController()
     let bookmarkStore = BookmarkStore()
     let sleepTimerManager = SleepTimerManager()
-
-    /// Whether the current seek operation was initiated by a chapter boundary jump.
-    private var isSeekingForChapterBoundary: Bool = false
-    /// Whether the current seek operation was initiated by the user.
-    private var isManualSeeking: Bool = false
 
     /// Loads the transcript sidecar JSON for the given audio file.
     /// The transcript is expected at `<audio>.transcript.json` in the same directory.
@@ -160,17 +140,17 @@ final class PlayerModel {
         let transcriptURL = url.deletingLastPathComponent().appendingPathComponent(fileName)
         
         guard FileManager.default.fileExists(atPath: transcriptURL.path) else {
-            self.transcription = []
+            state.transcription = []
             return
         }
         
         do {
             let data = try Data(contentsOf: transcriptURL)
-            self.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
+            state.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
             computeWordClouds()
         } catch {
             print("Failed to load transcript: \(error)")
-            self.transcription = []
+            state.transcription = []
         }
     }
 
@@ -276,7 +256,7 @@ final class PlayerModel {
             self?.watchStateContext() ?? [:]
         }
         watchSyncManager.thumbnailProvider = { [weak self] in
-            guard let self, self.tracks.indices.contains(self.currentIndex) else {
+            guard let self, self.state.tracks.indices.contains(self.currentIndex) else {
                 return (nil, nil)
             }
             return (self.currentArtworkSyncKey, self.watchThumbnailData)
@@ -331,6 +311,58 @@ final class PlayerModel {
             if !isManual {
                 self?.updateCurrentChapterFromPlayerTime()
             }
+        }
+        playbackController.coordinator_persistSpeed = { [weak self] key, speed in
+            self?.persistence.saveSpeed(for: key, speed: speed)
+        }
+        playbackController.coordinator_persistLoopMode = { [weak self] key, mode in
+            self?.persistence.saveLoopMode(for: key, loopMode: mode)
+        }
+        playbackController.coordinator_hasBookmarks = { [weak self] in
+            !(self?.bookmarkStore.bookmarks.isEmpty ?? true)
+        }
+        playbackController.coordinator_refreshProgress = { [weak self] in
+            self?.updateNowPlayingElapsedTime()
+            self?.updateProgressFromPlayer()
+        }
+        playbackController.coordinator_enabledBookmarks = { [weak self] in
+            self?.enabledCurrentTrackBookmarks ?? []
+        }
+        playbackController.coordinator_jumpToBookmark = { [weak self] bookmark in
+            self?.jumpToBookmark(bookmark)
+        }
+        playbackController.coordinator_refreshArtwork = { [weak self] at, force in
+            self?.updateCurrentDisplayArtwork(at: at, force: force)
+        }
+        playbackController.coordinator_endBackgroundTask = { [weak self] in
+            self?.endBackgroundTask()
+        }
+        playbackController.coordinator_saveProgress = { [weak self] folder, trackId, time in
+            self?.persistence.saveBookProgress(for: folder, trackId: trackId, time: time)
+        }
+        playbackController.coordinator_stopSecurityScope = { [weak self] in
+            self?.stopCurrentFileSecurityScopeIfNeeded()
+        }
+        playbackController.coordinator_handleChapterEndSleepTimer = { [weak self] in
+            guard let self else { return false }
+            if case .endOfChapter = self.sleepTimerMode {
+                self.sleepTimerManager.evaluateAtChapterEnd()
+                return true
+            }
+            return false
+        }
+        playbackController.coordinator_currentTrackBookmarks = { [weak self] in
+            self?.currentTrackBookmarks ?? []
+        }
+        playbackController.coordinator_isRewindEnabled = { [weak self] in
+            self?.settingsManager?.isRewindEnabled ?? SettingsManager.Defaults.isRewindEnabled
+        }
+        playbackController.coordinator_configureAudioSession = { [weak self] in
+            self?.configureAudioSessionIfNeeded()
+        }
+        playbackController.coordinator_startSecurityScope = { [weak self] in
+            self?.startSelectionSecurityScopeIfNeeded()
+            self?.startCurrentFileSecurityScopeIfNeeded()
         }
     }
 
@@ -425,8 +457,8 @@ final class PlayerModel {
     }
 
     private var currentArtworkSyncKey: String? {
-        guard tracks.indices.contains(currentIndex) else { return nil }
-        let trackId = tracks[currentIndex].id
+        guard state.tracks.indices.contains(currentIndex) else { return nil }
+        let trackId = state.tracks[currentIndex].id
         return "\(trackId)#\(currentDisplayArtworkKey ?? "base")"
     }
 
@@ -437,11 +469,11 @@ final class PlayerModel {
         context["currentTime"] = currentPlaybackTime
         context["bookmarkStorageKey"] = bookmarksStorageKey
         context["folderKey"] = folderURL?.absoluteString
-        if tracks.indices.contains(currentIndex) {
-            context["trackId"] = tracks[currentIndex].id
+        if state.tracks.indices.contains(currentIndex) {
+            context["trackId"] = state.tracks[currentIndex].id
         }
         
-        let title = chapters.count >= 2 ? (currentSubtitle.isEmpty ? String(localized: "Chapter \((currentChapterIndex ?? 0) + 1)") : currentSubtitle) : currentTitle
+        let title = state.chapters.count >= 2 ? (currentSubtitle.isEmpty ? String(localized: "Chapter \((currentChapterIndex ?? 0) + 1)") : currentSubtitle) : currentTitle
         context["title"] = title
         
         // Dual-progress: total book progress (time-based when possible)
@@ -455,7 +487,7 @@ final class PlayerModel {
         } else {
             // Fallback: track-count-based for multi-file playlists where
             // individual track durations aren't aggregated.
-            let totalCount = Double(tracks.count)
+            let totalCount = Double(state.tracks.count)
             context["totalProgressFraction"] = totalCount > 0 ? (Double(currentIndex) + progressFraction) / totalCount : 0.0
         }
         
@@ -574,10 +606,10 @@ final class PlayerModel {
     ///   - source: The indices of tracks to move.
     ///   - destination: The index to insert the tracks at.
     func moveTracks(from source: IndexSet, to destination: Int) {
-        let currentURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil
-        tracks.move(fromOffsets: source, toOffset: destination)
-        if let currentURL, let newIdx = tracks.firstIndex(where: { $0.url == currentURL }) {
-            currentIndex = newIdx
+        let currentURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil
+        state.tracks.move(fromOffsets: source, toOffset: destination)
+        if let currentURL, let newIdx = state.tracks.firstIndex(where: { $0.url == currentURL }) {
+            state.currentIndex = newIdx
         }
         if let folderURL = folderURL {
             persistence.saveOrder(for: folderURL.absoluteString, ids: tracks.map { $0.id })
@@ -589,12 +621,12 @@ final class PlayerModel {
     ///   - source: The indices of chapters to move.
     ///   - destination: The index to insert the chapters at.
     func moveChapters(from source: IndexSet, to destination: Int) {
-        let currentID = (currentChapterIndex != nil && chapters.indices.contains(currentChapterIndex!)) ? chapters[currentChapterIndex!].id : nil
-        chapters.move(fromOffsets: source, toOffset: destination)
-        if let currentID, let newIdx = chapters.firstIndex(where: { $0.id == currentID }) {
-            currentChapterIndex = newIdx
+        let currentID = (currentChapterIndex != nil && state.chapters.indices.contains(currentChapterIndex!)) ? state.chapters[currentChapterIndex!].id : nil
+        state.chapters.move(fromOffsets: source, toOffset: destination)
+        if let currentID, let newIdx = state.chapters.firstIndex(where: { $0.id == currentID }) {
+            state.currentChapterIndex = newIdx
         }
-        if let currentTrackURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil {
+        if let currentTrackURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil {
             persistence.saveOrder(for: currentTrackURL.absoluteString, ids: chapters.map { $0.id })
         }
         
@@ -604,10 +636,10 @@ final class PlayerModel {
     /// included during sequential playback. Persists the change.
     /// - Parameter index: The index of the track in the `tracks` array.
     func toggleTrackEnabled(at index: Int) {
-        tracks[index].isEnabled.toggle()
+        state.tracks[index].isEnabled.toggle()
         if let folderURL = folderURL {
             var states = persistence.loadEnabledState(for: folderURL.absoluteString) ?? [:]
-            states[tracks[index].id] = tracks[index].isEnabled
+            states[state.tracks[index].id] = state.tracks[index].isEnabled
             persistence.saveEnabledState(for: folderURL.absoluteString, states: states)
         }
     }
@@ -616,45 +648,45 @@ final class PlayerModel {
     /// included during sequential chapter navigation. Persists the change.
     /// - Parameter index: The index of the chapter in the `chapters` array.
     func toggleChapterEnabled(at index: Int) {
-        chapters[index].isEnabled.toggle()
-        if let currentTrackURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil {
+        state.chapters[index].isEnabled.toggle()
+        if let currentTrackURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil {
             var states = persistence.loadEnabledState(for: currentTrackURL.absoluteString) ?? [:]
-            states[chapters[index].id] = chapters[index].isEnabled
+            states[state.chapters[index].id] = state.chapters[index].isEnabled
             persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
         }
-        
+
     }
 
     /// Resets the playlist to its default order, re-enabling all tracks or
     /// chapters (depending on the content) and persisting the changes.
     func resetPlaylist() {
-        if chapters.count >= 2 {
-            chapters.sort { $0.startSeconds < $1.startSeconds }
-            for i in 0..<chapters.count {
-                chapters[i].isEnabled = true
+        if state.chapters.count >= 2 {
+            state.chapters.sort { $0.startSeconds < $1.startSeconds }
+            for i in 0..<state.chapters.count {
+                state.chapters[i].isEnabled = true
             }
-            if let currentTrackURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil {
+            if let currentTrackURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil {
                 persistence.saveOrder(for: currentTrackURL.absoluteString, ids: chapters.map { $0.id })
                 var states: [String: Bool] = [:]
-                for c in chapters { states[c.id] = true }
+                for c in state.chapters { states[c.id] = true }
                 persistence.saveEnabledState(for: currentTrackURL.absoluteString, states: states)
             }
             updateCurrentChapterFromPlayerTime()
-            
+
         } else {
-            let currentURL = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url : nil
-            tracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-            for i in 0..<tracks.count {
-                tracks[i].isEnabled = true
+            let currentURL = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url : nil
+            state.tracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            for i in 0..<state.tracks.count {
+                state.tracks[i].isEnabled = true
             }
             if let folderURL = folderURL {
                 persistence.saveOrder(for: folderURL.absoluteString, ids: tracks.map { $0.id })
                 var states: [String: Bool] = [:]
-                for t in tracks { states[t.id] = true }
+                for t in state.tracks { states[t.id] = true }
                 persistence.saveEnabledState(for: folderURL.absoluteString, states: states)
             }
-            if let currentURL, let newIdx = tracks.firstIndex(where: { $0.url == currentURL }) {
-                currentIndex = newIdx
+            if let currentURL, let newIdx = state.tracks.firstIndex(where: { $0.url == currentURL }) {
+                state.currentIndex = newIdx
             }
         }
     }
@@ -668,7 +700,7 @@ final class PlayerModel {
     func loadFolder(_ url: URL, autoplay: Bool = true) {
         stop()
 
-        folderURL = url
+        state.folderURL = url
         
         let didStart = url.startAccessingSecurityScopedResource()
         defer { if didStart { url.stopAccessingSecurityScopedResource() } }
@@ -684,18 +716,18 @@ final class PlayerModel {
         
         if let folderKey = folderURL?.absoluteString,
            let savedTrackId = persistence.getLastTrack(for: folderKey),
-           let idx = tracks.firstIndex(where: { $0.id == savedTrackId }) {
-            currentIndex = idx
+           let idx = state.tracks.firstIndex(where: { $0.id == savedTrackId }) {
+            state.currentIndex = idx
         } else {
-            currentIndex = 0
+            state.currentIndex = 0
         }
 
-        if tracks.indices.contains(currentIndex) {
-            currentTitle = tracks[currentIndex].title
+        if state.tracks.indices.contains(currentIndex) {
+            state.currentTitle = state.tracks[currentIndex].title
             prepareToPlay(index: currentIndex, autoplay: autoplay)
             applyPendingDeepLinkSeekIfPossible()
         } else {
-            currentTitle = String(localized: "No .mp3/.m4a/.m4b files found")
+            state.currentTitle = String(localized: "No .mp3/.m4a/.m4b files found")
             updateNowPlayingInfo(isPaused: true) // keep something stable in Now Playing
         }
 
@@ -821,101 +853,16 @@ final class PlayerModel {
         return hoursToChapterStart && pausedDuration >= Double(hoursThreshold * 3600)
     }
 
-    /// Toggles between play and pause states.
     func togglePlayPause() {
-        if isPlaying { pause() } else { play() }
+        playbackController.togglePlayPause()
     }
 
-    /// Starts or resumes playback. Applies rewind-on-resume if the feature is
-    /// enabled and the player was paused long enough. Re-acquires security-scoped
-    /// access and configures the audio session before playing.
     func play() {
-        if let pausedAt = pauseTimestamp {
-            let pausedDuration = Date().timeIntervalSince(pausedAt)
-            if settingsManager?.isRewindEnabled ?? SettingsManager.Defaults.isRewindEnabled {
-                if audioEngine.isItemLoaded {
-                    let current = audioEngine.currentTime
-                    let rewindAmount = smartRewindAmount(for: pausedDuration)
-                    var target = current
-
-                    if shouldJumpToChapterStartForHoursLevel(pausedDuration: pausedDuration),
-                       chapters.count >= 2,
-                       let idx = currentChapterIndex {
-                        target = chapters[idx].startSeconds
-                    } else if rewindAmount > 0 {
-                        target = max(0, current - rewindAmount)
-                        
-                        // Don't rewind past the start of the current chapter
-                        if chapters.count >= 2, let idx = currentChapterIndex {
-                            let c = chapters[idx]
-                            if target < c.startSeconds {
-                                target = c.startSeconds
-                            }
-                        }
-                    }
-
-                    if target != current {
-                        isManualSeeking = true
-                        audioEngine.seek(to: target) { [weak self] _ in
-                            DispatchQueue.main.async {
-                                self?.isManualSeeking = false
-                                self?.updateCurrentChapterFromPlayerTime()
-                            }
-                        }
-                    }
-                }
-            }
-            pauseTimestamp = nil
-        }
-
-        // Release any pause background task claim immediately on resume.
-        endBackgroundTask()
-
-        guard !tracks.isEmpty else { return }
-        configureAudioSessionIfNeeded()
-
-        if !audioEngine.isItemLoaded { prepareToPlay(index: currentIndex, autoplay: false) }
-        startSelectionSecurityScopeIfNeeded()
-        startCurrentFileSecurityScopeIfNeeded()
-
-        // Ensure the current item is configured for speech-quality playback before starting.
-        applySpeedToCurrentItem()
-
-        audioEngine.playImmediately(atRate: speed)
-        isPlaying = true
-        let currentSecond = currentPlaybackTime
-        if currentSecond.isFinite {
-            checkVoiceMemoTrigger(at: currentSecond, previousSeconds: nil)
-            lastBookmarkCheckSecond = currentSecond
-        }
-
-        updateNowPlayingInfo(isPaused: false)
-        syncToWatch()
+        playbackController.play()
     }
 
-    /// Pauses playback while keeping the audio session active, so Now Playing
-    /// metadata and controls remain visible. Records the pause timestamp for
-    /// rewind-on-resume and saves progress to persistent storage.
     func pause() {
-        audioEngine.pause()
-        isPlaying = false
-        
-        if pauseTimestamp == nil {
-            pauseTimestamp = Date()
-        }
-
-        // Battery-friendly: do NOT keep a background task running while paused.
-        // (We still keep Now Playing metadata + playbackRate=0.0 so the UI stays stable.)
-        endBackgroundTask()
-
-        // CRUCIAL: keep Now Playing metadata, but mark paused + playbackRate = 0.0
-        updateNowPlayingInfo(isPaused: true)
-        syncToWatch()
-        
-        // Save progress when paused
-        if audioEngine.isItemLoaded, let folder = folderURL?.absoluteString, tracks.indices.contains(currentIndex) {
-            persistence.saveBookProgress(for: folder, trackId: tracks[currentIndex].id, time: audioEngine.currentTime)
-        }
+        playbackController.pause()
     }
 
     private func endBackgroundTask() {
@@ -925,276 +872,59 @@ final class PlayerModel {
     }
 
     private func findNextEnabledTrackIndex() -> Int? {
-        playbackController.findNextEnabledTrackIndex(in: tracks, currentIndex: currentIndex)
-    }
-
-    private func findPrevEnabledTrackIndex() -> Int? {
-        playbackController.findPrevEnabledTrackIndex(in: tracks, currentIndex: currentIndex)
+        playbackController.findNextEnabledTrackIndex(in: state.tracks, currentIndex: state.currentIndex)
     }
 
     private func findNextEnabledChapterIndex(after idx: Int) -> Int? {
-        ChapterService.nextEnabledIndex(after: idx, in: chapters)
+        ChapterService.nextEnabledIndex(after: idx, in: state.chapters)
     }
 
-    private func findPrevEnabledChapterIndex(before idx: Int) -> Int? {
-        ChapterService.prevEnabledIndex(before: idx, in: chapters)
-    }
-
-    /// Advances to the next enabled track, or loops to the first if at the end.
-    /// When chapters are present, delegates to `nextChapter()`.
     func nextTrack() {
-        if chapters.count >= 2 {
-            nextChapter()
-            return
-        }
-        if let newIndex = findNextEnabledTrackIndex() {
-            prepareToPlay(index: newIndex, autoplay: true)
-        } else {
-            // Loop the entire playlist if we reached the end
-            if let firstEnabled = tracks.firstIndex(where: { $0.isEnabled }) {
-                prepareToPlay(index: firstEnabled, autoplay: true)
-            }
-        }
+        playbackController.nextTrack()
     }
 
-    /// Goes to the previous track, or restarts the current one if more than
-    /// 5 seconds have elapsed. When chapters are present, delegates to
-    /// `previousChapterOrRestart()`.
     func previousTrackOrRestart() {
-        if chapters.count >= 2 {
-            previousChapterOrRestart()
-            return
-        }
-        guard !tracks.isEmpty else { return }
-        let elapsed = audioEngine.currentTime
-        if elapsed.isFinite, elapsed > 5 {
-            isManualSeeking = true
-            audioEngine.seek(to: 0) { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.isManualSeeking = false
-                    self?.updateCurrentChapterFromPlayerTime()
-                }
-            }
-            updateNowPlayingElapsedTime()
-            updateProgressFromPlayer()
-            return
-        }
-
-        if let newIndex = findPrevEnabledTrackIndex() {
-            prepareToPlay(index: newIndex, autoplay: true)
-        } else {
-            // If it's the first track and elapsed < 5, just restart it.
-            isManualSeeking = true
-            audioEngine.seek(to: 0) { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.isManualSeeking = false
-                    self?.updateCurrentChapterFromPlayerTime()
-                }
-            }
-        }
+        playbackController.previousTrackOrRestart()
     }
 
-    /// Advances to the next enabled chapter. Falls back to `nextTrack()` when
-    /// chapters are unavailable or the last chapter is reached.
     func nextChapter() {
-        guard chapters.count >= 2 else {
-            nextTrack()
-            return
-        }
-        let currentIdx = currentChapterIndex ?? -1
-        if let nextIdx = findNextEnabledChapterIndex(after: currentIdx) {
-            seekToChapter(at: nextIdx)
-        } else {
-            if let newIndex = findNextEnabledTrackIndex() {
-                prepareToPlay(index: newIndex, autoplay: true)
-            } else {
-                // Loop the entire playlist if we reached the end
-                if let firstEnabled = tracks.firstIndex(where: { $0.isEnabled }) {
-                    prepareToPlay(index: firstEnabled, autoplay: true)
-                }
-            }
-        }
+        playbackController.nextChapter()
     }
 
-    /// Goes to the previous chapter, or restarts the current one if more than
-    /// 5 seconds have elapsed. Falls back to `previousTrackOrRestart()` when
-    /// chapters are unavailable.
     func previousChapterOrRestart() {
-        guard chapters.count >= 2 else {
-            previousTrackOrRestart()
-            return
-        }
-        guard audioEngine.isItemLoaded else { return }
-
-        let t = audioEngine.currentTime
-        guard t.isFinite else { return }
-
-        if let _ = currentChapterIndex, let current = currentChapterForTime(t), (t - current.startSeconds) > 5 {
-            seekToChapter(at: current.index)
-            return
-        }
-
-        let currentIdx = currentChapterIndex ?? 0
-        if let prevIdx = findPrevEnabledChapterIndex(before: currentIdx) {
-            seekToChapter(at: prevIdx)
-        } else {
-            if let firstEnabled = findNextEnabledChapterIndex(after: -1) {
-                seekToChapter(at: firstEnabled)
-            } else {
-                seekToChapter(at: chapters.first?.index ?? 0)
-            }
-        }
+        playbackController.previousChapterOrRestart()
     }
 
-    /// Enabled bookmarks scoped to the current track, excluding those with
-    /// non-finite timestamps. Used by bookmark-loop and skip-navigation logic.
     private var enabledCurrentTrackBookmarks: [Bookmark] {
         currentTrackBookmarks.filter { $0.isEnabled && $0.timestamp.isFinite }
     }
 
-    private func jumpToNextBookmark(from currentTime: Double) -> Bool {
-        let bookmarks = enabledCurrentTrackBookmarks
-        guard let target = bookmarks.first(where: { $0.timestamp > currentTime + 1.0 }) ?? bookmarks.first else {
-            return false
-        }
-        jumpToBookmark(target)
-        return true
-    }
-
-    private func jumpToPreviousBookmark(from currentTime: Double) -> Bool {
-        let bookmarks = enabledCurrentTrackBookmarks
-        guard let target = bookmarks.last(where: { $0.timestamp < currentTime - 2.0 }) ?? bookmarks.last else {
-            return false
-        }
-        jumpToBookmark(target)
-        return true
-    }
-
-    /// Skips to the previous chapter or track. In bookmark loop mode, jumps to the
-    /// previous bookmark instead.
-    /// - Returns: `true` if the navigation resulted in a bookmark jump.
     @discardableResult
     func skipBackwardNavigation() -> Bool {
-        if loopMode == .bookmark,
-           audioEngine.currentTime.isFinite,
-           jumpToPreviousBookmark(from: audioEngine.currentTime) {
-            return true
-        }
-
-        if chapters.count >= 2 {
-            previousChapterOrRestart()
-        } else {
-            previousTrackOrRestart()
-        }
-        return false
+        playbackController.skipBackwardNavigation()
     }
 
-    /// Skips to the next chapter or track. In bookmark loop mode, jumps to the
-    /// next bookmark instead.
-    /// - Returns: `true` if the navigation resulted in a bookmark jump.
     @discardableResult
     func skipForwardNavigation() -> Bool {
-        if loopMode == .bookmark,
-           audioEngine.currentTime.isFinite,
-           jumpToNextBookmark(from: audioEngine.currentTime) {
-            return true
-        }
-
-        if chapters.count >= 2 {
-            nextChapter()
-        } else {
-            nextTrack()
-        }
-        return false
+        playbackController.skipForwardNavigation()
     }
 
-    /// Skips backward by 30 seconds (scaled by playback speed). In bookmark loop
-    /// mode, jumps to the previous bookmark instead.
-    /// - Returns: `true` if the skip resulted in a bookmark jump.
     @discardableResult
     func skipBackward30() -> Bool {
-        guard audioEngine.isItemLoaded else { return false }
-        let current = audioEngine.currentTime
-        guard current.isFinite else { return false }
-
-        if loopMode == .bookmark {
-            if jumpToPreviousBookmark(from: current) {
-                return true
-            }
-            if chapters.count >= 2 {
-                previousChapterOrRestart()
-            } else {
-                previousTrackOrRestart()
-            }
-            return false
-        }
-
-        let target = max(0, current - 30)
-        isManualSeeking = true
-        audioEngine.seek(to:target) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.isManualSeeking = false
-                self?.updateCurrentChapterFromPlayerTime()
-            }
-        }
-        updateNowPlayingElapsedTime()
-        return false
+        playbackController.skipBackward30()
     }
 
-    /// Skips forward by 30 seconds (scaled by playback speed). In bookmark loop
-    /// mode, jumps to the next bookmark instead.
-    /// - Returns: `true` if the skip resulted in a bookmark jump.
     @discardableResult
     func skipForward30() -> Bool {
-        guard audioEngine.isItemLoaded else { return false }
-        let current = audioEngine.currentTime
-        guard current.isFinite else { return false }
-
-        if loopMode == .bookmark {
-            if jumpToNextBookmark(from: current) {
-                return true
-            }
-            if chapters.count >= 2 {
-                nextChapter()
-            } else {
-                nextTrack()
-            }
-            return false
-        }
-
-        let duration = durationSeconds ?? 0
-        let target = min(duration, current + 30)
-        isManualSeeking = true
-        audioEngine.seek(to:target) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.isManualSeeking = false
-                self?.updateCurrentChapterFromPlayerTime()
-            }
-        }
-        updateNowPlayingElapsedTime()
-        return false
+        playbackController.skipForward30()
     }
 
-    /// Seeks to an absolute time position in seconds. Updates Now Playing
-    /// metadata, chapter state, and progress after the seek completes.
-    /// - Parameter targetSeconds: The target time in seconds.
     func seek(toSeconds targetSeconds: Double) {
-        guard audioEngine.isItemLoaded else { return }
-        isManualSeeking = true
-        audioEngine.seek(to: targetSeconds) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isManualSeeking = false
-                self.updateCurrentChapterFromPlayerTime()
-                self.updateNowPlayingElapsedTime()
-                self.updateProgressFromPlayer()
-                self.updateCurrentDisplayArtwork(at: targetSeconds, force: true)
-                if self.isPlaying {
-                    self.audioEngine.playImmediately(atRate: self.speed)
-                    self.applySpeedToCurrentItem()
-                }
-            }
-        }
+        playbackController.seek(toSeconds: targetSeconds)
+    }
+
+    func seek(toFraction fraction: Double) {
+        playbackController.seek(toFraction: fraction)
     }
 
     private func applyPendingDeepLinkSeekIfPossible() {
@@ -1204,71 +934,20 @@ final class PlayerModel {
         }
     }
 
-    /// Seeks to a fractional position (0...1) within the current chapter or
-    /// track, depending on what is available.
-    /// - Parameter fraction: A value from 0.0 to 1.0 representing the target position.
-    func seek(toFraction fraction: Double) {
-        let safeFraction = min(1, max(0, fraction))
-        
-        if chapters.count >= 2, let idx = currentChapterIndex {
-            let c = chapters[idx]
-            let chapterDuration = c.endSeconds - c.startSeconds
-            if chapterDuration > 0 {
-                let targetSeconds = c.startSeconds + (chapterDuration * safeFraction)
-                seek(toSeconds: targetSeconds)
-            }
-        } else {
-            let duration = durationSeconds ?? 0
-            if duration > 0 {
-                let targetSeconds = duration * safeFraction
-                seek(toSeconds: targetSeconds)
-            }
-        }
-    }
-
-    /// Sets the playback speed and persists the preference for the current book.
-    /// - Parameter newSpeed: The desired rate (e.g. 1.0, 1.25, 1.5, 2.0).
     func setSpeed(_ newSpeed: Float) {
-        speed = newSpeed
-        if let key = folderURL?.absoluteString {
-            persistence.saveSpeed(for: key, speed: speed)
-        }
-        audioEngine.setSpeed(speed)
-        // Ensure speed persists after loops/track changes:
-        applySpeedToCurrentItem()
-        updateNowPlayingInfo(isPaused: !isPlaying)
-        updateProgressFromPlayer()
-        syncToWatch()
+        playbackController.setSpeed(newSpeed)
     }
 
-    /// Toggles volume boost (+9 dB) on or off.
     func setVolumeBoost(enabled: Bool) {
         playbackController.setVolumeBoost(enabled: enabled)
     }
 
-    /// Sets the loop mode and persists the preference for the current book.
-    /// - Parameter mode: The desired loop mode (off, chapter, or bookmark).
     func setLoopMode(_ mode: LoopMode) {
-        loopMode = mode
-        if let key = folderURL?.absoluteString {
-            persistence.saveLoopMode(for: key, loopMode: mode.rawValue)
-        }
-        
-        syncToWatch()
+        playbackController.setLoopMode(mode)
     }
 
-    /// Cycles through the available loop modes: off → chapter → bookmark → off.
-    /// The bookmark mode is skipped when no bookmarks exist.
     func cycleLoopMode() {
-        let hasBookmarks = !bookmarkStore.bookmarks.isEmpty
-        switch loopMode {
-        case .off:
-            setLoopMode(.chapter)
-        case .chapter:
-            setLoopMode(hasBookmarks ? .bookmark : .off)
-        case .bookmark:
-            setLoopMode(.off)
-        }
+        playbackController.cycleLoopMode()
     }
 
     // MARK: - Sleep Timer
@@ -1288,33 +967,23 @@ final class PlayerModel {
     }
 
     private func stop() {
-        isPlaying = false
-        currentTitle = String(localized: "No track selected")
-        progressFraction = 0
-        progressText = "--:--"
-        elapsedText = "--:--"
-
-        
-        
-        audioEngine.stop()
-
-        stopCurrentFileSecurityScopeIfNeeded()
+        playbackController.stop()
     }
 
     private func prepareToPlay(index: Int, autoplay: Bool) {
-        guard tracks.indices.contains(index) else { return }
+        guard state.tracks.indices.contains(index) else { return }
 
         // Save progress before changing track
-        if let folder = folderURL?.absoluteString, tracks.indices.contains(currentIndex) {
-            persistence.saveBookProgress(for: folder, trackId: tracks[currentIndex].id, time: audioEngine.currentTime)
+        if let folder = folderURL?.absoluteString, state.tracks.indices.contains(currentIndex) {
+            persistence.saveBookProgress(for: folder, trackId: state.tracks[currentIndex].id, time: audioEngine.currentTime)
         }
 
-        currentIndex = index
-        currentTitle = tracks[index].title
-        currentSubtitle = ""
-        thumbnailImage = nil
-        currentDisplayArtwork = nil
-        watchThumbnailData = nil
+        state.currentIndex = index
+        state.currentTitle = tracks[index].title
+        state.currentSubtitle = ""
+        state.thumbnailImage = nil
+        state.currentDisplayArtwork = nil
+        state.watchThumbnailData = nil
         baseWatchThumbnailData = nil
         currentDisplayArtworkKey = nil
         bookmarkArtworkCache.removeAll()
@@ -1338,10 +1007,10 @@ final class PlayerModel {
             loopMode = .off
         }
         audioEngine.setSpeed(speed)
-        chapters = []
-        currentChapterIndex = nil
-        isSeekingForChapterBoundary = false
-        isManualSeeking = false
+        state.chapters = []
+        state.currentChapterIndex = nil
+        state.isSeekingForChapterBoundary = false
+        state.isManualSeeking = false
         lastBookmarkCheckSecond = nil
 
         
@@ -1385,8 +1054,8 @@ final class PlayerModel {
     }
     
     private func enforceEnabledState() {
-        guard !isManualSeeking else { return }
-        if chapters.count >= 2 {
+        guard !state.isManualSeeking else { return }
+        if state.chapters.count >= 2 {
             if let idx = currentChapterIndex, !chapters[idx].isEnabled {
                 if let nextIdx = findNextEnabledChapterIndex(after: idx) {
                     seekToChapter(at: nextIdx)
@@ -1397,7 +1066,7 @@ final class PlayerModel {
                 }
             }
         } else {
-            if tracks.indices.contains(currentIndex), !tracks[currentIndex].isEnabled {
+            if state.tracks.indices.contains(currentIndex), !state.tracks[currentIndex].isEnabled {
                 nextTrack()
             }
         }
@@ -1413,13 +1082,13 @@ final class PlayerModel {
             return
         }
 
-        if chapters.count >= 2 {
+        if state.chapters.count >= 2 {
             if loopMode == .chapter {
                 // If it hits the absolute end of the file, just loop the current (last) chapter.
                 if let idx = currentChapterIndex {
                     let c = chapters[idx]
                     let targetSeconds = c.startSeconds + 0.05
-                    progressFraction = 0
+                    state.progressFraction = 0
                     audioEngine.seek(to: targetSeconds) { [weak self] _ in
                         DispatchQueue.main.async {
                             guard let self else { return }
@@ -1440,7 +1109,7 @@ final class PlayerModel {
         }
 
         if loopMode == .chapter {
-            progressFraction = 0
+            state.progressFraction = 0
             audioEngine.seek(to: 0) { [weak self] _ in
                 DispatchQueue.main.async {
                     guard let self else { return }
@@ -1486,8 +1155,8 @@ final class PlayerModel {
 
     private func startCurrentFileSecurityScopeIfNeeded() {
         guard hasCurrentFileSecurityScopeAccess == false else { return }
-        guard tracks.indices.contains(currentIndex) else { return }
-        let url = tracks[currentIndex].url
+        guard state.tracks.indices.contains(currentIndex) else { return }
+        let url = state.tracks[currentIndex].url
         currentFileSecurityScopeURL = url
         hasCurrentFileSecurityScopeAccess = url.startAccessingSecurityScopedResource()
     }
@@ -1528,7 +1197,7 @@ final class PlayerModel {
         guard current.isFinite else { return }
 
         let chapterOffset: TimeInterval?
-        if chapters.count >= 2, let idx = currentChapterIndex {
+        if state.chapters.count >= 2, let idx = currentChapterIndex {
             chapterOffset = chapters[idx].startSeconds
         } else {
             chapterOffset = nil
@@ -1549,7 +1218,7 @@ final class PlayerModel {
         params.artworkImage = currentDisplayArtwork ?? thumbnailImage
         params.duration = durationSeconds ?? 0
 
-        if chapters.count >= 2, let idx = currentChapterIndex {
+        if state.chapters.count >= 2, let idx = currentChapterIndex {
             let c = chapters[idx]
             params.chapterIndex = idx
             params.chapterElapsed = max(0, elapsed - c.startSeconds)
@@ -1563,15 +1232,15 @@ final class PlayerModel {
 
     private func updateProgressFromPlayer() {
         guard audioEngine.isItemLoaded else {
-            progressFraction = 0
-            progressText = "--:--"
-            elapsedText = "--:--"
+            state.progressFraction = 0
+            state.progressText = "--:--"
+            state.elapsedText = "--:--"
             return
         }
 
         let elapsed = audioEngine.currentTime
 
-        if chapters.count >= 2 {
+        if state.chapters.count >= 2 {
             if let idx = currentChapterIndex {
                 let c = chapters[idx]
                 if elapsed.isFinite, elapsed < c.startSeconds - 0.1 || elapsed >= c.endSeconds + 0.1 {
@@ -1589,10 +1258,10 @@ final class PlayerModel {
                 if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
                     let frac = min(1, max(0, chapterElapsed / chapterDuration))
                     let didChange = abs(progressFraction - frac) > 0.005
-                    progressFraction = frac
+                    state.progressFraction = frac
                     let remaining = max(0, chapterDuration - chapterElapsed) / Double(speed)
-                    progressText = "-\(NowPlayingController.formatTime(remaining))"
-                    elapsedText = NowPlayingController.formatTime(max(0, chapterElapsed) / Double(speed))
+                    state.progressText = "-\(NowPlayingController.formatTime(remaining))"
+                    state.elapsedText = NowPlayingController.formatTime(max(0, chapterElapsed) / Double(speed))
                     if didChange { syncToWatch() }
                     return
                 }
@@ -1602,26 +1271,26 @@ final class PlayerModel {
         let duration = durationSeconds ?? 0
 
         guard elapsed.isFinite, duration.isFinite, duration > 0 else {
-            progressFraction = 0
-            progressText = "--:--"
-            elapsedText = "--:--"
+            state.progressFraction = 0
+            state.progressText = "--:--"
+            state.elapsedText = "--:--"
             return
         }
 
         let frac = min(1, max(0, elapsed / duration))
         let didChange = abs(progressFraction - frac) > 0.005
-        progressFraction = frac
+        state.progressFraction = frac
 
         let remaining = max(0, duration - elapsed) / Double(speed)
-        progressText = "-\(NowPlayingController.formatTime(remaining))"
-        elapsedText = NowPlayingController.formatTime(max(0, elapsed) / Double(speed))
+        state.progressText = "-\(NowPlayingController.formatTime(remaining))"
+        state.elapsedText = NowPlayingController.formatTime(max(0, elapsed) / Double(speed))
         if didChange { syncToWatch() }
     }
 
 
     private func loadDurationForNowPlaying() async {
         guard let seconds = audioEngine.duration, seconds > 0 else { return }
-        durationSeconds = seconds
+        state.durationSeconds = seconds
         updateNowPlayingInfo(isPaused: !isPlaying)
         updateProgressFromPlayer()
 
@@ -1632,15 +1301,15 @@ final class PlayerModel {
             }
         } else if let folder = folderURL?.absoluteString,
            let progress = persistence.getBookProgress(for: folder),
-           tracks.indices.contains(currentIndex),
-           progress.trackId == tracks[currentIndex].id,
+           state.tracks.indices.contains(currentIndex),
+           progress.trackId == state.tracks[currentIndex].id,
            progress.time > 0, progress.time < seconds {
             let savedTime = progress.time
             await MainActor.run {
-                self.isManualSeeking = true
+                state.isManualSeeking = true
                 audioEngine.seek(to: savedTime) { [weak self] _ in
                     DispatchQueue.main.async {
-                        self?.isManualSeeking = false
+                        self?.state.isManualSeeking = false
                                 self?.updateCurrentChapterFromPlayerTime()
                                 self?.updateNowPlayingElapsedTime()
                                 self?.updateProgressFromPlayer()
@@ -1666,9 +1335,9 @@ final class PlayerModel {
 
         guard let sourceImage else {
             await MainActor.run {
-                thumbnailImage = nil
-                currentDisplayArtwork = nil
-                watchThumbnailData = nil
+                state.thumbnailImage = nil
+                state.currentDisplayArtwork = nil
+                state.watchThumbnailData = nil
                 baseWatchThumbnailData = nil
                 currentDisplayArtworkKey = nil
                 updateNowPlayingInfo(isPaused: !isPlaying)
@@ -1702,7 +1371,7 @@ final class PlayerModel {
 
         // Update @Observable properties back on MainActor
         await MainActor.run {
-            thumbnailImage = result.0
+            state.thumbnailImage = result.0
             baseWatchThumbnailData = result.1
             updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
         }
@@ -1710,15 +1379,15 @@ final class PlayerModel {
 
     private func loadChaptersForCurrentItem() async {
         guard audioEngine.isItemLoaded,
-              tracks.indices.contains(currentIndex) else { return }
-        let asset = AVAsset(url: tracks[currentIndex].url)
+              state.tracks.indices.contains(currentIndex) else { return }
+        let asset = AVAsset(url: state.tracks[currentIndex].url)
 
-        let ext = tracks[currentIndex].url.pathExtension.lowercased()
+        let ext = state.tracks[currentIndex].url.pathExtension.lowercased()
         guard ext == "m4b" || ext == "m4a" else { return }
 
         var built = await ChapterService.parseChapters(from: asset)
 
-        let trackKey = tracks.indices.contains(currentIndex) ? tracks[currentIndex].url.absoluteString : ""
+        let trackKey = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url.absoluteString : ""
         if let savedStates = persistence.loadEnabledState(for: trackKey) {
             for i in 0..<built.count {
                 if let isEnabled = savedStates[built[i].id] {
@@ -1744,9 +1413,9 @@ final class PlayerModel {
             updateCurrentChapterFromPlayerTime()
             
         } else {
-            chapters = []
-            currentChapterIndex = nil
-            currentSubtitle = ""
+            state.chapters = []
+            state.currentChapterIndex = nil
+            state.currentSubtitle = ""
             
             updateNowPlayingInfo(isPaused: !isPlaying)
             syncToWatch()
@@ -1755,7 +1424,7 @@ final class PlayerModel {
     }
 
     private func updateCurrentChapterFromPlayerTime() {
-        guard chapters.count >= 2, audioEngine.isItemLoaded else { return }
+        guard state.chapters.count >= 2, audioEngine.isItemLoaded else { return }
         let t = audioEngine.currentTime
         guard t.isFinite else { return }
 
@@ -1764,15 +1433,15 @@ final class PlayerModel {
         
         // Pick the most specific one (shortest duration) to ignore global/overlapping chapters
         if let bestMatch = matching.min(by: { ($0.endSeconds - $0.startSeconds) < ($1.endSeconds - $1.startSeconds) }),
-           let idx = chapters.firstIndex(of: bestMatch) {
+           let idx = state.chapters.firstIndex(of: bestMatch) {
             
             if currentChapterIndex != idx {
-                currentChapterIndex = idx
-                let c = chapters[idx]
+                state.currentChapterIndex = idx
+                let c = state.chapters[idx]
                 if let title = c.title, !title.isEmpty {
-                    currentSubtitle = title
+                    state.currentSubtitle = title
                 } else {
-                    currentSubtitle = String(localized: "Chapter \(idx + 1)")
+                    state.currentSubtitle = String(localized: "Chapter \(idx + 1)")
                 }
                 updateNowPlayingInfo(isPaused: !isPlaying)
                 syncToWatch()
@@ -1780,128 +1449,20 @@ final class PlayerModel {
         }
     }
 
-    private func currentChapterForTime(_ t: Double) -> Chapter? {
-        ChapterService.chapter(forTime: t, in: chapters)
-    }
-
     private func applyChapterLoopIfNeeded() {
-        guard !isManualSeeking else { return }
-        guard chapters.count >= 2, let idx = currentChapterIndex, audioEngine.isItemLoaded else { return }
-        guard !isSeekingForChapterBoundary else { return }
-
-        let t = audioEngine.currentTime
-        guard t.isFinite else { return }
-
-        let c = chapters[idx]
-        if t >= (c.endSeconds - 0.5) {
-            // Honor an armed end-of-chapter sleep timer first.
-            if case .endOfChapter = sleepTimerMode {
-                evaluateSleepTimerAtChapterEnd()
-                return
-            }
-            if loopMode == .chapter {
-                // Loop the CURRENT chapter.
-                isSeekingForChapterBoundary = true
-                progressFraction = 0
-                let targetSeconds = c.startSeconds + 0.05
-                audioEngine.seek(to:targetSeconds) { [weak self] _ in
-                    self?.resumeAfterSeek()
-                }
-            } else {
-                if let nextIdx = findNextEnabledChapterIndex(after: idx) {
-                    let nextC = chapters[nextIdx]
-                    if abs(nextC.startSeconds - c.endSeconds) < 1.0 && nextIdx == idx + 1 {
-                        // Contiguous chapters — let AVPlayer seamlessly continue.
-                    } else {
-                        // Skip disabled chapters or gaps.
-                        isSeekingForChapterBoundary = true
-                        progressFraction = 0
-                        audioEngine.seek(to:nextC.startSeconds) { [weak self] _ in
-                            self?.resumeAfterSeek()
-                        }
-                    }
-                } else {
-                    // This is the LAST chapter and loop is OFF. Go to next track.
-                    DispatchQueue.main.async { [weak self] in
-                        self?.isSeekingForChapterBoundary = false
-                        self?.nextTrack()
-                    }
-                }
-            }
-        }
+        playbackController.applyChapterLoopIfNeeded()
     }
 
     private func applyBookmarkLoopIfNeeded() {
-        guard loopMode == .bookmark, !isManualSeeking, !isSeekingForChapterBoundary else { return }
-        guard audioEngine.isItemLoaded else { return }
-        let t = audioEngine.currentTime
-        guard t.isFinite else { return }
-
-        let sorted = currentTrackBookmarks.filter { $0.isEnabled }
-        guard sorted.count >= 2 else { return }
-
-        // Strict `<` keeps the end-boundary in the approaching segment so the
-        // loop-back fires *before* the segment shifts forward.
-        guard let startIdx = sorted.lastIndex(where: { $0.timestamp < t }) else { return }
-        let endIdx = startIdx + 1
-        guard endIdx < sorted.count else {
-            // Playhead overshot the last boundary — loop to the last segment start.
-            if sorted.count >= 2, t - sorted[sorted.count - 1].timestamp < 1.0 {
-                let lastSegmentStart = sorted.count - 2
-                isSeekingForChapterBoundary = true
-                audioEngine.seek(to:sorted[lastSegmentStart].timestamp + 0.05) { [weak self] _ in
-                    self?.resumeAfterSeek()
-                }
-            }
-            return
-        }
-
-        // Look-ahead covers one polling interval (0.25 s) scaled by playback speed.
-        let lookAhead = max(0.5, 0.3 * Double(speed))
-        if t >= sorted[endIdx].timestamp - lookAhead {
-            isSeekingForChapterBoundary = true
-            audioEngine.seek(to:sorted[startIdx].timestamp + 0.05) { [weak self] _ in
-                self?.resumeAfterSeek()
-            }
-        }
+        playbackController.applyBookmarkLoopIfNeeded()
     }
 
     private func resumeAfterSeek() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.isSeekingForChapterBoundary = false
-            if self.isPlaying {
-                self.audioEngine.playImmediately(atRate: self.speed)
-                self.applySpeedToCurrentItem()
-            } else {
-                self.updateNowPlayingInfo(isPaused: true)
-            }
-            self.updateNowPlayingElapsedTime()
-            self.updateCurrentChapterFromPlayerTime()
-            self.updateProgressFromPlayer()
-        }
+        playbackController.resumeAfterSeek()
     }
 
     private func seekToChapter(at index: Int) {
-        guard chapters.indices.contains(index), audioEngine.isItemLoaded else { return }
-        let c = chapters[index]
-        
-        // Seek slightly past the boundary to avoid rounding errors matching the previous chapter
-        let targetSeconds = c.startSeconds + 0.05
-        
-        isManualSeeking = true
-        audioEngine.seek(to:targetSeconds) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.isManualSeeking = false
-                self?.updateCurrentChapterFromPlayerTime()
-                self?.updateNowPlayingElapsedTime()
-                self?.updateProgressFromPlayer()
-                if let self, self.isPlaying {
-                    self.audioEngine.playImmediately(atRate: self.speed)
-                    self.applySpeedToCurrentItem()
-                }
-            }
-        }
+        playbackController.seekToChapter(at: index)
     }
 
     // MARK: - Bookmarks API
@@ -1910,7 +1471,7 @@ final class PlayerModel {
     /// URL or the current track ID. Used to scope bookmark and progress storage.
     private var bookmarksStorageKey: String? {
         if let f = folderURL?.absoluteString { return f }
-        if tracks.indices.contains(currentIndex) { return tracks[currentIndex].id }
+        if state.tracks.indices.contains(currentIndex) { return state.tracks[currentIndex].id }
         return nil
     }
 
@@ -1933,7 +1494,7 @@ final class PlayerModel {
 
     /// Bookmarks scoped to the currently playing track, sorted by timestamp.
     var currentTrackBookmarks: [Bookmark] {
-        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         return bookmarkStore.bookmarks
             .filter { $0.trackId == nil || $0.trackId == trackId }
             .sorted { $0.timestamp < $1.timestamp }
@@ -1957,7 +1518,7 @@ final class PlayerModel {
     }
 
     private func updateCurrentDisplayArtwork(at currentTime: TimeInterval, force: Bool = false) {
-        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         let activeBookmark = Self.activeArtworkBookmark(from: bookmarks, at: currentTime, trackId: trackId)
         let nextKey = activeBookmark.flatMap { bookmark -> String? in
             guard let fileName = bookmark.bookmarkImageFileName else { return nil }
@@ -1972,26 +1533,26 @@ final class PlayerModel {
            let imageURL = activeBookmark.bookmarkImageURL(in: folderURL) {
             let cacheKey = imageURL.path
             if let cached = bookmarkArtworkCache[cacheKey] {
-                currentDisplayArtwork = cached.image
-                watchThumbnailData = cached.watchData
+                state.currentDisplayArtwork = cached.image
+                state.watchThumbnailData = cached.watchData
             } else if let image = UIImage(contentsOfFile: imageURL.path) {
                 let watchData = makeWatchThumbnailData(from: image)
                 bookmarkArtworkCache[cacheKey] = (image, watchData)
-                currentDisplayArtwork = image
-                watchThumbnailData = watchData
+                state.currentDisplayArtwork = image
+                state.watchThumbnailData = watchData
             } else {
                 print("Failed to load bookmark artwork: \(fileName)")
-                currentDisplayArtwork = thumbnailImage
-                watchThumbnailData = baseWatchThumbnailData
+                state.currentDisplayArtwork = thumbnailImage
+                state.watchThumbnailData = baseWatchThumbnailData
             }
         } else {
-            currentDisplayArtwork = thumbnailImage
-            watchThumbnailData = baseWatchThumbnailData
+            state.currentDisplayArtwork = thumbnailImage
+            state.watchThumbnailData = baseWatchThumbnailData
         }
 
         updateNowPlayingInfo(isPaused: !isPlaying)
         syncToWatch()
-        currentDisplayArtworkVersion += 1
+        state.currentDisplayArtworkVersion += 1
     }
 
     private func makeWatchThumbnailData(from image: UIImage) -> Data? {
@@ -2006,7 +1567,7 @@ final class PlayerModel {
         guard audioEngine.isItemLoaded else { return nil }
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
-        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         // Auto-numbered default title scoped to the current track.
         let scopedCount = bookmarkStore.bookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
         let bm = Bookmark(
@@ -2029,7 +1590,7 @@ final class PlayerModel {
         guard audioEngine.isItemLoaded else { return nil }
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
-        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         let scopedCount = bookmarkStore.bookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
         return BookmarkDraft(
             title: String(localized: "Bookmark \(scopedCount + 1)"),
@@ -2238,12 +1799,12 @@ final class PlayerModel {
 
     /// Delegates to BookmarkStore to detect and fire inline voice memo triggers.
     private func checkVoiceMemoTrigger(at currentSeconds: Double, previousSeconds: Double?) {
-        let trackId = tracks.indices.contains(currentIndex) ? tracks[currentIndex].id : nil
+        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         if let memoURL = bookmarkStore.checkVoiceMemoTrigger(
             at: currentSeconds,
             previousSeconds: previousSeconds,
             isPlaying: isPlaying,
-            isManualSeeking: isManualSeeking,
+            isManualSeeking: state.isManualSeeking,
             loopMode: loopMode,
             playBookmarksInline: settingsManager?.playBookmarksInline ?? SettingsManager.Defaults.playBookmarksInline,
             trackId: trackId,
