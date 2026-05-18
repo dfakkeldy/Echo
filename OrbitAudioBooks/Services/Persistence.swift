@@ -13,66 +13,111 @@ struct Persistence {
 
     // MARK: - Track / Speed / Loop Persistence
 
-    func saveLastTrack(for folderKey: String, trackId: String) {
+    func saveLastTrack(for folderKey: String, trackId: String, folderURL: URL? = nil) {
         var dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
         dict[folderKey] = trackId
         defaults.set(dict, forKey: lastTrackKey)
+        if let url = folderURL {
+            PlaylistManifestService.updatePlaybackState(folderURL: url, lastTrackId: trackId)
+        }
     }
 
-    func getLastTrack(for folderKey: String) -> String? {
+    func getLastTrack(for folderKey: String, folderURL: URL? = nil) -> String? {
+        if let url = folderURL,
+           let manifest = PlaylistManifestService.read(from: url) {
+            return manifest.playbackState.lastTrackId
+        }
         let dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
         return dict[folderKey]
     }
 
-    func saveSpeed(for title: String, speed: Float) {
+    func saveSpeed(for title: String, speed: Float, folderURL: URL? = nil) {
         var dict = defaults.dictionary(forKey: speedKey) as? [String: Double] ?? [:]
         dict[title] = Double(speed)
         defaults.set(dict, forKey: speedKey)
+        if let url = folderURL {
+            PlaylistManifestService.updatePlaybackState(folderURL: url, speed: speed)
+        }
     }
 
-    func getSpeed(for title: String) -> Float? {
+    func getSpeed(for title: String, folderURL: URL? = nil) -> Float? {
+        if let url = folderURL,
+           let manifest = PlaylistManifestService.read(from: url) {
+            return Float(manifest.playbackState.speed)
+        }
         let dict = defaults.dictionary(forKey: speedKey) as? [String: Double] ?? [:]
         return dict[title].map { Float($0) }
     }
 
-    func saveLoopMode(for key: String, loopMode: String) {
+    func saveLoopMode(for key: String, loopMode: String, folderURL: URL? = nil) {
         var dict = defaults.dictionary(forKey: loopModeKey) as? [String: String] ?? [:]
         dict[key] = loopMode
         defaults.set(dict, forKey: loopModeKey)
+        if let url = folderURL {
+            PlaylistManifestService.updatePlaybackState(folderURL: url, loopMode: loopMode)
+        }
     }
 
-    func getLoopMode(for key: String) -> String? {
+    func getLoopMode(for key: String, folderURL: URL? = nil) -> String? {
+        if let url = folderURL,
+           let manifest = PlaylistManifestService.read(from: url) {
+            return manifest.playbackState.loopMode
+        }
         let dict = defaults.dictionary(forKey: loopModeKey) as? [String: String] ?? [:]
         return dict[key]
     }
 
     // MARK: - Order & Enabled State
 
-    func saveOrder(for key: String, ids: [String]) {
+    func saveOrder(for key: String, ids: [String], tracks: [Track]? = nil, folderURL: URL? = nil) {
         defaults.set(ids, forKey: "order_\(key)")
+        if let url = folderURL, let tracks {
+            PlaylistManifestService.updateTrackOrder(folderURL: url, tracks: tracks)
+        }
     }
 
-    func loadOrder(for key: String) -> [String]? {
-        defaults.stringArray(forKey: "order_\(key)")
+    func loadOrder(for key: String, folderURL: URL? = nil) -> [String]? {
+        if let url = folderURL,
+           let manifest = PlaylistManifestService.read(from: url) {
+            return manifest.tracks.map(\.file)
+        }
+        return defaults.stringArray(forKey: "order_\(key)")
     }
 
-    func saveEnabledState(for key: String, states: [String: Bool]) {
+    func saveEnabledState(for key: String, states: [String: Bool], folderURL: URL? = nil) {
         defaults.set(states, forKey: "enabled_\(key)")
+        if let url = folderURL {
+            PlaylistManifestService.updateEnabledStates(folderURL: url, states: states)
+        }
     }
 
-    func loadEnabledState(for key: String) -> [String: Bool]? {
-        defaults.dictionary(forKey: "enabled_\(key)") as? [String: Bool]
+    func loadEnabledState(for key: String, folderURL: URL? = nil) -> [String: Bool]? {
+        if let url = folderURL,
+           let manifest = PlaylistManifestService.read(from: url) {
+            return Dictionary(uniqueKeysWithValues: manifest.tracks.map { ($0.file, $0.enabled) })
+        }
+        return defaults.dictionary(forKey: "enabled_\(key)") as? [String: Bool]
     }
 
     // MARK: - Book Progress
 
-    func saveBookProgress(for folderKey: String, trackId: String, time: Double) {
+    func saveBookProgress(for folderKey: String, trackId: String, time: Double, folderURL: URL? = nil) {
         var dict = defaults.dictionary(forKey: progressKey) as? [String: [String: Any]] ?? [:]
         dict[folderKey] = ["trackId": trackId, "time": time]
         defaults.set(dict, forKey: progressKey)
+        if let url = folderURL {
+            PlaylistManifestService.updatePlaybackState(folderURL: url, lastTrackId: trackId, lastPosition: time)
+        }
     }
 
-    func getBookProgress(for folderKey: String) -> (trackId: String, time: Double)? {
+    func getBookProgress(for folderKey: String, folderURL: URL? = nil) -> (trackId: String, time: Double)? {
+        if let url = folderURL,
+           let manifest = PlaylistManifestService.read(from: url) {
+            if let trackId = manifest.playbackState.lastTrackId {
+                return (trackId, manifest.playbackState.lastPosition)
+            }
+            return nil
+        }
         let dict = defaults.dictionary(forKey: progressKey) as? [String: [String: Any]] ?? [:]
         if let item = dict[folderKey], let trackId = item["trackId"] as? String, let time = item["time"] as? Double {
             return (trackId, time)

@@ -1,4 +1,4 @@
-# Plan: Playlist Packaging — Folder Manifest + ZIP Export
+# Plan: Playlist Packaging — Folder Manifest + ZIP Export ✅ DONE (2026-05-18)
 
 ## Summary
 

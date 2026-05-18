@@ -309,7 +309,7 @@ M4B then adds the aggregation without changing the protocol signature.
 | DASH — Modular Dashboard UI | 🔄 Rescoped | 2026-05-18 — tab nav + timeline built; LibraryTab stub, transcript opt, shelf expansion remain |
 | CAR — CarPlay Integration | ✅ Done | 2026-05-18 — entitlement pending provisioning profile |
 | SQL — SQL Database Integration | ✅ Done | 2026-05-18 |
-| PLIST — Playlist Packaging | ⏳ Pending | — |
+| PLIST — Playlist Packaging | ✅ Done | 2026-05-18 |
 | BKMG — Bookmark Playlist Grouping | ✅ Done | 2026-05-17 |
 | HELP — Help Files | ✅ Done | 2026-05-17 |
 | RELEASE — Release Readiness Remediation | ✅ Done | 2026-05-17 |

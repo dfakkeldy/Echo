@@ -45,7 +45,7 @@ final class PlaylistManager {
         loadedTracks.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
 
         let folderKey = folder.absoluteString
-        if let savedStates = persistence.loadEnabledState(for: folderKey) {
+        if let savedStates = persistence.loadEnabledState(for: folderKey, folderURL: folder) {
             for i in 0..<loadedTracks.count {
                 if let isEnabled = savedStates[loadedTracks[i].id] {
                     loadedTracks[i].isEnabled = isEnabled
@@ -53,7 +53,7 @@ final class PlaylistManager {
             }
         }
 
-        if let savedOrder = persistence.loadOrder(for: folderKey) {
+        if let savedOrder = persistence.loadOrder(for: folderKey, folderURL: folder) {
             var orderedTracks: [Track] = []
             var remainingTracks = loadedTracks
             for id in savedOrder {
@@ -77,7 +77,7 @@ final class PlaylistManager {
             state.currentIndex = newIdx
         }
         if let folderURL = state.folderURL {
-            persistence.saveOrder(for: folderURL.absoluteString, ids: state.tracks.map { $0.id })
+            persistence.saveOrder(for: folderURL.absoluteString, ids: state.tracks.map { $0.id }, tracks: state.tracks, folderURL: folderURL)
         }
     }
 
@@ -97,9 +97,9 @@ final class PlaylistManager {
     func toggleTrackEnabled(at index: Int) {
         state.tracks[index].isEnabled.toggle()
         if let folderURL = state.folderURL {
-            var states = persistence.loadEnabledState(for: folderURL.absoluteString) ?? [:]
+            var states = persistence.loadEnabledState(for: folderURL.absoluteString, folderURL: folderURL) ?? [:]
             states[state.tracks[index].id] = state.tracks[index].isEnabled
-            persistence.saveEnabledState(for: folderURL.absoluteString, states: states)
+            persistence.saveEnabledState(for: folderURL.absoluteString, states: states, folderURL: folderURL)
         }
     }
 

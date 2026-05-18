@@ -687,6 +687,20 @@ final class PlayerModel {
             updateNowPlayingInfo(isPaused: true) // keep something stable in Now Playing
         }
 
+        // Migrate per-folder UserDefaults state into .orbitplaylist.json if needed.
+        if isDir.boolValue, !state.tracks.isEmpty {
+            let manifestURL = url.appendingPathComponent(PlaylistManifestService.fileName)
+            if !FileManager.default.fileExists(atPath: manifestURL.path) {
+                let manifest = PlaylistManifestService.migrate(
+                    from: persistence,
+                    folderURL: url,
+                    tracks: state.tracks,
+                    bookmarks: bookmarkStore.bookmarks
+                )
+                PlaylistManifestService.write(manifest, to: url)
+            }
+        }
+
         persistSelection(url: url)
 
         // Route bookmark persistence through SQL when available.
@@ -877,7 +891,7 @@ final class PlayerModel {
 
         // Save progress before changing track
         if let folder = folderURL?.absoluteString, state.tracks.indices.contains(currentIndex) {
-            persistence.saveBookProgress(for: folder, trackId: state.tracks[currentIndex].id, time: audioEngine.currentTime)
+            persistence.saveBookProgress(for: folder, trackId: state.tracks[currentIndex].id, time: audioEngine.currentTime, folderURL: folderURL)
         }
 
         state.currentIndex = index
@@ -893,13 +907,13 @@ final class PlayerModel {
         loadTranscript(for: tracks[index].url)
 
         if let folderURL = folderURL {
-            persistence.saveLastTrack(for: folderURL.absoluteString, trackId: tracks[index].id)
+            persistence.saveLastTrack(for: folderURL.absoluteString, trackId: tracks[index].id, folderURL: folderURL)
         }
 
         // Load the specific speed for this book
         if let key = folderURL?.absoluteString {
-            speed = persistence.getSpeed(for: key) ?? 1.25
-            if let raw = persistence.getLoopMode(for: key), let mode = LoopMode(rawValue: raw) {
+            speed = persistence.getSpeed(for: key, folderURL: folderURL) ?? 1.25
+            if let raw = persistence.getLoopMode(for: key, folderURL: folderURL), let mode = LoopMode(rawValue: raw) {
                 loopMode = mode
             } else {
                 loopMode = .off
