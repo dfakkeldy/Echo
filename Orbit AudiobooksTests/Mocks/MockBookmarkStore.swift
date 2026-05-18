@@ -6,42 +6,36 @@ final class MockBookmarkStore: BookmarkStoreProtocol {
     var bookmarks: [Bookmark] = []
     var bookmarkToAdd: Bookmark?
     var deletedBookmarkIDs: [UUID] = []
-    var updatedBookmarkNotes: [(UUID, String)] = []
+    var updatedBookmarks: [(UUID, String, TimeInterval, String?, String?, String?)] = []
 
-    var currentTrackBookmarks: [Bookmark] {
-        bookmarks.filter { $0.isEnabled }
-    }
-
-    func addBookmark(at time: TimeInterval, note: String?) -> Bookmark {
-        let bookmark = Bookmark(timestamp: time, note: note)
+    func addBookmark(at time: TimeInterval, trackId: String?, folderKey: String?) -> Bookmark {
+        let bookmark = Bookmark(timestamp: time, trackId: trackId, folderKey: folderKey)
         bookmarks.append(bookmark)
         bookmarkToAdd = bookmark
         return bookmark
     }
 
-    func deleteBookmark(id: UUID) {
+    func deleteBookmark(id: UUID, folderURL: URL? = nil) {
         deletedBookmarkIDs.append(id)
         bookmarks.removeAll { $0.id == id }
     }
 
-    func updateBookmark(id: UUID, note: String) {
-        updatedBookmarkNotes.append((id, note))
+    func updateBookmark(id: UUID, title: String, timestamp: TimeInterval, note: String?,
+                        voiceMemoFileName: String?, bookmarkImageFileName: String? = nil) {
+        updatedBookmarks.append((id, title, timestamp, note, voiceMemoFileName, bookmarkImageFileName))
         if let index = bookmarks.firstIndex(where: { $0.id == id }) {
+            let bm = bookmarks[index]
             bookmarks[index] = Bookmark(
-                id: bookmarks[index].id,
-                title: bookmarks[index].title,
-                folderKey: bookmarks[index].folderKey,
-                trackId: bookmarks[index].trackId,
-                timestamp: bookmarks[index].timestamp,
+                id: bm.id,
+                title: title,
+                folderKey: bm.folderKey,
+                trackId: bm.trackId,
+                timestamp: timestamp,
                 note: note,
-                voiceMemoFileName: bookmarks[index].voiceMemoFileName,
-                bookmarkImageFileName: bookmarks[index].bookmarkImageFileName,
-                isEnabled: bookmarks[index].isEnabled
+                voiceMemoFileName: voiceMemoFileName,
+                bookmarkImageFileName: bookmarkImageFileName,
+                isEnabled: bm.isEnabled
             )
         }
-    }
-
-    func exportBookmarksAsMarkdown() -> String {
-        bookmarks.map { "- \($0.title) (\(Int($0.timestamp))s)" }.joined(separator: "\n")
     }
 }

@@ -4,23 +4,16 @@ import Foundation
 /// Configurable SleepTimerManager for unit testing.
 final class MockSleepTimerManager: SleepTimerManagerProtocol {
     var mode: SleepTimerMode = .off
-    var secondsRemaining: TimeInterval = 0
-    var countdownText: String = ""
+    var remainingSeconds: Int = 0
 
     var setTimerCallCount = 0
-    var setTimerMinutes: [Int] = []
-    var setEndOfChapterCallCount = 0
+    var setTimerModes: [SleepTimerMode] = []
     var cancelCallCount = 0
 
-    func setTimer(minutes: Int) {
+    func setTimer(_ mode: SleepTimerMode) {
         setTimerCallCount += 1
-        setTimerMinutes.append(minutes)
-        mode = .minutes(minutes)
-    }
-
-    func setEndOfChapter() {
-        setEndOfChapterCallCount += 1
-        mode = .endOfChapter
+        setTimerModes.append(mode)
+        self.mode = mode
     }
 
     func cancel() {

@@ -4,11 +4,11 @@ import Foundation
 
 protocol BookmarkStoreProtocol {
     var bookmarks: [Bookmark] { get }
-    var currentTrackBookmarks: [Bookmark] { get }
-    func addBookmark(at time: TimeInterval, note: String?) -> Bookmark
-    func deleteBookmark(id: UUID)
-    func updateBookmark(id: UUID, note: String)
-    func exportBookmarksAsMarkdown() -> String
+    @discardableResult
+    func addBookmark(at time: TimeInterval, trackId: String?, folderKey: String?) -> Bookmark
+    func deleteBookmark(id: UUID, folderURL: URL?)
+    func updateBookmark(id: UUID, title: String, timestamp: TimeInterval, note: String?,
+                        voiceMemoFileName: String?, bookmarkImageFileName: String?)
 }
 
 // MARK: - PlaybackControllerProtocol
@@ -21,20 +21,18 @@ protocol PlaybackControllerProtocol {
     func play()
     func pause()
     func togglePlayPause()
-    func skipForward()
-    func skipBackward()
-    func seek(to: TimeInterval)
-    func skipToNextChapter()
-    func skipToPreviousChapter()
+    @discardableResult func skipForward30() -> Bool
+    @discardableResult func skipBackward30() -> Bool
+    func seek(to time: TimeInterval)
+    func nextChapter()
+    func previousChapterOrRestart()
 }
 
 // MARK: - SleepTimerManagerProtocol
 
 protocol SleepTimerManagerProtocol {
     var mode: SleepTimerMode { get }
-    var secondsRemaining: TimeInterval { get }
-    var countdownText: String { get }
-    func setTimer(minutes: Int)
-    func setEndOfChapter()
+    var remainingSeconds: Int { get }
+    func setTimer(_ mode: SleepTimerMode)
     func cancel()
 }

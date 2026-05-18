@@ -11,11 +11,11 @@ final class MockPlaybackController: PlaybackControllerProtocol {
     var playCallCount = 0
     var pauseCallCount = 0
     var togglePlayPauseCallCount = 0
-    var skipForwardCallCount = 0
-    var skipBackwardCallCount = 0
+    var skipForward30CallCount = 0
+    var skipBackward30CallCount = 0
     var seekCalls: [TimeInterval] = []
-    var skipToNextChapterCallCount = 0
-    var skipToPreviousChapterCallCount = 0
+    var nextChapterCallCount = 0
+    var previousChapterOrRestartCallCount = 0
 
     func play() {
         isPlaying = true
@@ -32,14 +32,16 @@ final class MockPlaybackController: PlaybackControllerProtocol {
         togglePlayPauseCallCount += 1
     }
 
-    func skipForward() {
+    func skipForward30() -> Bool {
         currentTime += 30
-        skipForwardCallCount += 1
+        skipForward30CallCount += 1
+        return true
     }
 
-    func skipBackward() {
+    func skipBackward30() -> Bool {
         currentTime = max(0, currentTime - 30)
-        skipBackwardCallCount += 1
+        skipBackward30CallCount += 1
+        return true
     }
 
     func seek(to time: TimeInterval) {
@@ -47,11 +49,11 @@ final class MockPlaybackController: PlaybackControllerProtocol {
         seekCalls.append(time)
     }
 
-    func skipToNextChapter() {
-        skipToNextChapterCallCount += 1
+    func nextChapter() {
+        nextChapterCallCount += 1
     }
 
-    func skipToPreviousChapter() {
-        skipToPreviousChapterCallCount += 1
+    func previousChapterOrRestart() {
+        previousChapterOrRestartCallCount += 1
     }
 }
