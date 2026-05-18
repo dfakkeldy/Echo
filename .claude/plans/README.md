@@ -306,7 +306,7 @@ M4B then adds the aggregation without changing the protocol signature.
 | A4 — Accessibility Audit | ✅ Done | 2026-05-17 |
 | A7 — Typed Watch Configuration | ✅ Done | 2026-05-17 |
 | M4B — Audio Queue M4B Folders | ⏳ Pending | — |
-| DASH — Modular Dashboard UI | ⏳ Pending | — |
+| DASH — Modular Dashboard UI | 🔄 Rescoped | 2026-05-18 — tab nav + timeline built; LibraryTab stub, transcript opt, shelf expansion remain |
 | CAR — CarPlay Integration | ⏳ Pending | — |
 | SQL — SQL Database Integration | ✅ Done | 2026-05-18 |
 | PLIST — Playlist Packaging | ⏳ Pending | — |

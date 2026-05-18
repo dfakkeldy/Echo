@@ -1,149 +1,75 @@
-# Plan: Modular Dashboard UI & Transcript Optimization
+# Plan: Modular Dashboard UI & Transcript Optimization — RESCOPED (2026-05-18)
 
-## Summary
+**Original scope:** LazyVGrid of configurable, toggleable, draggable module tiles with a `DashboardModule` protocol.
 
-Redesign the main application into a modular, configurable dashboard where display sections (Thumbnail, Bookmarks, Wordcloud, Search, Playlist) are independent, toggleable widget-like components arranged in a `LazyVGrid`. Add layout persistence and tie transcript processing to UI visibility.
+**Reality:** The UI took a different direction — tab-based navigation with a Timeline + horizontal DashboardShelf. The original grid/protocol design was replaced. This plan now reflects what was actually built and what genuinely remains.
 
-## Current State
+## What Was Built (replaces original plan)
 
-**iOS views:**
-- `ContentView.swift` (141 lines) — Top-level container
-- `BottomToolbarView.swift` (194 lines) — Transport + speed
-- `Bookmarks.swift` (793 lines) — Bookmark list with voice memo playback
-- `PlaylistView.swift` — Chapter/playlist view
-- `PlayerScrubberView.swift` — Scrubber
-- `TranscriptView.swift` (not found in file listing, may be part of overlay)
-- Various overlay and component views
+### Tab Navigation
+- **`RootTabView.swift`** — 3-tab container (Now Playing, Timeline, Library) with toolbar buttons for folder picker, help, and settings. Handles deep links and StoreKit product requests.
+- **`NowPlayingTab.swift`** — Main player UI: album art hero, chapter/track indicator, scrubber, transport controls, voice memo overlay, bottom toolbar. The traditional player experience.
+- **`TimelineTab.swift`** — Timeline scroll view + `DashboardShelf` horizontal strip. Creates a `TimelineService` on appear, binds to time scale and timeline mode (real-time vs. playlist-time) changes.
+- **`LibraryTab.swift`** — **STUB ONLY.** Shows `ContentUnavailableView` placeholder. Needs real implementation.
 
-The current UI is a scrollable single-column layout. Sections are hardcoded and always present.
+### Dashboard Shelf
+- **`DashboardShelf.swift`** — Collapsible horizontal `ScrollView` with 3 stat cards. Toggled by a chevron button. Lives inside TimelineTab.
+- **`StatsModuleView.swift`** — "Today" card showing listened duration vs. total.
+- **`UpcomingReviewsModuleView.swift`** — "Reviews Due" card querying `FlashcardDAO.allDueCards()`.
+- **`ListeningProgressModuleView.swift`** — "Progress" card showing percentage through current title.
 
-## Proposed Design
+### Timeline (not in original plan)
+- **`TimelineContentView.swift`** — Lazy-loaded vertical scroll of `TimelineGroup` cards with `NowLineView` for current position, "load earlier"/"load later" infinite scroll triggers, and `ScrollViewReader`-based "Recenter on Now" support.
+- **`TimelineHeaderView.swift`** — Time scale picker (minutes/hours/days), mode toggle (real-time/playlist-time), viewing/editing toggle.
+- **`TimelineContentCard.swift`** — Individual card renderer for timeline items.
+- **`PlaylistTimelineView.swift`** — Playlist-time mode view.
+- **`NowLineView.swift`**, **`PlayheadLineView.swift`** — Position indicators.
 
-### 1. Modular Components
+### Supporting Models & Services
+- **`TimelineService.swift`** — Groups timeline items by time scale, handles pagination.
+- **`Models/TimelineGroup.swift`**, **`Models/ContentCard.swift`**, **`Models/TimeScale.swift`**, **`Models/RealTimeEvent.swift`** — Timeline data types.
+- **`Models/Note.swift`**, **`Models/PlannedSession.swift`**, **`Models/SpeedSuggestion.swift`** — Content card subtypes.
+- **`Views/ContentCardEditor.swift`**, **`Views/NoteEditorView.swift`**, **`Views/SchedulingSheet.swift`**, **`Views/SpeedSuggestionBanner.swift`** — Editing/scheduling UI.
+- **`Views/FlashcardReviewCard.swift`**, **`Views/FlashcardReviewSession.swift`** — Flashcard review views.
 
-Extract each display section into a standalone SwiftUI component conforming to a shared protocol:
+## Remaining Gaps
 
-```swift
-protocol DashboardModule: View {
-    static var moduleId: String { get }
-    static var moduleName: String { get }
-    static var moduleIcon: String { get }
-    static var defaultSize: ModuleSize { get }
-}
+### 1. LibraryTab — needs real implementation
+Currently a `ContentUnavailableView` stub. Should show:
+- Recently played audiobooks
+- Browse by author/title
+- Imported playlist manifests (post-PLIST plan)
+- Storage usage stats
 
-enum ModuleSize: Codable {
-    case small   // 1x1 grid unit
-    case medium  // 2x1
-    case large   // 2x2
-    case full    // full width
-}
-```
+### 2. Transcript visibility optimization
+The original plan's core optimization: tie `TranscriptionManager` processing to whether transcript-dependent views are visible. Currently `TranscriptOverlayView` is embedded directly in `NowPlayingTab` — no lazy processing gate. This saves CPU/battery when the user isn't looking at transcript data.
 
-Modules:
-- `ThumbnailModule` — Album art, track/chapter title, progress ring
-- `BookmarkModule` — Current position bookmark, recent bookmarks
-- `WordCloudModule` — Word frequency visualization (if transcript is unlocked)
-- `SearchModule` — Transcript search with tap-to-seek
-- `PlaylistModule` — Chapter list / book hierarchy
-- `SleepTimerModule` — Timer countdown widget
-- `SpeedModule` — Speed picker as a grid tile
+### 3. Dashboard shelf module expansion
+Only 3 mini-cards exist. Natural additions that fit the horizontal-shelf pattern:
+- **SleepTimerCard** — countdown display when timer is active
+- **BookmarkCard** — recent bookmark count / quick-add
+- **SpeedCard** — current speed with tap-to-cycle
 
-### 2. Dashboard Grid Layout
+### 4. Chapter time block visualization
+**`ChapterTimeBlockView.swift`** exists but may need integration into the timeline or NowPlayingTab.
 
-```swift
-struct DashboardView: View {
-    @State private var modules: [DashboardModuleConfig] = loadLayout()
-    @State private var isEditing = false
-    
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160))]) {
-                ForEach(modules.filter(\.isVisible)) { config in
-                    moduleView(for: config)
-                        .frame(height: cellHeight(for: config.size))
-                }
-            }
-            .padding()
-        }
-    }
-}
-```
+## What's NOT Happening (descoped)
 
-### 3. Layout Persistence
-
-Store module configuration in UserDefaults (App Group) as JSON:
-
-```swift
-struct DashboardModuleConfig: Codable, Identifiable {
-    let id: String  // module type identifier
-    var isVisible: Bool
-    var size: ModuleSize
-    var gridPosition: Int  // sort order
-}
-```
-
-User can toggle modules on/off in settings, reorder via drag handle in edit mode, and resize (small/medium/large).
-
-### 4. Transcript Visibility Optimization
-
-Tie `TranscriptionManager`'s active processing to whether ANY transcript-dependent module is visible:
-
-- `SearchModule` visible → transcription active
-- `WordCloudModule` visible → transcription active
-- Neither visible → `TranscriptionManager` suspends, no CPU/battery drain
-
-Implement via a shared `@Published` flag or notification:
-
-```swift
-// In TranscriptionManager
-@Published var isProcessingEnabled = false
-
-// In DashboardView
-.onChange(of: transcriptModulesVisible) { _, visible in
-    transcriptionManager.isProcessingEnabled = visible
-}
-```
-
-On macOS: same pattern — `TranscriptPane` visibility controls `TranscriptionManager` processing state.
-
-### 5. Collapsible Transcript
-
-On iOS, the transcript is currently an overlay. On macOS, it's a pane. The plan makes it a full-width module that can be toggled via:
-- A toolbar button
-- `DisclosureGroup` animation
-
-When collapsed, the full transcript text view is removed from the hierarchy (not just hidden).
-
-## Files to Create/Modify
-
-| Action | File |
-|--------|------|
-| Create | `OrbitAudioBooks/Views/Components/DashboardView.swift` |
-| Create | `OrbitAudioBooks/Views/Components/DashboardModule.swift` (protocol) |
-| Create | `OrbitAudioBooks/Views/Components/ThumbnailModule.swift` |
-| Create | `OrbitAudioBooks/Views/Components/BookmarkModule.swift` |
-| Create | `OrbitAudioBooks/Views/Components/WordCloudModule.swift` |
-| Create | `OrbitAudioBooks/Views/Components/SearchModule.swift` |
-| Create | `OrbitAudioBooks/Views/Components/PlaylistModule.swift` |
-| Create | `OrbitAudioBooks/Views/Components/SleepTimerModule.swift` |
-| Create | `OrbitAudioBooks/Views/Components/SpeedModule.swift` |
-| Create | `OrbitAudioBooks/Models/DashboardModuleConfig.swift` |
-| Modify | `OrbitAudioBooks/Views/ContentView.swift` — use `DashboardView` |
-| Modify | `OrbitAudioBooks/Views/SettingsView.swift` — add module configuration section |
-| Modify | `OrbitAudioBooks/ViewModels/PlayerModel.swift` — expose module-relevant state |
-| Modify | `Orbit Audiobooks macOS/Views/TranscriptionManager.swift` — `isProcessingEnabled` flag |
-| Modify | `Orbit Audiobooks macOS/Views/TranscriptPane.swift` — tie visibility to processing |
+| Original Plan Item | Disposition |
+|--------------------|-------------|
+| `DashboardModule` protocol | Not needed — the tab + shelf pattern doesn't require protocol conformance |
+| `LazyVGrid` configurable layout | Replaced by tab navigation + horizontal shelf |
+| `ModuleSize` enum | Not applicable |
+| `DashboardModuleConfig` persistence | Not applicable |
+| Drag-to-reorder edit mode | Not applicable |
+| Module toggling in Settings | Could be added for shelf cards, but lower priority than LibraryTab |
 
 ## Dependencies
 
-- **Blocked by:**
-  - Plan A1 (PlayerModel decomposition) — modules should bind to extracted components, not the god class
-  - Plan A5 (protocol extraction) — modules should reference `PlayerModelProtocol`, not concrete `PlayerModel`
-  - Plan Phase 1 (localization) — all module labels must be localized
-- **Conflicts with:**
-  - Plan Phase 4 (CarPlay) — CarPlay has its own UI templates; dashboard modules don't apply there. No conflict.
-  - Plan SQL Database — bookmark and wordcloud modules would use SQL-backed queries
+- **Done:** A1 (PlayerModel decomposition), A5 (protocol extraction), L10N (localization)
+- **Blocks:** Nothing critical. LibraryTab can be built independently.
+- **Related:** PLIST (LibraryTab will display imported playlist manifests), SQL (shelf cards query GRDB)
 
 ## Complexity
 
-**Large.** Touches almost every iOS view. The modularization itself is a refactor, then the grid layout is new UI, then the transcript optimization is a separate concern across two platforms. Do after A1/A5 so the module boundaries align with the extracted services.
+**Reduced from Large to Medium.** The tab navigation and timeline are built. Remaining work: LibraryTab implementation (medium), transcript optimization (small), shelf card expansion (small).
