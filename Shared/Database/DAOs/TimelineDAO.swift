@@ -81,7 +81,9 @@ struct TimelineDAO {
 
     func moveItem(id: String, itemType: TimelineItemType, audiobookID: String, to newPosition: TimeInterval) throws {
         try db.write { db in
-            guard let table = tableName(for: itemType) else { return }
+            guard let table = tableName(for: itemType) else {
+                throw TimelineDAOError.unsupportedItemType(itemType)
+            }
             try db.execute(
                 sql: """
                     UPDATE \(table)
@@ -95,7 +97,9 @@ struct TimelineDAO {
 
     func removeFromPlaylist(id: String, itemType: TimelineItemType, audiobookID: String) throws {
         try db.write { db in
-            guard let table = tableName(for: itemType) else { return }
+            guard let table = tableName(for: itemType) else {
+                throw TimelineDAOError.unsupportedItemType(itemType)
+            }
             try db.execute(
                 sql: "UPDATE \(table) SET playlist_position = NULL WHERE id = :id AND audiobook_id = :audiobookID",
                 arguments: ["id": id, "audiobookID": audiobookID]
@@ -113,4 +117,8 @@ struct TimelineDAO {
         case .note: return "note"
         }
     }
+}
+
+enum TimelineDAOError: Error {
+    case unsupportedItemType(TimelineItemType)
 }
