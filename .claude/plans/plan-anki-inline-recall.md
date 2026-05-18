@@ -1,4 +1,4 @@
-# Plan AIR: Inline Active Recall (AudioEngine Integration)
+# Plan AIR: Inline Active Recall (AudioEngine Integration) ✅ DONE (2026-05-18)
 
 ## Summary
 
