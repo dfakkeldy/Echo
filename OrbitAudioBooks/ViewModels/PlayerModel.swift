@@ -194,6 +194,10 @@ final class PlayerModel {
     /// Not observable — gain changes don't trigger view re-renders.
     @ObservationIgnored private var _outputGain: Float = 0
 
+    /// Optional database service for SQL persistence.
+    /// Set externally to enable SQL-backed bookmark storage.
+    var databaseService: DatabaseService?
+
     init() {
         SettingsManager.registerDefaults()
 
@@ -644,6 +648,11 @@ final class PlayerModel {
         }
 
         persistSelection(url: url)
+
+        // Route bookmark persistence through SQL when available.
+        if let db = databaseService {
+            bookmarkStore.configureSQLPersistence(database: db)
+        }
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,

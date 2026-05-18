@@ -11,7 +11,26 @@
 		CC00BC522FA6B66400323F38 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC512FA6B66400323F38 /* SwiftUI.framework */; };
 		CC00BC612FA6B66500323F38 /* Orbit Audiobooks WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC00BC4D2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CCC48EBB2FA6AB350003458B /* Orbit Audiobooks Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Orbit Audiobooks Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+			CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {
+				isa = PBXBuildFile;
+				productRef = CC0000000002GRDB00000002 /* GRDB */;
+			};
+			CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {
+				isa = PBXBuildFile;
+				productRef = CC0000000002GRDB00000002 /* GRDB */;
+			};
+			CC0000000012GRDB00000012 /* GRDB in Frameworks */ = {
+				isa = PBXBuildFile;
+				productRef = CC0000000002GRDB00000002 /* GRDB */;
+			};
+			CC0000000013GRDB00000013 /* GRDB in Frameworks */ = {
+				isa = PBXBuildFile;
+				productRef = CC0000000002GRDB00000002 /* GRDB */;
+			};
+
+
 /* End PBXBuildFile section */
+
 
 /* Begin PBXContainerItemProxy section */
 		CC00BC5F2FA6B66500323F38 /* PBXContainerItemProxy */ = {
@@ -195,6 +214,7 @@
 		AA0100000000000000000030 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				CC0000000011GRDB00000011 /* GRDB in Frameworks */,
 			);
 		};
 		CC00BC4A2FA6B66400323F38 /* Frameworks */ = {
@@ -202,11 +222,13 @@
 			files = (
 				CC00BC522FA6B66400323F38 /* SwiftUI.framework in Frameworks */,
 				CC00BC502FA6B66400323F38 /* WidgetKit.framework in Frameworks */,
+				CC0000000013GRDB00000013 /* GRDB in Frameworks */,
 			);
 		};
 		CC08EC562F9522F600206D2F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				CC0000000010GRDB00000010 /* GRDB in Frameworks */,
 			);
 		};
 		CC08EC632F9522F800206D2F /* Frameworks */ = {
@@ -222,6 +244,7 @@
 		CCC48E982FA6AB330003458B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				CC0000000012GRDB00000012 /* GRDB in Frameworks */,
 			);
 		};
 		CCC48EA42FA6AB340003458B /* Frameworks */ = {
@@ -509,6 +532,10 @@
 				CCC48EB02FA6AB340003458B /* Orbit Audiobooks Watch AppUITests */,
 				CC00BC4C2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension */,
 				AA0100000000000000000020 /* Orbit Audiobooks macOS */,
+			);
+
+			packageReferences = (
+				CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference */,
 			);
 		};
 /* End PBXProject section */
@@ -1374,6 +1401,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CC0000000002GRDB00000002 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = CC08EC512F9522F600206D2F /* Project object */;
 }

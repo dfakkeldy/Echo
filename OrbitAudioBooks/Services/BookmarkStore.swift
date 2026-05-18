@@ -283,4 +283,27 @@ final class BookmarkStore {
         stopVoiceMemo()
         onSwitchToMainPlayer?()
     }
+
+    // MARK: - SQL Persistence
+
+    /// Load bookmarks from SQL for the given audiobook ID.
+    func loadFromSQL(database: DatabaseService, audiobookID: String) {
+        let dao = BookmarkDAO(db: database.writer)
+        if let records = try? dao.bookmarks(for: audiobookID) {
+            self.bookmarks = records.map { $0.toModel() }
+        }
+    }
+
+    /// Persist all bookmarks through SQL, keyed by the current storage key.
+    func configureSQLPersistence(database: DatabaseService) {
+        onPersist = { [weak self] bookmarks in
+            guard let self, let key = self.storageKeyProvider?() else { return }
+            let dao = BookmarkDAO(db: database.writer)
+            try? dao.deleteAll(for: key)
+            for bm in bookmarks {
+                let record = BookmarkRecord(from: bm)
+                try? dao.insert(record)
+            }
+        }
+    }
 }
