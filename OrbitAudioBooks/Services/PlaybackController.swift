@@ -14,7 +14,7 @@ protocol PlaybackControllerDelegate: AnyObject {
 // MARK: - PlaybackController
 
 @MainActor @Observable
-final class PlaybackController {
+final class PlaybackController: PlaybackControllerProtocol {
     let audioEngine = AudioEngine()
     let state = PlaybackState()
     weak var delegate: PlaybackControllerDelegate?

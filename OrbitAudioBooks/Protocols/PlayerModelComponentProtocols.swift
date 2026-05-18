@@ -23,7 +23,7 @@ protocol PlaybackControllerProtocol {
     func togglePlayPause()
     @discardableResult func skipForward30() -> Bool
     @discardableResult func skipBackward30() -> Bool
-    func seek(to time: TimeInterval)
+    func seek(to time: TimeInterval, completion: ((Bool) -> Void)?)
     func nextChapter()
     func previousChapterOrRestart()
 }

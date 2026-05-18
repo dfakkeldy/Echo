@@ -44,9 +44,10 @@ final class MockPlaybackController: PlaybackControllerProtocol {
         return true
     }
 
-    func seek(to time: TimeInterval) {
+    func seek(to time: TimeInterval, completion: ((Bool) -> Void)?) {
         currentTime = time
         seekCalls.append(time)
+        completion?(true)
     }
 
     func nextChapter() {

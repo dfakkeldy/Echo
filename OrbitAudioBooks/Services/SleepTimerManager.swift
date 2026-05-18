@@ -3,7 +3,7 @@ import Observation
 
 /// Manages the sleep timer: countdown, end-of-chapter mode, and fire callback.
 @Observable
-final class SleepTimerManager {
+final class SleepTimerManager: SleepTimerManagerProtocol {
     private(set) var mode: SleepTimerMode = .off
     private(set) var remainingSeconds: Int = 0
 
