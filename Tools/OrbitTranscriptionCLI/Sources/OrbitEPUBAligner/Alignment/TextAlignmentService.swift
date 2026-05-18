@@ -1,6 +1,6 @@
 import Foundation
 
-protocol TextAlignmentService {
+public protocol TextAlignmentService {
     func align(
         epubText: String,
         transcript: [EnhancedTranscriptionSegment]

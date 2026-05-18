@@ -1,12 +1,12 @@
 import Foundation
 
-struct SlidingWindowAligner: TextAlignmentService {
+public struct SlidingWindowAligner: TextAlignmentService {
     let sentenceConfidenceThreshold: Double
     let windowSize: Int
     let wordFallbackThreshold: Double
     let minimumGlobalConfidence: Double
 
-    init(
+    public init(
         sentenceConfidenceThreshold: Double = 0.80,
         windowSize: Int = 10,
         wordFallbackThreshold: Double = 0.60,
@@ -20,7 +20,7 @@ struct SlidingWindowAligner: TextAlignmentService {
 
     private let nlp = NLPProcessor()
 
-    func align(
+    public func align(
         epubText: String,
         transcript: [EnhancedTranscriptionSegment]
     ) async throws -> [AlignmentResult] {
