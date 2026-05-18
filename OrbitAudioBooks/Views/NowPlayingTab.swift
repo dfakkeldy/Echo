@@ -51,8 +51,18 @@ struct NowPlayingTab: View {
                 if model.isPlayingVoiceMemo {
                     VoiceMemoOverlayView()
                 }
+
+                if let card = model.activeInlineCard {
+                    FlashcardOverlayView(
+                        card: card,
+                        onGrade: { grade in model.gradeInlineFlashcard(grade) },
+                        onDismiss: { model.dismissInlineFlashcard() }
+                    )
+                    .transition(.opacity)
+                }
             }
             .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
+            .animation(.easeInOut(duration: 0.2), value: model.isShowingInlineFlashcard)
 
             BottomToolbarView(
                 showingPlaylist: $showingPlaylist,

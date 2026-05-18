@@ -168,6 +168,15 @@ final class PlayerModel {
     /// 0...1 progress of the currently playing voice memo, for the overlay UI.
     var voiceMemoProgress: Double { bookmarkStore.voiceMemoProgress }
 
+    /// The currently triggered inline flashcard, shown as an overlay during playback.
+    var activeInlineCard: Flashcard? = nil
+    /// Whether an inline flashcard overlay is currently presented.
+    var isShowingInlineFlashcard: Bool { activeInlineCard != nil }
+    /// Set of already-triggered flashcard IDs to prevent re-firing on seek/loop.
+    @ObservationIgnored var triggeredFlashcardIDs: Set<String> = []
+    /// Player time at which the last flashcard trigger fired, for deduplication.
+    @ObservationIgnored private var lastFlashcardTriggerSecond: Double = -1
+
     /// Active playback session event ID for timeline logging.
     @ObservationIgnored private var currentPlaybackEventID: String?
     /// UUID of the most recently triggered bookmark, used to prevent retrigger loops.
@@ -946,6 +955,7 @@ final class PlayerModel {
         state.isSeekingForChapterBoundary = false
         state.isManualSeeking = false
         lastBookmarkCheckSecond = nil
+        triggeredFlashcardIDs.removeAll()
 
         // Multi-M4B: load the correct book's chapter list and duration.
         if state.isMultiM4B, state.m4bBooks.indices.contains(index) {
@@ -1598,6 +1608,78 @@ final class PlayerModel {
         }
     }
 
+    /// Polls flashcard timestamps on each time tick and fires an inline overlay when
+    /// playback crosses a card's trigger point. Follows the same tolerance/deduplication
+    /// pattern as voice memo triggers.
+    private func checkInlineFlashcardTrigger(at currentSeconds: Double, previousSeconds: Double?) {
+        guard activeInlineCard == nil, isPlaying, !state.isManualSeeking,
+              loopMode != .bookmark, let db = databaseService else { return }
+
+        let toleranceBefore: Double = 0.1
+        let toleranceAfter: Double = 0.75
+
+        let cards: [Flashcard]
+        do {
+            let trackKey = state.tracks.indices.contains(state.currentIndex)
+                ? state.tracks[state.currentIndex].url.absoluteString : ""
+            cards = try FlashcardDAO(db: db.writer).flashcards(for: trackKey)
+        } catch {
+            return
+        }
+
+        for card in cards {
+            guard card.triggerTiming != "manualOnly" else { continue }
+            guard !triggeredFlashcardIDs.contains(card.id) else { continue }
+
+            let triggerTime = card.mediaTimestamp
+
+            // Check if playback just crossed the trigger point.
+            let crossed: Bool
+            if let prev = previousSeconds, prev.isFinite {
+                crossed = prev <= triggerTime && currentSeconds > triggerTime
+            } else {
+                crossed = abs(currentSeconds - triggerTime) <= toleranceAfter
+            }
+            guard crossed else { continue }
+
+            // Deduplicate: don't fire within 5s of last trigger.
+            if abs(currentSeconds - lastFlashcardTriggerSecond) < 5 { continue }
+
+            lastFlashcardTriggerSecond = currentSeconds
+            triggeredFlashcardIDs.insert(card.id)
+            wasPlayingBeforeFlashcard = true
+            audioEngine.pause()
+            activeInlineCard = card
+            return
+        }
+    }
+
+    /// Grades the currently shown inline flashcard and resumes playback.
+    func gradeInlineFlashcard(_ grade: Int) {
+        guard let card = activeInlineCard else { return }
+        if let db = databaseService {
+            try? FlashcardDAO(db: db.writer).grade(cardID: card.id, grade: grade)
+        }
+        activeInlineCard = nil
+        if wasPlayingBeforeFlashcard {
+            wasPlayingBeforeFlashcard = false
+            audioEngine.playImmediately(atRate: speed)
+            playbackController.applySpeedToCurrentItem()
+        }
+    }
+
+    /// Dismisses the inline flashcard overlay without grading, resuming playback.
+    func dismissInlineFlashcard() {
+        activeInlineCard = nil
+        if wasPlayingBeforeFlashcard {
+            wasPlayingBeforeFlashcard = false
+            audioEngine.playImmediately(atRate: speed)
+            playbackController.applySpeedToCurrentItem()
+        }
+    }
+
+    @ObservationIgnored private var wasPlayingBeforeFlashcard = false
+
     private func persistSelection(url: URL) {
         // Refresh security scope for the new selection.
         securityScope.stopSelection()
@@ -1627,6 +1709,7 @@ extension PlayerModel: PlaybackControllerDelegate {
             if settingsManager?.playBookmarksInline ?? SettingsManager.Defaults.playBookmarksInline,
                currentTime.isFinite {
                 checkVoiceMemoTrigger(at: currentTime, previousSeconds: lastBookmarkCheckSecond)
+                checkInlineFlashcardTrigger(at: currentTime, previousSeconds: lastBookmarkCheckSecond)
                 lastBookmarkCheckSecond = currentTime
             }
         }
