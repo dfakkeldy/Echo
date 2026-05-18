@@ -1,4 +1,4 @@
-# Plan: Audio Queue Parsing for M4B Folders
+# Plan: Audio Queue Parsing for M4B Folders ✅ DONE (2026-05-18)
 
 ## Summary
 
