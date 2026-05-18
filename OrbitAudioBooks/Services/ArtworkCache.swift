@@ -31,23 +31,14 @@ struct ArtworkCache {
         return nil
     }
 
-    /// Lists non-hidden regular files in a directory, with a security-scoped
-    /// fallback for sandboxed folders.
+    /// Lists non-hidden regular files in a directory. Security-scoped access
+    /// must already be active on the folder URL before calling this method;
+    /// callers should use the start/stop pattern around their entire scan+load
+    /// operation (see `folderArtworkImage`).
     /// - Parameter folderURL: The directory to enumerate.
     /// - Returns: An array of file URLs, or an empty array on failure.
     static func listFilesInFolder(_ folderURL: URL) -> [URL] {
-        if let files = try? FileManager.default.contentsOfDirectory(
-            at: folderURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            return files
-        }
-
-        let didStart = folderURL.startAccessingSecurityScopedResource()
-        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
-
-        return (try? FileManager.default.contentsOfDirectory(
+        (try? FileManager.default.contentsOfDirectory(
             at: folderURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
@@ -95,6 +86,9 @@ struct ArtworkCache {
         let folderURL = url.deletingLastPathComponent()
         let imageExtensions = ["jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff"]
         let imageExtensionSet = Set(imageExtensions)
+
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
 
         let files = listFilesInFolder(folderURL)
         let images = files.filter { fileURL in
