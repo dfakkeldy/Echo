@@ -51,8 +51,8 @@ extension BookmarkRecord {
         self.imagePath = model.bookmarkImageFileName
         self.isEnabled = model.isEnabled
         self.playlistPosition = nil
-        self.createdAt = ISO8601DateFormatter().string(from: Date())
-        self.modifiedAt = ISO8601DateFormatter().string(from: Date())
+        self.createdAt = Date().ISO8601Format()
+        self.modifiedAt = Date().ISO8601Format()
     }
 
     /// Convert to the app-level Bookmark domain model.
