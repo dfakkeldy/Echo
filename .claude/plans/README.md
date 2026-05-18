@@ -316,5 +316,5 @@ M4B then adds the aggregation without changing the protocol signature.
 | ASRS — SRS Engine & Data Model | ✅ Done | 2026-05-18 — built with SQL integration |
 | AIR — Inline Active Recall | ✅ Done | 2026-05-18 |
 | ADR — Daily Review UI | ✅ Done | 2026-05-18 |
-| AWG — WatchOS Hands-Free Review | ⏳ Pending | — |
+| AWG — WatchOS Hands-Free Review | ✅ Done | 2026-05-18 |
 | ADI — JSON Deck Import | ⏳ Pending | — |
