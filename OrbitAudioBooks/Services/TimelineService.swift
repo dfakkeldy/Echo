@@ -5,7 +5,7 @@ import os.log
 @Observable
 final class TimelineService {
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "TimelineService")
-    private let db: DatabaseService
+    private let db: DatabaseService?
     private let calendar = Calendar.current
 
     // MARK: - Viewport state
@@ -33,7 +33,7 @@ final class TimelineService {
 
     // MARK: - Dependencies
 
-    private var realTimeEventDAO: RealTimeEventDAO { RealTimeEventDAO(db: db.writer) }
+    private var hasDatabase: Bool { db != nil }
     private var currentAudiobookID: String?
 
     // MARK: - Push-forward timer
@@ -48,10 +48,12 @@ final class TimelineService {
 
     // MARK: - Init
 
-    init(databaseService: DatabaseService) {
+    init(databaseService: DatabaseService? = nil) {
         self.db = databaseService
         startNowTimer()
-        startPushForwardTimer()
+        if databaseService != nil {
+            startPushForwardTimer()
+        }
     }
 
     deinit {
@@ -153,10 +155,12 @@ final class TimelineService {
     }
 
     private func loadEvents(in range: ClosedRange<Date>) throws -> [RealTimeEventRecord] {
+        guard let db else { return [] }
+        let dao = RealTimeEventDAO(db: db.writer)
         if timelineMode == .playlistTime, let audiobookID = currentAudiobookID {
-            return try realTimeEventDAO.events(for: audiobookID, in: range)
+            return try dao.events(for: audiobookID, in: range)
         }
-        return try realTimeEventDAO.events(in: range)
+        return try dao.events(in: range)
     }
 
     private func groupEvents(_ records: [RealTimeEventRecord]) -> [TimelineGroup] {
@@ -187,11 +191,13 @@ final class TimelineService {
     }
 
     private func pushForwardUncompletedItems() {
+        guard let db else { return }
         let now = Date()
         pushForwardQueue.async { [weak self] in
             guard let self else { return }
             do {
-                try self.realTimeEventDAO.pushForwardUncompleted(before: now, to: now)
+                let dao = RealTimeEventDAO(db: db.writer)
+                try dao.pushForwardUncompleted(before: now, to: now)
             } catch {
                 self.logger.error("Push-forward failed: \(error.localizedDescription)")
             }
