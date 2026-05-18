@@ -6,7 +6,7 @@ enum TimelineItemType: String, Codable {
 }
 
 struct TimelineItem: Identifiable, Equatable {
-    let id: String
+    let databaseID: String
     let audiobookID: String
     let itemType: TimelineItemType
     let title: String
@@ -17,6 +17,10 @@ struct TimelineItem: Identifiable, Equatable {
     let createdAt: String?
     let modifiedAt: String?
 
+    /// Composite identity combining item type and raw database ID so
+    /// SwiftUI ForEach never conflates items from different tables.
+    var id: String { "\(itemType.rawValue)-\(databaseID)" }
+
     var effectivePosition: TimeInterval {
         playlistPosition ?? mediaTimestamp
     }
@@ -24,7 +28,7 @@ struct TimelineItem: Identifiable, Equatable {
 
 extension TimelineItem: Codable {
     enum CodingKeys: String, CodingKey {
-        case id
+        case databaseID = "id"
         case audiobookID = "audiobook_id"
         case itemType = "item_type"
         case title, subtitle
