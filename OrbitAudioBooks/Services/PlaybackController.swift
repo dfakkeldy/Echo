@@ -49,6 +49,7 @@ final class PlaybackController {
     @ObservationIgnored var coordinator_isRewindEnabled: (() -> Bool)?
     @ObservationIgnored var coordinator_configureAudioSession: (() -> Void)?
     @ObservationIgnored var coordinator_startSecurityScope: (() -> Void)?
+    @ObservationIgnored var coordinator_playStateChanged: ((_ isPlaying: Bool) -> Void)?
 
     init() {
         audioEngine.delegate = self
@@ -160,6 +161,7 @@ final class PlaybackController {
         }
 
         coordinator_persistAndSync?(false)
+        coordinator_playStateChanged?(true)
     }
 
     func pause() {
@@ -172,6 +174,7 @@ final class PlaybackController {
 
         coordinator_endBackgroundTask?()
         coordinator_persistAndSync?(true)
+        coordinator_playStateChanged?(false)
 
         if audioEngine.isItemLoaded,
            let folder = state.folderURL?.absoluteString,

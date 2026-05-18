@@ -154,6 +154,8 @@ final class PlayerModel {
     /// 0...1 progress of the currently playing voice memo, for the overlay UI.
     var voiceMemoProgress: Double { bookmarkStore.voiceMemoProgress }
 
+    /// Active playback session event ID for timeline logging.
+    @ObservationIgnored private var currentPlaybackEventID: String?
     /// UUID of the most recently triggered bookmark, used to prevent retrigger loops.
     @ObservationIgnored private var lastTriggeredBookmarkID: UUID?
     /// Player time at which the most recent bookmark was triggered, used to suppress duplicate firings.
@@ -197,6 +199,10 @@ final class PlayerModel {
     /// Optional database service for SQL persistence.
     /// Set externally to enable SQL-backed bookmark storage.
     var databaseService: DatabaseService?
+
+    /// Optional timeline service for event logging.
+    /// Set externally when the Timeline tab is active.
+    var timelineService: TimelineService?
 
     init() {
         SettingsManager.registerDefaults()
@@ -342,6 +348,13 @@ final class PlayerModel {
         playbackController.coordinator_startSecurityScope = { [weak self] in
             self?.startSelectionSecurityScopeIfNeeded()
             self?.startCurrentFileSecurityScopeIfNeeded()
+        }
+        playbackController.coordinator_playStateChanged = { [weak self] isPlaying in
+            if isPlaying {
+                self?.startPlaybackSessionLogging()
+            } else {
+                self?.endPlaybackSessionLogging()
+            }
         }
         playlistManager.coordinator_postResetRefresh = { [weak self] in
             self?.updateCurrentChapterFromPlayerTime()
@@ -1293,7 +1306,10 @@ final class PlayerModel {
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
         let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
-        return bookmarkStore.addBookmark(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+        let bookmark = bookmarkStore.addBookmark(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+        logRealTimeEvent(type: .bookmarkCreated, title: bookmark.title, timestamp: t,
+                         sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
+        return bookmark
     }
 
     /// Creates a draft bookmark at the current playback position without
@@ -1317,10 +1333,13 @@ final class PlayerModel {
         voiceMemoFileName: String?,
         bookmarkImageFileName: String? = nil
     ) -> Bookmark {
-        bookmarkStore.appendBookmark(
+        let bookmark = bookmarkStore.appendBookmark(
             from: draft, title: title, timestamp: timestamp, note: note,
             voiceMemoFileName: voiceMemoFileName, bookmarkImageFileName: bookmarkImageFileName
         )
+        logRealTimeEvent(type: .bookmarkCreated, title: title, timestamp: timestamp,
+                         sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
+        return bookmark
     }
 
     /// Updates an existing bookmark's metadata and re-persists the list.
@@ -1498,6 +1517,78 @@ extension PlayerModel: PlaybackControllerDelegate {
     func playbackControllerInterruptionEnded(_ controller: PlaybackController, shouldResume: Bool) {
         if shouldResume {
             play()
+        }
+    }
+}
+
+// MARK: - Timeline Event Logging
+
+extension PlayerModel {
+    func startPlaybackSessionLogging() {
+        let id = UUID().uuidString
+        currentPlaybackEventID = id
+        guard let db = databaseService else { return }
+        let dao = RealTimeEventDAO(db: db.writer)
+        let folderKey = folderURL?.absoluteString
+        do {
+            try dao.log(
+                id: id,
+                eventType: RealTimeEventType.playbackSession.rawValue,
+                audiobookID: folderKey,
+                mediaTimestamp: audioEngine.currentTime,
+                startedAt: Date(),
+                endedAt: nil,
+                title: currentTitle,
+                subtitle: currentSubtitle,
+                metadataJSON: nil,
+                sourceItemID: nil,
+                sourceItemType: nil
+            )
+        } catch {
+            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
+                .error("Failed to log playback session start: \(error.localizedDescription)")
+        }
+    }
+
+    func endPlaybackSessionLogging() {
+        guard let id = currentPlaybackEventID, let db = databaseService else { return }
+        let dao = RealTimeEventDAO(db: db.writer)
+        do {
+            try dao.updateEndedAt(id: id, endedAt: Date())
+        } catch {
+            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
+                .error("Failed to log playback session end: \(error.localizedDescription)")
+        }
+        currentPlaybackEventID = nil
+    }
+
+    private func logRealTimeEvent(
+        type: RealTimeEventType,
+        title: String? = nil,
+        subtitle: String? = nil,
+        timestamp: TimeInterval? = nil,
+        sourceItemID: String? = nil,
+        sourceItemType: String? = nil
+    ) {
+        guard let db = databaseService else { return }
+        let dao = RealTimeEventDAO(db: db.writer)
+        let folderKey = folderURL?.absoluteString
+        do {
+            try dao.log(
+                eventType: type.rawValue,
+                audiobookID: folderKey,
+                mediaTimestamp: timestamp,
+                startedAt: Date(),
+                endedAt: nil,
+                title: title ?? currentTitle,
+                subtitle: subtitle,
+                metadataJSON: nil,
+                sourceItemID: sourceItemID,
+                sourceItemType: sourceItemType
+            )
+        } catch {
+            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
+                .error("Failed to log timeline event \(type.rawValue): \(error.localizedDescription)")
         }
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 enum TimelineItemType: String, Codable {
-    case track, chapter, bookmark, flashcard, transcription
+    case track, chapter, bookmark, flashcard, transcription, note
 }
 
 struct TimelineItem: Identifiable, Equatable {
