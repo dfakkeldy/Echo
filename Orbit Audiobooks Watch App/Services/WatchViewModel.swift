@@ -22,7 +22,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     /// derive generic titles like `Bookmark #3` and to drive the local list
     /// view without waiting for a round-trip from the iPhone.
     var bookmarks: [WatchBookmark] = []
-
+    var dueCards: [WatchFlashcard] = []
 
     var isPlaying: Bool = false
     var title: String = "No track selected"
@@ -371,11 +371,23 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.currentWordCloud = words
             }
 
+            if let dueCardsJSON = state["dueCardsJSON"] as? String,
+               let jsonData = dueCardsJSON.data(using: .utf8),
+               let cards = try? JSONDecoder().decode([WatchFlashcard].self, from: jsonData) {
+                self.dueCards = cards
+            }
+
             if state["commandResult"] as? String == "bookmarkJump" {
                 WKInterfaceDevice.current().play(.success)
             }
             WidgetCenter.shared.reloadTimelines(ofKind: "Orbit_Audiobooks_Widget")
         }
+    }
+
+    /// Sends a flashcard grade back to iPhone for SM-2 processing and persistence.
+    func gradeFlashcard(cardID: String, grade: Int) {
+        dueCards.removeAll { $0.id == cardID }
+        _ = sendCommand("gradeFlashcard", params: ["cardID": cardID, "grade": grade])
     }
 
     func requestCurrentState() {

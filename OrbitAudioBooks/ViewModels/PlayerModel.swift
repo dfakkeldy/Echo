@@ -468,6 +468,11 @@ final class PlayerModel {
                     self.addWatchBookmark(from: message)
                 case "addWatchVoiceBookmark":
                     self.addWatchVoiceBookmark(from: message)
+                case "gradeFlashcard":
+                    if let cardID = message["cardID"] as? String,
+                       let grade = message["grade"] as? Int {
+                        try? FlashcardDAO(db: self.databaseService!.writer).grade(cardID: cardID, grade: grade)
+                    }
                 case "requestState":
                     break
                 default: break
@@ -562,6 +567,17 @@ final class PlayerModel {
            let jsonString = String(data: jsonData, encoding: .utf8) {
             context["wordCloudJSON"] = jsonString
             context["wordCloudChapterIndex"] = currentChapterIndex ?? 0
+        }
+
+        // Due flashcards for watch review.
+        if let db = databaseService,
+           let cards = try? FlashcardDAO(db: db.writer).allDueCards(),
+           !cards.isEmpty {
+            let watchCards = cards.map { WatchFlashcard(id: $0.id, frontText: $0.frontText, backText: $0.backText) }
+            if let data = try? JSONEncoder().encode(watchCards),
+               let json = String(data: data, encoding: .utf8) {
+                context["dueCardsJSON"] = json
+            }
         }
 
         return context

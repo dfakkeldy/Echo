@@ -40,6 +40,10 @@ struct ContentView: View {
                     .tag(1)
                 WordCloudPage(viewModel: viewModel)
                     .tag(2)
+                if !viewModel.dueCards.isEmpty {
+                    WatchReviewView(viewModel: viewModel)
+                        .tag(3)
+                }
             }
             .tabViewStyle(.page)
         }
