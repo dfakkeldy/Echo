@@ -169,3 +169,49 @@ Views/Orbit_Audiobooks_WidgetBundle.swift
 Views/Orbit_Audiobooks_WidgetControl.swift
 ```
 
+## Tools & Pipeline
+
+### EPUB-Audio Alignment Pipeline (`Tools/OrbitTranscriptionCLI/`)
+
+The ingest pipeline separates heavy data processing from the client apps. Instead of the iOS/watchOS devices computing alignment at runtime, a Swift CLI tool pre-computes an "Enhanced Sync Map".
+
+**The Pipeline Flow:**
+1. **Audio → Whisper:** Audio file is transcribed to a standard Whisper JSON (contains words and timestamps).
+2. **EPUB → Raw Text + Markers:** The EPUB is unzipped. `content.opf` dictates the reading order. `.xhtml` files are parsed into raw text, extracting structural markers for headings, images, blockquotes, and inline formatting.
+3. **The Aligner (Sliding Window):** A hybrid sentence/word-level alignment algorithm slides the transcribed text across the EPUB text, using NLTokenizer for sentence splitting and Levenshtein distance for similarity scoring.
+4. **Enhanced Sync Map Generation:** Once aligned, the structural markers from the EPUB are injected into the Whisper JSON timeline.
+5. **Client Ingestion:** The Apple platforms read this pre-processed `EnhancedTranscript.json` to render images and headings at the correct playback timestamps.
+
+**Subcommands:**
+- `transcribe` (default): Audio → Whisper transcript JSON
+- `align`: EPUB + transcript → Enhanced Sync Map JSON
+
+**Key Types:**
+- `EnhancedTranscriptionSegment`: Extended `TranscriptionSegment` with optional `markers: [SyncMarker]?` and `formatting: [TextFormat]?`
+- `SyncMarker`: Structural element (`.chapterStart`, `.image`, `.blockquote`, etc.) with `payload` and `epubCharOffset`
+- `TextFormat`: Inline formatting span (`.bold`, `.italic`, `.underline`) with character `range`
+
+```
+OrbitTranscriptionCLI (executable)
+├── TranscribeCommand.swift        # Audio → Whisper transcript
+├── AlignCommand.swift             # EPUB + transcript → Enhanced Sync Map
+├── Models.swift                   # TranscriptionSegment, CLIWordFrequency
+├── TranscriptionCLIEvent.swift    # JSON-line event emitter
+│
+OrbitEPUBAligner (library)
+├── EPUBAlignmentPipeline.swift    # Orchestrator
+├── EPUBParsing/
+│   ├── EPUBUnpacker.swift         # ZIP extraction + mimetype validation
+│   ├── OPFParser.swift            # content.opf → spine reading order
+│   └── XHTMLParser.swift          # Tag stripping + marker/format extraction
+├── Alignment/
+│   ├── TextAlignmentService.swift # Protocol
+│   ├── SlidingWindowAligner.swift # Hybrid sentence/word alignment
+│   └── NLPProcessor.swift         # NLTokenizer wrapper
+├── Markers/
+│   └── MarkerInjector.swift       # Maps EPUB markers to audio timestamps
+├── Models/                        # Data models
+└── Utils/
+    └── String+Levenshtein.swift   # Wagner-Fischer edit distance
+```
+
