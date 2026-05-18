@@ -115,16 +115,21 @@ struct OrbitAudioBooksTests {
 
     @Test func settingsPersistsWatchBackgroundStyle() {
         let suiteName = "watch-background-style-\(UUID().uuidString)"
+        let appGroupName = "watch-background-style-ag-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
 
-        let settings = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
         #expect(settings.watchBackgroundStyle == "artwork")
 
         settings.watchBackgroundStyle = "black"
 
-        #expect(defaults.string(forKey: "watchBackgroundStyle") == "black")
+        #expect(appGroupDefaults.string(forKey: "watchBackgroundStyle") == "black")
     }
 
     @Test func settingsNormalizeLegacyHelveticaToSystemFont() {
