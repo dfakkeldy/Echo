@@ -1,6 +1,9 @@
 # Fix 3 Critical Flashcard Bugs — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: Complete** — all three bugs fixed and merged to `main`.
+> - Bug 1 (audiobookID mismatch): `c141554`
+> - Bug 2 (force-unwrap crash): part of watchOS flashcard review feature
+> - Bug 3 (timezone mismatch): `2616887`
 
 **Goal:** Fix three critical bugs: inline flashcard trigger never fires, force-unwrap crash on watch gradeFlashcard, and flashcard scheduling broken by timezone mismatch.
 
@@ -19,7 +22,7 @@
 
 **Fix:** Use `lastPathComponent` on the query side to extract the bare filename, matching what was stored at import time. This is consistent with `DailyReviewViewModel.constructSourceURL` which also treats `audiobookID` as a bare filename.
 
-- [ ] **Step 1: Replace the trackKey computation**
+- [x] **Step 1: Replace the trackKey computation**
 
 In `PlayerModel.swift`, replace lines 1639-1640:
 
@@ -35,7 +38,7 @@ let trackKey = state.tracks.indices.contains(state.currentIndex)
     ? state.tracks[state.currentIndex].url.lastPathComponent : ""
 ```
 
-- [ ] **Step 2: Build and verify compilation**
+- [x] **Step 2: Build and verify compilation**
 
 ```bash
 xcodebuild -project "Orbit Audiobooks.xcodeproj" -scheme "OrbitAudioBooks" -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20
@@ -43,7 +46,7 @@ xcodebuild -project "Orbit Audiobooks.xcodeproj" -scheme "OrbitAudioBooks" -dest
 
 Expected: BUILD SUCCEEDED
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add OrbitAudioBooks/ViewModels/PlayerModel.swift
@@ -68,7 +71,7 @@ EOF
 
 **Root cause:** `databaseService` is `var databaseService: DatabaseService?` (optional, defaults to `nil`). The `gradeFlashcard` handler force-unwraps it with `self.databaseService!`. If the watch sends this command before the database is wired up, the app crashes.
 
-- [ ] **Step 1: Replace force-unwrap with guard-let**
+- [x] **Step 1: Replace force-unwrap with guard-let**
 
 In `PlayerModel.swift`, replace line 474:
 
@@ -83,7 +86,7 @@ guard let writer = self.databaseService?.writer else { return }
 try? FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
 ```
 
-- [ ] **Step 2: Build and verify compilation**
+- [x] **Step 2: Build and verify compilation**
 
 ```bash
 xcodebuild -project "Orbit Audiobooks.xcodeproj" -scheme "OrbitAudioBooks" -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20
@@ -91,7 +94,7 @@ xcodebuild -project "Orbit Audiobooks.xcodeproj" -scheme "OrbitAudioBooks" -dest
 
 Expected: BUILD SUCCEEDED
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add OrbitAudioBooks/ViewModels/PlayerModel.swift
@@ -118,7 +121,7 @@ EOF
 
 **Fix:** Use `Date.ISO8601Format()` (UTC-based) consistently everywhere dates are written to the database, matching what the DAO query side already uses.
 
-- [ ] **Step 1: Fix `SpacedRepetitionService.apply` date formatting**
+- [x] **Step 1: Fix `SpacedRepetitionService.apply` date formatting**
 
 In `Shared/Database/Flashcard.swift`, replace line 65:
 
@@ -148,7 +151,7 @@ if let nextDate = Calendar.current.date(byAdding: .day, value: updated.intervalD
 }
 ```
 
-- [ ] **Step 2: Fix `DeckImportService.importDeck` date formatting**
+- [x] **Step 2: Fix `DeckImportService.importDeck` date formatting**
 
 In `OrbitAudioBooks/Services/DeckImportService.swift`, replace line 56:
 
@@ -162,7 +165,7 @@ With:
 nextReviewDate: Date().ISO8601Format(),
 ```
 
-- [ ] **Step 3: Build and verify compilation**
+- [x] **Step 3: Build and verify compilation**
 
 ```bash
 xcodebuild -project "Orbit Audiobooks.xcodeproj" -scheme "OrbitAudioBooks" -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -20
@@ -170,7 +173,7 @@ xcodebuild -project "Orbit Audiobooks.xcodeproj" -scheme "OrbitAudioBooks" -dest
 
 Expected: BUILD SUCCEEDED
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add Shared/Database/Flashcard.swift OrbitAudioBooks/Services/DeckImportService.swift
