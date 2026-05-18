@@ -291,6 +291,10 @@ final class PlaybackController {
     }
 
     func nextChapter() {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            nextAggregatedChapter()
+            return
+        }
         guard state.chapters.count >= 2 else {
             nextTrack()
             return
@@ -305,7 +309,28 @@ final class PlaybackController {
         }
     }
 
+    private func nextAggregatedChapter() {
+        let currentOffset: TimeInterval = {
+            guard state.m4bBooks.indices.contains(state.currentIndex) else { return 0 }
+            return state.m4bBooks[state.currentIndex].cumulativeStartOffset
+        }()
+        let globalTime = currentOffset + audioEngine.currentTime
+
+        // Find current aggregated chapter, then advance to the next one.
+        let currentIdx = aggregatedChapterIndex(at: globalTime) ?? -1
+        let nextIdx = currentIdx + 1
+        if state.aggregatedChapters.indices.contains(nextIdx) {
+            seekToAggregatedChapter(state.aggregatedChapters[nextIdx])
+        } else if let firstEnabled = state.aggregatedChapters.first {
+            seekToAggregatedChapter(firstEnabled)
+        }
+    }
+
     func previousChapterOrRestart() {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            previousAggregatedChapterOrRestart()
+            return
+        }
         guard state.chapters.count >= 2 else {
             previousTrackOrRestart()
             return
@@ -330,6 +355,37 @@ final class PlaybackController {
         }
     }
 
+    private func previousAggregatedChapterOrRestart() {
+        let currentOffset: TimeInterval = {
+            guard state.m4bBooks.indices.contains(state.currentIndex) else { return 0 }
+            return state.m4bBooks[state.currentIndex].cumulativeStartOffset
+        }()
+        let globalTime = currentOffset + audioEngine.currentTime
+
+        guard let current = findAggregatedChapter(at: globalTime) else {
+            if let first = state.aggregatedChapters.first {
+                seekToAggregatedChapter(first)
+            }
+            return
+        }
+
+        // If more than 5s into the chapter, restart it.
+        let intraChapterTime = globalTime - current.startSeconds
+        if intraChapterTime > 5 {
+            seekToAggregatedChapter(current)
+            return
+        }
+
+        // Otherwise go to the previous chapter.
+        let currentIdx = aggregatedChapterIndex(at: globalTime) ?? 0
+        let prevIdx = currentIdx - 1
+        if state.aggregatedChapters.indices.contains(prevIdx) {
+            seekToAggregatedChapter(state.aggregatedChapters[prevIdx])
+        } else if let first = state.aggregatedChapters.first {
+            seekToAggregatedChapter(first)
+        }
+    }
+
     func seekToChapter(at index: Int) {
         guard state.chapters.indices.contains(index), audioEngine.isItemLoaded else { return }
         let c = state.chapters[index]
@@ -347,6 +403,52 @@ final class PlaybackController {
                     self.applySpeedToCurrentItem()
                 }
             }
+        }
+    }
+
+    // MARK: - Aggregated Chapter Helpers (multi-M4B)
+
+    private func aggregatedChapterIndex(at globalTime: TimeInterval) -> Int? {
+        for (i, ch) in state.aggregatedChapters.enumerated() {
+            if globalTime >= ch.startSeconds, globalTime < ch.endSeconds {
+                return i
+            }
+        }
+        return nil
+    }
+
+    private func findAggregatedChapter(at globalTime: TimeInterval) -> AggregatedChapter? {
+        guard let idx = aggregatedChapterIndex(at: globalTime) else { return nil }
+        return state.aggregatedChapters[idx]
+    }
+
+    private func seekToAggregatedChapter(_ agg: AggregatedChapter) {
+        let bookOffset: TimeInterval = {
+            guard state.m4bBooks.indices.contains(agg.bookIndex) else { return 0 }
+            return state.m4bBooks[agg.bookIndex].cumulativeStartOffset
+        }()
+        let intraBookTime = max(0, agg.startSeconds - bookOffset) + 0.05
+
+        if agg.bookIndex == state.currentIndex {
+            // Same book — seek in place.
+            state.isManualSeeking = true
+            audioEngine.seek(to: intraBookTime) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.state.isManualSeeking = false
+                    self.coordinator_seekCompleted?(false)
+                    self.coordinator_refreshProgress?()
+                    if self.state.isPlaying {
+                        self.audioEngine.playImmediately(atRate: self.speed)
+                        self.applySpeedToCurrentItem()
+                    }
+                }
+            }
+        } else {
+            // Different book — load the new track. prepareToPlay will set chapters.
+            coordinator_loadTrack?(agg.bookIndex, true)
+            // Defer seeking until the track is loaded (handled in PlayerModel).
+            state.pendingAggregatedChapter = agg
         }
     }
 
@@ -652,6 +754,16 @@ final class PlaybackController {
 extension PlaybackController: AudioEngineDelegate {
     func audioEngineDidUpdateTime(_ engine: AudioEngine, currentTime: TimeInterval) {
         delegate?.playbackController(self, didUpdateTime: currentTime)
+
+        // Pre-buffer the next M4B file when approaching track end (multi-M4B only).
+        if state.isMultiM4B, let duration = engine.duration, duration > 0 {
+            let remaining = duration - currentTime
+            if remaining < 5, remaining > 0,
+               let nextIdx = findNextEnabledTrackIndex(in: state.tracks, currentIndex: state.currentIndex),
+               state.tracks.indices.contains(nextIdx) {
+                engine.prebuffer(next: state.tracks[nextIdx].url)
+            }
+        }
     }
 
     func audioEngineDidPlayToEnd(_ engine: AudioEngine) {

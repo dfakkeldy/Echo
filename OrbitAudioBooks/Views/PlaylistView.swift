@@ -62,7 +62,43 @@ struct PlaylistView: View {
 
                 if selectedTab == .items {
                     List {
-                        if model.chapters.count >= 2 {
+                        if model.isMultiM4B {
+                            // Multi-M4B: hierarchical Book → Chapters
+                            ForEach(model.m4bBooks) { book in
+                                Section {
+                                    ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
+                                        Button {
+                                            model.skipToTrack(book.trackIndex)
+                                        } label: {
+                                            HStack {
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(chapter.title ?? String(localized: "Chapter \(index + 1)"))
+                                                        .foregroundStyle(.primary)
+                                                    Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                Spacer()
+                                                if model.currentIndex == book.trackIndex,
+                                                   model.currentChapterIndex == index {
+                                                    Image(systemName: "play.circle.fill")
+                                                        .foregroundStyle(.tint)
+                                                }
+                                            }
+                                        }
+                                    }
+                                } header: {
+                                    HStack {
+                                        Text(book.title)
+                                        if model.currentIndex == book.trackIndex {
+                                            Image(systemName: "speaker.wave.2")
+                                                .font(.caption)
+                                                .foregroundStyle(.tint)
+                                        }
+                                    }
+                                }
+                            }
+                        } else if model.chapters.count >= 2 {
                             ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
                                 chapterRow(index: index, chapter: chapter)
                             }

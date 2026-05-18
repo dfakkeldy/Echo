@@ -136,6 +136,13 @@ final class PlayerModel {
         set { state.isTranscriptProcessingEnabled = newValue }
     }
 
+    // MARK: - Multi-M4B Aggregation (pass-through to PlaybackState)
+
+    var isMultiM4B: Bool { state.isMultiM4B }
+    var m4bBooks: [M4BBook] { state.m4bBooks }
+    var aggregatedChapters: [AggregatedChapter] { state.aggregatedChapters }
+    var totalBookDuration: TimeInterval { state.totalBookDuration }
+
     var deepLinkHandler = DeepLinkHandler()
     let nowPlayingController = NowPlayingController()
     let bookmarkStore = BookmarkStore()
@@ -646,7 +653,23 @@ final class PlayerModel {
         } else {
             tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
         }
-        
+
+        // Multi-M4B aggregation: when 2+ .m4b files are detected, parse all of them
+        // asynchronously and build an aggregated chapter list with cumulative offsets.
+        let m4bTrackCount = state.tracks.filter { $0.url.pathExtension.lowercased() == "m4b" }.count
+        if m4bTrackCount >= 2 {
+            let folderURL = url
+            Task {
+                let didStart = folderURL.startAccessingSecurityScopedResource()
+                defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+                if let parsed = await M4BParser.parseFolder(folderURL) {
+                    state.m4bBooks = parsed.books
+                    state.aggregatedChapters = parsed.aggregatedChapters
+                    state.totalBookDuration = parsed.totalDuration
+                }
+            }
+        }
+
         if let folderKey = folderURL?.absoluteString,
            let savedTrackId = persistence.getLastTrack(for: folderKey),
            let idx = state.tracks.firstIndex(where: { $0.id == savedTrackId }) {
@@ -892,6 +915,14 @@ final class PlayerModel {
         state.isManualSeeking = false
         lastBookmarkCheckSecond = nil
 
+        // Multi-M4B: load the correct book's chapter list and duration.
+        if state.isMultiM4B, state.m4bBooks.indices.contains(index) {
+            let book = state.m4bBooks[index]
+            state.chapters = book.chapters
+            state.durationSeconds = book.duration
+            state.totalBookDuration = state.m4bBooks.reduce(0) { $0 + $1.duration }
+        }
+
         
         
 
@@ -924,7 +955,16 @@ final class PlayerModel {
             await self.generateThumbnail(for: trackURL)
 
             await MainActor.run {
-                if autoplay {
+                // Handle pending aggregated chapter seek (cross-book navigation).
+                if let pending = state.pendingAggregatedChapter {
+                    state.pendingAggregatedChapter = nil
+                    let bookOffset = state.m4bBooks.indices.contains(pending.bookIndex)
+                        ? state.m4bBooks[pending.bookIndex].cumulativeStartOffset : 0
+                    let intraBookTime = max(0, pending.startSeconds - bookOffset) + 0.05
+                    audioEngine.seek(to: intraBookTime) { [weak self] _ in
+                        self?.playbackController.resumeAfterSeek()
+                    }
+                } else if autoplay {
                     self.play()
                 }
             }
@@ -1024,6 +1064,22 @@ final class PlayerModel {
 
         let elapsed = audioEngine.currentTime
 
+        // Multi-M4B: book-level progress (overrides chapter-level fraction below).
+        if state.isMultiM4B, state.totalBookDuration > 0 {
+            let bookOffset: TimeInterval = {
+                guard state.m4bBooks.indices.contains(state.currentIndex) else { return 0 }
+                return state.m4bBooks[state.currentIndex].cumulativeStartOffset
+            }()
+            let bookElapsed = bookOffset + elapsed
+            let frac = min(1, max(0, bookElapsed / state.totalBookDuration))
+            let didChange = abs(state.progressFraction - frac) > 0.005
+            state.progressFraction = frac
+            state.elapsedText = NowPlayingController.formatTime(max(0, bookElapsed) / Double(speed))
+            let remaining = max(0, state.totalBookDuration - bookElapsed) / Double(speed)
+            state.progressText = "-\(NowPlayingController.formatTime(remaining))"
+            if didChange { syncToWatch() }
+        }
+
         if state.chapters.count >= 2 {
             if let idx = currentChapterIndex {
                 let c = chapters[idx]
@@ -1038,6 +1094,9 @@ final class PlayerModel {
                 let c = chapters[idx]
                 let chapterDuration = c.endSeconds - c.startSeconds
                 let chapterElapsed = elapsed - c.startSeconds
+
+                // Multi-M4B: book-level progress is already set above; skip chapter-level override.
+                if state.isMultiM4B { return }
 
                 if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
                     let frac = min(1, max(0, chapterElapsed / chapterDuration))
@@ -1145,6 +1204,10 @@ final class PlayerModel {
     private func loadChaptersForCurrentItem() async {
         guard audioEngine.isItemLoaded,
               state.tracks.indices.contains(currentIndex) else { return }
+
+        // Multi-M4B: chapters already loaded from M4BParser with intra-book offsets.
+        if state.isMultiM4B, !state.chapters.isEmpty { return }
+
         let asset = AVURLAsset(url: state.tracks[currentIndex].url)
 
         let ext = state.tracks[currentIndex].url.pathExtension.lowercased()
@@ -1415,6 +1478,14 @@ final class PlayerModel {
     /// Automatically disables bookmark loop mode if no bookmarks remain.
     func deleteBookmark(id: UUID) {
         bookmarkStore.deleteBookmark(id: id, folderURL: folderURL)
+    }
+
+    /// Switches playback to a different track index, used by the multi-M4B
+    /// chapter list to jump to a specific book.
+    func skipToTrack(_ index: Int) {
+        guard state.tracks.indices.contains(index), index != state.currentIndex else { return }
+        stop()
+        prepareToPlay(index: index, autoplay: true)
     }
 
     /// Jumps playback to a bookmark's timestamp, suppressing the voice-memo

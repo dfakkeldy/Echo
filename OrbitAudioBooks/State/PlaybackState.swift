@@ -13,6 +13,15 @@ final class PlaybackState {
     var tracks: [Track] = []
     var currentIndex: Int = 0
 
+    // MARK: - Multi-M4B Aggregation
+
+    var m4bBooks: [M4BBook] = []
+    var aggregatedChapters: [AggregatedChapter] = []
+    var totalBookDuration: TimeInterval = 0
+
+    var isMultiM4B: Bool { m4bBooks.count >= 2 }
+    var pendingAggregatedChapter: AggregatedChapter? = nil
+
     // MARK: - Playback
 
     var isPlaying: Bool = false

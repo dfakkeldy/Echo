@@ -235,7 +235,14 @@ final class AudioEngine {
         guard let playerNode, engine != nil else { return }
 
         do {
-            let file = try AVAudioFile(forReading: url)
+            // Use prebuffered file if it matches the target URL (saves disk I/O).
+            let file: AVAudioFile
+            if let pre = prebufferedFile, pre.url.absoluteString == url.absoluteString {
+                file = pre
+                prebufferedFile = nil
+            } else {
+                file = try AVAudioFile(forReading: url)
+            }
             audioFile = file
 
             let sampleRate = file.processingFormat.sampleRate
@@ -269,6 +276,7 @@ final class AudioEngine {
 
     /// Stops playback and tears down the engine.
     func stop() {
+        prebufferedFile = nil
         isPlaying = false
         playerNode?.pause()
         playerNode?.stop()
@@ -290,6 +298,19 @@ final class AudioEngine {
         playerNode = nil
         eqNode = nil
         timePitchNode = nil
+    }
+
+    // MARK: - Pre-buffering (multi-M4B gapless transition)
+
+    private var prebufferedFile: AVAudioFile?
+
+    func prebuffer(next url: URL) {
+        guard let engine, engine.isRunning else { return }
+        do {
+            prebufferedFile = try AVAudioFile(forReading: url)
+        } catch {
+            prebufferedFile = nil
+        }
     }
 
     // MARK: - Private Helpers
