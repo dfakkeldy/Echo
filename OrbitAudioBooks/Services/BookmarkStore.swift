@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import UIKit
+import os.log
 
 // MARK: - BookmarkStore
 
@@ -8,7 +9,9 @@ import UIKit
 /// Owns no persistence directly — callers supply save/load closures so the
 /// store stays testable and storage-agnostic.
 @Observable
-final class BookmarkStore {
+final class BookmarkStore: BookmarkStoreProtocol {
+
+    private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "BookmarkStore")
 
     /// All bookmarks for the currently loaded book.
     var bookmarks: [Bookmark] = []
@@ -289,8 +292,11 @@ final class BookmarkStore {
     /// Load bookmarks from SQL for the given audiobook ID.
     func loadFromSQL(database: DatabaseService, audiobookID: String) {
         let dao = BookmarkDAO(db: database.writer)
-        if let records = try? dao.bookmarks(for: audiobookID) {
+        do {
+            let records = try dao.bookmarks(for: audiobookID)
             self.bookmarks = records.map { $0.toModel() }
+        } catch {
+            logger.error("Failed to load bookmarks from SQL: \(error.localizedDescription)")
         }
     }
 
@@ -299,10 +305,13 @@ final class BookmarkStore {
         onPersist = { [weak self] bookmarks in
             guard let self, let key = self.storageKeyProvider?() else { return }
             let dao = BookmarkDAO(db: database.writer)
-            try? dao.deleteAll(for: key)
-            for bm in bookmarks {
-                let record = BookmarkRecord(from: bm)
-                try? dao.insert(record)
+            do {
+                try dao.deleteAll(for: key)
+                for bm in bookmarks {
+                    try dao.insert(BookmarkRecord(from: bm))
+                }
+            } catch {
+                self.logger.error("Failed to persist bookmarks to SQL: \(error.localizedDescription)")
             }
         }
     }
