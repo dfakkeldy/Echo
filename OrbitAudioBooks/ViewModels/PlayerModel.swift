@@ -153,6 +153,29 @@ final class PlayerModel {
 
     private func loadTranscript(for url: URL) {
         transcriptService.loadTranscript(for: url)
+        persistTranscriptToSQL()
+    }
+
+    private func persistTranscriptToSQL() {
+        guard let db = databaseService,
+              let audiobookID = folderURL?.absoluteString,
+              !state.transcription.isEmpty else { return }
+        let records = state.transcription.map { segment in
+            TranscriptionRecord(
+                id: nil,
+                audiobookID: audiobookID,
+                startTime: segment.startTime,
+                endTime: segment.endTime,
+                text: segment.text
+            )
+        }
+        do {
+            try TranscriptionDAO(db: db.writer).deleteAll(for: audiobookID)
+            try TranscriptionDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+        } catch {
+            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
+                .error("Failed to persist transcript: \(error.localizedDescription)")
+        }
     }
 
     private func computeWordClouds() {
@@ -694,6 +717,9 @@ final class PlayerModel {
     func loadFolder(_ url: URL, autoplay: Bool = true) {
         stop()
 
+        // Persist to SQL BEFORE setting folderURL — the @Observable change on
+        // folderURL triggers TimelineTab to reload, and the DB must have data by then.
+        persistAudiobookToSQL(folderURL: url)
         state.folderURL = url
         
         let didStart = url.startAccessingSecurityScopedResource()
@@ -762,8 +788,6 @@ final class PlayerModel {
             bookmarkStore.configureSQLPersistence(database: db)
         }
 
-        // Persist audiobook and track records to SQL for the timeline VIEW.
-        persistAudiobookToSQL(folderURL: url)
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,

@@ -17,6 +17,15 @@ enum TimeScale: String, CaseIterable, Identifiable {
         }
     }
 
+    var menuLabel: String {
+        switch self {
+        case .seconds: String(localized: "Seconds")
+        case .minutes: String(localized: "Minutes")
+        case .hours:   String(localized: "Hours")
+        case .days:    String(localized: "Days")
+        }
+    }
+
     var calendarComponent: Calendar.Component {
         switch self {
         case .seconds: .second
