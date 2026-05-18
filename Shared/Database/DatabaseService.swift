@@ -72,6 +72,9 @@ final class DatabaseService {
         migrator.registerMigration("v1_create_schema") { db in
             try Schema_V1.migrate(db)
         }
+        migrator.registerMigration("v2_timeline_support") { db in
+            try Schema_V2.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 

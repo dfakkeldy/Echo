@@ -110,6 +110,7 @@ struct TimelineDAO {
         case .bookmark: return "bookmark"
         case .flashcard: return "flashcard"
         case .transcription: return nil
+        case .note: return "note"
         }
     }
 }
