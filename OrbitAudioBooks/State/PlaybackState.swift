@@ -5,7 +5,7 @@ import UIKit
 /// Shared mutable playback state, owned by PlaybackController and observed by
 /// both PlayerModel (via pass-through computed properties) and SwiftUI views.
 /// Eliminates ~150 lines of stored properties and pass-throughs from PlayerModel.
-@Observable
+@MainActor @Observable
 final class PlaybackState {
     // MARK: - Playlist
 

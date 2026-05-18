@@ -13,7 +13,7 @@ protocol PlaybackControllerDelegate: AnyObject {
 
 // MARK: - PlaybackController
 
-@Observable
+@MainActor @Observable
 final class PlaybackController {
     let audioEngine = AudioEngine()
     let state = PlaybackState()

@@ -19,7 +19,7 @@ protocol AudioEngineDelegate: AnyObject {
 /// driven by the periodic time callback (0.25 s) rather than AVPlayer
 /// boundary observers so that the engine migration keeps all of that
 /// logic identical.
-@Observable
+@MainActor @Observable
 final class AudioEngine {
     // MARK: - Observable State
 
@@ -60,7 +60,9 @@ final class AudioEngine {
     private var seekGeneration = 0
 
     deinit {
-        cleanup()
+        MainActor.assumeIsolated {
+            cleanup()
+        }
     }
 
     // MARK: - Audio Session
