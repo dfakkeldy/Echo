@@ -17,17 +17,16 @@ struct PlayerModelTests {
     @Test("MockBookmarkStore tracks additions")
     func mockBookmarkStoreAdd() {
         let store = MockBookmarkStore()
-        let bookmark = store.addBookmark(at: 120.0, note: "Test note")
+        let bookmark = store.addBookmark(at: 120.0, trackId: nil, folderKey: "test-key")
 
         #expect(store.bookmarks.count == 1)
         #expect(bookmark.timestamp == 120.0)
-        #expect(bookmark.note == "Test note")
     }
 
     @Test("MockBookmarkStore tracks deletions")
     func mockBookmarkStoreDelete() {
         let store = MockBookmarkStore()
-        let bookmark = store.addBookmark(at: 60.0, note: nil)
+        let bookmark = store.addBookmark(at: 60.0, trackId: nil, folderKey: "test-key")
 
         store.deleteBookmark(id: bookmark.id)
 
@@ -53,10 +52,10 @@ struct PlayerModelTests {
         let controller = MockPlaybackController()
         controller.currentTime = 150
 
-        controller.skipForward()
+        _ = controller.skipForward30()
         #expect(controller.currentTime == 180)
 
-        controller.skipBackward()
+        _ = controller.skipBackward30()
         #expect(controller.currentTime == 150)
     }
 
@@ -64,9 +63,9 @@ struct PlayerModelTests {
     func mockSleepTimerManagerLifecycle() {
         let timer = MockSleepTimerManager()
 
-        timer.setTimer(minutes: 30)
+        timer.setTimer(.minutes(30))
         #expect(timer.setTimerCallCount == 1)
-        #expect(timer.setTimerMinutes == [30])
+        #expect(timer.setTimerModes.contains(.minutes(30)))
 
         timer.cancel()
         #expect(timer.cancelCallCount == 1)
@@ -79,19 +78,5 @@ struct PlayerModelTests {
 
         #expect(settings.appFont == "Lexend")
         #expect(settings.isDarkMode == true)
-        #expect(settings.isRewindEnabled == false)
-        #expect(MockSettingsManager.systemFontName == "System")
-    }
-
-    @Test("MockStoreManager tracks purchase calls") @MainActor
-    func mockStoreManager() async {
-        let store = MockStoreManager()
-        store.hasUnlockedPro = false
-
-        await store.requestProducts()
-        #expect(store.requestProductsCallCount == 1)
-
-        try? await store.purchaseProUnlock()
-        #expect(store.purchaseProUnlockCallCount == 1)
     }
 }

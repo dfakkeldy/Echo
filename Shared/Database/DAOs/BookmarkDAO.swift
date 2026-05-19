@@ -65,9 +65,8 @@ struct BookmarkDAO {
     }
 
     private func syncToTimeline(_ db: Database, bookmark: BookmarkRecord) throws {
-        guard let id = bookmark.id else { return }
         let item = TimelineItem(
-            id: "bookmark-\(id)",
+            id: "bookmark-\(bookmark.id)",
             audiobookID: bookmark.audiobookID,
             itemType: .bookmark,
             title: bookmark.title,
@@ -81,7 +80,7 @@ struct BookmarkDAO {
             playlistPosition: bookmark.playlistPosition,
             isEnabled: bookmark.isEnabled,
             sourceTable: "bookmark",
-            sourceRowid: id,
+            sourceRowid: bookmark.id,
             metadataJSON: bookmark.voiceMemoPath.map { "{\"voiceMemoPath\":\"\($0)\"}" },
             createdAt: bookmark.createdAt,
             modifiedAt: bookmark.modifiedAt

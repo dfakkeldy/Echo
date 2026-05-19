@@ -212,55 +212,64 @@ struct OrbitAudioBooksTests {
         let db = try DatabaseService(inMemory: ())
         let timelineDAO = TimelineDAO(db: db.writer)
 
-        try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
-            try db.execute(sql: "INSERT INTO track (id, audiobook_id, title, duration, file_path, sort_order) VALUES ('t1', 'book-1', 'Track 1', 3600, '/tmp/t1.mp3', 0)")
-            try db.execute(sql: "INSERT INTO chapter (audiobook_id, title, start_seconds, end_seconds, sort_order) VALUES ('book-1', 'Chapter 1', 0, 1800, 0)")
-            try db.execute(sql: "INSERT INTO bookmark (id, audiobook_id, title, media_timestamp) VALUES ('bm1', 'book-1', 'Bookmark 1', 120.0)")
-            try db.execute(sql: "INSERT INTO flashcard (id, audiobook_id, front_text, back_text, media_timestamp) VALUES ('fc1', 'book-1', 'Question?', 'Answer.', 300.0)")
-            try db.execute(sql: "INSERT INTO transcription_segment (audiobook_id, start_time, end_time, text) VALUES ('book-1', 0, 5, 'Hello world')")
-        }
+        let items: [TimelineItem] = [
+            TimelineItem(id: "t1", audiobookID: "book-1", itemType: .chapterMarker, title: "Track 1",
+                        audioStartTime: 0, granularityLevel: .chapter, isEnabled: true),
+            TimelineItem(id: "ch1", audiobookID: "book-1", itemType: .chapterMarker, title: "Chapter 1",
+                        audioStartTime: 0, audioEndTime: 1800, granularityLevel: .chapter, isEnabled: true),
+            TimelineItem(id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "Bookmark 1",
+                        audioStartTime: 120, granularityLevel: .sentence, isEnabled: true),
+            TimelineItem(id: "fc1", audiobookID: "book-1", itemType: .ankiCard, title: "Question?",
+                        subtitle: "Answer.", audioStartTime: 300, granularityLevel: .sentence, isEnabled: true),
+            TimelineItem(id: "ts1", audiobookID: "book-1", itemType: .textSegment, title: "Hello world",
+                        audioStartTime: 0, audioEndTime: 5, granularityLevel: .sentence, isEnabled: true),
+        ]
+        try timelineDAO.ingest(items)
 
-        let items = try timelineDAO.items(for: "book-1")
-        #expect(items.count == 5)
-        #expect(items.contains(where: { $0.itemType == .track }))
-        #expect(items.contains(where: { $0.itemType == .chapter }))
-        #expect(items.contains(where: { $0.itemType == .bookmark }))
-        #expect(items.contains(where: { $0.itemType == .flashcard }))
-        #expect(items.contains(where: { $0.itemType == .transcription }))
+        let fetched = try timelineDAO.items(for: "book-1")
+        #expect(fetched.count == 5)
+        #expect(fetched.contains(where: { $0.itemType == .chapterMarker }))
+        #expect(fetched.contains(where: { $0.itemType == .bookmark }))
+        #expect(fetched.contains(where: { $0.itemType == .ankiCard }))
+        #expect(fetched.contains(where: { $0.itemType == .textSegment }))
     }
 
     @Test func databaseTimelineFilterByType() throws {
         let db = try DatabaseService(inMemory: ())
         let timelineDAO = TimelineDAO(db: db.writer)
 
-        try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
-            try db.execute(sql: "INSERT INTO bookmark (id, audiobook_id, title, media_timestamp) VALUES ('bm1', 'book-1', 'BM', 10.0)")
-            try db.execute(sql: "INSERT INTO flashcard (id, audiobook_id, front_text, back_text, media_timestamp) VALUES ('fc1', 'book-1', 'Q', 'A', 20.0)")
-        }
+        let items: [TimelineItem] = [
+            TimelineItem(id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "BM",
+                        audioStartTime: 10, granularityLevel: .sentence, isEnabled: true),
+            TimelineItem(id: "fc1", audiobookID: "book-1", itemType: .ankiCard, title: "Q",
+                        subtitle: "A", audioStartTime: 20, granularityLevel: .sentence, isEnabled: true),
+        ]
+        try timelineDAO.ingest(items)
 
-        let bookmarks = try timelineDAO.filtered(audiobookID: "book-1", types: [.bookmark])
+        let bookmarks = try timelineDAO.items(for: "book-1", types: [.bookmark])
         #expect(bookmarks.count == 1)
         #expect(bookmarks.first?.itemType == .bookmark)
 
-        let cards = try timelineDAO.filtered(audiobookID: "book-1", types: [.flashcard])
+        let cards = try timelineDAO.items(for: "book-1", types: [.ankiCard])
         #expect(cards.count == 1)
-        #expect(cards.first?.itemType == .flashcard)
+        #expect(cards.first?.itemType == .ankiCard)
     }
 
     @Test func databaseTimelineFilterByTimeRange() throws {
         let db = try DatabaseService(inMemory: ())
         let timelineDAO = TimelineDAO(db: db.writer)
 
-        try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
-            try db.execute(sql: "INSERT INTO bookmark (id, audiobook_id, title, media_timestamp) VALUES ('bm1', 'book-1', 'Early', 10.0)")
-            try db.execute(sql: "INSERT INTO bookmark (id, audiobook_id, title, media_timestamp) VALUES ('bm2', 'book-1', 'Mid', 100.0)")
-            try db.execute(sql: "INSERT INTO bookmark (id, audiobook_id, title, media_timestamp) VALUES ('bm3', 'book-1', 'Late', 200.0)")
-        }
+        let items: [TimelineItem] = [
+            TimelineItem(id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "Early",
+                        audioStartTime: 10, granularityLevel: .sentence, isEnabled: true),
+            TimelineItem(id: "bm2", audiobookID: "book-1", itemType: .bookmark, title: "Mid",
+                        audioStartTime: 100, granularityLevel: .sentence, isEnabled: true),
+            TimelineItem(id: "bm3", audiobookID: "book-1", itemType: .bookmark, title: "Late",
+                        audioStartTime: 200, granularityLevel: .sentence, isEnabled: true),
+        ]
+        try timelineDAO.ingest(items)
 
-        let mid = try timelineDAO.filtered(audiobookID: "book-1", from: 50, to: 150)
+        let mid = try timelineDAO.items(in: 50...150, audiobookID: "book-1")
         #expect(mid.count == 1)
         #expect(mid.first?.title == "Mid")
     }

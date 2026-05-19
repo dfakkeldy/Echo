@@ -9,7 +9,7 @@ final class MockBookmarkStore: BookmarkStoreProtocol {
     var updatedBookmarks: [(UUID, String, TimeInterval, String?, String?, String?)] = []
 
     func addBookmark(at time: TimeInterval, trackId: String?, folderKey: String?) -> Bookmark {
-        let bookmark = Bookmark(timestamp: time, trackId: trackId, folderKey: folderKey)
+        let bookmark = Bookmark(folderKey: folderKey, trackId: trackId, timestamp: time)
         bookmarks.append(bookmark)
         bookmarkToAdd = bookmark
         return bookmark

@@ -16,7 +16,8 @@ enum GranularityLevel: Int, Codable {
     case word = 3
 }
 
-struct TimelineItem: Identifiable, Equatable, Codable {
+/// Materialized timeline item for the dual-path feed.
+struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var audiobookID: String
     var itemType: TimelineItemType
@@ -36,13 +37,7 @@ struct TimelineItem: Identifiable, Equatable, Codable {
     var createdAt: String?
     var modifiedAt: String?
 
-    var effectivePosition: TimeInterval {
-        playlistPosition ?? audioStartTime
-    }
-
-    var isInstantaneous: Bool {
-        audioEndTime == nil
-    }
+    static let databaseTableName = "timeline_item"
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -65,8 +60,14 @@ struct TimelineItem: Identifiable, Equatable, Codable {
     }
 }
 
-extension TimelineItem: FetchableRecord, MutablePersistableRecord {
-    static let databaseTableName = "timeline_item"
+extension TimelineItem {
+    var effectivePosition: TimeInterval {
+        playlistPosition ?? audioStartTime
+    }
+
+    var isInstantaneous: Bool {
+        audioEndTime == nil
+    }
 }
 
 // MARK: - Legacy compatibility

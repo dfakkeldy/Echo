@@ -22,7 +22,6 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         collectionView.showsVerticalScrollIndicator = true
         collectionView.alwaysBounceVertical = true
 
-        // Cell registrations
         collectionView.register(
             TextSegmentCell.self,
             forCellWithReuseIdentifier: TextSegmentCell.reuseID
@@ -55,31 +54,34 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
-        var snapshot = NSDiffableDataSourceSnapshot<Int, FeedItemIdentifier>()
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
 
         let section = 0
         snapshot.appendSections([section])
 
         // Insert elastic scrubber cells for large time gaps
-        var displayItems: [FeedItemIdentifier] = []
+        var displayItems: [String] = []
         let gapThreshold: TimeInterval = 60.0
 
         for (index, item) in items.enumerated() {
-            // Check gap before this item
             if index > 0 {
                 let prev = items[index - 1]
                 let gap = item.effectivePosition - prev.effectivePosition
                 if gap > gapThreshold {
-                    displayItems.append(.elasticScrubber(
-                        id: "gap-\(prev.id)-to-\(item.id)",
-                        gapDuration: gap
-                    ))
+                    let gapID = "gap-\(prev.id)-to-\(item.id)"
+                    displayItems.append(gapID)
+                    context.coordinator.gapLookup[gapID] = gap
                 }
             }
-            displayItems.append(.item(item))
+            displayItems.append(item.id)
         }
 
         snapshot.appendItems(displayItems, toSection: section)
+
+        // Build item lookup for cell configuration
+        var lookup: [String: TimelineItem] = [:]
+        for item in items { lookup[item.id] = item }
+        context.coordinator.itemLookup = lookup
 
         context.coordinator.dataSource.apply(snapshot, animatingDifferences: false)
         context.coordinator.currentItems = displayItems
@@ -113,41 +115,21 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         }
     }
 
-    // MARK: - Feed Item Identifier (Diffable Data Source)
-
-    enum FeedItemIdentifier: Hashable {
-        case item(TimelineItem)
-        case elasticScrubber(id: String, gapDuration: TimeInterval)
-
-        func hash(into hasher: inout Hasher) {
-            switch self {
-            case .item(let item): hasher.combine(item.id)
-            case .elasticScrubber(let id, _): hasher.combine(id)
-            }
-        }
-
-        static func == (lhs: FeedItemIdentifier, rhs: FeedItemIdentifier) -> Bool {
-            switch (lhs, rhs) {
-            case (.item(let a), .item(let b)): return a.id == b.id
-            case (.elasticScrubber(let aId, _), .elasticScrubber(let bId, _)): return aId == bId
-            default: return false
-            }
-        }
-    }
-
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, UICollectionViewDelegate {
         weak var collectionView: UICollectionView?
         var parent: TimelineFeedCollectionView?
-        var currentItems: [FeedItemIdentifier] = []
+        var currentItems: [String] = []
+        var itemLookup: [String: TimelineItem] = [:]
+        var gapLookup: [String: TimeInterval] = [:]
         private var isProgrammaticScroll = false
 
-        lazy var dataSource: UICollectionViewDiffableDataSource<Int, FeedItemIdentifier> = {
+        lazy var dataSource: UICollectionViewDiffableDataSource<Int, String> = {
             guard let cv = collectionView else {
                 fatalError("CollectionView not available for data source setup")
             }
-            return UICollectionViewDiffableDataSource<Int, FeedItemIdentifier>(
+            return UICollectionViewDiffableDataSource<Int, String>(
                 collectionView: cv
             ) { [weak self] collectionView, indexPath, identifier in
                 self?.cellProvider(collectionView, indexPath: indexPath, identifier: identifier)
@@ -157,18 +139,21 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         private func cellProvider(
             _ collectionView: UICollectionView,
             indexPath: IndexPath,
-            identifier: FeedItemIdentifier
+            identifier: String
         ) -> UICollectionViewCell {
-            switch identifier {
-            case .item(let item):
+            if let item = itemLookup[identifier] {
                 return configureItemCell(item, collectionView: collectionView, indexPath: indexPath)
-            case .elasticScrubber(_, let gapDuration):
+            }
+            if let gapDuration = gapLookup[identifier] {
                 return configureElasticScrubberCell(
                     gapDuration,
                     collectionView: collectionView,
                     indexPath: indexPath
                 )
             }
+            return collectionView.dequeueReusableCell(
+                withReuseIdentifier: TextSegmentCell.reuseID, for: indexPath
+            )
         }
 
         private func configureItemCell(
@@ -228,25 +213,12 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             parent?.onUserScrolled()
         }
 
-        func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            // Detect programmatic vs user scroll
-            if isProgrammaticScroll { return }
-        }
-
-        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-            // Natural end of user gesture
-        }
-
         // MARK: - Programmatic Scroll
 
         func scrollTo(itemID: String, animated: Bool = true) {
             guard let cv = collectionView else { return }
             for (index, identifier) in currentItems.enumerated() {
-                let match: Bool = switch identifier {
-                case .item(let item): item.id == itemID
-                default: false
-                }
-                if match {
+                if identifier == itemID {
                     isProgrammaticScroll = true
                     let indexPath = IndexPath(item: index, section: 0)
                     cv.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
@@ -259,13 +231,11 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         }
 
         func scrollTo(position: TimeInterval, animated: Bool = true) {
-            guard let cv = collectionView,
-                  let parent else { return }
+            guard let cv = collectionView else { return }
 
-            // Find the item whose time range contains the position, or nearest before
             var bestIndex: Int?
             for (index, identifier) in currentItems.enumerated() {
-                if case .item(let item) = identifier {
+                if let item = itemLookup[identifier] {
                     if position >= item.audioStartTime &&
                         (item.audioEndTime == nil || position < item.audioEndTime!) {
                         bestIndex = index
@@ -318,7 +288,7 @@ final class TextSegmentCell: UICollectionViewCell {
         label.font = .preferredFont(forTextStyle: .body)
         label.translatesAutoresizingMaskIntoConstraints = false
 
-        timestampLabel.font = .preferredFont(forTextStyle: .caption1).monospacedDigit()
+        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
         timestampLabel.textColor = .tertiaryLabel
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -394,7 +364,7 @@ final class ChapterMarkerCell: UICollectionViewCell {
         titleLabel.textColor = .label
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        durationLabel.font = .preferredFont(forTextStyle: .caption1).monospacedDigit()
+        durationLabel.font = monospacedDigitFont(forTextStyle: .caption1)
         durationLabel.textColor = .secondaryLabel
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -529,7 +499,7 @@ final class BookmarkCell: UICollectionViewCell {
         noteLabel.numberOfLines = 2
         noteLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        timestampLabel.font = .preferredFont(forTextStyle: .caption1).monospacedDigit()
+        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
         timestampLabel.textColor = .tertiaryLabel
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -609,7 +579,7 @@ final class AnkiCardCell: UICollectionViewCell {
         backLabel.numberOfLines = 2
         backLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        timestampLabel.font = .preferredFont(forTextStyle: .caption1).monospacedDigit()
+        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
         timestampLabel.textColor = .tertiaryLabel
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -662,7 +632,6 @@ final class ElasticScrubberCell: UICollectionViewCell {
     private let gapLabel = UILabel()
     private let topDot = UIView()
     private let bottomDot = UIView()
-    private let dashedLine = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -676,7 +645,7 @@ final class ElasticScrubberCell: UICollectionViewCell {
     private func setup() {
         contentView.backgroundColor = .clear
 
-        gapLabel.font = .preferredFont(forTextStyle: .caption1).monospacedDigit()
+        gapLabel.font = monospacedDigitFont(forTextStyle: .caption1)
         gapLabel.textColor = .tertiaryLabel
         gapLabel.textAlignment = .center
         gapLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -723,7 +692,12 @@ final class ElasticScrubberCell: UICollectionViewCell {
     }
 }
 
-// MARK: - Bold Font Modifier
+// MARK: - Font Helpers
+
+private func monospacedDigitFont(forTextStyle style: UIFont.TextStyle) -> UIFont {
+    let size = UIFont.preferredFont(forTextStyle: style).pointSize
+    return UIFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
+}
 
 private extension UIFont {
     func bold() -> UIFont {

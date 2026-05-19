@@ -104,13 +104,13 @@ struct TimelineTab: View {
 
     private func setupFeed() {
         guard let db = model.databaseService,
-              let audiobookID = model.state.tracks.first?.id ?? model.folderURL?.lastPathComponent
+              let audiobookID = model.folderURL?.absoluteString
         else { return }
 
         let dao = TimelineDAO(db: db.writer)
         let viewModel = TimelineFeedViewModel(dao: dao, audiobookID: audiobookID)
         viewModel.isVoiceOverRunning = UIAccessibility.isVoiceOverRunning
-        viewModel.playbackSpeed = model.speed
+        viewModel.playbackSpeed = Double(model.speed)
 
         // Wire scroll callback
         viewModel.onScrollToPosition = { position in
