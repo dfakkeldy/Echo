@@ -69,6 +69,13 @@ extension TimelineItem {
         audioEndTime == nil
     }
 
+    /// Whether this item has a valid audio timestamp.
+    /// EPUB-only content (images, footnotes, skipped text) sets `audioStartTime` to -1
+    /// to indicate it has no corresponding audio. Tapping these items does not seek.
+    var isTimestamped: Bool {
+        audioStartTime >= 0
+    }
+
     /// Maps the database item type to the UI-facing card type.
     var timelineCardType: TimelineCardType {
         switch itemType {

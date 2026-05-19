@@ -24,11 +24,7 @@ struct RootTabView: View {
     var body: some View {
         NavigationStack {
             TabView(selection: $selectedTab) {
-                NowPlayingTab(
-                    showingPlaylist: $showingPlaylist,
-                    newBookmarkDraft: $newBookmarkDraft,
-                    editingBookmarkID: $editingBookmarkID
-                )
+                NowPlayingTab()
                 .tabItem {
                     Label("Now Playing", systemImage: "play.circle")
                 }

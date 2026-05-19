@@ -16,6 +16,12 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     /// Called on long-press / context-menu to edit the item.
     var onContextMenuAction: ((TimelineItem) -> Void)?
 
+    /// The first due Anki card currently visible in the feed, for sticky header display.
+    var dueAnkiCard: TimelineItem? = nil
+    /// Called when the user grades or dismisses the sticky review.
+    var onGradeDueCard: ((Int) -> Void)?
+    var onDismissDueCard: (() -> Void)?
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -52,6 +58,15 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             ElasticScrubberCell.self,
             forCellWithReuseIdentifier: ElasticScrubberCell.reuseID
         )
+        collectionView.register(
+            NowLineCell.self,
+            forCellWithReuseIdentifier: NowLineCell.reuseID
+        )
+        collectionView.register(
+            StickyReviewHeaderView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+            withReuseIdentifier: StickyReviewHeaderView.reuseID
+        )
 
         context.coordinator.collectionView = collectionView
         context.coordinator.parent = self
@@ -68,8 +83,15 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         // Insert elastic scrubber cells for large time gaps
         var displayItems: [String] = []
         let gapThreshold: TimeInterval = 60.0
+        var nowLineInserted = false
 
         for (index, item) in items.enumerated() {
+            // Insert Now Line at the current position boundary
+            if !nowLineInserted && item.effectivePosition > currentPosition {
+                displayItems.append("__now_line__")
+                nowLineInserted = true
+            }
+
             if index > 0 {
                 let prev = items[index - 1]
                 let gap = item.effectivePosition - prev.effectivePosition
@@ -80,6 +102,11 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
                 }
             }
             displayItems.append(item.id)
+        }
+
+        // If Now Line wasn't inserted (all items before current position), append at end
+        if !nowLineInserted && !items.isEmpty {
+            displayItems.append("__now_line__")
         }
 
         snapshot.appendItems(displayItems, toSection: section)
@@ -118,6 +145,19 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             section.interGroupSpacing = 2
             section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
 
+            // Sticky review header — pinned to top while due Anki card is visible
+            let headerSize = NSCollectionLayoutSize(
+                widthDimension: .fractionalWidth(1.0),
+                heightDimension: .estimated(72)
+            )
+            let header = NSCollectionLayoutBoundarySupplementaryItem(
+                layoutSize: headerSize,
+                elementKind: UICollectionView.elementKindSectionHeader,
+                alignment: .top
+            )
+            header.pinToVisibleBounds = true
+            section.boundarySupplementaryItems = [header]
+
             return section
         }
     }
@@ -137,11 +177,15 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             guard let cv = collectionView else {
                 fatalError("CollectionView not available for data source setup")
             }
-            return UICollectionViewDiffableDataSource<Int, String>(
+            let ds = UICollectionViewDiffableDataSource<Int, String>(
                 collectionView: cv
             ) { [weak self] collectionView, indexPath, identifier in
                 self?.cellProvider(collectionView, indexPath: indexPath, identifier: identifier)
             }
+            ds.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
+                self?.supplementaryProvider(collectionView, kind: kind, indexPath: indexPath)
+            }
+            return ds
         }()
 
         private func cellProvider(
@@ -149,19 +193,51 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             indexPath: IndexPath,
             identifier: String
         ) -> UICollectionViewCell {
-            if let item = itemLookup[identifier] {
-                return configureItemCell(item, collectionView: collectionView, indexPath: indexPath)
+            if identifier == "__now_line__" {
+                return collectionView.dequeueReusableCell(
+                    withReuseIdentifier: NowLineCell.reuseID, for: indexPath
+                )
             }
-            if let gapDuration = gapLookup[identifier] {
+            if identifier.hasPrefix("gap-"), gapLookup[identifier] != nil {
                 return configureElasticScrubberCell(
-                    gapDuration,
+                    gapLookup[identifier]!,
                     collectionView: collectionView,
                     indexPath: indexPath
                 )
             }
+            if let item = itemLookup[identifier] {
+                return configureItemCell(item, collectionView: collectionView, indexPath: indexPath)
+            }
             return collectionView.dequeueReusableCell(
                 withReuseIdentifier: TextSegmentCell.reuseID, for: indexPath
             )
+        }
+
+        private func supplementaryProvider(
+            _ collectionView: UICollectionView,
+            kind: String,
+            indexPath: IndexPath
+        ) -> UICollectionReusableView {
+            guard kind == UICollectionView.elementKindSectionHeader else {
+                return UICollectionReusableView()
+            }
+            let header = collectionView.dequeueReusableSupplementaryView(
+                ofKind: kind,
+                withReuseIdentifier: StickyReviewHeaderView.reuseID,
+                for: indexPath
+            ) as! StickyReviewHeaderView
+            if let card = parent?.dueAnkiCard {
+                header.configure(
+                    frontText: card.title,
+                    backText: card.subtitle,
+                    onGrade: { [weak self] grade in self?.parent?.onGradeDueCard?(grade) },
+                    onDismiss: { [weak self] in self?.parent?.onDismissDueCard?() }
+                )
+                header.isHidden = false
+            } else {
+                header.isHidden = true
+            }
+            return header
         }
 
         private func configureItemCell(
@@ -226,6 +302,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
         func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
             guard let identifier = currentItems[safe: indexPath.item],
+                  identifier != "__now_line__",
                   let item = itemLookup[identifier] else { return }
             parent?.onItemTapped?(item)
         }
@@ -236,6 +313,8 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
                             contextMenuConfigurationForItemAt indexPath: IndexPath,
                             point: CGPoint) -> UIContextMenuConfiguration? {
             guard let identifier = currentItems[safe: indexPath.item],
+                  identifier != "__now_line__",
+                  !identifier.hasPrefix("gap-"),
                   let item = itemLookup[identifier] else { return nil }
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
                 let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
@@ -680,6 +759,63 @@ final class AnkiCardCell: UICollectionViewCell {
     }
 }
 
+final class NowLineCell: UICollectionViewCell {
+    static let reuseID = "NowLineCell"
+
+    private let line = UIView()
+    private let label = UILabel()
+    private let leftLine = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setup() {
+        contentView.backgroundColor = .clear
+
+        leftLine.backgroundColor = .systemRed
+        leftLine.translatesAutoresizingMaskIntoConstraints = false
+
+        line.backgroundColor = .systemRed
+        line.translatesAutoresizingMaskIntoConstraints = false
+
+        label.text = "NOW"
+        label.font = .systemFont(ofSize: 10, weight: .bold)
+        label.textColor = .systemRed
+        label.textAlignment = .center
+        label.backgroundColor = .systemRed.withAlphaComponent(0.1)
+        label.layer.cornerRadius = 4
+        label.clipsToBounds = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        contentView.addSubview(leftLine)
+        contentView.addSubview(label)
+        contentView.addSubview(line)
+
+        NSLayoutConstraint.activate([
+            leftLine.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            leftLine.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            leftLine.widthAnchor.constraint(equalToConstant: 12),
+            leftLine.heightAnchor.constraint(equalToConstant: 2),
+
+            label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: leftLine.trailingAnchor, constant: 6),
+            label.widthAnchor.constraint(equalToConstant: 44),
+            label.heightAnchor.constraint(equalToConstant: 20),
+
+            line.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 6),
+            line.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            line.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            line.heightAnchor.constraint(equalToConstant: 2),
+        ])
+    }
+}
+
 final class ElasticScrubberCell: UICollectionViewCell {
     static let reuseID = "ElasticScrubberCell"
 
@@ -742,6 +878,123 @@ final class ElasticScrubberCell: UICollectionViewCell {
             gapLabel.text = "\(h)h \(m)m gap"
         } else {
             gapLabel.text = "\(minutes)m gap"
+        }
+    }
+}
+
+// MARK: - Sticky Review Header
+
+final class StickyReviewHeaderView: UICollectionReusableView {
+    static let reuseID = "StickyReviewHeaderView"
+
+    private let frontLabel = UILabel()
+    private let backLabel = UILabel()
+    private let gradeStack = UIStackView()
+    private let dismissButton = UIButton(type: .system)
+    private var gradeAction: ((Int) -> Void)?
+    private var dismissAction: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setup() {
+        backgroundColor = .systemPurple.withAlphaComponent(0.12)
+        layer.cornerRadius = 12
+        layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+
+        frontLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        frontLabel.textColor = .label
+        frontLabel.numberOfLines = 2
+        frontLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        backLabel.font = .preferredFont(forTextStyle: .caption1)
+        backLabel.textColor = .secondaryLabel
+        backLabel.numberOfLines = 2
+        backLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        gradeStack.axis = .horizontal
+        gradeStack.spacing = 4
+        gradeStack.distribution = .fillEqually
+        gradeStack.translatesAutoresizingMaskIntoConstraints = false
+
+        for grade in 0..<6 {
+            let btn = UIButton(type: .system)
+            btn.setTitle("\(grade)", for: .normal)
+            btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+            btn.backgroundColor = gradeColor(grade).withAlphaComponent(0.15)
+            btn.setTitleColor(gradeColor(grade), for: .normal)
+            btn.layer.cornerRadius = 6
+            btn.tag = grade
+            btn.addTarget(self, action: #selector(gradeTapped(_:)), for: .touchUpInside)
+            gradeStack.addArrangedSubview(btn)
+        }
+
+        dismissButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        dismissButton.tintColor = .secondaryLabel
+        dismissButton.translatesAutoresizingMaskIntoConstraints = false
+        dismissButton.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
+
+        addSubview(frontLabel)
+        addSubview(backLabel)
+        addSubview(gradeStack)
+        addSubview(dismissButton)
+
+        NSLayoutConstraint.activate([
+            frontLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            frontLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            frontLabel.trailingAnchor.constraint(equalTo: dismissButton.leadingAnchor, constant: -8),
+
+            backLabel.topAnchor.constraint(equalTo: frontLabel.bottomAnchor, constant: 4),
+            backLabel.leadingAnchor.constraint(equalTo: frontLabel.leadingAnchor),
+            backLabel.trailingAnchor.constraint(equalTo: frontLabel.trailingAnchor),
+
+            dismissButton.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            dismissButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            dismissButton.widthAnchor.constraint(equalToConstant: 24),
+            dismissButton.heightAnchor.constraint(equalToConstant: 24),
+
+            gradeStack.topAnchor.constraint(equalTo: backLabel.bottomAnchor, constant: 8),
+            gradeStack.leadingAnchor.constraint(equalTo: frontLabel.leadingAnchor),
+            gradeStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            gradeStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            gradeStack.heightAnchor.constraint(equalToConstant: 32),
+        ])
+    }
+
+    func configure(
+        frontText: String,
+        backText: String?,
+        onGrade: @escaping (Int) -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        frontLabel.text = frontText
+        backLabel.text = backText
+        backLabel.isHidden = backText?.isEmpty ?? true
+        gradeAction = onGrade
+        dismissAction = onDismiss
+    }
+
+    @objc private func gradeTapped(_ sender: UIButton) {
+        gradeAction?(sender.tag)
+    }
+
+    @objc private func dismissTapped() {
+        dismissAction?()
+    }
+
+    private func gradeColor(_ grade: Int) -> UIColor {
+        switch grade {
+        case 0: return .systemRed
+        case 1, 2: return .systemOrange
+        case 3, 4: return .systemGreen
+        case 5: return .systemBlue
+        default: return .systemGray
         }
     }
 }

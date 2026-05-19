@@ -106,7 +106,7 @@ struct TimelineTab: View {
     private func handleItemTap(_ item: TimelineItem) {
         switch item.itemType {
         case .textSegment, .chapterMarker, .bookmark:
-            guard item.audioStartTime >= 0 else { return } // un-timestamped, no-op
+            guard item.isTimestamped else { return }
             model.seek(toSeconds: item.audioStartTime)
         case .imageAsset:
             if let path = item.imagePath, let url = URL(string: "file://\(path)") {

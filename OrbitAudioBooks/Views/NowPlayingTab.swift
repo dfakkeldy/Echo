@@ -1,9 +1,6 @@
 import SwiftUI
 
 struct NowPlayingTab: View {
-    @Binding var showingPlaylist: Bool
-    @Binding var newBookmarkDraft: BookmarkDraft?
-    @Binding var editingBookmarkID: UUID?
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
 
@@ -60,11 +57,6 @@ struct NowPlayingTab: View {
             }
             .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
             .animation(.easeInOut(duration: 0.2), value: model.isShowingInlineFlashcard)
-
-            BottomToolbarView(
-                showingPlaylist: $showingPlaylist,
-                onCreateBookmark: { draft in newBookmarkDraft = draft }
-            )
         }
         .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
         .padding(.horizontal)

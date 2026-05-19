@@ -252,8 +252,9 @@ TimelineIngestionFactory.strategy(hasTranscript:hasEnhancedTranscript:hasEPUB:)
 ```
 TimelineTab
   └─ TimelineFeedCollectionView (UICollectionView via UIViewRepresentable)
-       ├── 6 cell types: TextSegment, ChapterMarker, ImageAsset, Bookmark,
-       │     AnkiCard, ElasticScrubber (gap indicator)
+       ├── 8 cell types: TextSegment, ChapterMarker, ImageAsset, Bookmark,
+       │     AnkiCard, ElasticScrubber (gap indicator), NowLine (playback position),
+       │     StickyReviewHeader (supplementary view, pinned to top)
        └── NSDiffableDataSourceSnapshot<String> — string-based identity
             └─ TimelineFeedViewModel (@Observable, push-driven)
                  ├── FollowState: following → browsing (on user scroll) → following (5s tripwire or "Go to Now")
@@ -278,7 +279,7 @@ RootTabView
 └── Tab 1: TimelineTab     ← unified library + feed + planner + review
 ```
 
-**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, `TransportControlsView`, and the bottom toolbar. Transcript overlays were removed — transcript interaction now lives in the Timeline feed.
+**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`. It is strictly play/pause/scrubbing — all auxiliary controls (speed, sleep timer, bookmarks, loop mode, playlist) live in the Timeline's `DashboardShelf`. Transcript overlays and voice memo playback are overlaid conditionally.
 
 **TimelineTab** consolidates the former Library, Planner, and standalone Review tabs into a single unified feed:
 
@@ -314,7 +315,7 @@ The feed uses a physical, audio-anchored interaction model:
 | **Tap** | Anki card | Launch flashcard review session |
 | **Long press** | Any feed item | Context menu with "Edit" action |
 
-**Now Line demarcation:** The feed is split at the current playback position. Items *above* (before) the playhead represent history — listened segments, completed reviews — and render at reduced opacity (0.65). Items *below* (after) the playhead represent future content at full opacity. The active item (whose time range contains `currentPosition`) is highlighted with a blue leading bar.
+**Now Line demarcation:** The feed is split at the current playback position by a visible `NowLineCell` — a red divider line with a "NOW" label that renders between history and future items. Items *above* (before) the playhead represent history — listened segments, completed reviews — and render at reduced opacity (0.65). Items *below* (after) the playhead represent future content at full opacity. The active item (whose time range contains `currentPosition`) is highlighted with a blue leading bar.
 
 **Follow state:** The feed auto-scrolls to track playback ("following"). When the user manually scrolls, follow mode disengages. A "Go to Now" floating button appears, and a 5-second tripwire re-engages follow mode if the user stops scrolling.
 
@@ -322,9 +323,10 @@ The feed uses a physical, audio-anchored interaction model:
 
 Due Anki flashcards appear sequentially inline in the Timeline feed at their source timestamp (the moment in the audiobook where the card was created, or a scheduled review time). Their behavior is **sticky**:
 
-- When the user scrolls the feed and a due card is visible in the viewport, it "pins" to the top of the feed as a sticky header.
-- The sticky card remains fixed until the user either grades the card (Again / Hard / Good / Easy) or dismisses it.
-- Once reviewed, the card transitions to a completed state and the sticky header releases, allowing normal scroll to resume.
+- When a due card is visible in the viewport, it "pins" to the top of the feed via a `StickyReviewHeaderView` — a `UICollectionReusableView` registered as a section header with `pinToVisibleBounds = true`.
+- The sticky header shows the card's front/back text with 6 grade buttons (0–5) and a dismiss button.
+- The header is bound to the first due `TimelineItem` (itemType `.ankiCard`) in the visible range via `dueAnkiCard` on the `TimelineFeedCollectionView`.
+- Once reviewed, the card transitions to a completed state and the sticky header hides (height collapses to zero).
 - If multiple cards are due at the same timestamp, they stack sequentially in the sticky header.
 
 This design ensures reviews never scroll out of sight — they demand attention at the moment of consumption, mirroring the physical experience of a bookmark or note flagging a page.
@@ -349,11 +351,14 @@ The NLP alignment pipeline (`OrbitEPUBAligner`) compares the EPUB spine text aga
 
 | Property | Timestamped Segment | Un-timestamped (EPUB-only) Block |
 |---|---|---|
-| `startTime` | `TimeInterval` (e.g. 12.5) | `nil` |
-| `endTime` | `TimeInterval` (e.g. 15.2) | `nil` |
-| `sequenceIndex` | Monotonic, shared with un-timestamped items | Monotonic, interleaved by EPUB position |
+| `startTime` (Enhanced) | `TimeInterval` (e.g. 12.5) | `nil` |
+| `endTime` (Enhanced) | `TimeInterval` (e.g. 15.2) | `nil` |
+| `audioStartTime` (TimelineItem) | Valid `TimeInterval` | `-1` (sentinel) |
+| `sequenceIndex` (Enhanced) / `epubSequenceIndex` (TimelineItem) | Monotonic, shared with un-timestamped items | Monotonic, interleaved by EPUB position |
 | `markers` | `[SyncMarker]?` from alignment | Contains the source marker (`.image`, `.footnote`, etc.) |
 | `isTimestamped` | `true` | `false` |
+
+The ingestion layer (`TimelineIngestionFactory`) converts `nil` timestamps from `EnhancedTranscriptionSegment` to `-1` in `TimelineItem.audioStartTime`. The `isTimestamped` computed property on `TimelineItem` checks `audioStartTime >= 0`, centralizing the sentinel convention.
 
 **Ordering:** Timestamped segments sort by `startTime`. Un-timestamped blocks sort by their source marker's `epubCharOffset`. The pipeline merges both into a single `[EnhancedTranscriptionSegment]` array, assigns consecutive `sequenceIndex` values, and writes the output as enhanced transcript JSON.
 
