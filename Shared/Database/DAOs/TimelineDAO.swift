@@ -9,8 +9,9 @@ struct TimelineDAO {
             try TimelineItem
                 .filter(Column("audiobook_id") == audiobookID)
                 .order(
-                    Column("playlist_position") ?? Column("media_timestamp"),
-                    Column("media_timestamp")
+                    Column("playlist_position") ?? Column("audio_start_time"),
+                    Column("audio_start_time"),
+                    Column("epub_sequence_index")
                 )
                 .fetchAll(db)
         }
@@ -22,7 +23,9 @@ struct TimelineDAO {
                 .filter(Column("audiobook_id") == audiobookID)
                 .filter(types.map(\.rawValue).contains(Column("item_type")))
                 .order(
-                    Column("playlist_position") ?? Column("media_timestamp")
+                    Column("playlist_position") ?? Column("audio_start_time"),
+                    Column("audio_start_time"),
+                    Column("epub_sequence_index")
                 )
                 .fetchAll(db)
         }
@@ -32,9 +35,9 @@ struct TimelineDAO {
         try db.read { db in
             try TimelineItem
                 .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("media_timestamp") >= startTime)
-                .filter(Column("media_timestamp") <= endTime)
-                .order(Column("media_timestamp"))
+                .filter(Column("audio_start_time") >= startTime)
+                .filter(Column("audio_start_time") <= endTime)
+                .order(Column("audio_start_time"), Column("epub_sequence_index"))
                 .fetchAll(db)
         }
     }
@@ -55,10 +58,10 @@ struct TimelineDAO {
                 query = query.filter(types.map(\.rawValue).contains(Column("item_type")))
             }
             if let startTime {
-                query = query.filter(Column("media_timestamp") >= startTime)
+                query = query.filter(Column("audio_start_time") >= startTime)
             }
             if let endTime {
-                query = query.filter(Column("media_timestamp") <= endTime)
+                query = query.filter(Column("audio_start_time") <= endTime)
             }
             if enabledOnly {
                 query = query.filter(Column("is_enabled") == true)
@@ -72,8 +75,9 @@ struct TimelineDAO {
 
             return try query
                 .order(
-                    Column("playlist_position") ?? Column("media_timestamp"),
-                    Column("media_timestamp")
+                    Column("playlist_position") ?? Column("audio_start_time"),
+                    Column("audio_start_time"),
+                    Column("epub_sequence_index")
                 )
                 .fetchAll(db)
         }
@@ -110,11 +114,12 @@ struct TimelineDAO {
     private func tableName(for type: TimelineItemType) -> String? {
         switch type {
         case .track: return "track"
-        case .chapter: return "chapter"
+        case .chapterMarker: return "chapter"
         case .bookmark: return "bookmark"
-        case .flashcard: return "flashcard"
-        case .transcription: return nil
+        case .ankiCard: return "flashcard"
+        case .textSegment: return nil
         case .note: return "note"
+        case .imageAsset: return "image_asset"
         }
     }
 }

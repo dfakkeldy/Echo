@@ -11,6 +11,8 @@ struct ChapterRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var isEnabled: Bool
     var sortOrder: Int
     var playlistPosition: Double?
+    var epubReference: String?
+    var imagePath: String?
 
     static let databaseTableName = "chapter"
 
@@ -23,5 +25,7 @@ struct ChapterRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case isEnabled = "is_enabled"
         case sortOrder = "sort_order"
         case playlistPosition = "playlist_position"
+        case epubReference = "epub_reference"
+        case imagePath = "image_path"
     }
 }

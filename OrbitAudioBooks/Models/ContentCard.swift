@@ -1,14 +1,15 @@
 import Foundation
 
 enum ContentCardType: String, Codable {
-    case transcription
+    case textSegment
     case bookmark
-    case flashcard
+    case ankiCard
     case note
     case playbackSession
     case plannedSession
     case voiceMemo
     case chapterTransition
+    case imageAsset
 }
 
 struct ContentCard: Identifiable, Equatable, PlaybackTimelineItem {
@@ -55,18 +56,19 @@ extension ContentCard {
     init(from item: TimelineItem) {
         let cardType: ContentCardType = switch item.itemType {
         case .track: .playbackSession
-        case .chapter: .chapterTransition
+        case .chapterMarker: .chapterTransition
         case .bookmark: .bookmark
-        case .flashcard: .flashcard
-        case .transcription: .transcription
+        case .ankiCard: .ankiCard
+        case .textSegment: .textSegment
         case .note: .note
+        case .imageAsset: .imageAsset
         }
         self.init(
             id: item.id,
             cardType: cardType,
             title: item.title,
             subtitle: item.subtitle,
-            mediaTimestamp: item.mediaTimestamp,
+            mediaTimestamp: item.audioStartTime,
             realTimestamp: Date(),
             endedAt: nil,
             sourceItemID: item.databaseID,
@@ -79,7 +81,7 @@ extension ContentCard {
         let cardType: ContentCardType = switch event.eventType {
         case .playbackSession: .playbackSession
         case .bookmarkCreated: .bookmark
-        case .flashcardReviewed: .flashcard
+        case .flashcardReviewed: .ankiCard
         case .voiceMemoRecorded: .voiceMemo
         case .noteCreated: .note
         case .plannedSessionCompleted: .plannedSession
@@ -96,7 +98,7 @@ extension ContentCard {
             endedAt: event.endedAt,
             sourceItemID: event.sourceItemID,
             sourceItemType: event.sourceItemType,
-            isEditable: cardType == .note || cardType == .transcription || cardType == .bookmark
+            isEditable: cardType == .note || cardType == .textSegment || cardType == .bookmark
         )
     }
 }
@@ -105,7 +107,7 @@ extension ContentCardType {
     /// Items that should appear at all zoom levels (chapters view + entries view).
     var isSummaryItem: Bool {
         switch self {
-        case .bookmark, .flashcard, .note: return true
+        case .bookmark, .ankiCard, .note: return true
         default: return false
         }
     }

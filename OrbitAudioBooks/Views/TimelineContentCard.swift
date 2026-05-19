@@ -80,11 +80,11 @@ struct TimelineContentCard: View {
 
     private var icon: some View {
         switch card.cardType {
-        case .transcription:
+        case .textSegment:
             Image(systemName: "text.quote")
         case .bookmark:
             Image(systemName: "bookmark.fill")
-        case .flashcard:
+        case .ankiCard:
             Image(systemName: "rectangle.fill.on.rectangle.fill")
         case .note:
             Image(systemName: "note.text")
@@ -96,16 +96,18 @@ struct TimelineContentCard: View {
             Image(systemName: "mic.fill")
         case .chapterTransition:
             Image(systemName: "forward.end.fill")
+        case .imageAsset:
+            Image(systemName: "photo")
         }
     }
 
     private var cardBackground: some View {
         switch card.cardType {
-        case .transcription:
+        case .textSegment:
             Color.blue.opacity(0.08)
         case .bookmark:
             Color.orange.opacity(0.08)
-        case .flashcard:
+        case .ankiCard:
             Color.purple.opacity(0.08)
         case .note:
             Color.yellow.opacity(0.08)
@@ -117,6 +119,8 @@ struct TimelineContentCard: View {
             Color.red.opacity(0.08)
         case .chapterTransition:
             Color.gray.opacity(0.06)
+        case .imageAsset:
+            Color.teal.opacity(0.08)
         }
     }
 

@@ -2,16 +2,29 @@ import Foundation
 import GRDB
 
 enum TimelineItemType: String, Codable {
-    case track, chapter, bookmark, flashcard, transcription, note
+    case track, chapterMarker, bookmark, ankiCard, textSegment, note, imageAsset
 }
 
 struct TimelineItem: Identifiable, Equatable {
     let databaseID: String
     let audiobookID: String
     let itemType: TimelineItemType
+
+    // MARK: Display
     let title: String
     let subtitle: String?
-    let mediaTimestamp: TimeInterval
+
+    // MARK: Time range
+    let audioStartTime: TimeInterval
+    let audioEndTime: TimeInterval?
+
+    // MARK: Content payloads (intelligently optional)
+    let textPayload: String?
+    let imagePath: String?
+    let epubReference: String?
+    let epubSequenceIndex: Int?
+
+    // MARK: Metadata
     let isEnabled: Bool
     let playlistPosition: TimeInterval?
     let createdAt: String?
@@ -22,7 +35,7 @@ struct TimelineItem: Identifiable, Equatable {
     var id: String { "\(itemType.rawValue)-\(databaseID)" }
 
     var effectivePosition: TimeInterval {
-        playlistPosition ?? mediaTimestamp
+        playlistPosition ?? audioStartTime
     }
 }
 
@@ -32,7 +45,12 @@ extension TimelineItem: Codable {
         case audiobookID = "audiobook_id"
         case itemType = "item_type"
         case title, subtitle
-        case mediaTimestamp = "media_timestamp"
+        case audioStartTime = "audio_start_time"
+        case audioEndTime = "audio_end_time"
+        case textPayload = "text_payload"
+        case imagePath = "image_path"
+        case epubReference = "epub_reference"
+        case epubSequenceIndex = "epub_sequence_index"
         case isEnabled = "is_enabled"
         case playlistPosition = "playlist_position"
         case createdAt = "created_at"

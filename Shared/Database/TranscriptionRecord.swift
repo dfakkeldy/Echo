@@ -8,6 +8,8 @@ struct TranscriptionRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var startTime: TimeInterval
     var endTime: TimeInterval
     var text: String
+    var epubReference: String?
+    var epubSequenceIndex: Int?
 
     static let databaseTableName = "transcription_segment"
 
@@ -17,5 +19,7 @@ struct TranscriptionRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case startTime = "start_time"
         case endTime = "end_time"
         case text
+        case epubReference = "epub_reference"
+        case epubSequenceIndex = "epub_sequence_index"
     }
 }

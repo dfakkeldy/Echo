@@ -224,10 +224,10 @@ struct OrbitAudioBooksTests {
         let items = try timelineDAO.items(for: "book-1")
         #expect(items.count == 5)
         #expect(items.contains(where: { $0.itemType == .track }))
-        #expect(items.contains(where: { $0.itemType == .chapter }))
+        #expect(items.contains(where: { $0.itemType == .chapterMarker }))
         #expect(items.contains(where: { $0.itemType == .bookmark }))
-        #expect(items.contains(where: { $0.itemType == .flashcard }))
-        #expect(items.contains(where: { $0.itemType == .transcription }))
+        #expect(items.contains(where: { $0.itemType == .ankiCard }))
+        #expect(items.contains(where: { $0.itemType == .textSegment }))
     }
 
     @Test func databaseTimelineFilterByType() throws {
@@ -244,9 +244,9 @@ struct OrbitAudioBooksTests {
         #expect(bookmarks.count == 1)
         #expect(bookmarks.first?.itemType == .bookmark)
 
-        let cards = try timelineDAO.filtered(audiobookID: "book-1", types: [.flashcard])
+        let cards = try timelineDAO.filtered(audiobookID: "book-1", types: [.ankiCard])
         #expect(cards.count == 1)
-        #expect(cards.first?.itemType == .flashcard)
+        #expect(cards.first?.itemType == .ankiCard)
     }
 
     @Test func databaseTimelineFilterByTimeRange() throws {

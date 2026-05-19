@@ -9,7 +9,7 @@ struct ContentCardEditor: View {
 
     init(card: ContentCard) {
         self.card = card
-        _text = State(initialValue: card.cardType == .note || card.cardType == .transcription ? card.title : "")
+        _text = State(initialValue: card.cardType == .note || card.cardType == .textSegment ? card.title : "")
         _title = State(initialValue: card.cardType == .bookmark ? card.title : "")
     }
 
@@ -17,7 +17,7 @@ struct ContentCardEditor: View {
         NavigationStack {
             Form {
                 switch card.cardType {
-                case .note, .transcription:
+                case .note, .textSegment:
                     Section("Text") {
                         TextEditor(text: $text)
                             .frame(minHeight: 120)

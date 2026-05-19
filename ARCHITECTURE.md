@@ -215,3 +215,66 @@ OrbitEPUBAligner (library)
     └── String+Levenshtein.swift   # Wagner-Fischer edit distance
 ```
 
+---
+
+## Dual-Path Timeline Feed
+
+The "Twitter-style" scrolling feed is the universal interface for consuming content. It handles two distinct scenarios through a single unified `TimelineItem` schema.
+
+### Dense vs. Sparse Feeds
+
+| | **Dense Feed** | **Sparse Feed** |
+|---|---|---|
+| **Data source** | EPUB text aligned to Whisper timestamps | M4B chapter markers + user content |
+| **Item density** | Hundreds/thousands of `textSegment`s, 5–30s apart | A handful of items, potentially 45+ min apart |
+| **Text content** | Full paragraph text from EPUB | Chapter titles, bookmark notes, flashcard text |
+| **Images** | From EPUB `<img>` tags in XHTML | From M4B embedded chapter artwork |
+| **EPUB references** | Present (`epubReference` + `epubSequenceIndex`) | `nil` — no EPUB exists |
+
+Both feeds use the same `TimelineItem` struct, the same `timeline` VIEW, and the same SwiftUI feed view. The difference is purely in *which optional fields are populated* and *how densely items are spaced in time*.
+
+### Unified `TimelineItem` Schema (V4)
+
+**`TimelineItemType` enum:**
+`track`, `chapterMarker`, `bookmark`, `ankiCard`, `textSegment`, `note`, `imageAsset`
+
+**Key fields:**
+
+| Field | Type | Purpose |
+|---|---|---|
+| `audioStartTime` | `TimeInterval` | When the item begins in the audio timeline |
+| `audioEndTime` | `TimeInterval?` | When it ends (`nil` for point-in-time items like bookmarks) |
+| `textPayload` | `String?` | Full text body (paragraphs for `textSegment`, answer for `ankiCard`, note for `bookmark`) |
+| `imagePath` | `String?` | Local path to image asset (populated for `imageAsset`, chapter artwork) |
+| `epubReference` | `String?` | EPUB locator (e.g. `"ch3/para42"`). `nil` for audio-only items |
+| `epubSequenceIndex` | `Int?` | Monotonic ordering from EPUB spine. Provides stable sort when timestamps overlap |
+
+**Schema migration** (`Schema_V4`):
+- New `image_asset` table for embedded artwork and EPUB images
+- `epub_reference` and `image_path` columns added to `chapter`
+- `epub_reference` and `epub_sequence_index` columns added to `transcription_segment`
+- `timeline` VIEW recreated with renamed `item_type` values and new columns
+
+**Sort order:** `playlist_position` (user override) → `audio_start_time` (temporal) → `epub_sequence_index` (structural). The structural sort ensures text renders in correct EPUB reading order even when Whisper timestamps are noisy or overlapping.
+
+### Sparse Audio-Only Feed Example
+
+A 3-chapter M4B with no EPUB produces a feed like:
+
+```
+chapterMarker  "Introduction"   0:00 → 45:00
+chapterMarker  "Main Content"   45:00 → 1:45:00
+bookmark       "Key insight"    52:30
+ankiCard       "Define X?"      1:02:00
+chapterMarker  "Conclusion"     1:45:00 → 2:30:00
+```
+
+The large gaps between items (e.g., 45 minutes between chapters) are rendered in the UI as proportional vertical whitespace with a moving playhead indicator (see Phase 3).
+
+### Ingestion Strategies (Phase 2)
+
+An `IngestionStrategy` factory generates `TimelineItem` rows based on available assets:
+- **Strategy A (Rich):** EPUB + Whisper JSON → dense text-heavy feed with EPUB references
+- **Strategy B (Audio-Only):** M4B only → sparse feed from chapter markers and artwork
+- **Graceful Degradation:** If alignment confidence drops below threshold, text segments are stored without timestamps and rendered as a "read-along" companion rather than an auto-scrolling feed
+
