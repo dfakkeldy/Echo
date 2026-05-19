@@ -51,6 +51,9 @@ struct TimelineFeedView: View {
         .onChange(of: isUserScrolling) { _, scrolling in
             if scrolling { viewModel.userDidScroll() }
         }
+        .onChange(of: playerModel.speed) { _, newSpeed in
+            viewModel.playbackSpeed = Double(newSpeed)
+        }
     }
 
     // MARK: - Feed Scroll View
@@ -258,6 +261,7 @@ struct TimelineFeedView: View {
             audiobookID: folderURL.absoluteString,
             duration: playerModel.durationSeconds ?? 0
         )
+        viewModel.playbackSpeed = Double(playerModel.speed)
     }
 
     private func updateScrollTarget() {

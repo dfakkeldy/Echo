@@ -64,6 +64,20 @@ final class TimelineFeedViewModel {
     /// Beyond this cap, the time window is narrowed to keep the feed responsive.
     var maxWindowSize = 200
 
+    /// Current feed granularity — chapter-level during fast scrubbing (>1.5×),
+    /// sentence-level during normal-speed reading.
+    private(set) var granularity: GranularityLevel = .sentence
+
+    /// Set by the view from the playback engine. When speed exceeds 1.5× the
+    /// feed switches to chapter-only mode; when it drops back, sentence-level
+    /// text segments are reloaded.
+    var playbackSpeed: Double = 1.0 {
+        didSet { updateGranularity() }
+    }
+
+    /// Speed threshold above which the feed switches to chapter-level only.
+    static let chapterGranularitySpeedThreshold: Double = 1.5
+
     // MARK: - Dependencies
 
     private var db: DatabaseService?
@@ -217,11 +231,16 @@ final class TimelineFeedViewModel {
                 let windowStart = max(0, time - windowRadius)
                 let windowEnd = time + windowRadius
 
-                // Load text segments in the current time window.
-                let textTypes: Set<TimelineItemType> = [.textSegment]
-                let segments = try TimelineDAO(db: db.writer)
-                    .filtered(audiobookID: audiobookID, types: textTypes,
-                              from: windowStart, to: windowEnd)
+                // Skip text segments when scrubbing at high speed.
+                let segments: [TimelineItem]
+                if granularity >= .sentence {
+                    let textTypes: Set<TimelineItemType> = [.textSegment]
+                    segments = try TimelineDAO(db: db.writer)
+                        .filtered(audiobookID: audiobookID, types: textTypes,
+                                  from: windowStart, to: windowEnd)
+                } else {
+                    segments = []
+                }
 
                 guard generation == gen else { return } // Debounce: newer call superseded.
 
@@ -347,6 +366,18 @@ final class TimelineFeedViewModel {
         let allItems = (summaryItems + windowedTextSegments)
             .sorted { $0.audioStartTime < $1.audioStartTime }
         return allItems.min { abs($0.audioStartTime - time) < abs($1.audioStartTime - time) }
+    }
+
+    private func updateGranularity() {
+        let target: GranularityLevel = playbackSpeed > Self.chapterGranularitySpeedThreshold
+            ? .chapter : .sentence
+        guard target != granularity else { return }
+        granularity = target
+        // Force a full rebuild at the new granularity — text segments are
+        // loaded or dropped depending on the level.
+        if let last = lastRebuiltPlayheadTime {
+            rebuildVisibleItems(at: last)
+        }
     }
 
     private func scheduleAutoFollowResume() {

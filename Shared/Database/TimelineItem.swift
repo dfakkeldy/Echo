@@ -5,6 +5,17 @@ enum TimelineItemType: String, Codable {
     case track, chapterMarker, bookmark, ankiCard, textSegment, note, imageAsset
 }
 
+/// Controls which items appear in the feed based on playback speed.
+/// Chapter-level for scrubbing (>1.5×), sentence-level for normal reading.
+enum GranularityLevel: Int, Codable, Comparable {
+    case chapter = 0
+    case sentence = 2
+
+    static func < (lhs: GranularityLevel, rhs: GranularityLevel) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
 struct TimelineItem: Identifiable, Equatable, MediaPlayable {
     let databaseID: String
     let audiobookID: String
@@ -36,6 +47,16 @@ struct TimelineItem: Identifiable, Equatable, MediaPlayable {
 
     var effectivePosition: TimeInterval {
         playlistPosition ?? audioStartTime
+    }
+
+    /// Derived granularity based on item type. Chapter markers and tracks are
+    /// chapter-level; everything else is sentence-level. Used by the feed VM
+    /// to switch between dense and sparse views during scrubbing.
+    var granularityLevel: GranularityLevel {
+        switch itemType {
+        case .track, .chapterMarker: return .chapter
+        case .textSegment, .bookmark, .ankiCard, .note, .imageAsset: return .sentence
+        }
     }
 }
 

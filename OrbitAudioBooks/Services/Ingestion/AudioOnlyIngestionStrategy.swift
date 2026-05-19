@@ -87,25 +87,29 @@ struct AudioOnlyIngestionStrategy: IngestionStrategy {
             }
 
             // ── Extract chapter artwork ──
-            let chapterArtwork = await extractChapterArtwork(from: asset, baseOffset: cumulativeOffset)
-            for artwork in chapterArtwork {
-                // Save image data to disk and get a local path.
+            let artworkByIndex = await ChapterImageExtractor.extract(from: asset)
+            for (chapterIndex, imageData) in artworkByIndex {
+                guard chapterIndex < chapters.count else { continue }
+                let chapter = chapters[chapterIndex]
+                let chapterTitle = chapter.title ?? "Chapter \(chapterIndex + 1)"
+                let timestamp = cumulativeOffset + chapter.startSeconds
+
                 let path: String
                 do {
-                    path = try saveArtwork(artwork.data, withName: artwork.name, in: folderURL)
+                    path = try saveArtwork(imageData, withName: chapterTitle, in: folderURL)
                 } catch {
-                    logger.error("Failed to save artwork '\(artwork.name)': \(error.localizedDescription)")
+                    logger.error("Failed to save artwork for '\(chapterTitle)': \(error.localizedDescription)")
                     continue
                 }
                 allImageAssetRecords.append(ImageAssetRecord(
                     id: "\(audiobookID)-img-\(allImageAssetRecords.count)",
                     audiobookID: audiobookID,
-                    title: artwork.name,
+                    title: chapterTitle,
                     imagePath: path,
-                    mediaTimestamp: artwork.timestamp,
+                    mediaTimestamp: timestamp,
                     epubReference: nil,
                     isEnabled: true,
-                    playlistPosition: artwork.timestamp
+                    playlistPosition: timestamp
                 ))
             }
 
@@ -146,52 +150,6 @@ struct AudioOnlyIngestionStrategy: IngestionStrategy {
             fileCount: fileCount,
             itemCounts: itemCounts
         )
-    }
-
-    // MARK: - Chapter Artwork
-
-    private struct ChapterArtwork {
-        let name: String
-        let data: Data
-        let timestamp: TimeInterval
-    }
-
-    /// Extracts artwork images from chapter-level timed metadata groups.
-    /// Uses the same `commonKeyArtwork` pattern that `ArtworkCache` uses for file-level covers.
-    private func extractChapterArtwork(from asset: AVAsset, baseOffset: TimeInterval) async -> [ChapterArtwork] {
-        var results: [ChapterArtwork] = []
-
-        let groups = await loadChapterMetadataGroups(from: asset)
-        for group in groups {
-            let timestamp = group.timeRange.start.seconds + baseOffset
-            guard timestamp.isFinite else { continue }
-
-            for item in group.items where item.commonKey == .commonKeyArtwork {
-                guard let data = try? await item.load(.dataValue) else {
-                    logger.debug("Failed to load artwork data item at offset \(timestamp)")
-                    continue
-                }
-                let title = (try? await group.items.first?.load(.stringValue)) ?? "Artwork"
-                results.append(ChapterArtwork(name: title, data: data, timestamp: timestamp))
-                break // One artwork per chapter group.
-            }
-        }
-
-        return results
-    }
-
-    private func loadChapterMetadataGroups(from asset: AVAsset) async -> [AVTimedMetadataGroup] {
-        do {
-            let locales = try await asset.load(.availableChapterLocales)
-            let locale = locales.first ?? Locale.current
-            return try await asset.loadChapterMetadataGroups(
-                withTitleLocale: locale,
-                containingItemsWithCommonKeys: []
-            )
-        } catch {
-            logger.error("Failed to load chapter metadata groups: \(error.localizedDescription)")
-            return []
-        }
     }
 
     private func saveArtwork(_ data: Data, withName name: String, in folderURL: URL) throws -> String {

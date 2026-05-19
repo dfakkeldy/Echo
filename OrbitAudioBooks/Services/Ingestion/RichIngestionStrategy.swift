@@ -68,7 +68,7 @@ struct RichIngestionStrategy: IngestionStrategy {
 
             // Extract image markers from the enhanced segment.
             if let markers = segment.markers {
-                for marker in markers where marker.type == "image" {
+                for marker in markers where marker.type == .image {
                     // Look for the referenced image file in the EPUB extracted assets.
                     let imageName = marker.payload
                     let imagePath = findImageAsset(named: imageName, in: folderURL)
@@ -150,15 +150,16 @@ struct RichIngestionStrategy: IngestionStrategy {
 
     // MARK: - Enhanced Transcript Loading
 
-    /// Lightweight decodable mirror of EnhancedTranscriptionSegment from the CLI tool.
-    /// Defined here to avoid depending on the OrbitEPUBAligner module at compile time.
+    /// Thin transport wrapper that extends the shared `EnhancedTranscriptionSegment`
+    /// with the `epubReference` and `epubSequenceIndex` fields carried by the
+    /// enhanced transcript JSON but not part of the canonical segment model.
     private struct EnhancedSegmentJSON: Codable {
         let text: String
         let startTime: TimeInterval
         let endTime: TimeInterval
         let epubReference: String?
         let epubSequenceIndex: Int?
-        let markers: [MarkerJSON]?
+        let markers: [SyncMarker]?
 
         enum CodingKeys: String, CodingKey {
             case text, startTime, endTime
@@ -166,11 +167,6 @@ struct RichIngestionStrategy: IngestionStrategy {
             case epubSequenceIndex = "epub_sequence_index"
             case markers
         }
-    }
-
-    private struct MarkerJSON: Codable {
-        let type: String
-        let payload: String
     }
 
     private func loadEnhancedSegments(from url: URL) throws -> [EnhancedSegmentJSON] {
