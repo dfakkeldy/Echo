@@ -35,14 +35,31 @@ public struct EPUBAlignmentPipeline {
 
         let (fullText, allMarkers, allFormats) = concatenateSpine(structure.spine)
 
-        let inputSegments = plainSegments.map {
-            EnhancedTranscriptionSegment(text: $0.text, startTime: $0.startTime, endTime: $0.endTime)
+        let inputSegments = plainSegments.enumerated().map { index, seg in
+            EnhancedTranscriptionSegment(
+                sequenceIndex: index,
+                text: seg.text,
+                startTime: seg.startTime,
+                endTime: seg.endTime
+            )
         }
 
         let alignmentResults = try await aligner.align(epubText: fullText, transcript: inputSegments)
         let enrichedAlignments = attachMarkersToAlignments(alignmentResults, markers: allMarkers)
 
-        return injector.inject(markers: allMarkers, alignments: enrichedAlignments, segments: inputSegments)
+        let merged = injector.inject(markers: allMarkers, alignments: enrichedAlignments, segments: inputSegments)
+
+        // Assign final monotonic sequence indices.
+        return merged.enumerated().map { index, segment in
+            EnhancedTranscriptionSegment(
+                sequenceIndex: index,
+                text: segment.text,
+                startTime: segment.startTime,
+                endTime: segment.endTime,
+                markers: segment.markers,
+                formatting: segment.formatting
+            )
+        }
     }
 
     // MARK: - Private helpers

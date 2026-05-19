@@ -102,9 +102,11 @@ struct TimelineTab: View {
     // MARK: - Private
 
     /// Tap on text/chapter items → seek playhead. Tap on media items → open.
+    /// Un-timestamped items (EPUB-only images, footnotes) do not seek.
     private func handleItemTap(_ item: TimelineItem) {
         switch item.itemType {
         case .textSegment, .chapterMarker, .bookmark:
+            guard item.audioStartTime >= 0 else { return } // un-timestamped, no-op
             model.seek(toSeconds: item.audioStartTime)
         case .imageAsset:
             if let path = item.imagePath, let url = URL(string: "file://\(path)") {

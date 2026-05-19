@@ -3,6 +3,70 @@ import Testing
 import ZIPFoundation
 @testable import OrbitEPUBAligner
 
+@Test func testUntimestampedItemsForEPUBOnlyContent() async throws {
+    // EPUB has an image between two paragraphs. The transcript only covers
+    // the text — the image has no corresponding audio.
+    // Pipeline should emit the image as an un-timestamped segment with
+    // nil startTime/endTime and a valid sequenceIndex.
+
+    let epubURL = try makeMinimalEPUB()
+
+    // Transcript covers "dark and stormy night" and "captain spoke" only.
+    // The <img> between them has no transcript equivalent.
+    let segments: [PlainSegment] = [
+        PlainSegment(text: "It was a dark and stormy night.", startTime: 0, endTime: 3),
+        PlainSegment(text: "The captain spoke quietly.", startTime: 3, endTime: 6),
+        PlainSegment(text: "The ship set sail at dawn.", startTime: 6, endTime: 9),
+        PlainSegment(text: "To the west!", startTime: 9, endTime: 12),
+    ]
+    let transcriptURL = try makeTempJSON(segments)
+
+    let pipeline = EPUBAlignmentPipeline()
+    let enhanced = try await pipeline.process(
+        epubPath: epubURL.path,
+        transcriptPath: transcriptURL.path
+    )
+
+    // ---- Assertions ----
+
+    // 1. Output is not empty
+    #expect(!enhanced.isEmpty)
+
+    // 2. Timestamped segments are present and have valid timestamps
+    let timestamped = enhanced.filter { $0.isTimestamped }
+    #expect(!timestamped.isEmpty)
+    for seg in timestamped {
+        #expect(seg.startTime != nil)
+        #expect(seg.endTime != nil)
+    }
+
+    // 3. At least one un-timestamped segment exists (the orphaned image marker)
+    let untimestamped = enhanced.filter { !$0.isTimestamped }
+    #expect(!untimestamped.isEmpty, "Expected at least one un-timestamped segment for EPUB-only content")
+
+    // 4. Un-timestamped segments have nil times and valid markers
+    for seg in untimestamped {
+        #expect(seg.startTime == nil)
+        #expect(seg.endTime == nil)
+        #expect(seg.markers != nil, "Un-timestamped segment should carry its source marker")
+    }
+
+    // 5. All segment IDs are based on sequenceIndex (not timestamps)
+    for seg in enhanced {
+        #expect(seg.id == "\(seg.sequenceIndex)")
+    }
+
+    // 6. Sequence indices are consecutive and cover the full range
+    let indices = enhanced.map(\.sequenceIndex).sorted()
+    #expect(indices.first == 0)
+    #expect(indices.last == enhanced.count - 1)
+    #expect(Set(indices).count == enhanced.count, "Sequence indices must be unique")
+
+    // 7. Timestamped segments are sorted by time
+    let timestamps = timestamped.compactMap { $0.startTime }
+    #expect(timestamps == timestamps.sorted())
+}
+
 @Test func testFullPipelineMinimalEPUB() async throws {
     let epubURL = try makeMinimalEPUB()
 

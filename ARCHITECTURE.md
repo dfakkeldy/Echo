@@ -318,3 +318,49 @@ The feed uses a physical, audio-anchored interaction model:
 
 **Follow state:** The feed auto-scrolls to track playback ("following"). When the user manually scrolls, follow mode disengages. A "Go to Now" floating button appears, and a 5-second tripwire re-engages follow mode if the user stops scrolling.
 
+### Sticky Anki Reviews
+
+Due Anki flashcards appear sequentially inline in the Timeline feed at their source timestamp (the moment in the audiobook where the card was created, or a scheduled review time). Their behavior is **sticky**:
+
+- When the user scrolls the feed and a due card is visible in the viewport, it "pins" to the top of the feed as a sticky header.
+- The sticky card remains fixed until the user either grades the card (Again / Hard / Good / Easy) or dismisses it.
+- Once reviewed, the card transitions to a completed state and the sticky header releases, allowing normal scroll to resume.
+- If multiple cards are due at the same timestamp, they stack sequentially in the sticky header.
+
+This design ensures reviews never scroll out of sight — they demand attention at the moment of consumption, mirroring the physical experience of a bookmark or note flagging a page.
+
+### Timeline Structural Zoom (3 Levels)
+
+The Timeline feed operates at three levels of structural depth, controlled by `TimelineScope`:
+
+| Level | Scope Case | Content Displayed | Use Case |
+|---|---|---|---|
+| **Book** (Library) | `.book` | Chapter markers only; no inline entries | Browsing the full book structure, jumping between chapters |
+| **Chapter** | `.chapter` | Segments nested under chapter section headers; bookmarks and flashcards grouped by chapter | Reviewing a chapter's worth of content at a glance |
+| **Transcription** (Sentence) | `.transcription` | Individual transcript sentences with word-level timestamps; all content types inline | Following along word-by-word, precise seeking, detailed review |
+
+The user cycles through these levels with the `TimelineHeaderView` cycle button. `GranularityLevel` (the database query filter) auto-adjusts based on playback speed — above 1.5× it switches to `.chapter` to reduce visual noise at high speed.
+
+### EPUB-to-Audio Data Model: Handling Mismatches
+
+The NLP alignment pipeline (`OrbitEPUBAligner`) compares the EPUB spine text against Whisper transcript JSON. When the EPUB contains content that has **no corresponding audio** — images, footnotes, skipped prose, tables, blockquotes — the pipeline preserves it rather than discarding it.
+
+**Un-timestamped items:**
+
+| Property | Timestamped Segment | Un-timestamped (EPUB-only) Block |
+|---|---|---|
+| `startTime` | `TimeInterval` (e.g. 12.5) | `nil` |
+| `endTime` | `TimeInterval` (e.g. 15.2) | `nil` |
+| `sequenceIndex` | Monotonic, shared with un-timestamped items | Monotonic, interleaved by EPUB position |
+| `markers` | `[SyncMarker]?` from alignment | Contains the source marker (`.image`, `.footnote`, etc.) |
+| `isTimestamped` | `true` | `false` |
+
+**Ordering:** Timestamped segments sort by `startTime`. Un-timestamped blocks sort by their source marker's `epubCharOffset`. The pipeline merges both into a single `[EnhancedTranscriptionSegment]` array, assigns consecutive `sequenceIndex` values, and writes the output as enhanced transcript JSON.
+
+**Feed behavior:**
+- **Tapping** a timestamped segment seeks the audio playhead to `startTime`.
+- **Tapping** an un-timestamped block (image, footnote) opens it in the system viewer — no seek occurs.
+- Both types render inline in correct EPUB reading order, preserving the author's intended structure even when the audiobook narration skips content.
+
+**Orphan threshold:** A marker is classified as "orphaned" (un-timestamped) when its `epubCharOffset` is more than 50 characters from the nearest alignment range boundary. This threshold prevents spurious un-timestamped items from minor alignment jitter while catching genuinely unmatched EPUB content.
+
