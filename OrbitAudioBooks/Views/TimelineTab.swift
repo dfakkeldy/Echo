@@ -3,7 +3,7 @@ import UIKit
 
 struct TimelineTab: View {
     @Environment(PlayerModel.self) private var model
-    @State private var timeScale: TimeScale = .minutes
+    @State private var timelineScope: TimelineScope = .chapter
     @State private var dueCount: Int = 0
     @State private var feedViewModel: TimelineFeedViewModel?
     @State private var isFollowingPlayback = true
@@ -15,7 +15,7 @@ struct TimelineTab: View {
     var body: some View {
         VStack(spacing: 0) {
             TimelineHeaderView(
-                timeScale: $timeScale,
+                scope: $timelineScope,
                 onRecenterNow: {
                     feedViewModel?.goToNow()
                 }
@@ -24,6 +24,8 @@ struct TimelineTab: View {
             Divider()
 
             DashboardShelf(onReviewTap: onReviewTap)
+
+            SpeedSuggestionBanner()
 
             if dueCount > 0 {
                 dueReviewBanner
@@ -38,6 +40,12 @@ struct TimelineTab: View {
                         isFollowingPlayback: isFollowingPlayback,
                         onUserScrolled: {
                             viewModel.userDidScroll()
+                        },
+                        onItemTapped: { item in
+                            handleItemTap(item)
+                        },
+                        onContextMenuAction: { item in
+                            handleContextMenu(item)
                         }
                     )
 
@@ -92,6 +100,27 @@ struct TimelineTab: View {
     }
 
     // MARK: - Private
+
+    /// Tap on text/chapter items → seek playhead. Tap on media items → open.
+    private func handleItemTap(_ item: TimelineItem) {
+        switch item.itemType {
+        case .textSegment, .chapterMarker, .bookmark:
+            model.seek(toSeconds: item.audioStartTime)
+        case .imageAsset:
+            if let path = item.imagePath, let url = URL(string: "file://\(path)") {
+                UIApplication.shared.open(url)
+            }
+        case .ankiCard:
+            onReviewTap?()
+        }
+    }
+
+    /// Long-press context menu → edit the item.
+    private func handleContextMenu(_ item: TimelineItem) {
+        // Editing is delegated upward; for now, seek to the item's timestamp
+        // as a reasonable default action (user can edit from there).
+        model.seek(toSeconds: item.audioStartTime)
+    }
 
     private var dueReviewBanner: some View {
         Button {

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct PlaylistTimelineView: View {
     @Environment(PlayerModel.self) private var model
-    let timeScale: TimeScale
+    let timeScale: TimelineScope
 
     @State private var service: PlaybackTimelineService?
 
@@ -30,7 +30,7 @@ struct PlaylistTimelineView: View {
 
                                 if timeScale.showsEntries {
                                     let visibleCards = section.cards.filter { card in
-                                        timeScale == .seconds || card.cardType.isSummaryItem
+                                        timeScale == .transcription || card.cardType.isSummaryItem
                                     }
                                     ForEach(visibleCards) { card in
                                         TimelineContentCard(

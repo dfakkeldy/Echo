@@ -19,7 +19,7 @@ final class TimelineService {
     // MARK: - Published state
 
     private(set) var groups: [TimelineGroup] = []
-    private(set) var timeScale: TimeScale = .minutes
+    private(set) var timeScale: TimelineScope = .chapter
     private(set) var isLoadingEarlier: Bool = false
     private(set) var isLoadingLater: Bool = false
     private(set) var isViewingMode: Bool = true
@@ -63,7 +63,7 @@ final class TimelineService {
         loadCurrentWindow(force: true)
     }
 
-    func setTimeScale(_ scale: TimeScale) {
+    func setTimeScale(_ scale: TimelineScope) {
         guard scale != timeScale else { return }
         timeScale = scale
         adjustViewportForScale()

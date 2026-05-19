@@ -1,51 +1,48 @@
 import Foundation
 
-enum TimeScale: String, CaseIterable, Identifiable {
-    case seconds
-    case minutes
-    case hours
-    case days
+/// Structural zoom level for the unified Timeline feed.
+/// Represents depth of detail: from the library shelf down to individual words.
+enum TimelineScope: String, CaseIterable, Identifiable {
+    case book
+    case chapter
+    case transcription
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .seconds: String(localized: "Sec")
-        case .minutes: String(localized: "Min")
-        case .hours:   String(localized: "Hr")
-        case .days:    String(localized: "Day")
+        case .book:          String(localized: "Book")
+        case .chapter:       String(localized: "Ch")
+        case .transcription: String(localized: "Trans")
         }
     }
 
     var menuLabel: String {
         switch self {
-        case .seconds: String(localized: "Seconds")
-        case .minutes: String(localized: "Minutes")
-        case .hours:   String(localized: "Hours")
-        case .days:    String(localized: "Days")
+        case .book:          String(localized: "Book")
+        case .chapter:       String(localized: "Chapter")
+        case .transcription: String(localized: "Transcription")
         }
     }
 
     var calendarComponent: Calendar.Component {
         switch self {
-        case .seconds: .second
-        case .minutes: .minute
-        case .hours:   .hour
-        case .days:    .day
+        case .book:          .day
+        case .chapter:       .hour
+        case .transcription: .minute
         }
     }
 
-    /// The duration of one bucket at this scale, in seconds (approximate).
+    /// The duration of one bucket at this scope, in seconds (approximate).
     var bucketDuration: TimeInterval {
         switch self {
-        case .seconds: 1
-        case .minutes: 60
-        case .hours:   3600
-        case .days:    86400
+        case .book:          86400
+        case .chapter:       3600
+        case .transcription: 60
         }
     }
 
-    /// Group cards into time buckets at this scale.
+    /// Group cards into time buckets at this scope.
     func group(_ cards: [ContentCard], calendar: Calendar = .current) -> [TimelineGroup] {
         guard !cards.isEmpty else { return [] }
         var groups: [Date: [ContentCard]] = [:]
@@ -62,26 +59,26 @@ enum TimeScale: String, CaseIterable, Identifiable {
             .sorted { $0.timestamp < $1.timestamp }
     }
 
-    /// Format a timestamp for display at this scale.
+    /// Format a timestamp for display at this scope.
     func format(_ date: Date) -> String {
         let fmt = DateFormatter()
         switch self {
-        case .seconds: fmt.dateFormat = "HH:mm:ss"
-        case .minutes: fmt.dateFormat = "HH:mm"
-        case .hours:   fmt.dateFormat = "HH:00"
-        case .days:    fmt.dateFormat = "MMM d"
+        case .book:          fmt.dateFormat = "MMM d"
+        case .chapter:       fmt.dateFormat = "HH:00"
+        case .transcription: fmt.dateFormat = "HH:mm"
         }
         return fmt.string(from: date)
     }
 }
 
-extension TimeScale {
+extension TimelineScope {
     /// Whether this zoom level should show individual entries (transcripts,
     /// bookmarks, etc.) nested under chapter sections.
     var showsEntries: Bool {
         switch self {
-        case .seconds, .minutes: return true
-        case .hours, .days: return false
+        case .book:          false
+        case .chapter:       true
+        case .transcription: true
         }
     }
 }

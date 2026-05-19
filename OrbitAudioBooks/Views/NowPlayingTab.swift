@@ -4,7 +4,6 @@ struct NowPlayingTab: View {
     @Binding var showingPlaylist: Bool
     @Binding var newBookmarkDraft: BookmarkDraft?
     @Binding var editingBookmarkID: UUID?
-    @Binding var isTranscriptExpanded: Bool
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
 
@@ -12,21 +11,19 @@ struct NowPlayingTab: View {
         VStack(alignment: .leading, spacing: 16) {
             ZStack {
                 VStack(alignment: .leading, spacing: 16) {
-                    TranscriptOverlayView(isExpanded: $isTranscriptExpanded) {
-                        AlbumArtHeroView(
-                            artwork: model.currentDisplayArtwork ?? model.thumbnailImage,
-                            artworkVersion: model.currentDisplayArtworkVersion,
-                            caption: model.chapters.count >= 2
-                                ? String(localized: "Current Chapter")
-                                : String(localized: "Book Title"),
-                            mainText: model.chapters.count >= 2
-                                ? (model.currentSubtitle.isEmpty
-                                    ? String(localized: "Chapter \((model.currentChapterIndex ?? 0) + 1)")
-                                    : model.currentSubtitle)
-                                : model.currentTitle,
-                            appFont: settings.appFont
-                        )
-                    }
+                    AlbumArtHeroView(
+                        artwork: model.currentDisplayArtwork ?? model.thumbnailImage,
+                        artworkVersion: model.currentDisplayArtworkVersion,
+                        caption: model.chapters.count >= 2
+                            ? String(localized: "Current Chapter")
+                            : String(localized: "Book Title"),
+                        mainText: model.chapters.count >= 2
+                            ? (model.currentSubtitle.isEmpty
+                                ? String(localized: "Chapter \((model.currentChapterIndex ?? 0) + 1)")
+                                : model.currentSubtitle)
+                            : model.currentTitle,
+                        appFont: settings.appFont
+                    )
 
                     Spacer()
 

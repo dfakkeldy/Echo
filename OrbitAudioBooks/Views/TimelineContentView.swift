@@ -5,7 +5,7 @@ import SwiftUI
 struct TimelineContentView: View {
     @Environment(PlayerModel.self) private var model
     @Binding var isEditing: Bool
-    let timeScale: TimeScale
+    let timeScale: TimelineScope
     var recenterTrigger: Int = 0
 
     @State private var realTimeService: TimelineService?

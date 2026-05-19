@@ -14,10 +14,8 @@ struct RootTabView: View {
     @State private var showingHelp = false
     @State private var newBookmarkDraft: BookmarkDraft? = nil
     @State private var editingBookmarkID: UUID? = nil
-    @State private var isTranscriptExpanded = false
     @State private var showingReview = false
     @State private var reviewViewModel: DailyReviewViewModel?
-    @State private var reviewDueCount = 0
 
     init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
         _pendingDeepLink = pendingDeepLink
@@ -29,8 +27,7 @@ struct RootTabView: View {
                 NowPlayingTab(
                     showingPlaylist: $showingPlaylist,
                     newBookmarkDraft: $newBookmarkDraft,
-                    editingBookmarkID: $editingBookmarkID,
-                    isTranscriptExpanded: $isTranscriptExpanded
+                    editingBookmarkID: $editingBookmarkID
                 )
                 .tabItem {
                     Label("Now Playing", systemImage: "play.circle")
@@ -42,27 +39,6 @@ struct RootTabView: View {
                         Label("Timeline", systemImage: "rectangle.split.2x1")
                     }
                     .tag(1)
-
-                LibraryTab()
-                    .tabItem {
-                        Label("Library", systemImage: "books.vertical")
-                    }
-                    .tag(2)
-
-                PlannerTab()
-                    .tabItem {
-                        Label("Planner", systemImage: "calendar")
-                    }
-                    .tag(3)
-
-                if reviewDueCount > 0 {
-                    Color.clear
-                        .tabItem {
-                            Label("Review", systemImage: "rectangle.stack.fill")
-                        }
-                        .badge(reviewDueCount)
-                        .tag(4)
-                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -134,13 +110,6 @@ struct RootTabView: View {
                 model.setDisplayScale(displayScale)
                 model.restoreLastSelectionIfPossible()
                 applyPendingDeepLinkIfNeeded()
-                refreshDueCount()
-            }
-            .onChange(of: selectedTab) { _, newTab in
-                if newTab == 4 {
-                    launchReview()
-                    selectedTab = 0
-                }
             }
             .onChange(of: pendingDeepLink) { _, _ in
                 applyPendingDeepLinkIfNeeded()
@@ -161,11 +130,6 @@ struct RootTabView: View {
         vm.loadDueCards()
         reviewViewModel = vm
         showingReview = true
-    }
-
-    private func refreshDueCount() {
-        guard let db = model.databaseService else { return }
-        reviewDueCount = (try? FlashcardDAO(db: db.writer).allDueCards().count) ?? 0
     }
 
     private func applyPendingDeepLinkIfNeeded() {

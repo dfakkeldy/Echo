@@ -10,6 +10,12 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     var onUserScrolled: () -> Void
     var scrollToPosition: ((TimeInterval) -> Void)?
 
+    /// Called when the user taps a feed item. The parent should seek audio for
+    /// text/chapter items, or present media for image/Anki items.
+    var onItemTapped: ((TimelineItem) -> Void)?
+    /// Called on long-press / context-menu to edit the item.
+    var onContextMenuAction: ((TimelineItem) -> Void)?
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -82,6 +88,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         var lookup: [String: TimelineItem] = [:]
         for item in items { lookup[item.id] = item }
         context.coordinator.itemLookup = lookup
+        context.coordinator.currentPosition = currentPosition
 
         context.coordinator.dataSource.apply(snapshot, animatingDifferences: false)
         context.coordinator.currentItems = displayItems
@@ -123,6 +130,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         var currentItems: [String] = []
         var itemLookup: [String: TimelineItem] = [:]
         var gapLookup: [String: TimeInterval] = [:]
+        var currentPosition: TimeInterval = 0
         private var isProgrammaticScroll = false
 
         lazy var dataSource: UICollectionViewDiffableDataSource<Int, String> = {
@@ -190,17 +198,18 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         }
 
         private func configure(cell: UICollectionViewCell, with item: TimelineItem) {
+            let isHistory = item.effectivePosition < currentPosition
             switch cell {
             case let c as TextSegmentCell:
-                c.configure(item)
+                c.configure(item, isHistory: isHistory)
             case let c as ChapterMarkerCell:
-                c.configure(item)
+                c.configure(item, isHistory: isHistory)
             case let c as ImageAssetCell:
-                c.configure(item)
+                c.configure(item, isHistory: isHistory)
             case let c as BookmarkCell:
-                c.configure(item)
+                c.configure(item, isHistory: isHistory)
             case let c as AnkiCardCell:
-                c.configure(item)
+                c.configure(item, isHistory: isHistory)
             default:
                 break
             }
@@ -211,6 +220,46 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             guard !isProgrammaticScroll else { return }
             parent?.onUserScrolled()
+        }
+
+        // MARK: - Item Selection (Tap)
+
+        func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+            guard let identifier = currentItems[safe: indexPath.item],
+                  let item = itemLookup[identifier] else { return }
+            parent?.onItemTapped?(item)
+        }
+
+        // MARK: - Context Menu (Long Press)
+
+        func collectionView(_ collectionView: UICollectionView,
+                            contextMenuConfigurationForItemAt indexPath: IndexPath,
+                            point: CGPoint) -> UIContextMenuConfiguration? {
+            guard let identifier = currentItems[safe: indexPath.item],
+                  let item = itemLookup[identifier] else { return nil }
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+                let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
+                    self.parent?.onContextMenuAction?(item)
+                }
+                return UIMenu(title: item.title, children: [edit])
+            }
+        }
+
+        // MARK: - Active Item Highlighting
+
+        /// Finds the item whose time range contains `position` and highlights it.
+        func updateActiveHighlight(position: TimeInterval) {
+            guard let cv = collectionView else { return }
+            for (index, identifier) in currentItems.enumerated() {
+                guard let item = itemLookup[identifier] else { continue }
+                let isActive = position >= item.audioStartTime
+                    && (item.audioEndTime.map { position < $0 } ?? true)
+                if isActive, let cell = cv.cellForItem(at: IndexPath(item: index, section: 0)) as? TextSegmentCell {
+                    cell.setActive(true)
+                } else if let cell = cv.cellForItem(at: IndexPath(item: index, section: 0)) as? TextSegmentCell {
+                    cell.setActive(false)
+                }
+            }
         }
 
         // MARK: - Programmatic Scroll
@@ -317,9 +366,10 @@ final class TextSegmentCell: UICollectionViewCell {
         ])
     }
 
-    func configure(_ item: TimelineItem) {
+    func configure(_ item: TimelineItem, isHistory: Bool = false) {
         label.text = item.textPayload ?? item.title
         timestampLabel.text = formatHMS(item.audioStartTime)
+        contentView.alpha = isHistory ? 0.65 : 1.0
     }
 
     func setActive(_ active: Bool) {
@@ -391,13 +441,14 @@ final class ChapterMarkerCell: UICollectionViewCell {
         ])
     }
 
-    func configure(_ item: TimelineItem) {
+    func configure(_ item: TimelineItem, isHistory: Bool = false) {
         titleLabel.text = item.title
         if let subtitle = item.subtitle {
             durationLabel.text = subtitle
         } else {
             durationLabel.text = formatHMS(item.audioStartTime)
         }
+        contentView.alpha = isHistory ? 0.65 : 1.0
     }
 
     private func formatHMS(_ interval: TimeInterval) -> String {
@@ -454,7 +505,7 @@ final class ImageAssetCell: UICollectionViewCell {
         ])
     }
 
-    func configure(_ item: TimelineItem) {
+    func configure(_ item: TimelineItem, isHistory: Bool = false) {
         captionLabel.text = item.title
         if let path = item.imagePath,
            let image = UIImage(contentsOfFile: path) {
@@ -463,6 +514,7 @@ final class ImageAssetCell: UICollectionViewCell {
         } else {
             assetImageView.isHidden = true
         }
+        contentView.alpha = isHistory ? 0.65 : 1.0
     }
 }
 
@@ -528,11 +580,12 @@ final class BookmarkCell: UICollectionViewCell {
         ])
     }
 
-    func configure(_ item: TimelineItem) {
+    func configure(_ item: TimelineItem, isHistory: Bool = false) {
         titleLabel.text = item.title
         noteLabel.text = item.subtitle
         noteLabel.isHidden = item.subtitle?.isEmpty ?? true
         timestampLabel.text = formatHMS(item.audioStartTime)
+        contentView.alpha = isHistory ? 0.65 : 1.0
     }
 
     private func formatHMS(_ interval: TimeInterval) -> String {
@@ -608,11 +661,12 @@ final class AnkiCardCell: UICollectionViewCell {
         ])
     }
 
-    func configure(_ item: TimelineItem) {
+    func configure(_ item: TimelineItem, isHistory: Bool = false) {
         frontLabel.text = item.title
         backLabel.text = item.subtitle
         backLabel.isHidden = item.subtitle?.isEmpty ?? true
         timestampLabel.text = formatHMS(item.audioStartTime)
+        contentView.alpha = isHistory ? 0.65 : 1.0
     }
 
     private func formatHMS(_ interval: TimeInterval) -> String {
@@ -703,5 +757,11 @@ private extension UIFont {
     func bold() -> UIFont {
         guard let descriptor = fontDescriptor.withSymbolicTraits(.traitBold) else { return self }
         return UIFont(descriptor: descriptor, size: pointSize)
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-05-19 08:54:53
+**Last generated:** 2026-05-19 (updated: 2-tab refactor)
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Orbit Audiobooks project. Folders are shown in the order
@@ -26,7 +26,7 @@ Models/PlayerDeepLink.swift
 Models/RealTimeEvent.swift
 Models/SpeedSuggestion.swift
 Models/TimelineGroup.swift
-Models/TimeScale.swift
+Models/TimelineScope.swift
 Models/Track.swift
 Orbit_AudioBooksApp.swift
 OrbitAudioBooks.entitlements
@@ -65,13 +65,11 @@ Views/Components/AlbumArtHeroView.swift
 Views/Components/TranscriptOverlayView.swift
 Views/Components/WordCloudView.swift
 Views/ContentCardEditor.swift
-Views/ContentView.swift
 Views/DashboardShelf.swift
 Views/FlashcardReviewCard.swift
 Views/FlashcardReviewSession.swift
 Views/HelpContent.swift
 Views/HelpView.swift
-Views/LibraryTab.swift
 Views/ListeningProgressModuleView.swift
 Views/NoteEditorView.swift
 Views/NowLineView.swift
@@ -269,4 +267,54 @@ TimelineTab
 - `EnhancedTranscriptionSegment` — Whisper segment with optional `SyncMarker` array
 - `SyncMarker` — EPUB structural marker (chapter start, image, blockquote, etc.)
 - `MediaPlayable` — Protocol for timeline-renderable items (forward-looking for video)
+
+### UI Architecture (2-Tab)
+
+The iOS app uses a strict 2-tab layout managed by `RootTabView`:
+
+```
+RootTabView
+├── Tab 0: NowPlayingTab   ← pure media consumption (album art, scrubber, transport)
+└── Tab 1: TimelineTab     ← unified library + feed + planner + review
+```
+
+**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, `TransportControlsView`, and the bottom toolbar. Transcript overlays were removed — transcript interaction now lives in the Timeline feed.
+
+**TimelineTab** consolidates the former Library, Planner, and standalone Review tabs into a single unified feed:
+
+```
+TimelineTab
+├── TimelineHeaderView        ← TimelineScope zoom control + "Go to Now"
+├── DashboardShelf            ← stats, speed, sleep timer, review count, progress
+├── SpeedSuggestionBanner     ← real-time completion projection (moved from Planner)
+├── dueReviewBanner           ← pending flashcard count with tap-to-review
+└── TimelineFeedCollectionView ← UICollectionView-backed dual-path feed
+```
+
+### TimelineScope (Structural Zoom)
+
+`TimelineScope` (formerly `TimeScale`) controls the feed's structural depth. The user cycles through three levels:
+
+| Scope | Label | Behavior |
+|---|---|---|
+| `.book` | "Book" | Library-level — shows chapter markers only, no inline entries |
+| `.chapter` | "Ch" | Chapter-level — shows segments nested under chapter sections |
+| `.transcription` | "Trans" | Finest granularity — individual transcript sentences with timestamps |
+
+Contrast with `GranularityLevel` (database-side enum: `.chapter`, `.paragraph`, `.sentence`, `.word`) — `TimelineScope` is the user-facing zoom control, while `GranularityLevel` is the query-level filter that also auto-adjusts based on playback speed (>1.5× → chapter-level).
+
+### Timeline Interaction Model
+
+The feed uses a physical, audio-anchored interaction model:
+
+| Gesture | Target | Action |
+|---|---|---|
+| **Tap** | Text segment / chapter marker / bookmark | Seek playhead to `item.audioStartTime` |
+| **Tap** | Image asset | Open image in system viewer |
+| **Tap** | Anki card | Launch flashcard review session |
+| **Long press** | Any feed item | Context menu with "Edit" action |
+
+**Now Line demarcation:** The feed is split at the current playback position. Items *above* (before) the playhead represent history — listened segments, completed reviews — and render at reduced opacity (0.65). Items *below* (after) the playhead represent future content at full opacity. The active item (whose time range contains `currentPosition`) is highlighted with a blue leading bar.
+
+**Follow state:** The feed auto-scrolls to track playback ("following"). When the user manually scrolls, follow mode disengages. A "Go to Now" floating button appears, and a 5-second tripwire re-engages follow mode if the user stops scrolling.
 

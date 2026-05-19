@@ -19,7 +19,7 @@ final class PlaybackTimelineService {
     // MARK: - Published state
 
     private(set) var chapterSections: [ChapterSection] = []
-    private(set) var timeScale: TimeScale = .minutes
+    private(set) var timeScale: TimelineScope = .chapter
 
     // MARK: - Dependencies
 
@@ -29,7 +29,7 @@ final class PlaybackTimelineService {
         self.db = databaseService
     }
 
-    func setTimeScale(_ scale: TimeScale) {
+    func setTimeScale(_ scale: TimelineScope) {
         guard scale != timeScale else { return }
         timeScale = scale
         loadContent()

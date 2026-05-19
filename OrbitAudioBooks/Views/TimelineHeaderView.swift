@@ -3,7 +3,7 @@ import SwiftUI
 /// Header for the Timeline (playlist-time) tab — scale cycle and recenter only.
 /// Mode switching and editing toggles live in the Planner tab header.
 struct TimelineHeaderView: View {
-    @Binding var timeScale: TimeScale
+    @Binding var scope: TimelineScope
     let onRecenterNow: () -> Void
 
     var body: some View {
@@ -30,25 +30,25 @@ struct TimelineHeaderView: View {
         Button {
             cycleScale()
         } label: {
-            Label(timeScale.label, systemImage: "clock.arrow.2.circlepath")
+            Label(scope.label, systemImage: "clock.arrow.2.circlepath")
                 .font(.caption)
                 .fontWeight(.medium)
         }
         .buttonStyle(.bordered)
         .contextMenu {
-            ForEach(TimeScale.allCases) { scale in
+            ForEach(TimelineScope.allCases) { s in
                 Button {
-                    timeScale = scale
+                    scope = s
                 } label: {
-                    Label(scale.menuLabel, systemImage: scale == timeScale ? "checkmark" : "")
+                    Label(s.menuLabel, systemImage: s == scope ? "checkmark" : "")
                 }
             }
         }
     }
 
     private func cycleScale() {
-        let all = TimeScale.allCases
-        guard let idx = all.firstIndex(of: timeScale) else { return }
-        timeScale = all[(idx + 1) % all.count]
+        let all = TimelineScope.allCases
+        guard let idx = all.firstIndex(of: scope) else { return }
+        scope = all[(idx + 1) % all.count]
     }
 }

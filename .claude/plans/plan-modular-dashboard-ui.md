@@ -1,22 +1,23 @@
-# Plan: Modular Dashboard UI & Transcript Optimization — RESCOPED (2026-05-18)
+# Plan: Modular Dashboard UI & Timeline Refactor — RESCOPED (2026-05-19)
 
 **Original scope:** LazyVGrid of configurable, toggleable, draggable module tiles with a `DashboardModule` protocol.
 
-**Reality:** The UI took a different direction — tab-based navigation with a Timeline + horizontal DashboardShelf. The original grid/protocol design was replaced. This plan now reflects what was actually built and what genuinely remains.
+**Reality:** The UI took a different direction — tab-based navigation with a Timeline + horizontal DashboardShelf. The original grid/protocol design was replaced. This plan now reflects what was actually built and what genuinely remains. **2026-05-19 update:** Major UI simplification — consolidated to strict 2-tab architecture.
 
 ## What Was Built (replaces original plan)
 
 ### Tab Navigation
-- **`RootTabView.swift`** — 3-tab container (Now Playing, Timeline, Library) with toolbar buttons for folder picker, help, and settings. Handles deep links and StoreKit product requests.
-- **`NowPlayingTab.swift`** — Main player UI: album art hero, chapter/track indicator, scrubber, transport controls, voice memo overlay, bottom toolbar. The traditional player experience.
-- **`TimelineTab.swift`** — Timeline scroll view + `DashboardShelf` horizontal strip. Creates a `TimelineService` on appear, binds to time scale and timeline mode (real-time vs. playlist-time) changes.
-- **`LibraryTab.swift`** — **STUB ONLY.** Shows `ContentUnavailableView` placeholder. Needs real implementation.
+- **`RootTabView.swift`** — Strict **2-tab** container (Now Playing, Timeline) with toolbar buttons for folder picker, help, and settings. Library and Planner tabs removed; their functionality merged into the Timeline feed. Handles deep links, StoreKit product requests, and flashcard review sheet presentation.
+- **`NowPlayingTab.swift`** — Pure consumption UI: `AlbumArtHeroView` at top (no transcript overlay wrapper), chapter/track indicator, scrubber, transport controls, voice memo overlay, bottom toolbar. Transcript interaction moved to Timeline feed.
+- **`TimelineTab.swift`** — Unified feed replacing former Library, Planner, and standalone Review tabs. Contains `DashboardShelf`, `SpeedSuggestionBanner` (moved from Planner), `dueReviewBanner`, and the `TimelineFeedCollectionView` feed.
+- **DELETED:** `LibraryTab.swift`, `PlannerTab.swift`, `ContentView.swift` (duplicate of NowPlayingTab).
 
 ### Dashboard Shelf
-- **`DashboardShelf.swift`** — Collapsible horizontal `ScrollView` with 3 stat cards. Toggled by a chevron button. Lives inside TimelineTab.
+- **`DashboardShelf.swift`** — Collapsible horizontal `ScrollView` with 6 module cards: Stats, Speed, SleepTimer, UpcomingReviews, ListeningProgress, Bookmarks. Toggled by a chevron button. Lives inside TimelineTab.
 - **`StatsModuleView.swift`** — "Today" card showing listened duration vs. total.
 - **`UpcomingReviewsModuleView.swift`** — "Reviews Due" card querying `FlashcardDAO.allDueCards()`.
 - **`ListeningProgressModuleView.swift`** — "Progress" card showing percentage through current title.
+- **`SpeedCardView.swift`**, **`SleepTimerCardView.swift`**, **`BookmarkCardView.swift`** — Additional shelf modules.
 
 ### Timeline (not in original plan)
 - **`TimelineContentView.swift`** — Lazy-loaded vertical scroll of `TimelineGroup` cards with `NowLineView` for current position, "load earlier"/"load later" infinite scroll triggers, and `ScrollViewReader`-based "Recenter on Now" support.
@@ -27,27 +28,31 @@
 
 ### Supporting Models & Services
 - **`TimelineService.swift`** — Groups timeline items by time scale, handles pagination.
-- **`Models/TimelineGroup.swift`**, **`Models/ContentCard.swift`**, **`Models/TimeScale.swift`**, **`Models/RealTimeEvent.swift`** — Timeline data types.
+- **`Models/TimelineGroup.swift`**, **`Models/ContentCard.swift`**, **`Models/TimelineScope.swift`** (renamed from `TimeScale`), **`Models/RealTimeEvent.swift`** — Timeline data types.
 - **`Models/Note.swift`**, **`Models/PlannedSession.swift`**, **`Models/SpeedSuggestion.swift`** — Content card subtypes.
 - **`Views/ContentCardEditor.swift`**, **`Views/NoteEditorView.swift`**, **`Views/SchedulingSheet.swift`**, **`Views/SpeedSuggestionBanner.swift`** — Editing/scheduling UI.
 - **`Views/FlashcardReviewCard.swift`**, **`Views/FlashcardReviewSession.swift`** — Flashcard review views.
 
+### TimelineScope (renamed from TimeScale)
+Structural zoom levels for the unified feed: `.book` (library/chapter markers only), `.chapter` (segments under chapter sections), `.transcription` (sentence-level transcript). Managed by `TimelineHeaderView` cycle button.
+
+### Feed Interaction Model
+- **Tap** text/chapter/bookmark items → seek playhead to `audioStartTime`
+- **Tap** image assets → open in system viewer
+- **Tap** Anki cards → launch review session
+- **Long press** any item → context menu with Edit action
+- **Now Line** demarcation: history items rendered at reduced opacity; active item highlighted with blue bar
+
 ## Remaining Gaps
 
-### 1. LibraryTab — needs real implementation
-Currently a `ContentUnavailableView` stub. Should show:
-- Recently played audiobooks
-- Browse by author/title
-- Imported playlist manifests (post-PLIST plan)
-- Storage usage stats
+### 1. Library-as-TimelineScope.book
+The library now lives inside the Timeline feed at the `.book` scope level. Currently `TimelineScope.book` shows chapter markers; needs full library browsing (all audiobooks, recently played, storage stats) when no audiobook is loaded.
 
 ### 2. Transcript visibility optimization
-The original plan's core optimization: tie `TranscriptionManager` processing to whether transcript-dependent views are visible. Currently `TranscriptOverlayView` is embedded directly in `NowPlayingTab` — no lazy processing gate. This saves CPU/battery when the user isn't looking at transcript data.
+Transcript overlay removed from `NowPlayingTab`. Processing now tied to Timeline feed visibility — `isTranscriptProcessingEnabled` managed by TimelineTab's appear/disappear, saving CPU/battery when user is on Now Playing tab.
 
-### 3. Dashboard shelf module expansion
-Only 3 mini-cards exist. Natural additions that fit the horizontal-shelf pattern:
-- **SleepTimerCard** — countdown display when timer is active
-- **BookmarkCard** — recent bookmark count / quick-add
+### 3. Dashboard shelf — completed
+The original 3-card limitation is resolved. The shelf now contains 6 modules: Stats, Speed, SleepTimer, UpcomingReviews, ListeningProgress, Bookmarks. Additional cards can follow the same pattern.
 - **SpeedCard** — current speed with tap-to-cycle
 
 ### 4. Chapter time block visualization
