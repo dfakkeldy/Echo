@@ -78,6 +78,9 @@ final class DatabaseService {
         migrator.registerMigration("v3_missing_indexes") { db in
             try Schema_V3.migrate(db)
         }
+        migrator.registerMigration("v4_materialized_timeline") { db in
+            try Schema_V4.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 

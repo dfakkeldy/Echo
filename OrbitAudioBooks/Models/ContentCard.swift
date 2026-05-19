@@ -9,6 +9,7 @@ enum ContentCardType: String, Codable {
     case plannedSession
     case voiceMemo
     case chapterTransition
+    case imageAsset
 }
 
 struct ContentCard: Identifiable, Equatable, PlaybackTimelineItem {
@@ -54,24 +55,23 @@ struct ContentCard: Identifiable, Equatable, PlaybackTimelineItem {
 extension ContentCard {
     init(from item: TimelineItem) {
         let cardType: ContentCardType = switch item.itemType {
-        case .track: .playbackSession
-        case .chapter: .chapterTransition
+        case .textSegment: .transcription
+        case .chapterMarker: .chapterTransition
+        case .imageAsset: .imageAsset
         case .bookmark: .bookmark
-        case .flashcard: .flashcard
-        case .transcription: .transcription
-        case .note: .note
+        case .ankiCard: .flashcard
         }
         self.init(
             id: item.id,
             cardType: cardType,
             title: item.title,
             subtitle: item.subtitle,
-            mediaTimestamp: item.mediaTimestamp,
+            mediaTimestamp: item.audioStartTime,
             realTimestamp: Date(),
             endedAt: nil,
-            sourceItemID: item.databaseID,
+            sourceItemID: item.id,
             sourceItemType: item.itemType.rawValue,
-            isEditable: cardType == .note || cardType == .bookmark
+            isEditable: cardType == .bookmark || cardType == .note
         )
     }
 
@@ -105,7 +105,7 @@ extension ContentCardType {
     /// Items that should appear at all zoom levels (chapters view + entries view).
     var isSummaryItem: Bool {
         switch self {
-        case .bookmark, .flashcard, .note: return true
+        case .bookmark, .flashcard, .note, .imageAsset: return true
         default: return false
         }
     }

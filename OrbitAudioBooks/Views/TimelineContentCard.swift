@@ -96,6 +96,8 @@ struct TimelineContentCard: View {
             Image(systemName: "mic.fill")
         case .chapterTransition:
             Image(systemName: "forward.end.fill")
+        case .imageAsset:
+            Image(systemName: "photo.fill")
         }
     }
 
@@ -117,6 +119,8 @@ struct TimelineContentCard: View {
             Color.red.opacity(0.08)
         case .chapterTransition:
             Color.gray.opacity(0.06)
+        case .imageAsset:
+            Color.teal.opacity(0.08)
         }
     }
 

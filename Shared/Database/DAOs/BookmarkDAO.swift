@@ -3,6 +3,7 @@ import GRDB
 
 struct BookmarkDAO {
     let db: DatabaseWriter
+    var timelineDAO: TimelineDAO? = nil
 
     func bookmarks(for audiobookID: String) throws -> [BookmarkRecord] {
         try db.read { db in
@@ -19,17 +20,27 @@ struct BookmarkDAO {
 
     func insert(_ bookmark: BookmarkRecord) throws {
         var bm = bookmark
-        try db.write { db in try bm.insert(db) }
+        try db.write { db in
+            try bm.insert(db)
+            try syncToTimeline(db, bookmark: bm)
+        }
     }
 
     func update(_ bookmark: BookmarkRecord) throws {
         var bm = bookmark
-        try db.write { db in try bm.save(db) }
+        try db.write { db in
+            try bm.save(db)
+            try syncToTimeline(db, bookmark: bm)
+        }
     }
 
     func delete(id: String) throws {
         try db.write { db in
             try BookmarkRecord.deleteOne(db, key: id)
+            try TimelineItem
+                .filter(Column("source_table") == "bookmark")
+                .filter(Column("source_rowid") == id)
+                .deleteAll(db)
         }
     }
 
@@ -37,6 +48,10 @@ struct BookmarkDAO {
         try db.write { db in
             try BookmarkRecord
                 .filter(Column("audiobook_id") == audiobookID)
+                .deleteAll(db)
+            try TimelineItem
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("source_table") == "bookmark")
                 .deleteAll(db)
         }
     }
@@ -47,5 +62,31 @@ struct BookmarkDAO {
                 .filter(Column("audiobook_id") == audiobookID)
                 .fetchCount(db)
         }
+    }
+
+    private func syncToTimeline(_ db: Database, bookmark: BookmarkRecord) throws {
+        guard let id = bookmark.id else { return }
+        let item = TimelineItem(
+            id: "bookmark-\(id)",
+            audiobookID: bookmark.audiobookID,
+            itemType: .bookmark,
+            title: bookmark.title,
+            subtitle: bookmark.note,
+            textPayload: nil,
+            imagePath: bookmark.imagePath,
+            audioStartTime: bookmark.mediaTimestamp,
+            audioEndTime: nil,
+            epubSequenceIndex: nil,
+            granularityLevel: .sentence,
+            playlistPosition: bookmark.playlistPosition,
+            isEnabled: bookmark.isEnabled,
+            sourceTable: "bookmark",
+            sourceRowid: id,
+            metadataJSON: bookmark.voiceMemoPath.map { "{\"voiceMemoPath\":\"\($0)\"}" },
+            createdAt: bookmark.createdAt,
+            modifiedAt: bookmark.modifiedAt
+        )
+        var mutable = item
+        try mutable.save(db)
     }
 }

@@ -2,44 +2,86 @@ import Foundation
 import GRDB
 
 enum TimelineItemType: String, Codable {
-    case track, chapter, bookmark, flashcard, transcription, note
+    case textSegment
+    case chapterMarker
+    case imageAsset
+    case bookmark
+    case ankiCard
 }
 
-struct TimelineItem: Identifiable, Equatable {
-    let databaseID: String
-    let audiobookID: String
-    let itemType: TimelineItemType
-    let title: String
-    let subtitle: String?
-    let mediaTimestamp: TimeInterval
-    let isEnabled: Bool
-    let playlistPosition: TimeInterval?
-    let createdAt: String?
-    let modifiedAt: String?
+enum GranularityLevel: Int, Codable {
+    case chapter = 0
+    case paragraph = 1
+    case sentence = 2
+    case word = 3
+}
 
-    /// Composite identity combining item type and raw database ID so
-    /// SwiftUI ForEach never conflates items from different tables.
-    var id: String { "\(itemType.rawValue)-\(databaseID)" }
+struct TimelineItem: Identifiable, Equatable, Codable {
+    var id: String
+    var audiobookID: String
+    var itemType: TimelineItemType
+    var title: String
+    var subtitle: String?
+    var textPayload: String?
+    var imagePath: String?
+    var audioStartTime: TimeInterval
+    var audioEndTime: TimeInterval?
+    var epubSequenceIndex: Int?
+    var granularityLevel: GranularityLevel
+    var playlistPosition: TimeInterval?
+    var isEnabled: Bool
+    var sourceTable: String?
+    var sourceRowid: String?
+    var metadataJSON: String?
+    var createdAt: String?
+    var modifiedAt: String?
 
     var effectivePosition: TimeInterval {
-        playlistPosition ?? mediaTimestamp
+        playlistPosition ?? audioStartTime
     }
-}
 
-extension TimelineItem: Codable {
+    var isInstantaneous: Bool {
+        audioEndTime == nil
+    }
+
     enum CodingKeys: String, CodingKey {
-        case databaseID = "id"
+        case id
         case audiobookID = "audiobook_id"
         case itemType = "item_type"
         case title, subtitle
-        case mediaTimestamp = "media_timestamp"
-        case isEnabled = "is_enabled"
+        case textPayload = "text_payload"
+        case imagePath = "image_path"
+        case audioStartTime = "audio_start_time"
+        case audioEndTime = "audio_end_time"
+        case epubSequenceIndex = "epub_sequence_index"
+        case granularityLevel = "granularity_level"
         case playlistPosition = "playlist_position"
+        case isEnabled = "is_enabled"
+        case sourceTable = "source_table"
+        case sourceRowid = "source_rowid"
+        case metadataJSON = "metadata_json"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
     }
 }
 
-extension TimelineItem: FetchableRecord, TableRecord {
-    static let databaseTableName = "timeline"
+extension TimelineItem: FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "timeline_item"
+}
+
+// MARK: - Legacy compatibility
+
+extension TimelineItemType {
+    /// Maps legacy item types to new unified types for migration support.
+    init?(legacyRawValue: String) {
+        switch legacyRawValue {
+        case "track":       self = .chapterMarker
+        case "chapter":     self = .chapterMarker
+        case "bookmark":    self = .bookmark
+        case "flashcard":   self = .ankiCard
+        case "transcription": self = .textSegment
+        case "note":        self = .bookmark
+        default: return nil
+        }
+    }
 }
