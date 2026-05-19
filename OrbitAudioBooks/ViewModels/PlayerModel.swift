@@ -1417,10 +1417,11 @@ final class PlayerModel {
 
         let asset = AVURLAsset(url: state.tracks[currentIndex].url)
 
+        var built: [Chapter] = []
         let ext = state.tracks[currentIndex].url.pathExtension.lowercased()
-        guard ext == "m4b" || ext == "m4a" else { return }
-
-        var built = await ChapterService.parseChapters(from: asset)
+        if ext == "m4b" || ext == "m4a" {
+            built = await ChapterService.parseChapters(from: asset)
+        }
 
         let trackKey = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].url.absoluteString : ""
         if let savedStates = persistence.loadEnabledState(for: trackKey) {
@@ -1442,44 +1443,59 @@ final class PlayerModel {
             built = orderedChapters
         }
 
-        // Some files return a single "chapter" spanning whole book; treat that as "no chapters".
+        // For files with no parsed chapters, create a single chapter spanning the book
+        // so the timeline feed always has at least one chapter marker.
+        if built.isEmpty {
+            let track = state.tracks[currentIndex]
+            let title = track.title
+            let duration = state.durationSeconds ?? 0
+            built = [Chapter(
+                index: 0,
+                title: title,
+                startSeconds: 0,
+                endSeconds: duration,
+                isEnabled: true
+            )]
+        }
+
+        // Files with a single chapter that spans the whole book are still valid
+        // timeline entries. Only skip chapter-based Now Playing UI when < 2.
         if built.count >= 2 {
             chapters = built
             updateCurrentChapterFromPlayerTime()
-
-            // Persist to SQL so TimelineService can build chapter sections.
-            if let db = databaseService, let audiobookID = folderURL?.absoluteString {
-                let records = built.enumerated().map { (i, ch) in
-                    ChapterRecord(
-                        id: nil,
-                        audiobookID: audiobookID,
-                        title: ch.title ?? "Chapter \(i + 1)",
-                        startSeconds: ch.startSeconds,
-                        endSeconds: ch.endSeconds,
-                        isEnabled: ch.isEnabled,
-                        sortOrder: i,
-                        playlistPosition: nil
-                    )
-                }
-                do {
-                    try ChapterDAO(db: db.writer).deleteAll(for: audiobookID)
-                    try ChapterDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
-                } catch {
-                    Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
-                        .error("Failed to persist chapters: \(error.localizedDescription)")
-                }
-
-                // Ingest timeline items so the unified feed has data.
-                let trackURL = state.tracks[currentIndex].url
-                Task { await ingestTimelineItems(chapters: built, audiobookID: audiobookID, audioURL: trackURL) }
-            }
         } else {
-            state.chapters = []
+            chapters = built
             state.currentChapterIndex = nil
             state.currentSubtitle = ""
-            
             updateNowPlayingInfo(isPaused: !isPlaying)
             syncToWatch()
+        }
+
+        // Persist chapters and ingest timeline items for every book,
+        // regardless of chapter count or file type.
+        if let db = databaseService, let audiobookID = folderURL?.absoluteString {
+            let records = built.enumerated().map { (i, ch) in
+                ChapterRecord(
+                    id: nil,
+                    audiobookID: audiobookID,
+                    title: ch.title ?? "Chapter \(i + 1)",
+                    startSeconds: ch.startSeconds,
+                    endSeconds: ch.endSeconds,
+                    isEnabled: ch.isEnabled,
+                    sortOrder: i,
+                    playlistPosition: nil
+                )
+            }
+            do {
+                try ChapterDAO(db: db.writer).deleteAll(for: audiobookID)
+                try ChapterDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+            } catch {
+                Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
+                    .error("Failed to persist chapters: \(error.localizedDescription)")
+            }
+
+            let trackURL = state.tracks[currentIndex].url
+            Task { await ingestTimelineItems(chapters: built, audiobookID: audiobookID, audioURL: trackURL) }
         }
         computeWordClouds()
     }
