@@ -4,13 +4,16 @@ struct TimelineTab: View {
     @Environment(PlayerModel.self) private var model
     @State private var timeScale: TimeScale = .minutes
     @State private var dueCount: Int = 0
+    /// Incremented each time the "Now" header button is tapped, signalling
+    /// TimelineFeedView to jump to the current playback position.
+    @State private var recenterTrigger = 0
     var onReviewTap: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
             TimelineHeaderView(
                 timeScale: $timeScale,
-                onRecenterNow: {}
+                onRecenterNow: { recenterTrigger += 1 }
             )
 
             Divider()
@@ -36,7 +39,7 @@ struct TimelineTab: View {
                 .buttonStyle(.plain)
             }
 
-            PlaylistTimelineView(timeScale: timeScale)
+            TimelineFeedView(recenterTrigger: recenterTrigger)
         }
         .onAppear {
             refreshDueCount()

@@ -54,6 +54,67 @@ final class PlaybackTimelineService {
         }
     }
 
+    /// Load only chapter sections that intersect the given time range.
+    /// Memory-safe for long audiobooks — only items in [start, end] are fetched.
+    func loadWindow(from start: TimeInterval, to end: TimeInterval) throws -> [ChapterSection] {
+        guard let db, let audiobookID = currentAudiobookID else { return [] }
+        let items = try TimelineDAO(db: db.writer).filtered(
+            audiobookID: audiobookID,
+            from: start,
+            to: end
+        )
+        let cards = items.map { ContentCard(from: $0) }
+        let chapterRecords = try ChapterDAO(db: db.writer).chapters(for: audiobookID)
+        let totalDuration = chapterRecords.map(\.endSeconds).max() ?? 0
+
+        let relevantChapters = chapterRecords.filter { rec in
+            rec.endSeconds > start && rec.startSeconds < end
+        }
+
+        guard !relevantChapters.isEmpty else {
+            let fallbackEnd = cards.compactMap(\.mediaTimestamp).max() ?? end
+            return [ChapterSection(
+                index: 0, title: "Full Book",
+                startSeconds: start, endSeconds: max(fallbackEnd, end),
+                cards: cards, totalBookDuration: totalDuration
+            )]
+        }
+
+        var sections: [ChapterSection] = []
+        var matchedIDs = Set<String>()
+        for rec in relevantChapters {
+            let chapterCards = cards.filter { card in
+                guard let mt = card.mediaTimestamp else { return false }
+                return mt >= rec.startSeconds && mt < rec.endSeconds
+            }
+            matchedIDs.formUnion(chapterCards.map(\.id))
+            if !chapterCards.isEmpty || rec.endSeconds > start {
+                sections.append(ChapterSection(
+                    index: rec.sortOrder,
+                    title: rec.title,
+                    startSeconds: max(rec.startSeconds, start),
+                    endSeconds: min(rec.endSeconds, end),
+                    cards: chapterCards,
+                    totalBookDuration: totalDuration
+                ))
+            }
+        }
+
+        let unmatched = cards.filter { !matchedIDs.contains($0.id) }
+        if !unmatched.isEmpty {
+            sections.append(ChapterSection(
+                index: sections.count,
+                title: "Other",
+                startSeconds: sections.last?.endSeconds ?? start,
+                endSeconds: end,
+                cards: unmatched,
+                totalBookDuration: totalDuration
+            ))
+        }
+
+        return sections.sorted { $0.startSeconds < $1.startSeconds }
+    }
+
     /// Builds hierarchical chapter sections by partitioning timeline cards
     /// by chapter time ranges. Pure relative-time — no calendar involvement.
     private func loadChapterSections() throws -> [ChapterSection] {
