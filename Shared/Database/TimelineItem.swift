@@ -68,7 +68,22 @@ extension TimelineItem {
     var isInstantaneous: Bool {
         audioEndTime == nil
     }
+
+    /// Maps the database item type to the UI-facing card type.
+    var timelineCardType: TimelineCardType {
+        switch itemType {
+        case .textSegment:   return .textSegment
+        case .chapterMarker: return .chapterMarker
+        case .imageAsset:    return .imageAsset
+        case .bookmark:      return .bookmark
+        case .ankiCard:      return .ankiCard
+        }
+    }
 }
+
+// MARK: - MediaPlayable
+
+extension TimelineItem: MediaPlayable {}
 
 // MARK: - Legacy compatibility
 

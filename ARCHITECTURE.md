@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-05-18 08:54:53
+**Last generated:** 2026-05-19 08:54:53
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Orbit Audiobooks project. Folders are shown in the order
@@ -48,6 +48,7 @@ Services/SecurityScopeManager.swift
 Services/SettingsManager.swift
 Services/SleepTimerManager.swift
 Services/StoreManager.swift
+Services/TimelineIngestionFactory.swift
 Services/TimelineService.swift
 Services/TranscriptService.swift
 Services/WatchSyncManager.swift
@@ -56,6 +57,7 @@ Utilities/FolderPicker.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/PlayerModel.swift
+ViewModels/TimelineFeedViewModel.swift
 Views/Bookmarks.swift
 Views/BottomToolbarView.swift
 Views/ChapterTimeBlockView.swift
@@ -86,6 +88,7 @@ Views/SpeedSuggestionBanner.swift
 Views/StatsModuleView.swift
 Views/TimelineContentCard.swift
 Views/TimelineContentView.swift
+Views/TimelineFeedCollectionView.swift
 Views/TimelineHeaderView.swift
 Views/TimelineTab.swift
 Views/TransportControlsView.swift
@@ -149,10 +152,15 @@ Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
 Database/Schema_V1.swift
 Database/Schema_V2.swift
+Database/Schema_V3.swift
+Database/Schema_V4.swift
 Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
+EnhancedTranscriptionSegment.swift
+MediaPlayable.swift
+SyncMarker.swift
 TimeFormatting.swift
 TranscriptionSegment.swift
 WatchAction.swift
@@ -214,4 +222,51 @@ OrbitEPUBAligner (library)
 └── Utils/
     └── String+Levenshtein.swift   # Wagner-Fischer edit distance
 ```
+
+### Dual-Path Timeline Feed (V4)
+
+The timeline feed replaces the legacy `PlaylistTimelineView` with a performant, Twitter-style chronological feed. It supports two ingestion paths — **rich** (EPUB + transcription) and **sparse** (audio-only chapters) — rendered in a single unified scroll.
+
+**V4 Schema: materialized `timeline_item` table**
+
+Previously, the timeline was a SQL VIEW unioning rows from multiple normalized tables (`track`, `chapter`, `bookmark`, `flashcard`, etc.). While flexible, VIEWs cannot be indexed for range queries. V4 introduces a materialized `timeline_item` table that is a flattened copy of all feed-relevant data, with six purpose-built indexes:
+
+| Index | Columns | Purpose |
+|---|---|---|
+| `idx_timeline_time_range` | audiobook_id, audio_start_time, audio_end_time | "What's playing at position X?" |
+| `idx_timeline_epub_order` | audiobook_id, epub_sequence_index | Structural EPUB ordering |
+| `idx_timeline_granularity` | audiobook_id, granularity_level | Chapter vs. sentence filtering |
+| `idx_timeline_playlist` | audiobook_id, playlist_position, audio_start_time | Custom playlist reorder |
+| `idx_timeline_source` | source_table, source_rowid | Back-link to normalized source rows |
+
+**Dual-write synchronization:** When `BookmarkDAO` or `FlashcardDAO` creates, updates, or deletes a record, it also writes to `timeline_item` with the corresponding source tracking columns. This keeps the feed in sync without polling or triggers.
+
+**Ingestion strategies:**
+
+```
+TimelineIngestionFactory.strategy(hasTranscript:hasEnhancedTranscript:hasEPUB:)
+├── RichIngestionStrategy    ← EPUB + transcription → dense feed with text segments
+└── SparseIngestionStrategy  ← audio-only → chapter markers with elastic scrubber gaps
+```
+
+**Feed UI architecture:**
+
+```
+TimelineTab
+  └─ TimelineFeedCollectionView (UICollectionView via UIViewRepresentable)
+       ├── 6 cell types: TextSegment, ChapterMarker, ImageAsset, Bookmark,
+       │     AnkiCard, ElasticScrubber (gap indicator)
+       └── NSDiffableDataSourceSnapshot<String> — string-based identity
+            └─ TimelineFeedViewModel (@Observable, push-driven)
+                 ├── FollowState: following → browsing (on user scroll) → following (5s tripwire or "Go to Now")
+                 ├── Granularity: chapter-level above 1.5× speed, sentence-level otherwise
+                 └── TimelineDAO.feedWindow(audiobookID:around:granularity:limit:)
+```
+
+**Key types in Shared/:**
+
+- `TimelineItem` — `MutablePersistableRecord`, the materialized row with `GranularityLevel`
+- `EnhancedTranscriptionSegment` — Whisper segment with optional `SyncMarker` array
+- `SyncMarker` — EPUB structural marker (chapter start, image, blockquote, etc.)
+- `MediaPlayable` — Protocol for timeline-renderable items (forward-looking for video)
 

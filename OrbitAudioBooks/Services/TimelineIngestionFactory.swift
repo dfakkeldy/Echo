@@ -1,6 +1,25 @@
 import Foundation
 import AVFoundation
 
+// MARK: - Ingestion Error
+
+enum IngestionError: Error, LocalizedError {
+    case noAudioFiles(folderURL: URL)
+    case missingRequiredAsset(String)
+    case databaseError(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .noAudioFiles(let url):
+            return "No M4B or M4A files found in \(url.lastPathComponent)"
+        case .missingRequiredAsset(let name):
+            return "Required asset not found: \(name)"
+        case .databaseError(let error):
+            return "Database error: \(error.localizedDescription)"
+        }
+    }
+}
+
 // MARK: - Ingestion Strategy
 
 /// Produces [TimelineItem] rows for the materialized timeline_item table
