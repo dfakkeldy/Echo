@@ -1,11 +1,14 @@
 import Foundation
 import Observation
 import UIKit
+import os.log
 
 /// Push-driven feed view model. Audio engine pushes position →
 /// feed scrolls reactively with a rolling window of TimelineItems.
 @Observable
 final class TimelineFeedViewModel {
+    private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "TimelineFeedVM")
+
     // MARK: - Published state
 
     private(set) var items: [TimelineItem] = []
@@ -13,6 +16,10 @@ final class TimelineFeedViewModel {
     private(set) var granularity: GranularityLevel = .sentence
     private(set) var isFollowingPlayback = true
     private(set) var isLoading = false
+
+    /// Populated when a database query fails, so the view can show an error
+    /// instead of silently showing whatever items happen to be in the array.
+    private(set) var loadError: String?
 
     /// Externally controlled: set true when VoiceOver is running.
     var isVoiceOverRunning: Bool = false
@@ -80,8 +87,11 @@ final class TimelineFeedViewModel {
                 granularity: granularity,
                 limit: windowSize
             )
+            loadError = nil
             onItemsChanged?()
         } catch {
+            logger.error("Failed to load initial window: \(error.localizedDescription)")
+            loadError = error.localizedDescription
             items = []
         }
     }
@@ -102,8 +112,11 @@ final class TimelineFeedViewModel {
             )
             guard !page.isEmpty else { return }
             items.append(contentsOf: page)
+            loadError = nil
             onItemsChanged?()
-        } catch {}
+        } catch {
+            logger.error("Failed to load next page: \(error.localizedDescription)")
+        }
     }
 
     /// Load the previous page (before the first item's position).
@@ -124,8 +137,11 @@ final class TimelineFeedViewModel {
             let filtered = page.filter { $0.effectivePosition < before }
             guard !filtered.isEmpty else { return }
             items.insert(contentsOf: filtered, at: 0)
+            loadError = nil
             onItemsChanged?()
-        } catch {}
+        } catch {
+            logger.error("Failed to load previous page: \(error.localizedDescription)")
+        }
     }
 
     /// Reload at a different granularity (e.g., when speed changes).
@@ -142,8 +158,12 @@ final class TimelineFeedViewModel {
                 granularity: granularity,
                 limit: windowSize
             )
+            loadError = nil
             onItemsChanged?()
-        } catch {}
+        } catch {
+            logger.error("Failed to reload granularity: \(error.localizedDescription)")
+            loadError = error.localizedDescription
+        }
     }
 
     // MARK: - Private
