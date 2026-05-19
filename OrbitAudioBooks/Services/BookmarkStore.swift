@@ -77,6 +77,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
         bookmarks.append(bm)
         bookmarks.sort { $0.timestamp < $1.timestamp }
         onPersist?(bookmarks)
+        postBookmarksDidChange()
         return bm
     }
 
@@ -113,6 +114,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
         bookmarks.sort { $0.timestamp < $1.timestamp }
         onPersist?(bookmarks)
         onBookmarksChanged?()
+        postBookmarksDidChange()
         return bm
     }
 
@@ -133,6 +135,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
         bookmarks.sort { $0.timestamp < $1.timestamp }
         onPersist?(bookmarks)
         onBookmarksChanged?()
+        postBookmarksDidChange()
     }
 
     func toggleBookmarkEnabled(id: UUID) {
@@ -140,6 +143,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
         bookmarks[idx].isEnabled.toggle()
         onPersist?(bookmarks)
         onBookmarksChanged?()
+        postBookmarksDidChange()
     }
 
     func moveBookmarks(from source: IndexSet, to destination: Int) {
@@ -151,6 +155,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
         bookmarks.insert(contentsOf: moving.reversed(), at: insertIndex)
         onPersist?(bookmarks)
         onBookmarksChanged?()
+        postBookmarksDidChange()
     }
 
     func deleteBookmark(id: UUID, folderURL: URL? = nil) {
@@ -166,6 +171,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
         bookmarks.removeAll { $0.id == id }
         onPersist?(bookmarks)
         onBookmarksChanged?()
+        postBookmarksDidChange()
     }
 
     // MARK: - Voice Memo Playback
@@ -314,5 +320,11 @@ final class BookmarkStore: BookmarkStoreProtocol {
                 self.logger.error("Failed to persist bookmarks to SQL: \(error.localizedDescription)")
             }
         }
+    }
+
+    // MARK: - Notification
+
+    private func postBookmarksDidChange() {
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: nil)
     }
 }

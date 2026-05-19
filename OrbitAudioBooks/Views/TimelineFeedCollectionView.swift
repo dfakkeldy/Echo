@@ -4,17 +4,18 @@ import UIKit
 // MARK: - SwiftUI Wrapper
 
 struct TimelineFeedCollectionView: UIViewRepresentable {
-    @Binding var items: [TimelineItem]
+    @Binding var items: [TimelineDisplayItem]
     @Binding var currentPosition: TimeInterval
     var isFollowingPlayback: Bool
     var onUserScrolled: () -> Void
     var scrollToPosition: ((TimeInterval) -> Void)?
 
-    /// Called when the user taps a feed item. The parent should seek audio for
-    /// text/chapter items, or present media for image/Anki items.
-    var onItemTapped: ((TimelineItem) -> Void)?
+    /// Called when the user taps a feed item.
+    var onItemTapped: ((TimelineDisplayItem) -> Void)?
     /// Called on long-press / context-menu to edit the item.
-    var onContextMenuAction: ((TimelineItem) -> Void)?
+    var onContextMenuAction: ((TimelineDisplayItem) -> Void)?
+    /// Called when the user requests deletion of a bookmark via context menu.
+    var onDeleteBookmark: ((TimelineItem) -> Void)?
 
     /// The first due Anki card currently visible in the feed, for sticky header display.
     var dueAnkiCard: TimelineItem? = nil
@@ -63,6 +64,10 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             forCellWithReuseIdentifier: NowLineCell.reuseID
         )
         collectionView.register(
+            BookCardCell.self,
+            forCellWithReuseIdentifier: BookCardCell.reuseID
+        )
+        collectionView.register(
             StickyReviewHeaderView.self,
             forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
             withReuseIdentifier: StickyReviewHeaderView.reuseID
@@ -75,60 +80,45 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
-        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+        let displayIDs = items.map { $0.id }
 
-        let section = 0
-        snapshot.appendSections([section])
+        // Only rebuild the diffable snapshot when items actually change.
+        // currentPosition updates 4×/second — rebuilding the snapshot on
+        // every tick is wasteful and causes unnecessary cell reconfigs.
+        if displayIDs != context.coordinator.currentItems {
+            var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+            let section = 0
+            snapshot.appendSections([section])
+            snapshot.appendItems(displayIDs, toSection: section)
 
-        // Insert elastic scrubber cells for large time gaps
-        var displayItems: [String] = []
-        let gapThreshold: TimeInterval = 60.0
-        var nowLineInserted = false
+            var itemLookup: [String: TimelineDisplayItem] = [:]
+            for item in items { itemLookup[item.id] = item }
+            context.coordinator.itemLookup = itemLookup
+            context.coordinator.currentItems = displayIDs
 
-        for (index, item) in items.enumerated() {
-            // Insert Now Line at the current position boundary
-            if !nowLineInserted && item.effectivePosition > currentPosition {
-                displayItems.append("__now_line__")
-                nowLineInserted = true
-            }
-
-            if index > 0 {
-                let prev = items[index - 1]
-                let gap = item.effectivePosition - prev.effectivePosition
-                if gap > gapThreshold {
-                    let gapID = "gap-\(prev.id)-to-\(item.id)"
-                    displayItems.append(gapID)
-                    context.coordinator.gapLookup[gapID] = gap
-                }
-            }
-            displayItems.append(item.id)
+            context.coordinator.dataSource.apply(snapshot, animatingDifferences: false)
         }
 
-        // If Now Line wasn't inserted (all items before current position), append at end
-        if !nowLineInserted && !items.isEmpty {
-            displayItems.append("__now_line__")
-        }
-
-        snapshot.appendItems(displayItems, toSection: section)
-
-        // Build item lookup for cell configuration
-        var lookup: [String: TimelineItem] = [:]
-        for item in items { lookup[item.id] = item }
-        context.coordinator.itemLookup = lookup
         context.coordinator.currentPosition = currentPosition
 
-        context.coordinator.dataSource.apply(snapshot, animatingDifferences: false)
-        context.coordinator.currentItems = displayItems
+        // Auto-scroll the NowLine into view when following playback.
+        // The coordinator's CADisplayLink interpolates smoothly — calling
+        // this on every tick just updates the scroll target without restarting
+        // the link if one is already running.
+        if isFollowingPlayback {
+            context.coordinator.scrollToNowLine(animated: true)
+        }
     }
 
     static func dismantleUIView(_ uiView: UICollectionView, coordinator: Coordinator) {
+        coordinator.stopDisplayLink()
         coordinator.collectionView = nil
     }
 
     // MARK: - Layout
 
     private func makeLayout() -> UICollectionViewCompositionalLayout {
-        UICollectionViewCompositionalLayout { sectionIndex, environment in
+        UICollectionViewCompositionalLayout { _, _ in
             let itemSize = NSCollectionLayoutSize(
                 widthDimension: .fractionalWidth(1.0),
                 heightDimension: .estimated(60)
@@ -168,10 +158,57 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         weak var collectionView: UICollectionView?
         var parent: TimelineFeedCollectionView?
         var currentItems: [String] = []
-        var itemLookup: [String: TimelineItem] = [:]
-        var gapLookup: [String: TimeInterval] = [:]
+        var itemLookup: [String: TimelineDisplayItem] = [:]
         var currentPosition: TimeInterval = 0
         private var isProgrammaticScroll = false
+
+        // MARK: - DisplayLink for smooth scrolling
+
+        private var displayLink: CADisplayLink?
+        private var scrollTarget: CGFloat?
+        private var displayLinkContinuations: Int = 0
+        private let maxDisplayLinkFrames: Int = 300 // ~5 seconds at 60fps
+
+        func startDisplayLink(targetOffset: CGFloat) {
+            scrollTarget = targetOffset
+            displayLinkContinuations = 0
+            guard displayLink == nil else { return }
+            displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFired))
+            displayLink?.add(to: .main, forMode: .default)
+        }
+
+        func stopDisplayLink() {
+            displayLink?.invalidate()
+            displayLink = nil
+            scrollTarget = nil
+        }
+
+        @objc private func displayLinkFired() {
+            guard let cv = collectionView,
+                  let target = scrollTarget,
+                  displayLinkContinuations < maxDisplayLinkFrames
+            else {
+                stopDisplayLink()
+                return
+            }
+
+            displayLinkContinuations += 1
+            let currentOffset = cv.contentOffset.y
+            let maxOffset = max(0, cv.contentSize.height - cv.bounds.height)
+
+            // Ease-in interpolation: each frame moves 15% closer to target
+            let newOffset = currentOffset + (target - currentOffset) * 0.15
+            let clamped = min(max(0, newOffset), maxOffset)
+
+            cv.setContentOffset(CGPoint(x: 0, y: clamped), animated: false)
+
+            // Stop when close enough to target (within 0.5pt)
+            if abs(clamped - target) < 0.5 {
+                stopDisplayLink()
+            }
+        }
+
+        // MARK: - Data Source
 
         lazy var dataSource: UICollectionViewDiffableDataSource<Int, String> = {
             guard let cv = collectionView else {
@@ -193,24 +230,56 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             indexPath: IndexPath,
             identifier: String
         ) -> UICollectionViewCell {
-            if identifier == "__now_line__" {
+            guard let displayItem = itemLookup[identifier] else {
+                return collectionView.dequeueReusableCell(
+                    withReuseIdentifier: TextSegmentCell.reuseID, for: indexPath
+                )
+            }
+
+            switch displayItem {
+            case .nowLine:
                 return collectionView.dequeueReusableCell(
                     withReuseIdentifier: NowLineCell.reuseID, for: indexPath
                 )
+
+            case .scrubberGap(let duration, _):
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: ElasticScrubberCell.reuseID, for: indexPath
+                ) as! ElasticScrubberCell
+                cell.configure(gapDuration: duration)
+                return cell
+
+            case .audiobookCard(let info):
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: BookCardCell.reuseID, for: indexPath
+                ) as! BookCardCell
+                cell.configure(info)
+                return cell
+
+            case .timelineItem(let item):
+                return configureTimelineItemCell(item, collectionView: collectionView, indexPath: indexPath)
             }
-            if identifier.hasPrefix("gap-"), gapLookup[identifier] != nil {
-                return configureElasticScrubberCell(
-                    gapLookup[identifier]!,
-                    collectionView: collectionView,
-                    indexPath: indexPath
-                )
+        }
+
+        private func configureTimelineItemCell(
+            _ item: TimelineItem,
+            collectionView: UICollectionView,
+            indexPath: IndexPath
+        ) -> UICollectionViewCell {
+            let reuseID: String
+            switch item.itemType {
+            case .textSegment: reuseID = TextSegmentCell.reuseID
+            case .chapterMarker: reuseID = ChapterMarkerCell.reuseID
+            case .imageAsset: reuseID = ImageAssetCell.reuseID
+            case .bookmark: reuseID = BookmarkCell.reuseID
+            case .ankiCard: reuseID = AnkiCardCell.reuseID
             }
-            if let item = itemLookup[identifier] {
-                return configureItemCell(item, collectionView: collectionView, indexPath: indexPath)
-            }
-            return collectionView.dequeueReusableCell(
-                withReuseIdentifier: TextSegmentCell.reuseID, for: indexPath
+
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: reuseID, for: indexPath
             )
+            configure(cell: cell, with: item)
+            return cell
         }
 
         private func supplementaryProvider(
@@ -240,39 +309,6 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             return header
         }
 
-        private func configureItemCell(
-            _ item: TimelineItem,
-            collectionView: UICollectionView,
-            indexPath: IndexPath
-        ) -> UICollectionViewCell {
-            let reuseID: String
-            switch item.itemType {
-            case .textSegment: reuseID = TextSegmentCell.reuseID
-            case .chapterMarker: reuseID = ChapterMarkerCell.reuseID
-            case .imageAsset: reuseID = ImageAssetCell.reuseID
-            case .bookmark: reuseID = BookmarkCell.reuseID
-            case .ankiCard: reuseID = AnkiCardCell.reuseID
-            }
-
-            let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: reuseID, for: indexPath
-            )
-            configure(cell: cell, with: item)
-            return cell
-        }
-
-        private func configureElasticScrubberCell(
-            _ gapDuration: TimeInterval,
-            collectionView: UICollectionView,
-            indexPath: IndexPath
-        ) -> UICollectionViewCell {
-            let cell = collectionView.dequeueReusableCell(
-                withReuseIdentifier: ElasticScrubberCell.reuseID, for: indexPath
-            ) as! ElasticScrubberCell
-            cell.configure(gapDuration: gapDuration)
-            return cell
-        }
-
         private func configure(cell: UICollectionViewCell, with item: TimelineItem) {
             let isHistory = item.effectivePosition < currentPosition
             switch cell {
@@ -295,6 +331,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             guard !isProgrammaticScroll else { return }
+            stopDisplayLink()
             parent?.onUserScrolled()
         }
 
@@ -302,9 +339,10 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
         func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
             guard let identifier = currentItems[safe: indexPath.item],
-                  identifier != "__now_line__",
-                  let item = itemLookup[identifier] else { return }
-            parent?.onItemTapped?(item)
+                  let displayItem = itemLookup[identifier],
+                  !isNowLineOrGap(displayItem)
+            else { return }
+            parent?.onItemTapped?(displayItem)
         }
 
         // MARK: - Context Menu (Long Press)
@@ -313,24 +351,56 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
                             contextMenuConfigurationForItemAt indexPath: IndexPath,
                             point: CGPoint) -> UIContextMenuConfiguration? {
             guard let identifier = currentItems[safe: indexPath.item],
-                  identifier != "__now_line__",
-                  !identifier.hasPrefix("gap-"),
-                  let item = itemLookup[identifier] else { return nil }
-            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+                  let displayItem = itemLookup[identifier],
+                  !isNowLineOrGap(displayItem)
+            else { return nil }
+
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+                var children: [UIMenuElement] = []
+
                 let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
-                    self.parent?.onContextMenuAction?(item)
+                    self?.parent?.onContextMenuAction?(displayItem)
                 }
-                return UIMenu(title: item.title, children: [edit])
+                children.append(edit)
+
+                // Add "Delete" for bookmark items
+                if case .timelineItem(let item) = displayItem, item.itemType == .bookmark {
+                    let delete = UIAction(
+                        title: "Delete", image: UIImage(systemName: "trash"),
+                        attributes: .destructive
+                    ) { _ in
+                        self?.parent?.onDeleteBookmark?(item)
+                    }
+                    children.append(delete)
+                }
+
+                let title: String
+                switch displayItem {
+                case .audiobookCard(let info): title = info.title
+                case .timelineItem(let item): title = item.title
+                default: title = ""
+                }
+
+                return UIMenu(title: title, children: children)
+            }
+        }
+
+        private func isNowLineOrGap(_ item: TimelineDisplayItem) -> Bool {
+            switch item {
+            case .nowLine, .scrubberGap: return true
+            default: return false
             }
         }
 
         // MARK: - Active Item Highlighting
 
-        /// Finds the item whose time range contains `position` and highlights it.
         func updateActiveHighlight(position: TimeInterval) {
             guard let cv = collectionView else { return }
             for (index, identifier) in currentItems.enumerated() {
-                guard let item = itemLookup[identifier] else { continue }
+                guard let displayItem = itemLookup[identifier],
+                      case .timelineItem(let item) = displayItem
+                else { continue }
+
                 let isActive = position >= item.audioStartTime
                     && (item.audioEndTime.map { position < $0 } ?? true)
                 if isActive, let cell = cv.cellForItem(at: IndexPath(item: index, section: 0)) as? TextSegmentCell {
@@ -358,35 +428,153 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             }
         }
 
-        func scrollTo(position: TimeInterval, animated: Bool = true) {
+        /// Smooth scroll to center the NowLine in the viewport using CADisplayLink interpolation.
+        func scrollToNowLine(animated: Bool = true) {
             guard let cv = collectionView else { return }
 
-            var bestIndex: Int?
-            for (index, identifier) in currentItems.enumerated() {
-                if let item = itemLookup[identifier] {
-                    if position >= item.audioStartTime &&
-                        (item.audioEndTime == nil || position < item.audioEndTime!) {
-                        bestIndex = index
-                        break
-                    }
-                    if item.audioStartTime <= position {
-                        bestIndex = index
-                    }
-                    if item.audioStartTime > position {
-                        break
-                    }
-                }
-            }
+            // Find the NowLine index
+            guard let nowLineIndex = currentItems.firstIndex(where: { id in
+                if case .nowLine = itemLookup[id] { return true }
+                return false
+            }) else { return }
 
-            if let index = bestIndex {
+            let indexPath = IndexPath(item: nowLineIndex, section: 0)
+
+            // Get the layout attributes for the NowLine cell
+            guard let attrs = cv.collectionViewLayout.layoutAttributesForItem(at: indexPath) else {
+                // Fallback: use scrollToItem
                 isProgrammaticScroll = true
-                let indexPath = IndexPath(item: index, section: 0)
                 cv.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.isProgrammaticScroll = false
                 }
+                return
+            }
+
+            let cellCenter = attrs.frame.midY
+            let targetOffset = cellCenter - (cv.bounds.height / 2)
+
+            if animated {
+                isProgrammaticScroll = true
+                startDisplayLink(targetOffset: targetOffset)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.isProgrammaticScroll = false
+                }
+            } else {
+                cv.setContentOffset(CGPoint(x: 0, y: max(0, targetOffset)), animated: false)
             }
         }
+
+        /// Scroll to center the item closest to the given time position, using smooth interpolation.
+        func scrollTo(position: TimeInterval, animated: Bool = true) {
+            scrollToNowLine(animated: animated)
+        }
+    }
+}
+
+// MARK: - BookCardCell
+
+final class BookCardCell: UICollectionViewCell {
+    static let reuseID = "BookCardCell"
+
+    private let coverPlaceholder = UIView()
+    private let titleLabel = UILabel()
+    private let authorLabel = UILabel()
+    private let durationLabel = UILabel()
+    private let playingIndicator = UIImageView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setup() {
+        contentView.backgroundColor = .systemIndigo.withAlphaComponent(0.08)
+        contentView.layer.cornerRadius = 12
+
+        coverPlaceholder.backgroundColor = .systemIndigo.withAlphaComponent(0.15)
+        coverPlaceholder.layer.cornerRadius = 8
+        coverPlaceholder.translatesAutoresizingMaskIntoConstraints = false
+
+        let iconView = UIImageView(image: UIImage(systemName: "book.fill"))
+        iconView.tintColor = .systemIndigo
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        coverPlaceholder.addSubview(iconView)
+
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 1
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        authorLabel.font = .preferredFont(forTextStyle: .subheadline)
+        authorLabel.textColor = .secondaryLabel
+        authorLabel.numberOfLines = 1
+        authorLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        durationLabel.font = monospacedDigitFont(forTextStyle: .caption1)
+        durationLabel.textColor = .tertiaryLabel
+        durationLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        playingIndicator.image = UIImage(systemName: "play.circle.fill")
+        playingIndicator.tintColor = .systemIndigo
+        playingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        playingIndicator.isHidden = true
+
+        contentView.addSubview(coverPlaceholder)
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(authorLabel)
+        contentView.addSubview(durationLabel)
+        contentView.addSubview(playingIndicator)
+
+        NSLayoutConstraint.activate([
+            coverPlaceholder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            coverPlaceholder.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            coverPlaceholder.widthAnchor.constraint(equalToConstant: 48),
+            coverPlaceholder.heightAnchor.constraint(equalToConstant: 48),
+
+            iconView.centerXAnchor.constraint(equalTo: coverPlaceholder.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: coverPlaceholder.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 24),
+            iconView.heightAnchor.constraint(equalToConstant: 24),
+
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: coverPlaceholder.trailingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(equalTo: playingIndicator.leadingAnchor, constant: -8),
+
+            authorLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            authorLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            authorLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+
+            durationLabel.topAnchor.constraint(equalTo: authorLabel.bottomAnchor, constant: 4),
+            durationLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            durationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
+
+            playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            playingIndicator.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            playingIndicator.widthAnchor.constraint(equalToConstant: 24),
+            playingIndicator.heightAnchor.constraint(equalToConstant: 24),
+        ])
+    }
+
+    func configure(_ info: AudiobookCardInfo) {
+        titleLabel.text = info.title
+        authorLabel.text = info.author ?? ""
+        authorLabel.isHidden = info.author == nil
+        durationLabel.text = formatDuration(info.duration)
+        playingIndicator.isHidden = !info.isCurrentlyPlaying
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        if h > 0 {
+            return "\(h)h \(String(format: "%02d", m))m"
+        }
+        return "\(m)m"
     }
 }
 

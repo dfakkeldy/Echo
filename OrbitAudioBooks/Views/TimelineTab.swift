@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct TimelineTab: View {
     @Environment(PlayerModel.self) private var model
@@ -7,10 +8,14 @@ struct TimelineTab: View {
     @State private var dueCount: Int = 0
     @State private var feedViewModel: TimelineFeedViewModel?
     @State private var isFollowingPlayback = true
-    @State private var feedItems: [TimelineItem] = []
+    @State private var feedItems: [TimelineDisplayItem] = []
     @State private var currentPosition: TimeInterval = 0
 
     var onReviewTap: (() -> Void)?
+    /// Callback to present the bookmark editor sheet in the parent view.
+    var onEditBookmark: ((UUID) -> Void)?
+    /// Callback to create a new bookmark draft.
+    var onCreateBookmark: ((BookmarkDraft) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +36,6 @@ struct TimelineTab: View {
                 dueReviewBanner
             }
 
-            // The unified dual-path feed
             if let viewModel = feedViewModel {
                 ZStack {
                     TimelineFeedCollectionView(
@@ -41,11 +45,14 @@ struct TimelineTab: View {
                         onUserScrolled: {
                             viewModel.userDidScroll()
                         },
-                        onItemTapped: { item in
-                            handleItemTap(item)
+                        onItemTapped: { displayItem in
+                            handleItemTap(displayItem)
                         },
-                        onContextMenuAction: { item in
-                            handleContextMenu(item)
+                        onContextMenuAction: { displayItem in
+                            handleContextMenu(displayItem)
+                        },
+                        onDeleteBookmark: { timelineItem in
+                            handleDeleteBookmark(timelineItem)
                         }
                     )
 
@@ -84,6 +91,9 @@ struct TimelineTab: View {
             currentPosition = newPosition
             feedViewModel?.updatePosition(newPosition)
         }
+        .onChange(of: timelineScope) { _, newScope in
+            feedViewModel?.scope = newScope
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
             feedViewModel?.isVoiceOverRunning = UIAccessibility.isVoiceOverRunning
         }
@@ -97,32 +107,79 @@ struct TimelineTab: View {
                 await viewModel.loadInitialWindow(around: model.currentPlaybackTime)
             }
         }
-    }
-
-    // MARK: - Private
-
-    /// Tap on text/chapter items → seek playhead. Tap on media items → open.
-    /// Un-timestamped items (EPUB-only images, footnotes) do not seek.
-    private func handleItemTap(_ item: TimelineItem) {
-        switch item.itemType {
-        case .textSegment, .chapterMarker, .bookmark:
-            guard item.isTimestamped else { return }
-            model.seek(toSeconds: item.audioStartTime)
-        case .imageAsset:
-            if let path = item.imagePath, let url = URL(string: "file://\(path)") {
-                UIApplication.shared.open(url)
+        .onReceive(NotificationCenter.default.publisher(for: .bookmarksDidChange)) { _ in
+            guard let viewModel = feedViewModel else { return }
+            Task {
+                await viewModel.loadInitialWindow(around: model.currentPlaybackTime)
             }
-        case .ankiCard:
-            onReviewTap?()
         }
     }
 
-    /// Long-press context menu → edit the item.
-    private func handleContextMenu(_ item: TimelineItem) {
-        // Editing is delegated upward; for now, seek to the item's timestamp
-        // as a reasonable default action (user can edit from there).
-        model.seek(toSeconds: item.audioStartTime)
+    // MARK: - Item Tap Handling
+
+    private func handleItemTap(_ displayItem: TimelineDisplayItem) {
+        switch displayItem {
+        case .audiobookCard(let info):
+            // Switch to the selected audiobook
+            guard info.id != model.folderURL?.absoluteString else { return }
+            let url = URL(fileURLWithPath: info.id)
+            let gotAccess = url.startAccessingSecurityScopedResource()
+            if gotAccess {
+                model.loadFolder(url)
+                // Switch to chapter scope to show the book's content
+                timelineScope = .chapter
+            } else {
+                // Fallback: try to restore security-scoped bookmark
+                model.loadFolder(url)
+                timelineScope = .chapter
+            }
+
+        case .timelineItem(let item):
+            switch item.itemType {
+            case .textSegment, .chapterMarker, .bookmark:
+                guard item.isTimestamped else { return }
+                model.seek(toSeconds: item.audioStartTime)
+            case .imageAsset:
+                if let path = item.imagePath, let url = URL(string: "file://\(path)") {
+                    UIApplication.shared.open(url)
+                }
+            case .ankiCard:
+                onReviewTap?()
+            }
+
+        case .nowLine, .scrubberGap:
+            break
+        }
     }
+
+    /// Long-press context menu → edit or delete the item.
+    private func handleContextMenu(_ displayItem: TimelineDisplayItem) {
+        switch displayItem {
+        case .timelineItem(let item):
+            if item.itemType == .bookmark,
+               let sourceRowid = item.sourceRowid,
+               let uuid = UUID(uuidString: sourceRowid) {
+                onEditBookmark?(uuid)
+            } else {
+                model.seek(toSeconds: item.audioStartTime)
+            }
+        case .audiobookCard:
+            // Context menu on book card: no extra action needed beyond tap-to-play
+            break
+        case .nowLine, .scrubberGap:
+            break
+        }
+    }
+
+    /// Delete a bookmark from the timeline context menu.
+    private func handleDeleteBookmark(_ item: TimelineItem) {
+        guard let sourceRowid = item.sourceRowid,
+              let uuid = UUID(uuidString: sourceRowid) else { return }
+        model.deleteBookmark(id: uuid)
+        // Feed will refresh via .bookmarksDidChange notification
+    }
+
+    // MARK: - Private
 
     private var dueReviewBanner: some View {
         Button {
@@ -144,19 +201,22 @@ struct TimelineTab: View {
     }
 
     private func setupFeed() {
-        guard let db = model.databaseService,
-              let audiobookID = model.folderURL?.absoluteString
-        else { return }
+        guard let db = model.databaseService else { return }
 
-        let dao = TimelineDAO(db: db.writer)
-        let viewModel = TimelineFeedViewModel(dao: dao, audiobookID: audiobookID)
+        let audiobookID = model.folderURL?.absoluteString
+        let timelineDAO = TimelineDAO(db: db.writer)
+        let audiobookDAO = AudiobookDAO(db: db.writer)
+        let viewModel = TimelineFeedViewModel(
+            timelineDAO: timelineDAO,
+            audiobookDAO: audiobookDAO,
+            audiobookID: audiobookID
+        )
+        viewModel.scope = timelineScope
         viewModel.isVoiceOverRunning = UIAccessibility.isVoiceOverRunning
         viewModel.playbackSpeed = Double(model.speed)
 
-        // Wire scroll callback
-        viewModel.onScrollToPosition = { position in
-            // Position-based scroll handled by the collection view's coordinator
-        }
+        // Scroll is driven by updateUIView via the currentPosition binding
+        // and the coordinator's CADisplayLink-based scrollToNowLine.
 
         // Wire item change callback
         viewModel.onItemsChanged = {
@@ -176,4 +236,12 @@ struct TimelineTab: View {
         guard let db = model.databaseService else { return }
         dueCount = (try? FlashcardDAO(db: db.writer).allDueCards().count) ?? 0
     }
+}
+
+// MARK: - Bookmark Change Notification
+
+extension Notification.Name {
+    /// Posted when the bookmark store persists changes (add, update, delete).
+    /// The Timeline feed observes this to refresh inline bookmark items.
+    static let bookmarksDidChange = Notification.Name("BookmarksDidChange")
 }

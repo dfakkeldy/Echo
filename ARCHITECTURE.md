@@ -25,6 +25,7 @@ Models/PlannedSession.swift
 Models/PlayerDeepLink.swift
 Models/RealTimeEvent.swift
 Models/SpeedSuggestion.swift
+Models/TimelineDisplayItem.swift
 Models/TimelineGroup.swift
 Models/TimelineScope.swift
 Models/Track.swift
@@ -252,18 +253,20 @@ TimelineIngestionFactory.strategy(hasTranscript:hasEnhancedTranscript:hasEPUB:)
 ```
 TimelineTab
   └─ TimelineFeedCollectionView (UICollectionView via UIViewRepresentable)
-       ├── 8 cell types: TextSegment, ChapterMarker, ImageAsset, Bookmark,
-       │     AnkiCard, ElasticScrubber (gap indicator), NowLine (playback position),
+       ├── 9 cell types: TextSegment, ChapterMarker, ImageAsset, Bookmark,
+       │     AnkiCard, BookCard, ElasticScrubber (gap indicator), NowLine (playback position),
        │     StickyReviewHeader (supplementary view, pinned to top)
-       └── NSDiffableDataSourceSnapshot<String> — string-based identity
+       └── NSDiffableDataSourceSnapshot<String> — identity from TimelineDisplayItem.id
             └─ TimelineFeedViewModel (@Observable, push-driven)
                  ├── FollowState: following → browsing (on user scroll) → following (5s tripwire or "Go to Now")
                  ├── Granularity: chapter-level above 1.5× speed, sentence-level otherwise
-                 └── TimelineDAO.feedWindow(audiobookID:around:granularity:limit:)
+                 ├── Scope: .book → AudiobookDAO.all(), .chapter/.transcription → TimelineDAO.feedWindow
+                 └── Data: [TimelineDisplayItem] wrapping audiobook cards, timeline items, nowLine, scrubberGap
 ```
 
 **Key types in Shared/:**
 
+- `TimelineDisplayItem` — Enum with 4 cases (`.audiobookCard`, `.timelineItem`, `.nowLine`, `.scrubberGap`) for heterogeneous feed content
 - `TimelineItem` — `MutablePersistableRecord`, the materialized row with `GranularityLevel`
 - `EnhancedTranscriptionSegment` — Whisper segment with optional `SyncMarker` array
 - `SyncMarker` — EPUB structural marker (chapter start, image, blockquote, etc.)
@@ -279,28 +282,28 @@ RootTabView
 └── Tab 1: TimelineTab     ← unified library + feed + planner + review
 ```
 
-**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`. It is strictly play/pause/scrubbing — all auxiliary controls (speed, sleep timer, bookmarks, loop mode, playlist) live in the Timeline's `DashboardShelf`. Transcript overlays and voice memo playback are overlaid conditionally.
+**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`. It is strictly play/pause/scrubbing — all auxiliary controls (speed, sleep timer, bookmarks, loop mode, and library browsing) live in the Timeline's `DashboardShelf` and feed. The standalone `PlaylistView` sheet has been removed; bookmarks and playlist functionality are now integrated into the Timeline feed. Transcript overlays and voice memo playback are overlaid conditionally.
 
-**TimelineTab** consolidates the former Library, Planner, and standalone Review tabs into a single unified feed:
+**TimelineTab** is the unified hub for all content browsing, library management, and annotation review:
 
 ```
 TimelineTab
-├── TimelineHeaderView        ← TimelineScope zoom control + "Go to Now"
-├── DashboardShelf            ← stats, speed, sleep timer, review count, progress
-├── SpeedSuggestionBanner     ← real-time completion projection (moved from Planner)
+├── TimelineHeaderView        ← TimelineScope zoom control ("Library" / "Ch" / "Trans") + "Go to Now"
+├── DashboardShelf            ← stats, speed, sleep timer, review count, progress, add bookmark
+├── SpeedSuggestionBanner     ← real-time completion projection
 ├── dueReviewBanner           ← pending flashcard count with tap-to-review
-└── TimelineFeedCollectionView ← UICollectionView-backed dual-path feed
+└── TimelineFeedCollectionView ← UICollectionView-backed feed with heterogeneous TimelineDisplayItem types
 ```
 
 ### TimelineScope (Structural Zoom)
 
 `TimelineScope` (formerly `TimeScale`) controls the feed's structural depth. The user cycles through three levels:
 
-| Scope | Label | Behavior |
-|---|---|---|
-| `.book` | "Book" | Library-level — shows chapter markers only, no inline entries |
-| `.chapter` | "Ch" | Chapter-level — shows segments nested under chapter sections |
-| `.transcription` | "Trans" | Finest granularity — individual transcript sentences with timestamps |
+| Scope | Label | Data Source | Behavior |
+|---|---|---|---|---|
+| `.book` | "Library" | `AudiobookDAO.all()` | Shows all audiobooks in the user's library as `BookCardCell` items. Tapping a book loads it and switches to `.chapter` scope. Functions as the unified playlist/library browser. |
+| `.chapter` | "Ch" | `TimelineDAO.feedWindow(granularity: .chapter)` | Chapter markers, bookmarks, and flashcards for the currently playing audiobook. Bookmarks appear inline at their timestamps. |
+| `.transcription` | "Trans" | `TimelineDAO.feedWindow(granularity: .sentence)` | Individual transcript sentences, bookmarks, and image assets at full detail. Smooth auto-scroll follows the NowLine playhead. |
 
 Contrast with `GranularityLevel` (database-side enum: `.chapter`, `.paragraph`, `.sentence`, `.word`) — `TimelineScope` is the user-facing zoom control, while `GranularityLevel` is the query-level filter that also auto-adjusts based on playback speed (>1.5× → chapter-level).
 
@@ -311,13 +314,15 @@ The feed uses a physical, audio-anchored interaction model:
 | Gesture | Target | Action |
 |---|---|---|
 | **Tap** | Text segment / chapter marker / bookmark | Seek playhead to `item.audioStartTime` |
+| **Tap** | Audiobook card (`.book` scope) | Load the selected audiobook and switch to `.chapter` scope |
 | **Tap** | Image asset | Open image in system viewer |
 | **Tap** | Anki card | Launch flashcard review session |
-| **Long press** | Any feed item | Context menu with "Edit" action |
+| **Long press** | Bookmark item | Context menu with "Edit" and "Delete" actions |
+| **Long press** | Other feed item | Context menu with "Edit" action |
 
 **Now Line demarcation:** The feed is split at the current playback position by a visible `NowLineCell` — a red divider line with a "NOW" label that renders between history and future items. Items *above* (before) the playhead represent history — listened segments, completed reviews — and render at reduced opacity (0.65). Items *below* (after) the playhead represent future content at full opacity. The active item (whose time range contains `currentPosition`) is highlighted with a blue leading bar.
 
-**Follow state:** The feed auto-scrolls to track playback ("following"). When the user manually scrolls, follow mode disengages. A "Go to Now" floating button appears, and a 5-second tripwire re-engages follow mode if the user stops scrolling.
+**Follow state & smooth scrolling:** The feed auto-scrolls to track playback ("following") using `CADisplayLink`-driven interpolation. Each frame, the content offset eases 15% closer to the target position where the NowLine is centered in the viewport. When the user manually scrolls, the display link disengages and follow mode is suspended. A "Go to Now" floating button appears, and a 5-second tripwire re-engages follow mode if the user stops scrolling.
 
 ### Sticky Anki Reviews
 
@@ -337,11 +342,28 @@ The Timeline feed operates at three levels of structural depth, controlled by `T
 
 | Level | Scope Case | Content Displayed | Use Case |
 |---|---|---|---|
-| **Book** (Library) | `.book` | Chapter markers only; no inline entries | Browsing the full book structure, jumping between chapters |
-| **Chapter** | `.chapter` | Segments nested under chapter section headers; bookmarks and flashcards grouped by chapter | Reviewing a chapter's worth of content at a glance |
-| **Transcription** (Sentence) | `.transcription` | Individual transcript sentences with word-level timestamps; all content types inline | Following along word-by-word, precise seeking, detailed review |
+| **Library** | `.book` | All audiobooks in the user's library as `BookCardCell` items with cover placeholder, title, author, and duration | Browsing the full library, switching between books (unified playlist) |
+| **Chapter** | `.chapter` | Chapter markers, bookmarks, and flashcards for the current audiobook | Navigating chapters, reviewing bookmarks inline |
+| **Transcription** (Sentence) | `.transcription` | Individual transcript sentences with word-level timestamps; bookmarks and images inline | Following along word-by-word, precise seeking, detailed review |
 
 The user cycles through these levels with the `TimelineHeaderView` cycle button. `GranularityLevel` (the database query filter) auto-adjusts based on playback speed — above 1.5× it switches to `.chapter` to reduce visual noise at high speed.
+
+### Unified Timeline Paradigm
+
+The app now uses a **Unified Timeline Paradigm** where all content browsing, library management, and annotation review happens in a single feed:
+
+**`TimelineDisplayItem` enum**: The feed renders heterogeneous item types from a single `[TimelineDisplayItem]` array. This replaces the previous ad-hoc system of `[TimelineItem]` + string-identified gap/nowline sentinels.
+
+| Case | Source | Cell Type |
+|---|---|---|
+| `.audiobookCard(AudiobookCardInfo)` | `AudiobookDAO.all()` → view model | `BookCardCell` |
+| `.timelineItem(TimelineItem)` | `TimelineDAO` queries | `TextSegmentCell`, `ChapterMarkerCell`, `BookmarkCell`, `AnkiCardCell`, `ImageAssetCell` |
+| `.nowLine` | Inserted at current position boundary | `NowLineCell` |
+| `.scrubberGap(TimeInterval, String)` | Inserted for gaps > 60s | `ElasticScrubberCell` |
+
+**Bookmark lifecycle**: Bookmarks created via `BottomToolbarView.addBookmarkButton` flow through `BookmarkStore.appendBookmark` → `BookmarkDAO.syncToTimeline` → `timeline_item` table. The `.bookmarksDidChange` notification triggers a feed refresh in `TimelineTab`, ensuring bookmarks appear inline immediately.
+
+**Playlist migration**: The standalone `PlaylistView` sheet and `BottomToolbarView.playlistButton` have been removed. Browsing and selecting audiobooks now happens at `.book` scope in the Timeline feed.
 
 ### EPUB-to-Audio Data Model: Handling Mismatches
 

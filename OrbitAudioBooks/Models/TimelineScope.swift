@@ -11,7 +11,7 @@ enum TimelineScope: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .book:          String(localized: "Book")
+        case .book:          String(localized: "Library")
         case .chapter:       String(localized: "Ch")
         case .transcription: String(localized: "Trans")
         }
@@ -19,7 +19,7 @@ enum TimelineScope: String, CaseIterable, Identifiable {
 
     var menuLabel: String {
         switch self {
-        case .book:          String(localized: "Book")
+        case .book:          String(localized: "Library")
         case .chapter:       String(localized: "Chapter")
         case .transcription: String(localized: "Transcription")
         }

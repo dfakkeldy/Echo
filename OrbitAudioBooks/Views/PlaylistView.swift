@@ -1,5 +1,11 @@
 import SwiftUI
 
+// DEPRECATED: Playlist and Bookmarks functionality has been migrated to the
+// unified Timeline feed (TimelineTab). At `.book` scope, the timeline shows
+// all library audiobooks as the playlist. At `.chapter`/`.transcription`
+// scopes, bookmarks appear inline as BookmarkCell items in the feed.
+// This view is kept for potential watchOS reuse or future restoration.
+
 /// A wrapper to make UUID Identifiable for use with `.sheet(item:)`.
 struct IdentifiableUUID: Identifiable, Hashable {
     let id: UUID

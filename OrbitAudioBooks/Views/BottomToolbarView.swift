@@ -2,7 +2,6 @@ import SwiftUI
 
 struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
-    @Binding var showingPlaylist: Bool
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
 
     var body: some View {
@@ -18,8 +17,6 @@ struct BottomToolbarView: View {
                 sleepTimerMenu
                 Spacer()
                 addBookmarkButton
-                Spacer()
-                playlistButton
             }
             .padding(.horizontal)
             .padding(.vertical, 12)
@@ -194,19 +191,5 @@ struct BottomToolbarView: View {
         }
         .accessibilityLabel(Text("Add bookmark at current time"))
         .disabled(model.tracks.isEmpty)
-    }
-
-    // MARK: - Playlist
-
-    private var playlistButton: some View {
-        Button {
-            showingPlaylist = true
-        } label: {
-            Image(systemName: "list.bullet")
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel(Text("Playlist"))
     }
 }

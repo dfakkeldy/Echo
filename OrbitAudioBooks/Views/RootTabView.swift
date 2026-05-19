@@ -9,7 +9,6 @@ struct RootTabView: View {
 
     @State private var selectedTab = 0
     @State private var showingFolderPicker = false
-    @State private var showingPlaylist = false
     @State private var showingSettings = false
     @State private var showingHelp = false
     @State private var newBookmarkDraft: BookmarkDraft? = nil
@@ -30,7 +29,11 @@ struct RootTabView: View {
                 }
                 .tag(0)
 
-                TimelineTab(onReviewTap: { launchReview() })
+                TimelineTab(
+                    onReviewTap: { launchReview() },
+                    onEditBookmark: { id in editingBookmarkID = id },
+                    onCreateBookmark: { draft in newBookmarkDraft = draft }
+                )
                     .tabItem {
                         Label("Timeline", systemImage: "rectangle.split.2x1")
                     }
@@ -69,9 +72,6 @@ struct RootTabView: View {
                     showingFolderPicker = false
                     model.loadFolder(url)
                 }
-            }
-            .sheet(isPresented: $showingPlaylist) {
-                PlaylistView()
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
