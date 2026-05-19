@@ -7,6 +7,10 @@ import UIKit
 import ImageIO
 import os.log
 
+extension Notification.Name {
+    static let timelineItemsIngested = Notification.Name("TimelineItemsIngested")
+}
+
 /// Playback loop behavior for the current audiobook.
 enum LoopMode: String, Codable {
     /// No looping; playback advances normally.
@@ -746,6 +750,23 @@ final class PlayerModel {
                     state.m4bBooks = parsed.books
                     state.aggregatedChapters = parsed.aggregatedChapters
                     state.totalBookDuration = parsed.totalDuration
+
+                    // Ingest timeline items from aggregated chapters.
+                    let chapters = parsed.aggregatedChapters.map { agg in
+                        Chapter(
+                            index: agg.chapterIndex,
+                            title: agg.chapterTitle,
+                            startSeconds: agg.startSeconds,
+                            endSeconds: agg.endSeconds,
+                            isEnabled: true
+                        )
+                    }
+                    let audioURL = parsed.books.first?.url ?? folderURL
+                    await ingestTimelineItems(
+                        chapters: chapters,
+                        audiobookID: folderURL.absoluteString,
+                        audioURL: audioURL
+                    )
                 }
             }
         }
@@ -825,6 +846,46 @@ final class PlayerModel {
         } catch {
             Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
                 .error("Failed to persist audiobook to SQL: \(error.localizedDescription)")
+        }
+    }
+
+    /// Ingests timeline items (chapter markers, text segments, etc.) into the
+    /// timeline_item table so the unified dual-path feed has data to display.
+    private func ingestTimelineItems(
+        chapters: [Chapter],
+        audiobookID: String,
+        audioURL: URL
+    ) async {
+        guard let db = databaseService else { return }
+
+        let hasTranscript = !state.transcription.isEmpty
+        let strategy = TimelineIngestionFactory.strategy(
+            hasTranscript: hasTranscript,
+            hasEnhancedTranscript: false,
+            hasEPUB: false
+        )
+
+        do {
+            let items = try await strategy.ingest(
+                audiobookID: audiobookID,
+                audioURL: audioURL,
+                chapters: chapters,
+                transcript: hasTranscript ? state.transcription : nil,
+                enhancedTranscript: nil
+            )
+            guard !items.isEmpty else { return }
+            try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
+            try TimelineDAO(db: db.writer).ingest(items)
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .timelineItemsIngested,
+                    object: nil,
+                    userInfo: ["audiobookID": audiobookID]
+                )
+            }
+        } catch {
+            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
+                .error("Failed to ingest timeline items: \(error.localizedDescription)")
         }
     }
 
@@ -1409,6 +1470,10 @@ final class PlayerModel {
                     Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
                         .error("Failed to persist chapters: \(error.localizedDescription)")
                 }
+
+                // Ingest timeline items so the unified feed has data.
+                let trackURL = state.tracks[currentIndex].url
+                Task { await ingestTimelineItems(chapters: built, audiobookID: audiobookID, audioURL: trackURL) }
             }
         } else {
             state.chapters = []

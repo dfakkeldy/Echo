@@ -79,6 +79,16 @@ struct TimelineTab: View {
         .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
             feedViewModel?.isVoiceOverRunning = UIAccessibility.isVoiceOverRunning
         }
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { notification in
+            guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
+                  let audiobookID = model.folderURL?.absoluteString,
+                  ingestedID == audiobookID,
+                  let viewModel = feedViewModel
+            else { return }
+            Task {
+                await viewModel.loadInitialWindow(around: model.currentPlaybackTime)
+            }
+        }
     }
 
     // MARK: - Private
