@@ -905,11 +905,25 @@ final class PlayerModel {
         guard let db = databaseService else { return }
 
         let hasTranscript = !state.transcription.isEmpty
+        let hasEPUB: Bool = {
+            guard let db = databaseService, let audiobookID = folderURL?.absoluteString else { return false }
+            return (try? !EPubBlockDAO(db: db.writer).blocks(for: audiobookID).isEmpty) ?? false
+        }()
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
             hasEnhancedTranscript: false,
-            hasEPUB: false
+            hasEPUB: hasEPUB
         )
+
+        // Load EPUB blocks and anchors if available.
+        let epubBlocks: [EPubBlockRecord]? = {
+            guard hasEPUB, let db = databaseService, let audiobookID = folderURL?.absoluteString else { return nil }
+            return try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID)
+        }()
+        let alignmentAnchors: [AlignmentAnchorRecord]? = {
+            guard hasEPUB, let db = databaseService, let audiobookID = folderURL?.absoluteString else { return nil }
+            return try? AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)
+        }()
 
         do {
             let items = try await strategy.ingest(
@@ -917,7 +931,11 @@ final class PlayerModel {
                 audioURL: audioURL,
                 chapters: chapters,
                 transcript: hasTranscript ? state.transcription : nil,
-                enhancedTranscript: nil
+                enhancedTranscript: nil,
+                epubBlocks: epubBlocks,
+                alignmentAnchors: alignmentAnchors,
+                bookmarks: nil,
+                flashcards: nil
             )
             guard !items.isEmpty else { return }
             try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
