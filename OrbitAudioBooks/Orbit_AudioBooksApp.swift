@@ -25,6 +25,7 @@ struct Orbit_AudioBooksApp: App {
         do {
             let db = try DatabaseService()
             model.databaseService = db
+            MigrationService.migrateIfNeeded(database: db)
         } catch {
             fatalError("DatabaseService initialization failed: \(error)")
         }
