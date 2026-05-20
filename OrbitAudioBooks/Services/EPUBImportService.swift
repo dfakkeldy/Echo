@@ -199,7 +199,7 @@ struct EPUBImportService {
 
 // MARK: - Errors
 
-enum EPUBImportError: LocalizedError {
+enum EPUBImportError: LocalizedError, Equatable {
     case notAnEPUB(url: URL)
     case missingOPF
     case spineEmpty

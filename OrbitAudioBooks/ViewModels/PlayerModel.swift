@@ -905,13 +905,15 @@ final class PlayerModel {
         guard let db = databaseService else { return }
 
         let hasTranscript = !state.transcription.isEmpty
+        let enhancedTranscript = transcriptService.loadEnhancedTranscript(for: audioURL)
+        let hasEnhancedTranscript = enhancedTranscript != nil
         let hasEPUB: Bool = {
             guard let db = databaseService, let audiobookID = folderURL?.absoluteString else { return false }
             return (try? !EPubBlockDAO(db: db.writer).blocks(for: audiobookID).isEmpty) ?? false
         }()
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
-            hasEnhancedTranscript: false,
+            hasEnhancedTranscript: hasEnhancedTranscript,
             hasEPUB: hasEPUB
         )
 
@@ -931,7 +933,7 @@ final class PlayerModel {
                 audioURL: audioURL,
                 chapters: chapters,
                 transcript: hasTranscript ? state.transcription : nil,
-                enhancedTranscript: nil,
+                enhancedTranscript: enhancedTranscript,
                 epubBlocks: epubBlocks,
                 alignmentAnchors: alignmentAnchors,
                 bookmarks: nil,

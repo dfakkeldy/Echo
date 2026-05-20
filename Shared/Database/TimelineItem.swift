@@ -34,6 +34,18 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
     var sourceTable: String?
     var sourceRowid: String?
     var metadataJSON: String?
+
+    // MARK: - V5 EPUB Alignment Fields
+
+    /// FK to `epub_block.id` when this timeline item was materialized from an EPUB block.
+    var epubBlockID: String?
+    /// Source of the timestamp: none, estimated, interpolated, lockedAnchor, transcript.
+    var timestampSource: String?
+    /// Current alignment state: unaligned, estimated, interpolated, lockedAnchor, omitted.
+    var alignmentStatus: String?
+    /// Confidence score (0.0–1.0) for the current timestamp; nil when not applicable.
+    var alignmentConfidence: Double?
+
     var createdAt: String?
     var modifiedAt: String?
 
@@ -57,6 +69,10 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
         case metadataJSON = "metadata_json"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
+        case epubBlockID = "epub_block_id"
+        case timestampSource = "timestamp_source"
+        case alignmentStatus = "alignment_status"
+        case alignmentConfidence = "alignment_confidence"
     }
 }
 
@@ -91,6 +107,36 @@ extension TimelineItem {
 // MARK: - MediaPlayable
 
 extension TimelineItem: MediaPlayable {}
+
+// MARK: - Alignment Enums
+
+/// Describes how a timeline item's `audioStartTime` was determined.
+enum TimestampSource: String, Codable {
+    /// No timestamp available — block has no audio mapping.
+    case none
+    /// Rough estimate from chapter boundaries or book duration.
+    case estimated
+    /// Linearly interpolated between two locked anchors.
+    case interpolated
+    /// Explicitly set by the user (anchor locked in place).
+    case lockedAnchor
+    /// Derived from a transcript segment with known word-level timing.
+    case transcript
+}
+
+/// Describes the alignment state of a timeline item relative to audio.
+enum AlignmentStatus: String, Codable {
+    /// No alignment has been performed; block is untimestamped.
+    case unaligned
+    /// Timestamp is estimated from chapter/duration data.
+    case estimated
+    /// Timestamp was interpolated between locked anchors.
+    case interpolated
+    /// Timestamp is locked by a user-placed anchor.
+    case lockedAnchor
+    /// Block has been intentionally hidden from the feed.
+    case omitted
+}
 
 // MARK: - Legacy compatibility
 

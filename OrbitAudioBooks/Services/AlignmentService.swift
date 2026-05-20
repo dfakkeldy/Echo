@@ -184,7 +184,7 @@ struct AlignmentService {
                     timestampSrc = TimestampSource.none.rawValue
                     alignStatus = AlignmentStatus.unaligned.rawValue
                 }
-            } else if let chapterIndex = block.chapterIndex {
+            } else if block.chapterIndex != nil {
                 // Chapter data available but no anchors — estimate from chapter bounds.
                 // This is a rough estimate: place blocks proportionally within the chapter.
                 audioStart = -1

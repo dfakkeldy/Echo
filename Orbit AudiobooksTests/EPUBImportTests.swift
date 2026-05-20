@@ -123,7 +123,7 @@ struct EPUBImportTests {
         #expect(Set(sequenceIndices).count == sequenceIndices.count) // no duplicates
     }
 
-    @Test func epubImportRejectsInvalidDirectory() async {
+    @Test func epubImportRejectsInvalidDirectory() async throws {
         let db = try DatabaseService(inMemory: ())
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
