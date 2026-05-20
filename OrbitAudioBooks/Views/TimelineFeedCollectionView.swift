@@ -7,6 +7,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     @Binding var items: [TimelineDisplayItem]
     @Binding var currentPosition: TimeInterval
     var isFollowingPlayback: Bool
+    var scrollTargetPosition: TimeInterval?
     var onUserScrolled: () -> Void
     var scrollToPosition: ((TimeInterval) -> Void)?
 
@@ -100,11 +101,19 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         }
 
         context.coordinator.currentPosition = currentPosition
+        context.coordinator.parent = self
+
+        // Detect scroll target changes from the view model (via TimelineTab)
+        // and trigger a programmatic scroll to center the NowLine.
+        let previousTarget = context.coordinator.lastScrollTarget
+        if let target = scrollTargetPosition, target != previousTarget {
+            context.coordinator.lastScrollTarget = target
+            if isFollowingPlayback {
+                context.coordinator.scrollToNowLine(animated: true)
+            }
+        }
 
         // Auto-scroll the NowLine into view when following playback.
-        // The coordinator's CADisplayLink interpolates smoothly — calling
-        // this on every tick just updates the scroll target without restarting
-        // the link if one is already running.
         if isFollowingPlayback {
             context.coordinator.scrollToNowLine(animated: true)
         }
@@ -160,6 +169,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         var currentItems: [String] = []
         var itemLookup: [String: TimelineDisplayItem] = [:]
         var currentPosition: TimeInterval = 0
+        var lastScrollTarget: TimeInterval?
         private var isProgrammaticScroll = false
 
         // MARK: - DisplayLink for smooth scrolling

@@ -281,7 +281,8 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
 
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
-        let filename = "\(audiobookID)_ch\(chapterIndex).jpg"
+        let safeID = SafeFileName.fromAudiobookID(audiobookID)
+        let filename = "\(safeID)_ch\(chapterIndex).jpg"
         let url = cacheDir.appendingPathComponent(filename)
 
         do {

@@ -17,6 +17,7 @@ final class TimelineFeedViewModel {
     private(set) var currentPosition: TimeInterval = 0
     private(set) var isFollowingPlayback = true
     private(set) var isLoading = false
+    private(set) var lastError: Error?
 
     /// The active structural zoom level. Setting this triggers a data reload.
     var scope: TimelineScope = .chapter {
@@ -126,7 +127,9 @@ final class TimelineFeedViewModel {
                 let newItems = prepareDisplayItems(from: page)
                 items.append(contentsOf: newItems)
                 onItemsChanged?()
-            } catch {}
+            } catch {
+                lastError = error
+            }
         }
     }
 
@@ -157,7 +160,9 @@ final class TimelineFeedViewModel {
                 let newItems = prepareDisplayItems(from: filtered)
                 items.insert(contentsOf: newItems, at: 0)
                 onItemsChanged?()
-            } catch {}
+            } catch {
+                lastError = error
+            }
         }
     }
 
@@ -198,7 +203,8 @@ final class TimelineFeedViewModel {
             items = displayItems
             onItemsChanged?()
         } catch {
-            items = []
+            lastError = error
+            // Keep existing items on transient failures
         }
     }
 
@@ -219,7 +225,8 @@ final class TimelineFeedViewModel {
             items = prepareDisplayItems(from: rawItems)
             onItemsChanged?()
         } catch {
-            items = []
+            lastError = error
+            // Keep existing items on transient failures
         }
     }
 

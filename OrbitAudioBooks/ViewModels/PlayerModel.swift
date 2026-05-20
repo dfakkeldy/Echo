@@ -721,22 +721,23 @@ final class PlayerModel {
     func loadFolder(_ url: URL, autoplay: Bool = true) {
         stop()
 
-        // Persist to SQL BEFORE setting folderURL — the @Observable change on
-        // folderURL triggers TimelineTab to reload, and the DB must have data by then.
-        persistAudiobookToSQL(folderURL: url)
-        state.folderURL = url
-        
         let didStart = url.startAccessingSecurityScopedResource()
         defer { if didStart { url.stopAccessingSecurityScopedResource() } }
-        
+
         var isDir: ObjCBool = false
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-        
+
         if isDir.boolValue {
             tracks = playlistManager.loadTracks(from: url)
         } else {
             tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
         }
+
+        // Persist to SQL BEFORE setting folderURL. The @Observable change on
+        // folderURL triggers TimelineTab to reload — tracks must already be
+        // loaded and persisted so the DB has data by then.
+        persistAudiobookToSQL(folderURL: url)
+        state.folderURL = url
 
         // Multi-M4B aggregation: when 2+ .m4b files are detected, parse all of them
         // asynchronously and build an aggregated chapter list with cumulative offsets.

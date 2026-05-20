@@ -10,6 +10,7 @@ struct TimelineTab: View {
     @State private var isFollowingPlayback = true
     @State private var feedItems: [TimelineDisplayItem] = []
     @State private var currentPosition: TimeInterval = 0
+    @State private var scrollTargetPosition: TimeInterval?
 
     var onReviewTap: (() -> Void)?
     /// Callback to present the bookmark editor sheet in the parent view.
@@ -42,6 +43,7 @@ struct TimelineTab: View {
                         items: $feedItems,
                         currentPosition: $currentPosition,
                         isFollowingPlayback: isFollowingPlayback,
+                        scrollTargetPosition: scrollTargetPosition,
                         onUserScrolled: {
                             viewModel.userDidScroll()
                         },
@@ -215,8 +217,11 @@ struct TimelineTab: View {
         viewModel.isVoiceOverRunning = UIAccessibility.isVoiceOverRunning
         viewModel.playbackSpeed = Double(model.speed)
 
-        // Scroll is driven by updateUIView via the currentPosition binding
-        // and the coordinator's CADisplayLink-based scrollToNowLine.
+        // Wire scroll callback: view model → TimelineTab state → collection view
+        viewModel.onScrollToPosition = { [weak viewModel] position in
+            guard let viewModel, viewModel.isFollowingPlayback else { return }
+            scrollTargetPosition = position
+        }
 
         // Wire item change callback
         viewModel.onItemsChanged = {
