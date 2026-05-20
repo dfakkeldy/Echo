@@ -35,6 +35,33 @@ protocol TimelineIngestionStrategy {
     ) async throws -> [TimelineItem]
 }
 
+/// Extended ingestion strategy that also receives EPUB block and anchor data.
+protocol EPUBTimelineIngestionStrategy: TimelineIngestionStrategy {
+    func ingest(
+        audiobookID: String,
+        audioURL: URL,
+        chapters: [Chapter],
+        transcript: [TranscriptionSegment]?,
+        enhancedTranscript: [EnhancedTranscriptionSegment]?,
+        epubBlocks: [EPubBlockRecord],
+        anchors: [AlignmentAnchorRecord]
+    ) async throws -> [TimelineItem]
+}
+
+extension EPUBTimelineIngestionStrategy {
+    func ingest(
+        audiobookID: String,
+        audioURL: URL,
+        chapters: [Chapter],
+        transcript: [TranscriptionSegment]?,
+        enhancedTranscript: [EnhancedTranscriptionSegment]?
+    ) async throws -> [TimelineItem] {
+        try await ingest(audiobookID: audiobookID, audioURL: audioURL, chapters: chapters,
+                         transcript: transcript, enhancedTranscript: enhancedTranscript,
+                         epubBlocks: [], anchors: [])
+    }
+}
+
 // MARK: - Factory
 
 struct TimelineIngestionFactory {
@@ -46,6 +73,9 @@ struct TimelineIngestionFactory {
         hasEnhancedTranscript: Bool,
         hasEPUB: Bool
     ) -> TimelineIngestionStrategy {
+        if hasEPUB {
+            return EPUBBlockIngestionStrategy()
+        }
         if hasEnhancedTranscript || hasTranscript {
             return RichIngestionStrategy()
         }
@@ -291,6 +321,135 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
         } catch {
             return nil
         }
+    }
+}
+
+// MARK: - EPUB Block Strategy (EPUB → Timeline)
+
+/// Materializes timeline items from epub_block records and alignment anchors.
+/// This is the V1 manual-first strategy: EPUB blocks drive the feed, with
+/// timestamps filled in from anchors via interpolation in AlignmentService.
+struct EPUBBlockIngestionStrategy: EPUBTimelineIngestionStrategy {
+    func ingest(
+        audiobookID: String,
+        audioURL: URL,
+        chapters: [Chapter],
+        transcript: [TranscriptionSegment]?,
+        enhancedTranscript: [EnhancedTranscriptionSegment]?,
+        epubBlocks: [EPubBlockRecord],
+        anchors: [AlignmentAnchorRecord]
+    ) async throws -> [TimelineItem] {
+        var items: [TimelineItem] = []
+        let anchorByBlockID = Dictionary(grouping: anchors, by: { $0.epubBlockID })
+            .compactMapValues { $0.first }
+
+        // 1. Chapter markers
+        for chapter in chapters {
+            let item = TimelineItem(
+                id: "chapterMarker-\(audiobookID)-\(chapter.index)",
+                audiobookID: audiobookID,
+                itemType: .chapterMarker,
+                title: chapter.title ?? "Chapter \(chapter.index + 1)",
+                subtitle: nil,
+                textPayload: nil,
+                imagePath: nil,
+                audioStartTime: chapter.startSeconds,
+                audioEndTime: chapter.endSeconds,
+                epubSequenceIndex: nil,
+                granularityLevel: .chapter,
+                playlistPosition: nil,
+                isEnabled: chapter.isEnabled,
+                sourceTable: "chapter",
+                sourceRowid: String(chapter.index),
+                metadataJSON: nil,
+                epubBlockID: nil,
+                timestampSource: TimelineItem.TimestampSource.estimated.rawValue,
+                alignmentStatus: TimelineItem.AlignmentStatus.estimated.rawValue,
+                alignmentConfidence: 0.5,
+                createdAt: nil,
+                modifiedAt: nil
+            )
+            items.append(item)
+        }
+
+        // 2. EPUB blocks → text segments and image assets
+        for block in epubBlocks {
+            if block.isHidden {
+                let item = TimelineItem(
+                    id: "timeline-\(block.id)",
+                    audiobookID: audiobookID,
+                    itemType: (block.blockKind == "image") ? .imageAsset : .textSegment,
+                    title: block.text ?? block.spineHref,
+                    subtitle: nil,
+                    textPayload: block.text,
+                    imagePath: block.imagePath,
+                    audioStartTime: -1,
+                    audioEndTime: nil,
+                    epubSequenceIndex: block.sequenceIndex,
+                    granularityLevel: .paragraph,
+                    playlistPosition: nil,
+                    isEnabled: false,
+                    sourceTable: "epub_block",
+                    sourceRowid: block.id,
+                    metadataJSON: nil,
+                    epubBlockID: block.id,
+                    timestampSource: TimelineItem.TimestampSource.none.rawValue,
+                    alignmentStatus: TimelineItem.AlignmentStatus.omitted.rawValue,
+                    alignmentConfidence: nil,
+                    createdAt: nil,
+                    modifiedAt: nil
+                )
+                items.append(item)
+                continue
+            }
+
+            // Check for a locked anchor
+            let anchor = anchorByBlockID[block.id]
+            let source: String
+            let status: String
+            let startTime: TimeInterval
+            let confidence: Double?
+
+            if let anchor {
+                source = TimelineItem.TimestampSource.lockedAnchor.rawValue
+                status = TimelineItem.AlignmentStatus.lockedAnchor.rawValue
+                startTime = anchor.audioTime
+                confidence = 1.0
+            } else {
+                source = TimelineItem.TimestampSource.none.rawValue
+                status = TimelineItem.AlignmentStatus.unaligned.rawValue
+                startTime = -1
+                confidence = nil
+            }
+
+            let item = TimelineItem(
+                id: "timeline-\(block.id)",
+                audiobookID: audiobookID,
+                itemType: (block.blockKind == "image") ? .imageAsset : .textSegment,
+                title: block.text ?? (block.blockKind == "image" ? "Image" : block.spineHref),
+                subtitle: nil,
+                textPayload: block.text,
+                imagePath: block.imagePath,
+                audioStartTime: startTime,
+                audioEndTime: anchor?.audioEndTime,
+                epubSequenceIndex: block.sequenceIndex,
+                granularityLevel: (block.blockKind == "heading") ? .chapter : .paragraph,
+                playlistPosition: nil,
+                isEnabled: true,
+                sourceTable: "epub_block",
+                sourceRowid: block.id,
+                metadataJSON: nil,
+                epubBlockID: block.id,
+                timestampSource: source,
+                alignmentStatus: status,
+                alignmentConfidence: confidence,
+                createdAt: nil,
+                modifiedAt: nil
+            )
+            items.append(item)
+        }
+
+        return items
     }
 }
 

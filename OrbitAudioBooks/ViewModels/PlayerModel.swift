@@ -905,20 +905,37 @@ final class PlayerModel {
         guard let db = databaseService else { return }
 
         let hasTranscript = !state.transcription.isEmpty
+        let hasEPUB = (try? EPubBlockDAO(db: db.writer).visible(for: audiobookID).isEmpty) == false
+
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
             hasEnhancedTranscript: false,
-            hasEPUB: false
+            hasEPUB: hasEPUB
         )
 
         do {
-            let items = try await strategy.ingest(
-                audiobookID: audiobookID,
-                audioURL: audioURL,
-                chapters: chapters,
-                transcript: hasTranscript ? state.transcription : nil,
-                enhancedTranscript: nil
-            )
+            let items: [TimelineItem]
+            if let epubStrategy = strategy as? EPUBBlockIngestionStrategy {
+                let blocks = (try? EPubBlockDAO(db: db.writer).all(for: audiobookID)) ?? []
+                let anchors = (try? AlignmentAnchorDAO(db: db.writer).all(for: audiobookID)) ?? []
+                items = try await epubStrategy.ingest(
+                    audiobookID: audiobookID,
+                    audioURL: audioURL,
+                    chapters: chapters,
+                    transcript: hasTranscript ? state.transcription : nil,
+                    enhancedTranscript: nil,
+                    epubBlocks: blocks,
+                    anchors: anchors
+                )
+            } else {
+                items = try await strategy.ingest(
+                    audiobookID: audiobookID,
+                    audioURL: audioURL,
+                    chapters: chapters,
+                    transcript: hasTranscript ? state.transcription : nil,
+                    enhancedTranscript: nil
+                )
+            }
             guard !items.isEmpty else { return }
             try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
             try TimelineDAO(db: db.writer).ingest(items)
@@ -933,6 +950,22 @@ final class PlayerModel {
             Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
                 .error("Failed to ingest timeline items: \(error.localizedDescription)")
         }
+    }
+
+    /// Re-ingests timeline items for the current audiobook, reloading EPUB blocks
+    /// and anchors from the database. Call after EPUB import or anchor changes.
+    func reingestTimelineFromEPUB() async {
+        guard let db = databaseService,
+              let audiobookID = folderURL?.absoluteString else { return }
+        let allChapters = state.chapters
+        let audioURL = state.tracks.indices.contains(currentIndex)
+            ? state.tracks[currentIndex].url
+            : folderURL
+        await ingestTimelineItems(
+            chapters: allChapters,
+            audiobookID: audiobookID,
+            audioURL: audioURL ?? URL(fileURLWithPath: "/")
+        )
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,
