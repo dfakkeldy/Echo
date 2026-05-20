@@ -1,10 +1,12 @@
 import Foundation
 import GRDB
 
+/// DAO for alignment anchors — user-created or auto-generated lock points
+/// that tie an EPUB block to a specific audio timestamp.
 struct AlignmentAnchorDAO {
     let db: DatabaseWriter
 
-    // MARK: - Insert / Delete
+    // MARK: - Insert
 
     func insert(_ anchor: AlignmentAnchorRecord) throws {
         var mutable = anchor
@@ -12,6 +14,8 @@ struct AlignmentAnchorDAO {
             try mutable.insert(db)
         }
     }
+
+    // MARK: - Delete
 
     func deleteAll(for audiobookID: String) throws {
         _ = try db.write { db in
@@ -23,13 +27,16 @@ struct AlignmentAnchorDAO {
 
     func delete(id: String) throws {
         _ = try db.write { db in
-            try AlignmentAnchorRecord.deleteOne(db, key: id)
+            try AlignmentAnchorRecord
+                .filter(Column("id") == id)
+                .deleteAll(db)
         }
     }
 
     // MARK: - Queries
 
-    func all(for audiobookID: String) throws -> [AlignmentAnchorRecord] {
+    /// All anchors for an audiobook, ordered by audio time.
+    func anchors(for audiobookID: String) throws -> [AlignmentAnchorRecord] {
         try db.read { db in
             try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
@@ -38,7 +45,8 @@ struct AlignmentAnchorDAO {
         }
     }
 
-    func anchor(for epubBlockID: String, audiobookID: String) throws -> AlignmentAnchorRecord? {
+    /// Anchor for a specific EPUB block, if any.
+    func anchor(for audiobookID: String, epubBlockID: String) throws -> AlignmentAnchorRecord? {
         try db.read { db in
             try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
@@ -47,25 +55,48 @@ struct AlignmentAnchorDAO {
         }
     }
 
-    /// Anchors on or after the given time, ordered ascending.
-    func anchors(from time: TimeInterval, audiobookID: String) throws -> [AlignmentAnchorRecord] {
+    /// Anchors within a time window, ordered by audio time.
+    func anchors(for audiobookID: String,
+                in timeRange: ClosedRange<TimeInterval>) throws -> [AlignmentAnchorRecord] {
         try db.read { db in
             try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("audio_time") >= time)
+                .filter(Column("audio_time") >= timeRange.lowerBound)
+                .filter(Column("audio_time") <= timeRange.upperBound)
                 .order(Column("audio_time"))
                 .fetchAll(db)
         }
     }
 
-    /// Anchors on or before the given time, ordered descending.
-    func anchors(before time: TimeInterval, audiobookID: String) throws -> [AlignmentAnchorRecord] {
+    /// The two anchors that bracket a given time, for interpolation.
+    /// Returns (previousAnchor, nextAnchor) — either may be nil at edges.
+    func bracketingAnchors(for audiobookID: String,
+                           around time: TimeInterval) throws -> (AlignmentAnchorRecord?, AlignmentAnchorRecord?) {
         try db.read { db in
-            try AlignmentAnchorRecord
+            let before = try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
                 .filter(Column("audio_time") <= time)
                 .order(Column("audio_time").desc)
-                .fetchAll(db)
+                .limit(1)
+                .fetchOne(db)
+
+            let after = try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("audio_time") > time)
+                .order(Column("audio_time"))
+                .limit(1)
+                .fetchOne(db)
+
+            return (before, after)
+        }
+    }
+
+    // MARK: - Upsert
+
+    func upsert(_ anchor: AlignmentAnchorRecord) throws {
+        var mutable = anchor
+        try db.write { db in
+            try mutable.upsert(db)
         }
     }
 }

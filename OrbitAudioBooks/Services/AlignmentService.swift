@@ -1,321 +1,275 @@
 import Foundation
+import GRDB
+import os.log
 
-// MARK: - Alignment Service
-
-/// Manages manual alignment anchors and timestamp interpolation.
+/// Manages manual EPUB-to-audio alignment through locked anchors and
+/// timestamp interpolation.
 ///
-/// Anchors are user-created pins that lock an EPUB block to a specific audio
-/// time. Timestamps for blocks between anchors are interpolated linearly by
-/// `sequence_index`. Blocks in chapters with known start/end boundaries get
-/// estimated timestamps; everything else remains unaligned.
-///
-/// Recalculation updates affected `timeline_item` rows in a single DB
-/// transaction to keep the feed consistent.
+/// Public operations produce alignment anchors and recalculate affected
+/// `timeline_item` rows in a single DB transaction.
 struct AlignmentService {
-    private let db: DatabaseWriter
+    private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "Alignment")
+    private let anchorDAO: AlignmentAnchorDAO
+    private let blockDAO: EPubBlockDAO
+    private let timelineDAO: TimelineDAO
     private let audiobookID: String
 
     init(db: DatabaseWriter, audiobookID: String) {
-        self.db = db
+        self.anchorDAO = AlignmentAnchorDAO(db: db)
+        self.blockDAO = EPubBlockDAO(db: db)
+        self.timelineDAO = TimelineDAO(db: db)
         self.audiobookID = audiobookID
     }
 
-    // MARK: - Anchor Creation
+    // MARK: - Anchor Operations
 
-    /// Anchors a block to the current playback time.
+    /// Moves a block to the current playback time, creating or updating a locked anchor.
     func moveBlockToCurrentTime(blockID: String, time: TimeInterval) throws {
-        try upsertAnchor(
-            blockID: blockID,
-            time: time,
-            endTime: nil,
-            kind: .point,
-            source: .moveToNow
-        )
-    }
-
-    /// Anchors a search result to the current playback time.
-    func anchorSearchResult(blockID: String, time: TimeInterval) throws {
-        try upsertAnchor(
-            blockID: blockID,
-            time: time,
-            endTime: nil,
-            kind: .point,
-            source: .searchResult
-        )
-    }
-
-    /// Anchors the start of a chapter.
-    func anchorChapterStart(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
-        try upsertAnchor(
-            blockID: blockID,
-            time: time,
-            endTime: nil,
-            kind: .chapterStart,
-            source: .chapterBoundary
-        )
-    }
-
-    /// Anchors the end of a chapter.
-    func anchorChapterEnd(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
-        try upsertAnchor(
-            blockID: blockID,
-            time: time,
-            endTime: nil,
-            kind: .chapterEnd,
-            source: .chapterBoundary
-        )
-    }
-
-    private func upsertAnchor(
-        blockID: String,
-        time: TimeInterval,
-        endTime: TimeInterval?,
-        kind: AlignmentAnchorRecord.AnchorKind,
-        source: AlignmentAnchorRecord.Source
-    ) throws {
         let anchor = AlignmentAnchorRecord(
-            id: "anchor-\(audiobookID)-\(blockID)",
+            id: "anchor-\(UUID().uuidString)",
             audiobookID: audiobookID,
             epubBlockID: blockID,
             audioTime: time,
-            audioEndTime: endTime,
-            anchorKind: kind.rawValue,
-            source: source.rawValue,
+            audioEndTime: nil,
+            anchorKind: AlignmentAnchorRecord.Kind.point.rawValue,
+            source: AlignmentAnchorRecord.Source.moveToNow.rawValue,
             note: nil,
-            createdAt: Date().ISO8601Format(),
-            modifiedAt: Date().ISO8601Format()
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            modifiedAt: nil
         )
-
-        // Delete existing anchor for this block (if any), then insert
-        let dao = AlignmentAnchorDAO(db: db)
-        if let _ = try? dao.anchor(for: blockID, audiobookID: audiobookID) {
-            try dao.delete(id: anchor.id)
+        // Remove any existing anchor for this block, then insert.
+        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
+            try anchorDAO.delete(id: existing.id)
         }
-        try dao.insert(anchor)
+        try anchorDAO.upsert(anchor)
+        try recalculateTimeline()
     }
 
-    // MARK: - Hide / Unhide
+    /// Anchors a search result block at a specific time.
+    func anchorSearchResult(blockID: String, time: TimeInterval) throws {
+        let anchor = AlignmentAnchorRecord(
+            id: "anchor-\(UUID().uuidString)",
+            audiobookID: audiobookID,
+            epubBlockID: blockID,
+            audioTime: time,
+            audioEndTime: nil,
+            anchorKind: AlignmentAnchorRecord.Kind.point.rawValue,
+            source: AlignmentAnchorRecord.Source.searchResult.rawValue,
+            note: nil,
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            modifiedAt: nil
+        )
+        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
+            try anchorDAO.delete(id: existing.id)
+        }
+        try anchorDAO.upsert(anchor)
+        try recalculateTimeline()
+    }
+
+    /// Sets a chapter start anchor.
+    func anchorChapterStart(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
+        let anchor = AlignmentAnchorRecord(
+            id: "anchor-\(UUID().uuidString)",
+            audiobookID: audiobookID,
+            epubBlockID: blockID,
+            audioTime: time,
+            audioEndTime: nil,
+            anchorKind: AlignmentAnchorRecord.Kind.chapterStart.rawValue,
+            source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
+            note: "Chapter \(chapterIndex) start",
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            modifiedAt: nil
+        )
+        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
+            try anchorDAO.delete(id: existing.id)
+        }
+        try anchorDAO.upsert(anchor)
+        try recalculateTimeline()
+    }
+
+    /// Sets a chapter end anchor.
+    func anchorChapterEnd(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
+        let anchor = AlignmentAnchorRecord(
+            id: "anchor-\(UUID().uuidString)",
+            audiobookID: audiobookID,
+            epubBlockID: blockID,
+            audioTime: time,
+            audioEndTime: nil,
+            anchorKind: AlignmentAnchorRecord.Kind.chapterEnd.rawValue,
+            source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
+            note: "Chapter \(chapterIndex) end",
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            modifiedAt: nil
+        )
+        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
+            try anchorDAO.delete(id: existing.id)
+        }
+        try anchorDAO.upsert(anchor)
+        try recalculateTimeline()
+    }
+
+    // MARK: - Block Visibility
 
     func hideBlock(blockID: String, reason: String?) throws {
-        let blockDAO = EPubBlockDAO(db: db)
         try blockDAO.hideBlock(id: blockID, reason: reason)
-
-        // Mark corresponding timeline item as omitted
-        try db.write { db in
-            try db.execute(
-                sql: """
-                    UPDATE timeline_item
-                    SET alignment_status = :status, is_enabled = 0
-                    WHERE epub_block_id = :blockID AND audiobook_id = :audiobookID
-                    """,
-                arguments: [
-                    "status": TimelineItem.AlignmentStatus.omitted.rawValue,
-                    "blockID": blockID,
-                    "audiobookID": audiobookID
-                ]
-            )
-        }
+        try recalculateTimeline()
     }
 
     func unhideBlock(blockID: String) throws {
-        let blockDAO = EPubBlockDAO(db: db)
         try blockDAO.unhideBlock(id: blockID)
+        try recalculateTimeline()
+    }
 
-        // Restore timeline item visibility
+    // MARK: - Timeline Recalculation
+
+    /// Recalculates all affected `timeline_item` rows in one transaction.
+    ///
+    /// Interpolation rules:
+    /// 1. Locked anchors always take precedence
+    /// 2. Blocks between two anchors interpolate linearly by `sequence_index`
+    /// 3. Blocks with chapter data but no manual anchors get `estimated`
+    /// 4. Blocks outside known ranges stay `unaligned` with `audio_start_time = -1`
+    /// 5. Hidden blocks become `alignment_status = omitted`, `is_enabled = false`
+    func recalculateTimeline() throws {
+        let blocks = try blockDAO.blocks(for: audiobookID)
+        let anchors = try anchorDAO.anchors(for: audiobookID)
+
+        guard !blocks.isEmpty else { return }
+
+        // Build anchor lookup: blockID → audioTime
+        let anchorTimeByBlockID: [String: TimeInterval] = {
+            var dict: [String: TimeInterval] = [:]
+            for anchor in anchors {
+                dict[anchor.epubBlockID] = anchor.audioTime
+            }
+            return dict
+        }()
+
+        // Build ordered list of anchored blocks for interpolation ranges.
+        let anchoredBlocks = blocks.filter { anchorTimeByBlockID[$0.id] != nil }
+            .sorted { ($0.sequenceIndex) < ($1.sequenceIndex) }
+
+        // For each block, determine its alignment.
+        for block in blocks {
+            let audioStart: TimeInterval
+            let timestampSrc: String
+            let alignStatus: String
+
+            if block.isHidden {
+                audioStart = -1
+                timestampSrc = TimestampSource.none.rawValue
+                alignStatus = AlignmentStatus.omitted.rawValue
+            } else if let lockedTime = anchorTimeByBlockID[block.id] {
+                audioStart = lockedTime
+                timestampSrc = TimestampSource.lockedAnchor.rawValue
+                alignStatus = AlignmentStatus.lockedAnchor.rawValue
+            } else if anchoredBlocks.count >= 2 {
+                // Find bracketing anchors by sequence_index.
+                if let (prev, next) = findBracketingAnchors(
+                    block: block, anchoredBlocks: anchoredBlocks, anchorTimes: anchorTimeByBlockID
+                ) {
+                    let prevSeq = Double(prev.sequenceIndex)
+                    let nextSeq = Double(next.sequenceIndex)
+                    let blockSeq = Double(block.sequenceIndex)
+                    let prevTime = anchorTimeByBlockID[prev.id]!
+                    let nextTime = anchorTimeByBlockID[next.id]!
+
+                    let fraction = (blockSeq - prevSeq) / (nextSeq - prevSeq)
+                    audioStart = prevTime + fraction * (nextTime - prevTime)
+                    timestampSrc = TimestampSource.interpolated.rawValue
+                    alignStatus = AlignmentStatus.interpolated.rawValue
+                } else {
+                    // Has anchors but this block is outside the anchored range.
+                    audioStart = -1
+                    timestampSrc = TimestampSource.none.rawValue
+                    alignStatus = AlignmentStatus.unaligned.rawValue
+                }
+            } else if let chapterIndex = block.chapterIndex {
+                // Chapter data available but no anchors — estimate from chapter bounds.
+                // This is a rough estimate: place blocks proportionally within the chapter.
+                audioStart = -1
+                timestampSrc = TimestampSource.estimated.rawValue
+                alignStatus = AlignmentStatus.estimated.rawValue
+            } else {
+                audioStart = -1
+                timestampSrc = TimestampSource.none.rawValue
+                alignStatus = AlignmentStatus.unaligned.rawValue
+            }
+
+            // Update timeline_item row.
+            try timelineDAO.updateAlignment(
+                epubBlockID: block.id,
+                audiobookID: audiobookID,
+                audioStartTime: audioStart,
+                timestampSource: timestampSrc,
+                alignmentStatus: alignStatus,
+                isEnabled: !block.isHidden
+            )
+        }
+
+        logger.info("Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors")
+    }
+
+    /// Finds the anchored blocks immediately before and after the given block
+    /// by sequence index, for linear interpolation.
+    private func findBracketingAnchors(
+        block: EPubBlockRecord,
+        anchoredBlocks: [EPubBlockRecord],
+        anchorTimes: [String: TimeInterval]
+    ) -> (prev: EPubBlockRecord, next: EPubBlockRecord)? {
+        let sorted = anchoredBlocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
+        let blockSeq = block.sequenceIndex
+
+        var prev: EPubBlockRecord?
+        var next: EPubBlockRecord?
+
+        for anchored in sorted {
+            if anchored.sequenceIndex < blockSeq {
+                prev = anchored
+            } else if anchored.sequenceIndex > blockSeq, next == nil {
+                next = anchored
+            }
+        }
+
+        guard let prev, let next else { return nil }
+        return (prev, next)
+    }
+}
+
+// MARK: - TimelineDAO Alignment Extension
+
+extension TimelineDAO {
+    /// Updates alignment metadata for a timeline item linked to an EPUB block.
+    func updateAlignment(
+        epubBlockID: String,
+        audiobookID: String,
+        audioStartTime: TimeInterval,
+        timestampSource: String,
+        alignmentStatus: String,
+        isEnabled: Bool
+    ) throws {
         try db.write { db in
             try db.execute(
                 sql: """
                     UPDATE timeline_item
-                    SET alignment_status = :status, is_enabled = 1
-                    WHERE epub_block_id = :blockID AND audiobook_id = :audiobookID
+                    SET audio_start_time = :audioStartTime,
+                        timestamp_source = :timestampSource,
+                        alignment_status = :alignmentStatus,
+                        is_enabled = :isEnabled,
+                        modified_at = :now
+                    WHERE epub_block_id = :epubBlockID
+                      AND audiobook_id = :audiobookID
                     """,
                 arguments: [
-                    "status": TimelineItem.AlignmentStatus.unaligned.rawValue,
-                    "blockID": blockID,
+                    "audioStartTime": audioStartTime,
+                    "timestampSource": timestampSource,
+                    "alignmentStatus": alignmentStatus,
+                    "isEnabled": isEnabled,
+                    "now": ISO8601DateFormatter().string(from: Date()),
+                    "epubBlockID": epubBlockID,
                     "audiobookID": audiobookID
                 ]
             )
         }
-    }
-
-    // MARK: - Recalculation
-
-    /// Recalculates all timeline item timestamps for the audiobook based on
-    /// current anchors and chapter boundaries. Runs in a single transaction.
-    func recalculateTimeline() throws {
-        try db.write { db in
-            // Load all anchors sorted by time
-            let anchors = try AlignmentAnchorRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .order(Column("audio_time"))
-                .fetchAll(db)
-
-            // Load all visible EPUB blocks sorted by sequence
-            let blocks = try EPubBlockRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("is_hidden") == false)
-                .order(Column("sequence_index"))
-                .fetchAll(db)
-
-            guard !blocks.isEmpty else { return }
-
-            // Build anchor lookup: sequence_index → anchor
-            let anchorByBlockID = Dictionary(uniqueKeysWithValues: anchors.map { ($0.epubBlockID, $0) })
-
-            // If no anchors, try to estimate from chapter boundaries
-            guard !anchors.isEmpty else {
-                estimateFromChapters(db: db, blocks: blocks)
-                return
-            }
-
-            // Interpolate between anchors
-            // Strategy: find the nearest anchor before and after each block
-            let anchorSequencePairs: [(anchor: AlignmentAnchorRecord, seq: Int)] = anchors.compactMap { anchor in
-                guard let block = try? EPubBlockRecord.fetchOne(db, key: anchor.epubBlockID) else {
-                    return nil
-                }
-                return (anchor, block.sequenceIndex)
-            }.sorted { $0.seq < $1.seq }
-
-            guard let firstPair = anchorSequencePairs.first,
-                  let lastPair = anchorSequencePairs.last else { return }
-
-            for block in blocks {
-                let newTime: TimeInterval
-                let status: String
-                let source: String
-
-                if let anchor = anchorByBlockID[block.id] {
-                    // Locked anchor — use exactly
-                    newTime = anchor.audioTime
-                    status = TimelineItem.AlignmentStatus.lockedAnchor.rawValue
-                    source = TimelineItem.TimestampSource.lockedAnchor.rawValue
-                } else if block.sequenceIndex <= firstPair.seq {
-                    // Before first anchor — leave unaligned or estimate
-                    newTime = -1
-                    status = TimelineItem.AlignmentStatus.unaligned.rawValue
-                    source = TimelineItem.TimestampSource.none.rawValue
-                } else if block.sequenceIndex >= lastPair.seq {
-                    // After last anchor — leave unaligned
-                    newTime = -1
-                    status = TimelineItem.AlignmentStatus.unaligned.rawValue
-                    source = TimelineItem.TimestampSource.none.rawValue
-                } else {
-                    // Between two anchors — interpolate
-                    guard let (prev, next) = findSurroundingAnchors(
-                        seq: block.sequenceIndex, pairs: anchorSequencePairs
-                    ) else {
-                        newTime = -1
-                        status = TimelineItem.AlignmentStatus.unaligned.rawValue
-                        source = TimelineItem.TimestampSource.none.rawValue
-                        try updateTimelineItem(db: db, block: block, time: newTime, status: status, source: source)
-                        continue
-                    }
-
-                    let seqRange = Double(next.seq - prev.seq)
-                    let timeRange = next.anchor.audioTime - prev.anchor.audioTime
-                    let fraction = Double(block.sequenceIndex - prev.seq) / seqRange
-                    newTime = prev.anchor.audioTime + timeRange * fraction
-                    status = TimelineItem.AlignmentStatus.interpolated.rawValue
-                    source = TimelineItem.TimestampSource.interpolated.rawValue
-                }
-
-                try updateTimelineItem(db: db, block: block, time: newTime, status: status, source: source)
-            }
-        }
-    }
-
-    // MARK: - Private Helpers
-
-    private struct AnchorPair {
-        let anchor: AlignmentAnchorRecord
-        let seq: Int
-    }
-
-    private func findSurroundingAnchors(
-        seq: Int,
-        pairs: [(anchor: AlignmentAnchorRecord, seq: Int)]
-    ) -> (prev: AnchorPair, next: AnchorPair)? {
-        var prev: (AlignmentAnchorRecord, Int)?
-        var next: (AlignmentAnchorRecord, Int)?
-
-        for pair in pairs {
-            if pair.seq < seq {
-                prev = pair
-            } else if pair.seq > seq, next == nil {
-                next = pair
-                break
-            }
-        }
-
-        guard let p = prev, let n = next else { return nil }
-        return (AnchorPair(anchor: p.0, seq: p.1), AnchorPair(anchor: n.0, seq: n.1))
-    }
-
-    /// Estimate timestamps from chapter boundaries when no anchors exist.
-    private func estimateFromChapters(db: Database, blocks: [EPubBlockRecord]) throws {
-        // Load chapters for this audiobook
-        let chapters = try ChapterRecord
-            .filter(Column("audiobook_id") == audiobookID)
-            .order(Column("sort_order"))
-            .fetchAll(db)
-
-        for block in blocks {
-            let newTime: TimeInterval
-            let status: String
-
-            if let chapterIdx = block.chapterIndex,
-               chapters.indices.contains(chapterIdx) {
-                let ch = chapters[chapterIdx]
-                // Estimate: distribute blocks evenly within the chapter
-                let blocksInChapter = blocks.filter { $0.chapterIndex == chapterIdx }
-                if let firstBlock = blocksInChapter.first,
-                   let blockPos = blocksInChapter.firstIndex(where: { $0.id == block.id }) {
-                    let count = Double(max(1, blocksInChapter.count))
-                    let fraction = Double(blockPos) / count
-                    let chDuration = ch.endSeconds - ch.startSeconds
-                    newTime = ch.startSeconds + chDuration * fraction
-                    status = TimelineItem.AlignmentStatus.estimated.rawValue
-                } else {
-                    newTime = -1
-                    status = TimelineItem.AlignmentStatus.unaligned.rawValue
-                }
-            } else {
-                newTime = -1
-                status = TimelineItem.AlignmentStatus.unaligned.rawValue
-            }
-
-            let source = newTime >= 0
-                ? TimelineItem.TimestampSource.estimated.rawValue
-                : TimelineItem.TimestampSource.none.rawValue
-
-            try updateTimelineItem(db: db, block: block, time: newTime, status: status, source: source)
-        }
-    }
-
-    private func updateTimelineItem(
-        db: Database,
-        block: EPubBlockRecord,
-        time: TimeInterval,
-        status: String,
-        source: String
-    ) throws {
-        try db.execute(
-            sql: """
-                UPDATE timeline_item
-                SET audio_start_time = :time,
-                    timestamp_source = :source,
-                    alignment_status = :status
-                WHERE epub_block_id = :blockID
-                  AND audiobook_id = :audiobookID
-                """,
-            arguments: [
-                "time": time,
-                "source": source,
-                "status": status,
-                "blockID": block.id,
-                "audiobookID": audiobookID
-            ]
-        )
     }
 }

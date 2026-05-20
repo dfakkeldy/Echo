@@ -1,12 +1,21 @@
 import Foundation
 import GRDB
 
+/// DAO for EPUB block records — headings, paragraphs, sentences, and images
+/// parsed from the EPUB spine and stored in structural reading order.
 struct EPubBlockDAO {
     let db: DatabaseWriter
 
-    // MARK: - Insert / Delete
+    // MARK: - Insert
 
-    func insertAll(_ blocks: [EPubBlockRecord], audiobookID: String) throws {
+    func insert(_ block: EPubBlockRecord) throws {
+        var mutable = block
+        try db.write { db in
+            try mutable.insert(db)
+        }
+    }
+
+    func insertAll(_ blocks: [EPubBlockRecord]) throws {
         guard !blocks.isEmpty else { return }
         try db.write { db in
             for var block in blocks {
@@ -14,6 +23,8 @@ struct EPubBlockDAO {
             }
         }
     }
+
+    // MARK: - Delete
 
     func deleteAll(for audiobookID: String) throws {
         _ = try db.write { db in
@@ -25,7 +36,8 @@ struct EPubBlockDAO {
 
     // MARK: - Queries
 
-    func all(for audiobookID: String) throws -> [EPubBlockRecord] {
+    /// All blocks for an audiobook, ordered by reading sequence.
+    func blocks(for audiobookID: String) throws -> [EPubBlockRecord] {
         try db.read { db in
             try EPubBlockRecord
                 .filter(Column("audiobook_id") == audiobookID)
@@ -34,17 +46,8 @@ struct EPubBlockDAO {
         }
     }
 
-    func visible(for audiobookID: String) throws -> [EPubBlockRecord] {
-        try db.read { db in
-            try EPubBlockRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("is_hidden") == false)
-                .order(Column("sequence_index"))
-                .fetchAll(db)
-        }
-    }
-
-    func blocks(inChapter chapterIndex: Int, audiobookID: String) throws -> [EPubBlockRecord] {
+    /// Blocks in a specific chapter, ordered by sequence.
+    func blocks(for audiobookID: String, chapterIndex: Int) throws -> [EPubBlockRecord] {
         try db.read { db in
             try EPubBlockRecord
                 .filter(Column("audiobook_id") == audiobookID)
@@ -54,13 +57,29 @@ struct EPubBlockDAO {
         }
     }
 
-    func block(id: String) throws -> EPubBlockRecord? {
+    /// Visible blocks for feed display (excludes hidden).
+    func visibleBlocks(for audiobookID: String) throws -> [EPubBlockRecord] {
         try db.read { db in
-            try EPubBlockRecord.fetchOne(db, key: id)
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("is_hidden") == false)
+                .order(Column("sequence_index"))
+                .fetchAll(db)
         }
     }
 
-    // MARK: - Hide / Unhide
+    /// Search block text for matching terms.
+    func searchBlocks(for audiobookID: String, query: String) throws -> [EPubBlockRecord] {
+        try db.read { db in
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("text").like("%\(query)%"))
+                .order(Column("sequence_index"))
+                .fetchAll(db)
+        }
+    }
+
+    // MARK: - Mutations
 
     func hideBlock(id: String, reason: String?) throws {
         try db.write { db in
@@ -70,7 +89,7 @@ struct EPubBlockDAO {
                     SET is_hidden = 1, hidden_reason = :reason, modified_at = :now
                     WHERE id = :id
                     """,
-                arguments: ["id": id, "reason": reason, "now": Date().ISO8601Format()]
+                arguments: ["reason": reason, "now": ISO8601DateFormatter().string(from: Date()), "id": id]
             )
         }
     }
@@ -83,22 +102,8 @@ struct EPubBlockDAO {
                     SET is_hidden = 0, hidden_reason = NULL, modified_at = :now
                     WHERE id = :id
                     """,
-                arguments: ["now": Date().ISO8601Format()]
+                arguments: ["now": ISO8601DateFormatter().string(from: Date()), "id": id]
             )
-        }
-    }
-
-    // MARK: - Search
-
-    func search(query: String, audiobookID: String, limit: Int = 20) throws -> [EPubBlockRecord] {
-        try db.read { db in
-            try EPubBlockRecord
-                .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("text") != nil)
-                .filter(Column("text").like("%\(query)%"))
-                .order(Column("sequence_index"))
-                .limit(limit)
-                .fetchAll(db)
         }
     }
 }

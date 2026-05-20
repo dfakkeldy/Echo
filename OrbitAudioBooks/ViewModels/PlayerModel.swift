@@ -910,7 +910,7 @@ final class PlayerModel {
 
         let hasTranscript = !state.transcription.isEmpty
         let hasEnhancedTranscript = !state.enhancedTranscription.isEmpty
-        let hasEPUB = (try? EPubBlockDAO(db: db.writer).visible(for: audiobookID).isEmpty) == false
+        let hasEPUB = (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
 
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
@@ -921,8 +921,8 @@ final class PlayerModel {
         do {
             let items: [TimelineItem]
             if let epubStrategy = strategy as? EPUBBlockIngestionStrategy {
-                let blocks = (try? EPubBlockDAO(db: db.writer).all(for: audiobookID)) ?? []
-                let anchors = (try? AlignmentAnchorDAO(db: db.writer).all(for: audiobookID)) ?? []
+                let blocks = (try? EPubBlockDAO(db: db.writer).blocks(for: audiobookID)) ?? []
+                let anchors = (try? AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)) ?? []
                 items = try await epubStrategy.ingest(
                     audiobookID: audiobookID,
                     audioURL: audioURL,

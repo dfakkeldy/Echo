@@ -98,22 +98,20 @@ extension TimelineItem {
 
 // MARK: - Alignment Constants
 
-extension TimelineItem {
-    enum TimestampSource: String {
-        case none = "none"
-        case estimated = "estimated"
-        case interpolated = "interpolated"
-        case lockedAnchor = "lockedAnchor"
-        case transcript = "transcript"
-    }
+enum TimestampSource: String {
+    case none
+    case estimated
+    case interpolated
+    case lockedAnchor
+    case transcript
+}
 
-    enum AlignmentStatus: String {
-        case unaligned = "unaligned"
-        case estimated = "estimated"
-        case interpolated = "interpolated"
-        case lockedAnchor = "lockedAnchor"
-        case omitted = "omitted"
-    }
+enum AlignmentStatus: String {
+    case unaligned
+    case estimated
+    case interpolated
+    case lockedAnchor
+    case omitted
 }
 
 // MARK: - MediaPlayable

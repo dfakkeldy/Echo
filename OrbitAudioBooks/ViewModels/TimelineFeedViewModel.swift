@@ -134,8 +134,8 @@ final class TimelineFeedViewModel {
         }
 
         do {
-            let blocks = try EPubBlockDAO(db: timelineDAO.db).search(
-                query: query, audiobookID: audiobookID, limit: 30
+            let blocks = try EPubBlockDAO(db: timelineDAO.db).searchBlocks(
+                for: audiobookID, query: query
             )
             if !showHiddenBlocks {
                 searchResults = blocks.filter { !$0.isHidden }.map { block in
