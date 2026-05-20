@@ -22,16 +22,17 @@ enum IngestionError: Error, LocalizedError {
 
 // MARK: - Ingestion Strategy
 
-/// Produces [TimelineItem] rows for the materialized timeline_item table
-/// based on what assets the user has available.
 protocol TimelineIngestionStrategy {
-    /// Generate timeline items for the given audiobook and chapter data.
     func ingest(
         audiobookID: String,
         audioURL: URL,
         chapters: [Chapter],
         transcript: [TranscriptionSegment]?,
-        enhancedTranscript: [EnhancedTranscriptionSegment]?
+        enhancedTranscript: [EnhancedTranscriptionSegment]?,
+        epubBlocks: [EPubBlockRecord]?,
+        alignmentAnchors: [AlignmentAnchorRecord]?,
+        bookmarks: [TimelineItem]?,
+        flashcards: [TimelineItem]?
     ) async throws -> [TimelineItem]
 }
 
@@ -40,12 +41,14 @@ protocol TimelineIngestionStrategy {
 struct TimelineIngestionFactory {
     let strategy: TimelineIngestionStrategy
 
-    /// Returns the appropriate strategy based on available assets.
     static func strategy(
         hasTranscript: Bool,
         hasEnhancedTranscript: Bool,
         hasEPUB: Bool
     ) -> TimelineIngestionStrategy {
+        if hasEPUB {
+            return EPUBBlockIngestionStrategy()
+        }
         if hasEnhancedTranscript || hasTranscript {
             return RichIngestionStrategy()
         }
@@ -53,21 +56,163 @@ struct TimelineIngestionFactory {
     }
 }
 
-// MARK: - Rich Strategy (EPUB + Transcript)
+// MARK: - EPUB Block Strategy (V1 Primary Path)
 
-/// Dense feed: transcription segments interleaved with EPUB structural markers.
+struct EPUBBlockIngestionStrategy: TimelineIngestionStrategy {
+    func ingest(
+        audiobookID: String,
+        audioURL: URL,
+        chapters: [Chapter],
+        transcript: [TranscriptionSegment]?,
+        enhancedTranscript: [EnhancedTranscriptionSegment]?,
+        epubBlocks: [EPubBlockRecord]?,
+        alignmentAnchors: [AlignmentAnchorRecord]?,
+        bookmarks: [TimelineItem]?,
+        flashcards: [TimelineItem]?
+    ) async throws -> [TimelineItem] {
+        var items: [TimelineItem] = []
+
+        let anchorByBlockID: [String: AlignmentAnchorRecord] = {
+            guard let anchors = alignmentAnchors else { return [:] }
+            return Dictionary(anchors.map { ($0.epubBlockID, $0) }, uniquingKeysWith: { first, _ in first })
+        }()
+
+        // 1. Chapter markers
+        for chapter in chapters {
+            items.append(TimelineItem(
+                id: "chapterMarker-\(audiobookID)-\(chapter.index)",
+                audiobookID: audiobookID,
+                itemType: .chapterMarker,
+                title: chapter.title ?? "Chapter \(chapter.index + 1)",
+                subtitle: nil,
+                textPayload: nil,
+                imagePath: nil,
+                audioStartTime: chapter.startSeconds,
+                audioEndTime: chapter.endSeconds,
+                epubSequenceIndex: nil,
+                granularityLevel: .chapter,
+                playlistPosition: nil,
+                isEnabled: chapter.isEnabled,
+                sourceTable: "chapter",
+                sourceRowid: String(chapter.index),
+                metadataJSON: nil,
+                epubBlockID: nil,
+                timestampSource: TimestampSource.estimated.rawValue,
+                alignmentStatus: AlignmentStatus.estimated.rawValue,
+                alignmentConfidence: nil,
+                createdAt: nil,
+                modifiedAt: nil
+            ))
+        }
+
+        // 2. EPUB blocks → timeline items (preferred feed source)
+        if let blocks = epubBlocks {
+            for block in blocks {
+                let isHidden = block.isHidden
+                let anchor = anchorByBlockID[block.id]
+
+                let audioStart: TimeInterval
+                let audioEnd: TimeInterval?
+                let timestampSrc: String
+                let alignStatus: String
+
+                if let anchor = anchor {
+                    audioStart = anchor.audioTime
+                    audioEnd = anchor.audioEndTime
+                    timestampSrc = TimestampSource.lockedAnchor.rawValue
+                    alignStatus = AlignmentStatus.lockedAnchor.rawValue
+                } else if isHidden {
+                    audioStart = -1
+                    audioEnd = nil
+                    timestampSrc = TimestampSource.none.rawValue
+                    alignStatus = AlignmentStatus.omitted.rawValue
+                } else {
+                    audioStart = -1
+                    audioEnd = nil
+                    timestampSrc = TimestampSource.none.rawValue
+                    alignStatus = AlignmentStatus.unaligned.rawValue
+                }
+
+                let itemType: TimelineItemType = block.blockKind == "image" ? .imageAsset : .textSegment
+
+                let item = TimelineItem(
+                    id: "epub-\(block.id)",
+                    audiobookID: audiobookID,
+                    itemType: itemType,
+                    title: block.text ?? "Image",
+                    subtitle: nil,
+                    textPayload: block.text,
+                    imagePath: block.imagePath,
+                    audioStartTime: audioStart,
+                    audioEndTime: audioEnd,
+                    epubSequenceIndex: block.sequenceIndex,
+                    granularityLevel: .paragraph,
+                    playlistPosition: nil,
+                    isEnabled: !isHidden,
+                    sourceTable: "epub_block",
+                    sourceRowid: block.id,
+                    metadataJSON: nil,
+                    epubBlockID: block.id,
+                    timestampSource: timestampSrc,
+                    alignmentStatus: alignStatus,
+                    alignmentConfidence: anchor != nil ? 1.0 : nil,
+                    createdAt: block.createdAt,
+                    modifiedAt: nil
+                )
+                items.append(item)
+            }
+        }
+
+        // 3. Bookmarks (inline)
+        if let bookmarks {
+            for var bm in bookmarks {
+                bm.audiobookID = audiobookID
+                items.append(bm)
+            }
+        }
+
+        // 4. Flashcards (inline)
+        if let flashcards {
+            for var fc in flashcards {
+                fc.audiobookID = audiobookID
+                items.append(fc)
+            }
+        }
+
+        // Sort: timestamped items by audioStartTime, untimestamped by epubSequenceIndex.
+        items.sort { a, b in
+            let aTS = a.isTimestamped
+            let bTS = b.isTimestamped
+            if aTS && bTS {
+                return a.audioStartTime < b.audioStartTime
+            }
+            if !aTS && !bTS {
+                return (a.epubSequenceIndex ?? Int.max) < (b.epubSequenceIndex ?? Int.max)
+            }
+            return aTS
+        }
+
+        return items
+    }
+}
+
+// MARK: - Rich Strategy (Transcript)
+
 struct RichIngestionStrategy: TimelineIngestionStrategy {
     func ingest(
         audiobookID: String,
         audioURL: URL,
         chapters: [Chapter],
         transcript: [TranscriptionSegment]?,
-        enhancedTranscript: [EnhancedTranscriptionSegment]?
+        enhancedTranscript: [EnhancedTranscriptionSegment]?,
+        epubBlocks: [EPubBlockRecord]? = nil,
+        alignmentAnchors: [AlignmentAnchorRecord]? = nil,
+        bookmarks: [TimelineItem]? = nil,
+        flashcards: [TimelineItem]? = nil
     ) async throws -> [TimelineItem] {
         var items: [TimelineItem] = []
         var sequenceIndex = 0
 
-        // 1. Chapter markers from M4B metadata (or EPUB headings)
         for chapter in chapters {
             let item = TimelineItem(
                 id: "chapterMarker-\(audiobookID)-\(chapter.index)",
@@ -86,6 +231,10 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
                 sourceTable: "chapter",
                 sourceRowid: String(chapter.index),
                 metadataJSON: nil,
+                epubBlockID: nil,
+                timestampSource: TimestampSource.estimated.rawValue,
+                alignmentStatus: AlignmentStatus.estimated.rawValue,
+                alignmentConfidence: nil,
                 createdAt: nil,
                 modifiedAt: nil
             )
@@ -93,11 +242,10 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
             sequenceIndex += 1
         }
 
-        // 2. Enhanced transcription segments (EPUB-aligned, with markers)
         if let enhanced = enhancedTranscript, !enhanced.isEmpty {
             for segment in enhanced {
                 let item = TimelineItem(
-                    id: "textSegment-\(audiobookID)-\(segment.startTime)-\(segment.endTime)",
+                    id: "textSegment-\(audiobookID)-\(segment.startTime ?? 0)-\(segment.endTime ?? 0)",
                     audiobookID: audiobookID,
                     itemType: .textSegment,
                     title: segment.text,
@@ -113,13 +261,16 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
                     sourceTable: "transcription_segment",
                     sourceRowid: segment.id,
                     metadataJSON: encodeMarkers(segment.markers),
+                    epubBlockID: nil,
+                    timestampSource: segment.startTime != nil ? TimestampSource.transcript.rawValue : TimestampSource.none.rawValue,
+                    alignmentStatus: segment.startTime != nil ? AlignmentStatus.lockedAnchor.rawValue : AlignmentStatus.unaligned.rawValue,
+                    alignmentConfidence: nil,
                     createdAt: nil,
                     modifiedAt: nil
                 )
                 items.append(item)
                 sequenceIndex += 1
 
-                // 3. Image assets from EPUB inline images
                 if let markers = segment.markers {
                     for marker in markers where marker.type == .image {
                         let imageItem = TimelineItem(
@@ -139,6 +290,10 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
                             sourceTable: "transcription_segment",
                             sourceRowid: segment.id,
                             metadataJSON: nil,
+                            epubBlockID: nil,
+                            timestampSource: segment.startTime != nil ? TimestampSource.transcript.rawValue : TimestampSource.none.rawValue,
+                            alignmentStatus: segment.startTime != nil ? AlignmentStatus.lockedAnchor.rawValue : AlignmentStatus.unaligned.rawValue,
+                            alignmentConfidence: nil,
                             createdAt: nil,
                             modifiedAt: nil
                         )
@@ -148,7 +303,6 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
                 }
             }
         } else if let plain = transcript, !plain.isEmpty {
-            // Fallback: plain transcription segments (no EPUB alignment)
             for segment in plain {
                 let item = TimelineItem(
                     id: "textSegment-\(audiobookID)-\(segment.startTime)-\(segment.endTime)",
@@ -167,6 +321,10 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
                     sourceTable: "transcription_segment",
                     sourceRowid: segment.id,
                     metadataJSON: nil,
+                    epubBlockID: nil,
+                    timestampSource: TimestampSource.transcript.rawValue,
+                    alignmentStatus: AlignmentStatus.lockedAnchor.rawValue,
+                    alignmentConfidence: nil,
                     createdAt: nil,
                     modifiedAt: nil
                 )
@@ -193,25 +351,25 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
 
 // MARK: - Sparse Strategy (Audio-Only)
 
-/// Sparse feed: chapter markers and chapter artwork only.
-/// No transcription, no EPUB text.
 struct SparseIngestionStrategy: TimelineIngestionStrategy {
     func ingest(
         audiobookID: String,
         audioURL: URL,
         chapters: [Chapter],
         transcript: [TranscriptionSegment]?,
-        enhancedTranscript: [EnhancedTranscriptionSegment]?
+        enhancedTranscript: [EnhancedTranscriptionSegment]?,
+        epubBlocks: [EPubBlockRecord]? = nil,
+        alignmentAnchors: [AlignmentAnchorRecord]? = nil,
+        bookmarks: [TimelineItem]? = nil,
+        flashcards: [TimelineItem]? = nil
     ) async throws -> [TimelineItem] {
         var items: [TimelineItem] = []
         var sequenceIndex = 0
 
-        // Extract chapter artwork from M4B chapter metadata
         let asset = AVURLAsset(url: audioURL)
         let chapterImages = await ChapterImageExtractor.extractChapterArtwork(from: asset)
 
         for chapter in chapters {
-            // Chapter marker
             let markerItem = TimelineItem(
                 id: "chapterMarker-\(audiobookID)-\(chapter.index)",
                 audiobookID: audiobookID,
@@ -229,13 +387,16 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
                 sourceTable: "chapter",
                 sourceRowid: String(chapter.index),
                 metadataJSON: nil,
+                epubBlockID: nil,
+                timestampSource: TimestampSource.estimated.rawValue,
+                alignmentStatus: AlignmentStatus.estimated.rawValue,
+                alignmentConfidence: nil,
                 createdAt: nil,
                 modifiedAt: nil
             )
             items.append(markerItem)
             sequenceIndex += 1
 
-            // Chapter artwork (if available)
             if let imageData = chapterImages[chapter.index],
                let savedPath = saveChapterImage(imageData, audiobookID: audiobookID, chapterIndex: chapter.index) {
                 let imageItem = TimelineItem(
@@ -255,6 +416,10 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
                     sourceTable: "chapter",
                     sourceRowid: String(chapter.index),
                     metadataJSON: nil,
+                    epubBlockID: nil,
+                    timestampSource: TimestampSource.estimated.rawValue,
+                    alignmentStatus: AlignmentStatus.estimated.rawValue,
+                    alignmentConfidence: nil,
                     createdAt: nil,
                     modifiedAt: nil
                 )
@@ -281,7 +446,8 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
 
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
-        let filename = "\(audiobookID)_ch\(chapterIndex).jpg"
+        let safeName = SafeFileName.fromAudiobookID(audiobookID)
+        let filename = "\(safeName)_ch\(chapterIndex).jpg"
         let url = cacheDir.appendingPathComponent(filename)
 
         do {
@@ -296,8 +462,6 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
 // MARK: - Chapter Image Extractor
 
 enum ChapterImageExtractor {
-    /// Extracts per-chapter artwork from M4B chapter metadata groups.
-    /// Returns a dictionary keyed by chapter index (0-based, matching parsing order).
     static func extractChapterArtwork(from asset: AVAsset) async -> [Int: Data] {
         var result: [Int: Data] = [:]
 
@@ -317,7 +481,7 @@ enum ChapterImageExtractor {
                 }
             }
         } catch {
-            // Chapter artwork extraction is best-effort; failures are silent
+            // Chapter artwork is best-effort; failures are silent.
         }
 
         return result

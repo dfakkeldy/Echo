@@ -27,6 +27,27 @@ struct TranscriptService {
         }
     }
 
+    /// Loads the enhanced transcript sidecar (`<audio>.enhanced.json`) if present.
+    /// Returns the decoded segments directly for use by the ingestion pipeline,
+    /// without storing them in PlaybackState (keeping V1 surface area small).
+    func loadEnhancedTranscript(for url: URL) -> [EnhancedTranscriptionSegment]? {
+        guard state.isTranscriptProcessingEnabled else { return nil }
+        let fileName = url.deletingPathExtension().lastPathComponent + ".enhanced.json"
+        let enhancedURL = url.deletingLastPathComponent().appendingPathComponent(fileName)
+
+        guard FileManager.default.fileExists(atPath: enhancedURL.path) else {
+            return nil
+        }
+
+        do {
+            let data = try Data(contentsOf: enhancedURL)
+            return try JSONDecoder().decode([EnhancedTranscriptionSegment].self, from: data)
+        } catch {
+            print("Failed to load enhanced transcript: \(error)")
+            return nil
+        }
+    }
+
     /// Computes word frequencies for the full track, per-chapter, and rolling windows.
     /// Called after both transcript and chapter data are available.
     func computeWordClouds() {

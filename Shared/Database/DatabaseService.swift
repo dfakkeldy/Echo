@@ -89,6 +89,11 @@ final class DatabaseService {
                 try Schema_V4.migrate(db)
             }
         }
+        migrator.registerMigration("v5_epub_alignment") { db in
+            try MainActor.assumeIsolated {
+                try Schema_V5.migrate(db)
+            }
+        }
         try migrator.migrate(writer)
     }
 

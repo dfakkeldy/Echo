@@ -721,22 +721,22 @@ final class PlayerModel {
     func loadFolder(_ url: URL, autoplay: Bool = true) {
         stop()
 
-        // Persist to SQL BEFORE setting folderURL — the @Observable change on
-        // folderURL triggers TimelineTab to reload, and the DB must have data by then.
-        persistAudiobookToSQL(folderURL: url)
-        state.folderURL = url
-        
         let didStart = url.startAccessingSecurityScopedResource()
         defer { if didStart { url.stopAccessingSecurityScopedResource() } }
-        
+
         var isDir: ObjCBool = false
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-        
+
         if isDir.boolValue {
             tracks = playlistManager.loadTracks(from: url)
         } else {
             tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
         }
+
+        state.folderURL = url
+
+        // Persist to SQL after tracks are loaded so the DB has accurate track data.
+        persistAudiobookToSQL(folderURL: url)
 
         // Multi-M4B aggregation: when 2+ .m4b files are detected, parse all of them
         // asynchronously and build an aggregated chapter list with cumulative offsets.
@@ -768,6 +768,52 @@ final class PlayerModel {
                         audioURL: audioURL
                     )
                 }
+            }
+        } else if state.tracks.count > 1 {
+            // Non-M4B multi-file folder: ingest chapters from every track so the
+            // timeline feed shows all chapters, not just the current track's.
+            let folderURL = url
+            let tracks = state.tracks
+            Task {
+                let didStart = folderURL.startAccessingSecurityScopedResource()
+                defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+                var allChapters: [Chapter] = []
+                for (_, track) in tracks.enumerated() {
+                    let ext = track.url.pathExtension.lowercased()
+                    let asset = AVURLAsset(url: track.url)
+                    let parsed = await ChapterService.parseChapters(from: asset)
+                    if parsed.count >= 2 {
+                        for ch in parsed {
+                            allChapters.append(Chapter(
+                                index: allChapters.count,
+                                title: ch.title,
+                                startSeconds: ch.startSeconds,
+                                endSeconds: ch.endSeconds,
+                                isEnabled: ch.isEnabled
+                            ))
+                        }
+                    } else {
+                        let duration: TimeInterval
+                        if ext == "m4b" || ext == "m4a" {
+                            duration = (try? await asset.load(.duration))?.seconds ?? 0
+                        } else {
+                            duration = 0
+                        }
+                        allChapters.append(Chapter(
+                            index: allChapters.count,
+                            title: track.title,
+                            startSeconds: 0,
+                            endSeconds: duration.isFinite ? duration : 0,
+                            isEnabled: true
+                        ))
+                    }
+                }
+                guard !allChapters.isEmpty else { return }
+                await ingestTimelineItems(
+                    chapters: allChapters,
+                    audiobookID: folderURL.absoluteString,
+                    audioURL: tracks[0].url
+                )
             }
         }
 
@@ -859,11 +905,27 @@ final class PlayerModel {
         guard let db = databaseService else { return }
 
         let hasTranscript = !state.transcription.isEmpty
+        let enhancedTranscript = transcriptService.loadEnhancedTranscript(for: audioURL)
+        let hasEnhancedTranscript = enhancedTranscript != nil
+        let hasEPUB: Bool = {
+            guard let db = databaseService, let audiobookID = folderURL?.absoluteString else { return false }
+            return (try? !EPubBlockDAO(db: db.writer).blocks(for: audiobookID).isEmpty) ?? false
+        }()
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
-            hasEnhancedTranscript: false,
-            hasEPUB: false
+            hasEnhancedTranscript: hasEnhancedTranscript,
+            hasEPUB: hasEPUB
         )
+
+        // Load EPUB blocks and anchors if available.
+        let epubBlocks: [EPubBlockRecord]? = {
+            guard hasEPUB, let db = databaseService, let audiobookID = folderURL?.absoluteString else { return nil }
+            return try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID)
+        }()
+        let alignmentAnchors: [AlignmentAnchorRecord]? = {
+            guard hasEPUB, let db = databaseService, let audiobookID = folderURL?.absoluteString else { return nil }
+            return try? AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)
+        }()
 
         do {
             let items = try await strategy.ingest(
@@ -871,7 +933,11 @@ final class PlayerModel {
                 audioURL: audioURL,
                 chapters: chapters,
                 transcript: hasTranscript ? state.transcription : nil,
-                enhancedTranscript: nil
+                enhancedTranscript: enhancedTranscript,
+                epubBlocks: epubBlocks,
+                alignmentAnchors: alignmentAnchors,
+                bookmarks: nil,
+                flashcards: nil
             )
             guard !items.isEmpty else { return }
             try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
@@ -1494,8 +1560,12 @@ final class PlayerModel {
                     .error("Failed to persist chapters: \(error.localizedDescription)")
             }
 
-            let trackURL = state.tracks[currentIndex].url
-            Task { await ingestTimelineItems(chapters: built, audiobookID: audiobookID, audioURL: trackURL) }
+            // Multi-file folders get a full ingestion pass in loadFolder;
+            // avoid wiping all items on every track switch for those cases.
+            if state.tracks.count <= 1 {
+                let trackURL = state.tracks[currentIndex].url
+                Task { await ingestTimelineItems(chapters: built, audiobookID: audiobookID, audioURL: trackURL) }
+            }
         }
         computeWordClouds()
     }
