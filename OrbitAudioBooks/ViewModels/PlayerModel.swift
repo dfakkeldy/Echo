@@ -930,7 +930,9 @@ final class PlayerModel {
                     transcript: hasTranscript ? state.transcription : nil,
                     enhancedTranscript: hasEnhancedTranscript ? state.enhancedTranscription : nil,
                     epubBlocks: blocks,
-                    anchors: anchors
+                    alignmentAnchors: anchors,
+                    bookmarks: nil,
+                    flashcards: nil
                 )
             } else {
                 items = try await strategy.ingest(
@@ -938,7 +940,11 @@ final class PlayerModel {
                     audioURL: audioURL,
                     chapters: chapters,
                     transcript: hasTranscript ? state.transcription : nil,
-                    enhancedTranscript: hasEnhancedTranscript ? state.enhancedTranscription : nil
+                    enhancedTranscript: hasEnhancedTranscript ? state.enhancedTranscription : nil,
+                    epubBlocks: nil,
+                    alignmentAnchors: nil,
+                    bookmarks: nil,
+                    flashcards: nil
                 )
             }
             guard !items.isEmpty else { return }
