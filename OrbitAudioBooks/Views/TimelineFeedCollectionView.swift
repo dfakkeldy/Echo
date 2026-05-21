@@ -6,9 +6,9 @@ import UIKit
 struct TimelineFeedCollectionView: UIViewRepresentable {
     @Binding var items: [TimelineDisplayItem]
     @Binding var currentPosition: TimeInterval
+    @Binding var scrollTargetPosition: TimeInterval?
     var isFollowingPlayback: Bool
     var onUserScrolled: () -> Void
-    var scrollToPosition: ((TimeInterval) -> Void)?
 
     /// Called when the user taps a feed item.
     var onItemTapped: ((TimelineDisplayItem) -> Void)?
@@ -93,8 +93,6 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         let displayIDs = items.map { $0.id }
 
         // Only rebuild the diffable snapshot when items actually change.
-        // currentPosition updates 4×/second — rebuilding the snapshot on
-        // every tick is wasteful and causes unnecessary cell reconfigs.
         if displayIDs != context.coordinator.currentItems {
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             let section = 0
@@ -111,12 +109,10 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
         context.coordinator.currentPosition = currentPosition
 
-        // Auto-scroll the NowLine into view when following playback.
-        // The coordinator's CADisplayLink interpolates smoothly — calling
-        // this on every tick just updates the scroll target without restarting
-        // the link if one is already running.
-        if isFollowingPlayback {
-            context.coordinator.scrollToNowLine(animated: true)
+        // Detect scroll target changes and animate to position.
+        if let target = scrollTargetPosition, target != context.coordinator.lastScrollTarget {
+            context.coordinator.lastScrollTarget = target
+            context.coordinator.scrollTo(position: target, animated: true)
         }
     }
 
@@ -170,6 +166,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         var currentItems: [String] = []
         var itemLookup: [String: TimelineDisplayItem] = [:]
         var currentPosition: TimeInterval = 0
+        var lastScrollTarget: TimeInterval?
         private var isProgrammaticScroll = false
 
         // MARK: - DisplayLink for smooth scrolling

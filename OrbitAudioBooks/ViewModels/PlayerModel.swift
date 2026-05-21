@@ -911,42 +911,34 @@ final class PlayerModel {
         let hasTranscript = !state.transcription.isEmpty
         let hasEnhancedTranscript = !state.enhancedTranscription.isEmpty
         let hasEPUB = (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
-
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
             hasEnhancedTranscript: hasEnhancedTranscript,
             hasEPUB: hasEPUB
         )
 
+        // Load EPUB blocks and anchors if available.
+        let epubBlocks: [EPubBlockRecord]? = {
+            guard hasEPUB, let db = databaseService, let audiobookID = folderURL?.absoluteString else { return nil }
+            return try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID)
+        }()
+        let alignmentAnchors: [AlignmentAnchorRecord]? = {
+            guard hasEPUB, let db = databaseService, let audiobookID = folderURL?.absoluteString else { return nil }
+            return try? AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)
+        }()
+
         do {
-            let items: [TimelineItem]
-            if let epubStrategy = strategy as? EPUBBlockIngestionStrategy {
-                let blocks = (try? EPubBlockDAO(db: db.writer).blocks(for: audiobookID)) ?? []
-                let anchors = (try? AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)) ?? []
-                items = try await epubStrategy.ingest(
-                    audiobookID: audiobookID,
-                    audioURL: audioURL,
-                    chapters: chapters,
-                    transcript: hasTranscript ? state.transcription : nil,
-                    enhancedTranscript: hasEnhancedTranscript ? state.enhancedTranscription : nil,
-                    epubBlocks: blocks,
-                    alignmentAnchors: anchors,
-                    bookmarks: nil,
-                    flashcards: nil
-                )
-            } else {
-                items = try await strategy.ingest(
-                    audiobookID: audiobookID,
-                    audioURL: audioURL,
-                    chapters: chapters,
-                    transcript: hasTranscript ? state.transcription : nil,
-                    enhancedTranscript: hasEnhancedTranscript ? state.enhancedTranscription : nil,
-                    epubBlocks: nil,
-                    alignmentAnchors: nil,
-                    bookmarks: nil,
-                    flashcards: nil
-                )
-            }
+            let items = try await strategy.ingest(
+                audiobookID: audiobookID,
+                audioURL: audioURL,
+                chapters: chapters,
+                transcript: hasTranscript ? state.transcription : nil,
+                enhancedTranscript: hasEnhancedTranscript ? state.enhancedTranscription : nil,
+                epubBlocks: epubBlocks,
+                alignmentAnchors: alignmentAnchors,
+                bookmarks: nil,
+                flashcards: nil
+            )
             guard !items.isEmpty else { return }
             try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
             try TimelineDAO(db: db.writer).ingest(items)

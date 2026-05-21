@@ -240,12 +240,43 @@ Previously, the timeline was a SQL VIEW unioning rows from multiple normalized t
 
 **Dual-write synchronization:** When `BookmarkDAO` or `FlashcardDAO` creates, updates, or deletes a record, it also writes to `timeline_item` with the corresponding source tracking columns. This keeps the feed in sync without polling or triggers.
 
+**V5 Schema: EPUB block alignment**
+
+Schema_V5 introduces two new tables and extends `timeline_item` with alignment metadata:
+
+| Table | Purpose |
+|---|---|
+| `epub_block` | Parsed EPUB structure — headings, paragraphs, sentences, images in reading order |
+| `alignment_anchor` | User-created lock points tying EPUB blocks to audio timestamps |
+
+New `timeline_item` columns: `epub_block_id`, `timestamp_source`, `alignment_status`, `alignment_confidence`.
+
+Indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
+
+**Alignment pipeline:**
+
+```
+EPUB (directory or .epub file)
+  └─ EPUBImportService
+       ├── Parse container.xml → OPF spine order
+       ├── Parse XHTML → paragraph-level blocks
+       ├── Copy images → Application Support/EPUBAssets/<safeAudiobookID>/
+       └── Write epub_block records → SQL
+
+User anchors (manual)
+  └─ AlignmentService
+       ├── moveBlockToCurrentTime / anchorSearchResult / anchorChapterStart/End
+       ├── hideBlock / unhideBlock
+       └── recalculateTimeline (linear interpolation between locked anchors)
+```
+
 **Ingestion strategies:**
 
 ```
 TimelineIngestionFactory.strategy(hasTranscript:hasEnhancedTranscript:hasEPUB:)
-├── RichIngestionStrategy    ← EPUB + transcription → dense feed with text segments
-└── SparseIngestionStrategy  ← audio-only → chapter markers with elastic scrubber gaps
+├── EPUBBlockIngestionStrategy  ← EPUB blocks + anchors → V1 primary path
+├── RichIngestionStrategy       ← EPUB + transcription → dense feed with text segments
+└── SparseIngestionStrategy     ← audio-only → chapter markers with elastic scrubber gaps
 ```
 
 **Feed UI architecture:**
