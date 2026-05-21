@@ -148,7 +148,7 @@ struct EPUBImportTests {
         }
     }
 
-    @Test func epubAssetStorageCreatesDirectory() throws {
+    @Test func epubAssetStorageCreatesDirectory() async throws {
         let storage = EPUBAssetStorage()
 
         let testID = "file:///path/to/test-book-\(UUID().uuidString)"

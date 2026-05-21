@@ -154,7 +154,6 @@ enum Schema_V1 {
         try db.create(index: "idx_bookmark_audiobook", on: "bookmark", columns: ["audiobook_id", "media_timestamp"])
         try db.create(index: "idx_flashcard_audiobook_due", on: "flashcard", columns: ["audiobook_id", "next_review_date"])
         try db.create(index: "idx_flashcard_due", on: "flashcard", columns: ["next_review_date"])
-        try db.create(index: "idx_planned_session_audiobook", on: "planned_session", columns: ["audiobook_id", "start_time"])
         try db.create(index: "idx_transcription_segment_audiobook", on: "transcription_segment", columns: ["audiobook_id", "start_time"])
         try db.create(index: "idx_playback_event_audiobook", on: "playback_event", columns: ["audiobook_id", "started_at"])
     }

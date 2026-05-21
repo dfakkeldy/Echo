@@ -2,6 +2,7 @@ import SwiftUI
 import Observation
 import AVFoundation
 import MediaPlayer
+import WatchConnectivity
 import UIKit
 import ImageIO
 import os.log
@@ -49,11 +50,6 @@ final class PlayerModel {
 
     let playbackController = PlaybackController()
     let watchSyncManager = WatchSyncManager()
-    @ObservationIgnored private lazy var watchCommandRouter = WatchCommandRouter(facade: self)
-    @ObservationIgnored private lazy var watchStateRepository = WatchStateRepository { [weak self] in
-        guard let db = self?.databaseService else { return nil }
-        return FlashcardDAO(db: db.writer)
-    }
 
     var audioEngine: AudioEngine { playbackController.audioEngine }
     @ObservationIgnored private weak var settingsManager: SettingsManager?
@@ -125,6 +121,10 @@ final class PlayerModel {
     var transcription: [TranscriptionSegment] {
         get { state.transcription }
         set { state.transcription = newValue }
+    }
+    var enhancedTranscription: [EnhancedTranscriptionSegment] {
+        get { state.enhancedTranscription }
+        set { state.enhancedTranscription = newValue }
     }
     var currentChapterIndex: Int? { state.currentChapterIndex }
     var chapterWordClouds: [Int: [WordFrequency]] {
@@ -271,13 +271,13 @@ final class PlayerModel {
         playbackController.delegate = self
 
         watchSyncManager.onMessage = { [weak self] message, reply in
-            self?.watchCommandRouter.route(message: message, replyHandler: reply)
+            self?.handleMessage(message, replyHandler: reply)
         }
         watchSyncManager.onReceiveApplicationContext = { [weak self] context in
-            self?.watchCommandRouter.route(message: context)
+            self?.handleMessage(context)
         }
         watchSyncManager.onReceiveFile = { [weak self] file in
-            self?.watchCommandRouter.handleFile(file)
+            self?.handleWatchBookmarkFile(file)
         }
         watchSyncManager.stateProvider = { [weak self] in
             self?.watchStateContext() ?? [:]
@@ -435,6 +435,97 @@ final class PlayerModel {
         }
     }
 
+    private func handleMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)? = nil) {
+        DispatchQueue.main.async {
+            var commandResult: String?
+            if let command = message["command"] as? String {
+                switch command {
+                case "play": self.play()
+                case "pause": self.pause()
+                case "next":
+                    if self.skipForwardNavigation() { commandResult = "bookmarkJump" }
+                case "previous":
+                    if self.skipBackwardNavigation() { commandResult = "bookmarkJump" }
+                case "skipBackward":
+                    if self.skipBackward30() { commandResult = "bookmarkJump" }
+                case "skipForward":
+                    if self.skipForward30() { commandResult = "bookmarkJump" }
+                case "seek":
+                    if let fraction = message["fraction"] as? Double {
+                        self.seek(toFraction: fraction)
+                    }
+                case "scrubDelta":
+                    if let d = message["delta"] as? Double {
+                        let sens = self.settingsManager?.crownScrubSensitivity ?? SettingsManager.Defaults.crownScrubSensitivity
+                        let mult = sens > 0 ? sens : SettingsManager.Defaults.crownScrubSensitivity
+                        let current = self.audioEngine.currentTime
+                        let duration = self.durationSeconds ?? 0
+                        let target = max(0, min(duration, current + (d * 30.0 * mult)))
+                        self.seek(toSeconds: target)
+                    }
+                case "volumeDelta":
+                    if let d = message["delta"] as? Double {
+                        let sens = self.settingsManager?.crownVolumeSensitivity ?? SettingsManager.Defaults.crownVolumeSensitivity
+                        let mult = sens > 0 ? sens : SettingsManager.Defaults.crownVolumeSensitivity
+                        let newGain = max(-40, min(9, self._outputGain + Float(d * 6 * mult)))
+                        self._outputGain = newGain
+                        self.audioEngine.setGain(newGain)
+                    }
+                case "toggle": self.togglePlayPause()
+                case "toggleLoopMode", "cycleLoopMode":
+                    self.cycleLoopMode()
+                case "cycleSpeed":
+                    if let newSpeed = message["playbackSpeed"] as? Double {
+                        self.setSpeed(Float(newSpeed))
+                    } else {
+                        let speeds: [Float] = [1.0, 1.25, 1.5, 2.0]
+                        let idx = speeds.firstIndex(of: self.speed) ?? -1
+                        let next = speeds[(idx + 1) % speeds.count]
+                        self.setSpeed(next)
+                    }
+                case "setSleepTimer":
+                    if let modeStr = message["sleepTimerMode"] as? String {
+                        switch modeStr {
+                        case "off":
+                            self.setSleepTimer(.off)
+                        case "endOfChapter":
+                            self.setSleepTimer(.endOfChapter)
+                        case "minutes":
+                            let mins = (message["sleepTimerMinutes"] as? Int) ?? 15
+                            self.setSleepTimer(.minutes(mins))
+                        default: break
+                        }
+                    }
+                case "cancelSleepTimer":
+                    self.cancelSleepTimer()
+                case "addBookmark":
+                    _ = self.addBookmarkAtCurrentTime()
+                case "addWatchTextBookmark":
+                    self.addWatchBookmark(from: message)
+                case "addWatchVoiceBookmark":
+                    self.addWatchVoiceBookmark(from: message)
+                case "gradeFlashcard":
+                    if let cardID = message["cardID"] as? String,
+                       let grade = message["grade"] as? Int {
+                        guard let writer = self.databaseService?.writer else { return }
+                        try? FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
+                    }
+                case "requestState":
+                    break
+                default: break
+                }
+            }
+            var reply = self.watchStateContext()
+            if let thumbnailData = self.watchThumbnailData {
+                reply["thumbnailData"] = thumbnailData
+            }
+            if let commandResult {
+                reply["commandResult"] = commandResult
+            }
+            replyHandler?(reply)
+        }
+    }
+    
     /// Delegates to `WatchSyncManager.syncToWatch()`.
     func syncToWatch() {
         watchSyncManager.syncToWatch()
@@ -446,7 +537,7 @@ final class PlayerModel {
         return "\(trackId)#\(currentDisplayArtworkKey ?? "base")"
     }
 
-    func watchStateContext() -> [String: Any] {
+    private func watchStateContext() -> [String: Any] {
         var context: [String: Any] = [:]
         context["isPlaying"] = isPlaying
         context["progressFraction"] = progressFraction
@@ -515,13 +606,74 @@ final class PlayerModel {
             context["wordCloudChapterIndex"] = currentChapterIndex ?? 0
         }
 
-        // Due flashcards for watch review — pre-cached by WatchStateRepository
-        // to avoid a synchronous GRDB table scan on every watch state request.
-        if let json = watchStateRepository.currentSnapshot().dueCardsJSON {
-            context["dueCardsJSON"] = json
+        // Due flashcards for watch review.
+        if let db = databaseService,
+           let cards = try? FlashcardDAO(db: db.writer).allDueCards(),
+           !cards.isEmpty {
+            let watchCards = cards.map { WatchFlashcard(id: $0.id, frontText: $0.frontText, backText: $0.backText) }
+            if let data = try? JSONEncoder().encode(watchCards),
+               let json = String(data: data, encoding: .utf8) {
+                context["dueCardsJSON"] = json
+            }
         }
 
         return context
+    }
+
+    private func handleWatchBookmarkFile(_ file: WCSessionFile) {
+        guard let command = file.metadata?["command"] as? String, command == "addWatchVoiceBookmark" else {
+            return
+        }
+
+        let fileName = (file.metadata?["voiceMemoFileName"] as? String) ?? file.fileURL.lastPathComponent
+        let safeFileName = URL(fileURLWithPath: fileName).lastPathComponent
+        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(safeFileName)
+
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.copyItem(at: file.fileURL, to: destinationURL)
+        } catch {
+            print("Watch voice bookmark copy failed: \(error)")
+            return
+        }
+
+        var metadata = file.metadata ?? [:]
+        metadata["voiceMemoFileName"] = safeFileName
+
+        DispatchQueue.main.async {
+            self.addWatchBookmark(from: metadata)
+        }
+    }
+
+    private func addWatchVoiceBookmark(from payload: [String: Any]) {
+        guard let voiceMemoData = payload["voiceMemoData"] as? Data else {
+            return
+        }
+
+        let fileName = (payload["voiceMemoFileName"] as? String) ?? "watch-memo-\(UUID().uuidString).m4a"
+        let safeFileName = URL(fileURLWithPath: fileName).lastPathComponent
+        let destinationURL = Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(safeFileName)
+        var metadata = payload
+        metadata["voiceMemoFileName"] = safeFileName
+        metadata.removeValue(forKey: "voiceMemoData")
+
+        Task.detached(priority: .utility) {
+            do {
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try voiceMemoData.write(to: destinationURL, options: .atomic)
+            } catch {
+                print("Watch voice bookmark write failed: \(error)")
+                return
+            }
+
+            await MainActor.run {
+                self.addWatchBookmark(from: metadata)
+            }
+        }
     }
 
     deinit {
@@ -757,12 +909,8 @@ final class PlayerModel {
         guard let db = databaseService else { return }
 
         let hasTranscript = !state.transcription.isEmpty
-        let enhancedTranscript = transcriptService.loadEnhancedTranscript(for: audioURL)
-        let hasEnhancedTranscript = enhancedTranscript != nil
-        let hasEPUB: Bool = {
-            guard let db = databaseService, let audiobookID = folderURL?.absoluteString else { return false }
-            return (try? !EPubBlockDAO(db: db.writer).blocks(for: audiobookID).isEmpty) ?? false
-        }()
+        let hasEnhancedTranscript = !state.enhancedTranscription.isEmpty
+        let hasEPUB = (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
             hasEnhancedTranscript: hasEnhancedTranscript,
@@ -785,7 +933,7 @@ final class PlayerModel {
                 audioURL: audioURL,
                 chapters: chapters,
                 transcript: hasTranscript ? state.transcription : nil,
-                enhancedTranscript: enhancedTranscript,
+                enhancedTranscript: hasEnhancedTranscript ? state.enhancedTranscription : nil,
                 epubBlocks: epubBlocks,
                 alignmentAnchors: alignmentAnchors,
                 bookmarks: nil,
@@ -805,6 +953,22 @@ final class PlayerModel {
             Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
                 .error("Failed to ingest timeline items: \(error.localizedDescription)")
         }
+    }
+
+    /// Re-ingests timeline items for the current audiobook, reloading EPUB blocks
+    /// and anchors from the database. Call after EPUB import or anchor changes.
+    func reingestTimelineFromEPUB() async {
+        guard let db = databaseService,
+              let audiobookID = folderURL?.absoluteString else { return }
+        let allChapters = state.chapters
+        let audioURL = state.tracks.indices.contains(currentIndex)
+            ? state.tracks[currentIndex].url
+            : folderURL
+        await ingestTimelineItems(
+            chapters: allChapters,
+            audiobookID: audiobookID,
+            audioURL: audioURL ?? URL(fileURLWithPath: "/")
+        )
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,
@@ -1061,7 +1225,6 @@ final class PlayerModel {
         if let db = databaseService {
             cachedTrackFlashcards = (try? FlashcardDAO(db: db.writer).flashcards(for: cachedTrackFlashcardKey)) ?? []
         }
-        watchStateRepository.refreshDueCards()
 
         // AudioEngine handles AVPlayerItem creation, observers, and duration loading.
         configureAudioSessionIfNeeded()
@@ -1597,7 +1760,7 @@ final class PlayerModel {
         )
     }
 
-    func addWatchBookmark(from payload: [String: Any]) {
+    private func addWatchBookmark(from payload: [String: Any]) {
         guard let storageKey = payload["bookmarkStorageKey"] as? String else { return }
 
         let folderKey = payload["folderKey"] as? String
@@ -1784,7 +1947,6 @@ final class PlayerModel {
         guard let card = activeInlineCard else { return }
         if let db = databaseService {
             try? FlashcardDAO(db: db.writer).grade(cardID: card.id, grade: grade)
-            watchStateRepository.refreshDueCards()
         }
         activeInlineCard = nil
         if wasPlayingBeforeFlashcard {
@@ -1816,36 +1978,6 @@ final class PlayerModel {
 
         // Load bookmarks for this book.
         loadBookmarksForCurrentBook()
-    }
-}
-
-
-// MARK: - WatchCommandRoutingFacade
-
-extension PlayerModel: WatchCommandRoutingFacade {
-    var watchCommandOutputGain: Float { _outputGain }
-
-    var crownScrubSensitivity: Double {
-        settingsManager?.crownScrubSensitivity ?? SettingsManager.Defaults.crownScrubSensitivity
-    }
-
-    var crownVolumeSensitivity: Double {
-        settingsManager?.crownVolumeSensitivity ?? SettingsManager.Defaults.crownVolumeSensitivity
-    }
-
-    func setWatchCommandOutputGain(_ gain: Float) {
-        _outputGain = gain
-        audioEngine.setGain(gain)
-    }
-
-    func addBookmarkFromWatchCommand() {
-        _ = addBookmarkAtCurrentTime()
-    }
-
-    func gradeFlashcard(cardID: String, grade: Int) {
-        guard let writer = databaseService?.writer else { return }
-        try? FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
-        watchStateRepository.refreshDueCards()
     }
 }
 

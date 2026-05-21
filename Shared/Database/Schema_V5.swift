@@ -1,9 +1,11 @@
 import GRDB
 
-/// V5 migration — EPUB block table, alignment anchors, and timeline_item alignment columns.
+/// V5 migration — adds epub_block and alignment_anchor tables for the
+/// manual EPUB timeline alignment system, and extends timeline_item with
+/// alignment-specific columns.
 enum Schema_V5 {
     static func migrate(_ db: Database) throws {
-        // --- epub_block ---
+        // ── EPUB block store ──
         try db.create(table: "epub_block") { t in
             t.column("id", .text).primaryKey()
             t.column("audiobook_id", .text).notNull()
@@ -32,7 +34,7 @@ enum Schema_V5 {
                        on: "epub_block",
                        columns: ["audiobook_id", "is_hidden"])
 
-        // --- alignment_anchor ---
+        // ── Manual alignment anchors ──
         try db.create(table: "alignment_anchor") { t in
             t.column("id", .text).primaryKey()
             t.column("audiobook_id", .text).notNull()
@@ -55,7 +57,7 @@ enum Schema_V5 {
                        on: "alignment_anchor",
                        columns: ["audiobook_id", "epub_block_id"])
 
-        // --- timeline_item alignment extensions ---
+        // ── Extend timeline_item with alignment columns ──
         try db.alter(table: "timeline_item") { t in
             t.add(column: "epub_block_id", .text)
             t.add(column: "timestamp_source", .text)

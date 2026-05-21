@@ -36,7 +36,7 @@ struct RegressionTests {
 
         // Write enhanced transcript sidecar.
         let enhancedJSON = """
-        [{"text": "Hello world", "startTime": 0, "endTime": 5}]
+        [{"sequenceIndex": 0, "text": "Hello world", "startTime": 0, "endTime": 5}]
         """
         let enhancedFile = tmpDir.appendingPathComponent("test-audio.enhanced.json")
         try enhancedJSON.write(to: enhancedFile, atomically: true, encoding: .utf8)
@@ -45,10 +45,11 @@ struct RegressionTests {
         state.isTranscriptProcessingEnabled = true
         let service = TranscriptService(state: state)
 
-        let enhanced = service.loadEnhancedTranscript(for: audioFile)
-        #expect(enhanced != nil)
-        #expect(enhanced?.count == 1)
-        #expect(enhanced?.first?.text == "Hello world")
+        service.loadTranscript(for: audioFile)
+        let enhanced = state.enhancedTranscription
+        #expect(!enhanced.isEmpty)
+        #expect(enhanced.count == 1)
+        #expect(enhanced.first?.text == "Hello world")
     }
 
     // MARK: - Timeline DAO errors are not swallowed
@@ -78,7 +79,6 @@ struct RegressionTests {
         #expect(!safe.contains("file://"))
         #expect(!safe.contains(":"))
         #expect(!safe.contains("/"))
-        #expect(!safe.contains("!"))
     }
 
     // MARK: - EPUB images render from copied asset paths

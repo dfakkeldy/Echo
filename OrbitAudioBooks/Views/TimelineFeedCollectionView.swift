@@ -16,6 +16,16 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     var onContextMenuAction: ((TimelineDisplayItem) -> Void)?
     /// Called when the user requests deletion of a bookmark via context menu.
     var onDeleteBookmark: ((TimelineItem) -> Void)?
+    /// Called for EPUB block context actions: play from here, move to now, hide, unhide.
+    var onEPUBBlockAction: ((TimelineItem, EPUBBlockAction) -> Void)?
+
+    enum EPUBBlockAction {
+        case playFromHere
+        case moveToNow
+        case searchSimilar
+        case hide
+        case unhide
+    }
 
     /// The first due Anki card currently visible in the feed, for sticky header display.
     var dueAnkiCard: TimelineItem? = nil
@@ -354,21 +364,89 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
                 var children: [UIMenuElement] = []
+                let parent = self?.parent
 
-                let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
-                    self?.parent?.onContextMenuAction?(displayItem)
-                }
-                children.append(edit)
+                if case .timelineItem(let item) = displayItem {
+                    // EPUB block actions (text segments and image assets from EPUB)
+                    if item.sourceTable == "epub_block" || item.epubBlockID != nil {
+                        if item.isTimestamped {
+                            children.append(UIAction(
+                                title: "Play From Here",
+                                image: UIImage(systemName: "play.fill")
+                            ) { _ in
+                                parent?.onEPUBBlockAction?(item, .playFromHere)
+                            })
+                        }
 
-                // Add "Delete" for bookmark items
-                if case .timelineItem(let item) = displayItem, item.itemType == .bookmark {
-                    let delete = UIAction(
-                        title: "Delete", image: UIImage(systemName: "trash"),
-                        attributes: .destructive
-                    ) { _ in
-                        self?.parent?.onDeleteBookmark?(item)
+                        children.append(UIAction(
+                            title: "Move to Now",
+                            image: UIImage(systemName: "clock.arrow.circlepath")
+                        ) { _ in
+                            parent?.onEPUBBlockAction?(item, .moveToNow)
+                        })
+
+                        children.append(UIAction(
+                            title: "Search Similar Text",
+                            image: UIImage(systemName: "magnifyingglass")
+                        ) { _ in
+                            parent?.onEPUBBlockAction?(item, .searchSimilar)
+                        })
+
+                        if item.isEnabled {
+                            children.append(UIAction(
+                                title: "Hide Omitted Text",
+                                image: UIImage(systemName: "eye.slash")
+                            ) { _ in
+                                parent?.onEPUBBlockAction?(item, .hide)
+                            })
+                        } else {
+                            children.append(UIAction(
+                                title: "Unhide",
+                                image: UIImage(systemName: "eye")
+                            ) { _ in
+                                parent?.onEPUBBlockAction?(item, .unhide)
+                            })
+                        }
                     }
-                    children.append(delete)
+
+                    // Bookmark actions
+                    if item.itemType == .bookmark {
+                        if children.isEmpty {
+                            let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
+                                parent?.onContextMenuAction?(displayItem)
+                            }
+                            children.append(edit)
+                        }
+                        let delete = UIAction(
+                            title: "Delete", image: UIImage(systemName: "trash"),
+                            attributes: .destructive
+                        ) { _ in
+                            parent?.onDeleteBookmark?(item)
+                        }
+                        children.append(delete)
+                    }
+
+                    // Chapter marker actions: fall through to default edit
+                    if item.itemType == .chapterMarker, children.isEmpty {
+                        let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
+                            parent?.onContextMenuAction?(displayItem)
+                        }
+                        children.append(edit)
+                    }
+
+                    // Default: generic edit for non-EPUB, non-bookmark items
+                    if children.isEmpty {
+                        let edit = UIAction(title: "Edit", image: UIImage(systemName: "pencil")) { _ in
+                            parent?.onContextMenuAction?(displayItem)
+                        }
+                        children.append(edit)
+                    }
+                } else if case .audiobookCard = displayItem {
+                    // Book card: no context menu actions currently
+                    let info = UIAction(title: "Play Book", image: UIImage(systemName: "play.fill")) { _ in
+                        parent?.onItemTapped?(displayItem)
+                    }
+                    children.append(info)
                 }
 
                 let title: String

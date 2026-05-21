@@ -2,6 +2,24 @@ import Foundation
 import Observation
 import UIKit
 
+// MARK: - Feed Mode
+
+enum TimelineFeedMode: Equatable {
+    case followingPlayback
+    case browsing
+    case searchingToAnchor
+    case editingAlignment(selectedBlockID: String)
+}
+
+// MARK: - Search Result
+
+struct TimelineSearchResult: Identifiable, Equatable {
+    let id: String
+    let text: String
+    let blockID: String
+    let sequenceIndex: Int
+}
+
 /// Push-driven feed view model. Audio engine pushes position →
 /// feed scrolls reactively with a rolling window of TimelineDisplayItems.
 ///
@@ -13,24 +31,15 @@ import UIKit
 final class TimelineFeedViewModel {
     // MARK: - Published state
 
-    // MARK: - Feed mode
-
-    enum FeedMode: Equatable {
-        case followingPlayback
-        case browsing
-        case searchingToAnchor
-        case editingAlignment(selectedBlockID: String)
-    }
-
     private(set) var items: [TimelineDisplayItem] = []
     private(set) var currentPosition: TimeInterval = 0
     private(set) var isFollowingPlayback = true
-    private(set) var feedMode: FeedMode = .followingPlayback
     private(set) var isLoading = false
     private(set) var lastError: Error?
-    private(set) var searchQuery: String = ""
-    private(set) var searchResults: [EPubBlockRecord] = []
-    var isSearching: Bool { feedMode == .searchingToAnchor }
+    private(set) var feedMode: TimelineFeedMode = .followingPlayback
+    private(set) var searchQuery = ""
+    private(set) var searchResults: [TimelineSearchResult] = []
+    var showHiddenBlocks = false
 
     /// The active structural zoom level. Setting this triggers a data reload.
     var scope: TimelineScope = .chapter {
@@ -102,85 +111,103 @@ final class TimelineFeedViewModel {
         }
     }
 
-    // MARK: - Search-to-Anchor
-
-    /// Enters search mode for anchoring.
-    func beginSearchToAnchor() {
+    /// Enter search-to-anchor mode.
+    func beginSearch() {
         feedMode = .searchingToAnchor
         searchQuery = ""
         searchResults = []
     }
 
-    /// Cancels search and returns to prior mode.
+    /// Exit search mode.
     func cancelSearch() {
-        feedMode = isFollowingPlayback ? .followingPlayback : .browsing
+        feedMode = .followingPlayback
         searchQuery = ""
         searchResults = []
     }
 
-    /// Performs a search across EPUB block text and populates results.
-    func searchBlocks(query: String) {
+    /// Execute a search across epub_block.text.
+    func search(_ query: String) {
         searchQuery = query
         guard !query.isEmpty, let audiobookID else {
             searchResults = []
             return
         }
 
-        // Search from the DB — hidden blocks excepted unless "show hidden" is on.
-        let blockDAO = EPubBlockDAO(db: timelineDAO.db)
-        searchResults = (try? blockDAO.searchBlocks(for: audiobookID, query: query)) ?? []
-    }
-
-    /// Anchors a search result at the current playback time and exits search mode.
-    func anchorSearchResult(blockID: String, at time: TimeInterval) async {
-        guard let audiobookID else { return }
-        let db = timelineDAO.db
-        let service = AlignmentService(db: db, audiobookID: audiobookID)
         do {
-            try service.anchorSearchResult(blockID: blockID, time: time)
-            await loadTimelineWindow(around: time)
+            let blocks = try EPubBlockDAO(db: timelineDAO.db).searchBlocks(
+                for: audiobookID, query: query
+            )
+            if !showHiddenBlocks {
+                searchResults = blocks.filter { !$0.isHidden }.map { block in
+                    TimelineSearchResult(
+                        id: block.id,
+                        text: block.text ?? "",
+                        blockID: block.id,
+                        sequenceIndex: block.sequenceIndex
+                    )
+                }
+            } else {
+                searchResults = blocks.map { block in
+                    TimelineSearchResult(
+                        id: block.id,
+                        text: block.text ?? "",
+                        blockID: block.id,
+                        sequenceIndex: block.sequenceIndex
+                    )
+                }
+            }
         } catch {
             lastError = error
-        }
-        cancelSearch()
-    }
-
-    // MARK: - Context Menu Actions
-
-    /// Moves a block's anchor to the current playback time.
-    func moveBlockToNow(blockID: String) {
-        guard let audiobookID else { return }
-        let db = timelineDAO.db
-        let service = AlignmentService(db: db, audiobookID: audiobookID)
-        do {
-            try service.moveBlockToCurrentTime(blockID: blockID, time: currentPosition)
-            Task { await loadTimelineWindow(around: currentPosition) }
-        } catch {
-            lastError = error
+            searchResults = []
         }
     }
 
-    /// Hides a block from the feed.
+    /// Anchor a search result to the current playback time.
+    func anchorSearchResult(_ result: TimelineSearchResult, at time: TimeInterval) {
+        guard let audiobookID else { return }
+        do {
+            let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
+            try service.anchorSearchResult(blockID: result.blockID, time: time)
+            try service.recalculateTimeline()
+            cancelSearch()
+            Task { await loadInitialWindow(around: time) }
+        } catch {
+            lastError = error
+        }
+    }
+
+    /// Move a block to the current playback time.
+    func moveBlockToNow(blockID: String, time: TimeInterval) {
+        guard let audiobookID else { return }
+        do {
+            let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
+            try service.moveBlockToCurrentTime(blockID: blockID, time: time)
+            try service.recalculateTimeline()
+            Task { await loadInitialWindow(around: time) }
+        } catch {
+            lastError = error
+        }
+    }
+
+    /// Hide an EPUB block from the feed.
     func hideBlock(blockID: String, reason: String?) {
         guard let audiobookID else { return }
-        let db = timelineDAO.db
-        let service = AlignmentService(db: db, audiobookID: audiobookID)
         do {
+            let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
             try service.hideBlock(blockID: blockID, reason: reason)
-            Task { await loadTimelineWindow(around: currentPosition) }
+            Task { await loadInitialWindow(around: currentPosition) }
         } catch {
             lastError = error
         }
     }
 
-    /// Unhides a previously hidden block.
+    /// Unhide a previously hidden EPUB block.
     func unhideBlock(blockID: String) {
         guard let audiobookID else { return }
-        let db = timelineDAO.db
-        let service = AlignmentService(db: db, audiobookID: audiobookID)
         do {
+            let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
             try service.unhideBlock(blockID: blockID)
-            Task { await loadTimelineWindow(around: currentPosition) }
+            Task { await loadInitialWindow(around: currentPosition) }
         } catch {
             lastError = error
         }
@@ -300,10 +327,10 @@ final class TimelineFeedViewModel {
                 ))
             }
             items = displayItems
+            lastError = nil
             onItemsChanged?()
         } catch {
             lastError = error
-            // Keep existing items rather than replacing with empty feed
         }
     }
 
@@ -322,10 +349,10 @@ final class TimelineFeedViewModel {
                 limit: windowSize
             )
             items = prepareDisplayItems(from: rawItems)
+            lastError = nil
             onItemsChanged?()
         } catch {
             lastError = error
-            // Keep existing items rather than replacing with empty feed
         }
     }
 

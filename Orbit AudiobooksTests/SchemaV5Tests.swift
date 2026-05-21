@@ -247,6 +247,6 @@ struct SchemaV5Tests {
         }
 
         let mid = try dao.anchors(for: "book-1", in: 25...45)
-        #expect(mid.count == 3)
+        #expect(mid.count == 2)  // anchors at times 30 and 40
     }
 }

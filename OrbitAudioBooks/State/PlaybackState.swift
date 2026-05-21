@@ -56,6 +56,7 @@ final class PlaybackState {
     // MARK: - Transcript
 
     var transcription: [TranscriptionSegment] = []
+    var enhancedTranscription: [EnhancedTranscriptionSegment] = []
     var chapterWordClouds: [Int: [WordFrequency]] = [:]
     var rollingWordClouds: [(startTime: TimeInterval, frequencies: [WordFrequency])] = []
     var isTranscriptProcessingEnabled: Bool = true

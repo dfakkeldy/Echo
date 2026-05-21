@@ -31,7 +31,7 @@ struct AlignmentService {
             epubBlockID: blockID,
             audioTime: time,
             audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.Kind.point.rawValue,
+            anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
             source: AlignmentAnchorRecord.Source.moveToNow.rawValue,
             note: nil,
             createdAt: ISO8601DateFormatter().string(from: Date()),
@@ -53,7 +53,7 @@ struct AlignmentService {
             epubBlockID: blockID,
             audioTime: time,
             audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.Kind.point.rawValue,
+            anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
             source: AlignmentAnchorRecord.Source.searchResult.rawValue,
             note: nil,
             createdAt: ISO8601DateFormatter().string(from: Date()),
@@ -74,7 +74,7 @@ struct AlignmentService {
             epubBlockID: blockID,
             audioTime: time,
             audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.Kind.chapterStart.rawValue,
+            anchorKind: AlignmentAnchorRecord.AnchorKind.chapterStart.rawValue,
             source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
             note: "Chapter \(chapterIndex) start",
             createdAt: ISO8601DateFormatter().string(from: Date()),
@@ -95,7 +95,7 @@ struct AlignmentService {
             epubBlockID: blockID,
             audioTime: time,
             audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.Kind.chapterEnd.rawValue,
+            anchorKind: AlignmentAnchorRecord.AnchorKind.chapterEnd.rawValue,
             source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
             note: "Chapter \(chapterIndex) end",
             createdAt: ISO8601DateFormatter().string(from: Date()),
@@ -184,7 +184,7 @@ struct AlignmentService {
                     timestampSrc = TimestampSource.none.rawValue
                     alignStatus = AlignmentStatus.unaligned.rawValue
                 }
-            } else if block.chapterIndex != nil {
+            } else if let chapterIndex = block.chapterIndex {
                 // Chapter data available but no anchors — estimate from chapter bounds.
                 // This is a rough estimate: place blocks proportionally within the chapter.
                 audioStart = -1

@@ -6,25 +6,46 @@ struct TranscriptService {
     let state: PlaybackState
 
     /// Loads the transcript sidecar JSON for the given audio file.
-    /// The transcript is expected at `<audio>.transcript.json` in the same directory.
+    /// The plain transcript is expected at `<audio>.transcript.json` in the same directory.
+    /// The enhanced transcript (Whisper + EPUB alignment) is expected at `<audio>.enhanced.json`.
     func loadTranscript(for url: URL) {
         guard state.isTranscriptProcessingEnabled else { return }
-        let fileName = url.deletingPathExtension().lastPathComponent + ".transcript.json"
-        let transcriptURL = url.deletingLastPathComponent().appendingPathComponent(fileName)
 
-        guard FileManager.default.fileExists(atPath: transcriptURL.path) else {
+        // 1. Load plain transcript sidecar
+        let plainFileName = url.deletingPathExtension().lastPathComponent + ".transcript.json"
+        let plainURL = url.deletingLastPathComponent().appendingPathComponent(plainFileName)
+
+        if FileManager.default.fileExists(atPath: plainURL.path) {
+            do {
+                let data = try Data(contentsOf: plainURL)
+                state.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
+            } catch {
+                print("Failed to load plain transcript: \(error)")
+                state.transcription = []
+            }
+        } else {
             state.transcription = []
-            return
         }
 
-        do {
-            let data = try Data(contentsOf: transcriptURL)
-            state.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
-            computeWordClouds()
-        } catch {
-            print("Failed to load transcript: \(error)")
-            state.transcription = []
+        // 2. Load enhanced transcript sidecar (Whisper + EPUB alignment)
+        let enhancedFileName = url.deletingPathExtension().lastPathComponent + ".enhanced.json"
+        let enhancedURL = url.deletingLastPathComponent().appendingPathComponent(enhancedFileName)
+
+        if FileManager.default.fileExists(atPath: enhancedURL.path) {
+            do {
+                let data = try Data(contentsOf: enhancedURL)
+                state.enhancedTranscription = try JSONDecoder().decode(
+                    [EnhancedTranscriptionSegment].self, from: data
+                )
+            } catch {
+                print("Failed to load enhanced transcript: \(error)")
+                state.enhancedTranscription = []
+            }
+        } else {
+            state.enhancedTranscription = []
         }
+
+        computeWordClouds()
     }
 
     /// Loads the enhanced transcript sidecar (`<audio>.enhanced.json`) if present.
