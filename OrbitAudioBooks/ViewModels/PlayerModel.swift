@@ -50,6 +50,10 @@ final class PlayerModel {
     let playbackController = PlaybackController()
     let watchSyncManager = WatchSyncManager()
     @ObservationIgnored private lazy var watchCommandRouter = WatchCommandRouter(facade: self)
+    @ObservationIgnored private lazy var watchStateRepository = WatchStateRepository { [weak self] in
+        guard let db = self?.databaseService else { return nil }
+        return FlashcardDAO(db: db.writer)
+    }
 
     var audioEngine: AudioEngine { playbackController.audioEngine }
     @ObservationIgnored private weak var settingsManager: SettingsManager?
@@ -511,15 +515,10 @@ final class PlayerModel {
             context["wordCloudChapterIndex"] = currentChapterIndex ?? 0
         }
 
-        // Due flashcards for watch review.
-        if let db = databaseService,
-           let cards = try? FlashcardDAO(db: db.writer).allDueCards(),
-           !cards.isEmpty {
-            let watchCards = cards.map { WatchFlashcard(id: $0.id, frontText: $0.frontText, backText: $0.backText) }
-            if let data = try? JSONEncoder().encode(watchCards),
-               let json = String(data: data, encoding: .utf8) {
-                context["dueCardsJSON"] = json
-            }
+        // Due flashcards for watch review — pre-cached by WatchStateRepository
+        // to avoid a synchronous GRDB table scan on every watch state request.
+        if let json = watchStateRepository.currentSnapshot().dueCardsJSON {
+            context["dueCardsJSON"] = json
         }
 
         return context
@@ -1062,6 +1061,7 @@ final class PlayerModel {
         if let db = databaseService {
             cachedTrackFlashcards = (try? FlashcardDAO(db: db.writer).flashcards(for: cachedTrackFlashcardKey)) ?? []
         }
+        watchStateRepository.refreshDueCards()
 
         // AudioEngine handles AVPlayerItem creation, observers, and duration loading.
         configureAudioSessionIfNeeded()
@@ -1784,6 +1784,7 @@ final class PlayerModel {
         guard let card = activeInlineCard else { return }
         if let db = databaseService {
             try? FlashcardDAO(db: db.writer).grade(cardID: card.id, grade: grade)
+            watchStateRepository.refreshDueCards()
         }
         activeInlineCard = nil
         if wasPlayingBeforeFlashcard {
@@ -1844,6 +1845,7 @@ extension PlayerModel: WatchCommandRoutingFacade {
     func gradeFlashcard(cardID: String, grade: Int) {
         guard let writer = databaseService?.writer else { return }
         try? FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
+        watchStateRepository.refreshDueCards()
     }
 }
 
