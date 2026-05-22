@@ -20,72 +20,76 @@ struct TimelineTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TimelineHeaderView(
-                scope: $timelineScope,
-                onRecenterNow: {
-                    feedViewModel?.goToNow()
+            if model.hasEPUB || model.hasTranscript {
+                TimelineHeaderView(
+                    scope: $timelineScope,
+                    onRecenterNow: {
+                        feedViewModel?.goToNow()
+                    }
+                )
+
+                Divider()
+
+                DashboardShelf(onReviewTap: onReviewTap)
+
+                SpeedSuggestionBanner()
+
+                if dueCount > 0 {
+                    dueReviewBanner
                 }
-            )
 
-            Divider()
-
-            DashboardShelf(onReviewTap: onReviewTap)
-
-            SpeedSuggestionBanner()
-
-            if dueCount > 0 {
-                dueReviewBanner
-            }
-
-            if let viewModel = feedViewModel {
-                ZStack {
-                    TimelineFeedCollectionView(
-                        items: $feedItems,
-                        currentPosition: $currentPosition,
-                        scrollTargetPosition: $scrollTargetPosition,
-                        isFollowingPlayback: isFollowingPlayback,
-                        onUserScrolled: {
-                            viewModel.userDidScroll()
-                        },
-                        onItemTapped: { displayItem in
-                            handleItemTap(displayItem)
-                        },
-                        onContextMenuAction: { displayItem in
-                            handleContextMenu(displayItem)
-                        },
-                        onDeleteBookmark: { timelineItem in
-                            handleDeleteBookmark(timelineItem)
-                        },
-                        onEPUBBlockAction: { item, action in
-                            handleEPUBBlockAction(item, action)
-                        }
-                    )
-
-                    // "Go to Now" floating button (visible when not following)
-                    if !isFollowingPlayback {
-                        VStack {
-                            Spacer()
-                            Button {
-                                viewModel.goToNow()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.down.to.line")
-                                    Text("Go to Now")
-                                        .font(.caption)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Capsule())
-                                .shadow(radius: 4)
+                if let viewModel = feedViewModel {
+                    ZStack {
+                        TimelineFeedCollectionView(
+                            items: $feedItems,
+                            currentPosition: $currentPosition,
+                            scrollTargetPosition: $scrollTargetPosition,
+                            isFollowingPlayback: isFollowingPlayback,
+                            onUserScrolled: {
+                                viewModel.userDidScroll()
+                            },
+                            onItemTapped: { displayItem in
+                                handleItemTap(displayItem)
+                            },
+                            onContextMenuAction: { displayItem in
+                                handleContextMenu(displayItem)
+                            },
+                            onDeleteBookmark: { timelineItem in
+                                handleDeleteBookmark(timelineItem)
+                            },
+                            onEPUBBlockAction: { item, action in
+                                handleEPUBBlockAction(item, action)
                             }
-                            .padding(.bottom, 12)
+                        )
+
+                        // "Go to Now" floating button (visible when not following)
+                        if !isFollowingPlayback {
+                            VStack {
+                                Spacer()
+                                Button {
+                                    viewModel.goToNow()
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "arrow.down.to.line")
+                                        Text("Go to Now")
+                                            .font(.caption)
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Capsule())
+                                    .shadow(radius: 4)
+                                }
+                                .padding(.bottom, 12)
+                            }
                         }
                     }
+                } else {
+                    ProgressView()
+                        .padding(.top, 40)
                 }
             } else {
-                ProgressView()
-                    .padding(.top, 40)
+                PlaylistView(isEmbedded: true)
             }
         }
         .onAppear {

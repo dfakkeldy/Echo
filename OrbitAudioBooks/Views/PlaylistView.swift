@@ -41,6 +41,10 @@ struct PlaylistView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var editingBookmarkID: UUID? = nil
 
+    /// When true, renders only the list content without a NavigationStack or toolbar chrome.
+    /// Used when PlaylistView is embedded inside another container view (e.g. TimelineTab fallback).
+    var isEmbedded: Bool = false
+
     private enum PlaylistTab: Hashable { case items, bookmarks }
     @State private var selectedTab: PlaylistTab = .items
     @State private var showChapters: Bool = false
@@ -56,150 +60,154 @@ struct PlaylistView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Tab", selection: $selectedTab) {
-                    Text(model.chapters.count >= 2 ? String(localized: "Chapters") : String(localized: "Tracks")).tag(PlaylistTab.items)
-                    Text("Bookmarks").tag(PlaylistTab.bookmarks)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+        if isEmbedded {
+            playlistContent
+        } else {
+            NavigationStack {
+                playlistContent
+                    .navigationTitle("Playlist")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Reset") { model.resetPlaylist() }
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { dismiss() }
+                        }
+                    }
+                    .sheet(item: Binding(
+                        get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
+                        set: { editingBookmarkID = $0?.id }
+                    )) { wrapper in
+                        EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
+                    }
+            }
+            .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
+        }
+    }
 
-                if selectedTab == .items {
-                    List {
-                        if model.isMultiM4B {
-                            // Multi-M4B: hierarchical Book → Chapters
-                            ForEach(model.m4bBooks) { book in
-                                Section {
-                                    ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
-                                        Button {
-                                            model.skipToTrack(book.trackIndex)
-                                        } label: {
-                                            HStack {
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(chapter.title ?? String(localized: "Chapter \(index + 1)"))
-                                                        .foregroundStyle(.primary)
-                                                    Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                }
-                                                Spacer()
-                                                if model.currentIndex == book.trackIndex,
-                                                   model.currentChapterIndex == index {
-                                                    Image(systemName: "play.circle.fill")
-                                                        .foregroundStyle(.tint)
-                                                }
+    private var playlistContent: some View {
+        VStack(spacing: 0) {
+            Picker("Tab", selection: $selectedTab) {
+                Text(model.chapters.count >= 2 ? String(localized: "Chapters") : String(localized: "Tracks")).tag(PlaylistTab.items)
+                Text("Bookmarks").tag(PlaylistTab.bookmarks)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            if selectedTab == .items {
+                List {
+                    if model.isMultiM4B {
+                        // Multi-M4B: hierarchical Book → Chapters
+                        ForEach(model.m4bBooks) { book in
+                            Section {
+                                ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
+                                    Button {
+                                        model.skipToTrack(book.trackIndex)
+                                    } label: {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(chapter.title ?? String(localized: "Chapter \(index + 1)"))
+                                                    .foregroundStyle(.primary)
+                                                Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Spacer()
+                                            if model.currentIndex == book.trackIndex,
+                                               model.currentChapterIndex == index {
+                                                Image(systemName: "play.circle.fill")
+                                                    .foregroundStyle(.tint)
                                             }
                                         }
                                     }
-                                } header: {
-                                    HStack {
-                                        Text(book.title)
-                                        if model.currentIndex == book.trackIndex {
-                                            Image(systemName: "speaker.wave.2")
-                                                .font(.caption)
-                                                .foregroundStyle(.tint)
-                                        }
+                                }
+                            } header: {
+                                HStack {
+                                    Text(book.title)
+                                    if model.currentIndex == book.trackIndex {
+                                        Image(systemName: "speaker.wave.2")
+                                            .font(.caption)
+                                            .foregroundStyle(.tint)
                                     }
                                 }
                             }
-                        } else if model.chapters.count >= 2 {
-                            ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
-                                chapterRow(index: index, chapter: chapter)
-                            }
-                            .onMove { source, destination in
-                                model.moveChapters(from: source, to: destination)
-                            }
-                        } else {
-                            ForEach(Array(model.tracks.enumerated()), id: \.element.id) { index, track in
-                                trackRow(index: index, track: track)
-                            }
-                            .onMove { source, destination in
-                                model.moveTracks(from: source, to: destination)
-                            }
                         }
-                    }
-                    .environment(\.editMode, .constant(.active))
-                } else {
-                    let trackTitleMap: [String: String] = Dictionary(
-                        uniqueKeysWithValues: model.tracks.map { ($0.id, $0.title) }
-                    )
-                    let grouped = Dictionary(grouping: model.bookmarks) { $0.trackId }
-                    let sortedKeys = grouped.keys.sorted { a, b in
-                        let ia = a.flatMap { tid in model.tracks.firstIndex(where: { $0.id == tid }) } ?? Int.max
-                        let ib = b.flatMap { tid in model.tracks.firstIndex(where: { $0.id == tid }) } ?? Int.max
-                        return ia < ib
-                    }
-
-                    if model.bookmarks.isEmpty && !showChapters {
-                        ContentUnavailableView(
-                            "No Bookmarks",
-                            systemImage: "bookmark",
-                            description: Text("Tap the bookmark button while playing to save a moment.")
-                        )
+                    } else if model.chapters.count >= 2 {
+                        ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
+                            chapterRow(index: index, chapter: chapter)
+                        }
+                        .onMove { source, destination in
+                            model.moveChapters(from: source, to: destination)
+                        }
                     } else {
-                        List {
-                            if model.chapters.count >= 2 {
-                                Toggle("Show Chapters", isOn: $showChapters)
-                            }
+                        ForEach(Array(model.tracks.enumerated()), id: \.element.id) { index, track in
+                            trackRow(index: index, track: track)
+                        }
+                        .onMove { source, destination in
+                            model.moveTracks(from: source, to: destination)
+                        }
+                    }
+                }
+                .environment(\.editMode, .constant(.active))
+            } else {
+                let trackTitleMap: [String: String] = Dictionary(
+                    uniqueKeysWithValues: model.tracks.map { ($0.id, $0.title) }
+                )
+                let grouped = Dictionary(grouping: model.bookmarks) { $0.trackId }
+                let sortedKeys = grouped.keys.sorted { a, b in
+                    let ia = a.flatMap { tid in model.tracks.firstIndex(where: { $0.id == tid }) } ?? Int.max
+                    let ib = b.flatMap { tid in model.tracks.firstIndex(where: { $0.id == tid }) } ?? Int.max
+                    return ia < ib
+                }
 
-                            if showChapters {
-                                Section("Chapters") {
-                                    ForEach(model.chapters) { chapter in
-                                        Button {
-                                            model.seek(toSeconds: chapter.startSeconds + 0.05)
-                                        } label: {
-                                            HStack {
-                                                Image(systemName: "list.bullet")
-                                                    .foregroundStyle(.secondary)
-                                                    .frame(width: 22)
-                                                Text(chapter.title ?? String(localized: "Chapter \(chapter.index + 1)"))
-                                                Spacer()
-                                                Text(NowPlayingController.formatTime(chapter.startSeconds))
-                                                    .customFont(.caption, appFont: settings.appFont)
-                                                    .foregroundStyle(.secondary)
-                                                    .monospacedDigit()
-                                            }
+                if model.bookmarks.isEmpty && !showChapters {
+                    ContentUnavailableView(
+                        "No Bookmarks",
+                        systemImage: "bookmark",
+                        description: Text("Tap the bookmark button while playing to save a moment.")
+                    )
+                } else {
+                    List {
+                        if model.chapters.count >= 2 {
+                            Toggle("Show Chapters", isOn: $showChapters)
+                        }
+
+                        if showChapters {
+                            Section("Chapters") {
+                                ForEach(model.chapters) { chapter in
+                                    Button {
+                                        model.seek(toSeconds: chapter.startSeconds + 0.05)
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "list.bullet")
+                                                .foregroundStyle(.secondary)
+                                                .frame(width: 22)
+                                            Text(chapter.title ?? String(localized: "Chapter \(chapter.index + 1)"))
+                                            Spacer()
+                                            Text(NowPlayingController.formatTime(chapter.startSeconds))
+                                                .customFont(.caption, appFont: settings.appFont)
+                                                .foregroundStyle(.secondary)
+                                                .monospacedDigit()
                                         }
                                     }
                                 }
                             }
+                        }
 
-                            ForEach(sortedKeys, id: \.self) { trackId in
-                                let bookmarks = (grouped[trackId] ?? []).sorted { $0.timestamp < $1.timestamp }
-                                let header: String = trackId.flatMap { trackTitleMap[$0] } ?? "Folder Bookmarks"
-                                Section(header) {
-                                    ForEach(bookmarks, id: \.id) { bm in
-                                        bookmarkRow(bm)
-                                    }
+                        ForEach(sortedKeys, id: \.self) { trackId in
+                            let bookmarks = (grouped[trackId] ?? []).sorted { $0.timestamp < $1.timestamp }
+                            let header: String = trackId.flatMap { trackTitleMap[$0] } ?? "Folder Bookmarks"
+                            Section(header) {
+                                ForEach(bookmarks, id: \.id) { bm in
+                                    bookmarkRow(bm)
                                 }
                             }
                         }
                     }
                 }
-            }
-            .navigationTitle("Playlist")
-
-
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Reset") {
-                        model.resetPlaylist()
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .sheet(item: Binding(
-                get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
-                set: { editingBookmarkID = $0?.id }
-            )) { wrapper in
-                EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
             }
         }
-        .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
     }
 
     @ViewBuilder

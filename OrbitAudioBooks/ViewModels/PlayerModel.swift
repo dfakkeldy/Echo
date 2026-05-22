@@ -50,7 +50,10 @@ final class PlayerModel {
 
     let playbackController = PlaybackController()
     let watchSyncManager = WatchSyncManager()
-    @ObservationIgnored private lazy var watchCommandRouter = WatchCommandRouter(facade: self)
+    @ObservationIgnored private lazy var watchCommandRouter = WatchCommandRouter(
+        facade: WatchConnectivityCoordinator(playerModel: self)
+    )
+    @ObservationIgnored private let eventLogger = PlaybackEventLogger()
 
     var audioEngine: AudioEngine { playbackController.audioEngine }
     @ObservationIgnored private weak var settingsManager: SettingsManager?
@@ -140,6 +143,18 @@ final class PlayerModel {
         guard let idx = state.currentChapterIndex else { return [] }
         return state.chapterWordClouds[idx] ?? []
     }
+
+    /// Whether EPUB blocks have been imported for the current audiobook.
+    var hasEPUB: Bool {
+        guard let db = databaseService, let audiobookID = folderURL?.absoluteString else { return false }
+        return (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
+    }
+
+    /// Whether transcript or enhanced transcript data is loaded for the current audiobook.
+    var hasTranscript: Bool {
+        !transcription.isEmpty || !enhancedTranscription.isEmpty
+    }
+
     var isTranscriptProcessingEnabled: Bool {
         get { state.isTranscriptProcessingEnabled }
         set { state.isTranscriptProcessingEnabled = newValue }
@@ -255,6 +270,32 @@ final class PlayerModel {
     /// Current app-level output gain in dB, used for watch crown volume control.
     /// Not observable — gain changes don't trigger view re-renders.
     @ObservationIgnored private var _outputGain: Float = 0
+
+    // MARK: - Watch command support (accessed by WatchConnectivityCoordinator)
+
+    var watchCommandOutputGain: Float { _outputGain }
+
+    var crownScrubSensitivity: Double {
+        settingsManager?.crownScrubSensitivity ?? SettingsManager.Defaults.crownScrubSensitivity
+    }
+
+    var crownVolumeSensitivity: Double {
+        settingsManager?.crownVolumeSensitivity ?? SettingsManager.Defaults.crownVolumeSensitivity
+    }
+
+    func setWatchCommandOutputGain(_ gain: Float) {
+        _outputGain = gain
+        audioEngine.setGain(gain)
+    }
+
+    func addBookmarkFromWatchCommand() {
+        _ = addBookmarkAtCurrentTime()
+    }
+
+    func gradeFlashcard(cardID: String, grade: Int) {
+        guard let writer = databaseService?.writer else { return }
+        try? FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
+    }
 
     /// Optional database service for SQL persistence.
     /// Set externally to enable SQL-backed bookmark storage.
@@ -711,6 +752,20 @@ final class PlayerModel {
         // Route bookmark persistence through SQL when available.
         if let db = databaseService {
             bookmarkStore.configureSQLPersistence(database: db)
+        }
+
+        // Auto-import EPUB companion files when present in the folder.
+        if let db = databaseService {
+            let currentChapters = state.chapters
+            let currentDuration = state.durationSeconds
+            Task {
+                await EPUBAutoImportScanner.scanAndImportIfNeeded(
+                    folderURL: url,
+                    databaseService: db,
+                    chapters: currentChapters,
+                    duration: currentDuration
+                )
+            }
         }
 
     }
@@ -1878,38 +1933,19 @@ extension PlayerModel {
     func startPlaybackSessionLogging() {
         let id = UUID().uuidString
         currentPlaybackEventID = id
-        guard let db = databaseService else { return }
-        let dao = RealTimeEventDAO(db: db.writer)
-        let folderKey = folderURL?.absoluteString
-        do {
-            try dao.log(
-                id: id,
-                eventType: RealTimeEventType.playbackSession.rawValue,
-                audiobookID: folderKey,
-                mediaTimestamp: audioEngine.currentTime,
-                startedAt: Date(),
-                endedAt: nil,
-                title: currentTitle,
-                subtitle: currentSubtitle,
-                metadataJSON: nil,
-                sourceItemID: nil,
-                sourceItemType: nil
-            )
-        } catch {
-            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
-                .error("Failed to log playback session start: \(error.localizedDescription)")
-        }
+        eventLogger.startPlaybackSessionLogging(
+            id: id,
+            databaseService: databaseService,
+            folderURL: folderURL,
+            currentTime: audioEngine.currentTime,
+            currentTitle: currentTitle,
+            currentSubtitle: currentSubtitle
+        )
     }
 
     func endPlaybackSessionLogging() {
-        guard let id = currentPlaybackEventID, let db = databaseService else { return }
-        let dao = RealTimeEventDAO(db: db.writer)
-        do {
-            try dao.updateEndedAt(id: id, endedAt: Date())
-        } catch {
-            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
-                .error("Failed to log playback session end: \(error.localizedDescription)")
-        }
+        guard let id = currentPlaybackEventID else { return }
+        eventLogger.endPlaybackSessionLogging(id: id, databaseService: databaseService)
         currentPlaybackEventID = nil
     }
 
@@ -1921,53 +1957,15 @@ extension PlayerModel {
         sourceItemID: String? = nil,
         sourceItemType: String? = nil
     ) {
-        guard let db = databaseService else { return }
-        let dao = RealTimeEventDAO(db: db.writer)
-        let folderKey = folderURL?.absoluteString
-        do {
-            try dao.log(
-                eventType: type.rawValue,
-                audiobookID: folderKey,
-                mediaTimestamp: timestamp,
-                startedAt: Date(),
-                endedAt: nil,
-                title: title ?? currentTitle,
-                subtitle: subtitle,
-                metadataJSON: nil,
-                sourceItemID: sourceItemID,
-                sourceItemType: sourceItemType
-            )
-        } catch {
-            Logger(subsystem: "com.orbitaudiobooks", category: "PlayerModel")
-                .error("Failed to log timeline event \(type.rawValue): \(error.localizedDescription)")
-        }
-    }
-}
-
-// MARK: - WatchCommandRoutingFacade
-
-extension PlayerModel: WatchCommandRoutingFacade {
-    var watchCommandOutputGain: Float { _outputGain }
-
-    var crownScrubSensitivity: Double {
-        settingsManager?.crownScrubSensitivity ?? SettingsManager.Defaults.crownScrubSensitivity
-    }
-
-    var crownVolumeSensitivity: Double {
-        settingsManager?.crownVolumeSensitivity ?? SettingsManager.Defaults.crownVolumeSensitivity
-    }
-
-    func setWatchCommandOutputGain(_ gain: Float) {
-        _outputGain = gain
-        audioEngine.setGain(gain)
-    }
-
-    func addBookmarkFromWatchCommand() {
-        _ = addBookmarkAtCurrentTime()
-    }
-
-    func gradeFlashcard(cardID: String, grade: Int) {
-        guard let writer = databaseService?.writer else { return }
-        try? FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
+        eventLogger.logRealTimeEvent(
+            type: type,
+            databaseService: databaseService,
+            folderURL: folderURL,
+            title: title ?? currentTitle,
+            subtitle: subtitle,
+            timestamp: timestamp,
+            sourceItemID: sourceItemID,
+            sourceItemType: sourceItemType
+        )
     }
 }

@@ -23,7 +23,7 @@ struct RootTabView: View {
     var body: some View {
         NavigationStack {
             TabView(selection: $selectedTab) {
-                NowPlayingTab()
+                NowPlayingTab(onCreateBookmark: { draft in newBookmarkDraft = draft })
                 .tabItem {
                     Label("Now Playing", systemImage: "play.circle")
                 }

@@ -11,6 +11,7 @@
 		CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000012GRDB00000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000013GRDB00000013 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
+		CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000003ZIPF00000003 /* ZIPFoundation */; };
 		CC00BC502FA6B66400323F38 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */; };
 		CC00BC522FA6B66400323F38 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC512FA6B66400323F38 /* SwiftUI.framework */; };
 		CC00BC612FA6B66500323F38 /* Orbit Audiobooks WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC00BC4D2FA6B66400323F38 /* Orbit Audiobooks WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -214,6 +215,7 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				CC0000000010GRDB00000010 /* GRDB in Frameworks */,
+				CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */,
 			);
 		};
 		CC08EC632F9522F800206D2F /* Frameworks */ = {
@@ -506,6 +508,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+			CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -1395,6 +1398,14 @@
 				minimumVersion = 7.0.0;
 			};
 		};
+		CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.19;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1402,6 +1413,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		CC0000000003ZIPF00000003 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

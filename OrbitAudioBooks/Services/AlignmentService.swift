@@ -12,12 +12,14 @@ struct AlignmentService {
     private let anchorDAO: AlignmentAnchorDAO
     private let blockDAO: EPubBlockDAO
     private let timelineDAO: TimelineDAO
+    private let chapterDAO: ChapterDAO
     private let audiobookID: String
 
     init(db: DatabaseWriter, audiobookID: String) {
         self.anchorDAO = AlignmentAnchorDAO(db: db)
         self.blockDAO = EPubBlockDAO(db: db)
         self.timelineDAO = TimelineDAO(db: db)
+        self.chapterDAO = ChapterDAO(db: db)
         self.audiobookID = audiobookID
     }
 
@@ -122,21 +124,33 @@ struct AlignmentService {
 
     // MARK: - Timeline Recalculation
 
+    /// Lightweight anchor representation that unifies real DB anchors with
+    /// synthetic chapter-boundary anchors for interpolation sorting.
+    private struct AnchorPoint {
+        let sequenceIndex: Int
+        let audioTime: TimeInterval
+        let isVirtual: Bool
+    }
+
     /// Recalculates all affected `timeline_item` rows in one transaction.
     ///
     /// Interpolation rules:
     /// 1. Locked anchors always take precedence
-    /// 2. Blocks between two anchors interpolate linearly by `sequence_index`
-    /// 3. Blocks with chapter data but no manual anchors get `estimated`
-    /// 4. Blocks outside known ranges stay `unaligned` with `audio_start_time = -1`
-    /// 5. Hidden blocks become `alignment_status = omitted`, `is_enabled = false`
+    /// 2. Blocks grouped by chapter get virtual boundary anchors at chapter
+    ///    start/end, enabling proportional interpolation even without manual anchors
+    /// 3. Blocks between two anchors (real or virtual) interpolate linearly by `sequence_index`
+    /// 4. If either bracket is a virtual anchor → status = `estimated`;
+    ///    only pure manual-anchor brackets → status = `interpolated`
+    /// 5. Blocks without chapter data fall back to flat global interpolation
+    /// 6. Hidden blocks become `alignment_status = omitted`, `is_enabled = false`
     func recalculateTimeline() throws {
         let blocks = try blockDAO.blocks(for: audiobookID)
         let anchors = try anchorDAO.anchors(for: audiobookID)
+        let chapters = try chapterDAO.chapters(for: audiobookID)
 
         guard !blocks.isEmpty else { return }
 
-        // Build anchor lookup: blockID → audioTime
+        // Build lookup maps.
         let anchorTimeByBlockID: [String: TimeInterval] = {
             var dict: [String: TimeInterval] = [:]
             for anchor in anchors {
@@ -144,13 +158,147 @@ struct AlignmentService {
             }
             return dict
         }()
+        let blockByID: [String: EPubBlockRecord] = {
+            var dict: [String: EPubBlockRecord] = [:]
+            for block in blocks {
+                dict[block.id] = block
+            }
+            return dict
+        }()
 
-        // Build ordered list of anchored blocks for interpolation ranges.
+        // Group blocks by chapter for chapter-aware interpolation.
+        let blocksByChapter: [Int: [EPubBlockRecord]] = {
+            var dict: [Int: [EPubBlockRecord]] = [:]
+            for block in blocks where block.chapterIndex != nil {
+                dict[block.chapterIndex!, default: []].append(block)
+            }
+            return dict
+        }()
+
+        let sortedChapters = chapters.sorted { $0.sortOrder < $1.sortOrder }
+        var processedBlockIDs = Set<String>()
+
+        // ── Chapter-aware interpolation ──────────────────────────
+        for (chapterIndex, chapterBlocks) in blocksByChapter {
+            guard chapterIndex < sortedChapters.count else { continue }
+            let chapter = sortedChapters[chapterIndex]
+            let sortedBlocks = chapterBlocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
+            guard let firstBlock = sortedBlocks.first,
+                  let lastBlock = sortedBlocks.last else { continue }
+
+            // Build virtual boundary anchors.
+            let virtualStart = AnchorPoint(
+                sequenceIndex: firstBlock.sequenceIndex - 1,
+                audioTime: chapter.startSeconds,
+                isVirtual: true
+            )
+            let virtualEnd = AnchorPoint(
+                sequenceIndex: lastBlock.sequenceIndex + 1,
+                audioTime: chapter.endSeconds,
+                isVirtual: true
+            )
+
+            // Collect manual anchors belonging to blocks in this chapter.
+            let manualAnchorPoints: [AnchorPoint] = anchors.compactMap { anchor in
+                guard let blk = blockByID[anchor.epubBlockID],
+                      blk.chapterIndex == chapterIndex else { return nil }
+                return AnchorPoint(
+                    sequenceIndex: blk.sequenceIndex,
+                    audioTime: anchor.audioTime,
+                    isVirtual: false
+                )
+            }
+
+            let allAnchors = (manualAnchorPoints + [virtualStart, virtualEnd])
+                .sorted { $0.sequenceIndex < $1.sequenceIndex }
+
+            guard allAnchors.count >= 2 else { continue }
+
+            for block in sortedBlocks {
+                if block.isHidden {
+                    try timelineDAO.updateAlignment(
+                        epubBlockID: block.id,
+                        audiobookID: audiobookID,
+                        audioStartTime: -1,
+                        timestampSource: TimestampSource.none.rawValue,
+                        alignmentStatus: AlignmentStatus.omitted.rawValue,
+                        isEnabled: false
+                    )
+                    processedBlockIDs.insert(block.id)
+                    continue
+                }
+
+                if let lockedTime = anchorTimeByBlockID[block.id] {
+                    try timelineDAO.updateAlignment(
+                        epubBlockID: block.id,
+                        audiobookID: audiobookID,
+                        audioStartTime: lockedTime,
+                        timestampSource: TimestampSource.lockedAnchor.rawValue,
+                        alignmentStatus: AlignmentStatus.lockedAnchor.rawValue,
+                        isEnabled: true
+                    )
+                    processedBlockIDs.insert(block.id)
+                    continue
+                }
+
+                // Find bracketing anchors in the merged list.
+                let blockSeq = block.sequenceIndex
+                var prev: AnchorPoint?
+                var next: AnchorPoint?
+                for anchor in allAnchors {
+                    if anchor.sequenceIndex < blockSeq {
+                        prev = anchor
+                    } else if anchor.sequenceIndex > blockSeq, next == nil {
+                        next = anchor
+                    }
+                }
+
+                guard let prev, let next else {
+                    // Outside the bounded range — leave unaligned.
+                    try timelineDAO.updateAlignment(
+                        epubBlockID: block.id,
+                        audiobookID: audiobookID,
+                        audioStartTime: -1,
+                        timestampSource: TimestampSource.none.rawValue,
+                        alignmentStatus: AlignmentStatus.unaligned.rawValue,
+                        isEnabled: true
+                    )
+                    processedBlockIDs.insert(block.id)
+                    continue
+                }
+
+                let prevSeq = Double(prev.sequenceIndex)
+                let nextSeq = Double(next.sequenceIndex)
+                let blockSeqD = Double(blockSeq)
+                let fraction = (blockSeqD - prevSeq) / (nextSeq - prevSeq)
+                let audioStart = prev.audioTime + fraction * (next.audioTime - prev.audioTime)
+
+                // "Virtual boundary taints": if either bracket is virtual → estimated.
+                let hasVirtualBoundary = prev.isVirtual || next.isVirtual
+                let timestampSrc = hasVirtualBoundary
+                    ? TimestampSource.estimated.rawValue
+                    : TimestampSource.interpolated.rawValue
+                let alignStatus = hasVirtualBoundary
+                    ? AlignmentStatus.estimated.rawValue
+                    : AlignmentStatus.interpolated.rawValue
+
+                try timelineDAO.updateAlignment(
+                    epubBlockID: block.id,
+                    audiobookID: audiobookID,
+                    audioStartTime: audioStart,
+                    timestampSource: timestampSrc,
+                    alignmentStatus: alignStatus,
+                    isEnabled: true
+                )
+                processedBlockIDs.insert(block.id)
+            }
+        }
+
+        // ── Legacy flat interpolation (blocks without chapter data) ──
         let anchoredBlocks = blocks.filter { anchorTimeByBlockID[$0.id] != nil }
-            .sorted { ($0.sequenceIndex) < ($1.sequenceIndex) }
+            .sorted { $0.sequenceIndex < $1.sequenceIndex }
 
-        // For each block, determine its alignment.
-        for block in blocks {
+        for block in blocks where !processedBlockIDs.contains(block.id) {
             let audioStart: TimeInterval
             let timestampSrc: String
             let alignStatus: String
@@ -163,40 +311,27 @@ struct AlignmentService {
                 audioStart = lockedTime
                 timestampSrc = TimestampSource.lockedAnchor.rawValue
                 alignStatus = AlignmentStatus.lockedAnchor.rawValue
-            } else if anchoredBlocks.count >= 2 {
-                // Find bracketing anchors by sequence_index.
-                if let (prev, next) = findBracketingAnchors(
-                    block: block, anchoredBlocks: anchoredBlocks, anchorTimes: anchorTimeByBlockID
-                ) {
-                    let prevSeq = Double(prev.sequenceIndex)
-                    let nextSeq = Double(next.sequenceIndex)
-                    let blockSeq = Double(block.sequenceIndex)
-                    let prevTime = anchorTimeByBlockID[prev.id]!
-                    let nextTime = anchorTimeByBlockID[next.id]!
-
-                    let fraction = (blockSeq - prevSeq) / (nextSeq - prevSeq)
-                    audioStart = prevTime + fraction * (nextTime - prevTime)
-                    timestampSrc = TimestampSource.interpolated.rawValue
-                    alignStatus = AlignmentStatus.interpolated.rawValue
-                } else {
-                    // Has anchors but this block is outside the anchored range.
-                    audioStart = -1
-                    timestampSrc = TimestampSource.none.rawValue
-                    alignStatus = AlignmentStatus.unaligned.rawValue
-                }
-            } else if let chapterIndex = block.chapterIndex {
-                // Chapter data available but no anchors — estimate from chapter bounds.
-                // This is a rough estimate: place blocks proportionally within the chapter.
-                audioStart = -1
-                timestampSrc = TimestampSource.estimated.rawValue
-                alignStatus = AlignmentStatus.estimated.rawValue
+            } else if anchoredBlocks.count >= 2,
+                      let (prev, next) = findBracketingAnchors(
+                          block: block,
+                          anchoredBlocks: anchoredBlocks,
+                          anchorTimes: anchorTimeByBlockID
+                      ) {
+                let prevSeq = Double(prev.sequenceIndex)
+                let nextSeq = Double(next.sequenceIndex)
+                let blockSeq = Double(block.sequenceIndex)
+                let prevTime = anchorTimeByBlockID[prev.id]!
+                let nextTime = anchorTimeByBlockID[next.id]!
+                let fraction = (blockSeq - prevSeq) / (nextSeq - prevSeq)
+                audioStart = prevTime + fraction * (nextTime - prevTime)
+                timestampSrc = TimestampSource.interpolated.rawValue
+                alignStatus = AlignmentStatus.interpolated.rawValue
             } else {
                 audioStart = -1
                 timestampSrc = TimestampSource.none.rawValue
                 alignStatus = AlignmentStatus.unaligned.rawValue
             }
 
-            // Update timeline_item row.
             try timelineDAO.updateAlignment(
                 epubBlockID: block.id,
                 audiobookID: audiobookID,
@@ -207,7 +342,7 @@ struct AlignmentService {
             )
         }
 
-        logger.info("Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors")
+        logger.info("Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors, \(chapters.count) chapters")
     }
 
     /// Finds the anchored blocks immediately before and after the given block

@@ -5,23 +5,25 @@ struct BottomToolbarView: View {
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack {
-                loopModeButton
-                Spacer()
-                speedButton
-                Spacer()
-                volumeBoostButton
-                Spacer()
-                sleepTimerMenu
-                Spacer()
-                addBookmarkButton
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 12)
+        HStack {
+            loopModeButton
+            Spacer()
+            speedButton
+            Spacer()
+            volumeBoostButton
+            Spacer()
+            sleepTimerMenu
+            Spacer()
+            addBookmarkButton
         }
-        .background(.bar)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
+        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Loop Mode
