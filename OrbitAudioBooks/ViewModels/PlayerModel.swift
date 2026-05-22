@@ -754,6 +754,20 @@ final class PlayerModel {
             bookmarkStore.configureSQLPersistence(database: db)
         }
 
+        // Auto-import EPUB companion files when present in the folder.
+        if let db = databaseService {
+            let currentChapters = state.chapters
+            let currentDuration = state.durationSeconds
+            Task {
+                await EPUBAutoImportScanner.scanAndImportIfNeeded(
+                    folderURL: url,
+                    databaseService: db,
+                    chapters: currentChapters,
+                    duration: currentDuration
+                )
+            }
+        }
+
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,

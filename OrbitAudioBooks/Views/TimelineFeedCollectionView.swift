@@ -1,6 +1,15 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Timeline Cell Delegate
+
+protocol TimelineCellDelegate: AnyObject {
+    func timelineCellDidTapPlay(_ cell: UICollectionViewCell, item: TimelineItem)
+    func timelineCellDidTapPin(_ cell: UICollectionViewCell, item: TimelineItem)
+    func timelineCellDidTapSearch(_ cell: UICollectionViewCell, item: TimelineItem)
+    func timelineCellDidTapHideToggle(_ cell: UICollectionViewCell, item: TimelineItem)
+}
+
 // MARK: - SwiftUI Wrapper
 
 struct TimelineFeedCollectionView: UIViewRepresentable {
@@ -138,7 +147,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             let group = NSCollectionLayoutGroup.vertical(layoutSize: groupSize, subitems: [item])
 
             let section = NSCollectionLayoutSection(group: group)
-            section.interGroupSpacing = 2
+            section.interGroupSpacing = 8
             section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
 
             // Sticky review header — pinned to top while due Anki card is visible
@@ -320,14 +329,19 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             let isHistory = item.effectivePosition < currentPosition
             switch cell {
             case let c as TextSegmentCell:
+                c.delegate = self
                 c.configure(item, isHistory: isHistory)
             case let c as ChapterMarkerCell:
+                c.delegate = self
                 c.configure(item, isHistory: isHistory)
             case let c as ImageAssetCell:
+                c.delegate = self
                 c.configure(item, isHistory: isHistory)
             case let c as BookmarkCell:
+                c.delegate = self
                 c.configure(item, isHistory: isHistory)
             case let c as AnkiCardCell:
+                c.delegate = self
                 c.configure(item, isHistory: isHistory)
             default:
                 break
@@ -547,6 +561,47 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     }
 }
 
+// MARK: - Coordinator: TimelineCellDelegate
+
+extension TimelineFeedCollectionView.Coordinator: TimelineCellDelegate {
+    func timelineCellDidTapPlay(_ cell: UICollectionViewCell, item: TimelineItem) {
+        parent?.onEPUBBlockAction?(item, .playFromHere)
+    }
+
+    func timelineCellDidTapPin(_ cell: UICollectionViewCell, item: TimelineItem) {
+        parent?.onEPUBBlockAction?(item, .moveToNow)
+    }
+
+    func timelineCellDidTapSearch(_ cell: UICollectionViewCell, item: TimelineItem) {
+        parent?.onEPUBBlockAction?(item, .searchSimilar)
+    }
+
+    func timelineCellDidTapHideToggle(_ cell: UICollectionViewCell, item: TimelineItem) {
+        if item.isEnabled {
+            parent?.onEPUBBlockAction?(item, .hide)
+        } else {
+            parent?.onEPUBBlockAction?(item, .unhide)
+        }
+    }
+}
+
+// MARK: - Base Twitter-Feed Card Styling
+
+private extension UICollectionViewCell {
+    func applyCardStyle() {
+        contentView.backgroundColor = .secondarySystemGroupedBackground
+        contentView.layer.cornerRadius = 12
+        contentView.layer.borderWidth = 1.0 / max(1, contentView.traitCollection.displayScale)
+        contentView.layer.borderColor = UIColor.separator.cgColor
+        contentView.layer.shadowColor = UIColor.black.cgColor
+        contentView.layer.shadowOpacity = 0.06
+        contentView.layer.shadowRadius = 3
+        contentView.layer.shadowOffset = CGSize(width: 0, height: 1)
+        contentView.layer.masksToBounds = false
+        layer.masksToBounds = false
+    }
+}
+
 // MARK: - BookCardCell
 
 final class BookCardCell: UICollectionViewCell {
@@ -653,14 +708,37 @@ final class BookCardCell: UICollectionViewCell {
     }
 }
 
-// MARK: - Cell Types
+// MARK: - Action Footer Builder
+
+private func makeActionButton(systemName: String, action: @escaping () -> Void) -> UIButton {
+    let button = UIButton(type: .system)
+    button.setImage(UIImage(systemName: systemName), for: .normal)
+    button.tintColor = .secondaryLabel
+    button.translatesAutoresizingMaskIntoConstraints = false
+    // Larger hit target via contentEdgeInsets while keeping 18pt icon size.
+    button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+    let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+    button.setPreferredSymbolConfiguration(config, forImageIn: .normal)
+    button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+    return button
+}
+
+// MARK: - TextSegmentCell (Twitter-feed card)
 
 final class TextSegmentCell: UICollectionViewCell {
     static let reuseID = "TextSegmentCell"
 
-    private let label = UILabel()
+    weak var delegate: TimelineCellDelegate?
+    private var item: TimelineItem?
+
+    private let avatarView = UIImageView()
+    private let handleLabel = UILabel()
+    private let dotLabel = UILabel()
     private let timestampLabel = UILabel()
-    private let highlightBar = UIView()
+    private let bodyLabel = UILabel()
+    private let headerStack = UIStackView()
+    private let rightStack = UIStackView()
+    private let actionStack = UIStackView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -671,54 +749,115 @@ final class TextSegmentCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setup() {
-        contentView.backgroundColor = .systemBlue.withAlphaComponent(0.06)
-        contentView.layer.cornerRadius = 8
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        delegate = nil
+        item = nil
+    }
 
-        label.numberOfLines = 0
-        label.font = .preferredFont(forTextStyle: .body)
-        label.translatesAutoresizingMaskIntoConstraints = false
+    private func setup() {
+        applyCardStyle()
+
+        avatarView.image = UIImage(systemName: "text.alignleft")
+        avatarView.tintColor = .systemBlue
+        avatarView.contentMode = .center
+        avatarView.backgroundColor = .systemBlue.withAlphaComponent(0.12)
+        avatarView.layer.cornerRadius = 18
+        avatarView.clipsToBounds = true
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+
+        handleLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        handleLabel.textColor = .label
+        handleLabel.text = "@epub_reader"
+
+        dotLabel.text = "•"
+        dotLabel.font = .preferredFont(forTextStyle: .caption1)
+        dotLabel.textColor = .tertiaryLabel
 
         timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
-        timestampLabel.textColor = .tertiaryLabel
-        timestampLabel.translatesAutoresizingMaskIntoConstraints = false
+        timestampLabel.textColor = .secondaryLabel
 
-        highlightBar.backgroundColor = .systemBlue
-        highlightBar.layer.cornerRadius = 2
-        highlightBar.isHidden = true
-        highlightBar.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.axis = .horizontal
+        headerStack.spacing = 4
+        headerStack.alignment = .firstBaseline
+        headerStack.addArrangedSubview(handleLabel)
+        headerStack.addArrangedSubview(dotLabel)
+        headerStack.addArrangedSubview(timestampLabel)
 
-        contentView.addSubview(label)
-        contentView.addSubview(timestampLabel)
-        contentView.addSubview(highlightBar)
+        bodyLabel.font = .preferredFont(forTextStyle: .body)
+        bodyLabel.textColor = .label
+        bodyLabel.numberOfLines = 0
+
+        actionStack.axis = .horizontal
+        actionStack.spacing = 2
+        actionStack.distribution = .fillEqually
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+
+        rightStack.axis = .vertical
+        rightStack.spacing = 4
+        rightStack.alignment = .leading
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(headerStack)
+        rightStack.addArrangedSubview(bodyLabel)
+        rightStack.addArrangedSubview(actionStack)
+
+        contentView.addSubview(avatarView)
+        contentView.addSubview(rightStack)
 
         NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
 
-            timestampLabel.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 4),
-            timestampLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            timestampLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-
-            highlightBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 0),
-            highlightBar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 0),
-            highlightBar.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 0),
-            highlightBar.widthAnchor.constraint(equalToConstant: 3),
+            rightStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            rightStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
+            rightStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            rightStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
         ])
     }
 
     func configure(_ item: TimelineItem, isHistory: Bool = false) {
-        label.text = item.textPayload ?? item.title
+        self.item = item
+        bodyLabel.text = item.textPayload ?? item.title
         timestampLabel.text = formatHMS(item.audioStartTime)
         contentView.alpha = isHistory ? 0.65 : 1.0
+
+        rebuildActions(for: item)
     }
 
     func setActive(_ active: Bool) {
-        highlightBar.isHidden = !active
+        // Active state reflected via background tint shift.
         contentView.backgroundColor = active
-            ? .systemBlue.withAlphaComponent(0.12)
-            : .systemBlue.withAlphaComponent(0.06)
+            ? UIColor.systemBlue.withAlphaComponent(0.08)
+            : .secondarySystemGroupedBackground
+    }
+
+    private func rebuildActions(for item: TimelineItem) {
+        actionStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let playBtn = makeActionButton(systemName: "play.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPlay(self, item: item)
+        }
+        let pinBtn = makeActionButton(systemName: "pin.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPin(self, item: item)
+        }
+        let searchBtn = makeActionButton(systemName: "magnifyingglass") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapSearch(self, item: item)
+        }
+        let eyeIcon = item.isEnabled ? "eye.slash" : "eye"
+        let hideBtn = makeActionButton(systemName: eyeIcon) { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapHideToggle(self, item: item)
+        }
+
+        actionStack.addArrangedSubview(playBtn)
+        actionStack.addArrangedSubview(pinBtn)
+        actionStack.addArrangedSubview(searchBtn)
+        actionStack.addArrangedSubview(hideBtn)
     }
 
     private func formatHMS(_ interval: TimeInterval) -> String {
@@ -733,12 +872,23 @@ final class TextSegmentCell: UICollectionViewCell {
     }
 }
 
+// MARK: - ChapterMarkerCell (Twitter-feed card)
+
 final class ChapterMarkerCell: UICollectionViewCell {
     static let reuseID = "ChapterMarkerCell"
 
+    weak var delegate: TimelineCellDelegate?
+    private var item: TimelineItem?
+
+    private let avatarView = UIImageView()
+    private let handleLabel = UILabel()
+    private let dotLabel = UILabel()
+    private let timestampLabel = UILabel()
     private let titleLabel = UILabel()
     private let durationLabel = UILabel()
-    private let divider = UIView()
+    private let headerStack = UIStackView()
+    private let rightStack = UIStackView()
+    private let actionStack = UIStackView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -749,48 +899,118 @@ final class ChapterMarkerCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        delegate = nil
+        item = nil
+    }
+
     private func setup() {
-        contentView.backgroundColor = .systemGray6
+        applyCardStyle()
+
+        avatarView.image = UIImage(systemName: "number.circle.fill")
+        avatarView.tintColor = .systemGray
+        avatarView.contentMode = .center
+        avatarView.backgroundColor = .systemGray.withAlphaComponent(0.12)
+        avatarView.layer.cornerRadius = 18
+        avatarView.clipsToBounds = true
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+
+        handleLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        handleLabel.textColor = .label
+        handleLabel.text = "@chapter_store"
+
+        dotLabel.text = "•"
+        dotLabel.font = .preferredFont(forTextStyle: .caption1)
+        dotLabel.textColor = .tertiaryLabel
+
+        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
+        timestampLabel.textColor = .secondaryLabel
+
+        headerStack.axis = .horizontal
+        headerStack.spacing = 4
+        headerStack.alignment = .firstBaseline
+        headerStack.addArrangedSubview(handleLabel)
+        headerStack.addArrangedSubview(dotLabel)
+        headerStack.addArrangedSubview(timestampLabel)
 
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.textColor = .label
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.numberOfLines = 0
 
         durationLabel.font = monospacedDigitFont(forTextStyle: .caption1)
         durationLabel.textColor = .secondaryLabel
-        durationLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        divider.backgroundColor = .separator
-        divider.translatesAutoresizingMaskIntoConstraints = false
+        actionStack.axis = .horizontal
+        actionStack.spacing = 2
+        actionStack.distribution = .fillEqually
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
 
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(durationLabel)
-        contentView.addSubview(divider)
+        rightStack.axis = .vertical
+        rightStack.spacing = 4
+        rightStack.alignment = .leading
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(headerStack)
+        rightStack.addArrangedSubview(titleLabel)
+        rightStack.addArrangedSubview(durationLabel)
+        rightStack.addArrangedSubview(actionStack)
+
+        contentView.addSubview(avatarView)
+        contentView.addSubview(rightStack)
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
-            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
 
-            durationLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            durationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            durationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
-
-            divider.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            divider.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1.0 / contentView.traitCollection.displayScale),
+            rightStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            rightStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
+            rightStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            rightStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
         ])
     }
 
     func configure(_ item: TimelineItem, isHistory: Bool = false) {
+        self.item = item
         titleLabel.text = item.title
         if let subtitle = item.subtitle {
             durationLabel.text = subtitle
         } else {
             durationLabel.text = formatHMS(item.audioStartTime)
         }
+        durationLabel.isHidden = false
+        timestampLabel.text = formatHMS(item.audioStartTime)
         contentView.alpha = isHistory ? 0.65 : 1.0
+
+        rebuildActions(for: item)
+    }
+
+    private func rebuildActions(for item: TimelineItem) {
+        actionStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let playBtn = makeActionButton(systemName: "play.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPlay(self, item: item)
+        }
+        let pinBtn = makeActionButton(systemName: "pin.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPin(self, item: item)
+        }
+        let searchBtn = makeActionButton(systemName: "magnifyingglass") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapSearch(self, item: item)
+        }
+        let eyeIcon = item.isEnabled ? "eye.slash" : "eye"
+        let hideBtn = makeActionButton(systemName: eyeIcon) { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapHideToggle(self, item: item)
+        }
+
+        actionStack.addArrangedSubview(playBtn)
+        actionStack.addArrangedSubview(pinBtn)
+        actionStack.addArrangedSubview(searchBtn)
+        actionStack.addArrangedSubview(hideBtn)
     }
 
     private func formatHMS(_ interval: TimeInterval) -> String {
@@ -804,11 +1024,23 @@ final class ChapterMarkerCell: UICollectionViewCell {
     }
 }
 
-final class ImageAssetCell: UICollectionViewCell {
-    static let reuseID = "ImageAssetCell"
+// MARK: - BookmarkCell (Twitter-feed card)
 
-    private let assetImageView = UIImageView()
-    private let captionLabel = UILabel()
+final class BookmarkCell: UICollectionViewCell {
+    static let reuseID = "BookmarkCell"
+
+    weak var delegate: TimelineCellDelegate?
+    private var item: TimelineItem?
+
+    private let avatarView = UIImageView()
+    private let handleLabel = UILabel()
+    private let dotLabel = UILabel()
+    private let timestampLabel = UILabel()
+    private let titleLabel = UILabel()
+    private let noteLabel = UILabel()
+    private let headerStack = UIStackView()
+    private let rightStack = UIStackView()
+    private let actionStack = UIStackView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -819,9 +1051,339 @@ final class ImageAssetCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        delegate = nil
+        item = nil
+    }
+
     private func setup() {
-        contentView.backgroundColor = .systemTeal.withAlphaComponent(0.06)
-        contentView.layer.cornerRadius = 12
+        applyCardStyle()
+
+        avatarView.image = UIImage(systemName: "bookmark.fill")
+        avatarView.tintColor = .systemOrange
+        avatarView.contentMode = .center
+        avatarView.backgroundColor = .systemOrange.withAlphaComponent(0.12)
+        avatarView.layer.cornerRadius = 18
+        avatarView.clipsToBounds = true
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+
+        handleLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        handleLabel.textColor = .label
+        handleLabel.text = "@bookmark_store"
+
+        dotLabel.text = "•"
+        dotLabel.font = .preferredFont(forTextStyle: .caption1)
+        dotLabel.textColor = .tertiaryLabel
+
+        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
+        timestampLabel.textColor = .secondaryLabel
+
+        headerStack.axis = .horizontal
+        headerStack.spacing = 4
+        headerStack.alignment = .firstBaseline
+        headerStack.addArrangedSubview(handleLabel)
+        headerStack.addArrangedSubview(dotLabel)
+        headerStack.addArrangedSubview(timestampLabel)
+
+        titleLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 0
+
+        noteLabel.font = .preferredFont(forTextStyle: .caption1)
+        noteLabel.textColor = .secondaryLabel
+        noteLabel.numberOfLines = 2
+
+        actionStack.axis = .horizontal
+        actionStack.spacing = 2
+        actionStack.distribution = .fillEqually
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+
+        rightStack.axis = .vertical
+        rightStack.spacing = 4
+        rightStack.alignment = .leading
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(headerStack)
+        rightStack.addArrangedSubview(titleLabel)
+        rightStack.addArrangedSubview(noteLabel)
+        rightStack.addArrangedSubview(actionStack)
+
+        contentView.addSubview(avatarView)
+        contentView.addSubview(rightStack)
+
+        NSLayoutConstraint.activate([
+            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
+
+            rightStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            rightStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
+            rightStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            rightStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+        ])
+    }
+
+    func configure(_ item: TimelineItem, isHistory: Bool = false) {
+        self.item = item
+        titleLabel.text = item.title
+        noteLabel.text = item.subtitle
+        noteLabel.isHidden = item.subtitle?.isEmpty ?? true
+        timestampLabel.text = formatHMS(item.audioStartTime)
+        contentView.alpha = isHistory ? 0.65 : 1.0
+
+        rebuildActions(for: item)
+    }
+
+    private func rebuildActions(for item: TimelineItem) {
+        actionStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let playBtn = makeActionButton(systemName: "play.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPlay(self, item: item)
+        }
+        let pinBtn = makeActionButton(systemName: "pin.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPin(self, item: item)
+        }
+        let searchBtn = makeActionButton(systemName: "magnifyingglass") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapSearch(self, item: item)
+        }
+        let eyeIcon = item.isEnabled ? "eye.slash" : "eye"
+        let hideBtn = makeActionButton(systemName: eyeIcon) { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapHideToggle(self, item: item)
+        }
+
+        actionStack.addArrangedSubview(playBtn)
+        actionStack.addArrangedSubview(pinBtn)
+        actionStack.addArrangedSubview(searchBtn)
+        actionStack.addArrangedSubview(hideBtn)
+    }
+
+    private func formatHMS(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval.rounded(.down)))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - AnkiCardCell (Twitter-feed card)
+
+final class AnkiCardCell: UICollectionViewCell {
+    static let reuseID = "AnkiCardCell"
+
+    weak var delegate: TimelineCellDelegate?
+    private var item: TimelineItem?
+
+    private let avatarView = UIImageView()
+    private let handleLabel = UILabel()
+    private let dotLabel = UILabel()
+    private let timestampLabel = UILabel()
+    private let frontLabel = UILabel()
+    private let backLabel = UILabel()
+    private let headerStack = UIStackView()
+    private let rightStack = UIStackView()
+    private let actionStack = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        delegate = nil
+        item = nil
+    }
+
+    private func setup() {
+        applyCardStyle()
+
+        avatarView.image = UIImage(systemName: "brain.headspans")
+        avatarView.tintColor = .systemPurple
+        avatarView.contentMode = .center
+        avatarView.backgroundColor = .systemPurple.withAlphaComponent(0.12)
+        avatarView.layer.cornerRadius = 18
+        avatarView.clipsToBounds = true
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+
+        handleLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        handleLabel.textColor = .label
+        handleLabel.text = "@anki_deck"
+
+        dotLabel.text = "•"
+        dotLabel.font = .preferredFont(forTextStyle: .caption1)
+        dotLabel.textColor = .tertiaryLabel
+
+        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
+        timestampLabel.textColor = .secondaryLabel
+
+        headerStack.axis = .horizontal
+        headerStack.spacing = 4
+        headerStack.alignment = .firstBaseline
+        headerStack.addArrangedSubview(handleLabel)
+        headerStack.addArrangedSubview(dotLabel)
+        headerStack.addArrangedSubview(timestampLabel)
+
+        frontLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        frontLabel.textColor = .label
+        frontLabel.numberOfLines = 0
+
+        backLabel.font = .preferredFont(forTextStyle: .caption1)
+        backLabel.textColor = .secondaryLabel
+        backLabel.numberOfLines = 2
+
+        actionStack.axis = .horizontal
+        actionStack.spacing = 2
+        actionStack.distribution = .fillEqually
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+
+        rightStack.axis = .vertical
+        rightStack.spacing = 4
+        rightStack.alignment = .leading
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(headerStack)
+        rightStack.addArrangedSubview(frontLabel)
+        rightStack.addArrangedSubview(backLabel)
+        rightStack.addArrangedSubview(actionStack)
+
+        contentView.addSubview(avatarView)
+        contentView.addSubview(rightStack)
+
+        NSLayoutConstraint.activate([
+            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
+
+            rightStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            rightStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
+            rightStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            rightStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+        ])
+    }
+
+    func configure(_ item: TimelineItem, isHistory: Bool = false) {
+        self.item = item
+        frontLabel.text = item.title
+        backLabel.text = item.subtitle
+        backLabel.isHidden = item.subtitle?.isEmpty ?? true
+        timestampLabel.text = formatHMS(item.audioStartTime)
+        contentView.alpha = isHistory ? 0.65 : 1.0
+
+        rebuildActions(for: item)
+    }
+
+    private func rebuildActions(for item: TimelineItem) {
+        actionStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let playBtn = makeActionButton(systemName: "play.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPlay(self, item: item)
+        }
+        let pinBtn = makeActionButton(systemName: "pin.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPin(self, item: item)
+        }
+        let searchBtn = makeActionButton(systemName: "magnifyingglass") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapSearch(self, item: item)
+        }
+        let eyeIcon = item.isEnabled ? "eye.slash" : "eye"
+        let hideBtn = makeActionButton(systemName: eyeIcon) { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapHideToggle(self, item: item)
+        }
+
+        actionStack.addArrangedSubview(playBtn)
+        actionStack.addArrangedSubview(pinBtn)
+        actionStack.addArrangedSubview(searchBtn)
+        actionStack.addArrangedSubview(hideBtn)
+    }
+
+    private func formatHMS(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval.rounded(.down)))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - ImageAssetCell (Twitter-feed card)
+
+final class ImageAssetCell: UICollectionViewCell {
+    static let reuseID = "ImageAssetCell"
+
+    weak var delegate: TimelineCellDelegate?
+    private var item: TimelineItem?
+
+    private let avatarView = UIImageView()
+    private let handleLabel = UILabel()
+    private let dotLabel = UILabel()
+    private let timestampLabel = UILabel()
+    private let assetImageView = UIImageView()
+    private let captionLabel = UILabel()
+    private let headerStack = UIStackView()
+    private let rightStack = UIStackView()
+    private let actionStack = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        delegate = nil
+        item = nil
+        assetImageView.image = nil
+    }
+
+    private func setup() {
+        applyCardStyle()
+
+        avatarView.image = UIImage(systemName: "photo")
+        avatarView.tintColor = .systemTeal
+        avatarView.contentMode = .center
+        avatarView.backgroundColor = .systemTeal.withAlphaComponent(0.12)
+        avatarView.layer.cornerRadius = 18
+        avatarView.clipsToBounds = true
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+
+        handleLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
+        handleLabel.textColor = .label
+        handleLabel.text = "@photo_store"
+
+        dotLabel.text = "•"
+        dotLabel.font = .preferredFont(forTextStyle: .caption1)
+        dotLabel.textColor = .tertiaryLabel
+
+        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
+        timestampLabel.textColor = .secondaryLabel
+
+        headerStack.axis = .horizontal
+        headerStack.spacing = 4
+        headerStack.alignment = .firstBaseline
+        headerStack.addArrangedSubview(handleLabel)
+        headerStack.addArrangedSubview(dotLabel)
+        headerStack.addArrangedSubview(timestampLabel)
 
         assetImageView.contentMode = .scaleAspectFit
         assetImageView.clipsToBounds = true
@@ -830,24 +1392,43 @@ final class ImageAssetCell: UICollectionViewCell {
 
         captionLabel.font = .preferredFont(forTextStyle: .caption1)
         captionLabel.textColor = .secondaryLabel
-        captionLabel.translatesAutoresizingMaskIntoConstraints = false
+        captionLabel.numberOfLines = 0
 
-        contentView.addSubview(assetImageView)
-        contentView.addSubview(captionLabel)
+        actionStack.axis = .horizontal
+        actionStack.spacing = 2
+        actionStack.distribution = .fillEqually
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+
+        rightStack.axis = .vertical
+        rightStack.spacing = 4
+        rightStack.alignment = .leading
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        rightStack.addArrangedSubview(headerStack)
+        rightStack.addArrangedSubview(assetImageView)
+        rightStack.addArrangedSubview(captionLabel)
+        rightStack.addArrangedSubview(actionStack)
+
+        contentView.addSubview(avatarView)
+        contentView.addSubview(rightStack)
 
         NSLayoutConstraint.activate([
-            assetImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            assetImageView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            assetImageView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.8),
-            assetImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 300),
+            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
 
-            captionLabel.topAnchor.constraint(equalTo: assetImageView.bottomAnchor, constant: 6),
-            captionLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            captionLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
+            rightStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            rightStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
+            rightStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            rightStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+
+            assetImageView.widthAnchor.constraint(lessThanOrEqualTo: rightStack.widthAnchor, multiplier: 0.8),
+            assetImageView.heightAnchor.constraint(lessThanOrEqualToConstant: 200),
         ])
     }
 
     func configure(_ item: TimelineItem, isHistory: Bool = false) {
+        self.item = item
         captionLabel.text = item.title
         if let path = item.imagePath,
            let image = UIImage(contentsOfFile: path) {
@@ -856,78 +1437,37 @@ final class ImageAssetCell: UICollectionViewCell {
         } else {
             assetImageView.isHidden = true
         }
-        contentView.alpha = isHistory ? 0.65 : 1.0
-    }
-}
-
-final class BookmarkCell: UICollectionViewCell {
-    static let reuseID = "BookmarkCell"
-
-    private let bookmarkIcon = UIImageView()
-    private let titleLabel = UILabel()
-    private let noteLabel = UILabel()
-    private let timestampLabel = UILabel()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setup()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setup() {
-        contentView.backgroundColor = .systemOrange.withAlphaComponent(0.08)
-        contentView.layer.cornerRadius = 8
-
-        bookmarkIcon.image = UIImage(systemName: "bookmark.fill")
-        bookmarkIcon.tintColor = .systemOrange
-        bookmarkIcon.translatesAutoresizingMaskIntoConstraints = false
-
-        titleLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        noteLabel.font = .preferredFont(forTextStyle: .caption1)
-        noteLabel.textColor = .secondaryLabel
-        noteLabel.numberOfLines = 2
-        noteLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
-        timestampLabel.textColor = .tertiaryLabel
-        timestampLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(bookmarkIcon)
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(noteLabel)
-        contentView.addSubview(timestampLabel)
-
-        NSLayoutConstraint.activate([
-            bookmarkIcon.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            bookmarkIcon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            bookmarkIcon.widthAnchor.constraint(equalToConstant: 16),
-            bookmarkIcon.heightAnchor.constraint(equalToConstant: 16),
-
-            titleLabel.centerYAnchor.constraint(equalTo: bookmarkIcon.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: bookmarkIcon.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-
-            noteLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            noteLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            noteLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-
-            timestampLabel.topAnchor.constraint(equalTo: noteLabel.bottomAnchor, constant: 4),
-            timestampLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            timestampLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-        ])
-    }
-
-    func configure(_ item: TimelineItem, isHistory: Bool = false) {
-        titleLabel.text = item.title
-        noteLabel.text = item.subtitle
-        noteLabel.isHidden = item.subtitle?.isEmpty ?? true
         timestampLabel.text = formatHMS(item.audioStartTime)
         contentView.alpha = isHistory ? 0.65 : 1.0
+
+        rebuildActions(for: item)
+    }
+
+    private func rebuildActions(for item: TimelineItem) {
+        actionStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let playBtn = makeActionButton(systemName: "play.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPlay(self, item: item)
+        }
+        let pinBtn = makeActionButton(systemName: "pin.fill") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapPin(self, item: item)
+        }
+        let searchBtn = makeActionButton(systemName: "magnifyingglass") { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapSearch(self, item: item)
+        }
+        let eyeIcon = item.isEnabled ? "eye.slash" : "eye"
+        let hideBtn = makeActionButton(systemName: eyeIcon) { [weak self] in
+            guard let self, let item = self.item else { return }
+            self.delegate?.timelineCellDidTapHideToggle(self, item: item)
+        }
+
+        actionStack.addArrangedSubview(playBtn)
+        actionStack.addArrangedSubview(pinBtn)
+        actionStack.addArrangedSubview(searchBtn)
+        actionStack.addArrangedSubview(hideBtn)
     }
 
     private func formatHMS(_ interval: TimeInterval) -> String {
@@ -935,92 +1475,14 @@ final class BookmarkCell: UICollectionViewCell {
         let h = total / 3600
         let m = (total % 3600) / 60
         let s = total % 60
-        return h > 0
-            ? String(format: "%d:%02d:%02d", h, m, s)
-            : String(format: "%d:%02d", m, s)
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
     }
 }
 
-final class AnkiCardCell: UICollectionViewCell {
-    static let reuseID = "AnkiCardCell"
-
-    private let cardIcon = UIImageView()
-    private let frontLabel = UILabel()
-    private let backLabel = UILabel()
-    private let timestampLabel = UILabel()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setup()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setup() {
-        contentView.backgroundColor = .systemPurple.withAlphaComponent(0.08)
-        contentView.layer.cornerRadius = 8
-
-        cardIcon.image = UIImage(systemName: "rectangle.fill.on.rectangle.fill")
-        cardIcon.tintColor = .systemPurple
-        cardIcon.translatesAutoresizingMaskIntoConstraints = false
-
-        frontLabel.font = .preferredFont(forTextStyle: .subheadline).bold()
-        frontLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        backLabel.font = .preferredFont(forTextStyle: .caption1)
-        backLabel.textColor = .secondaryLabel
-        backLabel.numberOfLines = 2
-        backLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        timestampLabel.font = monospacedDigitFont(forTextStyle: .caption1)
-        timestampLabel.textColor = .tertiaryLabel
-        timestampLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(cardIcon)
-        contentView.addSubview(frontLabel)
-        contentView.addSubview(backLabel)
-        contentView.addSubview(timestampLabel)
-
-        NSLayoutConstraint.activate([
-            cardIcon.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            cardIcon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            cardIcon.widthAnchor.constraint(equalToConstant: 16),
-            cardIcon.heightAnchor.constraint(equalToConstant: 16),
-
-            frontLabel.centerYAnchor.constraint(equalTo: cardIcon.centerYAnchor),
-            frontLabel.leadingAnchor.constraint(equalTo: cardIcon.trailingAnchor, constant: 8),
-            frontLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-
-            backLabel.topAnchor.constraint(equalTo: frontLabel.bottomAnchor, constant: 2),
-            backLabel.leadingAnchor.constraint(equalTo: frontLabel.leadingAnchor),
-            backLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-
-            timestampLabel.topAnchor.constraint(equalTo: backLabel.bottomAnchor, constant: 4),
-            timestampLabel.leadingAnchor.constraint(equalTo: frontLabel.leadingAnchor),
-            timestampLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-        ])
-    }
-
-    func configure(_ item: TimelineItem, isHistory: Bool = false) {
-        frontLabel.text = item.title
-        backLabel.text = item.subtitle
-        backLabel.isHidden = item.subtitle?.isEmpty ?? true
-        timestampLabel.text = formatHMS(item.audioStartTime)
-        contentView.alpha = isHistory ? 0.65 : 1.0
-    }
-
-    private func formatHMS(_ interval: TimeInterval) -> String {
-        let total = max(0, Int(interval.rounded(.down)))
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        return h > 0
-            ? String(format: "%d:%02d:%02d", h, m, s)
-            : String(format: "%d:%02d", m, s)
-    }
-}
+// MARK: - NowLineCell
 
 final class NowLineCell: UICollectionViewCell {
     static let reuseID = "NowLineCell"
@@ -1078,6 +1540,8 @@ final class NowLineCell: UICollectionViewCell {
         ])
     }
 }
+
+// MARK: - ElasticScrubberCell
 
 final class ElasticScrubberCell: UICollectionViewCell {
     static let reuseID = "ElasticScrubberCell"
