@@ -35,6 +35,7 @@ struct PlaylistView: View {
     @Environment(SettingsManager.self) private var settings
     @Environment(\.dismiss) private var dismiss
     @State private var editingBookmarkID: UUID? = nil
+    @State private var isEditing: Bool = false
 
     /// When true, renders only the list content without a NavigationStack or toolbar chrome.
     /// Used when PlaylistView is embedded inside another container view (e.g. TimelineTab).
@@ -61,16 +62,30 @@ struct PlaylistView: View {
     var body: some View {
         if isEmbedded {
             playlistContent
+                .environment(\.editMode, .constant(isEditing ? .active : .inactive))
         } else {
             NavigationStack {
                 playlistContent
                     .navigationTitle("Playlist")
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("Reset") { model.resetPlaylist() }
+                            if isEditing {
+                                Button("Done") {
+                                    withAnimation { isEditing = false }
+                                }
+                            } else {
+                                Button("Reset") { model.resetPlaylist() }
+                            }
                         }
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { dismiss() }
+                            if isEditing {
+                                EmptyView()
+                            } else {
+                                Button("Edit") {
+                                    withAnimation { isEditing = true }
+                                }
+                                Button("Done") { dismiss() }
+                            }
                         }
                     }
                     .sheet(item: Binding(
@@ -80,6 +95,7 @@ struct PlaylistView: View {
                         EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
                     }
             }
+            .environment(\.editMode, .constant(isEditing ? .active : .inactive))
             .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
         }
     }
@@ -130,6 +146,12 @@ struct PlaylistView: View {
         }
     }
 
+    /// Bookmarks displayed during edit mode, sorted by timestamp.
+    private var editingBookmarkRows: [Bookmark] {
+        guard showBookmarks else { return [] }
+        return model.bookmarks.sorted { $0.timestamp < $1.timestamp }
+    }
+
     private var playlistContent: some View {
         VStack(spacing: 0) {
             // Horizontal Filter Chips Row
@@ -143,7 +165,16 @@ struct PlaylistView: View {
                     Text("Bookmarks")
                 }
                 .toggleStyle(.button)
-                
+
+                if isEmbedded && (model.chapters.count >= 2 || model.tracks.count > 1) {
+                    Button(isEditing ? "Done" : "Reorder") {
+                        withAnimation { isEditing.toggle() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .customFont(.caption, weight: .semibold, appFont: model.resolvedAppFont)
+                }
+
                 Spacer()
                 
                 if hasEPUB || hasTranscript {
@@ -170,7 +201,16 @@ struct PlaylistView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
 
-            if playlistRows.isEmpty {
+            if isEditing {
+                List {
+                    editingContent
+
+                    Color.clear
+                        .frame(height: 95)
+                        .listRowBackground(Color.clear)
+                }
+                .listStyle(.plain)
+            } else if playlistRows.isEmpty {
                 ContentUnavailableView(
                     "No Items",
                     systemImage: "list.bullet.rectangle",
@@ -188,7 +228,7 @@ struct PlaylistView: View {
                             bookmarkRow(bm)
                         }
                     }
-                    
+
                     // Empty space at bottom to ensure items scroll past the floating BottomToolbarView
                     Color.clear
                         .frame(height: 95)
@@ -236,29 +276,43 @@ struct PlaylistView: View {
 
     @ViewBuilder
     private func chapterRow(index: Int, chapter: Chapter) -> some View {
-        Button {
-            model.seek(toSeconds: chapter.startSeconds + 0.05)
-            onRowTapped?(chapter.startSeconds)
-        } label: {
-            HStack {
-                Image(systemName: "list.bullet")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(chapter.title ?? String(localized: "Chapter \(chapter.index + 1)"))
-                        .foregroundStyle(.primary)
-                    Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
-                        .customFont(.caption, appFont: model.resolvedAppFont)
+        HStack(spacing: 0) {
+            Button {
+                model.seek(toSeconds: chapter.startSeconds + 0.05)
+                onRowTapped?(chapter.startSeconds)
+            } label: {
+                HStack {
+                    Image(systemName: "list.bullet")
                         .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if model.currentChapterIndex == index {
-                    Image(systemName: "play.circle.fill")
-                        .foregroundStyle(.tint)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(chapter.title ?? String(localized: "Chapter \(chapter.index + 1)"))
+                            .foregroundStyle(.primary)
+                        Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
+                            .customFont(.caption, appFont: model.resolvedAppFont)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if model.currentChapterIndex == index {
+                        Image(systemName: "play.circle.fill")
+                            .foregroundStyle(.tint)
+                    }
                 }
             }
-            .foregroundStyle(chapter.isEnabled ? .primary : .tertiary)
+            .buttonStyle(.plain)
+
+            Button {
+                model.toggleChapterEnabled(at: index)
+            } label: {
+                Image(systemName: chapter.isEnabled ? "eye" : "eye.slash")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(chapter.isEnabled ? String(localized: "Disable chapter") : String(localized: "Enable chapter"))
         }
+        .foregroundStyle(chapter.isEnabled ? .primary : .tertiary)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 model.toggleChapterEnabled(at: index)
@@ -271,23 +325,37 @@ struct PlaylistView: View {
 
     @ViewBuilder
     private func trackRow(index: Int, track: Track) -> some View {
-        Button {
-            model.skipToTrack(index)
-            onRowTapped?(0)
-        } label: {
-            HStack {
-                Image(systemName: "music.note")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22)
-                Text(track.title)
-                Spacer()
-                if model.currentIndex == index {
-                    Image(systemName: "play.circle.fill")
-                        .foregroundStyle(.tint)
+        HStack(spacing: 0) {
+            Button {
+                model.skipToTrack(index)
+                onRowTapped?(0)
+            } label: {
+                HStack {
+                    Image(systemName: "music.note")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22)
+                    Text(track.title)
+                    Spacer()
+                    if model.currentIndex == index {
+                        Image(systemName: "play.circle.fill")
+                            .foregroundStyle(.tint)
+                    }
                 }
             }
-            .foregroundStyle(track.isEnabled ? .primary : .tertiary)
+            .buttonStyle(.plain)
+
+            Button {
+                model.toggleTrackEnabled(at: index)
+            } label: {
+                Image(systemName: track.isEnabled ? "eye" : "eye.slash")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(track.isEnabled ? String(localized: "Disable track") : String(localized: "Enable track"))
         }
+        .foregroundStyle(track.isEnabled ? .primary : .tertiary)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 model.toggleTrackEnabled(at: index)
@@ -347,5 +415,95 @@ struct PlaylistView: View {
             }
             .tint(.blue)
         }
+    }
+
+    // MARK: - Edit Mode Content
+
+    @ViewBuilder
+    private var editingContent: some View {
+        if model.chapters.count >= 2 {
+            if showChapters {
+                Section("Chapters") {
+                    ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
+                        editingChapterRow(index: index, chapter: chapter)
+                    }
+                    .onMove { source, destination in
+                        model.moveChapters(from: source, to: destination)
+                    }
+                }
+            }
+        } else if showChapters {
+            Section("Tracks") {
+                ForEach(Array(model.tracks.enumerated()), id: \.element.id) { index, track in
+                    editingTrackRow(index: index, track: track)
+                }
+                .onMove { source, destination in
+                    model.moveTracks(from: source, to: destination)
+                }
+            }
+        }
+
+        if showBookmarks {
+            ForEach(editingBookmarkRows, id: \.id) { bm in
+                bookmarkRow(bm)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func editingChapterRow(index: Int, chapter: Chapter) -> some View {
+        HStack {
+            Image(systemName: "list.bullet")
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(chapter.title ?? String(localized: "Chapter \(chapter.index + 1)"))
+                Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
+                    .customFont(.caption, appFont: model.resolvedAppFont)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if model.currentChapterIndex == index {
+                Image(systemName: "play.circle.fill")
+                    .foregroundStyle(.tint)
+            }
+            Button {
+                model.toggleChapterEnabled(at: index)
+            } label: {
+                Image(systemName: chapter.isEnabled ? "eye" : "eye.slash")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(chapter.isEnabled ? String(localized: "Disable chapter") : String(localized: "Enable chapter"))
+        }
+        .foregroundStyle(chapter.isEnabled ? .primary : .tertiary)
+    }
+
+    @ViewBuilder
+    private func editingTrackRow(index: Int, track: Track) -> some View {
+        HStack {
+            Image(systemName: "music.note")
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            Text(track.title)
+            Spacer()
+            if model.currentIndex == index {
+                Image(systemName: "play.circle.fill")
+                    .foregroundStyle(.tint)
+            }
+            Button {
+                model.toggleTrackEnabled(at: index)
+            } label: {
+                Image(systemName: track.isEnabled ? "eye" : "eye.slash")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(track.isEnabled ? String(localized: "Disable track") : String(localized: "Enable track"))
+        }
+        .foregroundStyle(track.isEnabled ? .primary : .tertiary)
     }
 }
