@@ -5,68 +5,86 @@ struct NowPlayingTab: View {
     @Environment(SettingsManager.self) private var settings
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ZStack {
-                    VStack(alignment: .leading, spacing: 16) {
-                        AlbumArtHeroView(
-                            artwork: model.currentDisplayArtwork ?? model.thumbnailImage,
-                            artworkVersion: model.currentDisplayArtworkVersion,
-                            caption: "",
-                            mainText: model.chapters.count >= 2
-                                ? (model.currentSubtitle.isEmpty
-                                    ? String(localized: "Chapter \((model.currentChapterIndex ?? 0) + 1)")
-                                    : model.currentSubtitle)
-                                : model.currentTitle,
-                            appFont: model.resolvedAppFont
-                        )
+        GeometryReader { proxy in
+            let artworkSize = NowPlayingLayout.artworkSize(for: proxy.size)
 
-                        Spacer()
+            ZStack {
+                VStack(spacing: 0) {
+                    playerContent(artworkSize: artworkSize, contentWidth: proxy.size.width)
 
-                        if model.chapters.count >= 2 {
-                            Text(chapterProgressText())
-                                .customFont(.footnote, appFont: model.resolvedAppFont)
-                                .foregroundStyle(.secondary)
-                        } else if !model.tracks.isEmpty {
-                            Text(trackProgressText())
-                                .customFont(.footnote, appFont: model.resolvedAppFont)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        PlayerScrubberView()
-
-                        TransportControlsView()
-                    }
-                    .grayscale(model.isPlayingVoiceMemo ? 1.0 : 0.0)
-                    .opacity(model.isPlayingVoiceMemo ? 0.5 : 1.0)
-                    .allowsHitTesting(!model.isPlayingVoiceMemo)
-
-                    if model.isPlayingVoiceMemo {
-                        VoiceMemoOverlayView()
-                    }
-
-                    if let card = model.activeInlineCard {
-                        FlashcardOverlayView(
-                            card: card,
-                            onGrade: { grade in model.gradeInlineFlashcard(grade) },
-                            onDismiss: { model.dismissInlineFlashcard() }
-                        )
-                        .transition(.opacity)
-                    }
+                    Spacer(minLength: 0)
                 }
-                .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
-                .animation(.easeInOut(duration: 0.2), value: model.isShowingInlineFlashcard)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+                .padding(.top, NowPlayingLayout.topContentInset)
+                .padding(.bottom, NowPlayingLayout.bottomToolbarClearance)
+                .grayscale(model.isPlayingVoiceMemo ? 1.0 : 0.0)
+                .opacity(model.isPlayingVoiceMemo ? 0.5 : 1.0)
+                .allowsHitTesting(!model.isPlayingVoiceMemo)
 
-                // Spacer ensures controls are not obscured by the floating toolbar.
-                Spacer(minLength: 95)
+                if model.isPlayingVoiceMemo {
+                    VoiceMemoOverlayView()
+                }
+
+                if let card = model.activeInlineCard {
+                    FlashcardOverlayView(
+                        card: card,
+                        onGrade: { grade in model.gradeInlineFlashcard(grade) },
+                        onDismiss: { model.dismissInlineFlashcard() }
+                    )
+                    .transition(.opacity)
+                }
             }
-            .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
-            .padding(.horizontal)
-            .padding(.top, 60)
+            .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
+            .animation(.easeInOut(duration: 0.2), value: model.isShowingInlineFlashcard)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         }
-        .ignoresSafeArea(edges: .top)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+    }
+
+    private func playerContent(artworkSize: CGFloat, contentWidth: CGFloat) -> some View {
+        VStack(alignment: .center, spacing: 14) {
+            AlbumArtHeroView(
+                artwork: model.currentDisplayArtwork ?? model.thumbnailImage,
+                artworkVersion: model.currentDisplayArtworkVersion,
+                caption: "",
+                mainText: model.chapters.count >= 2
+                    ? (model.currentSubtitle.isEmpty
+                        ? String(localized: "Chapter \((model.currentChapterIndex ?? 0) + 1)")
+                        : model.currentSubtitle)
+                    : model.currentTitle,
+                appFont: model.resolvedAppFont,
+                maxArtworkSize: artworkSize
+            )
+
+            if model.chapters.count >= 2 {
+                Text(chapterProgressText())
+                    .customFont(.footnote, appFont: model.resolvedAppFont)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+            } else if !model.tracks.isEmpty {
+                Text(trackProgressText())
+                    .customFont(.footnote, appFont: model.resolvedAppFont)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+            }
+
+            PlayerScrubberView()
+                .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+
+            TransportControlsView()
+                .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+        }
+        .frame(width: contentWidth)
+        .clipped()
     }
 
     private func formatHhMm(_ seconds: Double) -> String {

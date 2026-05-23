@@ -107,8 +107,8 @@ struct PlayerModelTests {
         #expect(FileManager.default.fileExists(atPath: epubURL.path))
     }
 
-    @Test("PlayerModel importEPUB deletes other EPUBs and copies new one when imported from outside folder")
-    func importEPUBDeletesOtherEPUBs() throws {
+    @Test("PlayerModel importEPUB preserves other EPUBs and copies new one when imported from outside folder")
+    func importEPUBPreservesOtherEPUBs() throws {
         let model = PlayerModel()
         let db = try DatabaseService(inMemory: ())
         model.databaseService = db
@@ -120,7 +120,7 @@ struct PlayerModelTests {
 
         model.folderURL = tmpDir
 
-        // Create an existing epub in the folder (which should be deleted/replaced)
+        // Create an existing epub in the folder (which should NOT be deleted)
         let oldEpubURL = tmpDir.appendingPathComponent("old.epub")
         try Data("old epub content".utf8).write(to: oldEpubURL)
 
@@ -136,8 +136,8 @@ struct PlayerModelTests {
         // Trigger importEPUB
         model.importEPUB(from: sourceEpubURL)
 
-        // Verify old EPUB is deleted
-        #expect(!FileManager.default.fileExists(atPath: oldEpubURL.path))
+        // Verify old EPUB is NOT deleted
+        #expect(FileManager.default.fileExists(atPath: oldEpubURL.path))
 
         // Verify new EPUB is copied into folder
         let destinationURL = tmpDir.appendingPathComponent("new.epub")

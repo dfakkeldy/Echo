@@ -78,6 +78,6 @@ struct TransportControlsView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, 12)
     }
 }
