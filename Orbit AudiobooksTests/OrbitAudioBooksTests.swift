@@ -125,7 +125,7 @@ struct OrbitAudioBooksTests {
             Bookmark(title: "No Image", trackId: trackId, timestamp: 22)
         ]
 
-        let active = PlayerModel.activeArtworkBookmark(from: bookmarks, at: 24, trackId: trackId)
+        let active = BookmarkStore.activeArtworkBookmark(from: bookmarks, at: 24, trackId: trackId)
 
         #expect(active?.title == "Later")
     }

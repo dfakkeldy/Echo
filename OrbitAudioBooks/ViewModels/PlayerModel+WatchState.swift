@@ -5,9 +5,7 @@ import Foundation
 extension PlayerModel {
 
     var currentArtworkSyncKey: String? {
-        guard tracks.indices.contains(currentIndex) else { return nil }
-        let trackId = tracks[currentIndex].id
-        return "\(trackId)#\(currentDisplayArtworkKey ?? "base")"
+        artworkCoordinator.currentArtworkSyncKey
     }
 
     /// Thin wrapper that gathers a snapshot of the current state and delegates

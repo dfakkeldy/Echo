@@ -147,9 +147,6 @@ final class PlayerModel {
     var currentDisplayArtwork: UIImage? { state.currentDisplayArtwork }
     var currentDisplayArtworkVersion: Int { state.currentDisplayArtworkVersion }
     var watchThumbnailData: Data? { state.watchThumbnailData }
-    @ObservationIgnored var baseWatchThumbnailData: Data? = nil
-    @ObservationIgnored var currentDisplayArtworkKey: String?
-    @ObservationIgnored var bookmarkArtworkCache: [String: (image: UIImage, watchData: Data?)] = [:]
 
     // MARK: - Chapters (pass-through to PlaybackState)
 
@@ -208,6 +205,8 @@ final class PlayerModel {
     let nowPlayingController = NowPlayingController()
     let bookmarkStore = BookmarkStore()
     let sleepTimerManager = SleepTimerManager()
+    let artworkCoordinator = BookmarkArtworkCoordinator()
+    let flashcardTriggerController = InlineFlashcardTriggerController()
 
     private func loadTranscript(for url: URL) {
         transcriptService.loadTranscript(for: url)
@@ -233,10 +232,6 @@ final class PlayerModel {
     var activeInlineCard: Flashcard? = nil
     /// Whether an inline flashcard overlay is currently presented.
     var isShowingInlineFlashcard: Bool { activeInlineCard != nil }
-    /// Set of already-triggered flashcard IDs to prevent re-firing on seek/loop.
-    @ObservationIgnored var triggeredFlashcardIDs: Set<String> = []
-    /// Player time at which the last flashcard trigger fired, for deduplication.
-    @ObservationIgnored var lastFlashcardTriggerSecond: Double = -1
 
     /// Active playback session event ID for timeline logging.
     @ObservationIgnored var currentPlaybackEventID: String?
@@ -270,11 +265,6 @@ final class PlayerModel {
     /// Background task claim held during pause to reduce the chance of eviction
     /// from the system Now Playing slot.
     private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
-
-    /// Cached flashcards for the current track, loaded once on track change
-    /// to avoid database queries on every playback time tick.
-    @ObservationIgnored var cachedTrackFlashcards: [Flashcard] = []
-    @ObservationIgnored var cachedTrackFlashcardKey: String = ""
 
     // MARK: - Security-scoped access (delegated to SecurityScopeManager)
 
@@ -345,7 +335,7 @@ final class PlayerModel {
             guard let self, self.state.tracks.indices.contains(self.currentIndex) else {
                 return (nil, nil)
             }
-            return (self.currentArtworkSyncKey, self.watchThumbnailData)
+            return (self.artworkCoordinator.currentArtworkSyncKey, self.state.watchThumbnailData)
         }
 
         bookmarkStore.onPersist = { [weak self] bookmarks in
@@ -361,8 +351,8 @@ final class PlayerModel {
         }
         bookmarkStore.onBookmarksChanged = { [weak self] in
             guard let self else { return }
-            bookmarkArtworkCache.removeAll()
-            updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
+            artworkCoordinator.invalidateCache()
+            artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
             if loopMode == .bookmark && currentTrackBookmarks.isEmpty {
                 setLoopMode(.off)
             }
@@ -408,6 +398,33 @@ final class PlayerModel {
             self?.syncToWatch()
         }
 
+        // Wire artwork coordinator dependencies.
+        artworkCoordinator.state = state
+        artworkCoordinator.bookmarkProvider = { [weak self] in self?.bookmarkStore.bookmarks ?? [] }
+        artworkCoordinator.folderURLProvider = { [weak self] in self?.folderURL }
+        artworkCoordinator.trackIDProvider = { [weak self] in
+            guard let self, self.state.tracks.indices.contains(self.currentIndex) else { return nil }
+            return self.state.tracks[self.currentIndex].id
+        }
+        artworkCoordinator.isPlayingProvider = { [weak self] in self?.isPlaying ?? false }
+        artworkCoordinator.currentPlaybackTimeProvider = { [weak self] in self?.currentPlaybackTime ?? 0 }
+        artworkCoordinator.onUpdateNowPlaying = { [weak self] isPaused in
+            self?.updateNowPlayingInfo(isPaused: isPaused)
+        }
+        artworkCoordinator.onSyncToWatch = { [weak self] in
+            self?.syncToWatch()
+        }
+
+        // Wire flashcard trigger controller dependencies.
+        flashcardTriggerController.databaseServiceProvider = { [weak self] in self?.databaseService }
+        flashcardTriggerController.trackKeyProvider = { [weak self] in
+            guard let self, self.state.tracks.indices.contains(self.currentIndex) else { return "" }
+            return self.state.tracks[self.currentIndex].url.lastPathComponent
+        }
+        flashcardTriggerController.isPlayingProvider = { [weak self] in self?.isPlaying ?? false }
+        flashcardTriggerController.isManualSeekingProvider = { [weak self] in self?.isManualSeeking ?? false }
+        flashcardTriggerController.loopModeProvider = { [weak self] in self?.loopMode ?? .off }
+
         // Wire PlaybackController coordination closures.
         playbackController.coordinator_smartRewind = { [weak self] pausedDuration in
             self?.smartRewindAmount(for: pausedDuration) ?? 0
@@ -450,7 +467,7 @@ final class PlayerModel {
             self?.jumpToBookmark(bookmark)
         }
         playbackController.coordinator_refreshArtwork = { [weak self] at, force in
-            self?.updateCurrentDisplayArtwork(at: at, force: force)
+            self?.artworkCoordinator.updateCurrentDisplayArtwork(at: at, force: force)
         }
         playbackController.coordinator_endBackgroundTask = { [weak self] in
             self?.endBackgroundTask()
@@ -928,11 +945,7 @@ final class PlayerModel {
         state.currentTitle = tracks[index].title
         state.currentSubtitle = ""
         state.thumbnailImage = nil
-        state.currentDisplayArtwork = nil
-        state.watchThumbnailData = nil
-        baseWatchThumbnailData = nil
-        currentDisplayArtworkKey = nil
-        bookmarkArtworkCache.removeAll()
+        artworkCoordinator.invalidateCache()
 
         loadTranscript(for: tracks[index].url)
 
@@ -958,7 +971,7 @@ final class PlayerModel {
         state.isSeekingForChapterBoundary = false
         state.isManualSeeking = false
         lastBookmarkCheckSecond = nil
-        triggeredFlashcardIDs.removeAll()
+        flashcardTriggerController.resetForNewTrack()
 
         // Multi-M4B: load the correct book's chapter list and duration.
         if state.isMultiM4B, state.m4bBooks.indices.contains(index) {
@@ -981,11 +994,6 @@ final class PlayerModel {
             await ArtworkCache.ensureItemIsAvailable(url: trackURL)
         }
 
-        cachedTrackFlashcardKey = trackURL.lastPathComponent
-        if let db = databaseService {
-            cachedTrackFlashcards = (try? FlashcardDAO(db: db.writer).flashcards(for: cachedTrackFlashcardKey)) ?? []
-        }
-
         // AudioEngine handles AVPlayerItem creation, observers, and duration loading.
         configureAudioSessionIfNeeded()
         audioEngine.replaceCurrentItem(with: trackURL)
@@ -1002,7 +1010,7 @@ final class PlayerModel {
             guard let self else { return }
             await self.loadChaptersForCurrentItem()
             await self.loadDurationForNowPlaying()
-            await self.generateThumbnail(for: trackURL)
+            await artworkCoordinator.generateThumbnail(for: trackURL)
 
             // Handle pending aggregated chapter seek (cross-book navigation).
             if let pending = state.pendingAggregatedChapter {
@@ -1367,11 +1375,11 @@ final class PlayerModel {
     func loadBookmarksForCurrentBook() {
         guard let key = bookmarksStorageKey else {
             bookmarkStore.bookmarks = []
-            updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
+            artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
             return
         }
         bookmarkStore.bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted { $0.timestamp < $1.timestamp }
-        updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
+        artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
     }
 
     /// Bookmarks scoped to the currently playing track, sorted by timestamp.
@@ -1435,7 +1443,7 @@ final class PlayerModel {
         voiceMemoFileName: String?,
         bookmarkImageFileName: String? = nil
     ) {
-        bookmarkArtworkCache.removeAll()
+        artworkCoordinator.invalidateCache()
         bookmarkStore.updateBookmark(
             id: id, title: title, timestamp: timestamp, note: note,
             voiceMemoFileName: voiceMemoFileName, bookmarkImageFileName: bookmarkImageFileName
@@ -1596,7 +1604,29 @@ final class PlayerModel {
         }
     }
 
-    @ObservationIgnored var wasPlayingBeforeFlashcard = false
+    // MARK: - Inline Flashcard wrappers
+
+    /// Grades the currently shown inline flashcard and resumes playback.
+    func gradeInlineFlashcard(_ grade: Int) {
+        guard let card = activeInlineCard else { return }
+        flashcardTriggerController.gradeCard(grade, cardID: card.id)
+        activeInlineCard = nil
+        if flashcardTriggerController.wasPlayingBeforeFlashcard {
+            flashcardTriggerController.wasPlayingBeforeFlashcard = false
+            audioEngine.playImmediately(atRate: speed)
+            playbackController.applySpeedToCurrentItem()
+        }
+    }
+
+    /// Dismisses the inline flashcard overlay without grading, resuming playback.
+    func dismissInlineFlashcard() {
+        activeInlineCard = nil
+        if flashcardTriggerController.wasPlayingBeforeFlashcard {
+            flashcardTriggerController.wasPlayingBeforeFlashcard = false
+            audioEngine.playImmediately(atRate: speed)
+            playbackController.applySpeedToCurrentItem()
+        }
+    }
 
     private func persistSelection(url: URL) {
         // Refresh security scope for the new selection.

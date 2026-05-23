@@ -8,14 +8,21 @@ extension PlayerModel: PlaybackControllerDelegate {
             updateNowPlayingElapsedTime()
             updateCurrentChapterFromPlayerTime()
             updateProgressFromPlayer()
-            updateCurrentDisplayArtwork(at: currentTime)
+            artworkCoordinator.updateCurrentDisplayArtwork(at: currentTime)
             playbackController.enforceEnabledState()
             playbackController.applyChapterLoopIfNeeded()
             playbackController.applyBookmarkLoopIfNeeded()
             if resolvedPlayBookmarksInline,
                currentTime.isFinite {
                 checkVoiceMemoTrigger(at: currentTime, previousSeconds: lastBookmarkCheckSecond)
-                checkInlineFlashcardTrigger(at: currentTime, previousSeconds: lastBookmarkCheckSecond)
+                if let card = flashcardTriggerController.checkTrigger(
+                    at: currentTime,
+                    previousSeconds: lastBookmarkCheckSecond,
+                    hasActiveCard: activeInlineCard != nil
+                ) {
+                    audioEngine.pause()
+                    activeInlineCard = card
+                }
                 lastBookmarkCheckSecond = currentTime
             }
         }
