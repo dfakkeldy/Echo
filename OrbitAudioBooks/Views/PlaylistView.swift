@@ -256,8 +256,7 @@ struct PlaylistView: View {
         .fileImporter(
             isPresented: $showingEPUBImporter,
             allowedContentTypes: [UTType(filenameExtension: "epub")].compactMap { $0 },
-            allowsMultipleSelection: false,
-            asCopy: true
+            allowsMultipleSelection: false
         ) { result in
             switch result {
             case .success(let urls):

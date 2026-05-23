@@ -143,6 +143,13 @@ struct TimelineTab: View {
         .onChange(of: timelineScope) { _, newScope in
             feedViewModel?.scope = newScope
         }
+        .onChange(of: model.isTimelineFrozen) { _, isFrozen in
+            if isFrozen {
+                feedViewModel?.freezeTimeline()
+            } else {
+                feedViewModel?.goToNow()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
             feedViewModel?.isVoiceOverRunning = UIAccessibility.isVoiceOverRunning
         }
@@ -357,9 +364,11 @@ struct TimelineTab: View {
             scrollTargetPosition = position
         }
 
-        // Wire follow playback: view model callback → state → collection view scroll.
-        viewModel.onScrollToPosition = { position in
-            scrollTargetPosition = position
+        viewModel.onResumePlayback = { [weak model] in
+            model?.play()
+        }
+        viewModel.onUnfrozen = { [weak model] in
+            model?.isTimelineFrozen = false
         }
 
         // Wire item change callback

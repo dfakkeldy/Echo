@@ -40,6 +40,10 @@ final class PlayerModel {
     /// Tracks whether the app is currently displaying the Timeline Tab (true) or the Now Playing Tab (false).
     var showingTimeline: Bool = false
 
+    /// When true, the timeline feed is frozen so the user can browse the EPUB
+    /// column independently without the feed chasing playback position.
+    var isTimelineFrozen: Bool = false
+
     // MARK: - UI state (pass-through to PlaybackController)
 
     var loopMode: LoopMode {

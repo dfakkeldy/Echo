@@ -61,6 +61,10 @@ final class TimelineFeedViewModel {
         didSet { updateGranularity() }
     }
 
+    /// When true, automatic scroll updates are suppressed so the user can
+    /// independently browse the EPUB column without the feed chasing playback.
+    private(set) var isTimelineFrozen = false
+
     // MARK: - Dependencies
 
     private let timelineDAO: TimelineDAO
@@ -89,7 +93,7 @@ final class TimelineFeedViewModel {
     /// Called by the audio engine on every tick (0.25s interval).
     func updatePosition(_ position: TimeInterval) {
         currentPosition = position
-        guard isFollowingPlayback, !isVoiceOverRunning else { return }
+        guard isFollowingPlayback, !isVoiceOverRunning, !isTimelineFrozen else { return }
         onScrollToPosition?(position)
     }
 
@@ -105,11 +109,50 @@ final class TimelineFeedViewModel {
     func goToNow() {
         isFollowingPlayback = true
         feedMode = .followingPlayback
+        isTimelineFrozen = false
         tripwireTask?.cancel()
         if !isVoiceOverRunning {
             onScrollToPosition?(currentPosition)
         }
+        onUnfrozen?()
     }
+
+    /// Freeze the timeline so the user can browse the EPUB column independently
+    /// without the feed chasing playback position.
+    func freezeTimeline() {
+        isTimelineFrozen = true
+    }
+
+    /// Anchors a block at the given time via AlignmentService, unfreezes the
+    /// timeline, and resumes playback-following mode.
+    func syncAndResume(blockID: String, currentTime: TimeInterval) {
+        guard let audiobookID else { return }
+        do {
+            let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
+            try service.moveBlockToCurrentTime(blockID: blockID, time: currentTime)
+            try service.recalculateTimeline()
+        } catch {
+            lastError = error
+        }
+        isTimelineFrozen = false
+        isFollowingPlayback = true
+        feedMode = .followingPlayback
+        tripwireTask?.cancel()
+        if !isVoiceOverRunning {
+            onScrollToPosition?(currentTime)
+        }
+        onUnfrozen?()
+        onResumePlayback?()
+        Task { await loadInitialWindow(around: currentTime) }
+    }
+
+    /// Called when syncAndResume needs playback to restart. Wired by the view
+    /// layer to PlayerModel.play().
+    var onResumePlayback: (() -> Void)?
+
+    /// Called when the timeline exits frozen state (via goToNow or syncAndResume).
+    /// Wired by the view layer to reset PlayerModel.isTimelineFrozen.
+    var onUnfrozen: (() -> Void)?
 
     /// Enter search-to-anchor mode.
     func beginSearch() {
