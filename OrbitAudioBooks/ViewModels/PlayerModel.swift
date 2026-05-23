@@ -1454,9 +1454,9 @@ final class PlayerModel {
         defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
         let didStartDest = folderURL.startAccessingSecurityScopedResource()
         defer { if didStartDest { folderURL.stopAccessingSecurityScopedResource() } }
-        EPUBAutoImportScanner.copyAndImportEPUB(
+        EPUBImportCoordinator.importEPUB(
             from: sourceURL,
-            folderURL: folderURL,
+            to: folderURL,
             databaseService: db,
             chapters: state.chapters,
             duration: state.durationSeconds

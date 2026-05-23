@@ -113,62 +113,6 @@ enum EPUBAutoImportScanner {
         }
     }
 
-    /// Copies an EPUB file into the audiobook folder (if not already there), clears
-    /// previous EPUB blocks from the database, and triggers a fresh import. Callers
-    /// are responsible for starting security-scoped access on both URLs before invoking.
-    static func copyAndImportEPUB(
-        from sourceURL: URL,
-        folderURL: URL,
-        databaseService: DatabaseService,
-        chapters: [Chapter],
-        duration: TimeInterval?
-    ) {
-        let destinationURL = folderURL.appendingPathComponent(sourceURL.lastPathComponent)
-
-        let standardizedSource = sourceURL.resolvingSymlinksInPath().standardized
-        let standardizedDest = destinationURL.resolvingSymlinksInPath().standardized
-
-        // Copy new EPUB if destination differs from source
-        if standardizedDest.path != standardizedSource.path {
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("epub")
-
-            do {
-                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: tempURL, backupItemName: nil, options: [])
-                } else {
-                    try FileManager.default.moveItem(at: tempURL, to: destinationURL)
-                }
-            } catch {
-                logger.error("Failed to copy EPUB into folder: \(error.localizedDescription)")
-                return
-            }
-        }
-
-        // Clear existing database blocks so new blocks can be imported
-        let audiobookID = folderURL.absoluteString
-        do {
-            try EPubBlockDAO(db: databaseService.writer).deleteAll(for: audiobookID)
-        } catch {
-            logger.error("Failed to clear existing EPUB blocks: \(error.localizedDescription)")
-            return
-        }
-
-        // Re-run the scan and import process
-        Task {
-            await importEPUBFile(
-                epubURL: destinationURL,
-                audiobookID: audiobookID,
-                databaseService: databaseService,
-                chapters: chapters,
-                duration: duration,
-                force: true
-            )
-        }
-    }
-
     // MARK: - Private helpers
 
     /// Creates (or reuses) the cache directory `Caches/EPUBUnpacked/<safeID>/`.
