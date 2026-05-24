@@ -1,0 +1,20 @@
+Orbit: Learn Audiobooks is the first audiobook player designed for active learning, retention, and neurodivergent listeners. Whether you're commuting, studying, or just tired of standard audiobook apps losing your place, Orbit is built to adapt to how you listen.
+
+LISTEN SMARTER, NOT HARDER
+Standard audiobook players just keep playing, even when you've zoned out or stepped out of the car. Orbit features an intelligent "Smart Rewind" that automatically jumps back slightly when you resume playback. The longer you've been paused, the further it rewinds—so you never lose your context again.
+
+POWERFUL STUDY TOOLS
+Don't just listen. Retain what you hear.
+• Anki-Style Flashcards: Set timestamped flashcards that automatically pause your audiobook and test your knowledge.
+• Voice Memos & Notes: Attach your own recorded voice memos and text notes directly to your bookmarks.
+• Chapter Looping: Need to memorize something? Loop the current chapter or loop between specific bookmarks.
+
+ACCESSIBILITY & NEURODIVERSITY FIRST
+Orbit is built from the ground up to support readers with ADHD, AuDHD, and dyslexia. 
+• Custom Typography: Choose between research-backed Lexend (for reading fluency) or OpenDyslexic (to combat letter reversal) fonts.
+• Built for Distraction: The Smart Rewind ensures you never miss a beat when your focus drifts.
+
+CUSTOM APPLE WATCH EXPERIENCE
+Leave your phone in your pocket. The Orbit watchOS app includes a drag-and-drop designer, allowing you to completely customize the buttons and layout on your wrist. Assign the Digital Crown to control volume or scrub through the audio, right from your Watch.
+
+Join the future of audio learning. Download Orbit today and take control of your listening.

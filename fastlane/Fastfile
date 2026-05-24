@@ -22,7 +22,14 @@ platform :ios do
   before_all do
     # Load the App Store Connect API key from your local git-ignored JSON file.
     # On CI, ensure these variables are mapped via env vars.
-    @api_key = app_store_connect_api_key(key_filepath: "fastlane/api_key.json")
+    require 'json'
+    key_data = JSON.parse(File.read("api_key.json"))
+    @api_key = app_store_connect_api_key(
+      key_id: key_data["key_id"],
+      issuer_id: key_data["issuer_id"],
+      key_content: key_data["key"],
+      in_house: key_data["in_house"]
+    )
   end
 
   desc <<~DESC
@@ -95,5 +102,10 @@ platform :ios do
       skip_waiting_for_build_processing: false,
       notify_external_testers: false
     )
+  end
+
+  lane :test_auth do
+    # API key is already loaded in before_all, but we can verify it
+    UI.success("API Key loaded successfully!")
   end
 end
