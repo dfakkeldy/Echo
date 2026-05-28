@@ -27,7 +27,7 @@ The workspace is composed of four targets, each with its own entry point and vie
 |---|---|---|
 | **OrbitAudioBooks** (`iOS/iPadOS`) | `Orbit_AudioBooksApp.swift` → `RootTabView.swift` | Primary audiobook player. Uses a 2-tab layout (NowPlayingTab + TimelineTab). PlayerModel acts as a thin coordinator over 20+ single-responsibility services. Handles file/folder selection, bookmarks, voice memos, WatchConnectivity, and Now Playing integration. |
 | **Orbit Audiobooks macOS** (`macOS`) | `Orbit_Audiobooks_macOSApp.swift` → `MacContentView.swift` | Native macOS desktop companion. Uses `MacPlayerModel` (`ObservableObject`-based) with a `NavigationSplitView` layout: a bookmarks sidebar and a player pane with transport controls and a speed picker. |
-| **Orbit Audiobooks Watch App** (`watchOS`) | `OrbitAudioBooksWatchApp.swift` → `ContentView.swift` | Wearable remote for the iOS player. Communicates with the phone via `WCSession` to send play/pause, skip, scrub, volume, loop mode, sleep timer, and bookmark commands. |
+| **Orbit Audiobooks Watch App** (`watchOS`) | `OrbitAudioBooksWatchApp.swift` → `ContentView.swift` | Wearable remote for the iOS player. Communicates with the phone via `WCSession` to send play/pause, skip, scrub, volume, loop mode, sleep timer, and bookmark commands. Features a customizable 10-slot button layout (two pages of five actions) with configurable seek forward/backward durations (5–60s), all syncable from the phone. |
 | **Orbit Audiobooks Widget** (`Widgets`) | `Orbit_Audiobooks_WidgetBundle.swift` → `Orbit_Audiobooks_Widget.swift` | A `WidgetBundle` exposing a `StaticConfiguration` widget (`.accessoryCircular`) that shows the current track title, progress ring, and thumbnail via `AppGroupDefaults` communication. Also includes a `TogglePlaybackIntent` (App Intent) for Control Center / widget interactions. |
 
 Shared models and utilities used across targets include:
@@ -36,6 +36,7 @@ Shared models and utilities used across targets include:
 - **`MacPlayerModel`** — macOS-specific playback model wrapping AVPlayer with its own bookmark format (`MacBookmark`), security-scoped bookmarks, and UserDefaults persistence.
 - **`Bookmark.swift`** — The `Bookmark` struct (Codable, Equatable, Hashable) representing a saved position, with optional text note and voice memo filename. Includes `VoiceMemoRecorder` and `EditBookmarkView` for recording/editing.
 - **`AppIntent.swift`** — Shared `AppGroupDefaults` suite and `SessionDelegator` for WCSession activation, enabling the widget and app intents to toggle playback.
+- **`LayoutPreset.swift`** — `WatchPreset` and `PhonePreset` data models (Codable, Identifiable) for customizable 10-slot watch button layouts and 5-slot phone transport control layouts. Presets sync bidirectionally via WatchConnectivity and persist in UserDefaults.
 - **Shared Font Assets** — `Lexend.ttf` and `OpenDyslexic-Regular.otf` are bundled in both the iOS and macOS targets for accessibility-optimized typography.
 
 ---

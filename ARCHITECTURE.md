@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-05-23 10:34:52 (manual sections updated for PlayerModel decomposition)
+**Last generated:** 2026-05-28 (manual sections updated for layout presets and seek duration configuration)
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Orbit Audiobooks project. Folders are shown in the order
@@ -118,6 +118,7 @@ Views/ListeningProgressModuleView.swift
 Views/NoteEditorView.swift
 Views/NowLineView.swift
 Views/NowPlayingLayout.swift
+Views/PhonePlayerSettingsView.swift
 Views/NowPlayingTab.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
@@ -210,6 +211,7 @@ Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
 EnhancedTranscriptionSegment.swift
+LayoutPreset.swift
 MediaPlayable.swift
 SafeFileName.swift
 SyncMarker.swift
