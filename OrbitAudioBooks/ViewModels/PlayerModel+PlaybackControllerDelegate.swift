@@ -33,12 +33,14 @@ extension PlayerModel: PlaybackControllerDelegate {
     }
 
     func playbackControllerInterruptionBegan(_ controller: PlaybackController) {
+        wasPlayingBeforeInterruption = isPlaying
         pause()
     }
 
     func playbackControllerInterruptionEnded(_ controller: PlaybackController, shouldResume: Bool) {
-        if shouldResume {
+        if shouldResume && wasPlayingBeforeInterruption {
             play()
         }
+        wasPlayingBeforeInterruption = false
     }
 }

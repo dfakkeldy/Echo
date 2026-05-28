@@ -264,6 +264,9 @@ final class PlayerModel {
     /// Background task claim held during pause to reduce the chance of eviction
     /// from the system Now Playing slot.
     private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    
+    /// Tracks if audio was playing prior to an interruption, to determine if we should resume.
+    var wasPlayingBeforeInterruption: Bool = false
 
     // MARK: - Security-scoped access (delegated to SecurityScopeManager)
 
