@@ -37,19 +37,24 @@ final class ChapterLoadingCoordinator {
         guard audioEngine.isItemLoaded,
               state.tracks.indices.contains(state.currentIndex) else { return }
 
+        // Capture all necessary track information safely BEFORE any yield point (await)
+        let track = state.tracks[state.currentIndex]
+        let trackURL = track.url
+        let trackKey = trackURL.absoluteString
+        let trackTitle = track.title
+        let trackCount = state.tracks.count
+
         // Multi-M4B: chapters already loaded from M4BParser with intra-book offsets.
         if state.isMultiM4B, !state.chapters.isEmpty { return }
 
-        let asset = AVURLAsset(url: state.tracks[state.currentIndex].url)
+        let asset = AVURLAsset(url: trackURL)
 
         var built: [Chapter] = []
-        let ext = state.tracks[state.currentIndex].url.pathExtension.lowercased()
+        let ext = trackURL.pathExtension.lowercased()
         if ext == "m4b" || ext == "m4a" {
             built = await ChapterService.parseChapters(from: asset)
         }
 
-        let trackKey = state.tracks.indices.contains(state.currentIndex)
-            ? state.tracks[state.currentIndex].url.absoluteString : ""
         if let savedStates = persistence.loadEnabledState(for: trackKey) {
             for i in 0..<built.count {
                 if let isEnabled = savedStates[built[i].id] {
@@ -72,12 +77,10 @@ final class ChapterLoadingCoordinator {
         // For files with no parsed chapters, create a single chapter spanning the book
         // so the timeline feed always has at least one chapter marker.
         if built.isEmpty {
-            let track = state.tracks[state.currentIndex]
-            let title = track.title
             let duration = state.durationSeconds ?? 0
             built = [Chapter(
                 index: 0,
-                title: title,
+                title: trackTitle,
                 startSeconds: 0,
                 endSeconds: duration,
                 isEnabled: true
@@ -123,8 +126,7 @@ final class ChapterLoadingCoordinator {
 
             // Multi-file folders get a full ingestion pass in loadFolder;
             // avoid wiping all items on every track switch for those cases.
-            if state.tracks.count <= 1 {
-                let trackURL = state.tracks[state.currentIndex].url
+            if trackCount <= 1 {
                 let transcription = state.transcription
                 let enhanced = state.enhancedTranscription
                 let fURL = state.folderURL

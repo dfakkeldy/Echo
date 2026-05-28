@@ -18,7 +18,21 @@ enum EPUBImportCoordinator {
         chapters: [Chapter],
         duration: TimeInterval?
     ) {
-        let destinationURL = folderURL.appendingPathComponent(sourceURL.lastPathComponent)
+        let didStartSource = sourceURL.startAccessingSecurityScopedResource()
+        defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
+
+        let didStartFolder = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStartFolder { folderURL.stopAccessingSecurityScopedResource() } }
+
+        var isDir: ObjCBool = false
+        let targetFolder = FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir) && isDir.boolValue
+            ? folderURL
+            : folderURL.deletingLastPathComponent()
+
+        let didStartTarget = targetFolder != folderURL ? targetFolder.startAccessingSecurityScopedResource() : false
+        defer { if didStartTarget { targetFolder.stopAccessingSecurityScopedResource() } }
+
+        let destinationURL = targetFolder.appendingPathComponent(sourceURL.lastPathComponent)
 
         let standardizedSource = sourceURL.resolvingSymlinksInPath().standardized
         let standardizedDest = destinationURL.resolvingSymlinksInPath().standardized

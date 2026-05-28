@@ -20,19 +20,30 @@ enum EPUBAutoImportScanner {
         chapters: [Chapter],
         duration: TimeInterval?
     ) async {
+        let didStartFolder = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStartFolder { folderURL.stopAccessingSecurityScopedResource() } }
+
         let audiobookID = folderURL.absoluteString
 
         // 1. Scan for .epub files in the folder.
         let epubFiles: [URL]
+        var isDir: ObjCBool = false
+        let targetURL = FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir) && isDir.boolValue
+            ? folderURL
+            : folderURL.deletingLastPathComponent()
+
+        let didStartTarget = targetURL != folderURL ? targetURL.startAccessingSecurityScopedResource() : false
+        defer { if didStartTarget { targetURL.stopAccessingSecurityScopedResource() } }
+
         do {
             let contents = try FileManager.default.contentsOfDirectory(
-                at: folderURL,
+                at: targetURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: .skipsHiddenFiles
             )
             epubFiles = contents.filter { $0.pathExtension.lowercased() == "epub" }
         } catch {
-            logger.warning("Cannot scan folder for EPUB files: \(sanitizedPath(folderURL.path)) — \(error.localizedDescription)")
+            logger.warning("Cannot scan folder for EPUB files: \(sanitizedPath(targetURL.path)) — \(error.localizedDescription)")
             return
         }
 
@@ -62,6 +73,9 @@ enum EPUBAutoImportScanner {
         duration: TimeInterval?,
         force: Bool = false
     ) async {
+        let didStart = epubURL.startAccessingSecurityScopedResource()
+        defer { if didStart { epubURL.stopAccessingSecurityScopedResource() } }
+
         // Check if EPUB blocks are already imported for this audiobook.
         if !force {
             let alreadyImported = (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID).isEmpty) == false

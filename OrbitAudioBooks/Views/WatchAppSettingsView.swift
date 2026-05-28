@@ -7,8 +7,8 @@ struct WatchAppSettingsView: View {
     @Environment(SettingsManager.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
-    @State private var page1Slots: [WatchAction] = []
-    @State private var page2Slots: [WatchAction] = []
+    @State private var page1Slots: [WatchAction] = Array(repeating: .empty, count: 5)
+    @State private var page2Slots: [WatchAction] = Array(repeating: .empty, count: 5)
     @State private var selectedPage: Int = 0
 
     private let palette: [WatchAction] = [

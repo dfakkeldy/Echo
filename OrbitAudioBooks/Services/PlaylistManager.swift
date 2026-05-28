@@ -95,6 +95,7 @@ final class PlaylistManager {
     // MARK: - Toggle Enabled
 
     func toggleTrackEnabled(at index: Int) {
+        guard state.tracks.indices.contains(index) else { return }
         state.tracks[index].isEnabled.toggle()
         if let folderURL = state.folderURL {
             var states = persistence.loadEnabledState(for: folderURL.absoluteString, folderURL: folderURL) ?? [:]
@@ -104,6 +105,7 @@ final class PlaylistManager {
     }
 
     func toggleChapterEnabled(at index: Int) {
+        guard state.chapters.indices.contains(index) else { return }
         state.chapters[index].isEnabled.toggle()
         if let currentTrackURL = state.tracks.indices.contains(state.currentIndex) ? state.tracks[state.currentIndex].url : nil {
             var states = persistence.loadEnabledState(for: currentTrackURL.absoluteString) ?? [:]
