@@ -230,6 +230,8 @@ Views/Orbit_Audiobooks_WidgetBundle.swift
 Views/Orbit_Audiobooks_WidgetControl.swift
 ```
 
+**Widget artwork handling:** The widget has a tight memory budget — archiving large images crashes the extension. Rather than discarding oversized album art, `safelyDownsampledData` in `Orbit_Audiobooks_Widget.swift` uses `CGImageSourceCreateThumbnailAtIndex` (ImageIO) to downsample artwork larger than 60×60pt to retina-scale thumbnails encoded as JPEG at 0.75 quality. ImageIO is a streaming decoder that only reads enough of the encoded source data to produce the requested thumbnail size, so it avoids allocating a full-resolution bitmap. This ensures every book shows artwork on the widget, regardless of the source image dimensions.
+
 ## Tools & Pipeline
 
 ### EPUB-Audio Alignment Pipeline (`Tools/OrbitTranscriptionCLI/`)
