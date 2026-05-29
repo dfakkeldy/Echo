@@ -722,14 +722,14 @@ final class BookCardCell: UICollectionViewCell {
 // MARK: - Action Footer Builder
 
 private func makeActionButton(systemName: String, action: @escaping () -> Void) -> UIButton {
-    let button = UIButton(type: .system)
-    button.setImage(UIImage(systemName: systemName), for: .normal)
-    button.tintColor = .secondaryLabel
+    var config = UIButton.Configuration.plain()
+    config.image = UIImage(systemName: systemName,
+                           withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .regular))
+    // Larger hit target while keeping 14pt icon size.
+    config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
+    config.baseForegroundColor = .secondaryLabel
+    let button = UIButton(configuration: config)
     button.translatesAutoresizingMaskIntoConstraints = false
-    // Larger hit target via contentEdgeInsets while keeping 18pt icon size.
-    button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
-    let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-    button.setPreferredSymbolConfiguration(config, forImageIn: .normal)
     button.addAction(UIAction { _ in action() }, for: .touchUpInside)
     return button
 }

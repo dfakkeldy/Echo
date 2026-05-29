@@ -50,6 +50,7 @@ Services/BookmarkArtworkCoordinator.swift
 Services/BookmarkStore.swift
 Services/BookPreferencesService.swift
 Services/BookSettingsOverrideStore.swift
+Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
 Services/ChapterService.swift
 Services/DeckImportService.swift
@@ -397,11 +398,12 @@ to accommodate the mini-player without clipping content.
 | Service | Responsibility |
 |---|---|
 | `PlaybackController` | Core playback logic, track-end handling, enabled-state enforcement, navigation |
-| `PlaybackState` | Shared mutable state (tracks, chapters, progress, artwork) as `@Observable` |
+| `PlaybackState` | Shared mutable state (tracks, chapters, progress, artwork, chapterSections) as `@Observable` |
 | `BookmarkStore` | Bookmark CRUD, voice memo playback, file cleanup, enabled-state toggling |
 | `SleepTimerManager` | Countdown, fade-out, pause-on-end |
 | `NowPlayingController` | MPNowPlayingInfoCenter, MPRemoteCommandCenter |
-| `ChapterLoadingCoordinator` | Chapter parsing, transcript loading, word cloud computation |
+| `ChapterGroupingService` | Detects and collapses Libation-style sub-section chapter atoms into logical chapters, retaining section boundaries for scrubber tick marks |
+| `ChapterLoadingCoordinator` | Chapter parsing, transcript loading, word cloud computation, invokes `ChapterGroupingService` |
 | `PlaybackProgressPresenter` | Progress updates, elapsed time formatting, Now Playing info |
 | `PlayerLoadingCoordinator` | Folder/track loading, audio session setup, persistence, seek-on-load |
 | `BookmarkArtworkCoordinator` | Artwork generation, caching, Now Playing artwork updates |
@@ -422,6 +424,31 @@ PlayerModel wires these via coordinator closures in `init()` and exposes thin pa
 
 1. **Direct injection** (data-access services): `PlaylistManager`, `TranscriptService`, `SecurityScopeManager` receive `PlaybackState` and `Persistence` directly.
 2. **Coordinator closures** (behavioral services): `PlaybackController`, `BookmarkStore`, `ChapterLoadingCoordinator`, etc. communicate back to `PlayerModel` through `@ObservationIgnored` closure variables wired in `init()`.
+
+### Player Layout Styles
+
+The iOS player supports two layout variants, selected via **Settings > Player Layout Style**:
+
+| Style | Scrubber | Transport Controls | Target |
+|---|---|---|---|
+| **Default** | Slider above time labels (vertical stack) | Full-size (76pt play/pause, 64pt others) | Standard experience |
+| **Compact** | Slider between time labels (horizontal row) | Reduced-size (60pt play/pause, 50pt others) | Minimalist, one-handed use |
+
+The layout style is persisted in `SettingsManager.playerLayoutStyle` (UserDefaults key `playerLayoutStyle`) and drives conditional rendering in `PlayerScrubberView` and `TransportControlsView`.
+
+### Chapter Sections & Section Navigation
+
+Libation-ripped M4B audiobooks encode chapters as fine-grained sub-section atoms with shared base titles (e.g. "Chapter 11. A", "Chapter 11. B"). `ChapterGroupingService` collapses these into logical chapters and retains the original atoms as **sections** in `PlaybackState.chapterSections` (a `[Int: [Chapter]]` map keyed by logical chapter index).
+
+**Section ticks on scrubber:** `PlayerScrubberView` overlays a `SectionTickOverlay` (`Canvas`-based, `allowsHitTesting(false)`) that draws hairline tick marks at each sub-section boundary. While scrubbing, the slider snaps to these boundaries with haptic feedback (`UIImpactFeedbackGenerator`), limited to a maximum of 20 visible ticks per chapter to avoid visual clutter.
+
+**Section navigation:** Two new `WatchAction` cases — `.nextSection` and `.previousSection` — are available on both phone and watch button layouts. They mirror chapter-level navigation but operate at the section level:
+- `nextSection()`: seeks to the next section boundary within the current logical chapter, falling back to the next chapter.
+- `previousSectionOrRestart()`: seeks to the previous section boundary (or restarts the current section if > 5 seconds in), falling back to the previous chapter.
+
+These actions are routed through `PlaybackController` → `WatchCommandRouter` → `WatchConnectivityCoordinator` for watch-initiated commands, and directly for phone transport controls.
+
+**Playlist disclosure groups:** In `PlaylistView`, logical chapters with section data render as `DisclosureGroup` rows, expanding to reveal tappable section rows that seek to each section boundary. A play icon indicates the currently active section.
 
 ### TimelineScope (Structural Zoom)
 

@@ -407,6 +407,67 @@ final class PlaybackController: PlaybackControllerProtocol {
         }
     }
 
+    func nextSection() {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            nextAggregatedChapter()
+            return
+        }
+        
+        guard let idx = state.currentChapterIndex, let sections = state.chapterSections[idx], !sections.isEmpty else {
+            nextChapter()
+            return
+        }
+        
+        let t = audioEngine.currentTime
+        if let nextSec = sections.first(where: { $0.startSeconds > t + 0.5 }) {
+            seekToSection(nextSec)
+        } else {
+            nextChapter()
+        }
+    }
+
+    func previousSectionOrRestart() {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            previousAggregatedChapterOrRestart()
+            return
+        }
+        
+        guard let idx = state.currentChapterIndex, let sections = state.chapterSections[idx], !sections.isEmpty else {
+            previousChapterOrRestart()
+            return
+        }
+        
+        let t = audioEngine.currentTime
+        
+        if let currentSec = sections.last(where: { $0.startSeconds <= t }), (t - currentSec.startSeconds) > 5 {
+            seekToSection(currentSec)
+            return
+        }
+        
+        if let prevSec = sections.last(where: { $0.startSeconds < t - 5.0 }) {
+            seekToSection(prevSec)
+        } else {
+            previousChapterOrRestart()
+        }
+    }
+
+    private func seekToSection(_ section: Chapter) {
+        let targetSeconds = section.startSeconds + 0.05
+        state.isManualSeeking = true
+        audioEngine.seek(to: targetSeconds) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.state.isManualSeeking = false
+                self.coordinator_seekCompleted?(false)
+                self.coordinator_refreshProgress?()
+                if self.state.isPlaying {
+                    self.audioEngine.playImmediately(atRate: self.speed)
+                    self.applySpeedToCurrentItem()
+                }
+            }
+        }
+    }
+
     func seekToChapter(at index: Int) {
         guard state.chapters.indices.contains(index), audioEngine.isItemLoaded else { return }
         let c = state.chapters[index]

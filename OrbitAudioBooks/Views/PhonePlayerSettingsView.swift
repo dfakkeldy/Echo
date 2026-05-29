@@ -13,7 +13,8 @@ struct PhonePlayerSettingsView: View {
 
     private let palette: [WatchAction] = [
         .playPause, .skipForward, .skipBackward, .nextTrack,
-        .previousTrack, .loopMode, .speed, .sleepTimer, .bookmark
+        .previousTrack, .nextSection, .previousSection,
+        .loopMode, .speed, .sleepTimer, .bookmark
     ]
 
     var body: some View {
@@ -21,6 +22,28 @@ struct PhonePlayerSettingsView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+
+                // MARK: Player Layout Style
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Player Layout Style")
+                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
+                        .foregroundStyle(.secondary)
+                    
+                    Picker("Layout Style", selection: $settings.playerLayoutStyle) {
+                        Text("Default").tag("default")
+                        Text("Compact").tag("compact")
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    Text("The Compact layout uses a smaller scrubber and reorganizes transport controls for a more minimalist look.")
+                        .customFont(.subheadline, appFont: settings.appFont)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(.quaternary)
+                )
 
                 // MARK: Phone App Designer Info
                 VStack(alignment: .leading, spacing: 8) {

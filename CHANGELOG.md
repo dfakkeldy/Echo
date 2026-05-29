@@ -15,11 +15,17 @@ All notable changes to Orbit Audiobooks.
 - `os.log` migration for structured logging across all targets.
 - GitHub Pages marketing site and privacy policy page.
 - Timeline freeze mode for EPUB browsing with sync-and-resume anchoring.
+- **Chapter grouping service** (`ChapterGroupingService`): detects and collapses Libation-style sub-section chapter atoms into logical chapters. Handles patterns like "Chapter 11. A" / "Chapter 11. B" → single "Chapter 11" spanning the full time range, with original sub-sections retained for scrubber tick marks.
+- **Section navigation**: new `.nextSection` and `.previousSection` `WatchAction` cases for skipping between sub-section boundaries within chapters. Available on both phone transport controls and watch button layouts.
+- **Section scrubber ticks**: `SectionTickOverlay` renders hairline tick marks on the scrubber rail at each sub-section boundary, with magnetic snapping and haptic feedback (`UIImpactFeedbackGenerator`) while dragging.
+- **Compact player layout**: "Compact" layout style option in player settings, reducing transport button sizes and placing the scrubber inline between time labels for a minimalist, one-handed-friendly look.
+- **Section disclosure groups in playlist**: logical chapters with sub-section data render as expandable `DisclosureGroup` rows, with tappable section rows and now-playing indicators.
 
 ### Changed
 - Simplified scrubber layout: time labels always below the slider.
 - Watch communication reliability improvements and playlist toggle UI polish.
 - Artwork handling simplified; oversized widget artwork now downsampled via ImageIO instead of discarded.
+- Timeline feed action buttons (bookmark, flashcard, etc.) now use `UIButton.Configuration` with larger content insets for improved hit targets while maintaining 14pt icon size.
 
 ### Fixed
 - Watch skip forward/backward fallback SF Symbols corrected from nonexistent `goforward`/`gobackward` to valid `arrow.clockwise`/`arrow.counterclockwise`.

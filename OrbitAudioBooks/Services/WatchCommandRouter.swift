@@ -16,6 +16,8 @@ protocol WatchCommandRoutingFacade: AnyObject {
     func togglePlayPause()
     func skipBackwardNavigation() -> Bool
     func skipForwardNavigation() -> Bool
+    func nextSection()
+    func previousSectionOrRestart()
     func skipBackward30() -> Bool
     func skipForward30() -> Bool
     func seek(toSeconds targetSeconds: Double)
@@ -54,6 +56,10 @@ final class WatchCommandRouter {
                     if facade.skipForwardNavigation() { commandResult = "bookmarkJump" }
                 case "previous":
                     if facade.skipBackwardNavigation() { commandResult = "bookmarkJump" }
+                case "nextSection":
+                    facade.nextSection()
+                case "previousSection":
+                    facade.previousSectionOrRestart()
                 case "skipBackward":
                     if facade.skipBackward30() { commandResult = "bookmarkJump" }
                 case "skipForward":

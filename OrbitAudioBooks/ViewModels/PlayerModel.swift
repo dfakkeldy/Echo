@@ -182,6 +182,14 @@ final class PlayerModel {
         return state.chapterWordClouds[idx] ?? []
     }
 
+    /// The fine-grained sub-section atoms for the currently active logical chapter.
+    /// Non-empty only for Libation-ripped M4Bs where chapter grouping was applied.
+    /// Used by `PlayerScrubberView` to render hairline tick marks on the scrubber rail.
+    var currentChapterSections: [Chapter] {
+        guard let idx = state.currentChapterIndex else { return [] }
+        return state.chapterSections[idx] ?? []
+    }
+
     /// Whether EPUB blocks have been imported for the current audiobook.
     var hasEPUB: Bool {
         timelinePersistence.hasEPUB(for: folderURL?.absoluteString)
@@ -800,6 +808,14 @@ final class PlayerModel {
 
     func previousChapterOrRestart() {
         playbackController.previousChapterOrRestart()
+    }
+
+    func nextSection() {
+        playbackController.nextSection()
+    }
+
+    func previousSectionOrRestart() {
+        playbackController.previousSectionOrRestart()
     }
 
     private var enabledCurrentTrackBookmarks: [Bookmark] {

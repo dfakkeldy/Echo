@@ -5,16 +5,17 @@ struct TransportControlsView: View {
     @Environment(SettingsManager.self) private var settings
 
     var body: some View {
+        let isCompact = settings.playerLayoutStyle == "compact"
         HStack {
             Spacer()
             ForEach(0..<5, id: \.self) { index in
                 let action = actionAt(index)
-                buttonForAction(action)
+                buttonForAction(action, isCompact: isCompact)
                 Spacer()
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .padding(.vertical, isCompact ? 8 : 12)
     }
 
     private func actionAt(_ index: Int) -> WatchAction {
@@ -26,7 +27,7 @@ struct TransportControlsView: View {
     }
 
     @ViewBuilder
-    private func buttonForAction(_ action: WatchAction) -> some View {
+    private func buttonForAction(_ action: WatchAction, isCompact: Bool) -> some View {
         switch action {
         case .playPause:
             Button {
@@ -34,9 +35,9 @@ struct TransportControlsView: View {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } label: {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 44, weight: .bold))
+                    .font(.system(size: isCompact ? 36 : 44, weight: .bold))
                     .foregroundStyle(.primary)
-                    .frame(width: 76, height: 76)
+                    .frame(width: isCompact ? 60 : 76, height: isCompact ? 60 : 76)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(model.isPlaying ? Text("Pause") : Text("Play"))
@@ -47,9 +48,9 @@ struct TransportControlsView: View {
                 UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
             } label: {
                 Image(systemName: WatchAction.skipBackward.dynamicIconName(forDuration: settings.seekBackwardDuration))
-                    .font(.system(size: 28, weight: .regular))
+                    .font(.system(size: isCompact ? 24 : 28, weight: .regular))
                     .foregroundStyle(.primary)
-                    .frame(width: 64, height: 64)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip back \(settings.seekBackwardDuration) seconds"))
@@ -60,9 +61,9 @@ struct TransportControlsView: View {
                 UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
             } label: {
                 Image(systemName: WatchAction.skipForward.dynamicIconName(forDuration: settings.seekForwardDuration))
-                    .font(.system(size: 28, weight: .regular))
+                    .font(.system(size: isCompact ? 24 : 28, weight: .regular))
                     .foregroundStyle(.primary)
-                    .frame(width: 64, height: 64)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip forward \(settings.seekForwardDuration) seconds"))
@@ -73,9 +74,9 @@ struct TransportControlsView: View {
                 UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
             } label: {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: 64, height: 64)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(model.chapters.count >= 2 ? Text("Previous chapter") : Text("Previous track"))
@@ -86,12 +87,38 @@ struct TransportControlsView: View {
                 UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
             } label: {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: 64, height: 64)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(model.chapters.count >= 2 ? Text("Next chapter") : Text("Next track"))
+
+        case .previousSection:
+            Button {
+                model.previousSectionOrRestart()
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Previous section"))
+
+        case .nextSection:
+            Button {
+                model.nextSection()
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Next section"))
 
         case .loopMode:
             Button {
@@ -102,15 +129,15 @@ struct TransportControlsView: View {
                     switch model.loopMode {
                     case .off:
                         Image(systemName: "infinity")
-                            .font(.system(size: 24, weight: .semibold))
+                            .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
                             .foregroundStyle(.primary)
                     case .chapter:
                         Image(systemName: "infinity")
-                            .font(.system(size: 24, weight: .semibold))
+                            .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
                             .foregroundStyle(.tint)
                     case .bookmark:
                         Image(systemName: "arrow.trianglehead.clockwise")
-                            .font(.system(size: 24, weight: .semibold))
+                            .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
                             .foregroundStyle(.tint)
                             .overlay(
                                 Image(systemName: "bookmark.fill")
@@ -118,7 +145,7 @@ struct TransportControlsView: View {
                             )
                     }
                 }
-                .frame(width: 64, height: 64)
+                .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Loop mode"))
@@ -142,9 +169,9 @@ struct TransportControlsView: View {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             } label: {
                 Text(speedLabel)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(.system(size: isCompact ? 14 : 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
-                    .frame(width: 64, height: 64)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Playback speed"))
@@ -161,9 +188,9 @@ struct TransportControlsView: View {
                 }
             } label: {
                 Image(systemName: "bookmark.fill")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: 64, height: 64)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Add bookmark"))
@@ -171,7 +198,7 @@ struct TransportControlsView: View {
 
         case .empty:
             Spacer()
-                .frame(width: 64, height: 64)
+                .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
         }
     }
 

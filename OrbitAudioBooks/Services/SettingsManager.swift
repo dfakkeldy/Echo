@@ -38,6 +38,7 @@ final class SettingsManager: SettingsManagerProtocol {
         static let phonePage: [WatchAction] = [.previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack]
         static let seekBackwardDuration = 30
         static let seekForwardDuration = 30
+        static let playerLayoutStyle = "default"
     }
 
     private enum Keys {
@@ -73,6 +74,7 @@ final class SettingsManager: SettingsManagerProtocol {
         static let seekForwardDuration = "seekForwardDuration"
         static let watchPresets = "watchPresets"
         static let phonePresets = "phonePresets"
+        static let playerLayoutStyle = "playerLayoutStyle"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -91,6 +93,7 @@ final class SettingsManager: SettingsManagerProtocol {
     var isDarkMode: Bool { didSet { defaults.set(isDarkMode, forKey: Keys.isDarkMode) } }
     var appFont: String { didSet { defaults.set(appFont, forKey: Keys.appFont) } }
     var themeColor: String { didSet { defaults.set(themeColor, forKey: Keys.themeColor) } }
+    var playerLayoutStyle: String { didSet { defaults.set(playerLayoutStyle, forKey: Keys.playerLayoutStyle) } }
 
     // MARK: - Smart Rewind
 
@@ -194,6 +197,7 @@ final class SettingsManager: SettingsManagerProtocol {
             defaults.set(normalizedAppFont, forKey: Keys.appFont)
         }
         themeColor = defaults.string(forKey: Keys.themeColor) ?? Defaults.themeColor
+        playerLayoutStyle = defaults.string(forKey: Keys.playerLayoutStyle) ?? Defaults.playerLayoutStyle
         isRewindEnabled = defaults.bool(forKey: Keys.isRewindEnabled)
         rewindPauseSecondsThreshold = defaults.integer(forKey: Keys.rewindPauseSecondsThreshold)
         rewindAmountAfterSeconds = defaults.integer(forKey: Keys.rewindAmountAfterSeconds)
@@ -273,7 +277,8 @@ final class SettingsManager: SettingsManagerProtocol {
             Keys.crownScrubSensitivity: Defaults.crownScrubSensitivity,
             Keys.phonePage: (try? JSONEncoder().encode(Defaults.phonePage)) ?? Data(),
             Keys.seekBackwardDuration: Defaults.seekBackwardDuration,
-            Keys.seekForwardDuration: Defaults.seekForwardDuration
+            Keys.seekForwardDuration: Defaults.seekForwardDuration,
+            Keys.playerLayoutStyle: Defaults.playerLayoutStyle
         ])
         appGroupDefaults.register(defaults: [
             Keys.crownAction: Defaults.crownAction,

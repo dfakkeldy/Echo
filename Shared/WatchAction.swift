@@ -8,6 +8,8 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
     case skipBackward
     case nextTrack
     case previousTrack
+    case nextSection
+    case previousSection
     case loopMode
     case speed
     case sleepTimer
@@ -23,6 +25,8 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .skipBackward:  return "gobackward.30"
         case .nextTrack:     return "forward.end.fill"
         case .previousTrack: return "backward.end.fill"
+        case .nextSection:     return "forward.fill"
+        case .previousSection: return "backward.fill"
         case .loopMode:      return "infinity"
         case .speed:         return "gauge.medium"
         case .sleepTimer:    return "moon.zzz.fill"
@@ -58,6 +62,8 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .skipBackward:  return "skipBackward"
         case .nextTrack:     return "next"
         case .previousTrack: return "previous"
+        case .nextSection:     return "nextSection"
+        case .previousSection: return "previousSection"
         case .loopMode:      return "cycleLoopMode"
         case .speed:         return "cycleSpeed"
         case .sleepTimer:    return "toggleSleepTimer"

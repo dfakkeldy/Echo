@@ -39,6 +39,10 @@ final class PlaybackState {
 
     var chapters: [Chapter] = []
     var currentChapterIndex: Int? = nil
+    /// Fine-grained sub-section atoms per logical chapter index.
+    /// Populated by `ChapterGroupingService` when a Libation-style naming
+    /// pattern is detected; empty for all other books.
+    var chapterSections: [Int: [Chapter]] = [:]
 
     // MARK: - Flags
 

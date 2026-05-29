@@ -44,6 +44,9 @@ final class ChapterLoadingCoordinator {
         let trackTitle = track.title
         let trackCount = state.tracks.count
 
+        // Clear any stale section data from a previous book.
+        state.chapterSections = [:]
+
         // Multi-M4B: chapters already loaded from M4BParser with intra-book offsets.
         if state.isMultiM4B, !state.chapters.isEmpty { return }
 
@@ -72,6 +75,18 @@ final class ChapterLoadingCoordinator {
             }
             orderedChapters.append(contentsOf: remainingChapters)
             built = orderedChapters
+        }
+
+        // Apply chapter grouping to collapse Libation-style sub-section atoms into
+        // logical chapters, retaining section boundaries for the scrubber overlay.
+        // This is a no-op (wasGrouped == false) for OpenAudible and any other ripper
+        // whose chapter atoms are already at the logical-chapter level.
+        if built.count >= 2 {
+            let groupingResult = ChapterGroupingService.group(built)
+            if groupingResult.wasGrouped {
+                built = groupingResult.logicalChapters
+                state.chapterSections = groupingResult.sections
+            }
         }
 
         // For files with no parsed chapters, create a single chapter spanning the book

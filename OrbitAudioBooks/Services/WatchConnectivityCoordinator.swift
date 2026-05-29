@@ -26,6 +26,8 @@ final class WatchConnectivityCoordinator: WatchCommandRoutingFacade {
     func togglePlayPause() { playerModel?.togglePlayPause() }
     func skipBackwardNavigation() -> Bool { playerModel?.skipBackwardNavigation() ?? false }
     func skipForwardNavigation() -> Bool { playerModel?.skipForwardNavigation() ?? false }
+    func nextSection() { playerModel?.nextSection() }
+    func previousSectionOrRestart() { playerModel?.previousSectionOrRestart() }
     func skipBackward30() -> Bool { playerModel?.skipBackward30() ?? false }
     func skipForward30() -> Bool { playerModel?.skipForward30() ?? false }
     func seek(toSeconds targetSeconds: Double) { playerModel?.seek(toSeconds: targetSeconds) }

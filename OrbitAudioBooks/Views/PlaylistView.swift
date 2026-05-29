@@ -292,6 +292,23 @@ struct PlaylistView: View {
 
     @ViewBuilder
     private func chapterRow(index: Int, chapter: Chapter) -> some View {
+        let sections = model.state.chapterSections[index] ?? []
+        if sections.isEmpty {
+            chapterRowContent(index: index, chapter: chapter)
+        } else {
+            DisclosureGroup {
+                ForEach(sections) { section in
+                    sectionRow(section)
+                }
+            } label: {
+                chapterRowContent(index: index, chapter: chapter)
+            }
+            .tint(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func chapterRowContent(index: Int, chapter: Chapter) -> some View {
         HStack {
             Button {
                 model.toggleChapterEnabled(at: index)
@@ -334,6 +351,36 @@ struct PlaylistView: View {
             }
             .tint(chapter.isEnabled ? .orange : .green)
         }
+    }
+
+    @ViewBuilder
+    private func sectionRow(_ section: Chapter) -> some View {
+        Button {
+            model.seek(toSeconds: section.startSeconds + 0.05)
+            onRowTapped?(section.startSeconds)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section.title ?? String(localized: "Section"))
+                        .foregroundStyle(.primary)
+                        .font(.subheadline)
+                    Text(formatDuration(section.endSeconds - section.startSeconds))
+                        .customFont(.caption, appFont: model.resolvedAppFont)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                // Highlight if playing in this section
+                let currentTime = model.currentPlaybackTime
+                if currentTime >= section.startSeconds && currentTime < section.endSeconds {
+                    Image(systemName: "play.circle.fill")
+                        .foregroundStyle(.tint)
+                        .font(.subheadline)
+                }
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
