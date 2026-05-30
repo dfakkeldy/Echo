@@ -18,6 +18,7 @@ struct ReaderTab: View {
     @State private var topChapterTitle: String? = nil
     @State private var topSectionTitle: String? = nil
     @State private var pulseBlockID: String? = nil
+    @State private var forceScrollBlockID: String? = nil
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
     @State private var hasDismissedAlignmentBanner = false
@@ -34,6 +35,12 @@ struct ReaderTab: View {
                         ReaderHeaderView(
                             searchText: $searchText,
                             chapterTitle: "EPUB Reader",
+                            onScrollToActiveTap: {
+                                autoScrollEnabled = true
+                                if let activeID = viewModel?.activeBlockID {
+                                    forceScrollBlockID = activeID
+                                }
+                            },
                             onTOCTap: { showTOC = true },
                             onSettingsTap: { showSettings = true }
                         )
@@ -43,19 +50,19 @@ struct ReaderTab: View {
                     VStack(spacing: 4) {
                         if let title = topChapterTitle, !title.isEmpty {
                             Text(title)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .multilineTextAlignment(.center)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 8)
                         }
                         if let section = topSectionTitle, !section.isEmpty {
                             Text(section)
-                                .font(.headline)
-                                .foregroundColor(.primary)
-                                .lineLimit(2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .multilineTextAlignment(.center)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 8)
                         } else {
@@ -96,6 +103,7 @@ struct ReaderTab: View {
                         settings: readerSettings,
                         searchQuery: searchText.isEmpty ? nil : searchText,
                         pulseBlockID: pulseBlockID,
+                        forceScrollBlockID: forceScrollBlockID,
                         onTapBlock: { blockID in
                             seekToBlock(blockID)
                         },
@@ -113,20 +121,6 @@ struct ReaderTab: View {
 
             VStack {
                 Spacer()
-                HStack {
-                    Spacer()
-                    Button {
-                        autoScrollEnabled.toggle()
-                    } label: {
-                        Image(systemName: autoScrollEnabled ? "calendar.day.timeline.left.circle.fill" : "calendar.day.timeline.left.circle")
-                            .font(.system(size: 28, weight: .regular))
-                            .foregroundColor(autoScrollEnabled ? .accentColor : .secondary)
-                            .background(Circle().fill(Color(uiColor: .systemBackground)))
-                            .shadow(radius: 4)
-                    }
-                    .padding(.trailing, 24)
-                    .padding(.bottom, 155)
-                }
             }
         }
         .onAppear {
@@ -148,6 +142,7 @@ struct ReaderTab: View {
                     activeBlockID: vm.activeBlockID,
                     onSelect: { blockID in
                         seekToBlockAndScroll(blockID)
+                        forceScrollBlockID = blockID
                         showTOC = false
                     }
                 )

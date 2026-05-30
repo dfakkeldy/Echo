@@ -12,6 +12,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     let settings: ReaderSettings
     var searchQuery: String? = nil
     var pulseBlockID: String? = nil
+    var forceScrollBlockID: String? = nil
     var onTapBlock: ((String) -> Void)?
     var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
 
@@ -67,6 +68,16 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             context.coordinator.pulseBlockID = nil
         }
 
+        if let forceID = forceScrollBlockID, forceID != context.coordinator.lastForceScrolledID {
+            context.coordinator.lastForceScrolledID = forceID
+            if let dataSource = context.coordinator.dataSource,
+               let indexPath = dataSource.indexPath(for: "b-\(forceID)") {
+                DispatchQueue.main.async {
+                    collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+                }
+            }
+        }
+
         if sections != context.coordinator.sections {
             let wasEmpty = context.coordinator.sections.isEmpty
             context.coordinator.sections = sections
@@ -107,6 +118,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var sections: [ReaderCardSection] = []
         var activeBlockID: String?
         var lastScrolledBlockID: String?
+        var lastForceScrolledID: String?
 
         init(onTapBlock: ((String) -> Void)?, onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?, isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>, topChapterTitle: Binding<String?>, topSectionTitle: Binding<String?>) {
             self.onTapBlock = onTapBlock
@@ -191,14 +203,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             
             var targetIndexPath: IndexPath?
             
-            // 1. Try finding it directly in the data source (for paragraphs, images, non-divider headings)
-            if let indexPath = dataSource.indexPath(for: blockID) {
+            // 1. Try finding it directly in the data source
+            if let indexPath = dataSource.indexPath(for: "b-\(blockID)") {
                 targetIndexPath = indexPath
-            } else {
-                // 2. It might be a divider. The itemID for a divider is "chHeader-\(blockID)"
-                if let indexPath = dataSource.indexPath(for: "chHeader-\(blockID)") {
-                    targetIndexPath = indexPath
-                }
             }
             
             guard let indexPath = targetIndexPath else { return }
@@ -221,12 +228,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
 
         /// Triggers a brief scale-pulse animation on the cell for the given block ID.
         func pulseCell(for blockID: String, in collectionView: UICollectionView) {
-            // Resolve the correct item ID (block uses "b-\(id)", divider uses "chHeader-\(id)")
             guard let dataSource = dataSource else { return }
-            var indexPath = dataSource.indexPath(for: "b-\(blockID)")
-            if indexPath == nil {
-                indexPath = dataSource.indexPath(for: "chHeader-\(blockID)")
-            }
+            let indexPath = dataSource.indexPath(for: "b-\(blockID)")
             guard let indexPath, let cell = collectionView.cellForItem(at: indexPath) else { return }
 
             cell.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
@@ -310,14 +313,15 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 let stack = section.headingStack.filter { !$0.isEmpty }
                 
                 if stack.count == 1 {
-                    sectionTitle = stack.first
+                    chapterTitle = stack.first
+                    sectionTitle = nil
                 } else if stack.count > 1 {
                     chapterTitle = stack.first
                     sectionTitle = stack.last
                 }
                 
                 if chapterTitle == sectionTitle {
-                    chapterTitle = nil
+                    sectionTitle = nil
                 }
                 
                 if topChapterTitle.wrappedValue != chapterTitle {

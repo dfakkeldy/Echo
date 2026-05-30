@@ -300,7 +300,7 @@ User anchors (manual)
 
 ```
 ReaderTab (SwiftUI)
-  ├── ReaderHeaderView          ← search bar ("Find in book..."), TOC button, settings button
+  ├── ReaderHeaderView          ← search bar ("Find in book..."), scroll-to-active button, TOC button, settings button
   ├── Chapter/section title bar ← sticky context showing current chapter and section
   ├── Hint banners              ← context menu tip (one-time), alignment guidance (until first anchor)
   └── ReaderFeedCollectionView  ← UICollectionView via UIViewRepresentable
@@ -424,7 +424,7 @@ The Reader uses a tap/long-press interaction model on card cells:
 
 **Active block tracking:** The paragraph currently matching the audio playback position is highlighted with a blue leading bar (`activeBar`) on its card. The ReaderFeedViewModel performs a binary search on a cached `[(start, end, blockID)]` array for O(log N) lookup each time the playback position changes.
 
-**Auto-scroll:** When enabled, the collection view auto-scrolls to keep the active block centered. Scrolling manually pauses auto-scroll; the floating auto-scroll button re-engages it. The header auto-hides on scroll-down and reappears on scroll-up.
+**Auto-scroll:** When enabled, the collection view auto-scrolls to keep the active block centered. Scrolling manually pauses auto-scroll; tapping the scroll-to-active button (↓) in the header re-engages it with an immediate forced scroll to the current playback position. The header auto-hides on scroll-down and reappears on scroll-up.
 
 **Bookmark lifecycle:** Bookmarks created via `BottomToolbarView.addBookmarkButton` flow through `BookmarkStore.appendBookmark` → `BookmarkDAO.syncToTimeline` → `timeline_item` table. The `.bookmarksDidChange` notification triggers a feed refresh, ensuring bookmarks appear inline immediately.
 

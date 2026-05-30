@@ -3,6 +3,7 @@ import SwiftUI
 struct ReaderHeaderView: View {
     @Binding var searchText: String
     let chapterTitle: String
+    let onScrollToActiveTap: () -> Void
     let onTOCTap: () -> Void
     let onSettingsTap: () -> Void
 
@@ -14,6 +15,17 @@ struct ReaderHeaderView: View {
                     .fontWeight(.medium)
                     .lineLimit(1)
                 Spacer()
+                
+                Button {
+                    onScrollToActiveTap()
+                } label: {
+                    Image(systemName: "arrow.down.to.line")
+                        .font(.system(size: 16))
+                        .foregroundColor(.accentColor)
+                }
+                .accessibilityLabel(Text("Scroll to current playback position"))
+                .padding(.trailing, 8)
+
                 Button {
                     onTOCTap()
                 } label: {

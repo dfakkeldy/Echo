@@ -378,6 +378,8 @@ private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             isInBlock = false
             let heading = currentHeading.trimmingCharacters(in: .whitespaces)
             let html = currentHTML.trimmingCharacters(in: .whitespaces)
+            currentText = ""
+            currentHTML = ""
             if !heading.isEmpty {
                 textBlocks.append(TextBlockDescriptor(
                     kind: .heading,
