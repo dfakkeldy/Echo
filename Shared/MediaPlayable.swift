@@ -1,14 +1,13 @@
 import Foundation
 
 /// Generic protocol for any media item that appears on a timeline —
-/// audio chapters, video markers, bookmarks, flashcards, etc.
-/// Designed so future video features share the same timeline rendering logic.
+/// chapters, bookmarks, flashcards, etc.
 protocol MediaPlayable: Identifiable {
     /// When this segment begins in the media timeline (seconds).
-    var audioStartTime: TimeInterval { get }
+    var startTime: TimeInterval { get }
     /// When this segment ends, if it has a duration.
     /// Point-in-time items (bookmarks, images) return nil.
-    var audioEndTime: TimeInterval? { get }
+    var endTime: TimeInterval? { get }
     /// Display title for the feed cell.
     var title: String { get }
     /// Optional detail text.

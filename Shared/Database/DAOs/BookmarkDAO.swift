@@ -3,7 +3,6 @@ import GRDB
 
 struct BookmarkDAO {
     let db: DatabaseWriter
-    var timelineDAO: TimelineDAO? = nil
 
     func bookmarks(for audiobookID: String) throws -> [BookmarkRecord] {
         try db.read { db in

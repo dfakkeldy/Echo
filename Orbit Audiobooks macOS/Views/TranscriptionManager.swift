@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import CryptoKit
 import AppKit
 import UniformTypeIdentifiers
 import os.log
@@ -156,8 +155,7 @@ class TranscriptionManager: ObservableObject {
             try? FileManager.default.createDirectory(at: transcriptDir, withIntermediateDirectories: true)
         }
 
-        let data = Data(url.path.utf8)
-        let hash = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+        let hash = url.sha256Hash
         let transcriptURL = transcriptDir.appendingPathComponent("\(hash).transcript.json")
 
         let didStart = url.startAccessingSecurityScopedResource()

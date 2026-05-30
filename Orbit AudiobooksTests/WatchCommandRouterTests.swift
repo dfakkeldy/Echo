@@ -146,6 +146,14 @@ private final class FakeWatchCommandFacade: WatchCommandRoutingFacade {
         return navigationShouldBookmarkJump
     }
 
+    func nextSection() {
+        calls.append("nextSection")
+    }
+
+    func previousSectionOrRestart() {
+        calls.append("previousSectionOrRestart")
+    }
+
     func skipBackward30() -> Bool {
         calls.append("skipBackward30")
         return navigationShouldBookmarkJump

@@ -26,28 +26,26 @@ struct DeepLinkHandler {
     ///   - isItemLoaded: Whether an audiobook track is currently loaded.
     ///   - isPlaying: Whether playback is currently active.
     mutating func handle(_ deepLink: PlayerDeepLink, isItemLoaded: Bool, isPlaying: Bool) -> DeepLinkAction? {
-        switch deepLink {
-        case .play(let time):
-            var action: DeepLinkAction?
+        let time = deepLink.time
+        var action: DeepLinkAction?
 
-            if let time {
-                if isItemLoaded {
-                    action = .seek(time)
-                } else {
-                    pendingSeekTime = time
-                    action = .queueSeek(time)
-                }
+        if let time {
+            if isItemLoaded {
+                action = .seek(time)
+            } else {
+                pendingSeekTime = time
+                action = .queueSeek(time)
             }
-
-            if isItemLoaded, !isPlaying {
-                if action != nil {
-                    return action
-                }
-                return .play
-            }
-
-            return action
         }
+
+        if isItemLoaded, !isPlaying {
+            if action != nil {
+                return action
+            }
+            return .play
+        }
+
+        return action
     }
 
     /// If a pending seek was queued and the item is now loaded, returns the

@@ -3,7 +3,6 @@ import GRDB
 
 struct FlashcardDAO {
     let db: DatabaseWriter
-    var timelineDAO: TimelineDAO? = nil
 
     func flashcards(for audiobookID: String) throws -> [Flashcard] {
         try db.read { db in

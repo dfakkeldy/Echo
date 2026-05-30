@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import CryptoKit
 
 /// Display mode for the transcript pane.
 enum MacTranscriptDisplayMode: String, CaseIterable {
@@ -17,9 +16,7 @@ struct TranscriptPane: View {
     @ScaledMetric(relativeTo: .body) private var wordCloudBaseSize: CGFloat = 10
 
     var currentHash: String {
-        guard let path = player.currentURL?.path else { return "" }
-        let data = Data(path.utf8)
-        return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+        player.currentURL?.sha256Hash ?? ""
     }
 
     var segments: [TranscriptionSegment] {
@@ -278,8 +275,4 @@ private struct MacFlowLayout: Layout {
             x += size.width + horizontalSpacing
         }
     }
-}
-
-extension Optional {
-    var isNil: Bool { self == nil }
 }

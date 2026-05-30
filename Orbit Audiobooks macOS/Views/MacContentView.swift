@@ -8,7 +8,6 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
-import CryptoKit
 
 struct MacContentView: View {
     @EnvironmentObject private var player: MacPlayerModel
@@ -95,8 +94,7 @@ struct MacContentView: View {
               let url = player.currentURL,
               player.currentTime > 0 else { return nil }
 
-        let data = Data(url.path.utf8)
-        let hash = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+        let hash = url.sha256Hash
         guard let segments = transcriptStore.transcriptions[hash], !segments.isEmpty else { return nil }
 
         return segments.first { player.currentTime >= $0.startTime && player.currentTime <= $0.endTime }
@@ -113,8 +111,8 @@ struct MacContentView: View {
             .compactMap { $0 }
         panel.allowedContentTypes = audioTypes
         if panel.runModal() == .OK, let url = panel.url {
-            var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            if isDirectory {
                 player.loadFolder(url: url)
             } else {
                 player.open(url: url)

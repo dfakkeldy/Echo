@@ -88,7 +88,7 @@ struct RegressionTests {
         let storage = EPUBAssetStorage(databaseService: db)
 
         let testID = "file:///path/to/book-\(UUID().uuidString)"
-        let dir = storage.directory(for: testID)
+        let dir = try #require(storage.directory(for: testID))
 
         // Path must be a local filesystem path, not an EPUB href.
         #expect(dir.isFileURL)

@@ -32,7 +32,8 @@ struct ContentCardEditor: View {
                             .frame(minHeight: 100)
                             .font(.body)
                     }
-                default:
+                case .flashcard, .playbackSession, .plannedSession,
+                     .voiceMemo, .chapterTransition, .imageAsset:
                     ContentUnavailableView(
                         "Not Editable",
                         systemImage: "lock",
@@ -46,17 +47,7 @@ struct ContentCardEditor: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveChanges()
-                        dismiss()
-                    }
-                }
             }
         }
-    }
-
-    private func saveChanges() {
-        // Phase 6 note: actual DB save wired in later iteration
     }
 }

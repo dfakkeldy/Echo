@@ -74,7 +74,7 @@ final class RealTimeProjectionService {
             availableDuration: totalAvailableSeconds,
             remainingDuration: remaining,
             estimatedCompletionDate: completionDate,
-            scenario: .insufficient(remaining / totalAvailableSeconds)
+            scenario: .insufficient
         )
     }
 

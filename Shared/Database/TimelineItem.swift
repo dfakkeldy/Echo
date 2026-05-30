@@ -122,7 +122,10 @@ enum AlignmentStatus: String {
 
 // MARK: - MediaPlayable
 
-extension TimelineItem: MediaPlayable {}
+extension TimelineItem: MediaPlayable {
+    var startTime: TimeInterval { audioStartTime }
+    var endTime: TimeInterval? { audioEndTime }
+}
 
 // MARK: - Legacy compatibility
 

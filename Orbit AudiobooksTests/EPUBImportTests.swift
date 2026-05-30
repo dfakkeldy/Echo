@@ -152,7 +152,7 @@ struct EPUBImportTests {
         let storage = EPUBAssetStorage()
 
         let testID = "file:///path/to/test-book-\(UUID().uuidString)"
-        let dir = storage.directory(for: testID)
+        let dir = try #require(storage.directory(for: testID))
 
         #expect(!FileManager.default.fileExists(atPath: dir.path))
 

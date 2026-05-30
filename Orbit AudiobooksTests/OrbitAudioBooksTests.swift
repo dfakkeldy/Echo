@@ -43,13 +43,13 @@ struct OrbitAudioBooksTests {
     @Test func playerDeepLinkParsesPlayURLWithoutTime() throws {
         let link = try #require(PlayerDeepLink(url: URL(string: "orbitaudio://play")!))
 
-        #expect(link == .play(time: nil))
+        #expect(link.time == nil)
     }
 
     @Test func playerDeepLinkParsesPlayURLWithTime() throws {
         let link = try #require(PlayerDeepLink(url: URL(string: "orbitaudio://play?time=30")!))
 
-        #expect(link == .play(time: 30))
+        #expect(link.time == 30)
     }
 
     @Test func playerDeepLinkRejectsUnregisteredScheme() {

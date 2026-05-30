@@ -12,7 +12,7 @@ enum ContentCardType: String, Codable, Sendable {
     case imageAsset
 }
 
-struct ContentCard: Identifiable, Equatable, PlaybackTimelineItem, Sendable {
+struct ContentCard: Equatable, PlaybackTimelineItem, Sendable {
     let id: String
     let cardType: ContentCardType
     let title: String
@@ -96,7 +96,7 @@ extension ContentCard {
             endedAt: event.endedAt,
             sourceItemID: event.sourceItemID,
             sourceItemType: event.sourceItemType,
-            isEditable: cardType == .note || cardType == .transcription || cardType == .bookmark
+            isEditable: cardType == .note || cardType == .bookmark
         )
     }
 }
@@ -106,7 +106,7 @@ extension ContentCardType {
     var isSummaryItem: Bool {
         switch self {
         case .bookmark, .flashcard, .note, .imageAsset: return true
-        default: return false
+        case .transcription, .playbackSession, .plannedSession, .voiceMemo, .chapterTransition: return false
         }
     }
 }

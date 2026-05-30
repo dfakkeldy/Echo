@@ -11,7 +11,7 @@ struct SpeedSuggestion: Identifiable, Equatable, Sendable {
     enum Scenario: Equatable {
         case onTrack
         case needAdjustment(speed: Double)
-        case insufficient(Double) // shortfall multiplier even at max speed
+        case insufficient
     }
 
     var description: String {
