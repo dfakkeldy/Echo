@@ -203,8 +203,25 @@ enum EPUBAutoImportScanner {
 
         let archive: Archive
         do {
+            // Verify the file exists and is readable before attempting to open.
+            let path = epubURL.path
+            guard FileManager.default.fileExists(atPath: path) else {
+                logger.error("EPUB file does not exist at path: \(sanitizedPath(path))")
+                throw ScannerError.invalidArchive(url: epubURL)
+            }
+            guard FileManager.default.isReadableFile(atPath: path) else {
+                logger.error("EPUB file is not readable at path: \(sanitizedPath(path))")
+                throw ScannerError.invalidArchive(url: epubURL)
+            }
+            // Log file size for diagnostics.
+            let attrs = try FileManager.default.attributesOfItem(atPath: path)
+            let fileSize = (attrs[.size] as? Int64) ?? 0
+            logger.debug("Opening EPUB archive: \(sanitizedPath(path)) (\(fileSize) bytes)")
             archive = try Archive(url: epubURL, accessMode: .read)
+        } catch let error as ScannerError {
+            throw error
         } catch {
+            logger.error("Failed to open EPUB archive at \(sanitizedPath(epubURL.path)): \(error.localizedDescription) (type: \(type(of: error)))")
             throw ScannerError.invalidArchive(url: epubURL)
         }
 
