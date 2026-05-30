@@ -12,6 +12,7 @@ struct FlashcardCreationSheet: View {
 
     @State private var frontText: String
     @State private var backText: String = ""
+    @State private var saveError: String?
 
     init(sourceText: String, mediaTimestamp: TimeInterval) {
         self.sourceText = sourceText
@@ -46,6 +47,11 @@ struct FlashcardCreationSheet: View {
             }
             .navigationTitle("New Flashcard")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Save Failed", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button("OK") { saveError = nil }
+            } message: {
+                Text(saveError ?? "")
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -88,6 +94,7 @@ struct FlashcardCreationSheet: View {
             try FlashcardDAO(db: db.writer).insert(card)
         } catch {
             os_log(.error, "Failed to save flashcard: %{public}@", error.localizedDescription)
+            saveError = String(localized: "Could not save flashcard: \(error.localizedDescription)")
         }
     }
 }

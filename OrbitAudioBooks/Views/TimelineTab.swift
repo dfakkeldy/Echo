@@ -72,6 +72,15 @@ struct TimelineTab: View {
                                 }
                             )
 
+                            // Empty state when no timeline items exist.
+                            if feedItems.isEmpty {
+                                ContentUnavailableView(
+                                    "No Timeline Content",
+                                    systemImage: "rectangle.stack",
+                                    description: Text("Chapters, bookmarks, and transcript segments will appear here as you listen.")
+                                )
+                            }
+
                             // "Go to Now" floating button (visible when not following)
                             if !isFollowingPlayback {
                                 VStack {

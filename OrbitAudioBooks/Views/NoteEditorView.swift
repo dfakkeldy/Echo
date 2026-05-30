@@ -9,6 +9,7 @@ struct NoteEditorView: View {
 
     @State private var text: String = ""
     @State private var timestamp: TimeInterval
+    @State private var saveError: String?
 
     init(preselectedTimestamp: TimeInterval? = nil) {
         self.preselectedTimestamp = preselectedTimestamp
@@ -38,6 +39,11 @@ struct NoteEditorView: View {
             }
             .navigationTitle("New Note")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Save Failed", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button("OK") { saveError = nil }
+            } message: {
+                Text(saveError ?? "")
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -72,6 +78,7 @@ struct NoteEditorView: View {
             try dao.insert(record)
         } catch {
             os_log(.error, "Failed to save note: %{public}@", error.localizedDescription)
+            saveError = String(localized: "Could not save note: \(error.localizedDescription)")
         }
     }
 }

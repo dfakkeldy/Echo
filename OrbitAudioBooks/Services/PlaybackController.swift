@@ -106,61 +106,9 @@ final class PlaybackController: PlaybackControllerProtocol {
     // MARK: - Playback Commands
 
     func play() {
-        if let pausedAt = state.pauseTimestamp {
-            let pausedDuration = Date().timeIntervalSince(pausedAt)
-            if coordinator_isRewindEnabled?() ?? false {
-                if audioEngine.isItemLoaded {
-                    let current = audioEngine.currentTime
-                    let rewindAmount = coordinator_smartRewind?(pausedDuration) ?? 0
-                    var target = current
-
-                    if coordinator_jumpToChapterStartForHours?(pausedDuration) == true {
-                        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-                            let currentOffset = state.m4bBooks.indices.contains(state.currentIndex) ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
-                            let globalTime = currentOffset + current
-                            if let idx = aggregatedChapterIndex(at: globalTime) {
-                                let agg = state.aggregatedChapters[idx]
-                                target = max(0, agg.startSeconds - currentOffset)
-                            }
-                        } else if state.chapters.count >= 2, let idx = state.currentChapterIndex {
-                            target = state.chapters[idx].startSeconds
-                        } else {
-                            target = 0
-                        }
-                    } else if rewindAmount > 0 {
-                        target = max(0, current - rewindAmount)
-
-                        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-                            let currentOffset = state.m4bBooks.indices.contains(state.currentIndex) ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
-                            let globalTime = currentOffset + current
-                            if let idx = aggregatedChapterIndex(at: globalTime) {
-                                let agg = state.aggregatedChapters[idx]
-                                let intraBookStart = max(0, agg.startSeconds - currentOffset)
-                                if target < intraBookStart {
-                                    target = intraBookStart
-                                }
-                            }
-                        } else if state.chapters.count >= 2, let idx = state.currentChapterIndex {
-                            let c = state.chapters[idx]
-                            if target < c.startSeconds {
-                                target = c.startSeconds
-                            }
-                        }
-                    }
-
-                    if target != current {
-                        state.isManualSeeking = true
-                        audioEngine.seek(to: target) { [weak self] _ in
-                            DispatchQueue.main.async {
-                                self?.state.isManualSeeking = false
-                                self?.coordinator_seekCompleted?(false)
-                            }
-                        }
-                    }
-                }
-            }
-            state.pauseTimestamp = nil
-        }
+        // Apply smart rewind if resuming after a pause.
+        applySmartRewindIfNeeded()
+        state.pauseTimestamp = nil
 
         coordinator_endBackgroundTask?()
 
@@ -176,13 +124,75 @@ final class PlaybackController: PlaybackControllerProtocol {
 
         audioEngine.playImmediately(atRate: speed)
         state.isPlaying = true
-        let currentSecond = audioEngine.currentTime
-        if currentSecond.isFinite {
-            coordinator_checkVoiceMemo?(currentSecond, nil)
+        if audioEngine.currentTime.isFinite {
+            coordinator_checkVoiceMemo?(audioEngine.currentTime, nil)
         }
 
         coordinator_persistAndSync?(false)
         coordinator_playStateChanged?(true)
+    }
+
+    /// Computes and applies the smart rewind target based on pause duration.
+    /// Handles chapter-start jumps and chapter-boundary clamping for multi-M4B books.
+    private func applySmartRewindIfNeeded() {
+        guard let pausedAt = state.pauseTimestamp else { return }
+        let pausedDuration = Date().timeIntervalSince(pausedAt)
+
+        guard coordinator_isRewindEnabled?() ?? false, audioEngine.isItemLoaded else { return }
+
+        let current = audioEngine.currentTime
+        let rewindAmount = coordinator_smartRewind?(pausedDuration) ?? 0
+        let target = computeRewindTarget(current: current, pausedDuration: pausedDuration, rewindAmount: rewindAmount)
+
+        guard target != current else { return }
+
+        state.isManualSeeking = true
+        audioEngine.seek(to: target) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.state.isManualSeeking = false
+                self?.coordinator_seekCompleted?(false)
+            }
+        }
+    }
+
+    /// Determines the rewind target time, clamping to chapter boundaries when appropriate.
+    private func computeRewindTarget(current: TimeInterval, pausedDuration: TimeInterval, rewindAmount: TimeInterval) -> TimeInterval {
+        if coordinator_jumpToChapterStartForHours?(pausedDuration) == true {
+            return computeChapterStartTarget(current: current)
+        } else if rewindAmount > 0 {
+            var target = max(0, current - rewindAmount)
+            target = clampToChapterBoundary(target: target, current: current)
+            return target
+        }
+        return current
+    }
+
+    private func computeChapterStartTarget(current: TimeInterval) -> TimeInterval {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            let currentOffset = state.m4bBooks.indices.contains(state.currentIndex) ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let globalTime = currentOffset + current
+            if let idx = aggregatedChapterIndex(at: globalTime) {
+                return max(0, state.aggregatedChapters[idx].startSeconds - currentOffset)
+            }
+        } else if state.chapters.count >= 2, let idx = state.currentChapterIndex {
+            return state.chapters[idx].startSeconds
+        }
+        return 0
+    }
+
+    /// Clamps the rewind target to the current chapter's start, preventing cross-chapter rewinds.
+    private func clampToChapterBoundary(target: TimeInterval, current: TimeInterval) -> TimeInterval {
+        if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+            let currentOffset = state.m4bBooks.indices.contains(state.currentIndex) ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let globalTime = currentOffset + current
+            if let idx = aggregatedChapterIndex(at: globalTime) {
+                let intraBookStart = max(0, state.aggregatedChapters[idx].startSeconds - currentOffset)
+                return max(target, intraBookStart)
+            }
+        } else if state.chapters.count >= 2, let idx = state.currentChapterIndex {
+            return max(target, state.chapters[idx].startSeconds)
+        }
+        return target
     }
 
     func pause() {
