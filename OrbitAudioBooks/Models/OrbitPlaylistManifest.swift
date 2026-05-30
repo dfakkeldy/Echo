@@ -3,7 +3,7 @@ import Foundation
 /// A portable manifest stored as `.orbitplaylist.json` in a playlist folder,
 /// consolidating track metadata, playback state, and bookmarks that were
 /// previously scattered across UserDefaults keys.
-struct OrbitPlaylistManifest: Codable {
+struct OrbitPlaylistManifest: Codable, Sendable {
     var version: Int = 1
     var title: String?
     var author: String?
@@ -31,5 +31,39 @@ struct OrbitPlaylistManifest: Codable {
         var timestamp: Double
         var trackId: String?
         var note: String?
+    }
+}
+
+// MARK: - Custom Decodable (default-value resilience)
+
+extension OrbitPlaylistManifest {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        author = try c.decodeIfPresent(String.self, forKey: .author)
+        tracks = try c.decode([ManifestTrack].self, forKey: .tracks)
+        playbackState = try c.decode(ManifestPlaybackState.self, forKey: .playbackState)
+        bookmarks = try c.decodeIfPresent([ManifestBookmark].self, forKey: .bookmarks)
+    }
+}
+
+extension OrbitPlaylistManifest.ManifestTrack {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        file = try c.decode(String.self, forKey: .file)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        duration = try c.decodeIfPresent(Double.self, forKey: .duration)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+    }
+}
+
+extension OrbitPlaylistManifest.ManifestPlaybackState {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lastTrackId = try c.decodeIfPresent(String.self, forKey: .lastTrackId)
+        lastPosition = try c.decodeIfPresent(Double.self, forKey: .lastPosition) ?? 0
+        speed = try c.decodeIfPresent(Double.self, forKey: .speed) ?? 1.25
+        loopMode = try c.decodeIfPresent(String.self, forKey: .loopMode) ?? "off"
     }
 }

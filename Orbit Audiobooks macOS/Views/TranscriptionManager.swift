@@ -217,8 +217,9 @@ class TranscriptionManager: ObservableObject {
 
         status = "Transcribing..."
 
-        // Read stdout and stderr concurrently via AsyncSequence, and wait for
-        // process exit off the main actor to avoid blocking the UI.
+        // Read stdout and stderr concurrently via AsyncSequence.
+        // Use a continuation to await process exit without blocking a
+        // cooperative thread (replaces the synchronous waitUntilExit).
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 do {
@@ -243,7 +244,11 @@ class TranscriptionManager: ObservableObject {
                 }
             }
             group.addTask {
-                process.waitUntilExit()
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    process.terminationHandler = { _ in
+                        continuation.resume()
+                    }
+                }
             }
         }
 

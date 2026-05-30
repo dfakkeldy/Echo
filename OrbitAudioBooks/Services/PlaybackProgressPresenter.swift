@@ -7,6 +7,7 @@ import UIKit
 /// info center, and manages elapsed-time display. Mutates PlaybackState
 /// progress fields directly and delegates Now Playing metadata to
 /// NowPlayingController.
+@MainActor
 final class PlaybackProgressPresenter {
 
     // MARK: - Dependencies (set by PlayerModel)

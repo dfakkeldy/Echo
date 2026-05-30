@@ -1,7 +1,7 @@
 import Foundation
 
-struct Note: Identifiable, Codable, Equatable, Hashable {
-    var id: String
+struct Note: Identifiable, Codable, Equatable, Hashable, Sendable {
+    let id: String
     var audiobookID: String
     var text: String
     var mediaTimestamp: TimeInterval
@@ -13,16 +13,18 @@ struct Note: Identifiable, Codable, Equatable, Hashable {
 }
 
 extension Note {
+    private static let isoFormatter = ISO8601DateFormatter()
+
     init(from record: NoteRecord) {
         self.id = record.id
         self.audiobookID = record.audiobookID
         self.text = record.text
         self.mediaTimestamp = record.mediaTimestamp
-        self.realTimestamp = record.realTimestamp.flatMap(ISO8601DateFormatter().date(from:))
+        self.realTimestamp = record.realTimestamp.flatMap(Self.isoFormatter.date(from:))
         self.isEnabled = record.isEnabled
         self.playlistPosition = record.playlistPosition
-        self.createdAt = ISO8601DateFormatter().date(from: record.createdAt) ?? Date()
-        self.modifiedAt = ISO8601DateFormatter().date(from: record.modifiedAt) ?? Date()
+        self.createdAt = Self.isoFormatter.date(from: record.createdAt) ?? Date()
+        self.modifiedAt = Self.isoFormatter.date(from: record.modifiedAt) ?? Date()
     }
 
     func toRecord() -> NoteRecord {

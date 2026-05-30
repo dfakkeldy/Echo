@@ -136,7 +136,7 @@ struct Persistence {
             )
             defaults.set(data, forKey: bookmarkKey)
         } catch {
-            print("Bookmark save failed: \(error)")
+            os_log(.error, "Bookmark save failed: %{private}@", error.localizedDescription)
         }
     }
 
@@ -158,7 +158,7 @@ struct Persistence {
 
             return url
         } catch {
-            print("Bookmark restore failed: \(error)")
+            os_log(.error, "Bookmark restore failed: %{private}@", error.localizedDescription)
             return nil
         }
     }
@@ -174,7 +174,7 @@ struct Persistence {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             data = try encoder.encode(bookmarks)
         } catch {
-            print("Bookmark encode failed: \(error)")
+            os_log(.error, "Bookmark encode failed: %{private}@", error.localizedDescription)
             return
         }
 

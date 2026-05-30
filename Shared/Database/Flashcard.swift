@@ -18,6 +18,8 @@ struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
     var lastGrade: Int?
     var isEnabled: Bool
     var playlistPosition: Double?
+    var createdAt: String?
+    var modifiedAt: String?
 
     static let databaseTableName = "flashcard"
 
@@ -37,6 +39,8 @@ struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
         case lastGrade = "last_grade"
         case isEnabled = "is_enabled"
         case playlistPosition = "playlist_position"
+        case createdAt = "created_at"
+        case modifiedAt = "modified_at"
     }
 }
 

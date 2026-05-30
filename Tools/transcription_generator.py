@@ -161,6 +161,12 @@ def main() -> None:
         help="Language code for transcription (default: en)",
     )
     parser.add_argument(
+        "--device",
+        default="auto",
+        choices=["cpu", "cuda", "auto"],
+        help="Device for inference: 'cpu', 'cuda', or 'auto' (default: auto — auto-detects best available)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-transcribe files that already have a .transcript.json sidecar.",
@@ -171,8 +177,23 @@ def main() -> None:
 
     from faster_whisper import WhisperModel
 
-    print(f"Loading Whisper model '{args.model_size}'... (first run downloads to cache)")
-    model = WhisperModel(args.model_size, device="cpu", compute_type="int8")
+    # Resolve device and compute_type.
+    device = args.device
+    if device == "auto":
+        try:
+            import torch
+            if torch.cuda.is_available():
+                device = "cuda"
+            else:
+                device = "cpu"
+        except ImportError:
+            device = "cpu"
+
+    # Use float16 on GPU for better throughput; int8 on CPU for memory efficiency.
+    compute_type = "float16" if device == "cuda" else "int8"
+
+    print(f"Loading Whisper model '{args.model_size}' on {device} ({compute_type})...")
+    model = WhisperModel(args.model_size, device=device, compute_type=compute_type)
 
     if args.audio_path:
         if not os.path.isfile(args.audio_path):

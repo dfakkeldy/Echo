@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// Manages the sleep timer: countdown, end-of-chapter mode, and fire callback.
-@Observable
+@MainActor @Observable
 final class SleepTimerManager: SleepTimerManagerProtocol {
     private(set) var mode: SleepTimerMode = .off
     private(set) var remainingSeconds: Int = 0
@@ -32,13 +32,15 @@ final class SleepTimerManager: SleepTimerManagerProtocol {
             remainingSeconds = total
             endDate = Date().addingTimeInterval(TimeInterval(total))
             timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                guard let self, let end = self.endDate else { return }
-                let remaining = max(0, Int(end.timeIntervalSinceNow.rounded(.up)))
-                self.remainingSeconds = remaining
-                if remaining <= 0 {
-                    self.fire()
-                } else {
-                    self.onTick?()
+                MainActor.assumeIsolated {
+                    guard let self, let end = self.endDate else { return }
+                    let remaining = max(0, Int(end.timeIntervalSinceNow.rounded(.up)))
+                    self.remainingSeconds = remaining
+                    if remaining <= 0 {
+                        self.fire()
+                    } else {
+                        self.onTick?()
+                    }
                 }
             }
             if let timer {

@@ -535,18 +535,15 @@ final class PlaybackController: PlaybackControllerProtocol {
     }
 
     func resumeAfterSeek() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.state.isSeekingForChapterBoundary = false
-            if self.state.isPlaying {
-                self.audioEngine.playImmediately(atRate: self.speed)
-                self.applySpeedToCurrentItem()
-            } else {
-                self.coordinator_persistAndSync?(true)
-            }
-            self.coordinator_refreshProgress?()
-            self.coordinator_seekCompleted?(false)
+        state.isSeekingForChapterBoundary = false
+        if state.isPlaying {
+            audioEngine.playImmediately(atRate: speed)
+            applySpeedToCurrentItem()
+        } else {
+            coordinator_persistAndSync?(true)
         }
+        coordinator_refreshProgress?()
+        coordinator_seekCompleted?(false)
     }
 
     private func currentChapterForTime(_ t: Double) -> Chapter? {

@@ -18,12 +18,12 @@ import Foundation
 ///   ]
 /// }
 /// ```
-struct FlashcardDeckImport: Codable {
+struct FlashcardDeckImport: Codable, Sendable {
     let deckName: String
     let targetMediaID: String
     let cards: [ImportedCard]
 
-    struct ImportedCard: Codable {
+    struct ImportedCard: Codable, Sendable {
         let frontText: String
         let backText: String
         let startTime: Double

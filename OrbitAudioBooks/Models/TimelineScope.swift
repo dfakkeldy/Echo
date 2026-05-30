@@ -2,7 +2,7 @@ import Foundation
 
 /// Structural zoom level for the unified Timeline feed.
 /// Represents depth of detail: from the library shelf down to individual words.
-enum TimelineScope: String, CaseIterable, Identifiable {
+enum TimelineScope: String, CaseIterable, Identifiable, Sendable {
     case book
     case chapter
     case transcription
@@ -61,14 +61,30 @@ enum TimelineScope: String, CaseIterable, Identifiable {
 
     /// Format a timestamp for display at this scope.
     func format(_ date: Date) -> String {
-        let fmt = DateFormatter()
         switch self {
-        case .book:          fmt.dateFormat = "MMM d"
-        case .chapter:       fmt.dateFormat = "HH:00"
-        case .transcription: fmt.dateFormat = "HH:mm"
+        case .book:          return Self.bookFormatter.string(from: date)
+        case .chapter:       return Self.chapterFormatter.string(from: date)
+        case .transcription: return Self.transcriptionFormatter.string(from: date)
         }
-        return fmt.string(from: date)
     }
+
+    private static let bookFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMM d"
+        return fmt
+    }()
+
+    private static let chapterFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:00"
+        return fmt
+    }()
+
+    private static let transcriptionFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm"
+        return fmt
+    }()
 }
 
 extension TimelineScope {

@@ -1,4 +1,5 @@
 import SwiftUI
+import os.log
 
 /// Sheet for creating a flashcard from transcript text.
 /// Front side is pre-populated with the selected transcript segment.
@@ -84,7 +85,7 @@ struct FlashcardCreationSheet: View {
         do {
             try FlashcardDAO(db: db.writer).insert(card)
         } catch {
-            // Fail silently
+            os_log(.error, "Failed to save flashcard: %{public}@", error.localizedDescription)
         }
     }
 }

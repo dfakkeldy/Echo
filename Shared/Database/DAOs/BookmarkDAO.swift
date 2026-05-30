@@ -81,7 +81,9 @@ struct BookmarkDAO {
             isEnabled: bookmark.isEnabled,
             sourceTable: "bookmark",
             sourceRowid: bookmark.id,
-            metadataJSON: bookmark.voiceMemoPath.map { "{\"voiceMemoPath\":\"\($0)\"}" },
+            metadataJSON: bookmark.voiceMemoPath.flatMap { path in
+                try? String(data: JSONEncoder().encode(["voiceMemoPath": path]), encoding: .utf8)
+            },
             createdAt: bookmark.createdAt,
             modifiedAt: bookmark.modifiedAt
         )

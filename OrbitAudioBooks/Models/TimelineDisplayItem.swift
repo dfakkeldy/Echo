@@ -4,7 +4,7 @@ import Foundation
 
 /// Lightweight view-model struct for displaying an audiobook as a card
 /// in the Timeline feed at `.book` / Library scope.
-struct AudiobookCardInfo: Identifiable, Equatable {
+struct AudiobookCardInfo: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
     let author: String?

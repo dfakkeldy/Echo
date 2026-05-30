@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os.log
 
 // MARK: - Timeline Cell Delegate
 
@@ -272,14 +273,22 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             case .scrubberGap(let duration, _):
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: ElasticScrubberCell.reuseID, for: indexPath
-                ) as! ElasticScrubberCell
+                )
+                guard let cell = cell as? ElasticScrubberCell else {
+                    os_log(.error, "Expected ElasticScrubberCell, got %{public}@", String(describing: type(of: cell)))
+                    return cell
+                }
                 cell.configure(gapDuration: duration)
                 return cell
 
             case .audiobookCard(let info):
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: BookCardCell.reuseID, for: indexPath
-                ) as! BookCardCell
+                )
+                guard let cell = cell as? BookCardCell else {
+                    os_log(.error, "Expected BookCardCell, got %{public}@", String(describing: type(of: cell)))
+                    return cell
+                }
                 cell.configure(info)
                 return cell
 
@@ -321,7 +330,11 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
                 ofKind: kind,
                 withReuseIdentifier: StickyReviewHeaderView.reuseID,
                 for: indexPath
-            ) as! StickyReviewHeaderView
+            )
+            guard let header = header as? StickyReviewHeaderView else {
+                os_log(.error, "Expected StickyReviewHeaderView, got %{public}@", String(describing: type(of: header)))
+                return header
+            }
             if let card = parent?.dueAnkiCard {
                 header.configure(
                     frontText: card.title,

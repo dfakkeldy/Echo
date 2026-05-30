@@ -45,6 +45,7 @@ struct PlaylistView: View {
 
     @State private var showChapters: Bool = true
     @State private var showBookmarks: Bool = true
+    @State private var cachedPlaylistRows: [PlaylistRow] = []
     @State private var showingEPUBImporter: Bool = false
     @State private var hasEPUB = false
     @State private var hasTranscript = false
@@ -100,7 +101,7 @@ struct PlaylistView: View {
         }
     }
 
-    private var playlistRows: [PlaylistRow] {
+    private func recomputePlaylistRows() -> [PlaylistRow] {
         var rows: [PlaylistRow] = []
         
         if model.chapters.count >= 2 {
@@ -226,7 +227,7 @@ struct PlaylistView: View {
                         .listRowBackground(Color.clear)
                 }
                 .listStyle(.plain)
-            } else if playlistRows.isEmpty {
+            } else if cachedPlaylistRows.isEmpty {
                 ContentUnavailableView(
                     "No Items",
                     systemImage: "list.bullet.rectangle",
@@ -234,7 +235,7 @@ struct PlaylistView: View {
                 )
             } else {
                 List {
-                    ForEach(playlistRows) { row in
+                    ForEach(cachedPlaylistRows) { row in
                         switch row {
                         case .chapter(let index, let chapter):
                             chapterRow(index: index, chapter: chapter)
@@ -275,11 +276,17 @@ struct PlaylistView: View {
         .onAppear {
             hasEPUB = model.hasEPUB
             hasTranscript = model.hasTranscript
+            cachedPlaylistRows = recomputePlaylistRows()
         }
         .onChange(of: model.folderURL) { _, _ in
             hasEPUB = model.hasEPUB
             hasTranscript = model.hasTranscript
         }
+        .onChange(of: model.chapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
+        .onChange(of: model.tracks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
+        .onChange(of: model.bookmarks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
+        .onChange(of: showChapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
+        .onChange(of: showBookmarks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
         .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { notification in
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
                   let audiobookID = model.folderURL?.absoluteString,

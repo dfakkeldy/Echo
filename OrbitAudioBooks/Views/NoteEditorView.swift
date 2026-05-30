@@ -1,4 +1,5 @@
 import SwiftUI
+import os.log
 
 struct NoteEditorView: View {
     @Environment(PlayerModel.self) private var model
@@ -70,7 +71,7 @@ struct NoteEditorView: View {
         do {
             try dao.insert(record)
         } catch {
-            // Fail silently
+            os_log(.error, "Failed to save note: %{public}@", error.localizedDescription)
         }
     }
 }

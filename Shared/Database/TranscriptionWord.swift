@@ -3,6 +3,7 @@ import GRDB
 
 /// GRDB record for the `transcription_word` table.
 struct TranscriptionWord: Codable, FetchableRecord, MutablePersistableRecord {
+    var id: Int64?
     var segmentID: Int64
     var word: String
     var startTime: TimeInterval
@@ -12,6 +13,7 @@ struct TranscriptionWord: Codable, FetchableRecord, MutablePersistableRecord {
     static let databaseTableName = "transcription_word"
 
     enum CodingKeys: String, CodingKey {
+        case id
         case segmentID = "segment_id"
         case word
         case startTime = "start_time"

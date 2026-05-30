@@ -11,7 +11,7 @@ struct PlaybackEventDAO {
         endedAt: Date?,
         startPosition: TimeInterval,
         endPosition: TimeInterval?,
-        speed: Float,
+        speed: Double,
         eventType: String,
         source: String?
     ) throws {
@@ -52,7 +52,7 @@ struct PlaybackEvent: Codable, FetchableRecord, MutablePersistableRecord {
     var endedAt: String?
     var startPosition: TimeInterval
     var endPosition: TimeInterval?
-    var speed: Float
+    var speed: Double
     var eventType: String
     var source: String?
 

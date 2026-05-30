@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import os.log
 
-@Observable
+@MainActor @Observable
 final class TimelineService {
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "TimelineService")
     private let db: DatabaseService?
@@ -31,13 +31,13 @@ final class TimelineService {
 
     // MARK: - Push-forward timer
 
-    private var pushForwardTimer: Timer?
+    nonisolated(unsafe) private var pushForwardTimer: Timer?
     private let pushForwardInterval: TimeInterval = 60
     private let pushForwardQueue = DispatchQueue(label: "com.orbitaudiobooks.timeline.pushforward")
 
     // MARK: - "Now" timer
 
-    private var nowTimer: Timer?
+    nonisolated(unsafe) private var nowTimer: Timer?
 
     // MARK: - Init
 
@@ -50,7 +50,8 @@ final class TimelineService {
     }
 
     deinit {
-        stopTimers()
+        pushForwardTimer?.invalidate()
+        nowTimer?.invalidate()
     }
 
     // MARK: - Viewport management

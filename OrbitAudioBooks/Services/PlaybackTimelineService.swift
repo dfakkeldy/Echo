@@ -11,7 +11,7 @@ enum TimelineMode {
 
 /// Dedicated service for the playlist-time (relative media) timeline.
 /// Operates strictly on TimeInterval — no Date, calendar, or scheduling concepts.
-@Observable
+@MainActor @Observable
 final class PlaybackTimelineService {
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "PlaybackTimelineService")
     private let db: DatabaseService?

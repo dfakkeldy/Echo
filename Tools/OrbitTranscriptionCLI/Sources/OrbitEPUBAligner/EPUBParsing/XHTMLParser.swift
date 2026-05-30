@@ -9,7 +9,7 @@ struct XHTMLParseResult {
 struct XHTMLParser {
     func parse(xhtml: String, baseHref: String) throws -> XHTMLParseResult {
         let parser = XHTMLContentParser()
-        parser.parse(xhtmlString: xhtml)
+        try parser.parse(xhtmlString: xhtml)
         return XHTMLParseResult(
             rawText: parser.outputText.trimmingCharacters(in: .whitespacesAndNewlines),
             markers: parser.markers,
@@ -30,11 +30,16 @@ private final class XHTMLContentParser: NSObject, XMLParserDelegate {
     private var isInHeading = false
     private let skipTags: Set<String> = ["script", "style", "head"]
 
-    func parse(xhtmlString: String) {
-        guard let data = xhtmlString.data(using: .utf8) else { return }
+    func parse(xhtmlString: String) throws {
+        guard let data = xhtmlString.data(using: .utf8) else {
+            throw AlignmentError.corruptXHTML(item: "unknown", reason: "String is not valid UTF-8")
+        }
         let parser = XMLParser(data: data)
         parser.delegate = self
-        parser.parse()
+        guard parser.parse() else {
+            let reason = parser.parserError?.localizedDescription ?? "Unknown XML parse error"
+            throw AlignmentError.corruptXHTML(item: "unknown", reason: reason)
+        }
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String,

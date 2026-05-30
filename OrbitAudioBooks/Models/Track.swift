@@ -1,7 +1,7 @@
 import Foundation
 
 /// An audio track (file) in the playback queue.
-struct Track: Identifiable, Equatable {
+struct Track: Identifiable, Equatable, Sendable {
     var id: String { url.absoluteString }
     /// The file URL of the audio track.
     let url: URL

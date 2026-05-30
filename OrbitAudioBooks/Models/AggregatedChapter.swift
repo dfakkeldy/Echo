@@ -1,7 +1,7 @@
 import Foundation
 
 /// A chapter whose timestamps are cumulative across all M4B books in a multi-file folder.
-struct AggregatedChapter: Identifiable {
+struct AggregatedChapter: Identifiable, Equatable, Hashable, Sendable {
     var id: String { "\(bookIndex)-\(chapterIndex)" }
     let bookTitle: String
     let bookIndex: Int

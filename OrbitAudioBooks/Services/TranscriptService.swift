@@ -1,4 +1,5 @@
 import Foundation
+import os.log
 
 /// Loads transcript sidecar JSON files and computes word frequency data.
 /// Uses direct injection of PlaybackState (same pattern as PlaylistManager).
@@ -20,7 +21,7 @@ struct TranscriptService {
                 let data = try Data(contentsOf: plainURL)
                 state.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
             } catch {
-                print("Failed to load plain transcript: \(error)")
+                os_log(.error, "Failed to load plain transcript: %{private}@", error.localizedDescription)
                 state.transcription = []
             }
         } else {
@@ -38,7 +39,7 @@ struct TranscriptService {
                     [EnhancedTranscriptionSegment].self, from: data
                 )
             } catch {
-                print("Failed to load enhanced transcript: \(error)")
+                os_log(.error, "Failed to load enhanced transcript: %{private}@", error.localizedDescription)
                 state.enhancedTranscription = []
             }
         } else {
@@ -64,7 +65,7 @@ struct TranscriptService {
             let data = try Data(contentsOf: enhancedURL)
             return try JSONDecoder().decode([EnhancedTranscriptionSegment].self, from: data)
         } catch {
-            print("Failed to load enhanced transcript: \(error)")
+            os_log(.error, "Failed to load enhanced transcript: %{private}@", error.localizedDescription)
             return nil
         }
     }

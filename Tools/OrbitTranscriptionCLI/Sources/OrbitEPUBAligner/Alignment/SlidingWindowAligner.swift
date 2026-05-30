@@ -5,17 +5,20 @@ public struct SlidingWindowAligner: TextAlignmentService {
     let windowSize: Int
     let wordFallbackThreshold: Double
     let minimumGlobalConfidence: Double
+    let matchAcceptanceThreshold: Double
 
     public init(
         sentenceConfidenceThreshold: Double = 0.80,
         windowSize: Int = 10,
         wordFallbackThreshold: Double = 0.60,
-        minimumGlobalConfidence: Double = 0.30
+        minimumGlobalConfidence: Double = 0.30,
+        matchAcceptanceThreshold: Double = 0.40
     ) {
         self.sentenceConfidenceThreshold = sentenceConfidenceThreshold
         self.windowSize = windowSize
         self.wordFallbackThreshold = wordFallbackThreshold
         self.minimumGlobalConfidence = minimumGlobalConfidence
+        self.matchAcceptanceThreshold = matchAcceptanceThreshold
     }
 
     private let nlp = NLPProcessor()
@@ -72,7 +75,7 @@ public struct SlidingWindowAligner: TextAlignmentService {
                 }
             }
 
-            if let match = bestMatch, match.confidence >= 0.40 {
+            if let match = bestMatch, match.confidence >= matchAcceptanceThreshold {
                 let range = sentenceRanges[match.index]
                 results.append(AlignmentResult(
                     epubCharRange: range,

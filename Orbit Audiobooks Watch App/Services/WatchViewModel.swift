@@ -52,10 +52,18 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var sleepTimerMinutes: Int = 0
     var sleepTimerRemainingSeconds: Int = 0
     var isSleepTimerActive: Bool { sleepTimerMode != "off" }
-    var watchQuickBookmarkTimeoutSeconds: Int = {
-        let raw = AppGroupDefaults.shared.integer(forKey: "watchQuickBookmarkTimeoutSeconds")
-        return raw > 0 ? raw : 5
-    }()
+    /// Computed property that always reads the latest value from App Group
+    /// defaults, avoiding the stale-value problem of a closure-initialized stored
+    /// property that is only read once at init.
+    var watchQuickBookmarkTimeoutSeconds: Int {
+        get {
+            let raw = defaults.integer(forKey: "watchQuickBookmarkTimeoutSeconds")
+            return raw > 0 ? raw : 5
+        }
+        set {
+            defaults.set(newValue, forKey: "watchQuickBookmarkTimeoutSeconds")
+        }
+    }
 
     var seekBackwardDuration: Int = 30
     var seekForwardDuration: Int = 30
@@ -82,6 +90,18 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var playbackSpeed: Double { availableSpeeds[currentSpeedIndex] }
 
     @ObservationIgnored private let defaults = AppGroupDefaults.shared
+
+    /// Debounce widget timeline reloads to at most once per 30 seconds,
+    /// instead of firing on every `applyState` call (which can happen
+    /// multiple times per second during playback sync).
+    @ObservationIgnored private var lastWidgetReload: Date = .distantPast
+
+    /// Plays a haptic only when the user has haptic feedback enabled in settings.
+    /// Centralises the gate so individual call sites don't repeat the check.
+    private func playHaptic(_ type: WKHapticType) {
+        guard defaults.bool(forKey: "isHapticFeedbackEnabled") else { return }
+        WKInterfaceDevice.current().play(type)
+    }
 
     // MARK: Optimistic update rollback
 
@@ -299,9 +319,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.defaults.set(isHapticEnabled, forKey: "isHapticFeedbackEnabled")
             }
             if let timeoutSeconds = state["watchQuickBookmarkTimeoutSeconds"] as? Int {
-                let safeTimeout = max(1, timeoutSeconds)
-                self.watchQuickBookmarkTimeoutSeconds = safeTimeout
-                self.defaults.set(safeTimeout, forKey: "watchQuickBookmarkTimeoutSeconds")
+                self.watchQuickBookmarkTimeoutSeconds = max(1, timeoutSeconds)
             }
             if let seekBackwardDuration = state["seekBackwardDuration"] as? Int {
                 self.seekBackwardDuration = seekBackwardDuration
@@ -468,9 +486,13 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             }
 
             if state["commandResult"] as? String == "bookmarkJump" {
-                WKInterfaceDevice.current().play(.success)
+                self.playHaptic(.success)
             }
-            WidgetCenter.shared.reloadTimelines(ofKind: "Orbit_Audiobooks_Widget")
+            let now = Date()
+            if now.timeIntervalSince(self.lastWidgetReload) >= 30 {
+                self.lastWidgetReload = now
+                WidgetCenter.shared.reloadTimelines(ofKind: "Orbit_Audiobooks_Widget")
+            }
             self.updatePlaybackTimer()
         }
     }
@@ -526,7 +548,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 if Self.isDirectionalCommand(command),
                    self?.loopMode == "bookmark",
                    reply["commandResult"] as? String != "bookmarkJump" {
-                    WKInterfaceDevice.current().play(Self.isForwardCommand(command) ? .directionUp : .directionDown)
+                    self?.playHaptic(Self.isForwardCommand(command) ? .directionUp : .directionDown)
                 }
             }, errorHandler: { [weak self] error in
                 print("Error sending command: \(error)")
@@ -549,14 +571,15 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             return true
         }
 
-        if self.defaults.bool(forKey: "isHapticFeedbackEnabled") {
+        let hapticType: WKHapticType = {
             switch command {
             case "skipBackward", "previous":
-                WKInterfaceDevice.current().play(.directionDown)
+                return .directionDown
             default:
-                WKInterfaceDevice.current().play(.directionUp)
+                return .directionUp
             }
-        }
+        }()
+        self.playHaptic(hapticType)
 
         return true
     }
@@ -633,26 +656,33 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         var payload = try bookmarkPayload(command: "addWatchTextBookmark")
         payload["note"] = note
         WCSession.default.transferUserInfo(payload)
-        WKInterfaceDevice.current().play(.success)
+        playHaptic(.success)
     }
 
     func queueVoiceBookmark(fileURL: URL) async throws {
+        // Use transferFile instead of inline Data to avoid the ~65KB payload
+        // limit of sendMessage / transferUserInfo. The phone-side
+        // WatchCommandRouter.handleFile(_:) already handles this path.
         var metadata = try bookmarkPayload(command: "addWatchVoiceBookmark")
         metadata["voiceMemoFileName"] = fileURL.lastPathComponent
-        metadata["voiceMemoData"] = try await Task.detached {
-            try Data(contentsOf: fileURL)
-        }.value
 
         let session = WCSession.default
-        if session.activationState == .activated, session.isReachable {
-            session.sendMessage(metadata, replyHandler: nil) { error in
-                print("Immediate voice bookmark send failed: \(error)")
-                WCSession.default.transferUserInfo(metadata)
-            }
-        } else {
-            session.transferUserInfo(metadata)
+        guard session.activationState == .activated else {
+            throw WatchBookmarkError.watchConnectivityInactive
         }
-        WKInterfaceDevice.current().play(.success)
+
+        // Copy to a temp location so transferFile can take ownership.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch_voice_memo_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempURL = tempDir.appendingPathComponent(fileURL.lastPathComponent)
+        if FileManager.default.fileExists(atPath: tempURL.path) {
+            try FileManager.default.removeItem(at: tempURL)
+        }
+        try FileManager.default.copyItem(at: fileURL, to: tempURL)
+
+        session.transferFile(tempURL, metadata: metadata)
+        playHaptic(.success)
         addBookmark(audioURL: fileURL)
     }
 
@@ -684,7 +714,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             // surface only via haptic since the watch UI is intentionally tiny.
             bookmarks.removeAll { $0.id == bookmark.id }
             print("Quick bookmark failed: \(error.localizedDescription)")
-            WKInterfaceDevice.current().play(.failure)
+            playHaptic(.failure)
         }
     }
 

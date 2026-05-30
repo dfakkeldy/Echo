@@ -66,14 +66,28 @@ final class MacPlayerModel: ObservableObject {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var currentScopedURL: URL?
-    private let defaults = UserDefaults.standard
+    private let defaults = AppGroupDefaults.shared
     private let bookmarksKey = "mac.bookmarks.v1"
     private let lastFileKey = "mac.lastFileBookmark.v1"
 
     init() {
-        // Bookmarks are now per-book; they are loaded once a file is opened.
-        // `restoreLastFile()` will trigger `open(url:)` which loads the sidecar.
+        migrateFromStandardUserDefaults()
         restoreLastFile()
+    }
+
+    /// One-time migration from `UserDefaults.standard` to the shared App Group
+    /// suite so bookmarks and last-file data are visible to iOS/watchOS/widgets.
+    private func migrateFromStandardUserDefaults() {
+        let migrationFlag = "mac.migratedToAppGroup.v1"
+        guard !defaults.bool(forKey: migrationFlag) else { return }
+
+        let standard = UserDefaults.standard
+        for key in [bookmarksKey, lastFileKey] {
+            if let data = standard.data(forKey: key) {
+                defaults.set(data, forKey: key)
+            }
+        }
+        defaults.set(true, forKey: migrationFlag)
     }
 
     deinit {
@@ -84,6 +98,33 @@ final class MacPlayerModel: ObservableObject {
             NotificationCenter.default.removeObserver(endObserver)
         }
         currentScopedURL?.stopAccessingSecurityScopedResource()
+    }
+
+    // MARK: - Async helpers
+
+    /// Awaits the AVPlayerItem becoming `.readyToPlay` with a valid duration,
+    /// using KVO instead of a fragile hardcoded sleep. Times out after 10 s.
+    private func waitForReadyToPlay() async {
+        guard let item = player?.currentItem else { return }
+        if item.status == .readyToPlay, duration > 0 { return }
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var observer: NSKeyValueObservation?
+            observer = item.observe(\.status, options: [.new]) { observedItem, _ in
+                if observedItem.status == .readyToPlay {
+                    observer?.invalidate()
+                    continuation.resume()
+                } else if observedItem.status == .failed {
+                    observer?.invalidate()
+                    continuation.resume()
+                }
+            }
+            // Safety timeout — resume after 10 s if status never settles.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                observer?.invalidate()
+                continuation.resume()
+            }
+        }
     }
 
     // MARK: File loading
@@ -296,9 +337,10 @@ final class MacPlayerModel: ObservableObject {
             guard let self else { return }
             if self.currentURL != resolvedURL {
                 self.open(url: resolvedURL)
-                // Wait briefly for duration to load before seeking.
+                // Await the player item becoming ready before seeking,
+                // instead of a fragile hardcoded 300ms sleep.
                 Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    await self.waitForReadyToPlay()
                     self.seek(to: bookmark.timestamp)
                 }
             } else {

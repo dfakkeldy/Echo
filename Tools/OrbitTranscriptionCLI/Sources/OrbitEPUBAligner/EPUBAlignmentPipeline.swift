@@ -30,8 +30,9 @@ public struct EPUBAlignmentPipeline {
         }
 
         let opfPath = try resolveOPFPath(from: unpackResult)
+        let opfBaseDir = opfPath.deletingLastPathComponent()  // content root is the OPF's parent dir
         var structure = try opfParser.parse(opfURL: opfPath, epubRoot: unpackResult.tempDir)
-        structure = try populateSpineText(structure: structure, epubRoot: unpackResult.tempDir)
+        structure = try populateSpineText(structure: structure, opfBaseDir: opfBaseDir)
 
         let (fullText, allMarkers, allFormats) = concatenateSpine(structure.spine)
 
@@ -76,13 +77,13 @@ public struct EPUBAlignmentPipeline {
         return resolved
     }
 
-    private func populateSpineText(structure: EPUBStructure, epubRoot: URL) throws -> EPUBStructure {
+    private func populateSpineText(structure: EPUBStructure, opfBaseDir: URL) throws -> EPUBStructure {
         var items = structure.spine
         for i in 0..<items.count {
             let href = items[i].href
-            let fullPath = epubRoot.appendingPathComponent("OEBPS").appendingPathComponent(href)
-            if FileManager.default.fileExists(atPath: fullPath.path),
-               let xhtml = try? String(contentsOf: fullPath, encoding: .utf8) {
+            let fullPath = opfBaseDir.appendingPathComponent(href)
+            if FileManager.default.fileExists(atPath: fullPath.path) {
+                let xhtml = try String(contentsOf: fullPath, encoding: .utf8)
                 let parseResult = try xhtmlParser.parse(xhtml: xhtml, baseHref: href)
                 items[i] = SpineItem(
                     id: items[i].id,

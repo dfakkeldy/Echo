@@ -1,7 +1,7 @@
 import Foundation
 
 /// Groups ContentCards by chapter boundaries for the hierarchical playlist timeline.
-struct ChapterSection: Identifiable, Equatable {
+struct ChapterSection: Identifiable, Equatable, Sendable {
     let index: Int
     let title: String
     let startSeconds: TimeInterval

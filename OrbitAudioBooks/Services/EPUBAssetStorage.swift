@@ -1,6 +1,13 @@
 import Foundation
 import os.log
 
+enum EPUBAssetError: LocalizedError {
+    case rootUnavailable
+    var errorDescription: String? {
+        "Application Support directory not available"
+    }
+}
+
 /// Manages EPUB asset storage under Application Support/EPUBAssets/.
 ///
 /// All image paths stored in the database must be real local file paths
@@ -15,25 +22,29 @@ struct EPUBAssetStorage {
         self.databaseService = databaseService
     }
 
-    /// The root directory for EPUB assets.
-    var rootDirectory: URL {
+    /// The root directory for EPUB assets, or nil if Application Support is unavailable.
+    var rootDirectory: URL? {
         guard let appSupport = fileManager.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first else {
-            fatalError("Application Support directory not available")
+            logger.error("Application Support directory not available")
+            return nil
         }
         return appSupport.appendingPathComponent("EPUBAssets", isDirectory: true)
     }
 
-    /// The asset directory for a specific audiobook.
-    func directory(for audiobookID: String) -> URL {
+    /// The asset directory for a specific audiobook, or nil if root is unavailable.
+    func directory(for audiobookID: String) -> URL? {
+        guard let root = rootDirectory else { return nil }
         let safeName = SafeFileName.fromAudiobookID(audiobookID)
-        return rootDirectory.appendingPathComponent(safeName, isDirectory: true)
+        return root.appendingPathComponent(safeName, isDirectory: true)
     }
 
     /// Creates the asset directory for the given audiobook if it doesn't exist.
     func prepare(for audiobookID: String) throws {
-        let dir = directory(for: audiobookID)
+        guard let dir = directory(for: audiobookID) else {
+            throw EPUBAssetError.rootUnavailable
+        }
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
@@ -51,7 +62,10 @@ struct EPUBAssetStorage {
             return nil
         }
 
-        let dir = directory(for: audiobookID)
+        guard let dir = directory(for: audiobookID) else {
+            logger.error("Cannot copy image: root directory unavailable")
+            return nil
+        }
         let safeFilename = filename.replacingOccurrences(of: "/", with: "_")
         let destinationURL = dir.appendingPathComponent(safeFilename)
 
@@ -70,7 +84,9 @@ struct EPUBAssetStorage {
 
     /// Removes all assets for an audiobook.
     func removeAll(for audiobookID: String) throws {
-        let dir = directory(for: audiobookID)
+        guard let dir = directory(for: audiobookID) else {
+            throw EPUBAssetError.rootUnavailable
+        }
         guard fileManager.fileExists(atPath: dir.path) else { return }
         try fileManager.removeItem(at: dir)
     }

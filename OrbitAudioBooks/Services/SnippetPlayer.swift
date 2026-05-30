@@ -1,4 +1,5 @@
 import AVFoundation
+import os.log
 
 /// Plays a segment of an audio file using a separate AVAudioEngine instance,
 /// following the same pattern as BookmarkStore voice memo playback.
@@ -17,12 +18,23 @@ final class SnippetPlayer {
         currentGeneration += 1
         let generation = currentGeneration
 
-        guard let file = try? AVAudioFile(forReading: url) else { return }
+        let file: AVAudioFile
+        do {
+            file = try AVAudioFile(forReading: url)
+        } catch {
+            os_log(.error, "SnippetPlayer: failed to read audio file at %{public}@: %{public}@", url.path, error.localizedDescription)
+            onPlaybackDidEnd?()
+            return
+        }
         let sampleRate = file.processingFormat.sampleRate
         let startFrame = AVAudioFramePosition(max(0, startTime * sampleRate))
         let endFrame = AVAudioFramePosition(min(Double(file.length), endTime * sampleRate))
         let framesToPlay = AVAudioFrameCount(endFrame - startFrame)
-        guard framesToPlay > 0 else { return }
+        guard framesToPlay > 0 else {
+            os_log(.error, "SnippetPlayer: zero-length segment (start=%.2f, end=%.2f)", startTime, endTime)
+            onPlaybackDidEnd?()
+            return
+        }
 
         let eng = AVAudioEngine()
         let node = AVAudioPlayerNode()
@@ -32,6 +44,8 @@ final class SnippetPlayer {
         do {
             try eng.start()
         } catch {
+            os_log(.error, "SnippetPlayer: engine start failed: %{public}@", error.localizedDescription)
+            onPlaybackDidEnd?()
             return
         }
 

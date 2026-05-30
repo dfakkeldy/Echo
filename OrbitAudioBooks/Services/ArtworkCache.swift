@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import UIKit
+import os.log
 
 /// Stateless helper that fetches and processes audiobook artwork.
 /// Does not own mutable state — PlayerModel remains the single source of truth.
@@ -58,7 +59,7 @@ struct ArtworkCache {
                 try FileManager.default.startDownloadingUbiquitousItem(at: url)
             }
         } catch {
-            print("ensureItemIsAvailable error: \(error)")
+            os_log(.error, "ensureItemIsAvailable error: %{private}@", error.localizedDescription)
         }
     }
 

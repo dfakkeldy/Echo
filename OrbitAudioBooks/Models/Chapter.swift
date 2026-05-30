@@ -1,7 +1,7 @@
 import Foundation
 
 /// A chapter within an audiobook track, typically parsed from M4B chapter markers.
-struct Chapter: Identifiable, Equatable {
+struct Chapter: Identifiable, Equatable, Hashable, Sendable {
     var id: String { "\(index)-\(title ?? "unknown")" }
     /// Zero-based chapter index.
     let index: Int

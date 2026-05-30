@@ -68,12 +68,17 @@ struct EPubBlockDAO {
         }
     }
 
-    /// Search block text for matching terms.
+    /// Search block text for matching terms. Escapes SQL LIKE wildcards
+    /// in user input to prevent accidental or malicious pattern injection.
     func searchBlocks(for audiobookID: String, query: String) throws -> [EPubBlockRecord] {
-        try db.read { db in
+        let escaped = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        return try db.read { db in
             try EPubBlockRecord
                 .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("text").like("%\(query)%"))
+                .filter(Column("text").like("%\(escaped)%", escape: "\\"))
                 .order(Column("sequence_index"))
                 .fetchAll(db)
         }

@@ -1,5 +1,6 @@
 import Foundation
 import WatchConnectivity
+import os.log
 
 @MainActor
 protocol WatchCommandRoutingFacade: AnyObject {
@@ -156,7 +157,7 @@ final class WatchCommandRouter {
             }
             try FileManager.default.copyItem(at: file.fileURL, to: destinationURL)
         } catch {
-            print("Watch voice bookmark copy failed: \(error)")
+            os_log(.error, "Watch voice bookmark copy failed: %{private}@", error.localizedDescription)
             return
         }
 
@@ -188,7 +189,7 @@ final class WatchCommandRouter {
                 }
                 try voiceMemoData.write(to: destinationURL, options: .atomic)
             } catch {
-                print("Watch voice bookmark write failed: \(error)")
+                os_log(.error, "Watch voice bookmark write failed: %{private}@", error.localizedDescription)
                 return
             }
 

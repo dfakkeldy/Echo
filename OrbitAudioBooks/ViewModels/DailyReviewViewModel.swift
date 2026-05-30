@@ -86,20 +86,24 @@ final class DailyReviewViewModel {
 
     private func logFlashcardReviewed(card: Flashcard, grade: Int) {
         let dao = RealTimeEventDAO(db: db)
-        let meta = try? JSONSerialization.data(withJSONObject: ["cardId": card.id, "grade": grade])
-        let metaJSON = meta.flatMap { String(data: $0, encoding: .utf8) }
-        try? dao.log(
-            id: UUID().uuidString,
-            eventType: "flashcardReviewed",
-            audiobookID: card.audiobookID,
-            mediaTimestamp: card.mediaTimestamp,
-            startedAt: Date(),
-            endedAt: nil,
-            title: card.frontText,
-            subtitle: "Grade: \(grade)",
-            metadataJSON: metaJSON,
-            sourceItemID: card.id,
-            sourceItemType: "flashcard"
-        )
+        do {
+            let meta = try JSONSerialization.data(withJSONObject: ["cardId": card.id, "grade": grade])
+            let metaJSON = String(data: meta, encoding: .utf8)
+            try dao.log(
+                id: UUID().uuidString,
+                eventType: "flashcardReviewed",
+                audiobookID: card.audiobookID,
+                mediaTimestamp: card.mediaTimestamp,
+                startedAt: Date(),
+                endedAt: nil,
+                title: card.frontText,
+                subtitle: "Grade: \(grade)",
+                metadataJSON: metaJSON,
+                sourceItemID: card.id,
+                sourceItemType: "flashcard"
+            )
+        } catch {
+            logger.error("Failed to log flashcard review: \(error.localizedDescription)")
+        }
     }
 }

@@ -8,7 +8,7 @@ import os.log
 /// Manages bookmark CRUD, voice memo playback, and bookmark-related queries.
 /// Owns no persistence directly — callers supply save/load closures so the
 /// store stays testable and storage-agnostic.
-@Observable
+@MainActor @Observable
 final class BookmarkStore: BookmarkStoreProtocol {
 
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "BookmarkStore")
@@ -271,7 +271,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
                 self.voiceMemoProgress = min(1.0, max(0.0, current / self.voiceMemoDuration))
             }
         } catch {
-            print("Voice memo playback error: \(error)")
+            logger.error("Voice memo playback error: \(error.localizedDescription)")
             onSwitchToMainPlayer?()
         }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import os.log
 
 // MARK: - InlineFlashcardTriggerController
 
@@ -49,7 +50,12 @@ final class InlineFlashcardTriggerController {
 
         let trackKey = trackKeyProvider?() ?? ""
         if cachedTrackFlashcardKey != trackKey, let db = databaseServiceProvider?() {
-            cachedTrackFlashcards = (try? FlashcardDAO(db: db.writer).flashcards(for: trackKey)) ?? []
+            do {
+                cachedTrackFlashcards = try FlashcardDAO(db: db.writer).flashcards(for: trackKey)
+            } catch {
+                os_log(.error, "Failed to load flashcards for track %{public}@: %{public}@", trackKey, error.localizedDescription)
+                cachedTrackFlashcards = []
+            }
             cachedTrackFlashcardKey = trackKey
         }
         let cards = cachedTrackFlashcards
@@ -84,7 +90,11 @@ final class InlineFlashcardTriggerController {
     /// Grades the given flashcard in the database.
     func gradeCard(_ grade: Int, cardID: String) {
         guard let db = databaseServiceProvider?() else { return }
-        try? FlashcardDAO(db: db.writer).grade(cardID: cardID, grade: grade)
+        do {
+            try FlashcardDAO(db: db.writer).grade(cardID: cardID, grade: grade)
+        } catch {
+            os_log(.error, "Failed to grade flashcard %{public}@: %{public}@", cardID, error.localizedDescription)
+        }
     }
 
     /// Resets trigger state for a new track.

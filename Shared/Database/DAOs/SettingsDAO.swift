@@ -22,7 +22,7 @@ struct SettingsDAO {
     func getAll() throws -> [String: String] {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: "SELECT key, value FROM settings")
-            return Dictionary(uniqueKeysWithValues: rows.map { ($0["key"], $0["value"]) })
+            return Dictionary(rows.map { ($0["key"], $0["value"]) }, uniquingKeysWith: { _, last in last })
         }
     }
 }

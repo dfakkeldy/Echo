@@ -1,7 +1,7 @@
 import Foundation
 import StoreKit
 
-protocol StoreManagerProtocol: AnyObject {
+@MainActor protocol StoreManagerProtocol: AnyObject {
     var products: [Product] { get }
     var proUnlockProduct: Product? { get }
     var hasUnlockedPro: Bool { get }

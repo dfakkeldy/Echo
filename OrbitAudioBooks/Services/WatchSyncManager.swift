@@ -1,5 +1,6 @@
 import WatchConnectivity
 import Foundation
+import os.log
 
 /// Manages bidirectional WatchConnectivity communication with the Apple Watch companion.
 ///
@@ -56,7 +57,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
         if session.isReachable {
             session.sendMessage(context, replyHandler: nil) { error in
-                print("Immediate watch sync failed: \(error)")
+                os_log(.error, "Immediate watch sync failed: %{private}@", error.localizedDescription)
                 WCSession.default.transferUserInfo(context)
             }
         } else {
@@ -87,7 +88,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         guard activationState == .activated else {
             if let error {
-                print("WatchConnectivity activation failed: \(error)")
+                os_log(.error, "WatchConnectivity activation failed: %{private}@", error.localizedDescription)
             }
             return
         }

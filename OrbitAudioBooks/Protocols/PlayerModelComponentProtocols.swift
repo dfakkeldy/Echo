@@ -13,7 +13,7 @@ protocol PlaybackTimelineItem: Identifiable {
 
 // MARK: - BookmarkStoreProtocol
 
-protocol BookmarkStoreProtocol {
+@MainActor protocol BookmarkStoreProtocol {
     var bookmarks: [Bookmark] { get }
     @discardableResult
     func addBookmark(at time: TimeInterval, trackId: String?, folderKey: String?) -> Bookmark
@@ -24,7 +24,7 @@ protocol BookmarkStoreProtocol {
 
 // MARK: - PlaybackControllerProtocol
 
-protocol PlaybackControllerProtocol {
+@MainActor protocol PlaybackControllerProtocol {
     var isPlaying: Bool { get }
     var currentTime: TimeInterval { get }
     var duration: TimeInterval? { get }
@@ -41,7 +41,7 @@ protocol PlaybackControllerProtocol {
 
 // MARK: - SleepTimerManagerProtocol
 
-protocol SleepTimerManagerProtocol {
+@MainActor protocol SleepTimerManagerProtocol {
     var mode: SleepTimerMode { get }
     var remainingSeconds: Int { get }
     func setTimer(_ mode: SleepTimerMode)

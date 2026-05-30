@@ -6,7 +6,7 @@ import Observation
 /// Manages artwork display selection, caching, and thumbnail generation for
 /// the Now Playing UI and Watch sync. Resolves whether to show base audio
 /// artwork or a bookmark-specific image based on playback position.
-@Observable
+@MainActor @Observable
 final class BookmarkArtworkCoordinator {
 
     // MARK: - Artwork cache state

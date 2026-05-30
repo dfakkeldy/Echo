@@ -1,6 +1,6 @@
 import Foundation
 
-enum ContentCardType: String, Codable {
+enum ContentCardType: String, Codable, Sendable {
     case transcription
     case bookmark
     case flashcard
@@ -12,7 +12,7 @@ enum ContentCardType: String, Codable {
     case imageAsset
 }
 
-struct ContentCard: Identifiable, Equatable, PlaybackTimelineItem {
+struct ContentCard: Identifiable, Equatable, PlaybackTimelineItem, Sendable {
     let id: String
     let cardType: ContentCardType
     let title: String

@@ -3,7 +3,7 @@ import GRDB
 import os.log
 
 /// Owns a GRDB database in WAL mode (DatabasePool for disk, DatabaseQueue for in-memory).
-@Observable
+@MainActor @Observable
 final class DatabaseService {
     let writer: DatabaseWriter
     let dbPath: String
@@ -69,30 +69,26 @@ final class DatabaseService {
 
     private func runMigrations() throws {
         var migrator = DatabaseMigrator()
+        // Schema_V*.migrate is inferred as @MainActor via association with this class.
+        // MainActor.assumeIsolated is safe because init() is @MainActor and
+        // migrator.migrate(writer) runs synchronously on the calling thread.
         migrator.registerMigration("v1_create_schema") { db in
-            try MainActor.assumeIsolated {
-                try Schema_V1.migrate(db)
-            }
+            try MainActor.assumeIsolated { try Schema_V1.migrate(db) }
         }
         migrator.registerMigration("v2_timeline_support") { db in
-            try MainActor.assumeIsolated {
-                try Schema_V2.migrate(db)
-            }
+            try MainActor.assumeIsolated { try Schema_V2.migrate(db) }
         }
         migrator.registerMigration("v3_missing_indexes") { db in
-            try MainActor.assumeIsolated {
-                try Schema_V3.migrate(db)
-            }
+            try MainActor.assumeIsolated { try Schema_V3.migrate(db) }
         }
         migrator.registerMigration("v4_materialized_timeline") { db in
-            try MainActor.assumeIsolated {
-                try Schema_V4.migrate(db)
-            }
+            try MainActor.assumeIsolated { try Schema_V4.migrate(db) }
         }
         migrator.registerMigration("v5_epub_alignment") { db in
-            try MainActor.assumeIsolated {
-                try Schema_V5.migrate(db)
-            }
+            try MainActor.assumeIsolated { try Schema_V5.migrate(db) }
+        }
+        migrator.registerMigration("v6_indexes_and_fixes") { db in
+            try MainActor.assumeIsolated { try Schema_V6.migrate(db) }
         }
         try migrator.migrate(writer)
     }

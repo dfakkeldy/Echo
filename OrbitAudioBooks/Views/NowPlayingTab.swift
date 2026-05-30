@@ -88,7 +88,7 @@ struct NowPlayingTab: View {
     }
 
     private func formatHhMm(_ seconds: Double) -> String {
-        let totalMinutes = Int((seconds / 60.0).rounded())
+        let totalMinutes = Int(seconds / 60.0)  // truncate toward zero; "2m" at ≥120s, not at 90s
         let h = totalMinutes / 60
         let m = totalMinutes % 60
         if h > 0 {

@@ -1,6 +1,6 @@
 import Foundation
 
-struct SpeedSuggestion: Identifiable, Equatable {
+struct SpeedSuggestion: Identifiable, Equatable, Sendable {
     let id = UUID()
     let requiredSpeed: Double
     let availableDuration: TimeInterval
@@ -25,10 +25,14 @@ struct SpeedSuggestion: Identifiable, Equatable {
         }
     }
 
-    private var formattedDate: String {
+    private static let dateFormatter: DateFormatter = {
         let fmt = DateFormatter()
         fmt.dateStyle = .medium
         fmt.timeStyle = .short
-        return fmt.string(from: estimatedCompletionDate)
+        return fmt
+    }()
+
+    private var formattedDate: String {
+        Self.dateFormatter.string(from: estimatedCompletionDate)
     }
 }

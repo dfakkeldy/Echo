@@ -1,5 +1,6 @@
 import AVFoundation
 import Observation
+import os.log
 
 // MARK: - AudioEngineDelegate
 
@@ -46,6 +47,8 @@ final class AudioEngine {
 
     // MARK: - Time Tracking
 
+    private var fadeTimer: Timer?
+
     /// The seek position at the start of the currently playing segment.
     /// `currentTime = seekOffset + Double(sampleTime) / sampleRate`
     private var seekOffset: TimeInterval = 0
@@ -75,7 +78,7 @@ final class AudioEngine {
             try session.setActive(true)
             audioSessionConfigured = true
         } catch {
-            print("AudioSession error: \(error)")
+            os_log(.error, "AudioSession error: %{private}@", error.localizedDescription)
         }
         setupInterruptionObserver()
         setupMediaServicesObservers()
@@ -188,8 +191,10 @@ final class AudioEngine {
     }
 
     /// Smoothly fade gain to a target value over the specified duration.
-    /// Uses a repeating Timer at ~20 steps per second.
+    /// Uses a repeating Timer at ~20 steps per second. Cancels any in-progress fade.
     func fadeGain(to targetGain: Float, duration: TimeInterval) {
+        fadeTimer?.invalidate()
+        fadeTimer = nil
         guard let eqNode else { return }
         let startGain = eqNode.globalGain
         let steps = Int(duration / 0.05)
@@ -199,15 +204,16 @@ final class AudioEngine {
         }
         let gainDelta = (targetGain - startGain) / Float(steps)
         var currentStep = 0
-        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak eqNode] timer in
             currentStep += 1
             if currentStep >= steps {
-                eqNode.globalGain = targetGain
+                eqNode?.globalGain = targetGain
                 timer.invalidate()
             } else {
-                eqNode.globalGain = startGain + gainDelta * Float(currentStep)
+                eqNode?.globalGain = startGain + gainDelta * Float(currentStep)
             }
         }
+        fadeTimer = timer
     }
 
     // MARK: - Volume Boost
@@ -270,7 +276,7 @@ final class AudioEngine {
                 startTimeTimer()
             }
         } catch {
-            print("AudioEngine: replaceCurrentItem error: \(error)")
+            os_log(.error, "AudioEngine: replaceCurrentItem error: %{private}@", error.localizedDescription)
             audioFile = nil
             duration = nil
         }
@@ -287,6 +293,8 @@ final class AudioEngine {
         duration = nil
         seekOffset = 0
 
+        fadeTimer?.invalidate()
+        fadeTimer = nil
         stopTimeTimer()
         removeInterruptionObserver()
         removeMediaServicesObservers()
@@ -322,7 +330,7 @@ final class AudioEngine {
         do {
             try engine.start()
         } catch {
-            print("AudioEngine: engine start error: \(error)")
+            os_log(.error, "AudioEngine: engine start error: %{private}@", error.localizedDescription)
         }
     }
 

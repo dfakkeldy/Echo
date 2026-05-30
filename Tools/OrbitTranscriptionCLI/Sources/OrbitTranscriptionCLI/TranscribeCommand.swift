@@ -25,6 +25,25 @@ struct TranscribeCommand: AsyncParsableCommand {
     @Option(help: "Language code for transcription (nil = auto-detect).")
     var language: String?
 
+    private static let validModelSizes: Set<String> = [
+        "tiny", "tiny.en",
+        "base", "base.en",
+        "small", "small.en",
+        "medium", "medium.en",
+        "large", "large-v1", "large-v2", "large-v3"
+    ]
+
+    mutating func validate() throws {
+        let normalized = modelSize.lowercased()
+        guard Self.validModelSizes.contains(normalized) else {
+            let valid = Self.validModelSizes.sorted().joined(separator: ", ")
+            throw ValidationError("""
+                Invalid model size '\(modelSize)'. Valid options: \(valid)
+                """)
+        }
+        modelSize = normalized
+    }
+
     mutating func run() async throws {
         do {
             try await runTranscription()

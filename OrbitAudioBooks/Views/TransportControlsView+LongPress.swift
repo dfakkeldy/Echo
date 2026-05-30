@@ -101,12 +101,14 @@ struct TransportPrimitiveButtonStyle: PrimitiveButtonStyle {
             .opacity(isPressed ? 0.5 : 1.0)
             .contentShape(Rectangle())
             .onTapGesture {
+                configuration.trigger()
                 tapAction()
                 isPressed = false
             }
             .onLongPressGesture(
                 minimumDuration: 0.5,
                 perform: {
+                    configuration.trigger()
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     executeAction(longPressAction, model: model)
                     isPressed = false

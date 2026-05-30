@@ -1,6 +1,6 @@
 import Foundation
 
-enum PlayerDeepLink: Equatable {
+enum PlayerDeepLink: Equatable, Sendable {
     case play(time: TimeInterval?)
 
     init?(url: URL) {

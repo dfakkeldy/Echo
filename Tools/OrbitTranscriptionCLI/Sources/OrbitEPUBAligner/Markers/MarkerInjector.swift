@@ -97,23 +97,53 @@ struct MarkerInjector {
             ))
         }
 
-        // ---- 4. Sort: timestamped first by startTime, then untimestamped by epubOffset ----
+        // ---- 4. Merge: interleave untimestamped orphan markers by epubCharOffset ----
 
-        let timestamped = output.filter { $0.isTimestamped }
-        let untimestamped = output.filter { !$0.isTimestamped }
+        let sortedTimestamped = output.filter { $0.isTimestamped }
+            .sorted { ($0.startTime ?? 0) < ($1.startTime ?? 0) }
 
-        let sortedTimestamped = timestamped.sorted { ($0.startTime ?? 0) < ($1.startTime ?? 0) }
+        // Sort orphaned markers by epubCharOffset so they are inserted in EPUB order.
+        let sortedOrphans = output.filter { !$0.isTimestamped }
+            .sorted { a, b in
+                let offsetA = a.markers?.first?.epubCharOffset ?? Int.max
+                let offsetB = b.markers?.first?.epubCharOffset ?? Int.max
+                return offsetA < offsetB
+            }
 
-        // Merge untimestamped items into the sorted list by their marker's epubCharOffset.
-        // Since untimestamped items lack timestamps, we sort them relative to each other
-        // by epubCharOffset (preserving EPUB order) and append after all timestamped items.
-        // Future: interleave based on alignment range boundaries.
-        let sortedUntimestamped = untimestamped.sorted { a, b in
-            let offsetA = a.markers?.first?.epubCharOffset ?? Int.max
-            let offsetB = b.markers?.first?.epubCharOffset ?? Int.max
-            return offsetA < offsetB
+        // Walk through alignments in order, appending each timestamped segment
+        // followed by any orphaned markers whose epubCharOffset belongs before
+        // the next alignment's lowerBound.
+        var result: [EnhancedTranscriptionSegment] = []
+        var orphanIdx = 0
+
+        for (ai, _) in alignments.enumerated() {
+            let nextLowerBound: Int
+            if ai + 1 < alignments.count {
+                nextLowerBound = alignments[ai + 1].epubCharRange.lowerBound
+            } else {
+                nextLowerBound = Int.max
+            }
+
+            // Append the timestamped segment for this alignment.
+            if ai < sortedTimestamped.count {
+                result.append(sortedTimestamped[ai])
+            }
+
+            // Append any orphans whose epubCharOffset falls before the next alignment.
+            while orphanIdx < sortedOrphans.count,
+                  let offset = sortedOrphans[orphanIdx].markers?.first?.epubCharOffset,
+                  offset < nextLowerBound {
+                result.append(sortedOrphans[orphanIdx])
+                orphanIdx += 1
+            }
         }
 
-        return sortedTimestamped + sortedUntimestamped
+        // Append any remaining orphans whose offsets are beyond all alignments.
+        while orphanIdx < sortedOrphans.count {
+            result.append(sortedOrphans[orphanIdx])
+            orphanIdx += 1
+        }
+
+        return result
     }
 }
