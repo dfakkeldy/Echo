@@ -7,7 +7,7 @@ extension View {
             self.simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.5)
                     .onEnded { _ in
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Haptic.play(.medium)
                         executeAction(action, model: model)
                     }
             )
@@ -109,7 +109,7 @@ struct TransportPrimitiveButtonStyle: PrimitiveButtonStyle {
                 minimumDuration: 0.5,
                 perform: {
                     configuration.trigger()
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    Haptic.play(.medium)
                     executeAction(longPressAction, model: model)
                     isPressed = false
                 },

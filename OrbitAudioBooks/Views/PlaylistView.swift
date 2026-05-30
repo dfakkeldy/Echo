@@ -325,6 +325,7 @@ struct PlaylistView: View {
                     .frame(width: 22)
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isButton)
             
             Button {
                 model.seek(toSeconds: chapter.startSeconds + 0.05)
@@ -347,6 +348,7 @@ struct PlaylistView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isButton)
         }
         .foregroundStyle(chapter.isEnabled ? .primary : .tertiary)
         .opacity(chapter.isEnabled ? 1.0 : 0.35)
@@ -401,6 +403,7 @@ struct PlaylistView: View {
                     .frame(width: 22)
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isButton)
 
             Button {
                 model.skipToTrack(index)
@@ -417,6 +420,7 @@ struct PlaylistView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isButton)
         }
         .foregroundStyle(track.isEnabled ? .primary : .tertiary)
         .opacity(track.isEnabled ? 1.0 : 0.35)

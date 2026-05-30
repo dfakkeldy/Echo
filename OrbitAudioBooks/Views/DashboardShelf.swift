@@ -27,6 +27,7 @@ struct DashboardShelf: View {
                 .padding(.vertical, 6)
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isButton)
 
             if isExpanded {
                 ScrollView(.horizontal, showsIndicators: false) {

@@ -17,6 +17,7 @@ struct VoiceMemoOverlayView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text("Stop voice memo"))
         }
         .padding(.horizontal, 18)

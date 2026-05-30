@@ -42,7 +42,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     model.togglePlayPause()
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptic.play(.light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -59,7 +59,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     let didJumpToBookmark = model.skipBackward30()
-                    UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
+                    Haptic.play(didJumpToBookmark ? .medium : .light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -76,7 +76,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     let didJumpToBookmark = model.skipForward30()
-                    UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
+                    Haptic.play(didJumpToBookmark ? .medium : .light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -93,7 +93,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     let didJumpToBookmark = model.skipBackwardNavigation()
-                    UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
+                    Haptic.play(didJumpToBookmark ? .medium : .light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -110,7 +110,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     let didJumpToBookmark = model.skipForwardNavigation()
-                    UIImpactFeedbackGenerator(style: didJumpToBookmark ? .medium : .light).impactOccurred()
+                    Haptic.play(didJumpToBookmark ? .medium : .light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -127,7 +127,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     model.previousSectionOrRestart()
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptic.play(.light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -144,7 +144,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     model.nextSection()
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptic.play(.light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -161,7 +161,7 @@ struct TransportControlsView: View {
             TransportButton(
                 tapAction: {
                     model.cycleLoopMode()
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    Haptic.play(.medium)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -208,7 +208,7 @@ struct TransportControlsView: View {
                     } else {
                         model.setSpeed(1.0)
                     }
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    Haptic.play(.medium)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -231,7 +231,7 @@ struct TransportControlsView: View {
                 tapAction: {
                     if let draft = model.bookmarkDraftAtCurrentTime() {
                         model.activeBookmarkDraft = draft
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Haptic.play(.medium)
                     }
                 },
                 longPressAction: longPressAction,
@@ -268,30 +268,30 @@ struct TransportControlsView: View {
         Menu {
             Button {
                 model.setSleepTimer(.minutes(15))
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptic.play(.light)
             } label: { Label("15 Minutes", systemImage: "15.circle") }
             Button {
                 model.setSleepTimer(.minutes(30))
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptic.play(.light)
             } label: { Label("30 Minutes", systemImage: "30.circle") }
             Button {
                 model.setSleepTimer(.minutes(45))
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptic.play(.light)
             } label: { Label("45 Minutes", systemImage: "45.circle") }
             Button {
                 model.setSleepTimer(.minutes(60))
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptic.play(.light)
             } label: { Label("1 Hour", systemImage: "1.circle") }
             Divider()
             Button {
                 model.setSleepTimer(.endOfChapter)
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptic.play(.light)
             } label: { Label("End of Chapter", systemImage: "book.closed") }
             if model.sleepTimerMode.isActive {
                 Divider()
                 Button(role: .destructive) {
                     model.cancelSleepTimer()
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptic.play(.light)
                 } label: { Label("Off", systemImage: "xmark.circle") }
             }
         } label: {

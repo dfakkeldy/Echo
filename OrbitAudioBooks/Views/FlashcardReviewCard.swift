@@ -56,6 +56,7 @@ struct FlashcardReviewCard: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(.isButton)
                     }
                 }
                 .padding(.top, 8)

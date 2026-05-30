@@ -224,6 +224,7 @@ struct TimelineTab: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityAddTraits(.isButton)
                             Divider()
                         }
                     }

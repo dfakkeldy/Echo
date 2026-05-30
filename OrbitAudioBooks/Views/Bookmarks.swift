@@ -414,6 +414,7 @@ struct EditBookmarkView: View {
                                 .font(.title2)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(.isButton)
 
                         Spacer()
 
@@ -431,6 +432,7 @@ struct EditBookmarkView: View {
                                 .font(.title2)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(.isButton)
                     }
                 }
 
@@ -455,6 +457,7 @@ struct EditBookmarkView: View {
                                 Image(systemName: "trash")
                             }
                             .buttonStyle(.plain)
+                        .accessibilityAddTraits(.isButton)
                             .accessibilityLabel(Text("Remove picture bookmark image"))
                         }
                     }
@@ -486,6 +489,7 @@ struct EditBookmarkView: View {
                                     .font(.title2)
                             }
                             .buttonStyle(.plain)
+                        .accessibilityAddTraits(.isButton)
                             Button(role: .destructive) {
                                 stopPreview()
                                 let probe = Bookmark(timestamp: 0, voiceMemoFileName: name)
@@ -497,6 +501,7 @@ struct EditBookmarkView: View {
                                 Image(systemName: "trash")
                             }
                             .buttonStyle(.plain)
+                        .accessibilityAddTraits(.isButton)
                         }
                     } else {
                         if recorder.isRecording {

@@ -9,7 +9,7 @@ struct PlayerControlBar: View {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 model.showingTimeline = false
             }
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            Haptic.play(.medium)
         } label: {
             HStack(spacing: 12) {
                 // Artwork / Cover
@@ -51,7 +51,7 @@ struct PlayerControlBar: View {
                 // Play / Pause Button
                 Button {
                     model.togglePlayPause()
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptic.play(.light)
                 } label: {
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                         .font(.title3)
@@ -60,6 +60,7 @@ struct PlayerControlBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(model.isPlaying ? Text("Pause") : Text("Play"))
             }
             .padding(.horizontal, 16)

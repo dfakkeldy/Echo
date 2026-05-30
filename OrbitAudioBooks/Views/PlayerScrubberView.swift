@@ -69,7 +69,7 @@ struct PlayerScrubberView: View {
                     if lastSnappedFraction != sectionFraction {
                         lastSnappedFraction = sectionFraction
                         scrubFraction = sectionFraction
-                        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                        Haptic.play(.rigid)
                     }
                     return
                 }
