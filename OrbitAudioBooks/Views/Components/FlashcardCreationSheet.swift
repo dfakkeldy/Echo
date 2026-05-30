@@ -72,7 +72,7 @@ struct FlashcardCreationSheet: View {
             backText: backText,
             mediaTimestamp: mediaTimestamp,
             endTimestamp: nil,
-            triggerTiming: "manualOnly",
+            triggerTiming: .manualOnly,
             nextReviewDate: Date().ISO8601Format(),
             intervalDays: 0,
             easeFactor: 2.5,
@@ -80,7 +80,9 @@ struct FlashcardCreationSheet: View {
             lastReviewedAt: nil,
             lastGrade: nil,
             isEnabled: true,
-            playlistPosition: nil
+            playlistPosition: nil,
+            createdAt: Date().ISO8601Format(),
+            modifiedAt: Date().ISO8601Format()
         )
         do {
             try FlashcardDAO(db: db.writer).insert(card)

@@ -4,7 +4,7 @@ import GRDB
 /// Parses, validates, and inserts flashcard decks from JSON import files.
 struct DeckImportService {
 
-    let validTriggerTimings = Set(["beginning", "end", "manualOnly"])
+    let validTriggerTimings = Set(FlashcardTriggerTiming.allCases.map(\.rawValue))
 
     /// Imports a deck from a JSON file URL, validates every card, and inserts
     /// into the database via FlashcardDAO.
@@ -60,7 +60,9 @@ struct DeckImportService {
                 lastReviewedAt: nil,
                 lastGrade: nil,
                 isEnabled: true,
-                playlistPosition: nil
+                playlistPosition: nil,
+                createdAt: Date().ISO8601Format(),
+                modifiedAt: Date().ISO8601Format()
             )
             try dao.insert(flashcard)
         }

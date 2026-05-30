@@ -61,7 +61,7 @@ final class InlineFlashcardTriggerController {
         let cards = cachedTrackFlashcards
 
         for card in cards {
-            guard card.triggerTiming != "manualOnly" else { continue }
+            guard card.triggerTiming != .manualOnly else { continue }
             guard !triggeredFlashcardIDs.contains(card.id) else { continue }
 
             let triggerTime = card.mediaTimestamp

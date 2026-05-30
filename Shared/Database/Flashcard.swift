@@ -1,6 +1,13 @@
 import Foundation
 import GRDB
 
+/// When a flashcard should be triggered during playback.
+enum FlashcardTriggerTiming: String, Codable, Sendable, CaseIterable {
+    case beginning
+    case end
+    case manualOnly = "manualOnly"
+}
+
 /// GRDB record for the `flashcard` table with SM-2 scheduling support.
 struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
@@ -9,7 +16,7 @@ struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
     var backText: String
     var mediaTimestamp: TimeInterval
     var endTimestamp: TimeInterval?
-    var triggerTiming: String
+    var triggerTiming: FlashcardTriggerTiming
     var nextReviewDate: String?
     var intervalDays: Int
     var easeFactor: Double
@@ -68,6 +75,7 @@ enum SpacedRepetitionService {
         updated.easeFactor = max(1.3, updated.easeFactor + (0.1 - Double(5 - grade) * (0.08 + Double(5 - grade) * 0.02)))
         updated.lastReviewedAt = Date().ISO8601Format()
         updated.lastGrade = grade
+        updated.modifiedAt = Date().ISO8601Format()
 
         if let nextDate = Calendar.current.date(byAdding: .day, value: updated.intervalDays, to: Date()) {
             updated.nextReviewDate = nextDate.ISO8601Format()

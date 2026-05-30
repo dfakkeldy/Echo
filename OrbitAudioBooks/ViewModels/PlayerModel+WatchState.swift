@@ -75,11 +75,18 @@ extension PlayerModel {
         s.wordCloud = Array(currentChapterWordCloud.prefix(10))
 
         // Due flashcards
-        if let db = databaseService,
-           let cards = try? FlashcardDAO(db: db.writer).allDueCards(),
-           !cards.isEmpty {
-            s.dueFlashcards = cards.map {
-                WatchFlashcard(id: $0.id, frontText: $0.frontText, backText: $0.backText)
+        if let db = databaseService {
+            let cards: [Flashcard]
+            do {
+                cards = try FlashcardDAO(db: db.writer).allDueCards()
+            } catch {
+                os_log(.error, "Failed to load due flashcards for watch: %{public}@", error.localizedDescription)
+                cards = []
+            }
+            if !cards.isEmpty {
+                s.dueFlashcards = cards.map {
+                    WatchFlashcard(id: $0.id, frontText: $0.frontText, backText: $0.backText)
+                }
             }
         }
 

@@ -312,8 +312,15 @@ final class PlayerModel {
     }
 
     func gradeFlashcard(cardID: String, grade: Int) {
-        guard let writer = databaseService?.writer else { return }
-        try? FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
+        guard let writer = databaseService?.writer else {
+            os_log(.error, "gradeFlashcard: no database writer available")
+            return
+        }
+        do {
+            try FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
+        } catch {
+            os_log(.error, "gradeFlashcard failed for %{public}@: %{public}@", cardID, error.localizedDescription)
+        }
     }
 
     /// Optional database service for SQL persistence.

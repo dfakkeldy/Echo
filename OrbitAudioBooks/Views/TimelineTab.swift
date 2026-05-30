@@ -389,7 +389,12 @@ struct TimelineTab: View {
 
     private func refreshDueCount() {
         guard let db = model.databaseService else { return }
-        dueCount = (try? FlashcardDAO(db: db.writer).allDueCards().count) ?? 0
+        do {
+            dueCount = try FlashcardDAO(db: db.writer).allDueCards().count
+        } catch {
+            os_log(.error, "Failed to load due flashcard count: %{public}@", error.localizedDescription)
+            dueCount = 0
+        }
     }
 }
 

@@ -28,7 +28,7 @@ struct FlashcardDeckImport: Codable, Sendable {
         let backText: String
         let startTime: Double
         let endTime: Double
-        let triggerTiming: String
+        let triggerTiming: FlashcardTriggerTiming
     }
 }
 
