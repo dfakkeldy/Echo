@@ -20,8 +20,8 @@ enum EPUBAutoImportScanner {
         chapters: [Chapter],
         duration: TimeInterval?
     ) async {
-        let didStartFolder = folderURL.startAccessingSecurityScopedResource()
-        defer { if didStartFolder { folderURL.stopAccessingSecurityScopedResource() } }
+        // Security-scoped access is managed by SecurityScopeManager in loadFolder.
+        // Don't start/stop here — duplicate cycles break file-provider access.
 
         let audiobookID = folderURL.absoluteString
 
@@ -32,15 +32,22 @@ enum EPUBAutoImportScanner {
             ? folderURL
             : folderURL.deletingLastPathComponent()
 
-        let didStartTarget = targetURL != folderURL ? targetURL.startAccessingSecurityScopedResource() : false
-        defer { if didStartTarget { targetURL.stopAccessingSecurityScopedResource() } }
-
         do {
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: targetURL,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: .skipsHiddenFiles
-            )
+            // Use NSFileCoordinator for file-provider-managed directories.
+            // contentsOfDirectory alone fails on File Provider Storage paths
+            // because the file provider daemon requires coordinated access.
+            var contents: [URL] = []
+            var coordError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: targetURL, options: [], error: &coordError) { coordinatedURL in
+                contents = (try? FileManager.default.contentsOfDirectory(
+                    at: coordinatedURL,
+                    includingPropertiesForKeys: [.isRegularFileKey],
+                    options: .skipsHiddenFiles
+                )) ?? []
+            }
+            if let coordError {
+                throw coordError
+            }
             epubFiles = contents.filter { $0.pathExtension.lowercased() == "epub" }
         } catch {
             logger.warning("Cannot scan folder for EPUB files: \(sanitizedPath(targetURL.path)) — \(error.localizedDescription)")
@@ -73,8 +80,8 @@ enum EPUBAutoImportScanner {
         duration: TimeInterval?,
         force: Bool = false
     ) async {
-        let didStart = epubURL.startAccessingSecurityScopedResource()
-        defer { if didStart { epubURL.stopAccessingSecurityScopedResource() } }
+        // Security-scoped access is managed by SecurityScopeManager in loadFolder.
+        // Don't start/stop here — duplicate cycles break file-provider access.
 
         // Check if EPUB blocks are already imported for this audiobook.
         if !force {
@@ -203,21 +210,24 @@ enum EPUBAutoImportScanner {
 
         let archive: Archive
         do {
-            // Verify the file exists and is readable before attempting to open.
-            let path = epubURL.path
-            guard FileManager.default.fileExists(atPath: path) else {
-                logger.error("EPUB file does not exist at path: \(sanitizedPath(path))")
+            // Coordinate file access through NSFileCoordinator for file-provider
+            // compatibility. The coordinator triggers the file provider daemon to
+            // materialize the file content before we try to read it.
+            var epubData: Data?
+            var coordError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: epubURL, options: [], error: &coordError) { coordinatedURL in
+                epubData = try? Data(contentsOf: coordinatedURL)
+            }
+            if let coordError {
+                logger.error("File coordinator failed for EPUB at \(sanitizedPath(epubURL.path)): \(coordError.localizedDescription)")
                 throw ScannerError.invalidArchive(url: epubURL)
             }
-            guard FileManager.default.isReadableFile(atPath: path) else {
-                logger.error("EPUB file is not readable at path: \(sanitizedPath(path))")
+            guard let data = epubData, !data.isEmpty else {
+                logger.error("EPUB file is empty or unreadable at path: \(sanitizedPath(epubURL.path))")
                 throw ScannerError.invalidArchive(url: epubURL)
             }
-            // Log file size for diagnostics.
-            let attrs = try FileManager.default.attributesOfItem(atPath: path)
-            let fileSize = (attrs[.size] as? Int64) ?? 0
-            logger.debug("Opening EPUB archive: \(sanitizedPath(path)) (\(fileSize) bytes)")
-            archive = try Archive(url: epubURL, accessMode: .read)
+            logger.debug("Opening EPUB archive: \(sanitizedPath(epubURL.path)) (\(data.count) bytes)")
+            archive = try Archive(data: data, accessMode: .read)
         } catch let error as ScannerError {
             throw error
         } catch {
