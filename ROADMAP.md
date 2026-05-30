@@ -1,6 +1,6 @@
 # Orbit Audiobooks — Roadmap
 
-<!-- Last updated: 2026-05-29 (Phase 1 complete!) -->
+<!-- Last updated: 2026-05-29 (Phase 1 & 2 complete!) -->
 <!-- Based on thorough code review of 169 findings across 6 code areas -->
 
 ---
@@ -90,24 +90,24 @@ Goal: eliminate crashes, data races, silent failures, and memory leaks before ad
 
 ---
 
-## Phase 2: Strip Unimplemented Feature References
+## Phase 2: Strip Unimplemented Feature References ✅
 
 Goal: remove dead code and forward-looking references that mislead contributors.
 
-- [ ] **Remove all video/future-media references** — `MediaPlayable` protocol doc ("future video features"), property names `audioStartTime`/`audioEndTime` (rename to `startTime`/`endTime` since there's no video to disambiguate), any "forward-looking for video" comments.
-- [ ] **Remove stale `.claude/plans/` directory** — 29 plan files dating back to early refactoring phases. Already staged for deletion (shown in git status). Complete the removal.
-- [ ] **Remove `ALPHA_OVERNIGHT_NOTES.md` and `neededfixes.md`** — already staged for deletion. Complete.
-- [ ] **Remove dead code**: `timelineDAO` property on `BookmarkDAO` and `FlashcardDAO` (declared but never assigned), unused `Combine`/`CryptoKit` imports in `TranscriptStore` and `TranscriptionManager`, redundant `Identifiable` conformance on `ContentCard`.
-- [ ] **Remove `ContentCardEditor.saveChanges()` stub** — empty function with "Phase 6 note: actual DB save wired in later iteration". Either implement or remove the Save button.
-- [ ] **Remove `contentCard.cardType` default case** — shows "Not Editable" view while still offering a Save button. Misleading UX.
-- [ ] **Remove single-case `PlayerDeepLink` enum** — convert to struct with optional `time` property.
-- [ ] **Remove `Optional.isNil` extension** (macOS TranscriptPane) — pollutes global namespace; `== nil` already exists.
-- [ ] **Remove redundant V3 index registrations** — V3 re-creates indexes V1 already made. `ifNotExists: true` makes this safe but indicates sloppy versioning.
-- [ ] **Remove macOS `ObjCBool` usage** — use modern `Bool` with new API or `resourceValues(forKeys:)`.
-- [ ] **Remove duplicated SHA256 hashing** (macOS ×3) — `MacContentView`, `TranscriptionManager`, `TranscriptPane` all have identical hashing. Extract to `Shared/`.
-- [ ] **Remove `SpeedSuggestion.Scenario.insufficient(Double)` unused associated value** — switch case ignores the payload. Remove or use the value.
-- [ ] **Remove `ContentCard.isSummaryItem` default case** — use exhaustive switch so compiler catches new enum additions.
-- [ ] **Remove dead `.transcription` check in `ContentCard.init(from: RealTimeEvent)`** — `isEditable` checks for `.transcription` but the switch never produces that case.
+- [x] **Remove all video/future-media references** — `MediaPlayable` protocol doc ("future video features"), property names `audioStartTime`/`audioEndTime` (rename to `startTime`/`endTime` since there's no video to disambiguate), any "forward-looking for video" comments.
+- [x] **Remove stale `.claude/plans/` directory** — 29 plan files dating back to early refactoring phases. Already staged for deletion (shown in git status). Complete the removal.
+- [x] **Remove `ALPHA_OVERNIGHT_NOTES.md` and `neededfixes.md`** — already staged for deletion. Complete.
+- [x] **Remove dead code**: `timelineDAO` property on `BookmarkDAO` and `FlashcardDAO` (declared but never assigned), unused `Combine`/`CryptoKit` imports in `TranscriptStore` and `TranscriptionManager`, redundant `Identifiable` conformance on `ContentCard`.
+- [x] **Remove `ContentCardEditor.saveChanges()` stub** — empty function with "Phase 6 note: actual DB save wired in later iteration". Either implement or remove the Save button.
+- [x] **Remove `contentCard.cardType` default case** — shows "Not Editable" view while still offering a Save button. Misleading UX.
+- [x] **Remove single-case `PlayerDeepLink` enum** — convert to struct with optional `time` property.
+- [x] **Remove `Optional.isNil` extension** (macOS TranscriptPane) — pollutes global namespace; `== nil` already exists.
+- [x] **Remove redundant V3 index registrations** — V3 re-creates indexes V1 already made. `ifNotExists: true` makes this safe but indicates sloppy versioning.
+- [x] **Remove macOS `ObjCBool` usage** — use modern `Bool` with new API or `resourceValues(forKeys:)`.
+- [x] **Remove duplicated SHA256 hashing** (macOS ×3) — `MacContentView`, `TranscriptionManager`, `TranscriptPane` all have identical hashing. Extract to `Shared/`.
+- [x] **Remove `SpeedSuggestion.Scenario.insufficient(Double)` unused associated value** — switch case ignores the payload. Remove or use the value.
+- [x] **Remove `ContentCard.isSummaryItem` default case** — use exhaustive switch so compiler catches new enum additions.
+- [x] **Remove dead `.transcription` check in `ContentCard.init(from: RealTimeEvent)`** — `isEditable` checks for `.transcription` but the switch never produces that case.
 
 ---
 
@@ -244,8 +244,8 @@ Stretch goals and ideas beyond the core roadmap.
 
 | Phase | Focus | Est. items |
 |-------|-------|-----------|
-| 1 | Stability & Correctness Fixes | ~65 |
-| 2 | Strip Unimplemented References | ~14 |
+| 1 | Stability & Correctness Fixes | ✅ Complete |
+| 2 | Strip Unimplemented References | ✅ Complete |
 | 3 | UI Polish & Accessibility | ~15 |
 | 4 | Spaced Repetition System | ~14 |
 | 5 | EPUB Viewing | ~10 |
@@ -253,4 +253,4 @@ Stretch goals and ideas beyond the core roadmap.
 | 7 | Testing & CI | ~7 |
 | 8 | Polish & Future | ~11 |
 
-**Total roadmap items: ~142**
+**Completed: 2/8 phases | Remaining: ~63 items**
