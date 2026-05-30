@@ -5,23 +5,47 @@ struct BottomToolbarView: View {
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
 
     var body: some View {
-        HStack {
-            loopModeButton
-            Spacer()
-            speedButton
-            Spacer()
-            sleepTimerMenu
-            Spacer()
-            addBookmarkButton
-            Spacer()
-            timelineToggleButton
+        VStack(spacing: 8) {
+            // Tab selection row
+            HStack(spacing: 0) {
+                ForEach(TabSelection.allCases, id: \.self) { tab in
+                    Button {
+                        model.selectedTab = tab
+                    } label: {
+                        VStack(spacing: 2) {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 18))
+                            Text(tab.label)
+                                .font(.caption2)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .foregroundColor(model.selectedTab == tab ? .accentColor : .secondary)
+                    }
+                    .disabled(tab == .read && !model.hasEPUB)
+                    .accessibilityLabel(Text(tab.label))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 4)
+
+            // Playback controls row
+            HStack {
+                loopModeButton
+                Spacer()
+                speedButton
+                Spacer()
+                sleepTimerMenu
+                Spacer()
+                addBookmarkButton
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
-        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
         .padding(.horizontal, 16)
         .padding(.bottom, -12)
     }
@@ -180,18 +204,4 @@ struct BottomToolbarView: View {
         .disabled(model.tracks.isEmpty)
     }
 
-    // MARK: - Timeline Toggle
-
-    private var timelineToggleButton: some View {
-        Button {
-            model.showingTimeline.toggle()
-            Haptic.play(.medium)
-        } label: {
-            Image(systemName: model.showingTimeline ? "play.fill" : "list.bullet.circle")
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel(Text(model.showingTimeline ? "Show Now Playing" : "Show Timeline"))
-    }
 }

@@ -37,8 +37,13 @@ final class PlayerModel {
 
     // MARK: - UI state (local to PlayerModel)
 
-    /// Tracks whether the app is currently displaying the Timeline Tab (true) or the Now Playing Tab (false).
-    var showingTimeline: Bool = false
+    /// The currently selected tab (Listen, Read, or Timeline).
+    var selectedTab: TabSelection = .nowPlaying
+
+    /// Backward-compatible accessor — reads `true` when the Timeline tab is active.
+    var showingTimeline: Bool {
+        selectedTab == .timeline
+    }
 
     /// When true, the timeline feed is frozen so the user can browse the EPUB
     /// column independently without the feed chasing playback position.

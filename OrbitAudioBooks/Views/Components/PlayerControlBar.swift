@@ -7,7 +7,7 @@ struct PlayerControlBar: View {
     var body: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                model.showingTimeline = false
+                model.selectedTab = .nowPlaying
             }
             Haptic.play(.medium)
         } label: {

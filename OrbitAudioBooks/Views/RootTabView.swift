@@ -25,21 +25,28 @@ struct RootTabView: View {
         NavigationStack {
             ZStack(alignment: .bottom) {
                 Group {
-                    if model.showingTimeline {
+                    switch model.selectedTab {
+                    case .nowPlaying:
+                        NowPlayingTab()
+                    case .read:
+                        if model.hasEPUB {
+                            ReaderTab(folderURL: model.folderURL!)
+                        } else {
+                            ReaderEmptyState()
+                        }
+                    case .timeline:
                         TimelineTab(
                             onReviewTap: { launchReview() },
                             onEditBookmark: { id in editingBookmarkID = id },
                             onCreateBookmark: { draft in newBookmarkDraft = draft }
                         )
-                    } else {
-                        NowPlayingTab()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
  
                 if !model.isPlayingVoiceMemo {
                     VStack(spacing: 8) {
-                        if model.showingTimeline && model.folderURL != nil && !model.tracks.isEmpty {
+                        if model.selectedTab == .timeline && model.folderURL != nil && !model.tracks.isEmpty {
                             PlayerControlBar()
                         }
                         BottomToolbarView(onCreateBookmark: { draft in newBookmarkDraft = draft })
@@ -47,7 +54,7 @@ struct RootTabView: View {
                 }
             }
             .overlay(alignment: .top) {
-                if !model.showingTimeline {
+                if model.selectedTab == .nowPlaying {
                     NowPlayingTopToolbar(
                         showsBookSettings: model.folderURL != nil,
                         openFolder: { showingFolderPicker = true },
@@ -57,10 +64,10 @@ struct RootTabView: View {
                     )
                 }
             }
-            .ignoresSafeArea(edges: model.showingTimeline ? [] : .top)
-            .toolbarVisibility(model.showingTimeline ? .automatic : .hidden, for: .navigationBar)
-            .toolbarBackground(model.showingTimeline ? .automatic : .hidden, for: .navigationBar)
-            .toolbarBackgroundVisibility(model.showingTimeline ? .automatic : .hidden, for: .navigationBar)
+            .ignoresSafeArea(edges: model.selectedTab != .nowPlaying ? [] : .top)
+            .toolbarVisibility(model.selectedTab != .nowPlaying ? .automatic : .hidden, for: .navigationBar)
+            .toolbarBackground(model.selectedTab != .nowPlaying ? .automatic : .hidden, for: .navigationBar)
+            .toolbarBackgroundVisibility(model.selectedTab != .nowPlaying ? .automatic : .hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
