@@ -42,6 +42,7 @@ final class DailyReviewViewModel {
             dueCards = try dao.allDueCards()
             currentIndex = 0
             isRevealed = false
+            ReviewNotificationService.updateNotification(dueCount: dueCards.count)
         } catch {
             logger.error("Failed to load due cards: \(error.localizedDescription)")
             dueCards = []
@@ -66,6 +67,8 @@ final class DailyReviewViewModel {
             let dao = FlashcardDAO(db: db)
             try dao.grade(cardID: card.id, grade: grade)
             logFlashcardReviewed(card: card, grade: grade)
+            let remaining = dueCards.count - (currentIndex + 1)
+            ReviewNotificationService.updateNotification(dueCount: remaining)
         } catch {
             logger.error("Failed to grade card \(card.id): \(error.localizedDescription)")
         }

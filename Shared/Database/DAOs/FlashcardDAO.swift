@@ -22,6 +22,31 @@ struct FlashcardDAO {
         }
     }
 
+    /// Statistics for the SRS dashboard.
+    struct ReviewStats {
+        var dueCount: Int
+        var reviewedToday: Int
+        var totalCards: Int
+        /// Approximate retention rate (0–1) based on last-grade snapshot.
+        var retentionRate: Double {
+            totalCards > 0 ? Double(totalCards - dueCount) / Double(totalCards) : 0
+        }
+    }
+
+    func reviewStats() throws -> ReviewStats {
+        try db.read { db in
+            let due = try Flashcard
+                .filter(Column("next_review_date") <= Date().ISO8601Format())
+                .fetchCount(db)
+            let today = Date().ISO8601Format().prefix(10) // YYYY-MM-DD
+            let reviewed = try Flashcard
+                .filter(Column("last_reviewed_at") >= "\(today)T00:00:00")
+                .fetchCount(db)
+            let total = try Flashcard.fetchCount(db)
+            return ReviewStats(dueCount: due, reviewedToday: reviewed, totalCards: total)
+        }
+    }
+
     func allDueCards() throws -> [Flashcard] {
         try db.read { db in
             try Flashcard

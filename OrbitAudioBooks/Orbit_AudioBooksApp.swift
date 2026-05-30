@@ -32,6 +32,7 @@ struct Orbit_AudioBooksApp: App {
             fatalError("DatabaseService initialization failed: \(error)")
         }
         Self.playerModel = model
+        ReviewNotificationService.requestAuthorization()
     }
 
     var body: some Scene {

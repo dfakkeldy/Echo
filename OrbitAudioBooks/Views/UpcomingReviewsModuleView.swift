@@ -2,8 +2,10 @@ import SwiftUI
 
 struct UpcomingReviewsModuleView: View {
     @Environment(PlayerModel.self) private var model
+    @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
 
     @State private var dueCount: Int = 0
+    @State private var reviewedToday: Int = 0
     var onTap: (() -> Void)?
 
     var body: some View {
@@ -11,7 +13,7 @@ struct UpcomingReviewsModuleView: View {
             onTap?()
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Label("Reviews Due", systemImage: "rectangle.stack.fill")
+                Label("Reviews", systemImage: "rectangle.stack.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -20,27 +22,37 @@ struct UpcomingReviewsModuleView: View {
                     .fontWeight(.bold)
                     .foregroundStyle(dueCount > 0 ? .purple : .secondary)
 
-                Text(dueCount == 0 ? "all caught up" : "tap to review")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if reviewedToday > 0 {
+                    Text("^[\(reviewedToday) reviewed today](inflect: true)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(dueCount == 0 ? "all caught up" : "tap to review")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(12)
-            .frame(width: 120)
+            .frame(width: cardWidth)
             .background(.purple.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(.isButton)
-        .onAppear { loadDueCount() }
+        .onAppear { loadStats() }
     }
 
-    private func loadDueCount() {
+    private func loadStats() {
         guard let db = model.databaseService else { return }
         do {
             let dao = FlashcardDAO(db: db.writer)
-            dueCount = try dao.allDueCards().count
+            let stats = try dao.reviewStats()
+            dueCount = stats.dueCount
+            reviewedToday = stats.reviewedToday
+            ReviewNotificationService.updateNotification(dueCount: stats.dueCount)
         } catch {
             dueCount = 0
+            reviewedToday = 0
         }
     }
 }
