@@ -102,7 +102,8 @@ enum EPUBAutoImportScanner {
 
         // Import extracted EPUB blocks.
         do {
-            let importer = EPUBImportService()
+            let assetStorage = EPUBAssetStorage(databaseService: databaseService)
+            let importer = EPUBImportService(assetStorage: assetStorage)
             let blocks = try await importer.import(
                 audiobookID: audiobookID,
                 epubURL: extractedDir,
