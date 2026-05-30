@@ -170,6 +170,8 @@ struct EPUBImportService {
                 sequenceIndex: startingSequence,
                 blockKind: textBlock.kind.rawValue,
                 text: textBlock.text,
+                htmlContent: textBlock.htmlContent,  // NEW
+                cardColor: nil,  // NEW
                 imagePath: textBlock.imagePath,
                 chapterIndex: chapterIndex,
                 isHidden: false,
@@ -231,6 +233,7 @@ struct TextBlockDescriptor {
     let kind: EPubBlockRecord.Kind
     let text: String?
     let imagePath: String?
+    let htmlContent: String?  // NEW
 }
 
 // MARK: - XML Parser Delegates
@@ -293,16 +296,22 @@ private final class OPFParserDelegate: NSObject, XMLParserDelegate {
 private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     var textBlocks: [TextBlockDescriptor] = []
     private var currentText = ""
+    private var currentHTML = ""
+    private var inlineDepth = 0
+    private var isInBlock = false
     private var currentHeading = ""
     private var isInHeading = false
     private var skipDepth = 0
     private var pendingImagePath: String?
     private let skipTags: Set<String> = ["script", "style", "head"]
     private let blockTags: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section"]
+    private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br"]
 
     func parse(_ data: Data) {
         let parser = XMLParser(data: data)
         parser.delegate = self
+        currentHTML = ""
+        currentText = ""
         parser.parse()
         flushBlock()
     }
@@ -315,16 +324,30 @@ private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
 
         if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
             isInHeading = true
+            isInBlock = true
             currentHeading = ""
+            currentHTML = ""
         } else if elementName == "img", let src = attributeDict["src"] {
             flushBlock()
             textBlocks.append(TextBlockDescriptor(
                 kind: .image,
                 text: attributeDict["alt"],
-                imagePath: src
+                imagePath: src,
+                htmlContent: nil
             ))
         } else if blockTags.contains(elementName) {
             flushBlock()
+            isInBlock = true
+            currentHTML = ""
+        } else if inlineTags.contains(elementName) {
+            // Build opening tag with attributes
+            var tag = "<\(elementName)"
+            for (key, value) in attributeDict {
+                tag += " \(key)=\"\(value)\""
+            }
+            tag += ">"
+            currentHTML += tag
+            inlineDepth += 1
         }
     }
 
@@ -333,6 +356,10 @@ private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         if isInHeading { currentHeading += trimmed + " " }
         if !trimmed.isEmpty { currentText += trimmed + " " }
+        // Preserve raw characters for inner HTML
+        if isInBlock || inlineDepth > 0 {
+            currentHTML += string
+        }
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String,
@@ -340,14 +367,23 @@ private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         if skipTags.contains(elementName) { skipDepth = max(0, skipDepth - 1); return }
         guard skipDepth == 0 else { return }
 
+        if inlineTags.contains(elementName) {
+            currentHTML += "</\(elementName)>"
+            inlineDepth = max(0, inlineDepth - 1)
+            return
+        }
+
         if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
             isInHeading = false
+            isInBlock = false
             let heading = currentHeading.trimmingCharacters(in: .whitespaces)
+            let html = currentHTML.trimmingCharacters(in: .whitespaces)
             if !heading.isEmpty {
                 textBlocks.append(TextBlockDescriptor(
                     kind: .heading,
                     text: heading,
-                    imagePath: nil
+                    imagePath: nil,
+                    htmlContent: html.isEmpty ? nil : html
                 ))
             }
         }
@@ -355,12 +391,16 @@ private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
 
     private func flushBlock() {
         let text = currentText.trimmingCharacters(in: .whitespaces)
+        let html = currentHTML.trimmingCharacters(in: .whitespaces)
         currentText = ""
+        currentHTML = ""
+        isInBlock = false
         guard !text.isEmpty else { return }
         textBlocks.append(TextBlockDescriptor(
             kind: .paragraph,
             text: text,
-            imagePath: nil
+            imagePath: nil,
+            htmlContent: html.isEmpty ? nil : html
         ))
     }
 }
