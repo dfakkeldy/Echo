@@ -41,6 +41,7 @@ final class SettingsManager: SettingsManagerProtocol {
         static let silenceDetectionLookbackSeconds = 10.0
         static let phonePage: [WatchAction] = [.previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack]
         static let phoneLongPressPage: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
+        static let volumeBoostGain: Float = 9.0
         static let seekBackwardDuration = 30
         static let seekForwardDuration = 30
         static let playerLayoutStyle = "default"
@@ -75,6 +76,7 @@ final class SettingsManager: SettingsManagerProtocol {
         static let watchArtworkLayout = "watchArtworkLayout"
         static let watchBackgroundStyle = "watchBackgroundStyle"
         static let isHapticFeedbackEnabled = "isHapticFeedbackEnabled"
+        static let volumeBoostGain = "volumeBoostGain"
         static let watchQuickBookmarkTimeoutSeconds = "watchQuickBookmarkTimeoutSeconds"
         static let silenceDetectionLookbackSeconds = "silenceDetectionLookbackSeconds"
         static let phonePage = "phonePage"
@@ -149,6 +151,7 @@ final class SettingsManager: SettingsManagerProtocol {
     var watchArtworkLayout: String { didSet { appGroupSet(watchArtworkLayout, forKey: Keys.watchArtworkLayout) } }
     var watchBackgroundStyle: String { didSet { appGroupSet(watchBackgroundStyle, forKey: Keys.watchBackgroundStyle) } }
     var isHapticFeedbackEnabled: Bool { didSet { appGroupSet(isHapticFeedbackEnabled, forKey: Keys.isHapticFeedbackEnabled) } }
+    var volumeBoostGain: Float { didSet { defaults.set(volumeBoostGain, forKey: Keys.volumeBoostGain) } }
     var watchQuickBookmarkTimeoutSeconds: Int {
         didSet {
             let clampedValue = max(1, watchQuickBookmarkTimeoutSeconds)
@@ -240,6 +243,7 @@ final class SettingsManager: SettingsManagerProtocol {
         watchArtworkLayout = appGroupDefaults.string(forKey: Keys.watchArtworkLayout) ?? Defaults.watchArtworkLayout
         watchBackgroundStyle = appGroupDefaults.string(forKey: Keys.watchBackgroundStyle) ?? Defaults.watchBackgroundStyle
         isHapticFeedbackEnabled = appGroupDefaults.bool(forKey: Keys.isHapticFeedbackEnabled)
+        volumeBoostGain = defaults.object(forKey: Keys.volumeBoostGain) as? Float ?? Defaults.volumeBoostGain
         watchQuickBookmarkTimeoutSeconds = max(
             1,
             appGroupDefaults.integer(forKey: Keys.watchQuickBookmarkTimeoutSeconds)
@@ -315,6 +319,7 @@ final class SettingsManager: SettingsManagerProtocol {
             Keys.watchArtworkLayout: Defaults.watchArtworkLayout,
             Keys.watchBackgroundStyle: Defaults.watchBackgroundStyle,
             Keys.isHapticFeedbackEnabled: Defaults.isHapticFeedbackEnabled,
+            Keys.volumeBoostGain: Defaults.volumeBoostGain,
             Keys.watchQuickBookmarkTimeoutSeconds: Defaults.watchQuickBookmarkTimeoutSeconds
         ])
     }

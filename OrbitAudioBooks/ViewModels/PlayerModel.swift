@@ -63,7 +63,8 @@ final class PlayerModel {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "global_volumeBoostEnabled")
-            playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabled)
+            playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabled,
+                                                gainDB: settingsManager?.volumeBoostGain ?? SettingsManager.Defaults.volumeBoostGain)
         }
     }
 
@@ -115,7 +116,8 @@ final class PlayerModel {
         if let key = folderURL?.absoluteString {
             bookSettingsOverrideStore.persistVolumeBoostOverride(value, for: key)
         }
-        playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabled)
+        playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabled,
+                                           gainDB: settingsManager?.volumeBoostGain ?? SettingsManager.Defaults.volumeBoostGain)
     }
 
     // MARK: - Sleep timer state (pass-through to SleepTimerManager)

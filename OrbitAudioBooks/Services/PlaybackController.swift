@@ -225,9 +225,9 @@ final class PlaybackController: PlaybackControllerProtocol {
         coordinator_persistAndSync?(!audioEngine.isPlaying)
     }
 
-    func setVolumeBoost(enabled: Bool) {
+    func setVolumeBoost(enabled: Bool, gainDB: Float = 9.0) {
         isVolumeBoostEnabled = enabled
-        audioEngine.setVolumeBoost(enabled: enabled)
+        audioEngine.setVolumeBoost(enabled: enabled, gainDB: gainDB)
     }
 
     func setLoopMode(_ mode: LoopMode) {

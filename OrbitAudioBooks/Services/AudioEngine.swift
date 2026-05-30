@@ -218,10 +218,10 @@ final class AudioEngine {
 
     // MARK: - Volume Boost
 
-    /// Toggles a +9 dB global gain on the EQ node.
-    func setVolumeBoost(enabled: Bool) {
+    /// Toggles the volume boost on the EQ node using the configured gain (default +9 dB).
+    func setVolumeBoost(enabled: Bool, gainDB: Float = 9.0) {
         isVolumeBoostEnabled = enabled
-        setGain(enabled ? 9.0 : 0.0)
+        setGain(enabled ? gainDB : 0.0)
     }
 
     // MARK: - Item Management

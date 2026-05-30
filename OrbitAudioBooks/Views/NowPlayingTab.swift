@@ -5,41 +5,40 @@ struct NowPlayingTab: View {
     @Environment(SettingsManager.self) private var settings
 
     var body: some View {
-        GeometryReader { proxy in
-            let artworkSize = NowPlayingLayout.artworkSize(for: proxy.size)
-
-            ZStack {
-                VStack(spacing: 0) {
+        ZStack {
+            VStack(spacing: 0) {
+                GeometryReader { proxy in
+                    let artworkSize = NowPlayingLayout.artworkSize(for: proxy.size)
                     playerContent(artworkSize: artworkSize, contentWidth: proxy.size.width)
-
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
-                .padding(.top, NowPlayingLayout.topContentInset)
-                .padding(.bottom, NowPlayingLayout.bottomToolbarClearance)
-                .grayscale(model.isPlayingVoiceMemo ? 1.0 : 0.0)
-                .opacity(model.isPlayingVoiceMemo ? 0.5 : 1.0)
-                .allowsHitTesting(!model.isPlayingVoiceMemo)
-
-                if model.isPlayingVoiceMemo {
-                    VoiceMemoOverlayView()
                 }
 
-                if let card = model.activeInlineCard {
-                    FlashcardOverlayView(
-                        card: card,
-                        onGrade: { grade in model.gradeInlineFlashcard(grade) },
-                        onDismiss: { model.dismissInlineFlashcard() }
-                    )
-                    .transition(.opacity)
-                }
+                Spacer(minLength: 0)
             }
-            .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
-            .animation(.easeInOut(duration: 0.2), value: model.isShowingInlineFlashcard)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+            .padding(.top, NowPlayingLayout.topContentInset)
+            .padding(.bottom, NowPlayingLayout.bottomToolbarClearance)
+            .grayscale(model.isPlayingVoiceMemo ? 1.0 : 0.0)
+            .opacity(model.isPlayingVoiceMemo ? 0.5 : 1.0)
+            .allowsHitTesting(!model.isPlayingVoiceMemo)
+
+            if model.isPlayingVoiceMemo {
+                VoiceMemoOverlayView()
+            }
+
+            if let card = model.activeInlineCard {
+                FlashcardOverlayView(
+                    card: card,
+                    onGrade: { grade in model.gradeInlineFlashcard(grade) },
+                    onDismiss: { model.dismissInlineFlashcard() }
+                )
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
+        .animation(.easeInOut(duration: 0.2), value: model.isShowingInlineFlashcard)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
     }
 
     private func playerContent(artworkSize: CGFloat, contentWidth: CGFloat) -> some View {
