@@ -111,4 +111,57 @@ struct EPubBlockDAO {
             )
         }
     }
+
+    // MARK: - Chapter grouping
+
+    /// Blocks grouped by chapter index. Blocks without a chapter index go in bucket -1.
+    func blocksByChapter(for audiobookID: String) throws -> [Int: [EPubBlockRecord]] {
+        let blocks = try self.blocks(for: audiobookID)
+        var dict: [Int: [EPubBlockRecord]] = [:]
+        for block in blocks {
+            let key = block.chapterIndex ?? -1
+            dict[key, default: []].append(block)
+        }
+        return dict
+    }
+
+    // MARK: - Audio position lookup
+
+    /// Find the EPUB block ID at a given audio time. Joins epub_block → timeline_item
+    /// on epub_block_id. Returns nil if no block covers this time.
+    func blockID(at time: TimeInterval, audiobookID: String) throws -> String? {
+        try db.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT eb.id
+                FROM epub_block eb
+                JOIN timeline_item ti ON ti.epub_block_id = eb.id
+                WHERE eb.audiobook_id = ?
+                  AND ti.audio_start_time <= ?
+                  AND ti.audio_end_time > ?
+                ORDER BY eb.sequence_index
+                LIMIT 1
+                """, arguments: [audiobookID, time, time]
+            )?["id"]
+        }
+    }
+
+    // MARK: - Card color
+
+    /// Update a single block's card color. Pass nil to reset to default.
+    func setCardColor(_ color: String?, blockID: String) throws {
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE epub_block
+                    SET card_color = :color, modified_at = :now
+                    WHERE id = :id
+                    """,
+                arguments: [
+                    "color": color,
+                    "now": ISO8601DateFormatter().string(from: Date()),
+                    "id": blockID
+                ]
+            )
+        }
+    }
 }
