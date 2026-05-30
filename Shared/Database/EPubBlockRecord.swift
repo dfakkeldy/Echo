@@ -3,7 +3,7 @@ import GRDB
 
 /// A parsed EPUB block — heading, paragraph, sentence, or image — extracted
 /// from XHTML spine items and stored in structural reading order.
-struct EPubBlockRecord: Identifiable, Equatable, Hashable, Codable, FetchableRecord, MutablePersistableRecord {
+struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var audiobookID: String
     var spineHref: String

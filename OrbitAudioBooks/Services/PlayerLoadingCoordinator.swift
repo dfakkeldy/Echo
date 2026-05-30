@@ -98,7 +98,7 @@ final class PlayerLoadingCoordinator {
     }
 
     /// Ingests chapter metadata: multi-M4B aggregation or per-track chapter parsing.
-    private func ingestChapterMetadata(folderURL: URL, state: PlaybackState, timelinePersistence: TimelinePersistenceController) {
+    private func ingestChapterMetadata(folderURL: URL, state: PlaybackState, timelinePersistence: PlayerTimelinePersistenceService) {
         let m4bTrackCount = state.tracks.filter { $0.url.pathExtension.lowercased() == "m4b" }.count
         if m4bTrackCount >= 2 {
             ingestMultiM4BChapters(folderURL: folderURL, state: state, timelinePersistence: timelinePersistence)
@@ -107,7 +107,7 @@ final class PlayerLoadingCoordinator {
         }
     }
 
-    private func ingestMultiM4BChapters(folderURL: URL, state: PlaybackState, timelinePersistence: TimelinePersistenceController) {
+    private func ingestMultiM4BChapters(folderURL: URL, state: PlaybackState, timelinePersistence: PlayerTimelinePersistenceService) {
         Task {
             let didStart = folderURL.startAccessingSecurityScopedResource()
             defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
@@ -127,7 +127,7 @@ final class PlayerLoadingCoordinator {
         }
     }
 
-    private func ingestMultiTrackChapters(folderURL: URL, tracks: [Track], state: PlaybackState, timelinePersistence: TimelinePersistenceController) {
+    private func ingestMultiTrackChapters(folderURL: URL, tracks: [Track], state: PlaybackState, timelinePersistence: PlayerTimelinePersistenceService) {
         Task {
             let didStart = folderURL.startAccessingSecurityScopedResource()
             defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
@@ -154,7 +154,7 @@ final class PlayerLoadingCoordinator {
     }
 
     /// Restores the last-played track index, or defaults to 0.
-    private func restoreTrackPosition(folderURL: URL, state: PlaybackState, persistence: PlaylistPersistence, autoplay: Bool) {
+    private func restoreTrackPosition(folderURL: URL, state: PlaybackState, persistence: Persistence, autoplay: Bool) {
         if let folderKey = state.folderURL?.absoluteString,
            let savedTrackId = persistence.getLastTrack(for: folderKey),
            let idx = state.tracks.firstIndex(where: { $0.id == savedTrackId }) {
@@ -174,7 +174,7 @@ final class PlayerLoadingCoordinator {
     }
 
     /// Migrates per-folder UserDefaults state into .orbitplaylist.json if no manifest exists yet.
-    private func migrateManifestIfNeeded(isDir: Bool, folderURL: URL, state: PlaybackState, persistence: PlaylistPersistence, bookmarkStore: BookmarkStore) {
+    private func migrateManifestIfNeeded(isDir: Bool, folderURL: URL, state: PlaybackState, persistence: Persistence, bookmarkStore: BookmarkStore) {
         guard isDir, !state.tracks.isEmpty else { return }
         let manifestURL = folderURL.appendingPathComponent(PlaylistManifestService.fileName)
         guard !FileManager.default.fileExists(atPath: manifestURL.path) else { return }
@@ -225,13 +225,13 @@ final class PlayerLoadingCoordinator {
 
     // MARK: - prepareToPlay helpers
 
-    private func saveProgressBeforeTrackChange(state: PlaybackState, persistence: PlaylistPersistence, audioEngine: AudioEngine) {
+    private func saveProgressBeforeTrackChange(state: PlaybackState, persistence: Persistence, audioEngine: AudioEngine) {
         guard let folder = state.folderURL?.absoluteString,
               state.tracks.indices.contains(state.currentIndex) else { return }
         persistence.saveBookProgress(for: folder, trackId: state.tracks[state.currentIndex].id, time: audioEngine.currentTime, folderURL: state.folderURL)
     }
 
-    private func configureTrackState(state: PlaybackState, index: Int, persistence: PlaylistPersistence, playbackController: PlaybackController, audioEngine: AudioEngine) {
+    private func configureTrackState(state: PlaybackState, index: Int, persistence: Persistence, playbackController: PlaybackController, audioEngine: AudioEngine) {
         state.currentIndex = index
         state.currentTitle = state.tracks[index].title
         state.currentSubtitle = ""

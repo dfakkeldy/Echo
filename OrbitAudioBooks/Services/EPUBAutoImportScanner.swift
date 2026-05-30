@@ -201,7 +201,10 @@ enum EPUBAutoImportScanner {
         }
         try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
 
-        guard let archive = Archive(url: epubURL, accessMode: .read) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: epubURL, accessMode: .read)
+        } catch {
             throw ScannerError.invalidArchive(url: epubURL)
         }
 

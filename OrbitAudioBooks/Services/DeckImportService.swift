@@ -38,8 +38,8 @@ struct DeckImportService {
             guard card.startTime >= 0, card.endTime > card.startTime else {
                 throw DeckImportError.invalidTimeRange(cardIndex: i)
             }
-            guard validTriggerTimings.contains(card.triggerTiming) else {
-                throw DeckImportError.invalidTriggerTiming(card.triggerTiming, cardIndex: i)
+            guard validTriggerTimings.contains(card.triggerTiming.rawValue) else {
+                throw DeckImportError.invalidTriggerTiming(card.triggerTiming.rawValue, cardIndex: i)
             }
         }
 

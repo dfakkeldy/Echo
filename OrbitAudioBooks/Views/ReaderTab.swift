@@ -53,7 +53,8 @@ struct ReaderTab: View {
         .sheet(isPresented: $showSettings) {
             ReaderSettingsSheet(settings: $readerSettings)
         }
-        .sheet(item: chapterPickerBinding) { blockID in
+        .sheet(item: chapterPickerBinding) { ident in
+            let blockID = ident.id
             ChapterPickerSheet(
                 chapters: model.state.chapters,
                 onSelect: { chapter in
@@ -62,7 +63,8 @@ struct ReaderTab: View {
                 }
             )
         }
-        .sheet(item: cardColorPickerBinding) { blockID in
+        .sheet(item: cardColorPickerBinding) { ident in
+            let blockID = ident.id
             CardColorPickerSheet(blockID: blockID) { blockID, colorHex in
                 if let db = model.databaseService {
                     let blockDAO = EPubBlockDAO(db: db.writer)
@@ -80,17 +82,21 @@ struct ReaderTab: View {
 
     // MARK: - Helpers
 
-    private var chapterPickerBinding: Binding<String?> {
-        Binding<String?>(
-            get: { showChapterPickerForBlockID },
-            set: { showChapterPickerForBlockID = $0 }
+    private struct IdentifiableBlockID: Identifiable {
+        let id: String
+    }
+
+    private var chapterPickerBinding: Binding<IdentifiableBlockID?> {
+        Binding<IdentifiableBlockID?>(
+            get: { showChapterPickerForBlockID.map(IdentifiableBlockID.init) },
+            set: { showChapterPickerForBlockID = $0?.id }
         )
     }
 
-    private var cardColorPickerBinding: Binding<String?> {
-        Binding<String?>(
-            get: { showCardColorPickerForBlockID },
-            set: { showCardColorPickerForBlockID = $0 }
+    private var cardColorPickerBinding: Binding<IdentifiableBlockID?> {
+        Binding<IdentifiableBlockID?>(
+            get: { showCardColorPickerForBlockID.map(IdentifiableBlockID.init) },
+            set: { showCardColorPickerForBlockID = $0?.id }
         )
     }
 

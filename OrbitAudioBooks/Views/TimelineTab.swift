@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import OSLog
 
 struct TimelineTab: View {
     @Environment(PlayerModel.self) private var model

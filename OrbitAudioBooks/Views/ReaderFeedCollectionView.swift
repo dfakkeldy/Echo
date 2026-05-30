@@ -47,18 +47,48 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onTapBlock = onTapBlock
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.settings = settings
+        context.coordinator.activeBlockID = activeBlockID
 
         let newCount = cards.count
         if newCount != context.coordinator.currentCardCount {
-            context.coordinator.applySnapshot(cards: cards, animated: context.coordinator.currentCardCount > 0)
+            context.coordinator.cards = cards
+            context.coordinator.applySnapshot(animated: context.coordinator.currentCardCount > 0)
             context.coordinator.currentCardCount = newCount
         }
 
         context.coordinator.updateActiveBlock(activeBlockID, in: collectionView)
     }
 
-    private func makeDataSource(for collectionView: UICollectionView) -> UICollectionViewDiffableDataSource<String, ReaderCardItem> {
-        return UICollectionViewDiffableDataSource<String, ReaderCardItem>(collectionView: collectionView) { collectionView, indexPath, item in
+    private func makeDataSource(for collectionView: UICollectionView) -> UICollectionViewDiffableDataSource<String, String> {
+        return UICollectionViewDiffableDataSource<String, String>(collectionView: collectionView) {
+            collectionView, indexPath, itemID in
+            guard let coordinator = collectionView.delegate as? Coordinator else { return UICollectionViewCell() }
+            return coordinator.cell(for: itemID, at: indexPath, collectionView: collectionView)
+        }
+    }
+
+    // MARK: - Coordinator
+
+    class Coordinator: NSObject, UICollectionViewDelegate {
+        var onTapBlock: ((String) -> Void)?
+        var onContextMenu: ((String, EPubBlockRecord.Kind?) -> UIContextMenuConfiguration?)?
+        var settings: ReaderSettings = ReaderSettings(fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8")
+        var dataSource: UICollectionViewDiffableDataSource<String, String>?
+        var currentCardCount = 0
+        var cards: [ReaderCardItem] = []
+        var activeBlockID: String?
+
+        init(onTapBlock: ((String) -> Void)?, onContextMenu: ((String, EPubBlockRecord.Kind?) -> UIContextMenuConfiguration?)?) {
+            self.onTapBlock = onTapBlock
+            self.onContextMenu = onContextMenu
+        }
+
+        func card(for id: String) -> ReaderCardItem? {
+            cards.first { $0.id == id }
+        }
+
+        func cell(for itemID: String, at indexPath: IndexPath, collectionView: UICollectionView) -> UICollectionViewCell {
+            guard let item = card(for: itemID) else { return UICollectionViewCell() }
             switch item {
             case .chapterHeader(let title, _):
                 guard let cell = collectionView.dequeueReusableCell(
@@ -76,7 +106,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     let font = UIFont(name: "Lexend-SemiBold", size: 20) ?? UIFont.preferredFont(forTextStyle: .title3)
                     let cardTint = UIColor(hex: block.cardColor ?? "") ?? UIColor.systemBackground
                     cell.configure(with: block.text ?? "", font: font, tint: cardTint)
-                    cell.isActiveBlock = (block.id == self.activeBlockID)
+                    cell.isActiveBlock = (block.id == activeBlockID) // not directly compared here
                     return cell
 
                 case EPubBlockRecord.Kind.image.rawValue:
@@ -94,31 +124,16 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     let font = UIFont(name: "Lexend-Regular", size: 17) ?? UIFont.preferredFont(forTextStyle: .body)
                     let cardTint = UIColor(hex: block.cardColor ?? "") ?? UIColor.systemBackground
                     cell.configure(with: block, font: font, tint: cardTint, lineSpacing: 4)
-                    cell.isActiveBlock = (block.id == self.activeBlockID)
+                    cell.isActiveBlock = (block.id == activeBlockID)
                     return cell
                 }
             }
         }
-    }
 
-    // MARK: - Coordinator
-
-    class Coordinator: NSObject, UICollectionViewDelegate {
-        var onTapBlock: ((String) -> Void)?
-        var onContextMenu: ((String, EPubBlockRecord.Kind?) -> UIContextMenuConfiguration?)?
-        var settings: ReaderSettings = ReaderSettings(fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8")
-        var dataSource: UICollectionViewDiffableDataSource<String, ReaderCardItem>?
-        var currentCardCount = 0
-
-        init(onTapBlock: ((String) -> Void)?, onContextMenu: ((String, EPubBlockRecord.Kind?) -> UIContextMenuConfiguration?)?) {
-            self.onTapBlock = onTapBlock
-            self.onContextMenu = onContextMenu
-        }
-
-        func applySnapshot(cards: [ReaderCardItem], animated: Bool) {
-            var snapshot = NSDiffableDataSourceSnapshot<String, ReaderCardItem>()
+        func applySnapshot(animated: Bool) {
+            var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             snapshot.appendSections(["main"])
-            snapshot.appendItems(cards, toSection: "main")
+            snapshot.appendItems(cards.map(\.id), toSection: "main")
             dataSource?.apply(snapshot, animatingDifferences: animated)
         }
 
@@ -131,40 +146,36 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
 
             guard let blockID, let snapshot = dataSource?.snapshot() else { return }
             let items = snapshot.itemIdentifiers
-            for (idx, item) in items.enumerated() {
-                if case .block(let b) = item, b.id == blockID {
-                    let indexPath = IndexPath(item: idx, section: 0)
-                    if let cell = collectionView.cellForItem(at: indexPath) {
-                        if let headingCell = cell as? HeadingCardCell {
-                            headingCell.isActiveBlock = true
-                        } else if let paraCell = cell as? ParagraphCardCell {
-                            paraCell.isActiveBlock = true
-                        }
+            for (idx, itemID) in items.enumerated() {
+                guard case .block(let b) = card(for: itemID), b.id == blockID else { continue }
+                let indexPath = IndexPath(item: idx, section: 0)
+                if let cell = collectionView.cellForItem(at: indexPath) {
+                    if let headingCell = cell as? HeadingCardCell {
+                        headingCell.isActiveBlock = true
+                    } else if let paraCell = cell as? ParagraphCardCell {
+                        paraCell.isActiveBlock = true
                     }
-                    if !collectionView.indexPathsForVisibleItems.contains(indexPath) {
-                        collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
-                    }
-                    break
                 }
+                if !collectionView.indexPathsForVisibleItems.contains(indexPath) {
+                    collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+                }
+                break
             }
         }
 
         func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-            guard let item = dataSource?.itemIdentifier(for: indexPath) else { return }
-            if case .block(let block) = item {
-                onTapBlock?(block.id)
-            }
+            guard let itemID = dataSource?.itemIdentifier(for: indexPath),
+                  case .block(let block) = card(for: itemID) else { return }
+            onTapBlock?(block.id)
         }
 
         func collectionView(_ collectionView: UICollectionView,
                             contextMenuConfigurationForItemAt indexPath: IndexPath,
                             point: CGPoint) -> UIContextMenuConfiguration? {
-            guard let item = dataSource?.itemIdentifier(for: indexPath) else { return nil }
-            if case .block(let block) = item {
-                let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
-                return onContextMenu?(block.id, kind)
-            }
-            return nil
+            guard let itemID = dataSource?.itemIdentifier(for: indexPath),
+                  case .block(let block) = card(for: itemID) else { return nil }
+            let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
+            return onContextMenu?(block.id, kind)
         }
     }
 }

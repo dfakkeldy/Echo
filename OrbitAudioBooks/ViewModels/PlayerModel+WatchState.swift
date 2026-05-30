@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 // MARK: - Watch State Serialization
 
