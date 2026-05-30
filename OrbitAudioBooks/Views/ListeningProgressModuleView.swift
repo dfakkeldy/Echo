@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ListeningProgressModuleView: View {
     @Environment(PlayerModel.self) private var model
+    @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
 
     private var progressFraction: Double {
         guard let duration = model.durationSeconds, duration > 0 else { return 0 }
@@ -25,7 +26,7 @@ struct ListeningProgressModuleView: View {
                 .lineLimit(1)
         }
         .padding(12)
-        .frame(width: 140)
+        .frame(width: cardWidth)
         .background(.blue.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }

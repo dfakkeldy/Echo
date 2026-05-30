@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StatsModuleView: View {
     @Environment(PlayerModel.self) private var model
+    @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -27,7 +28,7 @@ struct StatsModuleView: View {
             }
         }
         .padding(12)
-        .frame(width: 140)
+        .frame(width: cardWidth)
         .background(.green.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }

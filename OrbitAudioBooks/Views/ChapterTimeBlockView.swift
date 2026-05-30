@@ -9,12 +9,13 @@ struct ChapterTimeBlockView: View {
     let totalBookDuration: TimeInterval
     let isCurrentChapter: Bool
     let isPlayed: Bool
+    @ScaledMetric(relativeTo: .body) private var barHeight: CGFloat = 28
 
     var body: some View {
         HStack(spacing: 4) {
             RoundedRectangle(cornerRadius: 4)
                 .fill(barColor)
-                .frame(width: barWidth, height: 28)
+                .frame(width: barWidth, height: barHeight)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(title.isEmpty ? "Chapter \(chapterIndex + 1)" : title)
