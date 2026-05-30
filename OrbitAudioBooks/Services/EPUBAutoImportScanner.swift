@@ -33,29 +33,11 @@ enum EPUBAutoImportScanner {
             : folderURL.deletingLastPathComponent()
 
         do {
-            // Use NSFileCoordinator for file-provider-managed directories.
-            // contentsOfDirectory alone fails on File Provider Storage paths
-            // because the file provider daemon requires coordinated access.
-            var contents: [URL] = []
-            var listError: Error?
-            var coordError: NSError?
-            NSFileCoordinator().coordinate(readingItemAt: targetURL, options: [], error: &coordError) { coordinatedURL in
-                do {
-                    contents = try FileManager.default.contentsOfDirectory(
-                        at: coordinatedURL,
-                        includingPropertiesForKeys: [.isRegularFileKey],
-                        options: .skipsHiddenFiles
-                    )
-                } catch {
-                    listError = error
-                }
-            }
-            if let coordError {
-                throw coordError
-            }
-            if let listError {
-                throw listError
-            }
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: targetURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: .skipsHiddenFiles
+            )
             epubFiles = contents.filter { $0.pathExtension.lowercased() == "epub" }
         } catch {
             logger.warning("Cannot scan folder for EPUB files: \(sanitizedPath(targetURL.path)) — \(error.localizedDescription)")
@@ -216,39 +198,26 @@ enum EPUBAutoImportScanner {
         }
         try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
 
+        // Copy the EPUB into the cache directory so Archive opens a local file
+        // rather than a file-provider-managed one. This avoids permission issues
+        // with File Provider Storage paths.
+        let cachedEPUB = cacheDir.appendingPathComponent("\(safeID).epub")
+        if FileManager.default.fileExists(atPath: cachedEPUB.path) {
+            try FileManager.default.removeItem(at: cachedEPUB)
+        }
+        do {
+            try FileManager.default.copyItem(at: epubURL, to: cachedEPUB)
+        } catch {
+            logger.error("Failed to copy EPUB to cache at \(sanitizedPath(cachedEPUB.path)): \(error.localizedDescription)")
+            throw ScannerError.invalidArchive(url: epubURL)
+        }
+
         let archive: Archive
         do {
-            // Coordinate file access through NSFileCoordinator for file-provider
-            // compatibility. The coordinator triggers the file provider daemon to
-            // materialize the file content before we try to read it.
-            var epubData: Data?
-            var readError: Error?
-            var coordError: NSError?
-            NSFileCoordinator().coordinate(readingItemAt: epubURL, options: [], error: &coordError) { coordinatedURL in
-                do {
-                    epubData = try Data(contentsOf: coordinatedURL)
-                } catch {
-                    readError = error
-                }
-            }
-            if let coordError {
-                logger.error("File coordinator failed for EPUB: \(coordError.localizedDescription)")
-                throw ScannerError.invalidArchive(url: epubURL)
-            }
-            if let readError {
-                logger.error("Failed to read EPUB data at \(sanitizedPath(epubURL.path)): \(readError.localizedDescription)")
-                throw ScannerError.invalidArchive(url: epubURL)
-            }
-            guard let data = epubData, !data.isEmpty else {
-                logger.error("EPUB file is empty or nil at path: \(sanitizedPath(epubURL.path))")
-                throw ScannerError.invalidArchive(url: epubURL)
-            }
-            logger.debug("Opening EPUB archive: \(sanitizedPath(epubURL.path)) (\(data.count) bytes)")
-            archive = try Archive(data: data, accessMode: .read)
-        } catch let error as ScannerError {
-            throw error
+            logger.debug("Opening EPUB archive from cache: \(sanitizedPath(cachedEPUB.path))")
+            archive = try Archive(url: cachedEPUB, accessMode: .read)
         } catch {
-            logger.error("Failed to open EPUB archive at \(sanitizedPath(epubURL.path)): \(error.localizedDescription) (type: \(type(of: error)))")
+            logger.error("Failed to open EPUB archive at \(sanitizedPath(cachedEPUB.path)): \(error.localizedDescription) (type: \(type(of: error)))")
             throw ScannerError.invalidArchive(url: epubURL)
         }
 

@@ -58,15 +58,8 @@ final class PlayerLoadingCoordinator {
 
         // Start security-scoped access for the entire folder loading flow.
         // Must stay alive through async EPUB import, which runs after this method returns.
-        // When a file is selected, scope the parent directory so sibling files
-        // (like EPUBs next to an M4B) are also accessible.
-        let scopeURL: URL
-        if let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory, isDir {
-            scopeURL = url
-        } else {
-            scopeURL = url.deletingLastPathComponent()
-        }
-        securityScope?.startSelection(url: scopeURL)
+        // Uses the document picker's exact URL — security scope is tied to this URL.
+        securityScope?.startSelection(url: url)
 
         let isDir = loadTracksAndDetectDirectory(url: url, state: state, playlistManager: playlistManager)
         state.folderURL = url
