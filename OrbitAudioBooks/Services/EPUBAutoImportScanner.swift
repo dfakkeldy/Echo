@@ -116,8 +116,8 @@ enum EPUBAutoImportScanner {
 
             // Create initial system anchors (first block → 0, last block → duration)
             // so every block gets an interpolated timestamp from the start.
+            let alignmentService = AlignmentService(db: databaseService.writer, audiobookID: audiobookID)
             if let firstBlock = blocks.first, let lastBlock = blocks.last, let bookDuration = duration {
-                let alignmentService = AlignmentService(db: databaseService.writer, audiobookID: audiobookID)
                 // Anchor first block to time 0
                 let firstAnchor = AlignmentAnchorRecord(
                     id: "anchor-init-first-\(audiobookID)",
