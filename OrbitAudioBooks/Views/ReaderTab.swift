@@ -321,6 +321,16 @@ struct ReaderTab: View {
         } catch {}
     }
 
+    private func unhideBlock(_ blockID: String) {
+        guard let db = model.databaseService else { return }
+        let audiobookID = folderURL.absoluteString
+        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
+        do {
+            try alignmentService.unhideBlock(blockID: blockID)
+            viewModel?.reload()
+        } catch {}
+    }
+
     private func hideChapter(_ chapterIndex: Int) {
         guard let db = model.databaseService else { return }
         let audiobookID = folderURL.absoluteString
@@ -416,12 +426,21 @@ struct ReaderTab: View {
                 actions.append(skipChapterAction)
             }
 
-            let skipBlockAction = UIAction(
-                title: "Not in Audio (This Paragraph)", image: UIImage(systemName: "speaker.slash")
-            ) { _ in
-                hideBlock(blockID)
+            if block.isHidden {
+                let unhideBlockAction = UIAction(
+                    title: "Include in Audio", image: UIImage(systemName: "speaker.wave.2.fill")
+                ) { _ in
+                    unhideBlock(blockID)
+                }
+                actions.append(unhideBlockAction)
+            } else {
+                let skipBlockAction = UIAction(
+                    title: "Not in Audio (This Paragraph)", image: UIImage(systemName: "speaker.slash")
+                ) { _ in
+                    hideBlock(blockID)
+                }
+                actions.append(skipBlockAction)
             }
-            actions.append(skipBlockAction)
             
             if status == "lockedAnchor" {
                 let eraseAction = UIAction(

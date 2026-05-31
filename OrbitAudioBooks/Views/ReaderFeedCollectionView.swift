@@ -61,8 +61,32 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onTapBlock = onTapBlock
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.settings = settings
+        let statusChanged = alignmentStatusByBlockID != context.coordinator.alignmentStatusByBlockID
+        let startTimesChanged = audioStartTimeByBlockID != context.coordinator.audioStartTimeByBlockID
+        
         context.coordinator.alignmentStatusByBlockID = alignmentStatusByBlockID
         context.coordinator.audioStartTimeByBlockID = audioStartTimeByBlockID
+        
+        if statusChanged || startTimesChanged {
+            if let dataSource = context.coordinator.dataSource {
+                for cell in collectionView.visibleCells {
+                    if let indexPath = collectionView.indexPath(for: cell),
+                       let itemID = dataSource.itemIdentifier(for: indexPath),
+                       itemID.hasPrefix("b-") {
+                        let blockID = String(itemID.dropFirst(2))
+                        let timeString = audioStartTimeByBlockID[blockID].map { Duration.seconds($0).formatted(.time(pattern: .minuteSecond)) } ?? "None"
+                        let isAnchored = alignmentStatusByBlockID[blockID] == "lockedAnchor"
+                        
+                        if let headingCell = cell as? HeadingCardCell {
+                            headingCell.setManuallyAligned(isAnchored, timeString: timeString)
+                        } else if let paraCell = cell as? ParagraphCardCell {
+                            paraCell.setManuallyAligned(isAnchored, timeString: timeString)
+                        }
+                    }
+                }
+            }
+        }
+
         context.coordinator.activeBlockID = activeBlockID
         context.coordinator.searchQuery = searchQuery
 

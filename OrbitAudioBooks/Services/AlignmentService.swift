@@ -176,12 +176,12 @@ struct AlignmentService {
             return dict
         }()
 
-        // Pre-compute word positions for proportional interpolation
+        // Pre-compute text positions for proportional interpolation
         let sortedAllBlocks = blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
         var wordPositionByBlockID: [String: Double] = [:]
         var cumulativeWordCount: Double = 0
         for block in sortedAllBlocks {
-            let weight = Double(max(1, block.wordCount ?? 1))
+            let weight = Double(max(1, block.text?.count ?? 1))
             let center = cumulativeWordCount + weight / 2.0
             wordPositionByBlockID[block.id] = center
             cumulativeWordCount += weight
@@ -222,10 +222,14 @@ struct AlignmentService {
                     audioStart = -1
                     timestampSrc = TimestampSource.none.rawValue
                     alignStatus = AlignmentStatus.omitted.rawValue
-                } else if let lockedTime = anchorTimeByBlockID[block.id] {
+                } else if let lockedTime = syntheticAnchorTimes[block.id], anchorTimeByBlockID[block.id] != nil {
                     audioStart = lockedTime
                     timestampSrc = TimestampSource.lockedAnchor.rawValue
                     alignStatus = AlignmentStatus.lockedAnchor.rawValue
+                } else if let lockedTime = syntheticAnchorTimes[block.id] {
+                    audioStart = lockedTime
+                    timestampSrc = TimestampSource.interpolated.rawValue
+                    alignStatus = AlignmentStatus.interpolated.rawValue
                 } else if anchoredBlocks.count >= 2,
                           let (prev, next) = findBracketingAnchors(
                               block: block,

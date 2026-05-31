@@ -229,15 +229,15 @@ struct BottomToolbarView: View {
 
     private var skipBackwardButton: some View {
         Button {
-            _ = model.skipBackward30()
+            model.seek(toSeconds: max(0, model.currentPlaybackTime - 5.0))
             Haptic.play(.light)
         } label: {
-            Image(systemName: "gobackward.\(Int(settings.seekBackwardDuration))")
+            Image(systemName: "gobackward.5")
                 .font(.title2)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .accessibilityLabel(Text("Skip backward \(Int(settings.seekBackwardDuration)) seconds"))
+        .accessibilityLabel(Text("Skip backward 5 seconds"))
         .disabled(model.tracks.isEmpty)
     }
 
@@ -257,15 +257,16 @@ struct BottomToolbarView: View {
 
     private var skipForwardButton: some View {
         Button {
-            _ = model.skipForward30()
+            let duration = model.durationSeconds ?? .infinity
+            model.seek(toSeconds: min(duration, model.currentPlaybackTime + 5.0))
             Haptic.play(.light)
         } label: {
-            Image(systemName: "goforward.\(Int(settings.seekForwardDuration))")
+            Image(systemName: "goforward.5")
                 .font(.title2)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .accessibilityLabel(Text("Skip forward \(Int(settings.seekForwardDuration)) seconds"))
+        .accessibilityLabel(Text("Skip forward 5 seconds"))
         .disabled(model.tracks.isEmpty)
     }
 }
