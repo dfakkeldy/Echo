@@ -83,5 +83,3 @@ vendor/bundle/
 .dev/
 .claude/worktrees/
 
-# --- Generated reports ---
-CODE_AUDIT.md
