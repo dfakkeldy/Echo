@@ -52,10 +52,10 @@ The workspace is composed of four targets, each with its own entry point and vie
 
 | Target | Bundle Identifier / Entry Point | Purpose |
 |---|---|---|
-| **OrbitAudioBooks** (`iOS/iPadOS`) | `Orbit_AudioBooksApp.swift` → `RootTabView.swift` | Primary audiobook player. Uses a 3-tab layout (NowPlayingTab, ReaderTab with EPUB alignment and full-text search, PlaylistTab). PlayerModel acts as a thin coordinator over 20+ single-responsibility services. Handles file/folder selection, bookmarks, voice memos, WatchConnectivity, and Now Playing integration. When an EPUB file is loaded alongside the audiobook, the Reader tab provides a searchable, browsable book with per-paragraph audio alignment. |
-| **Orbit Audiobooks macOS** (`macOS`) | `Orbit_Audiobooks_macOSApp.swift` → `MacContentView.swift` | Native macOS desktop companion. Uses `MacPlayerModel` (`ObservableObject`-based) with a `NavigationSplitView` layout: a bookmarks sidebar and a player pane with transport controls and a speed picker. |
-| **Orbit Audiobooks Watch App** (`watchOS`) | `OrbitAudioBooksWatchApp.swift` → `ContentView.swift` | Wearable remote for the iOS player. Communicates with the phone via `WCSession` to send play/pause, skip, scrub, volume, loop mode, sleep timer, section navigation, and bookmark commands. Features a customizable button layout with up to five pages of five action slots each (25 total), with configurable seek forward/backward durations (5–60s), all syncable from the phone. |
-| **Orbit Audiobooks Widget** (`Widgets`) | `Orbit_Audiobooks_WidgetBundle.swift` → `Orbit_Audiobooks_Widget.swift` | A `WidgetBundle` exposing a `StaticConfiguration` widget (`.accessoryCircular`) that shows the current track title, progress ring, and thumbnail via `AppGroupDefaults` communication. Also includes a `TogglePlaybackIntent` (App Intent) for Control Center / widget interactions. |
+| **EchoCore** (`iOS/iPadOS`) | `Echo_AudioBooksApp.swift` → `RootTabView.swift` | Primary audiobook player. Uses a 3-tab layout (NowPlayingTab, ReaderTab with EPUB alignment and full-text search, PlaylistTab). PlayerModel acts as a thin coordinator over 20+ single-responsibility services. Handles file/folder selection, bookmarks, voice memos, WatchConnectivity, and Now Playing integration. When an EPUB file is loaded alongside the audiobook, the Reader tab provides a searchable, browsable book with per-paragraph audio alignment. |
+| **Echo: Audiobook Study Player macOS** (`macOS`) | `Echo_Audiobooks_macOSApp.swift` → `MacContentView.swift` | Native macOS desktop companion. Uses `MacPlayerModel` (`ObservableObject`-based) with a `NavigationSplitView` layout: a bookmarks sidebar and a player pane with transport controls and a speed picker. |
+| **Echo: Audiobook Study Player Watch App** (`watchOS`) | `EchoCoreWatchApp.swift` → `ContentView.swift` | Wearable remote for the iOS player. Communicates with the phone via `WCSession` to send play/pause, skip, scrub, volume, loop mode, sleep timer, section navigation, and bookmark commands. Features a customizable button layout with up to five pages of five action slots each (25 total), with configurable seek forward/backward durations (5–60s), all syncable from the phone. |
+| **Echo: Audiobook Study Player Widget** (`Widgets`) | `Echo_Audiobooks_WidgetBundle.swift` → `Echo_Audiobooks_Widget.swift` | A `WidgetBundle` exposing a `StaticConfiguration` widget (`.accessoryCircular`) that shows the current track title, progress ring, and thumbnail via `AppGroupDefaults` communication. Also includes a `TogglePlaybackIntent` (App Intent) for Control Center / widget interactions. |
 
 Shared models and utilities used across targets include:
 
@@ -83,8 +83,8 @@ Echo is built with accessibility as a core principle, not an afterthought.
 
 The project bundles two specially-selected font families to support neurodiverse readers:
 
-- **Lexend** ([`OrbitAudioBooks/Fonts/Lexend.ttf`](OrbitAudioBooks/Fonts/Lexend.ttf) and [`Orbit Audiobooks macOS/Fonts/Lexend.ttf`](Orbit%20Audiobooks%20macOS/Fonts/Lexend.ttf)) — A typeface designed with research-backed letter spacing and proportions to improve reading fluency and reduce visual crowding.
-- **OpenDyslexic** ([`OrbitAudioBooks/Fonts/OpenDyslexic-Regular.otf`](OrbitAudioBooks/Fonts/OpenDyslexic-Regular.otf) and [`Orbit Audiobooks macOS/Fonts/OpenDyslexic-Regular.otf`](Orbit%20Audiobooks%20macOS/Fonts/OpenDyslexic-Regular.otf)) — An open-source font weighted at the bottom to combat letter reversal and rotation, widely adopted by the dyslexia community.
+- **Lexend** ([`EchoCore/Fonts/Lexend.ttf`](EchoCore/Fonts/Lexend.ttf) and [`Echo: Audiobook Study Player macOS/Fonts/Lexend.ttf`](Echo%20Audiobooks%20macOS/Fonts/Lexend.ttf)) — A typeface designed with research-backed letter spacing and proportions to improve reading fluency and reduce visual crowding.
+- **OpenDyslexic** ([`EchoCore/Fonts/OpenDyslexic-Regular.otf`](EchoCore/Fonts/OpenDyslexic-Regular.otf) and [`Echo: Audiobook Study Player macOS/Fonts/OpenDyslexic-Regular.otf`](Echo%20Audiobooks%20macOS/Fonts/OpenDyslexic-Regular.otf)) — An open-source font weighted at the bottom to combat letter reversal and rotation, widely adopted by the dyslexia community.
 
 ### Developer Requirements
 
@@ -108,23 +108,23 @@ The project bundles two specially-selected font families to support neurodiverse
 
 | Target | Test File | Scope |
 |---|---|---|
-| **OrbitAudioBooksTests** | `OrbitAudioBooksTests.swift` | Unit tests for the iOS model layer (playback logic, bookmark persistence, timer logic). |
-| **OrbitAudioBooksUITests** | `OrbitAudioBooksUITests.swift`, `OrbitAudioBooksUITestsLaunchTests.swift` | UI integration tests for the iOS app using XCUITest. |
-| **Orbit Audiobooks Watch AppTests** | `Orbit_Audiobooks_Watch_AppTests.swift` | Unit tests for watchOS model and WCSession command parsing. |
-| **Orbit Audiobooks Watch AppUITests** | `Orbit_Audiobooks_Watch_AppUITests.swift` | UI tests for the watch app (launch validation, button interaction). |
+| **EchoCoreTests** | `EchoCoreTests.swift` | Unit tests for the iOS model layer (playback logic, bookmark persistence, timer logic). |
+| **EchoCoreUITests** | `EchoCoreUITests.swift`, `EchoCoreUITestsLaunchTests.swift` | UI integration tests for the iOS app using XCUITest. |
+| **Echo: Audiobook Study Player Watch AppTests** | `Echo_Audiobooks_Watch_AppTests.swift` | Unit tests for watchOS model and WCSession command parsing. |
+| **Echo: Audiobook Study Player Watch AppUITests** | `Echo_Audiobooks_Watch_AppUITests.swift` | UI tests for the watch app (launch validation, button interaction). |
 
 Run all tests from Xcode with `⌘U` or via the terminal:
 
 ```bash
 xcodebuild test \
-  -workspace Orbit\ Audiobooks.xcodeproj \
-  -scheme "Orbit Audiobooks" \
+  -workspace Echo\ Audiobooks.xcodeproj \
+  -scheme "Echo: Audiobook Study Player" \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
 ```
 
 ### MockMediaProvider
 
-[`MockMediaProvider.swift`](OrbitAudioBooks/MockMediaProvider.swift) is a `#if DEBUG`-only utility that seeds a sample audiobook (`BIFF.m4b`) into the simulator's Documents directory on first launch. It is automatically invoked during `DEBUG && targetEnvironment(simulator)` builds in the app's `init()`.
+[`MockMediaProvider.swift`](EchoCore/MockMediaProvider.swift) is a `#if DEBUG`-only utility that seeds a sample audiobook (`BIFF.m4b`) into the simulator's Documents directory on first launch. It is automatically invoked during `DEBUG && targetEnvironment(simulator)` builds in the app's `init()`.
 
 **Usage during development:**
 - Add `BIFF.m4b` to the app bundle (e.g., in the `Development Assets` folder).

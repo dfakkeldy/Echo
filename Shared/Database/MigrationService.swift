@@ -39,7 +39,7 @@ enum MigrationService {
                 }
 
                 // 2. Migrate playback progress.
-                let progressKey = "OrbitAudiobooks.progress.dictionary"
+                let progressKey = "EchoAudiobooks.progress.dictionary"
                 if let progress = defaults.dictionary(forKey: progressKey) as? [String: [String: Any]] {
                     for (audiobookID, item) in progress {
                         guard let _ = item["trackId"] as? String,
@@ -59,7 +59,7 @@ enum MigrationService {
                 }
 
                 // 3. Migrate per-book speed.
-                let speedKey = "OrbitAudiobooks.playback.speed.dictionary"
+                let speedKey = "EchoAudiobooks.playback.speed.dictionary"
                 if let speeds = defaults.dictionary(forKey: speedKey) as? [String: Double] {
                     for (audiobookID, speed) in speeds {
                         ensureAudiobookExists(id: audiobookID, db: db)

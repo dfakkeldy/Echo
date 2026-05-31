@@ -1,4 +1,4 @@
-# Orbit Audiobooks — Roadmap
+# Echo: Audiobook Study Player — Roadmap
 
 <!-- Last updated: 2026-05-30 (Phases 1-3 complete, Phase 4 90%, Phase 5 complete, Phase 6 core complete, Phase 8 reorganized with study workflow P0 items) -->
 
@@ -21,7 +21,7 @@ Goal: eliminate crashes, data races, silent failures, and memory leaks before ad
 - [x] **Replace force-downcasts in `TimelineFeedCollectionView`** (lines 276, 324) — `as! ElasticScrubberCell` and `as! StickyReviewHeaderView` will hard-crash if cell registration falls out of sync with the data source. Use `guard let` with a fallback cell + log.
 - [x] **Fix `TranscriptStore` missing `deinit`** (macOS) — `NotificationCenter.addObserver` in `init()` with no `removeObserver` in `deinit`. Dangling pointer crash on deallocation. Switch to block-based observation or add deinit.
 - [x] **Fix `SettingsDAO.getAll()` trap on duplicate keys** — `Dictionary(uniqueKeysWithValues:)` crashes if duplicates exist. Use `Dictionary(_:uniquingKeysWith:)` with a conflict resolver.
-- [x] **Fix `OrbitPlaylistManifest` Codable fragility** — struct declares defaults (`var version: Int = 1`) but `Decodable` synthesis ignores them. Missing keys in JSON cause decode failure. Implement custom `init(from:)` with fallback values.
+- [x] **Fix `EchoPlaylistManifest` Codable fragility** — struct declares defaults (`var version: Int = 1`) but `Decodable` synthesis ignores them. Missing keys in JSON cause decode failure. Implement custom `init(from:)` with fallback values.
 
 ### 1.3 — Memory Leaks & Resource Management
 

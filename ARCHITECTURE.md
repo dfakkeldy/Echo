@@ -6,14 +6,14 @@
 **Last generated:** 2026-05-30 (updated for simplified global interpolation, chapter hide, Echo rebrand, anchor label UX, playback time toolbar)
 
 This document maps the source-tree layout of the Xcode targets and Shared/
-module in the Orbit Audiobooks project. Folders are shown in the order
+module in the Echo: Audiobook Study Player project. Folders are shown in the order
 returned by the filesystem; only source, configuration, and metadata files
 are included (build artifacts, asset catalogs, and media files are filtered
 out).
 
 ---
 
-## OrbitAudioBooks (iOS)
+## EchoCore (iOS)
 
 ```
 CarPlay/CarPlaySceneDelegate.swift
@@ -30,7 +30,7 @@ Models/ContentCard.swift
 Models/FlashcardDeckImport.swift
 Models/M4BBook.swift
 Models/Note.swift
-Models/OrbitPlaylistManifest.swift
+Models/EchoPlaylistManifest.swift
 Models/PlayerDeepLink.swift
 Models/RealTimeEvent.swift
 Models/SpeedSuggestion.swift
@@ -38,8 +38,8 @@ Models/TimelineDisplayItem.swift
 Models/TimelineGroup.swift
 Models/TimelineScope.swift
 Models/Track.swift
-Orbit_AudioBooksApp.swift
-OrbitAudioBooks.entitlements
+Echo_AudioBooksApp.swift
+EchoCore.entitlements
 Protocols/PlayerModelComponentProtocols.swift
 Protocols/SettingsManagerProtocol.swift
 Protocols/StoreManagerProtocol.swift
@@ -144,12 +144,12 @@ Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
 ```
 
-## Orbit Audiobooks macOS
+## Echo: Audiobook Study Player macOS
 
 ```
 Info.plist
-Orbit_Audiobooks_macOS.entitlements
-Orbit_Audiobooks_macOSApp.swift
+Echo_Audiobooks_macOS.entitlements
+Echo_Audiobooks_macOSApp.swift
 Views/MacContentView.swift
 Views/MacPlayerModel.swift
 Views/TranscriptionManager.swift
@@ -157,12 +157,12 @@ Views/TranscriptPane.swift
 Views/TranscriptStore.swift
 ```
 
-## Orbit Audiobooks Watch App
+## Echo: Audiobook Study Player Watch App
 
 ```
 Info.plist
 Models/WatchBookmark.swift
-OrbitAudioBooksWatchApp.swift
+EchoCoreWatchApp.swift
 Services/WatchViewModel.swift
 Services/WatchVoiceMemoRecorder.swift
 Views/Bookmarks.swift
@@ -232,18 +232,18 @@ WordFrequency.swift
 ```
 Info.plist
 Models/AppIntent.swift
-Views/Orbit_Audiobooks_Widget.swift
-Views/Orbit_Audiobooks_WidgetBundle.swift
-Views/Orbit_Audiobooks_WidgetControl.swift
+Views/Echo_Audiobooks_Widget.swift
+Views/Echo_Audiobooks_WidgetBundle.swift
+Views/Echo_Audiobooks_WidgetControl.swift
 ```
 
-**Widget artwork handling:** The widget has a tight memory budget — archiving large images crashes the extension. Rather than discarding oversized album art, `safelyDownsampledData` in `Orbit_Audiobooks_Widget.swift` uses `CGImageSourceCreateThumbnailAtIndex` (ImageIO) to downsample artwork larger than 60×60pt to retina-scale thumbnails encoded as JPEG at 0.75 quality. ImageIO is a streaming decoder that only reads enough of the encoded source data to produce the requested thumbnail size, so it avoids allocating a full-resolution bitmap. This ensures every book shows artwork on the widget, regardless of the source image dimensions.
+**Widget artwork handling:** The widget has a tight memory budget — archiving large images crashes the extension. Rather than discarding oversized album art, `safelyDownsampledData` in `Echo_Audiobooks_Widget.swift` uses `CGImageSourceCreateThumbnailAtIndex` (ImageIO) to downsample artwork larger than 60×60pt to retina-scale thumbnails encoded as JPEG at 0.75 quality. ImageIO is a streaming decoder that only reads enough of the encoded source data to produce the requested thumbnail size, so it avoids allocating a full-resolution bitmap. This ensures every book shows artwork on the widget, regardless of the source image dimensions.
 
 ## Tools & Pipeline
 
 ### EPUB-Audio Alignment (In-App)
 
-> **Note:** The earlier `OrbitTranscriptionCLI` tool (Swift CLI + Python/Whisper pipeline) has been **abandoned**. It remains in the `Tools/` directory for reference but is not part of the current user workflow.
+> **Note:** The earlier `EchoTranscriptionCLI` tool (Swift CLI + Python/Whisper pipeline) has been **abandoned**. It remains in the `Tools/` directory for reference but is not part of the current user workflow.
 
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
@@ -508,7 +508,7 @@ The skip durations are read from `SettingsManager.seekBackwardDuration` / `seekF
 The project includes a development assets bundle for testing the EPUB reader pipeline:
 
 ```
-OrbitAudioBooks/Development Assets/macbeth_m4b/
+EchoCore/Development Assets/macbeth_m4b/
 ├── macbeth.epub           ← Shakespeare's Macbeth (EPUB)
 └── William Shakespeare - Macbeth.m4b  ← matching audiobook
 ```
