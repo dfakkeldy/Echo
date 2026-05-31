@@ -86,6 +86,20 @@ struct AlignmentServiceTests {
         #expect(abs((b2?.audioStartTime ?? 0) - 80.0) < 1.0)
     }
 
+    @Test func recalculationSetsParagraphEndTimesFromNextVisibleBlock() throws {
+        let (db, audiobookID) = try setupAlignmentDB()
+        let service = AlignmentService(db: db.writer, audiobookID: audiobookID)
+
+        try service.moveBlockToCurrentTime(blockID: "b0", time: 0)
+        try service.moveBlockToCurrentTime(blockID: "b3", time: 120)
+
+        let items = try TimelineDAO(db: db.writer).items(for: audiobookID)
+        let b1 = try #require(items.first { $0.epubBlockID == "b1" })
+        let b2 = try #require(items.first { $0.epubBlockID == "b2" })
+
+        #expect(abs((b1.audioEndTime ?? -1) - b2.audioStartTime) < 0.01)
+    }
+
     @Test func lockedAnchorsHavePrecedence() throws {
         let (db, audiobookID) = try setupAlignmentDB()
         let service = AlignmentService(db: db.writer, audiobookID: audiobookID)

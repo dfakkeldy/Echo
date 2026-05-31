@@ -3,6 +3,7 @@ import os.log
 
 /// Plays a segment of an audio file using a separate AVAudioEngine instance,
 /// following the same pattern as BookmarkStore voice memo playback.
+@MainActor
 final class SnippetPlayer {
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
@@ -52,7 +53,7 @@ final class SnippetPlayer {
         onPlaybackWillStart?()
 
         node.scheduleSegment(file, startingFrame: startFrame, frameCount: framesToPlay, at: nil) { [weak self] in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let self, generation == self.currentGeneration else { return }
                 self.handlePlaybackEnded()
             }

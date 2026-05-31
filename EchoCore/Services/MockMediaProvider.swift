@@ -1,30 +1,32 @@
 #if DEBUG
 import Foundation
+import os.log
 
 struct MockMediaProvider {
     static let sampleFileName = "BIFF.m4b"
+    private static let logger = Logger(category: "MockMediaProvider")
 
     static func seedSampleAudiobookIfNeeded() {
         let fm = FileManager.default
-        let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let documents = URL.documentsDirectory
         let destination = documents.appendingPathComponent(sampleFileName)
 
         if fm.fileExists(atPath: destination.path) { return }
 
         guard let bundleURL = Bundle.main.url(forResource: "BIFF", withExtension: "m4b") else {
-            print("[MockMediaProvider] Sample audiobook not found in bundle.")
+            logger.info("Sample audiobook not found in bundle.")
             return
         }
 
         do {
             try fm.copyItem(at: bundleURL, to: destination)
         } catch {
-            print("[MockMediaProvider] Failed to copy sample audiobook: \(error)")
+            logger.error("Failed to copy sample audiobook: \(error)")
         }
     }
 
     static func sampleAudiobookURL() -> URL? {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let documents = URL.documentsDirectory
         let url = documents.appendingPathComponent(sampleFileName)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }

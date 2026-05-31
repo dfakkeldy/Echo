@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import Observation
+import os.log
 #if canImport(PhotosUI)
 import PhotosUI
 #endif
@@ -149,9 +150,7 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     }
 
     static func legacyVoiceMemoDirectory() -> URL {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return FileManager.default.temporaryDirectory.appendingPathComponent("VoiceMemos", isDirectory: true)
-        }
+        let docs = URL.documentsDirectory
         let dir = docs.appendingPathComponent("VoiceMemos", isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -186,9 +185,7 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     }
 
     static func legacyBookmarkImageDirectory() -> URL {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return FileManager.default.temporaryDirectory.appendingPathComponent("BookmarkImages", isDirectory: true)
-        }
+        let docs = URL.documentsDirectory
         let dir = docs.appendingPathComponent("BookmarkImages", isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -388,14 +385,14 @@ struct EditBookmarkView: View {
     #endif
 
     @State private var recorder = VoiceMemoRecorder()
-    @State private var previewEngine: AVAudioEngine?
-    @State private var previewPlayerNode: AVAudioPlayerNode?
+    @State private var previewPlayer: AudioSnippetPlayer? = nil
     @State private var isPreviewPlaying: Bool = false
     /// Tracks whether the main audiobook player was playing when we started
     /// the voice memo preview, so we can optionally resume it afterwards.
     @State private var didPauseMainPlayerForPreview: Bool = false
     @State private var alertMessage: String = ""
     @State private var isShowingAlert: Bool = false
+    private let logger = Logger(category: "EditBookmark")
 
     var body: some View {
         NavigationStack {
@@ -587,10 +584,9 @@ struct EditBookmarkView: View {
         case .denied:
             showAlert("Microphone access is denied. Enable microphone access for Echo in Settings.")
         case .undetermined:
-            AVAudioApplication.requestRecordPermission { isGranted in
-                Task { @MainActor in
-                    isGranted ? beginRecording() : showAlert("Microphone access is required to record a voice memo.")
-                }
+            Task {
+                let isGranted = await AVAudioApplication.requestRecordPermission()
+                isGranted ? beginRecording() : showAlert("Microphone access is required to record a voice memo.")
             }
         @unknown default:
             showAlert("Microphone access is unavailable.")
@@ -745,33 +741,16 @@ struct EditBookmarkView: View {
             didPauseMainPlayerForPreview = false
         }
 
-        do {
-            let audioFile = try AVAudioFile(forReading: url)
-            let engine = AVAudioEngine()
-            let playerNode = AVAudioPlayerNode()
-            engine.attach(playerNode)
-            engine.connect(playerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
-            engine.mainMixerNode.outputVolume = voiceMemoGain(for: url)
-            try engine.start()
-
-            playerNode.scheduleFile(audioFile, at: nil) { [self] in
-                DispatchQueue.main.async { self.stopPreview() }
-            }
-            playerNode.play()
-
-            previewEngine = engine
-            previewPlayerNode = playerNode
-            isPreviewPlaying = true
-        } catch {
-            print("Preview error: \(error)")
+        previewPlayer = AudioSnippetPlayer()
+        previewPlayer?.play(url: url, volume: voiceMemoGain(for: url)) {
+            stopPreview()
         }
+        isPreviewPlaying = true
     }
 
     private func stopPreview() {
-        previewPlayerNode?.stop()
-        previewEngine?.stop()
-        previewPlayerNode = nil
-        previewEngine = nil
+        previewPlayer?.stop()
+        previewPlayer = nil
         isPreviewPlaying = false
 
         // Restore the shared audio session category for spoken audiobook

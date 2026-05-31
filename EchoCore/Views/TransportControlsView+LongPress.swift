@@ -1,5 +1,12 @@
 import SwiftUI
 
+// MARK: - Constants
+
+private enum SleepTimerPresets {
+    /// Sleep timer values cycled through on long-press (in minutes).
+    static let values: [Int] = [15, 30, 45, 60]
+}
+
 extension View {
     @ViewBuilder
     func phoneLongPressGesture(action: WatchAction, model: PlayerModel) -> some View {
@@ -44,13 +51,14 @@ private func executeAction(_ action: WatchAction, model: PlayerModel) {
             model.setSpeed(1.0)
         }
     case .sleepTimer:
+        let presets = SleepTimerPresets.values
         switch model.sleepTimerMode {
-        case .off: model.setSleepTimer(.minutes(15))
-        case .minutes(let m) where m == 15: model.setSleepTimer(.minutes(30))
-        case .minutes(let m) where m == 30: model.setSleepTimer(.minutes(45))
-        case .minutes(let m) where m == 45: model.setSleepTimer(.minutes(60))
-        case .minutes(let m) where m == 60: model.setSleepTimer(.endOfChapter)
-        case .minutes: model.setSleepTimer(.minutes(15))
+        case .off: model.setSleepTimer(.minutes(presets[0]))
+        case .minutes(let m) where m == presets[0]: model.setSleepTimer(.minutes(presets[1]))
+        case .minutes(let m) where m == presets[1]: model.setSleepTimer(.minutes(presets[2]))
+        case .minutes(let m) where m == presets[2]: model.setSleepTimer(.minutes(presets[3]))
+        case .minutes(let m) where m == presets[3]: model.setSleepTimer(.endOfChapter)
+        case .minutes: model.setSleepTimer(.minutes(presets[0]))
         case .endOfChapter: model.cancelSleepTimer()
         }
     case .bookmark:

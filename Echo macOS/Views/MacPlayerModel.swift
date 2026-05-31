@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import Combine
 import SwiftUI
 import AVFoundation
 import AppKit
@@ -32,24 +31,25 @@ struct MacBookmark: Identifiable, Codable, Equatable, Hashable {
 }
 
 @MainActor
-final class MacPlayerModel: ObservableObject {
+@Observable
+final class MacPlayerModel {
 
     // MARK: Published state
 
-    @Published private(set) var currentURL: URL?
-    @Published private(set) var currentTitle: String = "No audiobook loaded"
-    @Published private(set) var isPlaying: Bool = false
-    @Published private(set) var currentTime: Double = 0
-    @Published private(set) var duration: Double = 0
-    @Published var playbackRate: Float = 1.0 {
+    private(set) var currentURL: URL?
+    private(set) var currentTitle: String = "No audiobook loaded"
+    private(set) var isPlaying: Bool = false
+    private(set) var currentTime: Double = 0
+    private(set) var duration: Double = 0
+    var playbackRate: Float = 1.0 {
         didSet {
             if isPlaying { player?.rate = playbackRate }
         }
     }
-    @Published private(set) var bookmarks: [MacBookmark] = []
-    @Published var openFileRequestToken: UUID = UUID() // bumped to ask UI to show opener
-    @Published private(set) var tracks: [URL] = []
-    @Published private(set) var currentTrackIndex: Int = 0
+    private(set) var bookmarks: [MacBookmark] = []
+    var openFileRequestToken: UUID = UUID() // bumped to ask UI to show opener
+    private(set) var tracks: [URL] = []
+    private(set) var currentTrackIndex: Int = 0
 
     private static let audioExtensions: Set<String> = ["mp3", "m4b", "m4a", "wav", "flac"]
 

@@ -52,9 +52,8 @@ final class ImageCardCell: UICollectionViewCell {
             if !FileManager.default.fileExists(atPath: url.path) {
                 let filename = url.lastPathComponent
                 let dirName = url.deletingLastPathComponent().lastPathComponent
-                if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                    url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName).appendingPathComponent(filename)
-                }
+                let appSupport = FileLocations.applicationSupportDirectory
+                url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName).appendingPathComponent(filename)
             }
             finalImage = UIImage(contentsOfFile: url.path)
         }

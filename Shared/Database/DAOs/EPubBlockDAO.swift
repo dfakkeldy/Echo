@@ -5,6 +5,7 @@ import GRDB
 /// parsed from the EPUB spine and stored in structural reading order.
 struct EPubBlockDAO {
     let db: DatabaseWriter
+    private static let isoFormatter = ISO8601DateFormatter()
 
     // MARK: - Insert
 
@@ -94,7 +95,7 @@ struct EPubBlockDAO {
                     SET is_hidden = 1, hidden_reason = :reason, modified_at = :now
                     WHERE id = :id
                     """,
-                arguments: ["reason": reason, "now": ISO8601DateFormatter().string(from: Date()), "id": id]
+                arguments: ["reason": reason, "now": Self.isoFormatter.string(from: Date()), "id": id]
             )
         }
     }
@@ -107,7 +108,7 @@ struct EPubBlockDAO {
                     SET is_hidden = 0, hidden_reason = NULL, modified_at = :now
                     WHERE id = :id
                     """,
-                arguments: ["now": ISO8601DateFormatter().string(from: Date()), "id": id]
+                arguments: ["now": Self.isoFormatter.string(from: Date()), "id": id]
             )
         }
     }
@@ -122,7 +123,7 @@ struct EPubBlockDAO {
                     """,
                 arguments: [
                     "reason": reason,
-                    "now": ISO8601DateFormatter().string(from: Date()),
+                    "now": Self.isoFormatter.string(from: Date()),
                     "chapterIndex": chapterIndex,
                     "audiobookID": audiobookID
                 ]
@@ -176,7 +177,7 @@ struct EPubBlockDAO {
                     """,
                 arguments: [
                     "color": color,
-                    "now": ISO8601DateFormatter().string(from: Date()),
+                    "now": Self.isoFormatter.string(from: Date()),
                     "id": blockID
                 ]
             )

@@ -1,6 +1,6 @@
 # 🗣️ Echo: Audiobook Study Player
 
-> Your audiobooks, finally searchable.
+> Turn listening into learning
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 [![TestFlight](https://img.shields.io/badge/TestFlight-Beta-blue.svg)](#)
@@ -42,7 +42,7 @@ Review with spaced repetition   →   Retain what you learned, on your schedule
 
 Echo is a full-featured audiobook study application organized as a single Xcode workspace with four distinct targets. It supports bookmarking with optional voice memos, chapter navigation, loop modes, a sleep timer, variable playback speed, and intelligent rewind logic that adapts to pause duration. The iOS and watchOS apps communicate bidirectionally via WatchConnectivity, while a Widget displays the current playback state on the Home Screen / Lock Screen.
 
-When you add an EPUB file alongside your audiobook, Echo unlocks its study toolkit: a searchable, browsable reader with per-paragraph audio alignment. Long-press any paragraph to lock it to the current playback position, color-code important passages, or create timestamped bookmarks. Full-text search with inline highlighting lets you find any phrase in the book instantly — so you'll never lose that half-remembered passage again.
+When you add an EPUB file alongside your audiobook, Echo unlocks its study toolkit: a searchable, browsable reader with per-paragraph audio alignment. Long-press any paragraph to lock it to the current playback position, color-code important passages, or create timestamped bookmarks. Use **Auto-Align Chapters** to let on-device speech recognition (WhisperKit + CoreML) automatically align every chapter — it maps silence gaps to chapter boundaries (Tier 0), transcribes short clips at chapter starts, fuzzy-matches them against the EPUB text (Levenshtein + Jaccard), and creates precise alignment anchors. A drift-detection system finds and repairs misaligned chapters. Optional **Continuous Alignment** runs in the background during playback.
 
 ---
 
@@ -53,7 +53,7 @@ The workspace is composed of four targets, each with its own entry point and vie
 | Target | Bundle Identifier / Entry Point | Purpose |
 |---|---|---|
 | **EchoCore** (`iOS/iPadOS`) | `Echo_AudioBooksApp.swift` → `RootTabView.swift` | Primary audiobook player. Uses a 3-tab layout (NowPlayingTab, ReaderTab with EPUB alignment and full-text search, PlaylistTab). PlayerModel acts as a thin coordinator over 20+ single-responsibility services. Handles file/folder selection, bookmarks, voice memos, WatchConnectivity, and Now Playing integration. When an EPUB file is loaded alongside the audiobook, the Reader tab provides a searchable, browsable book with per-paragraph audio alignment. |
-| **Echo: Audiobook Study Player macOS** (`macOS`) | `Echo_Audiobooks_macOSApp.swift` → `MacContentView.swift` | Native macOS desktop companion. Uses `MacPlayerModel` (`ObservableObject`-based) with a `NavigationSplitView` layout: a bookmarks sidebar and a player pane with transport controls and a speed picker. |
+| **Echo: Audiobook Study Player macOS** (`macOS`) | `Echo_Audiobooks_macOSApp.swift` → `MacContentView.swift` | Native macOS desktop companion. Uses `MacPlayerModel` (`@Observable`-based) with a `NavigationSplitView` layout: a bookmarks sidebar, a player pane with transport controls and a speed picker, and EPUB alignment via `MacGlobalAlignmentService` with streaming audio transcription support. |
 | **Echo: Audiobook Study Player Watch App** (`watchOS`) | `EchoCoreWatchApp.swift` → `ContentView.swift` | Wearable remote for the iOS player. Communicates with the phone via `WCSession` to send play/pause, skip, scrub, volume, loop mode, sleep timer, section navigation, and bookmark commands. Features a customizable button layout with up to five pages of five action slots each (25 total), with configurable seek forward/backward durations (5–60s), all syncable from the phone. |
 | **Echo: Audiobook Study Player Widget** (`Widgets`) | `Echo_Audiobooks_WidgetBundle.swift` → `Echo_Audiobooks_Widget.swift` | A `WidgetBundle` exposing a `StaticConfiguration` widget (`.accessoryCircular`) that shows the current track title, progress ring, and thumbnail via `AppGroupDefaults` communication. Also includes a `TogglePlaybackIntent` (App Intent) for Control Center / widget interactions. |
 
@@ -70,8 +70,19 @@ Shared models and utilities used across targets include:
 	- **`ReaderFeedViewModel`** — View model for the EPUB reader feed. Loads blocks from `EPubBlockDAO`, supports full-text search, and tracks the active block via binary search for O(log N) playback sync.
 	- **`ReaderCardItem`** — Enum for reader feed items (`.chapterHeader` and `.block(EPubBlockRecord)`), rendered as cards in a `UICollectionView`.
 	- **`ReaderSettings`** — User-configurable reader settings: font size, line spacing, and card background tint color.
-	- **`AlignmentService`** — Manual EPUB-to-audio alignment through locked anchors and linear timestamp interpolation.
+	- **`AlignmentService`** — Manual EPUB-to-audio alignment through locked anchors and word-count-weighted proportional interpolation with dynamic CPS projection.
+	- **`AutoAlignmentService`** — On-device WhisperKit-based auto-alignment: silence mapping (Tier 0), chapter snap (Tier 1), drift detection (Tier 2), drift repair (Tier 3), and manual fine-tuning.
+	- **`AutoAlignmentTextMatcher`** — Fuzzy text matching (Levenshtein + word-level Jaccard) for matching transcribed audio against EPUB paragraphs.
+	- **`SilenceDetectionService`** — AVAudioFile + Accelerate-based silence gap detection for chapter boundary mapping.
 	- **`EPUBImportService`** — Parses EPUB files into `epub_block` records: extracts the OPF spine, parses XHTML, copies images to Application Support.
+	- **`EPUBXMLParsing`** — Shared EPUB XML parser delegates (`ContainerXMLParser`, `OPFParserDelegate`, `XHTMLBlockDelegate`) deduplicated across iOS and macOS — each platform previously carried ~190 lines of identical parsing code.
+	- **`WhisperSession`** — Reference-counted, shared WhisperKit model manager. Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active.
+	- **`ContinuousAlignmentService`** — Background audio capture and transcription: samples 15-second audio windows during playback, transcribes via WhisperKit, and inserts alignment anchors on-the-fly.
+	- **`FileLocations`** — Centralized directory access (`documentsDirectory`, `cachesDirectory`, `applicationSupportDirectory`, `epubUnpackedDirectory(safeID:)`) replacing ad-hoc `FileManager.default.urls(for:in:)` calls across the codebase.
+	- **`KeychainStore`** — Thin Keychain wrapper for storing security-scoped bookmark data and other sensitive blobs that should not live in unencrypted `UserDefaults`.
+	- **`Logger+Subsystem`** — Single `"com.orbitaudiobooks"` subsystem constant used by every logger in the project — prevents log fragmentation from typos in repeated string literals.
+	- **`AnimationDurations`** — Named animation timing constants (`.micro`, `.standard`, `.emphasized`, `.slow`) to replace magic-number literals scattered across view bodies.
+	- **`AudioSnippetPlayer`** — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
 
 ---
 

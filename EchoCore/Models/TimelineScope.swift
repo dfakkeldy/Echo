@@ -62,29 +62,11 @@ enum TimelineScope: String, CaseIterable, Identifiable, Sendable {
     /// Format a timestamp for display at this scope.
     func format(_ date: Date) -> String {
         switch self {
-        case .book:          return Self.bookFormatter.string(from: date)
-        case .chapter:       return Self.chapterFormatter.string(from: date)
-        case .transcription: return Self.transcriptionFormatter.string(from: date)
+        case .book:          return date.formatted(.dateTime.month(.abbreviated).day())
+        case .chapter:       return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.defaultDigits)) + ":00"
+        case .transcription: return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
         }
     }
-
-    private static let bookFormatter: DateFormatter = {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "MMM d"
-        return fmt
-    }()
-
-    private static let chapterFormatter: DateFormatter = {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "HH:00"
-        return fmt
-    }()
-
-    private static let transcriptionFormatter: DateFormatter = {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "HH:mm"
-        return fmt
-    }()
 }
 
 extension TimelineScope {

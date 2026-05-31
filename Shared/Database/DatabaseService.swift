@@ -2,6 +2,17 @@ import Foundation
 import GRDB
 import os.log
 
+enum DatabaseError: LocalizedError {
+    case appGroupNotFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .appGroupNotFound(let identifier):
+            return "App Group container not found for identifier: \(identifier). Check entitlements."
+        }
+    }
+}
+
 /// Owns a GRDB database in WAL mode (DatabasePool for disk, DatabaseQueue for in-memory).
 @MainActor @Observable
 final class DatabaseService {
@@ -10,12 +21,14 @@ final class DatabaseService {
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "DatabaseService")
 
     @ObservationIgnored private let migrationFlag = "sql_migration_done"
+    @ObservationIgnored private let appGroupIdentifier: String
 
     init(appGroupIdentifier: String = "group.com.orbitaudiobooks") throws {
+        self.appGroupIdentifier = appGroupIdentifier
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
         ) else {
-            fatalError("App Group container not found. Check entitlements.")
+            throw DatabaseError.appGroupNotFound(appGroupIdentifier)
         }
 
         try FileManager.default.createDirectory(
@@ -38,6 +51,7 @@ final class DatabaseService {
     }
 
     init(inMemory: Void) throws {
+        self.appGroupIdentifier = "inMemory"
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys=ON")
@@ -101,8 +115,12 @@ final class DatabaseService {
 
     // MARK: - UserDefaults migration flag
 
+    /// Uses the App Group's shared UserDefaults so that extensions (widget,
+    /// watch) see the same migration state as the main app. Storing the flag
+    /// in `UserDefaults.standard` would cause duplicate migration attempts
+    /// when an extension launches first.
     var isMigrationDone: Bool {
-        get { UserDefaults.standard.bool(forKey: migrationFlag) }
-        set { UserDefaults.standard.set(newValue, forKey: migrationFlag) }
+        get { UserDefaults(suiteName: appGroupIdentifier)?.bool(forKey: migrationFlag) ?? false }
+        set { UserDefaults(suiteName: appGroupIdentifier)?.set(newValue, forKey: migrationFlag) }
     }
 }

@@ -46,5 +46,7 @@ extension AlignmentAnchorRecord {
         case searchResult = "searchResult"
         case chapterBoundary = "chapterBoundary"
         case imported = "imported"
+        case autoAlignment = "autoAlignment"
+        case continuousBackground = "continuousBackground"
     }
 }

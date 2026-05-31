@@ -33,6 +33,9 @@ final class AudioEngine {
     /// Whether an audio file is loaded and ready.
     var isItemLoaded: Bool { audioFile != nil && playerNode != nil }
 
+    /// The URL of the currently loaded audio file, if any.
+    var audioFileURL: URL? { audioFile?.url }
+
     // MARK: - Delegate
 
     weak var delegate: AudioEngineDelegate?
@@ -344,7 +347,7 @@ final class AudioEngine {
             frameCount: frames,
             at: nil
         ) { [weak self] in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let self else { return }
                 guard generation == self.seekGeneration else { return }
                 self.isPlaying = false
@@ -353,6 +356,34 @@ final class AudioEngine {
                 self.delegate?.audioEngineDidPlayToEnd(self)
             }
         }
+    }
+
+    // MARK: - Audio Capture Tap
+
+    /// Installs a tap on the main mixer node for capturing rendered audio.
+    ///
+    /// The tap provides post-EQ, post-time-pitch PCM buffers suitable for
+    /// feeding into WhisperKit. The format should be 16 kHz mono Float32
+    /// to match WhisperKit's expected input.
+    ///
+    /// - Parameters:
+    ///   - format: Desired output format (typically 16 kHz mono Float32).
+    ///   - bufferSize: Frames per callback (4096 recommended).
+    ///   - callback: Called on a real-time thread with each buffer.
+    func installCaptureTap(format: AVAudioFormat,
+                           bufferSize: AVAudioFrameCount,
+                           callback: @escaping AVAudioNodeTapBlock) {
+        guard let mixer = engine?.mainMixerNode else {
+            os_log(.error, "AudioEngine: cannot install capture tap — no mixer node")
+            return
+        }
+        mixer.removeTap(onBus: 0)
+        mixer.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: callback)
+    }
+
+    /// Removes the capture tap from the main mixer node.
+    func removeCaptureTap() {
+        engine?.mainMixerNode.removeTap(onBus: 0)
     }
 
     // MARK: - Time Timer

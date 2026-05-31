@@ -30,6 +30,8 @@ final class PlayerLoadingCoordinator {
     @ObservationIgnored var nowPlayingController: NowPlayingController?
     @ObservationIgnored var deepLinkHandler: DeepLinkHandler?
 
+    private var pendingArtworkTask: Task<Void, Never>?
+
     /// Value providers for properties owned by PlayerModel.
     @ObservationIgnored var databaseServiceProvider: (() -> DatabaseService?)?
     @ObservationIgnored var resolvedVolumeBoostEnabledProvider: (() -> Bool)?
@@ -41,6 +43,7 @@ final class PlayerLoadingCoordinator {
     /// Resets the player-level bookmark-check timestamp, used to avoid
     /// stale state bleeding across track boundaries.
     @ObservationIgnored var onResetBookmarkCheckSecond: (() -> Void)?
+    @ObservationIgnored var onConfigureContinuousAlignment: (() -> Void)?
 
     // MARK: - Folder loading
 
@@ -84,6 +87,7 @@ final class PlayerLoadingCoordinator {
 
         // Post-load hooks: SQL bookmarks, EPUB auto-import.
         configurePostLoadHooks(folderURL: url, state: state, bookmarkStore: bookmarkStore)
+        onConfigureContinuousAlignment?()
     }
 
     // MARK: - loadFolder helpers
@@ -290,7 +294,8 @@ final class PlayerLoadingCoordinator {
         securityScope?.startFile(url: state.tracks[index].url)
 
         let trackURL = state.tracks[index].url
-        Task { await ArtworkCache.ensureItemIsAvailable(url: trackURL) }
+        pendingArtworkTask?.cancel()
+        pendingArtworkTask = Task { await ArtworkCache.ensureItemIsAvailable(url: trackURL) }
 
         audioEngine.configureAudioSession()
         audioEngine.replaceCurrentItem(with: trackURL)

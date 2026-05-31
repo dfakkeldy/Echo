@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var isRetryingProducts = false
     @State private var showingDeckImporter = false
     @State private var importAlert: (title: String, message: String)?
+    @State private var volumeBoostEnabled = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -44,10 +45,14 @@ struct SettingsView: View {
                 }
 
                 Section("Playback") {
-                    Toggle("Volume Boost", isOn: Binding(
-                        get: { model.isVolumeBoostEnabled },
-                        set: { model.setVolumeBoost(enabled: $0) }
-                    ))
+                    Toggle("Volume Boost", isOn: $volumeBoostEnabled)
+                        .onAppear { volumeBoostEnabled = model.isVolumeBoostEnabled }
+                        .onChange(of: volumeBoostEnabled) { _, newValue in
+                            model.setVolumeBoost(enabled: newValue)
+                        }
+                        .onChange(of: model.isVolumeBoostEnabled) { _, newValue in
+                            volumeBoostEnabled = newValue
+                        }
                     Picker("Default Speed", selection: $settings.defaultPlaybackSpeed) {
                         Text("1.0×").tag(1.0)
                         Text("1.25×").tag(1.25)
@@ -83,6 +88,8 @@ struct SettingsView: View {
                 }
 
                 SettingsSilenceDetectionSection()
+
+                SettingsAutoAlignmentSection()
 
                 SettingsBookmarksInlineSection()
 
@@ -186,7 +193,7 @@ private struct SettingsAppearanceView: View {
                         Spacer()
                         if let color = ThemeColor(rawValue: settings.themeColor)?.color {
                             Image(systemName: "circle.fill")
-                                .foregroundColor(color)
+                                .foregroundStyle(color)
                         } else {
                             Text("System")
                                 .foregroundStyle(.secondary)
@@ -221,33 +228,33 @@ private struct FontSelectionView: View {
             Button { settings.appFont = "Lexend" } label: {
                 HStack {
                     Text("Lexend (Default)")
-                        .foregroundColor(.primary)
+                        .foregroundStyle(.primary)
                     Spacer()
                     if settings.appFont == "Lexend" {
                         Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                     }
                 }
             }
             Button { settings.appFont = "OpenDyslexic" } label: {
                 HStack {
                     Text("OpenDyslexic")
-                        .foregroundColor(.primary)
+                        .foregroundStyle(.primary)
                     Spacer()
                     if settings.appFont == "OpenDyslexic" {
                         Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                     }
                 }
             }
             Button { settings.appFont = SettingsManager.systemFontName } label: {
                 HStack {
                     Text("System")
-                        .foregroundColor(.primary)
+                        .foregroundStyle(.primary)
                     Spacer()
                     if settings.appFont == SettingsManager.systemFontName {
                         Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                     }
                 }
             }
@@ -277,6 +284,28 @@ private struct SettingsSilenceDetectionSection: View {
             Text("Silence Detection")
         } footer: {
             Text("How far back to scan for silence when locating playback position during reverse playback. For testing.")
+        }
+    }
+}
+
+private struct SettingsAutoAlignmentSection: View {
+    @Environment(SettingsManager.self) private var settings
+    @Environment(PlayerModel.self) private var model
+
+    var body: some View {
+        @Bindable var settings = settings
+        Section {
+            Toggle("Continuous Auto-Alignment", isOn: Binding(
+                get: { settings.continuousAutoAlignmentEnabled },
+                set: {
+                    settings.continuousAutoAlignmentEnabled = $0
+                    model.configureContinuousAlignment()
+                }
+            ))
+        } header: {
+            Text("Auto-Alignment")
+        } footer: {
+            Text("When enabled, the app will continuously transcribe audio in the background while playing and attempt to align it with the text.")
         }
     }
 }
@@ -400,20 +429,20 @@ private struct ThemeSelectionView: View {
                     HStack {
                         if theme != .system {
                             Image(systemName: "circle.fill")
-                                .foregroundColor(theme.color)
+                                .foregroundStyle(theme.color ?? Color.accentColor)
                         } else {
                             Image(systemName: "circle.fill")
                                 .foregroundStyle(.secondary)
                         }
                         
                         Text(theme.rawValue)
-                            .foregroundColor(.primary)
+                            .foregroundStyle(.primary)
                         
                         Spacer()
                         
                         if settings.themeColor == theme.rawValue {
                             Image(systemName: "checkmark")
-                                .foregroundColor(.accentColor)
+                                .foregroundStyle(Color.accentColor)
                         }
                     }
                 }

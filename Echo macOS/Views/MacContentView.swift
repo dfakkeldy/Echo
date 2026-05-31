@@ -13,6 +13,7 @@ struct MacContentView: View {
     @EnvironmentObject private var player: MacPlayerModel
     @StateObject private var transcriptionManager = TranscriptionManager()
     @StateObject private var transcriptStore = TranscriptStore()
+    @StateObject private var alignmentService = MacGlobalAlignmentService()
     @State private var searchText: String = ""
     @State private var lastOpenToken: UUID = UUID()
 
@@ -28,6 +29,26 @@ struct MacContentView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.top, 8)
+                    }
+                    if alignmentService.isAligning {
+                        VStack(spacing: 4) {
+                            Text(alignmentService.alignmentStatus)
+                                .font(.caption)
+                            ProgressView(value: alignmentService.alignmentProgress)
+                                .progressViewStyle(.linear)
+                                .frame(width: 200)
+                            
+                            HStack {
+                                Text("Match %:")
+                                    .font(.caption)
+                                Slider(value: $alignmentService.matchThreshold, in: 0.1...1.0)
+                                    .frame(width: 100)
+                                Text(alignmentService.matchThreshold, format: .number.precision(.fractionLength(2)))
+                                    .font(.caption)
+                            }
+                            .padding(.top, 4)
+                        }
+                        .padding(.top, 8)
                     }
                     ZStack {
                         PlayerPane()
@@ -77,6 +98,16 @@ struct MacContentView: View {
                         Label("Transcribe", systemImage: "text.quote")
                     }
                     .disabled(!player.hasMedia)
+                    
+                    Button {
+                        if let audioURL = player.currentURL,
+                           let epubURL = showEPUBPicker() {
+                            Task { try? await alignmentService.alignStreaming(audioURL: audioURL, epubURL: epubURL) }
+                        }
+                    } label: {
+                        Label("Align EPUB", systemImage: "link")
+                    }
+                    .disabled(!player.hasMedia || alignmentService.isAligning)
                 }
             }
         }
@@ -125,6 +156,19 @@ struct MacContentView: View {
                 player.open(url: url)
             }
         }
+    }
+
+    func showEPUBPicker() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Select EPUB")
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [UTType.epub, UTType.folder]
+        if panel.runModal() == .OK {
+            return panel.url
+        }
+        return nil
     }
 }
 

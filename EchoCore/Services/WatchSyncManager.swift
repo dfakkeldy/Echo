@@ -92,7 +92,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             }
             return
         }
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.syncToWatch()
         }
     }
@@ -104,31 +104,31 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.onMessage?(message, nil)
         }
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.onMessage?(message, replyHandler)
         }
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.onMessage?(userInfo, nil)
         }
     }
 
     func session(_ session: WCSession, didReceive file: WCSessionFile) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.onReceiveFile?(file)
         }
     }
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.onReceiveApplicationContext?(applicationContext)
         }
     }

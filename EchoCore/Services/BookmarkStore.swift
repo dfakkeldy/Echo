@@ -255,7 +255,7 @@ final class BookmarkStore: BookmarkStoreProtocol {
             voiceMemoProgress = 0.0
 
             playerNode.scheduleFile(audioFile, at: nil) { [weak self] in
-                DispatchQueue.main.async { self?.voiceMemoDidFinish() }
+                Task { @MainActor in self?.voiceMemoDidFinish() }
             }
             playerNode.play()
 

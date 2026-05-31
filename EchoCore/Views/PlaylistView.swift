@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import os.log
 
 /// A wrapper to make UUID Identifiable for use with `.sheet(item:)`.
 struct IdentifiableUUID: Identifiable, Hashable {
@@ -49,6 +50,8 @@ struct PlaylistView: View {
     @State private var showingEPUBImporter: Bool = false
     @State private var hasEPUB = false
     @State private var hasTranscript = false
+
+    private let logger = Logger(category: "PlaylistView")
 
     private func formatDuration(_ seconds: Double) -> String {
         let h = Int(seconds) / 3600
@@ -264,7 +267,7 @@ struct PlaylistView: View {
                 guard let selectedURL = urls.first else { return }
                 model.importEPUB(from: selectedURL)
             case .failure(let error):
-                print("Failed to select EPUB: \(error)")
+                logger.error("Failed to select EPUB: \(error)")
             }
         }
         .sheet(item: Binding(

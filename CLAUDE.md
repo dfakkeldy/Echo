@@ -8,7 +8,8 @@ You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo dev
 * **Targets:** iOS, watchOS, macOS, and Widget targets, sharing core logic via `Shared/`.
 * **Companion:** Transcript-generation pipeline (SwiftUI CLI & Python using OpenAI Whisper in `Tools/`).
 * **Stack:** Swift, SwiftUI, Python.
-* **Current Phase:** Refactoring infrastructure, cleaning up code, and decoupling the UI from business logic.
+* **Current Phase:** Adding on-device auto-alignment (WhisperKit) and polishing EPUB reader UX.
+* **Auto-Alignment:** A 3-tier progressive alignment pipeline (`AutoAlignmentService`) that transcribes short audio clips at chapter boundaries using WhisperKit (on-device CoreML), fuzzy-matches against EPUB text (Levenshtein + word-level Jaccard), and inserts alignment anchors automatically. Tiers: (1) Chapter Snap — anchor start/end boundaries, (2) Drift Detection — flag misaligned chapters, (3) Drift Repair — bisect to insert correction anchors. Progress + debug log shown in `AutoAlignmentProgressView`.
 
 ## Architecture & Coding Guidelines
 * **Separation of Concerns:** Keep Views clean and focused only on the UI. Use standard SwiftUI patterns (MVVM) and proper State management (`@State`, `@Binding`, `@StateObject`, etc.) to prevent memory leaks and unnecessary redraws.

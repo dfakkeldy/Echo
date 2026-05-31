@@ -44,5 +44,13 @@ import Foundation
     var watchPresets: [WatchPreset] { get set }
     var phonePresets: [PhonePreset] { get set }
 
+    // MARK: - Auto-Alignment
+    var autoAlignmentEnabled: Bool { get set }
+    var autoAlignmentModelSize: String { get set }
+    var autoAlignmentChapterSnapEnabled: Bool { get set }
+    var autoAlignmentDriftDetectionEnabled: Bool { get set }
+    var autoAlignmentDriftRepairEnabled: Bool { get set }
+    var continuousAutoAlignmentEnabled: Bool { get set }
+
     static var systemFontName: String { get }
 }

@@ -3,6 +3,7 @@ import Observation
 import WatchConnectivity
 import WatchKit
 import WidgetKit
+import os.log
 
 /// Mutable playback state captured before an optimistic local update.
 /// If the iPhone doesn't confirm within 3 seconds or reports an error,
@@ -16,12 +17,13 @@ struct PlaybackSnapshot {
     var sleepTimerRemainingSeconds: Int
 }
 
-@Observable
+@Observable @MainActor
 class WatchViewModel: NSObject, WCSessionDelegate {
     /// Local cache of bookmarks created from the watch this session. Used to
     /// derive generic titles like `Bookmark #3` and to drive the local list
     /// view without waiting for a round-trip from the iPhone.
     var bookmarks: [WatchBookmark] = []
+    private let logger = Logger(category: "WatchViewModel")
     var dueCards: [WatchFlashcard] = []
 
     var isPlaying: Bool = false
@@ -142,7 +144,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     private func scheduleRollback() {
         rollbackTimer?.invalidate()
         rollbackTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self?.rollback()
                 self?.requestCurrentState()
             }
@@ -270,7 +272,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         guard activationState == .activated else {
             if let error {
-                print("WatchConnectivity activation failed: \(error)")
+                logger.error("WatchConnectivity activation failed: \(error)")
             }
             return
         }
@@ -308,7 +310,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
     private func applyState(_ state: [String: Any]) {
         guard !state.isEmpty else { return }
-        DispatchQueue.main.async {
+        Task { @MainActor in
             let previousTrackId = self.trackId
 
             if let crownAction = state["crownAction"] as? String {
@@ -345,8 +347,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.progressFraction = progressFraction
                 self.defaults.set(progressFraction, forKey: "progressFraction")
                 if delta > 0.02 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        self?.ringAnimationSuppressed = false
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(0.5))
+                        self.ringAnimationSuppressed = false
                     }
                 }
             } else {
@@ -363,8 +366,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.totalProgressFraction = totalProgressFraction
                 self.defaults.set(totalProgressFraction, forKey: "totalProgressFraction")
                 if delta > 0.02 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        self?.progressAnimationSuppressed = false
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(0.5))
+                        self.progressAnimationSuppressed = false
                     }
                 }
             } else {
@@ -510,8 +514,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         guard session.activationState == .activated, session.isReachable else { return }
         session.sendMessage(["command": "requestState"], replyHandler: { [weak self] reply in
             self?.applyState(reply)
-        }, errorHandler: { error in
-            print("Error requesting state: \(error)")
+        }, errorHandler: { [weak self] error in
+            self?.logger.error("Error requesting state: \(error)")
         })
     }
 
@@ -551,7 +555,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                     self?.playHaptic(Self.isForwardCommand(command) ? .directionUp : .directionDown)
                 }
             }, errorHandler: { [weak self] error in
-                print("Error sending command: \(error)")
+                self?.logger.error("Error sending command: \(error)")
                 self?.rollback()
                 self?.requestCurrentState()
             })
@@ -713,7 +717,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             // Roll back the local bookmark if the iPhone could not be reached;
             // surface only via haptic since the watch UI is intentionally tiny.
             bookmarks.removeAll { $0.id == bookmark.id }
-            print("Quick bookmark failed: \(error.localizedDescription)")
+            logger.error("Quick bookmark failed: \(error.localizedDescription)")
             playHaptic(.failure)
         }
     }

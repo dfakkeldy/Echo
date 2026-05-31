@@ -10,5 +10,18 @@
 	<true/>
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
+<!--
+§6.3: Production builds should use "Production" environment for CloudKit.
+-->
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>Development</string>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.orbitaudiobooks</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
 </dict>
 </plist>

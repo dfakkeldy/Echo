@@ -40,5 +40,12 @@ final class MockSettingsManager: SettingsManagerProtocol {
     var watchPresets: [WatchPreset] = []
     var phonePresets: [PhonePreset] = []
 
+    var autoAlignmentEnabled: Bool = true
+    var autoAlignmentModelSize: String = "base.en"
+    var autoAlignmentChapterSnapEnabled: Bool = true
+    var autoAlignmentDriftDetectionEnabled: Bool = true
+    var autoAlignmentDriftRepairEnabled: Bool = true
+    var continuousAutoAlignmentEnabled: Bool = false
+
     static var systemFontName: String { "System" }
 }

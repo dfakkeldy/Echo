@@ -1,6 +1,7 @@
 import SwiftUI
 import WatchKit
 import AVFoundation
+import os.log
 
 // MARK: - Watch Bookmarks List
 //
@@ -13,6 +14,7 @@ import AVFoundation
 
 struct WatchBookmarksView: View {
     let viewModel: WatchViewModel
+    private let logger = Logger(category: "WatchBookmarks")
 
     var body: some View {
         NavigationStack {
@@ -40,6 +42,7 @@ private struct WatchBookmarkRow: View {
     let bookmark: WatchBookmark
     @State private var isPlaying = false
     @State private var audioPlayer: AVAudioPlayer?
+    private let logger = Logger(category: "WatchBookmarkRow")
 
     var body: some View {
         HStack(spacing: 8) {
@@ -94,7 +97,7 @@ private struct WatchBookmarkRow: View {
             isPlaying = true
         } catch {
 #if DEBUG
-            print("Watch bookmark audio playback failed: \(error)")
+            logger.error("Watch bookmark audio playback failed: \(error)")
 #endif
         }
     }

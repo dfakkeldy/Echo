@@ -32,6 +32,9 @@ final class ReaderFeedViewModel {
     /// ID of the currently active block (based on playback position).
     var activeBlockID: String?
 
+    /// Progress state for the auto-alignment pipeline. Bound by the UI sheet.
+    var autoAlignmentState = AutoAlignmentState()
+
     /// Current search query. nil = show all blocks.
     var searchQuery: String? {
         didSet { reload() }

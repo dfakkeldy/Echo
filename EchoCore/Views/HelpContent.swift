@@ -139,6 +139,8 @@ enum HelpContent {
 
             **Automatic alignment:** When you first open an EPUB, the app automatically aligns each chapter to the corresponding audio chapter. Paragraphs are spaced proportionally within each chapter based on their word count — longer paragraphs get wider time ranges for more accurate estimates.
 
+            **Auto-Align Chapters:** Long-press any card and choose "Auto-Align Chapters" to let the app intelligently align your audiobook. It transcribes short audio clips at chapter boundaries using on-device speech recognition (Whisper), then matches the transcribed text against the EPUB to lock paragraphs to exact timestamps. It handles long preambles, chapter-end content, and even detects alignment drift mid-chapter. A live log shows every match attempt so you can see exactly what's happening. Best run when you have a few minutes — it processes each chapter sequentially.
+
             **Manual alignment:** Long-press any paragraph card and choose "Align to Now" to lock that paragraph to the current playback position. This makes the alignment exact. The more paragraphs you lock, the more precise the alignment becomes. You can also use "Align to Chapter Start/End" on heading cards to match them to specific chapter boundaries. Locked-anchor cards show a green badge with the anchored timestamp.
 
             **Anchor management:** Long-press a locked-anchor card and choose "Erase Anchor" to remove a single anchor, or "Reset Alignment" to clear all anchors for the current book. Both automatically recalculate surrounding timestamps based on remaining anchors.

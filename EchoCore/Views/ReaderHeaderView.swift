@@ -21,7 +21,7 @@ struct ReaderHeaderView: View {
                 } label: {
                     Image(systemName: "arrow.down.to.line")
                         .font(.system(size: 16))
-                        .foregroundColor(.accentColor)
+                        .foregroundStyle(Color.accentColor)
                 }
                 .accessibilityLabel(Text("Scroll to current playback position"))
                 .padding(.trailing, 8)
@@ -48,7 +48,7 @@ struct ReaderHeaderView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 TextField("Find in book...", text: $searchText)
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled()
@@ -57,7 +57,7 @@ struct ReaderHeaderView: View {
                         searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

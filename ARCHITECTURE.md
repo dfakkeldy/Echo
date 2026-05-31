@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-05-30 (updated for simplified global interpolation, chapter hide, Echo rebrand, anchor label UX, playback time toolbar)
+**Last generated:** 2026-05-31 (added Tier 0 silence mapping, AutoAlignmentTextMatcher, MacGlobalAlignmentService, continuous alignment, CloudKit sync)
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -46,6 +46,8 @@ Protocols/StoreManagerProtocol.swift
 Services/AlignmentService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
+Services/AutoAlignmentService.swift
+Services/AutoAlignmentTextMatcher.swift
 Services/BookmarkArtworkCoordinator.swift
 Services/BookmarkStore.swift
 Services/BookPreferencesService.swift
@@ -53,6 +55,8 @@ Services/BookSettingsOverrideStore.swift
 Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
 Services/ChapterService.swift
+Services/CloudKitSyncService.swift
+Services/ContinuousAlignmentService.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
 Services/EPUBAssetStorage.swift
@@ -76,6 +80,7 @@ Services/PlaylistManager.swift
 Services/PlaylistManifestService.swift
 Services/SecurityScopeManager.swift
 Services/SettingsManager.swift
+Services/SilenceDetectionService.swift
 Services/SleepTimerManager.swift
 Services/SleepTimerMode.swift
 Services/SnippetPlayer.swift
@@ -150,6 +155,9 @@ Views/WatchAppSettingsView.swift
 Info.plist
 Echo_Audiobooks_macOS.entitlements
 Echo_Audiobooks_macOSApp.swift
+Services/AudioExtractor.swift
+Services/MacEPUBParser.swift
+Services/MacGlobalAlignmentService.swift
 Views/MacContentView.swift
 Views/MacPlayerModel.swift
 Views/TranscriptionManager.swift
@@ -177,6 +185,7 @@ Views/WordCloudPage.swift
 ## Shared (cross-target)
 
 ```
+AnimationDurations.swift        ← Named animation timing constants
 AppGroupDefaults.swift
 Database/AlignmentAnchorRecord.swift
 Database/BookmarkRecord.swift
@@ -203,25 +212,25 @@ Database/MigrationService.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
-Database/Schema_V1.swift
-Database/Schema_V2.swift
-Database/Schema_V3.swift
-Database/Schema_V4.swift
-Database/Schema_V5.swift
-Database/Schema_V6.swift
-Database/Schema_V7.swift
-Database/Schema_V8.swift
+Database/Schema_V1.swift … Schema_V8.swift
 Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
+EPUBXMLParsing.swift            ← Shared EPUB XML delegates (iOS + macOS)
 EnhancedTranscriptionSegment.swift
+FileLocations.swift             ← Centralized directory access
+KeychainStore.swift             ← Security-scoped bookmark storage
 LayoutPreset.swift
+Logger+Subsystem.swift          ← Single subsystem constant
 MediaPlayable.swift
 SafeFileName.swift
+String+Levenshtein.swift
 SyncMarker.swift
+TabSelection.swift
 TimeFormatting.swift
 TranscriptionSegment.swift
+URL+SHA256.swift
 WatchAction.swift
 WatchFlashcard.swift
 WordFrequency.swift
@@ -248,10 +257,27 @@ Views/Echo_Audiobooks_WidgetControl.swift
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
 1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database.
-2. **Global flat interpolation:** `AlignmentService.recalculateTimeline()` uses a simplified global interpolation approach. Synthetic anchors are placed at the first block (time 0.0) and last block (total duration from chapter markers). All blocks between locked anchors interpolate linearly by word-count-weighted position. This replaces the earlier chapter-aware approach with virtual boundary anchors at chapter start/end.
-3. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", "Align to Chapter Start", or "Align to Chapter End" to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
-4. **Timeline recalculation:** `AlignmentService.recalculateTimeline()` runs in a single DB transaction, updating all affected `timeline_item` rows with new interpolated timestamps.
-5. **Block/chapter hiding:** Users can mark individual blocks ("Not in Audio (This Paragraph)") or entire chapters ("Not in Audio (Whole Chapter)") as hidden when the EPUB contains content not present in the audiobook narration. Hidden blocks get `alignment_status = omitted`, `is_enabled = false`. The `hideChapter(chapterIndex:reason:)` method on `AlignmentService` batch-hides all blocks in a chapter.
+2. **Auto-Alignment (WhisperKit):** `AutoAlignmentService` runs a progressive 3+1-tier pipeline using on-device speech recognition (WhisperKit + CoreML) to automatically align EPUB blocks to audio timestamps:
+   - **Tier 0 — Silence Mapping:** `SilenceDetectionService` scans the audio file for silence gaps and maps them to chapter boundaries, creating "tentpole" anchors at chapter starts without any transcription.
+   - **Tier 1 — Chapter Snap:** Transcribes short audio clips at chapter boundaries, then uses `AutoAlignmentTextMatcher` (Levenshtein + word-level Jaccard fuzzy matching) to find the corresponding EPUB text and anchor chapter start/end positions. Uses dynamic sample sizing (5s → 10s → 15s) when matches are ambiguous.
+   - **Tier 2 — Drift Detection:** Compares interpolated block positions against chapter boundaries to detect chapters that have drifted out of alignment.
+   - **Tier 3 — Drift Repair:** Bisects misaligned chapters with additional transcription clips to insert correction anchors.
+   - **Fine-Tuning:** `fineTuneManualAlignment(blockID:around:)` captures a 10s window (±5s) around a user-specified time and returns a refined timestamp for manual alignment improvements.
+3. **Global flat interpolation:** `AlignmentService.recalculateTimeline()` uses dynamic CPS (characters-per-second) computed from existing locked anchors to project synthetic boundary positions, rather than hardcoding time 0.0 and total duration. This produces more accurate extrapolation when anchors exist near but not at the book's edges.
+4. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", "Align to Chapter Start", or "Align to Chapter End" to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
+5. **Timeline recalculation:** `AlignmentService.recalculateTimeline()` runs in a single DB transaction, updating all affected `timeline_item` rows with new interpolated timestamps, including `audioEndTime` computed from the next visible block's start time.
+6. **Block/chapter hiding:** Users can mark individual blocks ("Not in Audio (This Paragraph)") or entire chapters ("Not in Audio (Whole Chapter)") as hidden when the EPUB contains content not present in the audiobook narration. Hidden blocks get `alignment_status = omitted`, `is_enabled = false`. The `hideChapter(chapterIndex:reason:)` method on `AlignmentService` batch-hides all blocks in a chapter.
+7. **Continuous Alignment:** `ContinuousAlignmentService` (opt-in via `continuousAutoAlignmentEnabled` setting) runs background transcription during playback to detect and repair alignment drift in real time.
+8. **CloudKit Sync:** `CloudKitSyncService` synchronizes alignment anchors across devices via CloudKit, ensuring manual and auto-alignment work is shared.
+
+**Dynamic CPS projection (AlignmentService):**
+
+Synthetic anchor placement now uses the average speaking rate derived from existing locked anchors rather than assuming the book starts at 0.0 and ends at `totalDuration`:
+
+1. When ≥2 anchored blocks exist, compute `averageCPS = totalChars / totalTime` from the word-position distances and time deltas between them.
+2. Project the first block's time backward from the first locked anchor: `firstTime = anchorTime − (wordDistance / averageCPS)`, clamped to ≥0.
+3. Project the last block's time forward from the last locked anchor: `lastTime = anchorTime + (wordDistance / averageCPS)`, clamped to ≤totalDuration.
+4. Falls back to 15 CPS (~155 WPM) when fewer than 2 anchors exist.
 
 **Word-count proportional interpolation (Schema V8):**
 
@@ -264,8 +290,16 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 
 **Key types:**
 
-- `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, `hideChapter(chapterIndex:reason:)`, and `anchorChapterEnd(blockID:chapterIndex:time:)` for anchor and content management.
-- `AlignmentAnchorRecord` — A user-created lock point tying an EPUB block to an audio time
+- `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, `hideChapter(chapterIndex:reason:)`, and `anchorChapterEnd(blockID:chapterIndex:time:)` for anchor and content management.
+- `AutoAlignmentService` — Progressive 4-tier WhisperKit-based auto-alignment orchestrator. Runs Tier 0 (silence mapping), Tier 1 (chapter snap), Tier 2 (drift detection), Tier 3 (drift repair), and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
+- `AutoAlignmentTextMatcher` — Fuzzy text matching engine for auto-alignment. Uses Levenshtein distance and word-level Jaccard similarity to match transcribed audio against EPUB paragraphs. Provides `projectedBlockStart()` for time-offset calculation from match position within a block.
+- `SilenceDetectionService` — Scans audio files for silence gaps using `AVAudioFile` + `Accelerate` buffer processing. Returns `[SilenceGap]` (start/end/duration) used by Tier 0 to map chapter boundaries without transcription.
+- `ContinuousAlignmentService` — Background alignment drift detection during playback. Samples 15-second audio windows, transcribes via WhisperKit, and inserts alignment anchors on-the-fly. Uses a re-entry guard to prevent overlapping transcription tasks. Opt-in via `continuousAutoAlignmentEnabled` setting. Uses single-pass O(N) timeline scan instead of O(N log N) sort to prevent main-thread stalls every 15 seconds.
+- `WhisperSession` — Reference-counted, shared WhisperKit model manager (`@MainActor`). Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active. Uses `acquire(model:)` / `release()` / `forceUnload()` lifecycle.
+- `AudioSnippetPlayer` — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup previously duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
+- `CloudKitSyncService` — Cross-device alignment anchor synchronization via CloudKit. Uses deterministic SHA-256 record names instead of `hashValue` for cross-device record matching. Uses `NSNumber`-based predicates to avoid floating-point precision loss.
+- `MacGlobalAlignmentService` — macOS-specific streaming alignment orchestrator with EPUB picker UI and match threshold slider. Shares `WhisperSession` with iOS services. Precomputes word arrays to avoid per-sliding-window allocations.
+- `AlignmentAnchorRecord` — A user-created or auto-generated lock point tying an EPUB block to an audio time. Includes `anchorKind` (chapterStart/chapterEnd/correction) and `source` (manual/auto/imported).
 - `EPubBlockRecord` — Database row for a parsed EPUB block (heading, paragraph, or image). Includes `wordCount` (V8) for proportional math.
 - `TimelineItem` — Materialized row linking blocks to audio timestamps with `timestamp_source` and `alignment_status`
 - `TimestampSource` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.none`
@@ -300,13 +334,43 @@ EPUB (directory or .epub file)
        ├── Copy images → Application Support/EPUBAssets/<safeAudiobookID>/
        └── Write epub_block records → SQL
 
+Auto-alignment (WhisperKit, on-device)
+  └─ AutoAlignmentService
+       ├── Tier 0: SilenceDetectionService → map silence gaps to chapter starts
+       ├── Tier 1: captureAndTranscribe → AutoAlignmentTextMatcher → anchor chapter boundaries
+       ├── Tier 2: compare interpolated positions → flag drifted chapters
+       ├── Tier 3: bisect drifted chapters → insert correction anchors
+       └── fineTuneManualAlignment(blockID:around:) → refine manual anchor time
+
 User anchors (manual)
   └─ AlignmentService
        ├── moveBlockToCurrentTime / anchorSearchResult / anchorChapterStart/End
        ├── eraseAnchor(blockID:) / resetAlignment()
        ├── hideBlock(blockID:reason:) / unhideBlock(blockID:)
        ├── hideChapter(chapterIndex:reason:)   ← batch chapter hide
-       └── recalculateTimeline (global word-count-weighted proportional interpolation)
+       └── recalculateTimeline (word-count-weighted interpolation + dynamic CPS projection)
+
+Code organization (May 2026 refactor):
+  ├─ TimelineFeedCollectionView: 1,825 → 627 lines — 11 cell subclasses
+  │   extracted to Views/Cells/ (BookCardCell, TextSegmentCell, ChapterMarkerCell,
+  │   BookmarkCell, AnkiCardCell, ImageAssetCell, NowLineCell, ElasticScrubberCell,
+  │   StickyReviewHeaderView, TimelineCellDelegate, CellHelpers)
+  ├─ ReaderTab: 901 → 576 lines — alignment & context menu operations
+  │   extracted to ReaderTab+Alignment.swift
+  ├─ PlayerModel: 1,295 → 1,103 lines — Bookmarks API extracted to
+  │   PlayerModel+Bookmarks.swift
+  ├─ EPUB XML parsing: ~190 lines of duplicated delegates per platform
+  │   consolidated into Shared/EPUBXMLParsing.swift
+  └─ New shared utilities: FileLocations, KeychainStore, Logger+Subsystem,
+      AnimationDurations, WhisperSession, AudioSnippetPlayer
+
+Continuous alignment (opt-in)
+  └─ ContinuousAlignmentService
+       └── Background drift detection during playback
+
+CloudKit Sync
+  └─ CloudKitSyncService
+       └── Cross-device anchor synchronization
 ```
 
 **Reader UI architecture:**
@@ -373,7 +437,7 @@ showing artwork, title/chapter metadata, and play/pause — tapping it opens the
 
 ### PlayerModel Decomposition
 
-`PlayerModel` has been decomposed from a ~2,900-line god class into a thin coordinator (~1,200 lines) that owns and wires together 20+ focused services. Each service has a single responsibility:
+`PlayerModel` has been decomposed from a ~2,900-line god class into a thin coordinator (~1,100 lines) that owns and wires together 20+ focused services. The Bookmarks API (~190 lines) has been extracted to `PlayerModel+Bookmarks.swift`, following the same extension-file pattern as `PlayerModel+PlaybackControllerDelegate.swift`, `PlayerModel+PlaybackLogging.swift`, and `PlayerModel+WatchState.swift`. Each service has a single responsibility:
 
 | Service | Responsibility |
 |---|---|

@@ -89,7 +89,7 @@ struct BottomToolbarView: View {
         case 1.5:  return String(localized: "1.5×")
         case 1.75: return String(localized: "1.75×")
         case 2.0:  return String(localized: "2.0×")
-        default:   return String(format: "%g×", model.speed)
+        default:   return model.speed.formatted(.number.precision(.fractionLength(1))) + "×"
         }
     }
 
@@ -111,7 +111,7 @@ struct BottomToolbarView: View {
         .accessibilityLabel(Text("Playback speed"))
         .accessibilityValue(Text(speedLabel))
         .onChange(of: model.speed) { _, newSpeed in
-            UIAccessibility.post(notification: .announcement, argument: String(localized: "Speed \(String(format: "%g", newSpeed))×"))
+            UIAccessibility.post(notification: .announcement, argument: String(localized: "Speed \(newSpeed.formatted(.number.precision(.fractionLength(1))))×"))
         }
     }
 

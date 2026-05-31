@@ -8,7 +8,7 @@ import os.log
 /// Public operations produce alignment anchors and recalculate affected
 /// `timeline_item` rows in a single DB transaction.
 struct AlignmentService {
-    private static let isoFormatter = ISO8601DateFormatter()
+    static let isoFormatter = ISO8601DateFormatter()
 
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "Alignment")
     private let anchorDAO: AlignmentAnchorDAO
@@ -128,6 +128,20 @@ struct AlignmentService {
         try recalculateTimeline()
     }
 
+    // MARK: - Batch Anchor Insertion
+
+    /// Inserts multiple anchors in a single transaction, then recalculates
+    /// the timeline. Used by `AutoAlignmentService` for bulk anchor creation.
+    func insertAnchors(_ anchors: [AlignmentAnchorRecord]) throws {
+        guard !anchors.isEmpty else { return }
+        try anchorDAO.db.write { db in
+            for var anchor in anchors {
+                try anchor.upsert(db)
+            }
+        }
+        try recalculateTimeline()
+    }
+
     // MARK: - Block Visibility
 
     func hideBlock(blockID: String, reason: String?) throws {
@@ -168,14 +182,6 @@ struct AlignmentService {
             }
             return dict
         }()
-        let blockByID: [String: EPubBlockRecord] = {
-            var dict: [String: EPubBlockRecord] = [:]
-            for block in blocks {
-                dict[block.id] = block
-            }
-            return dict
-        }()
-
         // Pre-compute text positions for proportional interpolation
         let sortedAllBlocks = blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
         var wordPositionByBlockID: [String: Double] = [:]
@@ -204,14 +210,57 @@ struct AlignmentService {
                 .sorted { $0.sequenceIndex < $1.sequenceIndex }
 
             var syntheticAnchorTimes = anchorTimeByBlockID
+            
+            // Calculate dynamic CPS for projections (fallback to 15 CPS = ~155 WPM)
+            var averageCPS: Double = 15.0
+            if anchoredBlocks.count >= 2 {
+                var totalChars = 0.0
+                var totalTime = 0.0
+                for i in 0..<(anchoredBlocks.count - 1) {
+                    let prev = anchoredBlocks[i]
+                    let next = anchoredBlocks[i + 1]
+                    let chars = (wordPositionByBlockID[next.id] ?? 0) - (wordPositionByBlockID[prev.id] ?? 0)
+                    let time = anchorTimeByBlockID[next.id]! - anchorTimeByBlockID[prev.id]!
+                    if time > 0 && chars > 0 {
+                        totalChars += chars
+                        totalTime += time
+                    }
+                }
+                if totalTime > 0 {
+                    averageCPS = totalChars / totalTime
+                }
+            }
+
             if let first = sortedAllBlocks.first, syntheticAnchorTimes[first.id] == nil {
                 anchoredBlocks.insert(first, at: 0)
-                syntheticAnchorTimes[first.id] = 0.0
+                if let firstAnchored = sortedAllBlocks.first(where: { anchorTimeByBlockID[$0.id] != nil }) {
+                    let distance = (wordPositionByBlockID[firstAnchored.id] ?? 0) - (wordPositionByBlockID[first.id] ?? 0)
+                    let projected = anchorTimeByBlockID[firstAnchored.id]! - (distance / averageCPS)
+                    syntheticAnchorTimes[first.id] = max(0.0, projected)
+                } else {
+                    syntheticAnchorTimes[first.id] = 0.0
+                }
             }
             if let last = sortedAllBlocks.last, syntheticAnchorTimes[last.id] == nil {
                 anchoredBlocks.append(last)
-                syntheticAnchorTimes[last.id] = totalDuration
+                if let lastAnchored = sortedAllBlocks.last(where: { anchorTimeByBlockID[$0.id] != nil }) {
+                    let distance = (wordPositionByBlockID[last.id] ?? 0) - (wordPositionByBlockID[lastAnchored.id] ?? 0)
+                    let projected = anchorTimeByBlockID[lastAnchored.id]! + (distance / averageCPS)
+                    let clampMin = sortedAllBlocks.first.flatMap { syntheticAnchorTimes[$0.id] } ?? 0.0
+                    syntheticAnchorTimes[last.id] = min(totalDuration, max(clampMin, projected))
+                } else {
+                    syntheticAnchorTimes[last.id] = totalDuration
+                }
             }
+
+            struct ComputedAlignment {
+                let audioStart: TimeInterval
+                let timestampSource: String
+                let alignmentStatus: String
+                let isEnabled: Bool
+            }
+
+            var computedByBlockID: [String: ComputedAlignment] = [:]
 
             for block in blocks {
                 let audioStart: TimeInterval
@@ -253,14 +302,37 @@ struct AlignmentService {
                     alignStatus = AlignmentStatus.unaligned.rawValue
                 }
 
+                computedByBlockID[block.id] = ComputedAlignment(
+                    audioStart: audioStart,
+                    timestampSource: timestampSrc,
+                    alignmentStatus: alignStatus,
+                    isEnabled: !block.isHidden
+                )
+            }
+
+            let enabledBlocks = sortedAllBlocks.filter { block in
+                computedByBlockID[block.id]?.isEnabled == true
+                    && (computedByBlockID[block.id]?.audioStart ?? -1) >= 0
+            }
+            var audioEndByBlockID: [String: TimeInterval] = [:]
+            for (index, block) in enabledBlocks.enumerated() {
+                if enabledBlocks.indices.contains(index + 1),
+                   let nextStart = computedByBlockID[enabledBlocks[index + 1].id]?.audioStart {
+                    audioEndByBlockID[block.id] = nextStart
+                }
+            }
+
+            for block in blocks {
+                guard let computed = computedByBlockID[block.id] else { continue }
                 try TimelineDAO.writeAlignment(
                     db: db,
                     epubBlockID: block.id,
                     audiobookID: audiobookID,
-                    audioStartTime: audioStart,
-                    timestampSource: timestampSrc,
-                    alignmentStatus: alignStatus,
-                    isEnabled: !block.isHidden
+                    audioStartTime: computed.audioStart,
+                    audioEndTime: audioEndByBlockID[block.id],
+                    timestampSource: computed.timestampSource,
+                    alignmentStatus: computed.alignmentStatus,
+                    isEnabled: computed.isEnabled
                 )
             }
         }
@@ -303,6 +375,7 @@ extension TimelineDAO {
         epubBlockID: String,
         audiobookID: String,
         audioStartTime: TimeInterval,
+        audioEndTime: TimeInterval? = nil,
         timestampSource: String,
         alignmentStatus: String,
         isEnabled: Bool
@@ -313,6 +386,7 @@ extension TimelineDAO {
                 epubBlockID: epubBlockID,
                 audiobookID: audiobookID,
                 audioStartTime: audioStartTime,
+                audioEndTime: audioEndTime,
                 timestampSource: timestampSource,
                 alignmentStatus: alignmentStatus,
                 isEnabled: isEnabled
@@ -328,6 +402,7 @@ extension TimelineDAO {
         epubBlockID: String,
         audiobookID: String,
         audioStartTime: TimeInterval,
+        audioEndTime: TimeInterval?,
         timestampSource: String,
         alignmentStatus: String,
         isEnabled: Bool
@@ -336,6 +411,7 @@ extension TimelineDAO {
             sql: """
                 UPDATE timeline_item
                 SET audio_start_time = :audioStartTime,
+                    audio_end_time = :audioEndTime,
                     timestamp_source = :timestampSource,
                     alignment_status = :alignmentStatus,
                     is_enabled = :isEnabled,
@@ -345,6 +421,7 @@ extension TimelineDAO {
                 """,
             arguments: [
                 "audioStartTime": audioStartTime,
+                "audioEndTime": audioEndTime,
                 "timestampSource": timestampSource,
                 "alignmentStatus": alignmentStatus,
                 "isEnabled": isEnabled,

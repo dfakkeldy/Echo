@@ -52,14 +52,14 @@ struct ChapterGroupingService {
         var currentBaseTitle: String? = nil
 
         func flushGroup() {
-            guard !groupAtoms.isEmpty else { return }
+            guard let first = groupAtoms.first, let last = groupAtoms.last else { return }
             let logicalIndex = logicalChapters.count
-            let logicalTitle = currentBaseTitle ?? (groupAtoms.first?.title ?? "")
+            let logicalTitle = currentBaseTitle ?? first.title
             let collapsed = Chapter(
                 index: logicalIndex,
                 title: logicalTitle,
-                startSeconds: groupAtoms.first!.startSeconds,
-                endSeconds: groupAtoms.last!.endSeconds,
+                startSeconds: first.startSeconds,
+                endSeconds: last.endSeconds,
                 isEnabled: groupAtoms.allSatisfy { $0.isEnabled }
             )
             logicalChapters.append(collapsed)

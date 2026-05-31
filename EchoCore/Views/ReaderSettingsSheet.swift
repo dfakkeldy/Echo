@@ -30,7 +30,7 @@ struct ReaderSettingsSheet: View {
                         Slider(value: $settings.lineSpacing, in: 1.0...2.5, step: 0.1)
                         Text(String(format: "%.1f×", settings.lineSpacing))
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -47,7 +47,7 @@ struct ReaderSettingsSheet: View {
                                         .overlay(
                                             settings.cardTintHex == hex
                                                 ? Image(systemName: "checkmark")
-                                                    .foregroundColor(hex == "#000000" || hex == "#2C2C2C" ? .white : .black)
+                                                    .foregroundStyle(hex == "#000000" || hex == "#2C2C2C" ? .white : .black)
                                                 : nil
                                         )
                                         .overlay(
@@ -55,7 +55,7 @@ struct ReaderSettingsSheet: View {
                                         )
                                     Text(name)
                                         .font(.caption2)
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                             .buttonStyle(.plain)

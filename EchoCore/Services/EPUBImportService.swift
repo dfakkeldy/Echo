@@ -43,12 +43,19 @@ struct EPUBImportService {
             throw EPUBImportError.notAnEPUB(url: epubURL)
         }
 
-        let opfRelativePath = try parseContainerXML(at: containerURL)
+        let containerData = try Data(contentsOf: containerURL)
+        guard let opfRelativePath = parseContainerXML(from: containerData) else {
+            throw EPUBImportError.missingOPF
+        }
         let opfURL = epubURL.appendingPathComponent(opfRelativePath)
         let opfDir = opfURL.deletingLastPathComponent()
 
         // 2. Parse OPF for spine order.
-        let spine = try parseOPF(at: opfURL)
+        let opfData = try Data(contentsOf: opfURL)
+        let spine = parseOPF(from: opfData)
+        guard !spine.isEmpty else {
+            throw EPUBImportError.spineEmpty
+        }
 
         // 3. Prepare asset storage directory.
         try assetStorage.prepare(for: audiobookID)
@@ -72,14 +79,32 @@ struct EPUBImportService {
             }
 
             let xhtmlData = try Data(contentsOf: xhtmlURL)
-            let blocks = try parseXHTML(
-                data: xhtmlData,
-                baseURL: xhtmlURL.deletingLastPathComponent(),
-                audiobookID: audiobookID,
-                spineHref: href,
-                spineIndex: spineIdx,
-                startingSequence: &sequenceIndex
-            )
+            let textBlocks = parseXHTML(from: xhtmlData)
+            var blocks: [EPubBlockRecord] = []
+            for (blockIdx, textBlock) in textBlocks.enumerated() {
+                let wordCount = textBlock.text?.split(whereSeparator: { $0.isWhitespace }).count ?? 0
+                let block = EPubBlockRecord(
+                    id: "epub-\(audiobookID)-s\(spineIdx)-b\(blockIdx)",
+                    audiobookID: audiobookID,
+                    spineHref: href,
+                    spineIndex: spineIdx,
+                    blockIndex: blockIdx,
+                    sequenceIndex: sequenceIndex,
+                    blockKind: textBlock.kind.rawValue,
+                    text: textBlock.text,
+                    htmlContent: textBlock.htmlContent,
+                    cardColor: nil,
+                    imagePath: textBlock.imagePath,
+                    chapterIndex: nil,
+                    isHidden: false,
+                    hiddenReason: nil,
+                    wordCount: max(1, wordCount),
+                    createdAt: AlignmentService.isoFormatter.string(from: Date()),
+                    modifiedAt: nil
+                )
+                blocks.append(block)
+                sequenceIndex += 1
+            }
 
             // 5. Copy images referenced in blocks to local asset storage.
             for var block in blocks {
@@ -120,73 +145,6 @@ struct EPUBImportService {
         return allBlocks
     }
 
-    // MARK: - Container XML
-
-    private func parseContainerXML(at url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        let parser = ContainerXMLParser()
-        parser.parse(data)
-        guard let path = parser.rootfilePath else {
-            throw EPUBImportError.missingOPF
-        }
-        return path
-    }
-
-    // MARK: - OPF
-
-    private func parseOPF(at url: URL) throws -> [SpineItemDescriptor] {
-        let data = try Data(contentsOf: url)
-        let parser = OPFParserDelegate()
-        parser.parse(data)
-        guard !parser.spineItems.isEmpty else {
-            throw EPUBImportError.spineEmpty
-        }
-        return parser.spineItems
-    }
-
-    // MARK: - XHTML
-
-    private func parseXHTML(
-        data: Data,
-        baseURL: URL,
-        audiobookID: String,
-        spineHref: String,
-        spineIndex: Int,
-        startingSequence: inout Int
-    ) throws -> [EPubBlockRecord] {
-        let parser = XHTMLBlockDelegate()
-        parser.parse(data)
-
-        var blocks: [EPubBlockRecord] = []
-
-        for (blockIdx, textBlock) in parser.textBlocks.enumerated() {
-            let wordCount = textBlock.text?.split(whereSeparator: { $0.isWhitespace }).count ?? 0
-            let block = EPubBlockRecord(
-                id: "epub-\(audiobookID)-s\(spineIndex)-b\(blockIdx)",
-                audiobookID: audiobookID,
-                spineHref: spineHref,
-                spineIndex: spineIndex,
-                blockIndex: blockIdx,
-                sequenceIndex: startingSequence,
-                blockKind: textBlock.kind.rawValue,
-                text: textBlock.text,
-                htmlContent: textBlock.htmlContent,  // NEW
-                cardColor: nil,  // NEW
-                imagePath: textBlock.imagePath,
-                chapterIndex: nil,
-                isHidden: false,
-                hiddenReason: nil,
-                wordCount: max(1, wordCount), // minimum 1 for proportional math
-                createdAt: ISO8601DateFormatter().string(from: Date()),
-                modifiedAt: nil
-            )
-            blocks.append(block)
-            startingSequence += 1
-        }
-
-        return blocks
-    }
-
     // MARK: - Image resolution
 
     private func resolveImageURL(href: String, baseURL: URL, epubRoot: URL, opfDir: URL) -> URL {
@@ -222,189 +180,3 @@ enum EPUBImportError: LocalizedError, Equatable {
     }
 }
 
-// MARK: - Models
-
-struct SpineItemDescriptor {
-    let id: String
-    let href: String
-    let mediaType: String
-}
-
-struct TextBlockDescriptor {
-    let kind: EPubBlockRecord.Kind
-    let text: String?
-    let imagePath: String?
-    let htmlContent: String?  // NEW
-}
-
-// MARK: - XML Parser Delegates
-
-private final class ContainerXMLParser: NSObject, XMLParserDelegate {
-    var rootfilePath: String?
-
-    func parse(_ data: Data) {
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        parser.parse()
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        if elementName == "rootfile", let path = attributeDict["full-path"] {
-            rootfilePath = path
-        }
-    }
-}
-
-private final class OPFParserDelegate: NSObject, XMLParserDelegate {
-    var spineItems: [SpineItemDescriptor] = []
-    private var manifestItems: [String: SpineItemDescriptor] = [:]
-    private var spineIDRefs: [String] = []
-    private var currentAttributes: [String: String] = [:]
-
-    func parse(_ data: Data) {
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        parser.shouldProcessNamespaces = true
-        parser.parse()
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        currentAttributes = attributeDict
-        if elementName == "itemref", let idref = attributeDict["idref"] {
-            spineIDRefs.append(idref)
-        }
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?) {
-        if elementName == "item",
-           let id = currentAttributes["id"],
-           let href = currentAttributes["href"],
-           let mediaType = currentAttributes["media-type"] {
-            manifestItems[id] = SpineItemDescriptor(id: id, href: href, mediaType: mediaType)
-        }
-    }
-
-    func parserDidEndDocument(_ parser: XMLParser) {
-        spineItems = spineIDRefs.compactMap { manifestItems[$0] }
-    }
-}
-
-private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
-    var textBlocks: [TextBlockDescriptor] = []
-    private var currentText = ""
-    private var currentHTML = ""
-    private var inlineDepth = 0
-    private var isInBlock = false
-    private var currentHeading = ""
-    private var isInHeading = false
-    private var skipDepth = 0
-    private var pendingImagePath: String?
-    private let skipTags: Set<String> = ["script", "style", "head"]
-    private let blockTags: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section"]
-    private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br"]
-
-    func parse(_ data: Data) {
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        currentHTML = ""
-        currentText = ""
-        parser.parse()
-        flushBlock()
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        if skipTags.contains(elementName) { skipDepth += 1; return }
-        guard skipDepth == 0 else { return }
-
-        if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
-            flushBlock()
-            isInHeading = true
-            isInBlock = true
-            currentHeading = ""
-            currentHTML = ""
-        } else if elementName == "img", let src = attributeDict["src"] {
-            flushBlock()
-            textBlocks.append(TextBlockDescriptor(
-                kind: .image,
-                text: attributeDict["alt"],
-                imagePath: src,
-                htmlContent: nil
-            ))
-        } else if blockTags.contains(elementName) {
-            flushBlock()
-            isInBlock = true
-            currentHTML = ""
-        } else if inlineTags.contains(elementName) {
-            // Build opening tag with attributes
-            var tag = "<\(elementName)"
-            for (key, value) in attributeDict {
-                tag += " \(key)=\"\(value)\""
-            }
-            tag += ">"
-            currentHTML += tag
-            inlineDepth += 1
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        guard skipDepth == 0 else { return }
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isInHeading { currentHeading += trimmed + " " }
-        if !trimmed.isEmpty { currentText += trimmed + " " }
-        // Preserve raw characters for inner HTML
-        if isInBlock || inlineDepth > 0 {
-            currentHTML += string
-        }
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?) {
-        if skipTags.contains(elementName) { skipDepth = max(0, skipDepth - 1); return }
-        guard skipDepth == 0 else { return }
-
-        if inlineTags.contains(elementName) {
-            currentHTML += "</\(elementName)>"
-            inlineDepth = max(0, inlineDepth - 1)
-            return
-        }
-
-        if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
-            isInHeading = false
-            isInBlock = false
-            let heading = currentHeading.trimmingCharacters(in: .whitespaces)
-            let html = currentHTML.trimmingCharacters(in: .whitespaces)
-            currentText = ""
-            currentHTML = ""
-            if !heading.isEmpty {
-                textBlocks.append(TextBlockDescriptor(
-                    kind: .heading,
-                    text: heading,
-                    imagePath: nil,
-                    htmlContent: html.isEmpty ? nil : html
-                ))
-            }
-        }
-    }
-
-    private func flushBlock() {
-        let text = currentText.trimmingCharacters(in: .whitespaces)
-        let html = currentHTML.trimmingCharacters(in: .whitespaces)
-        currentText = ""
-        currentHTML = ""
-        isInBlock = false
-        guard !text.isEmpty else { return }
-        textBlocks.append(TextBlockDescriptor(
-            kind: .paragraph,
-            text: text,
-            imagePath: nil,
-            htmlContent: html.isEmpty ? nil : html
-        ))
-    }
-}

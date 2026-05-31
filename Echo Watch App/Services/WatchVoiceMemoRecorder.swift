@@ -87,7 +87,7 @@ final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
     }
 
     private static func recordingsDirectory() throws -> URL {
-        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let directory = FileLocations.documentsDirectory
             .appendingPathComponent("WatchVoiceMemos", isDirectory: true)
 
         if !FileManager.default.fileExists(atPath: directory.path) {

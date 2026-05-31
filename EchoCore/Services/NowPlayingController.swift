@@ -46,38 +46,39 @@ final class NowPlayingController {
 
         remoteCommandTokens = [
             center.playCommand.addTarget { _ in
-                DispatchQueue.main.async { play() }
+                Task { @MainActor in play() }
                 return .success
             },
             center.pauseCommand.addTarget { _ in
-                DispatchQueue.main.async { pause() }
+                Task { @MainActor in pause() }
                 return .success
             },
             center.togglePlayPauseCommand.addTarget { _ in
-                DispatchQueue.main.async { togglePlayPause() }
+                Task { @MainActor in togglePlayPause() }
                 return .success
             },
             center.nextTrackCommand.addTarget { _ in
-                DispatchQueue.main.async { nextTrack() }
+                Task { @MainActor in nextTrack() }
                 return .success
             },
             center.skipBackwardCommand.addTarget { _ in
-                DispatchQueue.main.async { skipBackward() }
+                Task { @MainActor in skipBackward() }
                 return .success
             },
             center.skipForwardCommand.addTarget { _ in
-                DispatchQueue.main.async { skipForward() }
+                Task { @MainActor in skipForward() }
                 return .success
             },
             center.previousTrackCommand.addTarget { _ in
-                DispatchQueue.main.async { previousTrack() }
+                Task { @MainActor in previousTrack() }
                 return .success
             },
             center.changePlaybackPositionCommand.addTarget { event in
                 guard let evt = event as? MPChangePlaybackPositionCommandEvent else {
                     return .commandFailed
                 }
-                DispatchQueue.main.async { seek(evt.positionTime) }
+                let positionTime = evt.positionTime
+                Task { @MainActor in seek(positionTime) }
                 return .success
             }
         ]

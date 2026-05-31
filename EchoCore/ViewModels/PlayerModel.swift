@@ -11,7 +11,7 @@ import os.log
 /// The central observable model managing audiobook playback, bookmarks,
 /// chapter navigation, sleep timer, Watch connectivity, and Now Playing
 /// metadata. Serves as the single source of truth for the player UI.
-@Observable
+@Observable @MainActor
 final class PlayerModel {
     // MARK: - Services
 
@@ -246,6 +246,7 @@ final class PlayerModel {
     let progressPresenter = PlaybackProgressPresenter()
     let chapterLoadingCoordinator = ChapterLoadingCoordinator()
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
+    var continuousAlignmentService: ContinuousAlignmentService?
 
     private func computeWordClouds() {
         transcriptService.computeWordClouds()
@@ -268,9 +269,9 @@ final class PlayerModel {
     /// Active playback session event ID for timeline logging.
     @ObservationIgnored var currentPlaybackEventID: String?
     /// UUID of the most recently triggered bookmark, used to prevent retrigger loops.
-    @ObservationIgnored private var lastTriggeredBookmarkID: UUID?
+    @ObservationIgnored var lastTriggeredBookmarkID: UUID?
     /// Player time at which the most recent bookmark was triggered, used to suppress duplicate firings.
-    @ObservationIgnored private var lastTriggeredAtPlayerSecond: Double = -1
+    @ObservationIgnored var lastTriggeredAtPlayerSecond: Double = -1
     /// The player time used during the last bookmark voice-memo trigger check.
     @ObservationIgnored var lastBookmarkCheckSecond: Double?
 
@@ -347,7 +348,10 @@ final class PlayerModel {
     /// Set externally to enable SQL-backed bookmark storage.
     var databaseService: DatabaseService? {
         get { timelinePersistence.databaseService }
-        set { timelinePersistence.databaseService = newValue }
+        set {
+            timelinePersistence.databaseService = newValue
+            configureContinuousAlignment()
+        }
     }
 
     /// Optional timeline service for event logging.
@@ -553,6 +557,7 @@ final class PlayerModel {
         playerLoadingCoordinator.onConfigureRemoteCommands = { [weak self] in self?.configureRemoteCommandsIfNeeded() }
         playerLoadingCoordinator.onPersistSelection = { [weak self] url in self?.persistSelection(url: url) }
         playerLoadingCoordinator.onResetBookmarkCheckSecond = { [weak self] in self?.lastBookmarkCheckSecond = nil }
+        playerLoadingCoordinator.onConfigureContinuousAlignment = { [weak self] in self?.configureContinuousAlignment() }
 
         // Wire PlaybackController coordination closures.
         playbackController.coordinator_seekBackwardDuration = { [weak self] in
@@ -638,8 +643,12 @@ final class PlayerModel {
         playbackController.coordinator_playStateChanged = { [weak self] isPlaying in
             if isPlaying {
                 self?.startPlaybackSessionLogging()
+                if self?.settingsManager?.continuousAutoAlignmentEnabled == true {
+                    self?.continuousAlignmentService?.start()
+                }
             } else {
                 self?.endPlaybackSessionLogging()
+                self?.continuousAlignmentService?.stop()
             }
         }
         playlistManager.coordinator_postResetRefresh = { [weak self] in
@@ -653,17 +662,16 @@ final class PlayerModel {
     }
 
     deinit {
-        let localEngine = audioEngine
-        let localBookmarkStore = bookmarkStore
-        let localBgTask = pauseBackgroundTask
-        Task { @MainActor in
-            localEngine.cleanup()
-            localBookmarkStore.stopVoiceMemo()
+        // Synchronous teardown on the MainActor instead of a fire-and-forget Task.
+        // PlayerModel is @MainActor, so the deinit runs on the main actor.
+        MainActor.assumeIsolated {
+            audioEngine.cleanup()
+            bookmarkStore.stopVoiceMemo()
+            if pauseBackgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(pauseBackgroundTask)
+            }
+            stopAllSecurityScope()
         }
-        if localBgTask != .invalid {
-            UIApplication.shared.endBackgroundTask(localBgTask)
-        }
-        stopAllSecurityScope()
     }
 
     // MARK: Folder + track loading
@@ -738,6 +746,24 @@ final class PlayerModel {
             return
         }
         loadFolder(url, autoplay: false)
+    }
+
+    /// Sets up or tears down the continuous alignment service.
+    func configureContinuousAlignment() {
+        guard let db = databaseService?.writer, let audiobookID = folderURL?.absoluteString else {
+            continuousAlignmentService?.stop()
+            continuousAlignmentService = nil
+            return
+        }
+        if continuousAlignmentService == nil {
+            continuousAlignmentService = ContinuousAlignmentService(audioEngine: audioEngine, db: db, audiobookID: audiobookID)
+        }
+        
+        if isPlaying && settingsManager?.continuousAutoAlignmentEnabled == true {
+            continuousAlignmentService?.start()
+        } else {
+            continuousAlignmentService?.stop()
+        }
     }
 
     func handleDeepLink(_ deepLink: PlayerDeepLink) {
@@ -907,7 +933,7 @@ final class PlayerModel {
         syncToWatch()
     }
 
-    private func stop() {
+    func stop() {
         playbackController.stop()
     }
 
@@ -984,199 +1010,6 @@ final class PlayerModel {
 
     func updateCurrentChapterFromPlayerTime() {
         chapterLoadingCoordinator.updateCurrentChapterFromPlayerTime()
-    }
-
-    // MARK: - Bookmarks API
-
-    /// The persistence key for the currently loaded book, derived from the folder
-    /// URL or the current track ID. Used to scope bookmark and progress storage.
-    var bookmarksStorageKey: String? {
-        if let f = folderURL?.absoluteString { return f }
-        if state.tracks.indices.contains(currentIndex) { return state.tracks[currentIndex].id }
-        return nil
-    }
-
-    /// Loads bookmarks from persistent storage for the currently loaded book.
-    /// Falls back to an empty list if no storage key is available.
-    func loadBookmarksForCurrentBook() {
-        guard let key = bookmarksStorageKey else {
-            bookmarkStore.bookmarks = []
-            artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
-            return
-        }
-        bookmarkStore.bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted { $0.timestamp < $1.timestamp }
-        artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
-    }
-
-    /// Bookmarks scoped to the currently playing track, sorted by timestamp.
-    var currentTrackBookmarks: [Bookmark] {
-        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
-        return bookmarkStore.trackBookmarks(for: trackId)
-    }
-
-    /// Creates a new bookmark at the current playback position with an
-    /// auto-numbered title. Persists the bookmark list immediately.
-    /// - Returns: The newly created bookmark, or `nil` if playback is unavailable.
-    @discardableResult
-    func addBookmarkAtCurrentTime() -> Bookmark? {
-        guard audioEngine.isItemLoaded else { return nil }
-        let t = audioEngine.currentTime
-        guard t.isFinite else { return nil }
-        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
-        let bookmark = bookmarkStore.addBookmark(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
-        logRealTimeEvent(type: .bookmarkCreated, title: bookmark.title, timestamp: t,
-                         sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
-        return bookmark
-    }
-
-    /// Creates a draft bookmark at the current playback position without
-    /// persisting it. Useful for presenting a pre-filled editor before saving.
-    /// - Returns: A draft bookmark, or `nil` if playback is unavailable.
-    func bookmarkDraftAtCurrentTime() -> BookmarkDraft? {
-        guard audioEngine.isItemLoaded else { return nil }
-        let t = audioEngine.currentTime
-        guard t.isFinite else { return nil }
-        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
-        return bookmarkStore.bookmarkDraft(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
-    }
-
-    /// Appends a bookmark created from a draft, persisting the updated list.
-    @discardableResult
-    func appendBookmark(
-        from draft: BookmarkDraft,
-        title: String,
-        timestamp: TimeInterval,
-        note: String?,
-        voiceMemoFileName: String?,
-        bookmarkImageFileName: String? = nil
-    ) -> Bookmark {
-        let bookmark = bookmarkStore.appendBookmark(
-            from: draft, title: title, timestamp: timestamp, note: note,
-            voiceMemoFileName: voiceMemoFileName, bookmarkImageFileName: bookmarkImageFileName
-        )
-        logRealTimeEvent(type: .bookmarkCreated, title: title, timestamp: timestamp,
-                         sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
-        return bookmark
-    }
-
-    /// Updates an existing bookmark's metadata and re-persists the list.
-    func updateBookmark(
-        id: UUID,
-        title: String,
-        timestamp: TimeInterval,
-        note: String?,
-        voiceMemoFileName: String?,
-        bookmarkImageFileName: String? = nil
-    ) {
-        artworkCoordinator.invalidateCache()
-        bookmarkStore.updateBookmark(
-            id: id, title: title, timestamp: timestamp, note: note,
-            voiceMemoFileName: voiceMemoFileName, bookmarkImageFileName: bookmarkImageFileName
-        )
-    }
-
-    /// Copies the selected EPUB file into the current audiobook folder, cleans up previous blocks, and triggers auto-import.
-    func importEPUB(from sourceURL: URL) {
-        guard let folderURL = folderURL, let db = databaseService else { return }
-        let didStartSource = sourceURL.startAccessingSecurityScopedResource()
-        defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
-        let didStartDest = folderURL.startAccessingSecurityScopedResource()
-        defer { if didStartDest { folderURL.stopAccessingSecurityScopedResource() } }
-        EPUBImportCoordinator.importEPUB(
-            from: sourceURL,
-            to: folderURL,
-            databaseService: db,
-            chapters: state.chapters,
-            duration: state.durationSeconds
-        )
-    }
-
-    func addWatchBookmark(from payload: [String: Any]) {
-        guard let storageKey = payload["bookmarkStorageKey"] as? String else { return }
-
-        let folderKey = payload["folderKey"] as? String
-        let trackId = payload["trackId"] as? String
-        let note = (payload["note"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let voiceMemoFileName = payload["voiceMemoFileName"] as? String
-        let incomingTimestamp = payload["timestamp"] as? Double
-        let timestamp = max(0, incomingTimestamp?.isFinite == true ? incomingTimestamp ?? 0 : 0)
-
-        let isCurrentBook = storageKey == bookmarksStorageKey
-        // Only the currently-loaded book has live security scope, so sidecar
-        // I/O is restricted to that case; other books fall back to UserDefaults.
-        let targetFolderURL: URL? = isCurrentBook ? folderURL : nil
-        var targetBookmarks = isCurrentBook
-            ? bookmarkStore.bookmarks
-            : persistence.loadBookmarks(for: storageKey, folderURL: targetFolderURL)
-        let scopedCount = targetBookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
-
-        let bookmark = Bookmark(
-            title: String(localized: "Bookmark \(scopedCount + 1)"),
-            folderKey: folderKey,
-            trackId: trackId,
-            timestamp: timestamp,
-            note: note?.isEmpty == true ? nil : note,
-            voiceMemoFileName: voiceMemoFileName
-        )
-
-        targetBookmarks.append(bookmark)
-        targetBookmarks.sort { $0.timestamp < $1.timestamp }
-        persistence.saveBookmarks(targetBookmarks, for: storageKey, folderURL: targetFolderURL)
-
-        if isCurrentBook {
-            bookmarkStore.bookmarks = targetBookmarks
-            
-        }
-    }
-
-    /// Toggles the enabled state of a bookmark. Disabled bookmarks are skipped
-    /// during bookmark-loop navigation and voice-memo triggering.
-    func toggleBookmarkEnabled(id: UUID) {
-        bookmarkStore.toggleBookmarkEnabled(id: id)
-    }
-
-    /// Reorders bookmarks within the list and persists the new ordering.
-    func moveBookmarks(from source: IndexSet, to destination: Int) {
-        bookmarkStore.moveBookmarks(from: source, to: destination)
-    }
-
-    /// Deletes a bookmark and its associated voice memo / image files (if any).
-    /// Automatically disables bookmark loop mode if no bookmarks remain.
-    func deleteBookmark(id: UUID) {
-        bookmarkStore.deleteBookmark(id: id, folderURL: folderURL)
-    }
-
-    /// Seeks to an aggregated chapter position, switching books if necessary.
-    /// Used by CarPlay's browse template for multi-M4B chapter navigation.
-    func seekToAggregatedChapterPosition(bookIndex: Int, startSeconds: TimeInterval) {
-        guard state.m4bBooks.indices.contains(bookIndex) else { return }
-        if bookIndex != state.currentIndex {
-            state.pendingAggregatedChapter = state.aggregatedChapters.first {
-                $0.bookIndex == bookIndex && abs($0.startSeconds - startSeconds) < 1
-            }
-            skipToTrack(bookIndex)
-        } else {
-            let bookOffset = state.m4bBooks[bookIndex].cumulativeStartOffset
-            let intraBookTime = max(0, startSeconds - bookOffset) + 0.05
-            seek(toSeconds: intraBookTime)
-        }
-    }
-
-    /// Switches playback to a different track index, used by the multi-M4B
-    /// chapter list to jump to a specific book.
-    func skipToTrack(_ index: Int) {
-        guard state.tracks.indices.contains(index), index != state.currentIndex else { return }
-        stop()
-        playerLoadingCoordinator.prepareToPlay(index: index, autoplay: true)
-    }
-
-    /// Jumps playback to a bookmark's timestamp, suppressing the voice-memo
-    /// overlay trigger to avoid unwanted playback interruption.
-    func jumpToBookmark(_ bm: Bookmark) {
-        // Suppress retrigger when the user manually navigates to a bookmark.
-        lastTriggeredBookmarkID = bm.id
-        lastTriggeredAtPlayerSecond = bm.timestamp
-        seek(toSeconds: bm.timestamp)
     }
 
     // MARK: Audio Source Switching
