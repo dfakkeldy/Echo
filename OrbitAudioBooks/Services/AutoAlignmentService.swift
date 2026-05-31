@@ -24,23 +24,21 @@ import os.log
 /// and inserts a correction anchor.
 @MainActor
 final class AutoAlignmentService {
-    private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "AutoAlignment")
+    let logger = Logger(subsystem: "com.orbitaudiobooks", category: "AutoAlignment")
 
     // MARK: - Dependencies
 
-    private let alignmentService: AlignmentService
-    private let blockDAO: EPubBlockDAO
-    private let anchorDAO: AlignmentAnchorDAO
-    private let timelineDAO: TimelineDAO
-    private let audiobookID: String
-    private let audioEngine: AudioEngine
+    let alignmentService: AlignmentService
+    let blockDAO: EPubBlockDAO
+    let anchorDAO: AlignmentAnchorDAO
+    let timelineDAO: TimelineDAO
+    let audiobookID: String
+    let audioEngine: AudioEngine
 
     // MARK: - WhisperKit State
 
-    private var whisperKit: WhisperKit?
-    private var modelUnloadTimer: Timer?
-    private let whisperQueue = DispatchQueue(label: "com.orbitaudiobooks.whisperkit",
-                                              qos: .userInitiated)
+    var whisperKit: WhisperKit?
+    var modelUnloadTimer: Timer?
 
     // MARK: - Progress
 
@@ -59,6 +57,7 @@ final class AutoAlignmentService {
         static let modelSize: String = "base.en"
         static let sampleRate: Double = 16_000
         static let blockMatchWindowCount: Int = 20
+        static let tier3CaptureDuration: TimeInterval = 3.0
     }
 
     // MARK: - Lifecycle
@@ -93,7 +92,7 @@ final class AutoAlignmentService {
 
     // MARK: - Pipeline Orchestration
 
-    private func runPipeline(chapters: [Chapter], blocks: [EPubBlockRecord]) async throws {
+    func runPipeline(chapters: [Chapter], blocks: [EPubBlockRecord]) async throws {
         guard !chapters.isEmpty else {
             state.fail("No chapters found for this audiobook.")
             return
@@ -163,6 +162,48 @@ final class AutoAlignmentService {
         scheduleModelUnload()
     }
 
+    // MARK: - Block Time Estimation (shared by Tier 1 & Tier 3)
+
+    /// Pre-computes estimated audio-time positions for every visible EPUB block
+    /// using proportional word-count within each chapter.  Called once per
+    /// pipeline run so Tier 1 and Tier 3 don't duplicate the same O(N) work.
+    func estimateBlockTimes(
+        blocks: [EPubBlockRecord],
+        chapters: [Chapter],
+        totalDuration: TimeInterval
+    ) -> (allVisible: [EPubBlockRecord], estimatedTimeByBlockID: [String: TimeInterval]) {
+        let allVisible = blocks.filter { !$0.isHidden }.sorted { $0.sequenceIndex < $1.sequenceIndex }
+        var estimatedTimeByBlockID: [String: TimeInterval] = [:]
+
+        let blocksByChapter = Dictionary(grouping: allVisible, by: { $0.chapterIndex })
+        for ch in chapters {
+            let chBlocks = blocksByChapter[ch.index] ?? []
+            let chTotalWords = chBlocks.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
+            var cumulative: Double = 0
+            for block in chBlocks {
+                let weight = Double(max(1, block.wordCount ?? 1))
+                let midFraction = chTotalWords > 0 ? (cumulative + weight / 2.0) / chTotalWords : 0
+                let span = ch.endSeconds - ch.startSeconds
+                estimatedTimeByBlockID[block.id] = ch.startSeconds + midFraction * span
+                cumulative += weight
+            }
+        }
+
+        // Fallback for blocks without a chapter index
+        let totalWordsGlobal = allVisible.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
+        var cumulativeGlobal: Double = 0
+        for block in allVisible {
+            let weight = Double(max(1, block.wordCount ?? 1))
+            let midFraction = totalWordsGlobal > 0 ? (cumulativeGlobal + weight / 2.0) / totalWordsGlobal : 0
+            if estimatedTimeByBlockID[block.id] == nil {
+                estimatedTimeByBlockID[block.id] = midFraction * totalDuration
+            }
+            cumulativeGlobal += weight
+        }
+
+        return (allVisible, estimatedTimeByBlockID)
+    }
+
     // MARK: - Manual Alignment Fine-Tuning
     
     /// Auto-transcription for Manual Alignments
@@ -206,7 +247,7 @@ final class AutoAlignmentService {
 
     // MARK: - Tier 0: Silence Mapping
 
-    private func runTier0(chapters: [Chapter],
+    func runTier0(chapters: [Chapter],
                           blocks: [EPubBlockRecord]) async throws -> Int {
         guard let audioURL = audioEngine.audioFileURL else { return 0 }
         
@@ -218,7 +259,7 @@ final class AutoAlignmentService {
         var createdAnchors: [AlignmentAnchorRecord] = []
         let existingAnchors = try anchorDAO.anchors(for: audiobookID)
         let existingIDs = Set(existingAnchors.map { $0.epubBlockID })
-        let iso = ISO8601DateFormatter()
+        let iso = AlignmentService.isoFormatter
         let blocksByChapter = Dictionary(grouping: blocks, by: { $0.chapterIndex })
         
         for (idx, chapter) in chapters.enumerated() {
@@ -257,46 +298,16 @@ final class AutoAlignmentService {
 
     // MARK: - Tier 1: Chapter Snap
 
-    private func runTier1(chapters: [Chapter],
+    func runTier1(chapters: [Chapter],
                           blocks: [EPubBlockRecord]) async throws -> Int {
         let existingAnchors = try anchorDAO.anchors(for: audiobookID)
         var createdAnchors: [AlignmentAnchorRecord] = []
-        let iso = ISO8601DateFormatter()
+        let iso = AlignmentService.isoFormatter
 
-        // Pre-compute estimated timeline positions for all visible blocks
-        // using proportional word count.  This lets us select candidates by
-        // audio time rather than EPUB chapter index — critical when the audio
-        // chapter count differs from the EPUB chapter count (e.g. LibriVox
-        // collections or multi-part M4Bs).
-        let allVisible = blocks.filter { !$0.isHidden }.sorted { $0.sequenceIndex < $1.sequenceIndex }
-        let totalWords = allVisible.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
-        let totalDuration = audioEngine.duration ?? 1.0
-
-        var estimatedTimeByBlockID: [String: TimeInterval] = [:]
-        let blocksByChapter = Dictionary(grouping: allVisible, by: { $0.chapterIndex })
-        for ch in chapters {
-            let chBlocks = blocksByChapter[ch.index] ?? []
-            let totalWords = chBlocks.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
-            var cumulative: Double = 0
-            for block in chBlocks {
-                let weight = Double(max(1, block.wordCount ?? 1))
-                let midFraction = totalWords > 0 ? (cumulative + weight / 2.0) / totalWords : 0
-                let span = ch.endSeconds - ch.startSeconds
-                estimatedTimeByBlockID[block.id] = ch.startSeconds + midFraction * span
-                cumulative += weight
-            }
-        }
-        // Fallback for blocks without a chapter index
-        let totalWordsGlobal = allVisible.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
-        var cumulativeGlobal: Double = 0
-        for block in allVisible {
-            let weight = Double(max(1, block.wordCount ?? 1))
-            let midFraction = totalWordsGlobal > 0 ? (cumulativeGlobal + weight / 2.0) / totalWordsGlobal : 0
-            if estimatedTimeByBlockID[block.id] == nil {
-                estimatedTimeByBlockID[block.id] = midFraction * totalDuration
-            }
-            cumulativeGlobal += weight
-        }
+        let (allVisible, estimatedTimeByBlockID) = estimateBlockTimes(
+            blocks: blocks, chapters: chapters,
+            totalDuration: audioEngine.duration ?? 1.0
+        )
 
         func blocksNear(_ time: TimeInterval, window: TimeInterval, limit: Int, preferredChapterIndex: Int? = nil) -> [EPubBlockRecord] {
             let filtered = allVisible.filter { 
@@ -569,7 +580,7 @@ final class AutoAlignmentService {
 
     // MARK: - Tier 2: Drift Detection
 
-    private func runTier2(chapters: [Chapter],
+    func runTier2(chapters: [Chapter],
                           blocks: [EPubBlockRecord]) async throws -> [Int] {
         var flagged: [Int] = []
 
@@ -623,41 +634,16 @@ final class AutoAlignmentService {
 
     // MARK: - Tier 3: Drift Repair
 
-    private func runTier3(flaggedChapters: [Int],
+    func runTier3(flaggedChapters: [Int],
                           chapters: [Chapter],
                           blocks: [EPubBlockRecord]) async throws -> Int {
         var repairAnchors: [AlignmentAnchorRecord] = []
-        let iso = ISO8601DateFormatter()
+        let iso = AlignmentService.isoFormatter
 
-        // Use all visible blocks with estimated positions, same as Tier 1.
-        let allVisible = blocks.filter { !$0.isHidden }.sorted { $0.sequenceIndex < $1.sequenceIndex }
-        let totalWords = allVisible.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
-        let totalDuration = audioEngine.duration ?? 1.0
-
-        var estimatedTimeByBlockID: [String: TimeInterval] = [:]
-        let blocksByChapter = Dictionary(grouping: allVisible, by: { $0.chapterIndex })
-        for ch in chapters {
-            let chBlocks = blocksByChapter[ch.index] ?? []
-            let totalWords = chBlocks.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
-            var cumulative: Double = 0
-            for block in chBlocks {
-                let weight = Double(max(1, block.wordCount ?? 1))
-                let midFraction = totalWords > 0 ? (cumulative + weight / 2.0) / totalWords : 0
-                let span = ch.endSeconds - ch.startSeconds
-                estimatedTimeByBlockID[block.id] = ch.startSeconds + midFraction * span
-                cumulative += weight
-            }
-        }
-        let totalWordsGlobal = allVisible.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
-        var cumulativeGlobal: Double = 0
-        for block in allVisible {
-            let weight = Double(max(1, block.wordCount ?? 1))
-            let midFraction = totalWordsGlobal > 0 ? (cumulativeGlobal + weight / 2.0) / totalWordsGlobal : 0
-            if estimatedTimeByBlockID[block.id] == nil {
-                estimatedTimeByBlockID[block.id] = midFraction * totalDuration
-            }
-            cumulativeGlobal += weight
-        }
+        let (allVisible, estimatedTimeByBlockID) = estimateBlockTimes(
+            blocks: blocks, chapters: chapters,
+            totalDuration: audioEngine.duration ?? 1.0
+        )
 
         for (tierIdx, chIdx) in flaggedChapters.enumerated() {
             try Task.checkCancellation()
@@ -677,7 +663,7 @@ final class AutoAlignmentService {
 
             var driftTime: TimeInterval?
             for cp in checkPoints {
-                guard let capture = try await captureAndTranscribe(at: cp, duration: 3.0),
+                guard let capture = try await captureAndTranscribe(at: cp, duration: Config.tier3CaptureDuration),
                       !capture.text.isEmpty else { continue }
                 let transcribed = capture.text
 
@@ -708,7 +694,7 @@ final class AutoAlignmentService {
                 let projected = AutoAlignmentTextMatcher.projectedBlockStart(
                     windowStart: cp,
                     firstWordOffset: capture.offset,
-                    captureDuration: 3.0,
+                    captureDuration: Config.tier3CaptureDuration,
                     transcriptTokenCount: match.transcriptTokenCount,
                     matchedBlockWindowStart: match.bestWindowStart
                 )
@@ -755,7 +741,7 @@ final class AutoAlignmentService {
     ///
     /// Uses direct file reading rather than a real-time tap, so it does not
     /// interrupt playback or require format conversion on the mixer bus.
-    private func captureAndTranscribe(at time: TimeInterval,
+    func captureAndTranscribe(at time: TimeInterval,
                                       duration: TimeInterval) async throws -> (text: String, offset: TimeInterval)? {
         guard let fileURL = audioEngine.audioFileURL else {
             state.log("capture: no audio file loaded")
@@ -881,82 +867,56 @@ final class AutoAlignmentService {
 
     // MARK: - WhisperKit
 
-    private func loadWhisperModel() async throws {
+    func loadWhisperModel() async throws {
         modelUnloadTimer?.invalidate()
         modelUnloadTimer = nil
 
         if whisperKit != nil { return }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            whisperQueue.async {
-                Task {
-                    do {
-                        let wk = try await WhisperKit(model: Config.modelSize)
-                        await MainActor.run { [weak self] in
-                            self?.whisperKit = wk
-                        }
-                        continuation.resume()
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-        }
+        self.whisperKit = try await WhisperSession.shared.acquire(model: Config.modelSize)
     }
 
-    private func transcribe(_ audioArray: [Float]) async throws -> (text: String, offset: TimeInterval) {
+    func transcribe(_ audioArray: [Float]) async throws -> (text: String, offset: TimeInterval) {
         guard !audioArray.isEmpty else { return ("", 0) }
 
-        // Capture whisperKit on the main actor before dispatching to the
-        // background queue, since it is @MainActor-isolated.
-        let wk = whisperKit
-        guard let wk else {
+        guard let wk = whisperKit else {
             throw AutoAlignmentError.modelNotLoaded
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            whisperQueue.async {
-                Task {
-                    let options = DecodingOptions(
-                        task: .transcribe,
-                        language: "en",
-                        temperature: 0.0,
-                        wordTimestamps: true,
-                        suppressBlank: true,
-                        chunkingStrategy: .vad
-                    )
+        let options = DecodingOptions(
+            task: .transcribe,
+            language: "en",
+            temperature: 0.0,
+            wordTimestamps: true,
+            suppressBlank: true,
+            chunkingStrategy: .vad
+        )
 
-                    let results = await wk.transcribe(audioArrays: [audioArray],
-                                                       decodeOptions: options)
+        let results = await wk.transcribe(audioArrays: [audioArray],
+                                           decodeOptions: options)
 
-                    let allSegments = results.compactMap { $0?.first?.segments }.flatMap { $0 }
-                    let wordOffset = TimeInterval(allSegments.first?.words?.first?.start ?? 0)
+        let allSegments = results.compactMap { $0?.first?.segments }.flatMap { $0 }
+        let wordOffset = TimeInterval(allSegments.first?.words?.first?.start ?? 0)
 
-                    let text = results
-                        .compactMap { $0?.first?.segments.map(\.text).joined(separator: " ") }
-                        .joined(separator: " ")
-                        .replacingOccurrences(of: "<\\|[^|]*\\|>",
-                                             with: "",
-                                             options: .regularExpression)
-                        .trimmingCharacters(in: .whitespaces)
+        let text = results
+            .compactMap { $0?.first?.segments.map(\.text).joined(separator: " ") }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "<\\|[^|]*\\|>",
+                                 with: "",
+                                 options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
 
-                    await MainActor.run { [weak self] in
-                        self?.scheduleModelUnload()
-                    }
+        scheduleModelUnload()
 
-                    continuation.resume(returning: (text, wordOffset))
-                }
-            }
-        }
+        return (text, wordOffset)
     }
 
-    private func scheduleModelUnload() {
+    func scheduleModelUnload() {
         modelUnloadTimer?.invalidate()
         modelUnloadTimer = Timer.scheduledTimer(withTimeInterval: Config.modelKeepAliveSeconds,
-                                                  repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.whisperKit?.unloadModels()
-                self?.whisperKit = nil
+                                                  repeats: false) { _ in
+            Task { @MainActor in
+                WhisperSession.shared.release()
             }
         }
     }
@@ -967,7 +927,7 @@ final class AutoAlignmentService {
     ///
     /// Uses a windowed text matcher so short transcripts can match inside
     /// long EPUB paragraphs.
-    private func findBestMatch(
+    func findBestMatch(
         transcribedText: String,
         candidates: [EPubBlockRecord],
         expectedIndex: Int? = nil

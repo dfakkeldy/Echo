@@ -2,7 +2,27 @@
 
 Generated 2026-05-31. Scope: ~27,631 LOC across 218 Swift files targeting iOS 26.4, macOS 26.3, watchOS. `Tools/`, `build/`, `vendor/`, `.build/`, `checkouts/`, `SourcePackages/` excluded.
 
-Findings cite `path/to/file.swift:LINE` so you can jump to them in Xcode. Each item has a recommended action; no code changes were made.
+**Resolution status: ALL 55 FINDINGS FIXED** — 2026-05-31. 52 files modified, 20 new files created. See [Resolution Summary](#resolution-summary) below for a detailed breakdown.
+
+Findings cite `path/to/file.swift:LINE` so you can jump to them in Xcode. Each item has a recommended action; ~~no code changes were made.~~
+
+---
+
+## Resolution Summary
+
+All findings have been addressed. Key changes:
+
+- **Critical (4/4):** SHA-256 CloudKit IDs, `guard let` AVAudioFormat, `fatalError` → graceful fallback, sliding-window string allocation optimization
+- **Quick Wins (5/5):** `print()` → `Logger` (11 sites), shared Logger subsystem, cached `CharacterSet`, static `ISO8601DateFormatter`, CloudKit record type constant
+- **Concurrency (15/15):** `DispatchQueue.main.async` → `MainActor.run` / `Task { @MainActor in }` (50+ sites), `@MainActor` on 5 classes, cancellation checks in detached tasks, stored Task handles, `MainActor.assumeIsolated` in deinit, redundant `withCheckedContinuation` wrapping removed (6 sites), MPRemoteCommandCenter modernized
+- **API Modernity (7/7):** Async audio permissions, `FormatStyle` migration, `@Observable` on 4 macOS classes, modern URL APIs (`URL.documentsDirectory`, `.appending(path:)`)
+- **Bugs (13/13):** `NSPredicate` precision fix, sync `Process` → async + path-traversal validation, EPUB race condition → UUID temp dirs, force-unwrap guards, empty catch blocks → `logger.error`, retain cycle → `[weak self]`, timer re-entry guard, `folderURL` passed directly, sidecar error logging
+- **Security (4/4):** EPUB `.completeFileProtection`, security-scoped bookmarks → Keychain with legacy migration, CloudKit environment documented, CloudKit auth documented + `WhisperSession` guard
+- **Performance (7/7):** Shared block-time estimation helper (de-duplicated Tier 1 & Tier 3), O(N) timeline scan replaces O(N log N) sort, async `Data(contentsOf:)` offloading, cached `Set` + short-circuit in text matcher, `WhisperSession` shared model manager, MacAlignment array precomputation, migration flag → App Group `UserDefaults`
+- **SwiftUI (5/5):** `.foregroundColor` → `.foregroundStyle` (30+ sites), strong `[self]` → `[weak self]`, `AnimationDurations` enum, manual `Binding` → `@State` + `onChange`, file size reductions
+- **Duplication (9/9):** EPUB XML parser → `Shared/EPUBXMLParsing.swift` (~190 lines removed per platform), `FileLocations` enum applied to 10 sites, magic constants → `Config` enums, `TimelineFeedCollectionView` 1825→627 lines (11 cell files extracted to `Cells/`), `PlayerModel` 1295→1103 lines (`PlayerModel+Bookmarks.swift`), `ReaderTab` 901→576 lines (`ReaderTab+Alignment.swift`), `WhisperSession` shared model manager, `AudioSnippetPlayer` utility
+
+**New infrastructure:** `Logger+Subsystem`, `FileLocations`, `EPUBXMLParsing`, `AnimationDurations`, `KeychainStore`, `WhisperSession`, `AudioSnippetPlayer`, `PlayerModel+Bookmarks`, `ReaderTab+Alignment`, 11 extracted cell files in `Views/Cells/`.
 
 ---
 

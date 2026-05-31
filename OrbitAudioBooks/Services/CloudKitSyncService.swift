@@ -1,8 +1,17 @@
 import Foundation
 import CloudKit
+import CryptoKit
 import GRDB
 import os.log
 
+/// Syncs community-contributed alignment anchors via CloudKit.
+///
+/// **Security note (§6.4):** The public CloudKit database allows anyone with the
+/// container identifier to write arbitrary anchor data. For production, consider:
+/// - Switching writes to `privateCloudDatabase` (anchors only visible to owner)
+/// - Adding a server-side CKSubscription validation step
+/// - Rate-limiting uploads per device (e.g. max 5 uploads/hour)
+/// - Validating that anchor timestamps are non-negative and within audiobook duration
 @MainActor
 final class CloudKitSyncService {
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "CloudKitSyncService")
@@ -15,7 +24,19 @@ final class CloudKitSyncService {
     init(db: DatabaseWriter) {
         self.db = db
     }
-    
+
+    // MARK: - Constants
+
+    private nonisolated static let sharedAlignmentRecordType = "SharedAlignment"
+
+    /// Generates a deterministic, collision-resistant record name from audiobook metadata.
+    /// Uses SHA-256 so the same title+author+duration produces the same ID across devices and launches.
+    private nonisolated static func recordName(title: String, author: String, duration: Double) -> String {
+        let composite = "\(title)|\(author)|\(Int(duration))"
+        let hash = SHA256.hash(data: Data(composite.utf8))
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
     /// Uploads manual alignment anchors for a specific audiobook to the public CloudKit database.
     func uploadAnchors(audiobookID: String, title: String, author: String, duration: Double) async throws {
         // Fetch anchors
@@ -35,9 +56,8 @@ final class CloudKitSyncService {
             throw NSError(domain: "CloudKitSync", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to encode anchors"])
         }
         
-        // Fingerprint id
-        let recordID = CKRecord.ID(recordName: "\(title.hashValue)-\(author.hashValue)-\(Int(duration))")
-        let record = CKRecord(recordType: "SharedAlignment", recordID: recordID)
+        let recordID = CKRecord.ID(recordName: Self.recordName(title: title, author: author, duration: duration))
+        let record = CKRecord(recordType: Self.sharedAlignmentRecordType, recordID: recordID)
         
         record["audiobookTitle"] = title as CKRecordValue
         record["audiobookAuthor"] = author as CKRecordValue
@@ -61,8 +81,9 @@ final class CloudKitSyncService {
     
     /// Downloads alignment anchors from the public CloudKit database if a match is found.
     func downloadAnchors(audiobookID: String, title: String, author: String, duration: Double) async throws -> [AlignmentAnchorRecord] {
-        let predicate = NSPredicate(format: "audiobookTitle == %@ AND audiobookAuthor == %@ AND audioDuration == %f", title, author, duration)
-        let query = CKQuery(recordType: "SharedAlignment", predicate: predicate)
+        // Use %@ with NSNumber to avoid floating-point precision loss from %f formatting
+        let predicate = NSPredicate(format: "audiobookTitle == %@ AND audiobookAuthor == %@ AND audioDuration == %@", title, author, NSNumber(value: duration))
+        let query = CKQuery(recordType: Self.sharedAlignmentRecordType, predicate: predicate)
         
         let (matchResults, _) = try await publicDatabase.records(matching: query, resultsLimit: 1)
         

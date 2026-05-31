@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import AppKit
 import UniformTypeIdentifiers
 import os.log
@@ -101,14 +100,15 @@ private enum TranscriptionCLIEvent: Codable {
 }
 
 @MainActor
-class TranscriptionManager: ObservableObject {
+@Observable
+class TranscriptionManager {
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "TranscriptionManager")
-    @Published var progress: Double = 0
-    @Published var isTranscribing: Bool = false
-    @Published var status: String = ""
-    @Published var liveLogStream: [TranscriptionLogEntry] = []
-    @Published var liveSegments: [TranscriptionSegment] = []
-    @Published var liveWordCloud: [WordFrequency] = []
+    var progress: Double = 0
+    var isTranscribing: Bool = false
+    var status: String = ""
+    var liveLogStream: [TranscriptionLogEntry] = []
+    var liveSegments: [TranscriptionSegment] = []
+    var liveWordCloud: [WordFrequency] = []
 
     private var currentProcess: Process?
     private var completedTranscriptURL: URL?
@@ -148,8 +148,7 @@ class TranscriptionManager: ObservableObject {
             currentProcess = nil
         }
 
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let appSupport = FileLocations.applicationSupportDirectory
         let transcriptDir = appSupport.appendingPathComponent("Transcripts", isDirectory: true)
         if !FileManager.default.fileExists(atPath: transcriptDir.path) {
             try? FileManager.default.createDirectory(at: transcriptDir, withIntermediateDirectories: true)

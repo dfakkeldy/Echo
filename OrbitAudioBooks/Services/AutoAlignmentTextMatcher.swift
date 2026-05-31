@@ -112,6 +112,11 @@ struct AutoAlignmentTextMatcher {
         return captureStart - Double(matchedBlockWindowStart) * secondsPerToken
     }
 
+    // MARK: - Cached helpers
+
+    /// Cached CharacterSet to avoid repeated allocation + inversion in the tight tokenization loop.
+    private static let nonLetters = CharacterSet.letters.inverted
+
     /// Slides a transcript-sized window through the candidate's tokens and
     /// returns the best score along with the window's starting token index.
     private static func scoreWindow(
@@ -120,19 +125,32 @@ struct AutoAlignmentTextMatcher {
     ) -> (score: Double, windowStart: Int) {
         guard candidateTokens.isEmpty == false else { return (0, 0) }
 
+        // Precompute transcript-derived values once per candidate block
+        // rather than on every sliding-window invocation inside score().
+        let transcriptString = transcriptTokens.joined(separator: " ")
+        let transcriptSet = Set(transcriptTokens)
+
         let windowSize = transcriptTokens.count
         let stride = max(1, windowSize / 3)
 
         // Seed with the full-block comparison (windowStart = 0); the windowed
         // search below will only replace this if a strictly better window is
         // found.
-        var bestScore = score(transcriptTokens: transcriptTokens, candidateTokens: candidateTokens)
+        var bestScore = score(
+            transcriptString: transcriptString,
+            transcriptSet: transcriptSet,
+            candidateTokens: candidateTokens
+        )
         var bestStart = 0
         var start = 0
         while start < candidateTokens.count {
             let end = min(candidateTokens.count, start + windowSize)
             let window = Array(candidateTokens[start..<end])
-            let s = score(transcriptTokens: transcriptTokens, candidateTokens: window)
+            let s = score(
+                transcriptString: transcriptString,
+                transcriptSet: transcriptSet,
+                candidateTokens: window
+            )
             if s > bestScore {
                 bestScore = s
                 bestStart = start
@@ -143,12 +161,24 @@ struct AutoAlignmentTextMatcher {
         return (bestScore, bestStart)
     }
 
-    private static func score(transcriptTokens: [String], candidateTokens: [String]) -> Double {
-        let transcript = transcriptTokens.joined(separator: " ")
+    /// Computes a composite similarity score from string-level Levenshtein
+    /// and word-level Jaccard overlap.  The precomputed `transcriptString`
+    /// and `transcriptSet` are reused across every window for a single
+    /// candidate block, avoiding O(N) redundant allocations.
+    private static func score(
+        transcriptString: String,
+        transcriptSet: Set<String>,
+        candidateTokens: [String]
+    ) -> Double {
         let candidate = candidateTokens.joined(separator: " ")
-        let stringConfidence = transcript.normalizedLevenshteinSimilarity(to: candidate)
+        let stringConfidence = transcriptString.normalizedLevenshteinSimilarity(to: candidate)
 
-        let transcriptSet = Set(transcriptTokens)
+        // Short-circuit: if string confidence is already near-perfect,
+        // skip the expensive Set construction and Jaccard computation.
+        if stringConfidence >= 0.95 {
+            return stringConfidence
+        }
+
         let candidateSet = Set(candidateTokens)
         let intersection = transcriptSet.intersection(candidateSet).count
         let union = transcriptSet.union(candidateSet).count
@@ -159,7 +189,7 @@ struct AutoAlignmentTextMatcher {
 
     private static func tokens(in text: String) -> [String] {
         text.lowercased()
-            .components(separatedBy: CharacterSet.letters.inverted)
+            .components(separatedBy: nonLetters)
             .filter { $0.count >= 2 }
     }
 }

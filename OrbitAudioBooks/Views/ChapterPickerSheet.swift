@@ -20,12 +20,12 @@ struct ChapterPickerSheet: View {
                                 .lineLimit(2)
                             Text(formatTime(chapter.startSeconds))
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.plain)

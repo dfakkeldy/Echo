@@ -9,6 +9,10 @@ struct TranscriptService {
     /// Loads the transcript sidecar JSON for the given audio file.
     /// The plain transcript is expected at `<audio>.transcript.json` in the same directory.
     /// The enhanced transcript (Whisper + EPUB alignment) is expected at `<audio>.enhanced.json`.
+    ///
+    /// File I/O is dispatched off the main actor to avoid blocking the UI during
+    /// track loading, especially for large transcript JSON files (several MB for
+    /// full audiobooks).  State updates are applied back on the main actor.
     func loadTranscript(for url: URL) {
         guard state.isTranscriptProcessingEnabled else { return }
 
@@ -17,12 +21,15 @@ struct TranscriptService {
         let plainURL = url.deletingLastPathComponent().appendingPathComponent(plainFileName)
 
         if FileManager.default.fileExists(atPath: plainURL.path) {
-            do {
-                let data = try Data(contentsOf: plainURL)
-                state.transcription = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
-            } catch {
-                os_log(.error, "Failed to load plain transcript: %{private}@", error.localizedDescription)
-                state.transcription = []
+            Task.detached { [state] in
+                do {
+                    let data = try Data(contentsOf: plainURL)
+                    let segments = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
+                    await MainActor.run { state.transcription = segments }
+                } catch {
+                    os_log(.error, "Failed to load plain transcript: %{private}@", error.localizedDescription)
+                    await MainActor.run { state.transcription = [] }
+                }
             }
         } else {
             state.transcription = []
@@ -33,14 +40,15 @@ struct TranscriptService {
         let enhancedURL = url.deletingLastPathComponent().appendingPathComponent(enhancedFileName)
 
         if FileManager.default.fileExists(atPath: enhancedURL.path) {
-            do {
-                let data = try Data(contentsOf: enhancedURL)
-                state.enhancedTranscription = try JSONDecoder().decode(
-                    [EnhancedTranscriptionSegment].self, from: data
-                )
-            } catch {
-                os_log(.error, "Failed to load enhanced transcript: %{private}@", error.localizedDescription)
-                state.enhancedTranscription = []
+            Task.detached { [state] in
+                do {
+                    let data = try Data(contentsOf: enhancedURL)
+                    let segments = try JSONDecoder().decode([EnhancedTranscriptionSegment].self, from: data)
+                    await MainActor.run { state.enhancedTranscription = segments }
+                } catch {
+                    os_log(.error, "Failed to load enhanced transcript: %{private}@", error.localizedDescription)
+                    await MainActor.run { state.enhancedTranscription = [] }
+                }
             }
         } else {
             state.enhancedTranscription = []
@@ -52,6 +60,9 @@ struct TranscriptService {
     /// Loads the enhanced transcript sidecar (`<audio>.enhanced.json`) if present.
     /// Returns the decoded segments directly for use by the ingestion pipeline,
     /// without storing them in PlaybackState (keeping V1 surface area small).
+    ///
+    /// The synchronous `Data(contentsOf:)` call is intentional here — this method
+    /// is called from the ingestion pipeline which runs in a background task.
     func loadEnhancedTranscript(for url: URL) -> [EnhancedTranscriptionSegment]? {
         guard state.isTranscriptProcessingEnabled else { return nil }
         let fileName = url.deletingPathExtension().lastPathComponent + ".enhanced.json"

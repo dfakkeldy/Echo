@@ -347,7 +347,7 @@ final class AudioEngine {
             frameCount: frames,
             at: nil
         ) { [weak self] in
-            DispatchQueue.main.async {
+            MainActor.run {
                 guard let self else { return }
                 guard generation == self.seekGeneration else { return }
                 self.isPlaying = false

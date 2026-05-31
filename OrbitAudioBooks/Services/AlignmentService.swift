@@ -8,7 +8,7 @@ import os.log
 /// Public operations produce alignment anchors and recalculate affected
 /// `timeline_item` rows in a single DB transaction.
 struct AlignmentService {
-    private static let isoFormatter = ISO8601DateFormatter()
+    static let isoFormatter = ISO8601DateFormatter()
 
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "Alignment")
     private let anchorDAO: AlignmentAnchorDAO

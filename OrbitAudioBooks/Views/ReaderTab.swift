@@ -1,35 +1,38 @@
 import SwiftUI
 import GRDB
 import UIKit
+import os.log
 
 struct ReaderTab: View {
     let folderURL: URL
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settingsManager
 
-    @State private var viewModel: ReaderFeedViewModel?
+    @State var viewModel: ReaderFeedViewModel?
     @State private var searchText = ""
     @State private var showSettings = false
     @State private var showTOC = false
-    @State private var showChapterPickerForBlockID: String? = nil
-    @State private var showEndChapterPickerForBlockID: String? = nil
-    @State private var showCardColorPickerForBlockID: String? = nil
+    @State var showChapterPickerForBlockID: String? = nil
+    @State var showEndChapterPickerForBlockID: String? = nil
+    @State var showCardColorPickerForBlockID: String? = nil
     @State private var isHeaderVisible = true
     @State private var autoScrollEnabled = true
     @State private var topChapterTitle: String? = nil
     @State private var topSectionTitle: String? = nil
-    @State private var pulseBlockID: String? = nil
+    @State var pulseBlockID: String? = nil
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
     @State private var hasDismissedAlignmentBanner = false
-    @State private var autoAlignmentTask: Task<Void, Error>?
-    @State private var showAutoAlignmentProgress = false
-    @State private var showAutoAlignmentFailedAlert = false
-    @State private var autoAlignmentErrorMessage: String?
-    @State private var autoAlignmentState = AutoAlignmentState()
-    private let haptic = UIImpactFeedbackGenerator(style: .medium)
+    @State var autoAlignmentTask: Task<Void, Error>?
+    @State var showAutoAlignmentProgress = false
+    @State var showAutoAlignmentFailedAlert = false
+    @State var autoAlignmentErrorMessage: String?
+    @State var autoAlignmentState = AutoAlignmentState()
+    let haptic = UIImpactFeedbackGenerator(style: .medium)
+    let logger = Logger(category: "ReaderTab")
+
     @State private var readerSettings = ReaderSettings(
         fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8"
     )
@@ -59,7 +62,7 @@ struct ReaderTab: View {
                         if let title = topChapterTitle, !title.isEmpty {
                             Text(title)
                                 .font(.headline)
-                                .foregroundColor(.primary)
+                                .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 16)
@@ -68,7 +71,7 @@ struct ReaderTab: View {
                         if let section = topSectionTitle, !section.isEmpty {
                             Text(section)
                                 .font(.subheadline)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 16)
@@ -291,333 +294,6 @@ struct ReaderTab: View {
         viewModel?.activeBlockID = blockID
     }
 
-    private func alignBlock(_ blockID: String, to time: TimeInterval, source: AlignmentAnchorRecord.Source) {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
-        do {
-            try alignmentService.moveBlockToCurrentTime(blockID: blockID, time: time)
-            viewModel?.reload()
-
-            // Haptic confirmation
-            haptic.impactOccurred()
-
-            // Visual pulse on the aligned card
-            pulseBlockID = blockID
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                if pulseBlockID == blockID {
-                    pulseBlockID = nil
-                }
-            }
-            
-            // Phase 3: Auto-transcription for Manual Alignments (Fine-Tuning)
-            // Fire off a background transcription of +/- 5s window to locate exact position.
-            Task {
-                let autoState = AutoAlignmentState()
-                let autoService = AutoAlignmentService(
-                    db: db.writer,
-                    audiobookID: audiobookID,
-                    audioEngine: model.audioEngine,
-                    state: autoState
-                )
-                
-                if let exactTime = try? await autoService.fineTuneManualAlignment(blockID: blockID, around: time) {
-                    try? alignmentService.moveBlockToCurrentTime(blockID: blockID, time: exactTime)
-                    await MainActor.run {
-                        viewModel?.reload()
-                        // Small success haptic to indicate fine-tuning complete
-                        let successHaptic = UINotificationFeedbackGenerator()
-                        successHaptic.notificationOccurred(.success)
-                    }
-                }
-            }
-        } catch {
-            // Alignment failure is logged by AlignmentService
-            let errorHaptic = UINotificationFeedbackGenerator()
-            errorHaptic.notificationOccurred(.error)
-        }
-    }
-
-    private func alignChapterEnd(_ blockID: String, chapterIndex: Int?, to time: TimeInterval) {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
-        do {
-            try alignmentService.anchorChapterEnd(blockID: blockID, chapterIndex: chapterIndex ?? 0, time: time)
-            viewModel?.reload()
-            haptic.impactOccurred()
-        } catch {}
-    }
-
-    private func hideBlock(_ blockID: String) {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
-        do {
-            try alignmentService.hideBlock(blockID: blockID, reason: "Manual skip")
-            viewModel?.reload()
-        } catch {}
-    }
-
-    private func unhideBlock(_ blockID: String) {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
-        do {
-            try alignmentService.unhideBlock(blockID: blockID)
-            viewModel?.reload()
-        } catch {}
-    }
-
-    private func hideChapter(_ chapterIndex: Int) {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
-        do {
-            try alignmentService.hideChapter(chapterIndex: chapterIndex, reason: "Manual skip")
-            viewModel?.reload()
-        } catch {}
-    }
-
-    private func eraseAnchor(_ blockID: String) {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
-        do {
-            try alignmentService.eraseAnchor(blockID: blockID)
-            viewModel?.reload()
-            haptic.impactOccurred()
-        } catch {
-            let errorHaptic = UINotificationFeedbackGenerator()
-            errorHaptic.notificationOccurred(.error)
-        }
-    }
-
-    private func startAutoAlignment(model: PlayerModel) {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-
-        let chapters = model.alignmentPickerChapters
-        let blocks = (try? EPubBlockDAO(db: db.writer).blocks(for: audiobookID)) ?? []
-
-        guard !chapters.isEmpty, !blocks.isEmpty else {
-            showAutoAlignmentFailedAlert = true
-            autoAlignmentErrorMessage = "No chapters or EPUB blocks found."
-            return
-        }
-
-        // Reset state and pass to service so the sheet observes mutations live.
-        autoAlignmentState.reset()
-        viewModel?.autoAlignmentState = autoAlignmentState
-
-        let autoService = AutoAlignmentService(
-            db: db.writer,
-            audiobookID: audiobookID,
-            audioEngine: model.audioEngine,
-            state: autoAlignmentState
-        )
-
-        showAutoAlignmentProgress = true
-        autoAlignmentTask = autoService.startAutoAlignment(chapters: chapters, blocks: blocks)
-
-        Task { @MainActor in
-            do {
-                try await autoAlignmentTask?.value
-                viewModel?.reload()
-                haptic.impactOccurred()
-            } catch is CancellationError {
-                // User cancelled — clean exit.
-            } catch {
-                showAutoAlignmentFailedAlert = true
-                autoAlignmentErrorMessage = error.localizedDescription
-            }
-            autoAlignmentTask = nil
-        }
-    }
-
-    private func resetAlignment() {
-        guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
-        do {
-            try alignmentService.resetAlignment()
-            viewModel?.reload()
-            haptic.impactOccurred()
-        } catch {
-            let errorHaptic = UINotificationFeedbackGenerator()
-            errorHaptic.notificationOccurred(.error)
-        }
-    }
-
-    private func buildContextMenu(block: EPubBlockRecord) -> UIContextMenuConfiguration? {
-        let blockID = block.id
-        let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
-        let status = viewModel?.alignmentStatusByBlockID[blockID]
-
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
-            var actions: [UIAction] = []
-
-            let autoAlignAction = UIAction(
-                title: "Auto-Align Chapters", image: UIImage(systemName: "wand.and.stars")
-            ) { [weak model] _ in
-                guard let model else { return }
-                startAutoAlignment(model: model)
-            }
-            actions.append(autoAlignAction)
-
-            let changeColorAction = UIAction(
-                title: "Change Color", image: UIImage(systemName: "paintpalette")
-            ) { _ in
-                DispatchQueue.main.async {
-                    showCardColorPickerForBlockID = blockID
-                }
-            }
-            actions.append(changeColorAction)
-
-            let alignNowAction = UIAction(
-                title: "Align to Now", image: UIImage(systemName: "location.fill")
-            ) { [weak model] _ in
-                guard let model else { return }
-                alignBlock(blockID, to: model.currentPlaybackTime, source: .moveToNow)
-            }
-            actions.append(alignNowAction)
-
-            let alignFiveAction = UIAction(
-                title: "Align to 5s Ago", image: UIImage(systemName: "gobackward.5")
-            ) { [weak model] _ in
-                guard let model else { return }
-                alignBlock(blockID, to: max(0, model.currentPlaybackTime - 5.0), source: .moveToNow)
-            }
-            actions.append(alignFiveAction)
-
-            let alignChapterAction = UIAction(
-                title: "Align to Chapter Start", image: UIImage(systemName: "text.book.closed")
-            ) { _ in
-                showChapterPickerForBlockID = blockID
-            }
-            actions.append(alignChapterAction)
-
-            let alignChapterEndAction = UIAction(
-                title: "Align to Chapter End", image: UIImage(systemName: "text.book.closed.fill")
-            ) { _ in
-                showEndChapterPickerForBlockID = blockID
-            }
-            actions.append(alignChapterEndAction)
-
-            if let chapterIndex = block.chapterIndex {
-                let skipChapterAction = UIAction(
-                    title: "Not in Audio (Whole Chapter)", image: UIImage(systemName: "speaker.slash.fill")
-                ) { _ in
-                    hideChapter(chapterIndex)
-                }
-                actions.append(skipChapterAction)
-            }
-
-            if block.isHidden {
-                let unhideBlockAction = UIAction(
-                    title: "Include in Audio", image: UIImage(systemName: "speaker.wave.2.fill")
-                ) { _ in
-                    unhideBlock(blockID)
-                }
-                actions.append(unhideBlockAction)
-            } else {
-                let skipBlockAction = UIAction(
-                    title: "Not in Audio (This Paragraph)", image: UIImage(systemName: "speaker.slash")
-                ) { _ in
-                    hideBlock(blockID)
-                }
-                actions.append(skipBlockAction)
-            }
-            
-            if status == "lockedAnchor" {
-                let eraseAction = UIAction(
-                    title: "Erase Anchor", image: UIImage(systemName: "link.badge.minus"), attributes: .destructive
-                ) { _ in
-                    eraseAnchor(blockID)
-                }
-                actions.append(eraseAction)
-            }
-            
-            let resetAction = UIAction(
-                title: "Reset Alignment", image: UIImage(systemName: "exclamationmark.arrow.triangle.2.circlepath"), attributes: .destructive
-            ) { _ in
-                resetAlignment()
-            }
-            actions.append(resetAction)
-            
-            let saveBookmarkAction = UIAction(
-                title: "Save Bookmark", image: UIImage(systemName: "bookmark.fill")
-            ) { [weak model] _ in
-                guard let model else { return }
-                saveBookmark(block: block, model: model)
-            }
-            actions.append(saveBookmarkAction)
-
-            if let text = block.text, !text.isEmpty {
-                let copyAction = UIAction(
-                    title: "Copy Text", image: UIImage(systemName: "doc.on.doc")
-                ) { _ in
-                    UIPasteboard.general.string = text
-                }
-                actions.append(copyAction)
-            }
-
-            if kind == .image {
-                let saveImageAction = UIAction(
-                    title: "Save Image", image: UIImage(systemName: "square.and.arrow.down")
-                ) { _ in
-                    saveImageToCameraRoll(block: block)
-                }
-                actions.append(saveImageAction)
-            }
-
-            return UIMenu(title: "", children: actions)
-        }
-    }
-    
-    private func saveBookmark(block: EPubBlockRecord, model: PlayerModel) {
-        guard let db = model.databaseService else { return }
-        let bookmarkDAO = BookmarkDAO(db: db.writer)
-        let nowString = ISO8601DateFormatter().string(from: Date())
-        
-        var mediaTime = model.currentPlaybackTime
-        let audiobookID = folderURL.absoluteString
-        do {
-            if let startTime: Double = try db.writer.read({ db in
-                try Row.fetchOne(db, sql: """
-                    SELECT audio_start_time FROM timeline_item
-                    WHERE epub_block_id = ? AND audiobook_id = ?
-                    LIMIT 1
-                    """, arguments: [block.id, audiobookID]
-                )?["audio_start_time"]
-            }), startTime >= 0 {
-                mediaTime = startTime
-            }
-        } catch {}
-        
-        let note = block.text?.prefix(200).description ?? ""
-        
-        let bookmark = BookmarkRecord(
-            id: UUID().uuidString,
-            audiobookID: audiobookID,
-            trackID: nil,
-            title: "Bookmarked text",
-            mediaTimestamp: mediaTime,
-            note: note.isEmpty ? nil : note,
-            voiceMemoPath: nil,
-            imagePath: block.imagePath,
-            isEnabled: true,
-            playlistPosition: nil,
-            createdAt: nowString,
-            modifiedAt: nowString
-        )
-        
-        do {
-            try bookmarkDAO.insert(bookmark)
-        } catch {
-            print("Failed to save bookmark: \(error)")
-        }
-    }
 
     /// Renders a compact instructional banner.
     @ViewBuilder
@@ -625,18 +301,18 @@ struct ReaderTab: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 15))
-                .foregroundColor(.accentColor)
+                .foregroundStyle(.accentColor)
                 .frame(width: 24)
             Text(message)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
             if dismissible {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 16))
-                        .foregroundColor(.secondary.opacity(0.6))
+                        .foregroundStyle(.secondary.opacity(0.6))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss hint")
@@ -653,15 +329,14 @@ struct ReaderTab: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    private func saveImageToCameraRoll(block: EPubBlockRecord) {
+    func saveImageToCameraRoll(block: EPubBlockRecord) {
         guard let imagePath = block.imagePath else { return }
         var url = URL(fileURLWithPath: imagePath)
         if !FileManager.default.fileExists(atPath: url.path) {
             let filename = url.lastPathComponent
             let dirName = url.deletingLastPathComponent().lastPathComponent
-            if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName).appendingPathComponent(filename)
-            }
+            let appSupport = FileLocations.applicationSupportDirectory
+            url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName).appendingPathComponent(filename)
         }
         if let image = UIImage(contentsOfFile: url.path) {
             UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
@@ -886,12 +561,12 @@ struct TOCRow: View {
         Button(action: action) {
             HStack {
                 Text(title)
-                    .foregroundColor(isActive ? .accentColor : .primary)
+                    .foregroundStyle(isActive ? .accentColor : .primary)
                     .lineLimit(2)
                 Spacer()
                 if isActive {
                     Image(systemName: "checkmark")
-                        .foregroundColor(.accentColor)
+                        .foregroundStyle(.accentColor)
                         .font(.caption.bold())
                 }
             }

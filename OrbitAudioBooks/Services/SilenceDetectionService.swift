@@ -37,6 +37,8 @@ struct SilenceDetectionService {
             let totalFrames = file.length
             
             while currentFrame < totalFrames {
+                try Task.checkCancellation()
+
                 let framesToRead = AVAudioFrameCount(min(AVAudioFramePosition(frameCount), totalFrames - currentFrame))
                 file.framePosition = currentFrame
                 try file.read(into: buffer, frameCount: framesToRead)

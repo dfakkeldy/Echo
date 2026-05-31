@@ -32,7 +32,7 @@ struct AutoAlignmentProgressView: View {
             // Header
             Image(systemName: phaseIcon)
                 .font(.system(size: 32))
-                .foregroundColor(.accentColor)
+                .foregroundStyle(.accentColor)
                 .symbolEffect(.pulse, isActive: phase != .completed && phase != .failed && phase != .idle)
 
             Text(phase != .completed && phase != .failed && phase != .idle
@@ -43,7 +43,7 @@ struct AutoAlignmentProgressView: View {
             ProgressView(value: progress) {
                 Text(statusMessage)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
             .padding(.horizontal)
@@ -51,14 +51,14 @@ struct AutoAlignmentProgressView: View {
             // Phase detail
             detailView
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             // ── Debug log ──
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text("Log (\(logEntries.count) entries)")
                         .font(.caption.bold())
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     if !logEntries.isEmpty {
                         Button("Copy") {
@@ -73,7 +73,7 @@ struct AutoAlignmentProgressView: View {
                 if logEntries.isEmpty {
                     Text("Waiting for alignment to start…")
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .padding(6)
                 } else {
                     ScrollViewReader { proxy in
@@ -82,7 +82,7 @@ struct AutoAlignmentProgressView: View {
                                 ForEach(Array(logEntries.enumerated()), id: \.offset) { _, entry in
                                     Text(entry)
                                         .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(logColor(entry))
+                                        .foregroundStyle(logColor(entry))
                                         .textSelection(.enabled)
                                 }
                             }
@@ -111,7 +111,7 @@ struct AutoAlignmentProgressView: View {
             } else if phase == .failed {
                 VStack(spacing: 8) {
                     Text(errorMessage ?? "An unknown error occurred.")
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .font(.caption)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)

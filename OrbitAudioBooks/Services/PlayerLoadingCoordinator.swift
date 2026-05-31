@@ -30,6 +30,8 @@ final class PlayerLoadingCoordinator {
     @ObservationIgnored var nowPlayingController: NowPlayingController?
     @ObservationIgnored var deepLinkHandler: DeepLinkHandler?
 
+    private var pendingArtworkTask: Task<Void, Never>?
+
     /// Value providers for properties owned by PlayerModel.
     @ObservationIgnored var databaseServiceProvider: (() -> DatabaseService?)?
     @ObservationIgnored var resolvedVolumeBoostEnabledProvider: (() -> Bool)?
@@ -292,7 +294,8 @@ final class PlayerLoadingCoordinator {
         securityScope?.startFile(url: state.tracks[index].url)
 
         let trackURL = state.tracks[index].url
-        Task { await ArtworkCache.ensureItemIsAvailable(url: trackURL) }
+        pendingArtworkTask?.cancel()
+        pendingArtworkTask = Task { await ArtworkCache.ensureItemIsAvailable(url: trackURL) }
 
         audioEngine.configureAudioSession()
         audioEngine.replaceCurrentItem(with: trackURL)

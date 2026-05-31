@@ -774,10 +774,9 @@ struct NewBookmarkView: View {
         case .denied:
             showAlert("Microphone access is denied. Enable microphone access for Orbit Audiobooks in Settings.")
         case .undetermined:
-            AVAudioApplication.requestRecordPermission { isGranted in
-                Task { @MainActor in
-                    isGranted ? beginRecording() : showAlert("Microphone access is required to record a voice bookmark.")
-                }
+            Task {
+                let isGranted = await AVAudioApplication.requestRecordPermission()
+                isGranted ? beginRecording() : showAlert("Microphone access is required to record a voice bookmark.")
             }
         @unknown default:
             showAlert("Microphone access is unavailable.")

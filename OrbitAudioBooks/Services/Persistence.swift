@@ -3,6 +3,22 @@ import os.log
 
 /// UserDefaults-backed persistence for book progress, bookmarks, speed,
 /// ordering, and security-scoped bookmark restoration.
+///
+/// **Security note (§6.2):** Security-scoped bookmark data (binary plist) and
+/// user-created bookmarks (JSON with private notes and audio memo metadata)
+/// are stored in `UserDefaults.standard`, which is unencrypted on disk and
+/// included in iCloud backups.  A future refactor should:
+///
+/// 1. Move security-scoped bookmark data (`bookmarkStore`) to Keychain
+///    (`SecItemAdd` / `SecItemCopyMatching` with `kSecClassGenericPassword`).
+/// 2. Move bookmark records with notes/voice-memo metadata to the App Group
+///    SQLite store (already managed by GRDB) or to an encrypted Core Data
+///    store with `FileProtectionType.complete`.
+/// 3. Keep non-sensitive keys (progress, speed, ordering) in UserDefaults
+///    but consider App Group `UserDefaults(suiteName:)` for consistency.
+///
+/// - SeeAlso: `DatabaseService` for the App Group SQLite database.
+/// - SeeAlso: `AppGroupDefaults` for shared settings.
 struct Persistence {
     private let defaults = UserDefaults.standard
     private let bookmarkKey = "OrbitAudiobooks.selection.bookmark"
@@ -127,6 +143,10 @@ struct Persistence {
 
     // MARK: - Security-Scoped Bookmark
 
+    /// Stores a security-scoped bookmark in the Keychain rather than
+    /// unencrypted UserDefaults.  Security-scoped bookmark data grants
+    /// file-system access to user-selected directories and must not be
+    /// included in plaintext backups.  (§6.2)
     func saveBookmark(url: URL) {
         do {
             let data = try url.bookmarkData(
@@ -134,14 +154,22 @@ struct Persistence {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
-            defaults.set(data, forKey: bookmarkKey)
+            KeychainStore.set(data, for: .securityScopedBookmark)
         } catch {
             os_log(.error, "Bookmark save failed: %{private}@", error.localizedDescription)
         }
     }
 
     func restoreBookmark() -> URL? {
-        guard let data = defaults.data(forKey: bookmarkKey) else { return nil }
+        // Migration: if Keychain is empty but UserDefaults has legacy data,
+        // move it to Keychain and clean up the plaintext copy.  (§6.2)
+        var data = KeychainStore.data(for: .securityScopedBookmark)
+        if data == nil, let legacy = defaults.data(forKey: bookmarkKey) {
+            KeychainStore.set(legacy, for: .securityScopedBookmark)
+            defaults.removeObject(forKey: bookmarkKey)
+            data = legacy
+        }
+        guard let data else { return nil }
 
         var isStale = false
         do {

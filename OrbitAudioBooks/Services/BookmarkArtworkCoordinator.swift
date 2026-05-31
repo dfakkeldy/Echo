@@ -1,5 +1,6 @@
 import UIKit
 import Observation
+import os.log
 
 // MARK: - BookmarkArtworkCoordinator
 
@@ -22,6 +23,7 @@ final class BookmarkArtworkCoordinator {
 
     @ObservationIgnored var state: PlaybackState?
     @ObservationIgnored var bookmarkProvider: (() -> [Bookmark])?
+    private let logger = Logger(category: "BookmarkArtwork")
     @ObservationIgnored var folderURLProvider: (() -> URL?)?
     @ObservationIgnored var trackIDProvider: (() -> String?)?
     @ObservationIgnored var isPlayingProvider: (() -> Bool)?
@@ -102,7 +104,7 @@ final class BookmarkArtworkCoordinator {
                 state?.currentDisplayArtwork = image
                 state?.watchThumbnailData = watchData
             } else {
-                print("Failed to load bookmark artwork: \(fileName)")
+                logger.error("Failed to load bookmark artwork: \(fileName)")
                 state?.currentDisplayArtwork = state?.thumbnailImage
                 state?.watchThumbnailData = baseWatchThumbnailData
             }

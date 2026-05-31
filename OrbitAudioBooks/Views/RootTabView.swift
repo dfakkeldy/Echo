@@ -81,7 +81,7 @@ struct RootTabView: View {
                 ToolbarItem(placement: .principal) {
                     Text(Duration.seconds(model.currentPlaybackTime).formatted(.time(pattern: .minuteSecond)))
                         .font(.subheadline.monospacedDigit().bold())
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
  
                 ToolbarItem(placement: .topBarTrailing) {

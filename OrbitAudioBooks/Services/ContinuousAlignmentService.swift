@@ -17,16 +17,17 @@ final class ContinuousAlignmentService {
     
     // State
     private var isRunning = false
+    private var isProcessing = false
     private var ringBuffer: AudioRingBuffer?
     private var timer: Timer?
     
     // WhisperKit
     private var whisperKit: WhisperKit?
-    private let whisperQueue = DispatchQueue(label: "com.orbitaudiobooks.whisperkit.continuous", qos: .utility)
     
     // Configuration
     private nonisolated enum Config {
         static let interval: TimeInterval = 15.0
+        static let ringBufferCapacityMultiplier: TimeInterval = 2.0
         static let sampleRate: Double = 16_000
         static let modelSize = "base.en"
         static let matchThreshold = 0.35
@@ -44,8 +45,12 @@ final class ContinuousAlignmentService {
         guard !isRunning else { return }
         isRunning = true
         
-        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Config.sampleRate, channels: 1, interleaved: false)!
-        let buffer = AudioRingBuffer(capacitySeconds: Config.interval * 2.0, sampleRate: Config.sampleRate)
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Config.sampleRate, channels: 1, interleaved: false) else {
+            logger.error("Failed to create AVAudioFormat (16 kHz mono Float32) — unsupported PCM configuration on this device. Continuous alignment disabled.")
+            isRunning = false
+            return
+        }
+        let buffer = AudioRingBuffer(capacitySeconds: Config.interval * Config.ringBufferCapacityMultiplier, sampleRate: Config.sampleRate)
         self.ringBuffer = buffer
         
         audioEngine.installCaptureTap(format: format, bufferSize: 4096) { pcmBuffer, _ in
@@ -68,23 +73,27 @@ final class ContinuousAlignmentService {
         audioEngine.removeCaptureTap()
         ringBuffer = nil
         
-        Task {
-            await whisperKit?.unloadModels()
-            whisperKit = nil
-        }
+        WhisperSession.shared.release()
+        whisperKit = nil
         logger.info("Continuous alignment stopped")
     }
     
     private func processBufferedAudio() {
+        guard !isProcessing else {
+            logger.info("Skipping buffer processing — previous transcription still in progress")
+            return
+        }
         guard let ringBuffer else { return }
         let samples = ringBuffer.readAll()
         guard samples.count >= Int(Config.sampleRate * 2.0) else { return } // At least 2 seconds
-        
+
         let audioTimeOfBufferEnd = audioEngine.currentTime
         let audioTimeOfBufferStart = max(0, audioTimeOfBufferEnd - Double(samples.count) / Config.sampleRate)
         let bufferDuration = Double(samples.count) / Config.sampleRate
-        
+
+        isProcessing = true
         Task {
+            defer { isProcessing = false }
             do {
                 try await loadModelIfNeeded()
                 let capture = try await transcribe(samples)
@@ -99,72 +108,52 @@ final class ContinuousAlignmentService {
     
     private func loadModelIfNeeded() async throws {
         if whisperKit != nil { return }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            whisperQueue.async {
-                Task {
-                    do {
-                        let wk = try await WhisperKit(model: Config.modelSize)
-                        await MainActor.run { [weak self] in
-                            self?.whisperKit = wk
-                        }
-                        continuation.resume()
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-        }
+        self.whisperKit = try await WhisperSession.shared.acquire(model: Config.modelSize)
     }
     
     private func transcribe(_ audioArray: [Float]) async throws -> (text: String, offset: TimeInterval) {
         guard !audioArray.isEmpty else { return ("", 0) }
-        
-        let wk = whisperKit
-        guard let wk else { throw NSError(domain: "ContinuousAlignment", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model not loaded"]) }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            whisperQueue.async {
-                Task {
-                    let options = DecodingOptions(
-                        task: .transcribe,
-                        language: "en",
-                        temperature: 0.0,
-                        wordTimestamps: true,
-                        suppressBlank: true,
-                        chunkingStrategy: .vad
-                    )
-                    
-                    let results = await wk.transcribe(audioArrays: [audioArray], decodeOptions: options)
-                    
-                    let allSegments = results.compactMap { $0?.first?.segments }.flatMap { $0 }
-                    let wordOffset = TimeInterval(allSegments.first?.words?.first?.start ?? 0)
-                    
-                    let text = results
-                        .compactMap { $0?.first?.segments.map(\.text).joined(separator: " ") }
-                        .joined(separator: " ")
-                        .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
-                        .trimmingCharacters(in: .whitespaces)
-                    
-                    continuation.resume(returning: (text, wordOffset))
-                }
-            }
-        }
+
+        guard let wk = whisperKit else { throw NSError(domain: "ContinuousAlignment", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model not loaded"]) }
+
+        let options = DecodingOptions(
+            task: .transcribe,
+            language: "en",
+            temperature: 0.0,
+            wordTimestamps: true,
+            suppressBlank: true,
+            chunkingStrategy: .vad
+        )
+
+        let results = await wk.transcribe(audioArrays: [audioArray], decodeOptions: options)
+
+        let allSegments = results.compactMap { $0?.first?.segments }.flatMap { $0 }
+        let wordOffset = TimeInterval(allSegments.first?.words?.first?.start ?? 0)
+
+        let text = results
+            .compactMap { $0?.first?.segments.map(\.text).joined(separator: " ") }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+
+        return (text, wordOffset)
     }
     
     private func matchAndInsertAnchor(text: String, wordOffset: TimeInterval, bufferStartTime: TimeInterval, bufferDuration: TimeInterval) async {
         guard let blocks = try? blockDAO.blocks(for: audiobookID) else { return }
         guard let timelineItems = try? timelineDAO.items(for: audiobookID) else { return }
         
-        // Find current block based on timeline
-        let sortedTimeline = timelineItems.sorted(by: { $0.audioStartTime < $1.audioStartTime })
+        // Find current block based on timeline — use a single-pass scan
+        // (O(N)) instead of sorting the entire timeline (O(N log N)) to avoid
+        // main-thread stalls every 15 seconds.
         var currentBlockIdx = 0
-        for (_, item) in sortedTimeline.enumerated() {
-            if item.audioStartTime > bufferStartTime {
-                break
-            }
-            if item.epubBlockID != nil {
-                if let idx = blocks.firstIndex(where: { $0.id == item.epubBlockID }) {
+        var bestTime: TimeInterval = 0
+        for item in timelineItems {
+            guard let blockID = item.epubBlockID else { continue }
+            let time = item.audioStartTime
+            if time <= bufferStartTime, time >= bestTime {
+                bestTime = time
+                if let idx = blocks.firstIndex(where: { $0.id == blockID }) {
                     currentBlockIdx = idx
                 }
             }
@@ -195,7 +184,7 @@ final class ContinuousAlignmentService {
                 anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
                 source: AlignmentAnchorRecord.Source.continuousBackground.rawValue,
                 note: "Continuous auto-alignment",
-                createdAt: ISO8601DateFormatter().string(from: Date()),
+                createdAt: AlignmentService.isoFormatter.string(from: Date()),
                 modifiedAt: nil
             )
             

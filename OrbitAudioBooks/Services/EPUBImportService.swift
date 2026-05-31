@@ -124,9 +124,7 @@ struct EPUBImportService {
 
     private func parseContainerXML(at url: URL) throws -> String {
         let data = try Data(contentsOf: url)
-        let parser = ContainerXMLParser()
-        parser.parse(data)
-        guard let path = parser.rootfilePath else {
+        guard let path = parseContainerXML(from: data) else {
             throw EPUBImportError.missingOPF
         }
         return path
@@ -136,12 +134,11 @@ struct EPUBImportService {
 
     private func parseOPF(at url: URL) throws -> [SpineItemDescriptor] {
         let data = try Data(contentsOf: url)
-        let parser = OPFParserDelegate()
-        parser.parse(data)
-        guard !parser.spineItems.isEmpty else {
+        let items = parseOPF(from: data)
+        guard !items.isEmpty else {
             throw EPUBImportError.spineEmpty
         }
-        return parser.spineItems
+        return items
     }
 
     // MARK: - XHTML
@@ -154,12 +151,11 @@ struct EPUBImportService {
         spineIndex: Int,
         startingSequence: inout Int
     ) throws -> [EPubBlockRecord] {
-        let parser = XHTMLBlockDelegate()
-        parser.parse(data)
+        let textBlocks = parseXHTML(from: data)
 
         var blocks: [EPubBlockRecord] = []
 
-        for (blockIdx, textBlock) in parser.textBlocks.enumerated() {
+        for (blockIdx, textBlock) in textBlocks.enumerated() {
             let wordCount = textBlock.text?.split(whereSeparator: { $0.isWhitespace }).count ?? 0
             let block = EPubBlockRecord(
                 id: "epub-\(audiobookID)-s\(spineIndex)-b\(blockIdx)",
@@ -177,7 +173,7 @@ struct EPUBImportService {
                 isHidden: false,
                 hiddenReason: nil,
                 wordCount: max(1, wordCount), // minimum 1 for proportional math
-                createdAt: ISO8601DateFormatter().string(from: Date()),
+                createdAt: AlignmentService.isoFormatter.string(from: Date()),
                 modifiedAt: nil
             )
             blocks.append(block)
@@ -222,189 +218,3 @@ enum EPUBImportError: LocalizedError, Equatable {
     }
 }
 
-// MARK: - Models
-
-struct SpineItemDescriptor {
-    let id: String
-    let href: String
-    let mediaType: String
-}
-
-struct TextBlockDescriptor {
-    let kind: EPubBlockRecord.Kind
-    let text: String?
-    let imagePath: String?
-    let htmlContent: String?  // NEW
-}
-
-// MARK: - XML Parser Delegates
-
-private final class ContainerXMLParser: NSObject, XMLParserDelegate {
-    var rootfilePath: String?
-
-    func parse(_ data: Data) {
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        parser.parse()
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        if elementName == "rootfile", let path = attributeDict["full-path"] {
-            rootfilePath = path
-        }
-    }
-}
-
-private final class OPFParserDelegate: NSObject, XMLParserDelegate {
-    var spineItems: [SpineItemDescriptor] = []
-    private var manifestItems: [String: SpineItemDescriptor] = [:]
-    private var spineIDRefs: [String] = []
-    private var currentAttributes: [String: String] = [:]
-
-    func parse(_ data: Data) {
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        parser.shouldProcessNamespaces = true
-        parser.parse()
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        currentAttributes = attributeDict
-        if elementName == "itemref", let idref = attributeDict["idref"] {
-            spineIDRefs.append(idref)
-        }
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?) {
-        if elementName == "item",
-           let id = currentAttributes["id"],
-           let href = currentAttributes["href"],
-           let mediaType = currentAttributes["media-type"] {
-            manifestItems[id] = SpineItemDescriptor(id: id, href: href, mediaType: mediaType)
-        }
-    }
-
-    func parserDidEndDocument(_ parser: XMLParser) {
-        spineItems = spineIDRefs.compactMap { manifestItems[$0] }
-    }
-}
-
-private final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
-    var textBlocks: [TextBlockDescriptor] = []
-    private var currentText = ""
-    private var currentHTML = ""
-    private var inlineDepth = 0
-    private var isInBlock = false
-    private var currentHeading = ""
-    private var isInHeading = false
-    private var skipDepth = 0
-    private var pendingImagePath: String?
-    private let skipTags: Set<String> = ["script", "style", "head", "figcaption"]
-    private let blockTags: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section"]
-    private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br"]
-
-    func parse(_ data: Data) {
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        currentHTML = ""
-        currentText = ""
-        parser.parse()
-        flushBlock()
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        if skipTags.contains(elementName) { skipDepth += 1; return }
-        guard skipDepth == 0 else { return }
-
-        if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
-            flushBlock()
-            isInHeading = true
-            isInBlock = true
-            currentHeading = ""
-            currentHTML = ""
-        } else if elementName == "img", let src = attributeDict["src"] {
-            flushBlock()
-            textBlocks.append(TextBlockDescriptor(
-                kind: .image,
-                text: nil, // Filtered out `alt` text so it isn't fed to the alignment engine
-                imagePath: src,
-                htmlContent: nil
-            ))
-        } else if blockTags.contains(elementName) {
-            flushBlock()
-            isInBlock = true
-            currentHTML = ""
-        } else if inlineTags.contains(elementName) {
-            // Build opening tag with attributes
-            var tag = "<\(elementName)"
-            for (key, value) in attributeDict {
-                tag += " \(key)=\"\(value)\""
-            }
-            tag += ">"
-            currentHTML += tag
-            inlineDepth += 1
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        guard skipDepth == 0 else { return }
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isInHeading { currentHeading += trimmed + " " }
-        if !trimmed.isEmpty { currentText += trimmed + " " }
-        // Preserve raw characters for inner HTML
-        if isInBlock || inlineDepth > 0 {
-            currentHTML += string
-        }
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?) {
-        if skipTags.contains(elementName) { skipDepth = max(0, skipDepth - 1); return }
-        guard skipDepth == 0 else { return }
-
-        if inlineTags.contains(elementName) {
-            currentHTML += "</\(elementName)>"
-            inlineDepth = max(0, inlineDepth - 1)
-            return
-        }
-
-        if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
-            isInHeading = false
-            isInBlock = false
-            let heading = currentHeading.trimmingCharacters(in: .whitespaces)
-            let html = currentHTML.trimmingCharacters(in: .whitespaces)
-            currentText = ""
-            currentHTML = ""
-            if !heading.isEmpty {
-                textBlocks.append(TextBlockDescriptor(
-                    kind: .heading,
-                    text: heading,
-                    imagePath: nil,
-                    htmlContent: html.isEmpty ? nil : html
-                ))
-            }
-        }
-    }
-
-    private func flushBlock() {
-        let text = currentText.trimmingCharacters(in: .whitespaces)
-        let html = currentHTML.trimmingCharacters(in: .whitespaces)
-        currentText = ""
-        currentHTML = ""
-        isInBlock = false
-        guard !text.isEmpty else { return }
-        textBlocks.append(TextBlockDescriptor(
-            kind: .paragraph,
-            text: text,
-            imagePath: nil,
-            htmlContent: html.isEmpty ? nil : html
-        ))
-    }
-}

@@ -50,7 +50,8 @@ final class TimelineFeedViewModel {
         didSet {
             guard oldValue != scope else { return }
             granularity = scope.defaultGranularity
-            Task { await reloadScope() }
+            pendingTask?.cancel()
+            pendingTask = Task { await reloadScope() }
         }
     }
 
@@ -74,12 +75,23 @@ final class TimelineFeedViewModel {
     private let timelineDAO: TimelineDAO
     private let audiobookDAO: AudiobookDAO
     private let audiobookID: String?
-    private let windowSize = 100
+    private enum Config {
+        static let windowSize = 100
+    }
+    private let windowSize = Config.windowSize
 
-    // MARK: - Tripwire state
+    // MARK: - Task management
 
     private var tripwireTask: Task<Void, Never>?
     private let tripwireDelay: TimeInterval = 5.0
+    private var pendingTask: Task<Void, Never>?
+
+    /// Cancels any pending reload task. Call from the owning view's .onDisappear
+    /// to prevent stale task completion after the view is torn down.
+    func cancelPendingWork() {
+        pendingTask?.cancel()
+        pendingTask = nil
+    }
 
     // MARK: - Callbacks
 
@@ -147,7 +159,8 @@ final class TimelineFeedViewModel {
         }
         onUnfrozen?()
         onResumePlayback?()
-        Task { await loadInitialWindow(around: currentTime) }
+        pendingTask?.cancel()
+        pendingTask = Task { await loadInitialWindow(around: currentTime) }
     }
 
     /// Called when syncAndResume needs playback to restart. Wired by the view
@@ -217,7 +230,8 @@ final class TimelineFeedViewModel {
             try service.anchorSearchResult(blockID: result.blockID, time: time)
             try service.recalculateTimeline()
             cancelSearch()
-            Task { await loadInitialWindow(around: time) }
+            pendingTask?.cancel()
+            pendingTask = Task { await loadInitialWindow(around: time) }
         } catch {
             lastError = error
         }
@@ -230,7 +244,8 @@ final class TimelineFeedViewModel {
             let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
             try service.moveBlockToCurrentTime(blockID: blockID, time: time)
             try service.recalculateTimeline()
-            Task { await loadInitialWindow(around: time) }
+            pendingTask?.cancel()
+            pendingTask = Task { await loadInitialWindow(around: time) }
         } catch {
             lastError = error
         }
@@ -242,7 +257,8 @@ final class TimelineFeedViewModel {
         do {
             let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
             try service.eraseAnchor(blockID: blockID)
-            Task { await loadInitialWindow(around: currentPosition) }
+            pendingTask?.cancel()
+            pendingTask = Task { await loadInitialWindow(around: currentPosition) }
         } catch {
             lastError = error
         }
@@ -254,7 +270,8 @@ final class TimelineFeedViewModel {
         do {
             let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
             try service.resetAlignment()
-            Task { await loadInitialWindow(around: currentPosition) }
+            pendingTask?.cancel()
+            pendingTask = Task { await loadInitialWindow(around: currentPosition) }
         } catch {
             lastError = error
         }
@@ -266,7 +283,8 @@ final class TimelineFeedViewModel {
         do {
             let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
             try service.hideBlock(blockID: blockID, reason: reason)
-            Task { await loadInitialWindow(around: currentPosition) }
+            pendingTask?.cancel()
+            pendingTask = Task { await loadInitialWindow(around: currentPosition) }
         } catch {
             lastError = error
         }
@@ -278,7 +296,8 @@ final class TimelineFeedViewModel {
         do {
             let service = AlignmentService(db: timelineDAO.db, audiobookID: audiobookID)
             try service.unhideBlock(blockID: blockID)
-            Task { await loadInitialWindow(around: currentPosition) }
+            pendingTask?.cancel()
+            pendingTask = Task { await loadInitialWindow(around: currentPosition) }
         } catch {
             lastError = error
         }
@@ -480,7 +499,8 @@ final class TimelineFeedViewModel {
         let newGranularity: GranularityLevel = playbackSpeed > 1.5 ? .chapter : scope.defaultGranularity
         guard newGranularity != granularity else { return }
         granularity = newGranularity
-        Task { await reloadGranularity() }
+        pendingTask?.cancel()
+        pendingTask = Task { await reloadGranularity() }
     }
 
     private func scheduleTripwireReset() {

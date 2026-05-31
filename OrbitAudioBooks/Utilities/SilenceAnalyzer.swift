@@ -125,6 +125,8 @@ actor SilenceAnalyzer {
         var allSamples: [Float] = []
 
         while let sampleBuffer = output.copyNextSampleBuffer() {
+            try Task.checkCancellation()
+
             guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
             let byteLength = CMBlockBufferGetDataLength(blockBuffer)
             let sampleCount = byteLength / MemoryLayout<Float>.size

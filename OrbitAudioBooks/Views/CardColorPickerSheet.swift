@@ -27,7 +27,7 @@ struct CardColorPickerSheet: View {
             VStack(spacing: 20) {
                 Text("Choose a background color for this card.")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
@@ -46,7 +46,7 @@ struct CardColorPickerSheet: View {
                                     )
                                 Text(name)
                                     .font(.caption2)
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                         .buttonStyle(.plain)

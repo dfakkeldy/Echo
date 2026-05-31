@@ -13,18 +13,20 @@ final class StoreManager: StoreManagerProtocol {
     private(set) var lastStoreError: String?
 
     @ObservationIgnored private var transactionUpdatesTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
     init() {
         transactionUpdatesTask = Task { [weak self] in
             await self?.listenForTransactionUpdates()
         }
-        Task { [weak self] in
+        refreshTask = Task { [weak self] in
             await self?.refreshPurchasedProducts()
         }
     }
 
     deinit {
         transactionUpdatesTask?.cancel()
+        refreshTask?.cancel()
     }
 
     func requestProducts() async {

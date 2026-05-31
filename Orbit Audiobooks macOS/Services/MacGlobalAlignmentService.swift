@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import SwiftUI
 import os.log
 @preconcurrency import WhisperKit
@@ -19,16 +18,16 @@ public struct TransTokenRecord: Codable, FetchableRecord, PersistableRecord {
 }
 
 @MainActor
-public class MacGlobalAlignmentService: ObservableObject {
+@Observable
+public class MacGlobalAlignmentService {
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "MacGlobalAlignmentService")
     
-    @Published public var isAligning: Bool = false
-    @Published public var alignmentProgress: Double = 0
-    @Published public var alignmentStatus: String = ""
-    @Published public var matchThreshold: Double = 0.4
+    public var isAligning: Bool = false
+    public var alignmentProgress: Double = 0
+    public var alignmentStatus: String = ""
+    public var matchThreshold: Double = 0.4
     
     private var whisperKit: WhisperKit?
-    private let whisperQueue = DispatchQueue(label: "com.orbitaudiobooks.whisperkit.global", qos: .userInitiated)
     
     public init() {}
     
@@ -42,12 +41,13 @@ public class MacGlobalAlignmentService: ObservableObject {
         defer {
             isAligning = false
             alignmentProgress = 1.0
-            Task { await self.whisperKit?.unloadModels(); self.whisperKit = nil }
+            WhisperSession.shared.release()
+            self.whisperKit = nil
         }
         
         // 1. Extract EPUB Blocks
         let parser = MacEPUBParser()
-        let epubBlocks = try parser.extractText(from: epubURL)
+        let epubBlocks = try await parser.extractText(from: epubURL)
         guard !epubBlocks.isEmpty else {
             throw NSError(domain: "MacGlobalAlignmentService", code: 1, userInfo: [NSLocalizedDescriptionKey: "No text blocks found in EPUB."])
         }
@@ -188,54 +188,33 @@ public class MacGlobalAlignmentService: ObservableObject {
     
     private func loadModelIfNeeded() async throws {
         if whisperKit != nil { return }
-        return try await withCheckedThrowingContinuation { continuation in
-            whisperQueue.async {
-                Task {
-                    do {
-                        let wk = try await WhisperKit(model: "base.en")
-                        await MainActor.run { [weak self] in
-                            self?.whisperKit = wk
-                        }
-                        continuation.resume()
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-        }
+        self.whisperKit = try await WhisperSession.shared.acquire(model: "base.en")
     }
     
     private func transcribeChunk(_ audioArray: [Float]) async throws -> (text: String, wordOffset: TimeInterval, duration: TimeInterval) {
         guard !audioArray.isEmpty else { return ("", 0, 0) }
-        let wk = whisperKit
-        guard let wk else { throw NSError(domain: "MacGlobalAlignmentService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model not loaded"]) }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            whisperQueue.async {
-                Task {
-                    let options = DecodingOptions(
-                        task: .transcribe,
-                        language: "en",
-                        temperature: 0.0,
-                        wordTimestamps: true,
-                        suppressBlank: true,
-                        chunkingStrategy: .vad
-                    )
-                    let results = await wk.transcribe(audioArrays: [audioArray], decodeOptions: options)
-                    let allSegments = results.compactMap { $0?.first?.segments }.flatMap { $0 }
-                    let wordOffset = TimeInterval(allSegments.first?.words?.first?.start ?? 0)
-                    let duration = TimeInterval((allSegments.last?.words?.last?.end ?? Float(audioArray.count) / 16000.0))
-                    
-                    let text = results
-                        .compactMap { $0?.first?.segments.map(\.text).joined(separator: " ") }
-                        .joined(separator: " ")
-                        .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
-                        .trimmingCharacters(in: .whitespaces)
-                    
-                    continuation.resume(returning: (text, wordOffset, duration))
-                }
-            }
-        }
+        guard let wk = whisperKit else { throw NSError(domain: "MacGlobalAlignmentService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model not loaded"]) }
+
+        let options = DecodingOptions(
+            task: .transcribe,
+            language: "en",
+            temperature: 0.0,
+            wordTimestamps: true,
+            suppressBlank: true,
+            chunkingStrategy: .vad
+        )
+        let results = await wk.transcribe(audioArrays: [audioArray], decodeOptions: options)
+        let allSegments = results.compactMap { $0?.first?.segments }.flatMap { $0 }
+        let wordOffset = TimeInterval(allSegments.first?.words?.first?.start ?? 0)
+        let duration = TimeInterval((allSegments.last?.words?.last?.end ?? Float(audioArray.count) / 16000.0))
+
+        let text = results
+            .compactMap { $0?.first?.segments.map(\.text).joined(separator: " ") }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+
+        return (text, wordOffset, duration)
     }
     
     // MARK: - Utils
@@ -256,20 +235,22 @@ public class MacGlobalAlignmentService: ObservableObject {
     
     private func findBestMatch(blockTokens: [String], in transcriptWindow: [TransTokenRecord]) -> (windowStart: Int, confidence: Double)? {
         guard !blockTokens.isEmpty, !transcriptWindow.isEmpty else { return nil }
-        
+
         var bestScore: Double = 0
         var bestStart: Int = 0
-        
+
+        // Precompute word array once so we don't allocate a new [String] per window.
         let transcriptWords = transcriptWindow.map { $0.word }
+        // Precompute the block token set once — blockTokens is constant across the loop.
+        let blockSet = Set(blockTokens)
+
         let windowSize = blockTokens.count
         let stride = max(1, windowSize / 3)
-        
+
         var start = 0
         while start < transcriptWords.count {
             let end = min(transcriptWords.count, start + windowSize)
-            let candidateWindow = Array(transcriptWords[start..<end])
-            
-            let s = score(blockTokens: blockTokens, transcriptTokens: candidateWindow)
+            let s = score(blockSet: blockSet, candidateSlice: transcriptWords[start..<end])
             if s > bestScore {
                 bestScore = s
                 bestStart = start
@@ -277,19 +258,21 @@ public class MacGlobalAlignmentService: ObservableObject {
             if end == transcriptWords.count { break }
             start += stride
         }
-        
+
         if bestScore > 0 {
             return (bestStart, bestScore)
         }
         return nil
     }
-    
-    private func score(blockTokens: [String], transcriptTokens: [String]) -> Double {
-        let blockSet = Set(blockTokens)
-        let transSet = Set(transcriptTokens)
+
+    /// Jaccard word-overlap score using a precomputed block token set and a
+    /// transcript slice.  The slice is converted to a Set on demand so we
+    /// don't allocate intermediate arrays.
+    private func score(blockSet: Set<String>, candidateSlice: ArraySlice<String>) -> Double {
+        let transSet = Set(candidateSlice)
         let intersection = blockSet.intersection(transSet).count
         let union = blockSet.union(transSet).count
-        
+
         guard union > 0 else { return 0 }
         return Double(intersection) / Double(union)
     }

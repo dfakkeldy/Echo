@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import os.log
 
 struct GlobalTranscriptIndex: Codable {
@@ -9,18 +8,18 @@ struct GlobalTranscriptIndex: Codable {
 }
 
 @MainActor
-class TranscriptStore: ObservableObject {
-    @Published var transcriptions: [String: [TranscriptionSegment]] = [:]
-    @Published var fileMapping: [String: String] = [:] // Hash -> Title
+@Observable
+class TranscriptStore {
+    var transcriptions: [String: [TranscriptionSegment]] = [:]
+    var fileMapping: [String: String] = [:] // Hash -> Title
     /// Per-hash word frequencies for the full transcript, computed on load.
-    @Published var wordClouds: [String: [WordFrequency]] = [:]
+    var wordClouds: [String: [WordFrequency]] = [:]
 
     private let logger = Logger(subsystem: "com.orbitaudiobooks", category: "TranscriptStore")
     private let transcriptDir: URL
 
     init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let appSupport = FileLocations.applicationSupportDirectory
         transcriptDir = appSupport.appendingPathComponent("Transcripts", isDirectory: true)
         loadIndex()
 
