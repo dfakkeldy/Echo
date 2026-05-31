@@ -52,7 +52,7 @@ final class AutoAlignmentService {
         static let chapterEndCaptureDuration: TimeInterval = 5.0
         static let driftCheckDuration: TimeInterval = 5.0
         static let preambleSkipDuration: TimeInterval = 8.0
-        static let matchThreshold: Double = 0.30
+        static let matchThreshold: Double = 0.35
         static let driftConfidenceThreshold: Double = 0.40
         static let modelKeepAliveSeconds: TimeInterval = 120.0
         static let modelSize: String = "base.en"
@@ -179,6 +179,15 @@ final class AutoAlignmentService {
             cumulative += weight
         }
 
+        /// Returns blocks whose estimated position is within `window` seconds of `time`,
+        /// capped at `limit`. Prevents false matches against unrelated book sections.
+        func blocksNear(_ time: TimeInterval, window: TimeInterval, limit: Int) -> [EPubBlockRecord] {
+            allVisible
+                .filter { abs((estimatedTimeByBlockID[$0.id] ?? 0) - time) < window }
+                .prefix(limit)
+                .map { $0 }
+        }
+
         for (idx, chapter) in chapters.enumerated() {
             try Task.checkCancellation()
 
@@ -203,20 +212,29 @@ final class AutoAlignmentService {
 
             // ── Chapter Start (sliding window, time-based candidates) ──
             if !hasStartAnchor {
+                // For very short chapters use a smaller preamble skip so we
+                // still have room to capture before the chapter ends.
+                let effectivePreamble: TimeInterval = chapterDuration < 30
+                    ? min(Config.preambleSkipDuration, chapterDuration * 0.3)
+                    : Config.preambleSkipDuration
+
                 let maxSearchOffset = min(chapterDuration * 0.40, 120.0)
                 let windowAdvance = Config.chapterStartCaptureDuration * 0.75
                 let maxAttempts = min(3, max(1, Int(maxSearchOffset / windowAdvance)))
                 var attempt = 0
                 var foundStart = false
 
+                // Allow capture up to the chapter end minus a 5 % margin.
+                let endMargin = chapterDuration * 0.05
+
                 while attempt < maxAttempts, !foundStart {
                     try Task.checkCancellation()
 
                     let windowStart = chapter.startSeconds
-                        + Config.preambleSkipDuration
+                        + effectivePreamble
                         + (Double(attempt) * windowAdvance)
 
-                    guard windowStart + Config.chapterStartCaptureDuration < chapter.endSeconds - 15 else {
+                    guard windowStart + Config.chapterStartCaptureDuration < chapter.endSeconds - endMargin else {
                         break
                     }
 
@@ -235,9 +253,9 @@ final class AutoAlignmentService {
                         continue
                     }
 
-                    // Match against all visible blocks — Levenshtein on
-                    // short strings is fast enough for hundreds of blocks.
-                    let candidates = allVisible
+                    // Filter to blocks near this time to prevent false matches
+                    // across unrelated parts of the book.
+                    let candidates = blocksNear(windowStart, window: 300, limit: 30)
                     if let (matched, confidence) = findBestMatch(transcribedText: transcribed,
                                                                   candidates: candidates) {
                         let preview = String(matched.text?.prefix(60) ?? "").replacingOccurrences(of: "\n", with: " ")
@@ -297,9 +315,9 @@ final class AutoAlignmentService {
                         continue
                     }
 
-                    // Match against all visible blocks.
+                    let candidates = blocksNear(windowStart, window: 300, limit: 30)
                     if let (matched, confidence) = findBestMatch(transcribedText: transcribed,
-                                                                  candidates: allVisible) {
+                                                                  candidates: candidates) {
                         let preview = String(matched.text?.prefix(60) ?? "").replacingOccurrences(of: "\n", with: " ")
                         state.log("ch\(idx) end ✓ attempt \(attempt + 1): conf=\(String(format: "%.2f", confidence)) → \"\(preview)\"")
                         let anchor = AlignmentAnchorRecord(
@@ -380,6 +398,27 @@ final class AutoAlignmentService {
         var repairAnchors: [AlignmentAnchorRecord] = []
         let iso = ISO8601DateFormatter()
 
+        // Use all visible blocks with estimated positions, same as Tier 1.
+        let allVisible = blocks.filter { !$0.isHidden }.sorted { $0.sequenceIndex < $1.sequenceIndex }
+        let totalWords = allVisible.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
+        let totalDuration = audioEngine.duration ?? 1.0
+
+        var estimatedTimeByBlockID: [String: TimeInterval] = [:]
+        var cumulative: Double = 0
+        for block in allVisible {
+            let weight = Double(max(1, block.wordCount ?? 1))
+            let midFraction = (cumulative + weight / 2.0) / totalWords
+            estimatedTimeByBlockID[block.id] = midFraction * totalDuration
+            cumulative += weight
+        }
+
+        func nearestBlock(to time: TimeInterval) -> EPubBlockRecord? {
+            allVisible.min(by: {
+                abs((estimatedTimeByBlockID[$0.id] ?? 0) - time)
+                < abs((estimatedTimeByBlockID[$1.id] ?? 0) - time)
+            })
+        }
+
         for (tierIdx, chIdx) in flaggedChapters.enumerated() {
             try Task.checkCancellation()
 
@@ -388,11 +427,6 @@ final class AutoAlignmentService {
             state.currentChapterIndex = chIdx
             state.update(phase: .tier3_DriftRepair, progress: baseProgress,
                          statusMessage: "Repairing chapter \(chIdx + 1)…")
-
-            let chapterBlocks = blocks
-                .filter { $0.chapterIndex == chIdx }
-                .sorted { $0.sequenceIndex < $1.sequenceIndex }
-            guard chapterBlocks.count >= 3 else { continue }
 
             let span = chapter.endSeconds - chapter.startSeconds
             let checkPoints: [TimeInterval] = [
@@ -406,35 +440,46 @@ final class AutoAlignmentService {
                 guard let transcribed = try await captureAndTranscribe(at: cp, duration: 3.0),
                       !transcribed.isEmpty else { continue }
 
-                guard let expected = blockAtTime(cp, blocks: blocks),
-                      let expectedText = expected.text, !expectedText.isEmpty else { continue }
+                // Match against blocks near this time, not against the
+                // interpolated timeline (which may be way off for drifted chapters).
+                let candidates = allVisible.filter {
+                    abs((estimatedTimeByBlockID[$0.id] ?? 0) - cp) < 120
+                }.prefix(20).map { $0 }
 
-                if transcribed.normalizedLevenshteinSimilarity(to: expectedText) < Config.driftConfidenceThreshold {
+                guard let (best, _) = findBestMatch(transcribedText: transcribed,
+                                                     candidates: candidates) else {
+                    state.log("ch\(chIdx) repair: no match at \(String(format: "%.0f", cp))s")
+                    continue
+                }
+
+                let estimatedPos = estimatedTimeByBlockID[best.id] ?? 0
+                let drift = abs(estimatedPos - cp)
+                state.log("ch\(chIdx) repair: found \"\(String(best.text?.prefix(40) ?? ""))\" at est \(String(format: "%.0f", estimatedPos))s (drift \(String(format: "%.0f", drift))s)")
+
+                if drift > 30 {
                     driftTime = cp
+                    if let repairBlock = nearestBlock(to: cp) {
+                        let anchor = AlignmentAnchorRecord(
+                            id: "auto-repair-\(UUID().uuidString)",
+                            audiobookID: audiobookID,
+                            epubBlockID: repairBlock.id,
+                            audioTime: cp,
+                            audioEndTime: nil,
+                            anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                            source: AlignmentAnchorRecord.Source.imported.rawValue,
+                            note: "auto: drift repair ch\(chIdx)",
+                            createdAt: iso.string(from: Date()),
+                            modifiedAt: nil
+                        )
+                        repairAnchors.append(anchor)
+                        state.log("ch\(chIdx) repair ✓ anchor inserted at \(String(format: "%.0f", cp))s")
+                    }
                     break
                 }
             }
 
-            guard let driftTime else { continue }
-
-            // Find the nearest block to the drift time (by proportional word count).
-            if let repairBlock = nearestBlock(to: driftTime,
-                                              in: chapterBlocks,
-                                              chapterStart: chapter.startSeconds,
-                                              chapterEnd: chapter.endSeconds) {
-                let anchor = AlignmentAnchorRecord(
-                    id: "auto-repair-\(UUID().uuidString)",
-                    audiobookID: audiobookID,
-                    epubBlockID: repairBlock.id,
-                    audioTime: driftTime,
-                    audioEndTime: nil,
-                    anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-                    source: AlignmentAnchorRecord.Source.imported.rawValue,
-                    note: "auto: drift repair ch\(chIdx)",
-                    createdAt: iso.string(from: Date()),
-                    modifiedAt: nil
-                )
-                repairAnchors.append(anchor)
+            if driftTime == nil {
+                state.log("ch\(chIdx) repair: no significant drift found")
             }
         }
 
@@ -729,35 +774,6 @@ final class AutoAlignmentService {
         return blockByID[matchedBlockID]
     }
 
-    /// Finds the EPUB block whose estimated position (by proportional word count)
-    /// is closest to the given time.
-    private func nearestBlock(to time: TimeInterval,
-                              in blocks: [EPubBlockRecord],
-                              chapterStart: TimeInterval,
-                              chapterEnd: TimeInterval) -> EPubBlockRecord? {
-        guard !blocks.isEmpty else { return nil }
-
-        let totalWords = blocks.reduce(0.0) { $0 + Double(max(1, $1.wordCount ?? 1)) }
-        guard totalWords > 0 else { return blocks.first }
-
-        var cumulative: Double = 0
-        var best: EPubBlockRecord?
-        var bestDistance = TimeInterval.greatestFiniteMagnitude
-
-        for block in blocks {
-            let weight = Double(max(1, block.wordCount ?? 1))
-            let midFraction = (cumulative + weight / 2.0) / totalWords
-            let estimatedTime = chapterStart + midFraction * (chapterEnd - chapterStart)
-            let distance = abs(estimatedTime - time)
-            if distance < bestDistance {
-                bestDistance = distance
-                best = block
-            }
-            cumulative += weight
-        }
-
-        return best
-    }
 }
 
 // MARK: - AutoAlignmentError
