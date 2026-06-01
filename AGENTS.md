@@ -96,3 +96,8 @@ If the Xcode MCP is configured, prefer its tools over generic alternatives when 
 - `ExecuteSnippet` — test a code snippet in the context of a source file
 - `XcodeRead`, `XcodeWrite`, `XcodeUpdate` — prefer these over generic file tools when working with Xcode project files
 
+---
+
+## Attribution
+
+This agent guide is adapted from [Paul Hudson's AGENTS.md template](https://github.com/twostraws/AGENTS.md), customized for Echo's architecture, Swift 6.2 conventions, and project-specific tooling.

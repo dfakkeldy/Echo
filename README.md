@@ -175,6 +175,10 @@ When extending or modifying the project with autonomous tooling, future agents M
 - Respect the font accessibility constraints documented in the **Accessibility (A11y) First** section above.
 - Ensure all four platform targets remain buildable and that platform-specific compilation guards (e.g., `#if os(iOS)`, `#if os(macOS)`, `#if os(watchOS)`) are correctly maintained.
 
+### Credits
+
+- **[Paul Hudson](https://github.com/twostraws) ([@twostraws](https://github.com/twostraws))** — This project's [`AGENTS.md`](AGENTS.md) is adapted from Paul's [AGENTS.md template](https://github.com/twostraws/AGENTS.md), which has become the standard for guiding AI-assisted Swift and SwiftUI development.
+
 ---
 
 ## License
