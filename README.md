@@ -1,6 +1,6 @@
 # 🗣️ Echo: Audiobook Study Player
 
-> Turn listening into learning — for every mind
+> For Every Mind — turn listening into learning
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 [![TestFlight](https://img.shields.io/badge/TestFlight-Beta-blue.svg)](#)
@@ -11,7 +11,19 @@
 
 **Echo** turns audiobooks into a serious study medium. Search across spoken content, jump to any passage, create flashcards from what you hear, and review with spaced repetition — all without leaving the audio.
 
-Echo is built for **every kind of mind.** For neurodivergent learners (including the AuDHD community), Echo bridges the gap between reading and listening: a synced EPUB sits alongside your audiobook so you can follow the text while you hear it, jump between the two, and never lose your place. If you've ever struggled to stay focused on audio alone — or found that reading is your anchor — this hybrid approach is for you. Built for students, professionals, and anyone who learns differently.
+---
+
+## Why I Built Echo
+
+I spend my days delivering mail. I'm in and out of my car dozens of times a shift, relying on an aux cable and dealing with constant interruptions. I listen to non-fiction to learn, but trying to absorb complex information with intermittent attention using standard audiobook apps was an exercise in frustration.
+
+I needed an app that could loop a single chapter until I understood it. I needed to leave voice memos on bookmarks so I wouldn't forget my thoughts while driving. I needed a watch complication large enough to actually hit without looking down. And when I finally got home, I needed the audio to align perfectly with the ePub so I could look at the diagrams I had just heard about.
+
+I couldn't find an app that did any of this persistently. So, I built it myself.
+
+Echo is the result of a massive, month-long AuDHD spin. It brings together Spaced Repetition (SRS), smart rewind, pitch-corrected speed playback, and a library system that actually makes sense. It was designed from the ground up to support neurodivergent learning styles, but it turns out that building an app for an ADHD brain creates a powerful, friction-free tool for **every** mind.
+
+Echo bridges the gap between reading and listening: a synced EPUB sits alongside your audiobook so you can follow the text while you hear it, jump between the two, and never lose your place. If you've ever struggled to stay focused on audio alone — or found that reading is your anchor — this hybrid approach is for you. Built for students, professionals, commuters, and anyone who learns differently.
 
 ---
 
@@ -31,13 +43,16 @@ Create bookmarks & flashcards   →   Capture knowledge while you listen
 Review with spaced repetition   →   Retain what you learned, on your schedule
 ```
 
-### Why This Matters
+### Features Built for Focus
 
-- **Find anything, instantly.** Heard a great passage but can't remember where? Type a few words — Echo finds it in the EPUB and seeks the audio to that exact moment.
-- **Study while you listen.** Long-press any paragraph to align it to the current playback position, color-code important passages, or create timestamped bookmarks and flashcards.
-- **Retain more.** Echo's built-in spaced repetition system (SM-2 algorithm) schedules flashcards for optimal retention — review on your phone or Apple Watch during idle moments.
-- **Learn hands-free.** The customizable Apple Watch app lets you control playback, create bookmarks, and review flashcards between deliveries, during commutes, or while working out.
-- **Designed for neurodiversity.** Lexend and OpenDyslexic fonts — both backed by reading-fluency research — are built in. The hybrid EPUB+audio view means you're never forced to learn by listening alone. The app icon (an infinity symbol in silver and gold) is a nod to the AuDHD community.
+- **Intermittent Attention Support.** Smart rewind ensures you never lose context when you hit play after a pause. The longer you've been away, the further it rewinds — perfect for delivery drivers, commuters, and anyone with an interrupted day.
+- **Chapter Looping.** Put a single chapter on repeat until the concepts are fully absorbed. Loop between bookmarks for targeted review sessions.
+- **Voice Memo Bookmarks.** Instantly save your thoughts without fumbling with your phone. Perfect for driving, walking, or when your hands are full.
+- **Spaced Repetition (SRS).** Built-in flashcard system using the SM-2 algorithm to help you memorize crucial facts, languages, or concepts permanently. Review on your phone or Apple Watch during idle moments.
+- **True ePub Alignment.** Seamlessly scroll through the text and view diagrams exactly when the audio reaches that section. On-device auto-alignment (WhisperKit + CoreML) maps every paragraph to the narration — no cloud API calls, no privacy concerns.
+- **Pristine Speed Control.** Listen at 1.25x (or faster) with zero pitch distortion. Speed suggestions adapt to your listening habits.
+- **Apple Watch Remote.** A massive, user-configurable interface with up to 25 customizable buttons across 5 pages. Assign the Digital Crown to control volume or scrub through audio — leave your phone in your pocket.
+- **Designed for Neurodiversity.** Lexend and OpenDyslexic fonts — both backed by reading-fluency research — are built in. The hybrid EPUB+audio view means you're never forced to learn by listening alone. The app icon (an infinity symbol in silver and gold) is a nod to the AuDHD community. The name "Echo" reflects how many neurodivergent brains work: ideas echoing between different modes of thinking, with text and audio reinforcing each other.
 
 ---
 

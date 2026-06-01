@@ -1,1 +1,1 @@
-player,study,adhd,audhd,dyslexia,anki,flashcards,memorize,rewind,driving,focus,notes,loop,offline
+audiobook,player,study,learning,epub,adhd,audhd,dyslexia,flashcards,srs,spaced-repetition,memorize,rewind,driving,commuter,focus,voice-memo,notes,loop,watch,offline,speed
