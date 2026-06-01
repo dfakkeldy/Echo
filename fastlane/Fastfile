@@ -7,7 +7,7 @@ default_platform(:ios)
 # Returns true if the given scheme name exists in the project.
 def scheme_exists?(scheme_name)
   output = sh(
-    "xcodebuild -project 'Echo: Audiobook Study Player.xcodeproj' -list -json",
+    "xcodebuild -project 'Echo.xcodeproj' -list -json",
     log: false
   )
   JSON.parse(output)["project"]["schemes"].include?(scheme_name)
@@ -71,19 +71,19 @@ platform :ios do
     # ── Build iOS + watchOS ──────────────────────────
     # Note: Xcode automatically embeds the watch app and widget inside the iOS wrapper
     build_app(
-      project: "Echo: Audiobook Study Player.xcodeproj",
-      scheme: "Echo: Audiobook Study Player",
+      project: "Echo.xcodeproj",
+      scheme: "Echo",
       export_method: "app-store",
       output_directory: "build"
     )
 
     # ── Build macOS (if scheme exists) ───────────────
     # Wrapped in a rescue so a macOS failure doesn't block the iOS upload
-    if scheme_exists?("Echo: Audiobook Study Player macOS")
+    if scheme_exists?("Echo macOS")
       begin
         build_app(
-          project: "Echo: Audiobook Study Player.xcodeproj",
-          scheme: "Echo: Audiobook Study Player macOS",
+          project: "Echo.xcodeproj",
+          scheme: "Echo macOS",
           export_method: "app-store",
           output_directory: "build"
         )
@@ -92,7 +92,7 @@ platform :ios do
         UI.error("iOS .ipa will still be uploaded. Fix the macOS target and re-run.")
       end
     else
-      UI.important("No macOS scheme found — skipping macOS build. Create 'Echo: Audiobook Study Player macOS' scheme in Xcode to include it.")
+      UI.important("No macOS scheme found — skipping macOS build. Create 'Echo macOS' scheme in Xcode to include it.")
     end
 
     # ── Upload to TestFlight ─────────────────────────
