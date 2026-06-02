@@ -79,9 +79,7 @@ struct RootTabView: View {
                 }
 
                 ToolbarItem(placement: .principal) {
-                    Text(Duration.seconds(model.currentPlaybackTime).formatted(.time(pattern: .minuteSecond)))
-                        .font(.subheadline.monospacedDigit().bold())
-                        .foregroundStyle(.secondary)
+                    PlaybackTimeToolbarItem()
                 }
  
                 ToolbarItem(placement: .topBarTrailing) {
@@ -208,11 +206,7 @@ private struct NowPlayingTopToolbar: View {
 
                 Spacer()
                 
-                Text(Duration.seconds(model.currentPlaybackTime).formatted(.time(pattern: .minuteSecond)))
-                    .font(.subheadline.monospacedDigit().bold())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .nowPlayingGlassToolbar()
+                PlaybackTimeGlassOverlay()
 
                 Spacer()
 
@@ -275,6 +269,28 @@ private struct NowPlayingTopToolbar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .nowPlayingGlassToolbar()
+    }
+}
+
+private struct PlaybackTimeToolbarItem: View {
+    @Environment(PlayerModel.self) private var model
+
+    var body: some View {
+        Text(Duration.seconds(model.currentPlaybackTime).formatted(.time(pattern: .minuteSecond)))
+            .font(.subheadline.monospacedDigit().bold())
+            .foregroundStyle(.secondary)
+    }
+}
+
+private struct PlaybackTimeGlassOverlay: View {
+    @Environment(PlayerModel.self) private var model
+
+    var body: some View {
+        Text(Duration.seconds(model.currentPlaybackTime).formatted(.time(pattern: .minuteSecond)))
+            .font(.subheadline.monospacedDigit().bold())
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .nowPlayingGlassToolbar()
     }
 }
 

@@ -152,12 +152,8 @@ struct BottomToolbarView: View {
             HStack(spacing: 4) {
                 Image(systemName: model.sleepTimerMode.isActive ? "moon.zzz.fill" : "moon.zzz")
                     .font(.title2)
-                if case .minutes = model.sleepTimerMode,
-                   model.sleepTimerRemainingSeconds > 0 {
-                    Text(sleepTimerCountdownText(model.sleepTimerRemainingSeconds))
-                        .customFont(.caption2, weight: .semibold)
-                        .foregroundStyle(Color.accentColor)
-                        .monospacedDigit()
+                if case .minutes = model.sleepTimerMode {
+                    SleepTimerCountdownView()
                 } else if case .endOfChapter = model.sleepTimerMode {
                     Text("EOC")
                         .customFont(.caption2, weight: .semibold)
@@ -268,5 +264,18 @@ struct BottomToolbarView: View {
         }
         .accessibilityLabel(Text("Skip forward 5 seconds"))
         .disabled(model.tracks.isEmpty)
+    }
+}
+
+private struct SleepTimerCountdownView: View {
+    @Environment(PlayerModel.self) private var model
+
+    var body: some View {
+        if model.sleepTimerRemainingSeconds > 0 {
+            Text(sleepTimerCountdownText(model.sleepTimerRemainingSeconds))
+                .customFont(.caption2, weight: .semibold)
+                .foregroundStyle(Color.accentColor)
+                .monospacedDigit()
+        }
     }
 }
