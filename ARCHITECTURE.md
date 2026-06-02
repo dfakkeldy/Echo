@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-02 (added TokenDTW aligner, removed Tier 0 silence mapping, Swift concurrency modernization, watch timer fixes)
+**Last generated:** 2026-06-02 (added Tier 0 metadata title matching, TokenDTW aligner, Swift concurrency modernization, watch timer fixes)
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -55,6 +55,7 @@ Services/BookSettingsOverrideStore.swift
 Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
 Services/ChapterService.swift
+Services/ChapterTitleMatcher.swift
 Services/CloudKitSyncService.swift
 Services/ContinuousAlignmentService.swift
 Services/DeckImportService.swift
@@ -258,10 +259,11 @@ Views/Echo_Audiobooks_WidgetControl.swift
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
 1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database.
-2. **Auto-Alignment (WhisperKit + TokenDTW):** `AutoAlignmentService` runs a progressive 3-tier pipeline using on-device speech recognition (WhisperKit + CoreML) and dynamic time warping (TokenDTW) to automatically align EPUB blocks to audio timestamps:
-   - **Tier 1 — Chapter Snap:** Transcribes short audio clips at chapter boundaries, then uses `AutoAlignmentTextMatcher` (Levenshtein + word-level Jaccard fuzzy matching) to find the corresponding EPUB text and anchor chapter start/end positions. Uses dynamic sample sizing (5s → 10s → 15s) when matches are ambiguous.
-   - **Tier 2 — Drift Detection:** Compares interpolated block positions against chapter boundaries to detect chapters that have drifted out of alignment.
-   - **Tier 3 — Drift Repair:** Uses `TokenDTW` (Dynamic Time Warping with Levenshtein-like fuzzy matching) to align transcribed audio tokens against EPUB tokens at word-level granularity, then inserts correction anchors at the best-matching positions. This replaces the earlier Tier 0 silence-mapping approach with a more precise token-level DTW alignment.
+2. **Auto-Alignment (4-tier pipeline):** `AutoAlignmentService` runs a progressive pipeline using metadata matching, on-device speech recognition (WhisperKit + CoreML), and dynamic time warping (TokenDTW) to automatically align EPUB blocks to audio timestamps:
+   - **Tier 0 — Metadata Title Matching:** Before any model loading or transcription, `ChapterTitleMatcher` compares audiobook chapter titles (parsed from M4B metadata via `ChapterService`) against EPUB heading blocks using composite Levenshtein + Jaccard fuzzy scoring. High-confidence matches (≥0.85) create immediate `chapterStart` anchors and skip DTW transcription for those chapters entirely. Medium-confidence matches (≥0.60) create anchors but still run DTW for refinement. This tier runs in microseconds and costs nothing — if every chapter has a matching title, the pipeline never loads the WhisperKit model.
+   - **Tier 1 — VAD Chunking + DTW:** For chapters not matched in Tier 0, silence detection splits each chapter into VAD-guided chunks (minimum 15s), transcribes each with WhisperKit, then `TokenDTW.align()` matches transcribed audio tokens against EPUB tokens at word-level granularity. Creates `chapterStart`, `chapterEnd`, and `point` anchors from the DTW backtrace.
+   - **Tier 2 — Drift Detection:** Compares interpolated block positions against chapter boundaries to detect chapters that have drifted out of alignment. (Planned — not yet implemented in the active pipeline.)
+   - **Tier 3 — Drift Repair:** Bisects flagged chapters to locate the drift point and inserts correction anchors. (Planned — not yet implemented in the active pipeline.)
    - **Fine-Tuning:** `fineTuneManualAlignment(blockID:around:)` captures a 10s window (±5s) around a user-specified time and returns a refined timestamp for manual alignment improvements.
 3. **Global flat interpolation:** `AlignmentService.recalculateTimeline()` uses dynamic CPS (characters-per-second) computed from existing locked anchors to project synthetic boundary positions, rather than hardcoding time 0.0 and total duration. This produces more accurate extrapolation when anchors exist near but not at the book's edges.
 4. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", "Align to Chapter Start", or "Align to Chapter End" to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
@@ -291,10 +293,11 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 **Key types:**
 
 - `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, `hideChapter(chapterIndex:reason:)`, and `anchorChapterEnd(blockID:chapterIndex:time:)` for anchor and content management.
-- `AutoAlignmentService` — Progressive 3-tier WhisperKit-based auto-alignment orchestrator. Runs Tier 1 (chapter snap), Tier 2 (drift detection), Tier 3 (drift repair via TokenDTW), and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
+- `ChapterTitleMatcher` — Tier 0 metadata-based matcher that compares audiobook chapter titles (from M4B metadata) to EPUB heading blocks using composite Levenshtein + Jaccard fuzzy scoring. Runs before any ML model loading — high-confidence matches (≥0.85) create anchors immediately and skip DTW transcription for those chapters. Independent of audio, WhisperKit, and database layers for testability.
+- `AutoAlignmentService` — Progressive 4-tier auto-alignment orchestrator. Runs Tier 0 (metadata title matching), Tier 1 (VAD chunking + TokenDTW transcription alignment), Tier 2 (drift detection, planned), Tier 3 (drift repair, planned), and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
 - `AutoAlignmentTextMatcher` — Fuzzy text matching engine for auto-alignment. Uses Levenshtein distance and word-level Jaccard similarity to match transcribed audio against EPUB paragraphs. Provides `projectedBlockStart()` for time-offset calculation from match position within a block.
-- `TokenDTW` — Dynamic Time Warping aligner that matches EPUB tokens against audio transcription tokens at word-level granularity. Uses flat `Int32` cost and `Int8` direction arrays for memory-efficient alignment (Levenshtein-like fuzzy matching with prefix/suffix matching). Replaces the earlier Tier 0 silence-mapping approach with precise token-level alignment for drift repair (Tier 3).
-- `SilenceDetectionService` — Scans audio files for silence gaps using `AVAudioFile` + `Accelerate` buffer processing. Returns `[SilenceGap]` (start/end/duration). Retained for potential future use; no longer part of the active auto-alignment pipeline.
+- `TokenDTW` — Dynamic Time Warping aligner that matches EPUB tokens against audio transcription tokens at word-level granularity. Uses flat `Int32` cost and `Int8` direction arrays for memory-efficient alignment (Levenshtein-like fuzzy matching with prefix/suffix matching). Used in Tier 1 for VAD-chunked chapter alignment.
+- `SilenceDetectionService` — Scans audio files for silence gaps using `AVAudioFile` + `Accelerate` buffer processing. Returns `[SilenceGap]` (start/end/duration). Used in Tier 1 to split chapter audio into VAD-guided chunks for transcription.
 - `ContinuousAlignmentService` — Background alignment drift detection during playback. Samples 15-second audio windows, transcribes via WhisperKit, and inserts alignment anchors on-the-fly. Uses a re-entry guard to prevent overlapping transcription tasks. Opt-in via `continuousAutoAlignmentEnabled` setting. Uses single-pass O(N) timeline scan instead of O(N log N) sort to prevent main-thread stalls every 15 seconds.
 - `WhisperSession` — Reference-counted, shared WhisperKit model manager (`@MainActor`). Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active. Uses `acquire(model:)` / `release()` / `forceUnload()` lifecycle.
 - `AudioSnippetPlayer` — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup previously duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
@@ -335,11 +338,12 @@ EPUB (directory or .epub file)
        ├── Copy images → Application Support/EPUBAssets/<safeAudiobookID>/
        └── Write epub_block records → SQL
 
-Auto-alignment (WhisperKit + TokenDTW, on-device)
+Auto-alignment (4-tier pipeline, on-device)
   └─ AutoAlignmentService
-       ├── Tier 1: captureAndTranscribe → AutoAlignmentTextMatcher → anchor chapter boundaries
-       ├── Tier 2: compare interpolated positions → flag drifted chapters
-       ├── Tier 3: TokenDTW.align() → word-level DTW → insert correction anchors
+       ├── Tier 0: ChapterTitleMatcher.matchChapterTitles() → title → heading anchors (microseconds, no ML)
+       ├── Tier 1: SilenceDetectionService → captureAndTranscribe → TokenDTW.align() → word-level DTW anchors
+       ├── Tier 2: compare interpolated positions → flag drifted chapters (planned)
+       ├── Tier 3: bisect flagged chapters → insert correction anchors (planned)
        └── fineTuneManualAlignment(blockID:around:) → refine manual anchor time
 
 User anchors (manual)
@@ -351,7 +355,9 @@ User anchors (manual)
        └── recalculateTimeline (word-count-weighted interpolation + dynamic CPS projection)
 
 Code organization (June 2026):
-  ├─ TokenDTW: new word-level DTW alignment engine replacing Tier 0 silence mapping
+  ├─ ChapterTitleMatcher: new Tier 0 metadata title matcher — fuzzy string comparison
+  │   between M4B chapter titles and EPUB headings, runs before any ML model loading
+  ├─ TokenDTW: word-level DTW alignment engine for Tier 1 transcription matching
   │   └── Uses flat Int32/Int8 arrays for memory-efficient 3000×3000 token grid alignment
   ├─ TimelineFeedCollectionView: 1,825 → 627 lines — 11 cell subclasses
   │   extracted to Views/Cells/ (BookCardCell, TextSegmentCell, ChapterMarkerCell,
