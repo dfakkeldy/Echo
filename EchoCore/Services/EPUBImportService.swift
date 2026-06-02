@@ -99,6 +99,8 @@ struct EPUBImportService {
                     isHidden: false,
                     hiddenReason: nil,
                     wordCount: max(1, wordCount),
+                    markers: EPubBlockRecord.encodeMarkers(textBlock.markers),
+                    textFormats: EPubBlockRecord.encodeFormats(textBlock.textFormats),
                     createdAt: AlignmentService.isoFormatter.string(from: Date()),
                     modifiedAt: nil
                 )

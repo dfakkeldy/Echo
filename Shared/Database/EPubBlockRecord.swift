@@ -19,6 +19,8 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
     var isHidden: Bool
     var hiddenReason: String?
     var wordCount: Int?
+    var markers: String?        // JSON-encoded [SyncMarker]
+    var textFormats: String?    // JSON-encoded [TextFormat]
     var createdAt: String?
     var modifiedAt: String?
 
@@ -40,6 +42,8 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
         case isHidden = "is_hidden"
         case hiddenReason = "hidden_reason"
         case wordCount = "word_count"
+        case markers
+        case textFormats = "text_formats"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
     }
@@ -52,5 +56,33 @@ extension EPubBlockRecord {
         case paragraph
         case sentence
         case image
+    }
+
+    /// Encode markers to JSON for database storage.
+    /// Returns nil for empty arrays to keep storage clean.
+    static func encodeMarkers(_ markers: [SyncMarker]) -> String? {
+        guard !markers.isEmpty else { return nil }
+        guard let data = try? JSONEncoder().encode(markers) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Encode text formats to JSON for database storage.
+    /// Returns nil for empty arrays to keep storage clean.
+    static func encodeFormats(_ formats: [TextFormat]) -> String? {
+        guard !formats.isEmpty else { return nil }
+        guard let data = try? JSONEncoder().encode(formats) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Decode markers from the JSON column. Returns empty array on failure or nil.
+    var decodedMarkers: [SyncMarker] {
+        guard let markers, let data = markers.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([SyncMarker].self, from: data)) ?? []
+    }
+
+    /// Decode text formats from the JSON column. Returns empty array on failure or nil.
+    var decodedFormats: [TextFormat] {
+        guard let textFormats, let data = textFormats.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([TextFormat].self, from: data)) ?? []
     }
 }

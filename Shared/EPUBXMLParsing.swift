@@ -21,12 +21,17 @@ struct TextBlockDescriptor: Sendable {
     let text: String?
     let imagePath: String?
     let htmlContent: String?
+    let markers: [SyncMarker]
+    let textFormats: [TextFormat]
 
-    init(kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?) {
+    init(kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?,
+         markers: [SyncMarker] = [], textFormats: [TextFormat] = []) {
         self.kind = kind
         self.text = text
         self.imagePath = imagePath
         self.htmlContent = htmlContent
+        self.markers = markers
+        self.textFormats = textFormats
     }
 }
 
@@ -129,6 +134,12 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private let blockTags: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section"]
     private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br"]
 
+    // MARK: - Marker & Format Tracking (ported from CLI XHTMLContentParser)
+    private var currentCharOffset = 0
+    private var pendingFormatStack: [(FormatType, Int)] = []
+    private var blockMarkers: [SyncMarker] = []
+    private var blockFormats: [TextFormat] = []
+
     func parse(_ data: Data) {
         let parser = XMLParser(data: data)
         parser.delegate = self
@@ -156,16 +167,27 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             currentHTML = ""
         } else if elementName == "img", let src = attributeDict["src"] {
             flushBlock()
+            let marker = SyncMarker(type: .image, payload: src, epubCharOffset: currentCharOffset)
             textBlocks.append(TextBlockDescriptor(
                 kind: .image,
                 text: nil,
                 imagePath: src,
-                htmlContent: nil
+                htmlContent: nil,
+                markers: [marker]
             ))
         } else if blockTags.contains(elementName) {
             flushBlock()
             isInBlock = true
             currentHTML = ""
+        } else if elementName == "a", let href = attributeDict["href"] {
+            let marker = SyncMarker(type: .hyperlink, payload: href, epubCharOffset: currentCharOffset)
+            blockMarkers.append(marker)
+        } else if elementName == "blockquote" {
+            let marker = SyncMarker(type: .blockquote, payload: "", epubCharOffset: currentCharOffset)
+            blockMarkers.append(marker)
+        } else if elementName == "hr" {
+            let marker = SyncMarker(type: .horizontalRule, payload: "", epubCharOffset: currentCharOffset)
+            blockMarkers.append(marker)
         } else if inlineTags.contains(elementName) {
             var tag = "<\(elementName)"
             for (key, value) in attributeDict {
@@ -174,6 +196,17 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             tag += ">"
             currentHTML += tag
             inlineDepth += 1
+            // Track format start position for TextFormat emission
+            let formatType: FormatType?
+            switch elementName {
+            case "b", "strong": formatType = .bold
+            case "i", "em":     formatType = .italic
+            case "u":           formatType = .underline
+            default:            formatType = nil
+            }
+            if let ft = formatType {
+                pendingFormatStack.append((ft, currentCharOffset))
+            }
         }
     }
 
@@ -181,7 +214,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         guard skipDepth == 0 else { return }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         if isInHeading { currentHeading += trimmed + " " }
-        if !trimmed.isEmpty { currentText += trimmed + " " }
+        if !trimmed.isEmpty {
+            currentText += trimmed + " "
+            currentCharOffset += trimmed.count + 1  // +1 for the space
+        }
         if isInBlock || inlineDepth > 0 {
             currentHTML += string
         }
@@ -199,6 +235,20 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         if inlineTags.contains(elementName) {
             currentHTML += "</\(elementName)>"
             inlineDepth = max(0, inlineDepth - 1)
+            // Finalize any pending format span
+            let formatType: FormatType?
+            switch elementName {
+            case "b", "strong": formatType = .bold
+            case "i", "em":     formatType = .italic
+            case "u":           formatType = .underline
+            default:            formatType = nil
+            }
+            if let ft = formatType,
+               let idx = pendingFormatStack.lastIndex(where: { $0.0 == ft }) {
+                let (_, start) = pendingFormatStack.remove(at: idx)
+                let end = max(start, currentCharOffset - 1)
+                blockFormats.append(TextFormat(type: ft, range: start...end))
+            }
             return
         }
 
@@ -207,6 +257,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             isInBlock = false
             let heading = currentHeading.trimmingCharacters(in: .whitespaces)
             let html = currentHTML.trimmingCharacters(in: .whitespaces)
+            // Emit chapterStart marker at the heading's position within the block
+            let headingMarkers: [SyncMarker] = heading.isEmpty ? [] : [
+                SyncMarker(type: .chapterStart, payload: heading, epubCharOffset: max(0, currentCharOffset - heading.count - 1))
+            ]
             currentText = ""
             currentHTML = ""
             if !heading.isEmpty {
@@ -214,7 +268,9 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                     kind: .heading,
                     text: heading,
                     imagePath: nil,
-                    htmlContent: html.isEmpty ? nil : html
+                    htmlContent: html.isEmpty ? nil : html,
+                    markers: headingMarkers,
+                    textFormats: []
                 ))
             }
         }
@@ -226,12 +282,25 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         currentText = ""
         currentHTML = ""
         isInBlock = false
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else {
+            // Even if no text, reset per-block accumulation state
+            blockMarkers = []
+            blockFormats = []
+            currentCharOffset = 0
+            return
+        }
+        let markers = blockMarkers
+        let formats = blockFormats
+        blockMarkers = []
+        blockFormats = []
+        currentCharOffset = 0
         textBlocks.append(TextBlockDescriptor(
             kind: .paragraph,
             text: text,
             imagePath: nil,
-            htmlContent: html.isEmpty ? nil : html
+            htmlContent: html.isEmpty ? nil : html,
+            markers: markers,
+            textFormats: formats
         ))
     }
 }
@@ -257,4 +326,49 @@ func parseXHTML(from data: Data) -> [TextBlockDescriptor] {
     let parser = XHTMLBlockDelegate()
     parser.parse(data)
     return parser.textBlocks
+}
+
+// MARK: - Streaming Helper
+
+/// Concatenates blocks from a spine item into a single text stream,
+/// adjusting marker character offsets to be relative to the concatenated
+/// result. For CLI-style sliding-window alignment consumers.
+///
+/// - Parameter blocks: Ordered `TextBlockDescriptor` values from one spine item.
+/// - Returns: A tuple of concatenated raw text, offset-adjusted markers,
+///   and offset-adjusted text formats.
+func concatenateBlocks(
+    _ blocks: [TextBlockDescriptor]
+) -> (rawText: String, markers: [SyncMarker], formats: [TextFormat]) {
+    var rawText = ""
+    var allMarkers: [SyncMarker] = []
+    var allFormats: [TextFormat] = []
+
+    for block in blocks {
+        guard let text = block.text, !text.isEmpty else { continue }
+        let baseOffset = rawText.count
+
+        // Append block text with a space separator
+        if !rawText.isEmpty { rawText += " " }
+        rawText += text
+
+        // Rebase marker offsets
+        for marker in block.markers {
+            allMarkers.append(SyncMarker(
+                type: marker.type,
+                payload: marker.payload,
+                epubCharOffset: marker.epubCharOffset + baseOffset
+            ))
+        }
+
+        // Rebase format ranges
+        for format in block.textFormats {
+            allFormats.append(TextFormat(
+                type: format.type,
+                range: (format.range.lowerBound + baseOffset)...(format.range.upperBound + baseOffset)
+            ))
+        }
+    }
+
+    return (rawText, allMarkers, allFormats)
 }
