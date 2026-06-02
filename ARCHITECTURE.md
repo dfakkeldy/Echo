@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-05-31 (added Tier 0 silence mapping, AutoAlignmentTextMatcher, MacGlobalAlignmentService, continuous alignment, CloudKit sync)
+**Last generated:** 2026-06-02 (added TokenDTW aligner, removed Tier 0 silence mapping, Swift concurrency modernization, watch timer fixes)
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -88,6 +88,7 @@ Services/StoreManager.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
 Services/TimelineService.swift
+Services/TokenDTW.swift
 Services/TranscriptService.swift
 Services/WatchCommandRouter.swift
 Services/WatchConnectivityCoordinator.swift
@@ -257,11 +258,10 @@ Views/Echo_Audiobooks_WidgetControl.swift
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
 1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database.
-2. **Auto-Alignment (WhisperKit):** `AutoAlignmentService` runs a progressive 3+1-tier pipeline using on-device speech recognition (WhisperKit + CoreML) to automatically align EPUB blocks to audio timestamps:
-   - **Tier 0 — Silence Mapping:** `SilenceDetectionService` scans the audio file for silence gaps and maps them to chapter boundaries, creating "tentpole" anchors at chapter starts without any transcription.
+2. **Auto-Alignment (WhisperKit + TokenDTW):** `AutoAlignmentService` runs a progressive 3-tier pipeline using on-device speech recognition (WhisperKit + CoreML) and dynamic time warping (TokenDTW) to automatically align EPUB blocks to audio timestamps:
    - **Tier 1 — Chapter Snap:** Transcribes short audio clips at chapter boundaries, then uses `AutoAlignmentTextMatcher` (Levenshtein + word-level Jaccard fuzzy matching) to find the corresponding EPUB text and anchor chapter start/end positions. Uses dynamic sample sizing (5s → 10s → 15s) when matches are ambiguous.
    - **Tier 2 — Drift Detection:** Compares interpolated block positions against chapter boundaries to detect chapters that have drifted out of alignment.
-   - **Tier 3 — Drift Repair:** Bisects misaligned chapters with additional transcription clips to insert correction anchors.
+   - **Tier 3 — Drift Repair:** Uses `TokenDTW` (Dynamic Time Warping with Levenshtein-like fuzzy matching) to align transcribed audio tokens against EPUB tokens at word-level granularity, then inserts correction anchors at the best-matching positions. This replaces the earlier Tier 0 silence-mapping approach with a more precise token-level DTW alignment.
    - **Fine-Tuning:** `fineTuneManualAlignment(blockID:around:)` captures a 10s window (±5s) around a user-specified time and returns a refined timestamp for manual alignment improvements.
 3. **Global flat interpolation:** `AlignmentService.recalculateTimeline()` uses dynamic CPS (characters-per-second) computed from existing locked anchors to project synthetic boundary positions, rather than hardcoding time 0.0 and total duration. This produces more accurate extrapolation when anchors exist near but not at the book's edges.
 4. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", "Align to Chapter Start", or "Align to Chapter End" to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
@@ -283,7 +283,7 @@ Synthetic anchor placement now uses the average speaking rate derived from exist
 
 Earlier alignment used sequence-index-based linear interpolation, which assumed uniform spacing between blocks. Schema V8 introduces `word_count` on `epub_block` to weight block positions proportionally by content length. The current algorithm:
 
-1. Computes a cumulative `wordPosition` for each block (running sum of half-word-counts, placing each block's "center" at its proportional position within the book).
+1. Computes a cumulative `wordPosition` for each block (running sum of word counts, placing each block at its proportional start position within the book). Hidden blocks and image blocks receive weight 0.0 so they don't skew interpolation.
 2. Synthetic anchor points are placed at the first block (time 0.0) and last block (total duration from the last chapter marker's end time), ensuring the entire book is bounded.
 3. Interpolation fraction = `(blockPos − prevPos) / (nextPos − prevPos)` using word positions between any two bracketing anchors (locked or synthetic).
 4. This produces smooth timestamp estimates for uneven paragraph lengths (e.g., long prose followed by short dialogue) without requiring chapter boundary data.
@@ -291,9 +291,10 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 **Key types:**
 
 - `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, `hideChapter(chapterIndex:reason:)`, and `anchorChapterEnd(blockID:chapterIndex:time:)` for anchor and content management.
-- `AutoAlignmentService` — Progressive 4-tier WhisperKit-based auto-alignment orchestrator. Runs Tier 0 (silence mapping), Tier 1 (chapter snap), Tier 2 (drift detection), Tier 3 (drift repair), and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
+- `AutoAlignmentService` — Progressive 3-tier WhisperKit-based auto-alignment orchestrator. Runs Tier 1 (chapter snap), Tier 2 (drift detection), Tier 3 (drift repair via TokenDTW), and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
 - `AutoAlignmentTextMatcher` — Fuzzy text matching engine for auto-alignment. Uses Levenshtein distance and word-level Jaccard similarity to match transcribed audio against EPUB paragraphs. Provides `projectedBlockStart()` for time-offset calculation from match position within a block.
-- `SilenceDetectionService` — Scans audio files for silence gaps using `AVAudioFile` + `Accelerate` buffer processing. Returns `[SilenceGap]` (start/end/duration) used by Tier 0 to map chapter boundaries without transcription.
+- `TokenDTW` — Dynamic Time Warping aligner that matches EPUB tokens against audio transcription tokens at word-level granularity. Uses flat `Int32` cost and `Int8` direction arrays for memory-efficient alignment (Levenshtein-like fuzzy matching with prefix/suffix matching). Replaces the earlier Tier 0 silence-mapping approach with precise token-level alignment for drift repair (Tier 3).
+- `SilenceDetectionService` — Scans audio files for silence gaps using `AVAudioFile` + `Accelerate` buffer processing. Returns `[SilenceGap]` (start/end/duration). Retained for potential future use; no longer part of the active auto-alignment pipeline.
 - `ContinuousAlignmentService` — Background alignment drift detection during playback. Samples 15-second audio windows, transcribes via WhisperKit, and inserts alignment anchors on-the-fly. Uses a re-entry guard to prevent overlapping transcription tasks. Opt-in via `continuousAutoAlignmentEnabled` setting. Uses single-pass O(N) timeline scan instead of O(N log N) sort to prevent main-thread stalls every 15 seconds.
 - `WhisperSession` — Reference-counted, shared WhisperKit model manager (`@MainActor`). Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active. Uses `acquire(model:)` / `release()` / `forceUnload()` lifecycle.
 - `AudioSnippetPlayer` — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup previously duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
@@ -334,12 +335,11 @@ EPUB (directory or .epub file)
        ├── Copy images → Application Support/EPUBAssets/<safeAudiobookID>/
        └── Write epub_block records → SQL
 
-Auto-alignment (WhisperKit, on-device)
+Auto-alignment (WhisperKit + TokenDTW, on-device)
   └─ AutoAlignmentService
-       ├── Tier 0: SilenceDetectionService → map silence gaps to chapter starts
        ├── Tier 1: captureAndTranscribe → AutoAlignmentTextMatcher → anchor chapter boundaries
        ├── Tier 2: compare interpolated positions → flag drifted chapters
-       ├── Tier 3: bisect drifted chapters → insert correction anchors
+       ├── Tier 3: TokenDTW.align() → word-level DTW → insert correction anchors
        └── fineTuneManualAlignment(blockID:around:) → refine manual anchor time
 
 User anchors (manual)
@@ -350,7 +350,9 @@ User anchors (manual)
        ├── hideChapter(chapterIndex:reason:)   ← batch chapter hide
        └── recalculateTimeline (word-count-weighted interpolation + dynamic CPS projection)
 
-Code organization (May 2026 refactor):
+Code organization (June 2026):
+  ├─ TokenDTW: new word-level DTW alignment engine replacing Tier 0 silence mapping
+  │   └── Uses flat Int32/Int8 arrays for memory-efficient 3000×3000 token grid alignment
   ├─ TimelineFeedCollectionView: 1,825 → 627 lines — 11 cell subclasses
   │   extracted to Views/Cells/ (BookCardCell, TextSegmentCell, ChapterMarkerCell,
   │   BookmarkCell, AnkiCardCell, ImageAssetCell, NowLineCell, ElasticScrubberCell,
@@ -578,4 +580,25 @@ EchoCore/Development Assets/macbeth_m4b/
 ```
 
 In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, loading the Macbeth audiobook and EPUB for immediate testing of the reader, alignment, and search features without requiring external file selection.
+
+### Swift Concurrency & Thread Safety (June 2026)
+
+All service-layer Timer closures and NotificationCenter observers have been modernized to use `MainActor.assumeIsolated` instead of `Task { @MainActor in }` for callbacks that are guaranteed to execute on the main thread. This pattern avoids spawning unnecessary unstructured tasks when the execution context is already on the main actor.
+
+Key changes across 9 service files:
+- **`AudioEngine`**: Timer callbacks (fade, time tracking, interruption observers) use `MainActor.assumeIsolated { ... }` with proper `[weak self]` guards.
+- **`BookmarkStore`**: Voice memo progress timer and audio file completion handler modernized.
+- **Imports**: `@preconcurrency import AVFoundation` added to all files importing AVFoundation, silencing Swift 6 concurrency warnings until AVFoundation adopts full sendability.
+
+### Watch Connectivity Fixes (June 2026)
+
+Two watchOS-specific fixes in `WatchViewModel`:
+1. **Timer suspension cap**: When the watch wakes from sleep, `Timer.scheduledTimer` fires with the accumulated wall-clock delta (potentially minutes). The tick delta is now capped at 2.0 seconds — beyond that, the watch requests a fresh authoritative state from the phone instead of animating through every intermediate progress value.
+2. **Stale `userInfo` handling**: `WCSessionDelegate` `didReceiveUserInfo` deliveries can be minutes stale when queued while the watch is unreachable. After applying received state, the watch immediately requests the phone's current state to converge to the authoritative position.
+
+### Bug Fixes (June 2026)
+
+- **`PlayerLoadingCoordinator` progress save**: Before `stop()` zeroes `audioEngine.currentTime` and `state.folderURL` changes to the new book's key, the previous book's last-known-good position is now persisted under the correct folder key.
+- **`EPUBAutoImportScanner` security scope**: When a single file (not a folder) is opened directly, a temporary security-scoped resource access is started on the parent directory so sibling EPUB files can be enumerated.
+- **`AlignmentService` word-position calculation**: Hidden blocks (`isHidden = true`) and image blocks (`.image` kind) now receive weight 0.0 in cumulative word-position computation. Previously they contributed their full word count, skewing proportional interpolation. Block positions also shifted from "center" to "start" positioning for more predictable interpolation behavior.
 

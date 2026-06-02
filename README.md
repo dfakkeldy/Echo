@@ -60,7 +60,7 @@ Review with spaced repetition   →   Retain what you learned, on your schedule
 
 Echo is a full-featured audiobook study application organized as a single Xcode workspace with four distinct targets. It supports bookmarking with optional voice memos, chapter navigation, loop modes, a sleep timer, variable playback speed, and intelligent rewind logic that adapts to pause duration. The iOS and watchOS apps communicate bidirectionally via WatchConnectivity, while a Widget displays the current playback state on the Home Screen / Lock Screen.
 
-When you add an EPUB file alongside your audiobook, Echo unlocks its study toolkit: a searchable, browsable reader with per-paragraph audio alignment. Long-press any paragraph to lock it to the current playback position, color-code important passages, or create timestamped bookmarks. Use **Auto-Align Chapters** to let on-device speech recognition (WhisperKit + CoreML) automatically align every chapter — it maps silence gaps to chapter boundaries (Tier 0), transcribes short clips at chapter starts, fuzzy-matches them against the EPUB text (Levenshtein + Jaccard), and creates precise alignment anchors. A drift-detection system finds and repairs misaligned chapters. Optional **Continuous Alignment** runs in the background during playback.
+When you add an EPUB file alongside your audiobook, Echo unlocks its study toolkit: a searchable, browsable reader with per-paragraph audio alignment. Long-press any paragraph to lock it to the current playback position, color-code important passages, or create timestamped bookmarks. Use **Auto-Align Chapters** to let on-device speech recognition (WhisperKit + CoreML) automatically align every chapter — it transcribes short clips at chapter starts, fuzzy-matches them against the EPUB text (Levenshtein + Jaccard), and creates precise alignment anchors. Drift detection finds misaligned chapters, and drift repair uses TokenDTW (Dynamic Time Warping) to insert correction anchors at word-level precision. Optional **Continuous Alignment** runs in the background during playback.
 
 ---
 
@@ -89,9 +89,10 @@ Shared models and utilities used across targets include:
 	- **`ReaderCardItem`** — Enum for reader feed items (`.chapterHeader` and `.block(EPubBlockRecord)`), rendered as cards in a `UICollectionView`.
 	- **`ReaderSettings`** — User-configurable reader settings: font size, line spacing, and card background tint color.
 	- **`AlignmentService`** — Manual EPUB-to-audio alignment through locked anchors and word-count-weighted proportional interpolation with dynamic CPS projection.
-	- **`AutoAlignmentService`** — On-device WhisperKit-based auto-alignment: silence mapping (Tier 0), chapter snap (Tier 1), drift detection (Tier 2), drift repair (Tier 3), and manual fine-tuning.
+	- **`AutoAlignmentService`** — On-device WhisperKit-based auto-alignment: chapter snap (Tier 1), drift detection (Tier 2), drift repair via TokenDTW (Tier 3), and manual fine-tuning.
 	- **`AutoAlignmentTextMatcher`** — Fuzzy text matching (Levenshtein + word-level Jaccard) for matching transcribed audio against EPUB paragraphs.
-	- **`SilenceDetectionService`** — AVAudioFile + Accelerate-based silence gap detection for chapter boundary mapping.
+	- **`TokenDTW`** — Dynamic Time Warping aligner for word-level EPUB-to-audio token matching. Uses flat Int32/Int8 arrays for memory-efficient 3000×3000 token grid alignment with Levenshtein-like fuzzy matching. Replaces the earlier silence-mapping approach (Tier 0) for drift repair.
+- **`SilenceDetectionService`** — AVAudioFile + Accelerate-based silence gap detection. Retained for potential future use; no longer part of the active alignment pipeline.
 	- **`EPUBImportService`** — Parses EPUB files into `epub_block` records: extracts the OPF spine, parses XHTML, copies images to Application Support.
 	- **`EPUBXMLParsing`** — Shared EPUB XML parser delegates (`ContainerXMLParser`, `OPFParserDelegate`, `XHTMLBlockDelegate`) deduplicated across iOS and macOS — each platform previously carried ~190 lines of identical parsing code.
 	- **`WhisperSession`** — Reference-counted, shared WhisperKit model manager. Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active.
