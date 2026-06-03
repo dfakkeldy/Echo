@@ -15,7 +15,10 @@ final class SecurityScopeManager {
 
     /// Starts accessing the security-scoped resource for the given selection URL.
     func startSelection(url: URL) {
-        guard !hasSelectionAccess else { return }
+        if hasSelectionAccess {
+            if selectionURL == url { return }
+            stopSelection()
+        }
         selectionURL = url
         hasSelectionAccess = url.startAccessingSecurityScopedResource()
     }
@@ -30,7 +33,10 @@ final class SecurityScopeManager {
 
     /// Starts accessing the security-scoped resource for the given file URL.
     func startFile(url: URL) {
-        guard !hasFileAccess else { return }
+        if hasFileAccess {
+            if fileURL == url { return }
+            stopFile()
+        }
         fileURL = url
         hasFileAccess = url.startAccessingSecurityScopedResource()
     }

@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-02 (added TokenDTW aligner, removed Tier 0 silence mapping, Swift concurrency modernization, watch timer fixes, Schema V9 marker/format columns)
+**Last generated:** 2026-06-03 08:28:35
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -21,32 +21,38 @@ DailyPlanner/PlannedSession.swift
 DailyPlanner/RealTimeProjectionService.swift
 DailyPlanner/SchedulingSheet.swift
 Development Assets/.gitkeep
+Development Assets/aliceinwonderland_1102_librivox/Alice's Adventures in Wonderland.epub
+EchoCore.entitlements
+EchoCoreApp.swift
 Info.plist
 Localizable.xcstrings
 Models/AggregatedChapter.swift
 Models/Chapter.swift
 Models/ChapterSection.swift
 Models/ContentCard.swift
+Models/EchoPlaylistManifest.swift
 Models/FlashcardDeckImport.swift
 Models/M4BBook.swift
 Models/Note.swift
-Models/EchoPlaylistManifest.swift
 Models/PlayerDeepLink.swift
+Models/ReaderCardItem.swift
 Models/RealTimeEvent.swift
 Models/SpeedSuggestion.swift
 Models/TimelineDisplayItem.swift
 Models/TimelineGroup.swift
 Models/TimelineScope.swift
 Models/Track.swift
-Echo_AudioBooksApp.swift
-EchoCore.entitlements
+PrivacyInfo.xcprivacy
 Protocols/PlayerModelComponentProtocols.swift
 Protocols/SettingsManagerProtocol.swift
 Protocols/StoreManagerProtocol.swift
 Services/AlignmentService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
+Services/AudioRingBuffer.swift
+Services/AudioSnippetPlayer.swift
 Services/AutoAlignmentService.swift
+Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
 Services/BookmarkArtworkCoordinator.swift
 Services/BookmarkStore.swift
@@ -59,6 +65,7 @@ Services/CloudKitSyncService.swift
 Services/ContinuousAlignmentService.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
+Services/DominantColorExtractor.swift
 Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
 Services/EPUBImportCoordinator.swift
@@ -78,6 +85,7 @@ Services/PlayerLoadingCoordinator.swift
 Services/PlayerTimelinePersistenceService.swift
 Services/PlaylistManager.swift
 Services/PlaylistManifestService.swift
+Services/ReviewNotificationService.swift
 Services/SecurityScopeManager.swift
 Services/SettingsManager.swift
 Services/SilenceDetectionService.swift
@@ -94,25 +102,48 @@ Services/WatchCommandRouter.swift
 Services/WatchConnectivityCoordinator.swift
 Services/WatchStateContextBuilder.swift
 Services/WatchSyncManager.swift
+Services/WhisperSession.swift
 State/PlaybackState.swift
 Utilities/FolderPicker.swift
+Utilities/SilenceAnalyzer.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
 ViewModels/PlayerModel.swift
+ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
+ViewModels/ReaderFeedViewModel.swift
 ViewModels/TimelineFeedViewModel.swift
+Views/AutoAlignmentProgressView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
 Views/BookSettingsView.swift
 Views/BottomToolbarView.swift
+Views/CardColorPickerSheet.swift
+Views/Cells/AnkiCardCell.swift
+Views/Cells/BookCardCell.swift
+Views/Cells/BookmarkCell.swift
+Views/Cells/CellHelpers.swift
+Views/Cells/ChapterMarkerCell.swift
+Views/Cells/ElasticScrubberCell.swift
+Views/Cells/HeadingCardCell.swift
+Views/Cells/ImageAssetCell.swift
+Views/Cells/ImageCardCell.swift
+Views/Cells/NowLineCell.swift
+Views/Cells/ParagraphCardCell.swift
+Views/Cells/StickyReviewHeaderView.swift
+Views/Cells/TextSegmentCell.swift
+Views/Cells/TimelineCellDelegate.swift
+Views/ChapterPickerSheet.swift
 Views/ChapterTimeBlockView.swift
 Views/Components/AlbumArtHeroView.swift
-Views/Components/PlayerControlBar.swift
 Views/Components/FlashcardCreationSheet.swift
 Views/Components/FlashcardOverlayView.swift
+Views/Components/Haptic.swift
+Views/Components/InlineStepperRow.swift
+Views/Components/PlayerControlBar.swift
 Views/Components/TranscriptOverlayView.swift
 Views/Components/TranscriptRowView.swift
 Views/Components/WordCloudView.swift
@@ -126,12 +157,18 @@ Views/ListeningProgressModuleView.swift
 Views/NoteEditorView.swift
 Views/NowLineView.swift
 Views/NowPlayingLayout.swift
-Views/PhonePlayerSettingsView.swift
 Views/NowPlayingTab.swift
+Views/PhonePlayerSettingsView.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
 Views/PlaylistTimelineView.swift
 Views/PlaylistView.swift
+Views/ReaderEmptyState.swift
+Views/ReaderFeedCollectionView.swift
+Views/ReaderHeaderView.swift
+Views/ReaderSettingsSheet.swift
+Views/ReaderTab.swift
+Views/ReaderTab+Alignment.swift
 Views/RootTabView.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
@@ -145,6 +182,7 @@ Views/TimelineFeedCollectionView.swift
 Views/TimelineHeaderView.swift
 Views/TimelineTab.swift
 Views/TransportControlsView.swift
+Views/TransportControlsView+LongPress.swift
 Views/UpcomingReviewsModuleView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
@@ -153,40 +191,19 @@ Views/WatchAppSettingsView.swift
 ## Echo: Audiobook Study Player macOS
 
 ```
-Info.plist
-Echo_Audiobooks_macOS.entitlements
-Echo_Audiobooks_macOSApp.swift
-Services/AudioExtractor.swift
-Services/MacEPUBParser.swift
-Services/MacGlobalAlignmentService.swift
-Views/MacContentView.swift
-Views/MacPlayerModel.swift
-Views/TranscriptionManager.swift
-Views/TranscriptPane.swift
-Views/TranscriptStore.swift
+(directory not found — skipped)
 ```
 
 ## Echo: Audiobook Study Player Watch App
 
 ```
-Info.plist
-Models/WatchBookmark.swift
-EchoCoreWatchApp.swift
-Services/WatchViewModel.swift
-Services/WatchVoiceMemoRecorder.swift
-Views/Bookmarks.swift
-Views/Components/ToggleTraitModifier.swift
-Views/ContentView.swift
-Views/PlayerPage.swift
-Views/WatchControlBackground.swift
-Views/WatchReviewView.swift
-Views/WordCloudPage.swift
+(directory not found — skipped)
 ```
 
 ## Shared (cross-target)
 
 ```
-AnimationDurations.swift        ← Named animation timing constants
+AnimationDurations.swift
 AppGroupDefaults.swift
 Database/AlignmentAnchorRecord.swift
 Database/BookmarkRecord.swift
@@ -213,18 +230,27 @@ Database/MigrationService.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
-Database/Schema_V1.swift … Schema_V8.swift
+Database/Schema_V1.swift
+Database/Schema_V2.swift
+Database/Schema_V3.swift
+Database/Schema_V4.swift
+Database/Schema_V5.swift
+Database/Schema_V6.swift
+Database/Schema_V7.swift
+Database/Schema_V8.swift
+Database/Schema_V9.swift
 Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
-EPUBXMLParsing.swift            ← Shared EPUB XML delegates (iOS + macOS)
 EnhancedTranscriptionSegment.swift
-FileLocations.swift             ← Centralized directory access
-KeychainStore.swift             ← Security-scoped bookmark storage
+EPUBXMLParsing.swift
+FileLocations.swift
+KeychainStore.swift
 LayoutPreset.swift
-Logger+Subsystem.swift          ← Single subsystem constant
+Logger+Subsystem.swift
 MediaPlayable.swift
+ReaderSettings.swift
 SafeFileName.swift
 String+Levenshtein.swift
 SyncMarker.swift
@@ -240,14 +266,11 @@ WordFrequency.swift
 ## Widget Extension
 
 ```
-Info.plist
-Models/AppIntent.swift
-Views/Echo_Audiobooks_Widget.swift
-Views/Echo_Audiobooks_WidgetBundle.swift
-Views/Echo_Audiobooks_WidgetControl.swift
+(directory not found — skipped)
 ```
 
-**Widget artwork handling:** The widget has a tight memory budget — archiving large images crashes the extension. Rather than discarding oversized album art, `safelyDownsampledData` in `Echo_Audiobooks_Widget.swift` uses `CGImageSourceCreateThumbnailAtIndex` (ImageIO) to downsample artwork larger than 60×60pt to retina-scale thumbnails encoded as JPEG at 0.75 quality. ImageIO is a streaming decoder that only reads enough of the encoded source data to produce the requested thumbnail size, so it avoids allocating a full-resolution bitmap. This ensures every book shows artwork on the widget, regardless of the source image dimensions.
+
+<!-- MANUAL BELOW -->
 
 ## Tools & Pipeline
 
@@ -587,9 +610,27 @@ In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button
 All service-layer Timer closures and NotificationCenter observers have been modernized to use `MainActor.assumeIsolated` instead of `Task { @MainActor in }` for callbacks that are guaranteed to execute on the main thread. This pattern avoids spawning unnecessary unstructured tasks when the execution context is already on the main actor.
 
 Key changes across 9 service files:
-- **`AudioEngine`**: Timer callbacks (fade, time tracking, interruption observers) use `MainActor.assumeIsolated { ... }` with proper `[weak self]` guards.
+- **`AudioEngine`**: Timer callbacks (fade, time tracking, interruption observers) use `MainActor.assumeIsolated { ... }` with proper `[weak self]` guards. `AVAudioEngine`, `Timer`, and `NSObjectProtocol` observer properties are annotated `nonisolated(unsafe)` to suppress Swift 6 data-race diagnostics — these values are always accessed on the main thread at runtime because `AudioEngine` is `@MainActor`-isolated.
 - **`BookmarkStore`**: Voice memo progress timer and audio file completion handler modernized.
+- **`DatabaseService`**: Migration registration no longer wraps `Schema_V*.migrate(db)` in `MainActor.assumeIsolated { }` — `runMigrations(writer:)` is now `nonisolated` and the schema migrate methods do not require main-actor isolation. Test in-memory databases use the same simplified pattern.
 - **Imports**: `@preconcurrency import AVFoundation` added to all files importing AVFoundation, silencing Swift 6 concurrency warnings until AVFoundation adopts full sendability.
+
+### Artwork Accent Color (June 2026)
+
+The app can dynamically derive its accent (tint) color from the current audiobook's cover artwork, providing a personalized UI that changes with each book. The feature is exposed as the **"Artwork"** theme option in Settings (now the default).
+
+**Extraction pipeline (`DominantColorExtractor`):**
+- Downsamples the cover image to 100×100px for fast analysis.
+- Converts pixels to HSL and discards near-grey, near-white, and near-black pixels (they don't make good accent colors).
+- Builds a saturation²-weighted hue histogram with centre-distance biasing (cover subjects tend to be centred).
+- Selects the most heavily weighted hue bucket, then clamps saturation ≥ 0.45 and lightness into [0.38, 0.60] for readability on variable backgrounds.
+- Returns `nil` for greyscale artwork — the UI falls back to the system default.
+
+**Integration points:**
+- `PlayerModel.artworkAccentColor` — computed property with version-cached extraction, invalidated automatically when `currentDisplayArtworkVersion` changes.
+- `EchoCoreApp.resolvedAccentColor` — returns the artwork-derived color when the theme is `.artwork`, otherwise the static theme color.
+- `ThemeSelectionView` — shows a live preview circle using the extracted color (or a dashed placeholder when no artwork is loaded), with a descriptive subtitle and fallback footer text.
+- `ThemeColor.artwork` added to the enum (before `.system` so it's the first/default option).
 
 ### Watch Connectivity Fixes (June 2026)
 
@@ -602,4 +643,5 @@ Two watchOS-specific fixes in `WatchViewModel`:
 - **`PlayerLoadingCoordinator` progress save**: Before `stop()` zeroes `audioEngine.currentTime` and `state.folderURL` changes to the new book's key, the previous book's last-known-good position is now persisted under the correct folder key.
 - **`EPUBAutoImportScanner` security scope**: When a single file (not a folder) is opened directly, a temporary security-scoped resource access is started on the parent directory so sibling EPUB files can be enumerated.
 - **`AlignmentService` word-position calculation**: Hidden blocks (`isHidden = true`) and image blocks (`.image` kind) now receive weight 0.0 in cumulative word-position computation. Previously they contributed their full word count, skewing proportional interpolation. Block positions also shifted from "center" to "start" positioning for more predictable interpolation behavior.
-
+- **`SecurityScopeManager` URL reuse**: `startSelection(url:)` and `startFile(url:)` now correctly stop the previous access grant when the URL changes (previously the `guard !hasAccess else { return }` early-exit leaked the old grant). When the same URL is requested, the call is a no-op.
+- **`TokenDTW` gap-cost initialization**: The DTW cost matrix boundary row and column are now initialized with cumulative gap costs (`Int32(i) * 2` for deletions, `Int32(j) * 2` for insertions) so the DP can correctly skip leading tokens that have no match in the other sequence. Previously all boundary cells were zero, causing incorrect alignment when audio or EPUB sequences had unmatched prefixes.

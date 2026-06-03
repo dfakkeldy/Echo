@@ -1,6 +1,6 @@
 import Foundation
 
-public struct SyncMarker: Codable, Equatable {
+public struct SyncMarker: Codable, Equatable, Sendable {
     public let type: MarkerType
     public let payload: String
     public let epubCharOffset: Int

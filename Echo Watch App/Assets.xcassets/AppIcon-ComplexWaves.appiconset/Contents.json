@@ -4,10 +4,19 @@
       "filename" : "icon.png",
       "idiom" : "watch",
       "size" : "1024x1024"
+    },
+    {
+      "filename" : "icon.png",
+      "idiom" : "watch-marketing",
+      "scale" : "1x",
+      "size" : "1024x1024"
     }
   ],
   "info" : {
     "author" : "xcode",
     "version" : 1
+  },
+  "properties" : {
+    "pre-rendered" : true
   }
 }

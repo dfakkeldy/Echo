@@ -21,21 +21,11 @@ struct EchoCoreTests {
         }
         let queue = try DatabaseQueue(path: ":memory:", configuration: config)
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in
-            try MainActor.assumeIsolated { try Schema_V1.migrate(db) }
-        }
-        migrator.registerMigration("v2") { db in
-            try MainActor.assumeIsolated { try Schema_V2.migrate(db) }
-        }
-        migrator.registerMigration("v3") { db in
-            try MainActor.assumeIsolated { try Schema_V3.migrate(db) }
-        }
-        migrator.registerMigration("v4") { db in
-            try MainActor.assumeIsolated { try Schema_V4.migrate(db) }
-        }
-        migrator.registerMigration("v5") { db in
-            try MainActor.assumeIsolated { try Schema_V5.migrate(db) }
-        }
+        migrator.registerMigration("v1") { db in try Schema_V1.migrate(db) }
+        migrator.registerMigration("v2") { db in try Schema_V2.migrate(db) }
+        migrator.registerMigration("v3") { db in try Schema_V3.migrate(db) }
+        migrator.registerMigration("v4") { db in try Schema_V4.migrate(db) }
+        migrator.registerMigration("v5") { db in try Schema_V5.migrate(db) }
         try migrator.migrate(queue)
         return queue
     }
@@ -320,7 +310,7 @@ struct EchoCoreTests {
             for var item in items { try item.insert(db) }
         }
 
-        let timelines = try TimelineDAO(db: queue)
+        let timelines = TimelineDAO(db: queue)
         let bookmarks = try timelines.items(for: "book-1", types: [.bookmark])
         #expect(bookmarks.count == 1)
         #expect(bookmarks.first?.itemType == .bookmark)

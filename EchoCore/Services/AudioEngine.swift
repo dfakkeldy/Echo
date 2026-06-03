@@ -42,7 +42,7 @@ final class AudioEngine {
 
     // MARK: - Engine & Nodes
 
-    private var engine: AVAudioEngine?
+    private nonisolated(unsafe) var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var eqNode: AVAudioUnitEQ?
     private var timePitchNode: AVAudioUnitTimePitch?
@@ -50,18 +50,18 @@ final class AudioEngine {
 
     // MARK: - Time Tracking
 
-    private var fadeTimer: Timer?
+    private nonisolated(unsafe) var fadeTimer: Timer?
 
     /// The seek position at the start of the currently playing segment.
     /// `currentTime = seekOffset + Double(sampleTime) / sampleRate`
     private var seekOffset: TimeInterval = 0
-    private var timeTimer: Timer?
+    private nonisolated(unsafe) var timeTimer: Timer?
 
     // MARK: - Interruption State
 
-    private var interruptionObserver: NSObjectProtocol?
-    private var mediaServicesLostObserver: NSObjectProtocol?
-    private var mediaServicesResetObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var interruptionObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var mediaServicesLostObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var mediaServicesResetObserver: NSObjectProtocol?
     private var audioSessionConfigured = false
     private var seekGeneration = 0
 

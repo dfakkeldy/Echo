@@ -50,6 +50,14 @@ EXCLUDE_NAMES=(
 
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 
+# Preserve any hand-written content below <!-- MANUAL BELOW --> so it survives
+# regeneration.
+MANUAL_MARKER='<!-- MANUAL BELOW -->'
+MANUAL_CONTENT=""
+if [[ -f "$OUTPUT" ]] && grep -qF "$MANUAL_MARKER" "$OUTPUT"; then
+    MANUAL_CONTENT="$(sed -n "/$MANUAL_MARKER/,\$p" "$OUTPUT" | tail -n +2)"
+fi
+
 # -----------------------------------------------------------------------------
 # Header
 # -----------------------------------------------------------------------------
@@ -109,5 +117,12 @@ generate_tree "Echo: Audiobook Study Player macOS"    "$REPO_ROOT/Echo: Audioboo
 generate_tree "Echo: Audiobook Study Player Watch App" "$REPO_ROOT/Echo: Audiobook Study Player Watch App"
 generate_tree "Shared (cross-target)"                  "$REPO_ROOT/Shared"
 generate_tree "Widget Extension"                       "$REPO_ROOT/Echo: Audiobook Study Player Widget"
+
+# -----------------------------------------------------------------------------
+# Re-append preserved manual content
+# -----------------------------------------------------------------------------
+if [[ -n "$MANUAL_CONTENT" ]]; then
+    printf '\n%s\n%s\n' "$MANUAL_MARKER" "$MANUAL_CONTENT" >> "$OUTPUT"
+fi
 
 echo "ARCHITECTURE.md generated at $OUTPUT"

@@ -39,7 +39,7 @@ public struct EnhancedTranscriptionSegment: Codable, Identifiable {
     }
 }
 
-public struct TextFormat: Codable, Equatable {
+public struct TextFormat: Codable, Equatable, Sendable {
     public let type: FormatType
     public let range: ClosedRange<Int>
 

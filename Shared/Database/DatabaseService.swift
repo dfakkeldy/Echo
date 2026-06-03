@@ -46,7 +46,7 @@ final class DatabaseService {
         }
         writer = try DatabasePool(path: path, configuration: config)
 
-        try runMigrations()
+        try runMigrations(writer: writer)
         logger.info("Database opened at \(path)")
     }
 
@@ -58,7 +58,7 @@ final class DatabaseService {
         }
         self.writer = try DatabaseQueue(path: ":memory:", configuration: config)
         self.dbPath = ":memory:"
-        try runMigrations()
+        try runMigrations(writer: writer)
     }
 
     // MARK: - Accessors
@@ -81,38 +81,17 @@ final class DatabaseService {
 
     // MARK: - Migrations
 
-    private func runMigrations() throws {
+    private nonisolated func runMigrations(writer: DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
-        // Schema_V*.migrate is inferred as @MainActor via association with this class.
-        // MainActor.assumeIsolated is safe because init() is @MainActor and
-        // migrator.migrate(writer) runs synchronously on the calling thread.
-        migrator.registerMigration("v1_create_schema") { db in
-            try MainActor.assumeIsolated { try Schema_V1.migrate(db) }
-        }
-        migrator.registerMigration("v2_timeline_support") { db in
-            try MainActor.assumeIsolated { try Schema_V2.migrate(db) }
-        }
-        migrator.registerMigration("v3_missing_indexes") { db in
-            try MainActor.assumeIsolated { try Schema_V3.migrate(db) }
-        }
-        migrator.registerMigration("v4_materialized_timeline") { db in
-            try MainActor.assumeIsolated { try Schema_V4.migrate(db) }
-        }
-        migrator.registerMigration("v5_epub_alignment") { db in
-            try MainActor.assumeIsolated { try Schema_V5.migrate(db) }
-        }
-        migrator.registerMigration("v6_indexes_and_fixes") { db in
-            try MainActor.assumeIsolated { try Schema_V6.migrate(db) }
-        }
-        migrator.registerMigration("v7_epub_reader_columns") { db in
-            try MainActor.assumeIsolated { try Schema_V7.migrate(db) }
-        }
-        migrator.registerMigration("v8_epub_block_word_count") { db in
-            try MainActor.assumeIsolated { try Schema_V8.migrate(db) }
-        }
-        migrator.registerMigration("v9_epub_block_markers") { db in
-            try MainActor.assumeIsolated { try Schema_V9.migrate(db) }
-        }
+        migrator.registerMigration("v1_create_schema") { db in try Schema_V1.migrate(db) }
+        migrator.registerMigration("v2_timeline_support") { db in try Schema_V2.migrate(db) }
+        migrator.registerMigration("v3_missing_indexes") { db in try Schema_V3.migrate(db) }
+        migrator.registerMigration("v4_materialized_timeline") { db in try Schema_V4.migrate(db) }
+        migrator.registerMigration("v5_epub_alignment") { db in try Schema_V5.migrate(db) }
+        migrator.registerMigration("v6_indexes_and_fixes") { db in try Schema_V6.migrate(db) }
+        migrator.registerMigration("v7_epub_reader_columns") { db in try Schema_V7.migrate(db) }
+        migrator.registerMigration("v8_epub_block_word_count") { db in try Schema_V8.migrate(db) }
+        migrator.registerMigration("v9_epub_block_markers") { db in try Schema_V9.migrate(db) }
         try migrator.migrate(writer)
     }
 

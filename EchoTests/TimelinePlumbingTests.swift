@@ -13,21 +13,11 @@ struct TimelinePlumbingTests {
         }
         let queue = try DatabaseQueue(path: ":memory:", configuration: config)
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in
-            try MainActor.assumeIsolated { try Schema_V1.migrate(db) }
-        }
-        migrator.registerMigration("v2") { db in
-            try MainActor.assumeIsolated { try Schema_V2.migrate(db) }
-        }
-        migrator.registerMigration("v3") { db in
-            try MainActor.assumeIsolated { try Schema_V3.migrate(db) }
-        }
-        migrator.registerMigration("v4") { db in
-            try MainActor.assumeIsolated { try Schema_V4.migrate(db) }
-        }
-        migrator.registerMigration("v5") { db in
-            try MainActor.assumeIsolated { try Schema_V5.migrate(db) }
-        }
+        migrator.registerMigration("v1") { db in try Schema_V1.migrate(db) }
+        migrator.registerMigration("v2") { db in try Schema_V2.migrate(db) }
+        migrator.registerMigration("v3") { db in try Schema_V3.migrate(db) }
+        migrator.registerMigration("v4") { db in try Schema_V4.migrate(db) }
+        migrator.registerMigration("v5") { db in try Schema_V5.migrate(db) }
         try migrator.migrate(queue)
         return queue
     }
