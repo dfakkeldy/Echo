@@ -52,6 +52,12 @@ final class PlayerModel {
     /// Active bookmark draft used to present the edit bookmark modal.
     var activeBookmarkDraft: BookmarkDraft? = nil
 
+    /// The current state of the PDF view, updated as the user scrolls or zooms.
+    @ObservationIgnored var currentPDFViewState: PDFViewState? = nil
+
+    /// When a bookmark is tapped, this stores its PDF view state so the PDFDocumentView can restore it.
+    var pendingPDFViewStateRestore: PDFViewState? = nil
+
     // MARK: - UI state (pass-through to PlaybackController)
 
     var loopMode: LoopMode {
@@ -240,6 +246,17 @@ final class PlayerModel {
     /// Whether EPUB blocks have been imported for the current audiobook.
     var hasEPUB: Bool {
         timelinePersistence.hasEPUB(for: folderURL?.absoluteString)
+    }
+
+    /// Whether a PDF file is present in the current audiobook folder.
+    var hasPDF: Bool {
+        guard let url = folderURL else { return false }
+        do {
+            let files = try FileManager.default.contentsOfDirectory(atPath: url.path)
+            return files.contains { $0.lowercased().hasSuffix(".pdf") }
+        } catch {
+            return false
+        }
     }
 
     /// Whether transcript or enhanced transcript data is loaded for the current audiobook.

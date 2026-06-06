@@ -8,6 +8,9 @@ struct TimelineTab: View {
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
 
     var body: some View {
-        PlaylistView(isEmbedded: true)
+        PlaylistView(
+            isEmbedded: true,
+            onZoomIn: { model.selectedTab = .read }
+        )
     }
 }

@@ -125,7 +125,8 @@ struct PlayerPage: View {
                     text: viewModel.title,
                     font: .system(.caption, design: .rounded),
                     fontWeight: .semibold,
-                    foregroundStyle: Color.white
+                    foregroundStyle: Color.white,
+                    scrollSpeed: viewModel.watchTitleScrollSpeed
                 )
                 .padding(.horizontal, 10)
                 .padding(.vertical, layout == .classic ? 4 : 6)
@@ -855,40 +856,46 @@ struct MarqueeText: View {
     var font: Font = .body
     var fontWeight: Font.Weight = .regular
     var foregroundStyle: Color? = nil
+    var scrollSpeed: Double = 30.0
 
     @State private var textWidth: CGFloat = 0
 
     var body: some View {
-        GeometryReader { proxy in
-            let containerWidth = proxy.size.width
+        textView
+            .hidden()
+            .overlay {
+                GeometryReader { proxy in
+                    let containerWidth = proxy.size.width
 
-            if textWidth > containerWidth {
-                TimelineView(.animation) { timeline in
-                    let time = timeline.date.timeIntervalSinceReferenceDate
-                    let distance = textWidth + 40
-                    let offset = CGFloat(time * 30.0).truncatingRemainder(dividingBy: distance)
+                    if textWidth > containerWidth {
+                        TimelineView(.animation) { timeline in
+                            let time = timeline.date.timeIntervalSinceReferenceDate
+                            let distance = textWidth + 40
+                            let offset = CGFloat(time * scrollSpeed).truncatingRemainder(dividingBy: distance)
 
-                    HStack(spacing: 40) {
+                            HStack(spacing: 40) {
+                                textView
+                                textView
+                            }
+                            .fixedSize()
+                            .offset(x: -offset)
+                        }
+                    } else {
                         textView
-                        textView
+                            .frame(width: containerWidth, alignment: .center)
                     }
-                    .fixedSize()
-                    .offset(x: -offset)
                 }
-            } else {
-                textView
-                    .frame(width: containerWidth, alignment: .center)
             }
-        }
-        .background(
-            textView
-                .fixedSize()
-                .background(GeometryReader { geo in
-                    Color.clear.onAppear { textWidth = geo.size.width }
-                        .onChange(of: text) { _, _ in textWidth = geo.size.width }
-                })
-                .hidden()
-        )
+            .clipped()
+            .background(
+                textView
+                    .fixedSize()
+                    .background(GeometryReader { geo in
+                        Color.clear.onAppear { textWidth = geo.size.width }
+                            .onChange(of: text) { _, _ in textWidth = geo.size.width }
+                    })
+                    .hidden()
+            )
     }
 
     @ViewBuilder

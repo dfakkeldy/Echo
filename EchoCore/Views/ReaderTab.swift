@@ -17,6 +17,7 @@ struct ReaderTab: View {
     @State var showChapterThemePickerForBlockID: String? = nil
     @State private var isHeaderVisible = true
     @State private var autoScrollEnabled = true
+    @State private var topPartTitle: String? = nil
     @State private var topChapterTitle: String? = nil
     @State private var topSectionTitle: String? = nil
     @State var pulseBlockID: String? = nil
@@ -59,8 +60,8 @@ struct ReaderTab: View {
                     }
 
                     VStack(spacing: 4) {
-                        if let title = topChapterTitle, !title.isEmpty {
-                            Text(title)
+                        if let part = topPartTitle, !part.isEmpty {
+                            Text(part)
                                 .font(.headline)
                                 .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -68,9 +69,19 @@ struct ReaderTab: View {
                                 .padding(.horizontal, 16)
                                 .padding(.top, 8)
                         }
+                        if let title = topChapterTitle, !title.isEmpty {
+                            let isTop = (topPartTitle == nil || topPartTitle!.isEmpty)
+                            Text(title)
+                                .font(isTop ? .headline : .subheadline)
+                                .foregroundStyle(isTop ? .primary : .secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 16)
+                                .padding(.top, isTop ? 8 : 0)
+                        }
                         if let section = topSectionTitle, !section.isEmpty {
                             Text(section)
-                                .font(.subheadline)
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .multilineTextAlignment(.center)
@@ -109,6 +120,7 @@ struct ReaderTab: View {
                         activeBlockID: Bindable(vm).activeBlockID,
                         isHeaderVisible: $isHeaderVisible,
                         autoScrollEnabled: $autoScrollEnabled,
+                        topPartTitle: $topPartTitle,
                         topChapterTitle: $topChapterTitle,
                         topSectionTitle: $topSectionTitle,
                         settings: readerSettings,

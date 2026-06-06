@@ -34,6 +34,7 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
     var sourceTable: String?
     var sourceRowid: String?
     var metadataJSON: String?
+    var pdfViewStateJSON: String?
     // MARK: - V5 EPUB Alignment Fields
 
     /// FK to `epub_block.id` when this timeline item was materialized from an EPUB block.
@@ -65,6 +66,7 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
         case sourceTable = "source_table"
         case sourceRowid = "source_rowid"
         case metadataJSON = "metadata_json"
+        case pdfViewStateJSON = "pdf_view_state_json"
         case epubBlockID = "epub_block_id"
         case timestampSource = "timestamp_source"
         case alignmentStatus = "alignment_status"

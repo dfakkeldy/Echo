@@ -5,6 +5,12 @@ All notable changes to Orbit Audiobooks.
 ## [Unreleased]
 
 ### Added
+- **PDF companion document support:** Import PDF files alongside audiobooks for page-level alignment and bookmarking. `PDFDocumentView` wraps `PDFKit.PDFView` with auto-scale, continuous vertical scroll, and long-press context menus for alignment. `PDFViewState` (page index, zoom, scroll offset) persists in bookmarks via `pdf_view_state_json` column (Schema V11). `PDFImportCoordinator` handles security-scoped file copy with same-folder no-op prevention. PDF bookmark screenshots render the current page to JPEG for thumbnail images.
+- **Manual alignment with scrubber joystick:** `ManualAlignmentSheet` provides fine-tuned alignment with play/pause, ±5s skip, and a `ScrubberJoystick` — a horizontal drag-track control with spring-return and exponential mapping (small pulls = slow, big pulls = fast) for precise scrubbing. Audio snippet preview plays during scrub for real-time feedback.
+- **Hierarchical chapter titles:** `PlaylistView.computeHierarchicalTitles(for:)` detects parent-child relationships between consecutive chapter titles via prefix matching, formatting nested chapters with leading dots (e.g., "Part 1", ".Chapter 1", "..Section A") for visually scannable playlist hierarchies.
+- **Reader tab three-level header:** Sticky reader header now displays Part → Chapter → Section hierarchy. When a part title exists, the chapter title renders smaller and in secondary color, creating visual depth. `ReaderFeedCollectionView` receives a `$topPartTitle` binding alongside existing title bindings.
+- **Watch title scroll speed setting:** `watchTitleScrollSpeed` (Double, defaults to 30.0) controls the pixels-per-second scrolling rate for long titles in the watch player, configurable in `WatchAppSettingsView`.
+- **Schema V11:** `pdf_view_state_json` (TEXT) columns added to `bookmark` and `timeline_item` tables for PDF view state persistence.
 - **Proportional word-count alignment (Schema V8):** `word_count` column on `epub_block` enables alignment interpolation weighted by paragraph content length rather than raw sequence index. Longer paragraphs get proportionally wider time ranges; shorter ones are more tightly positioned. Improves accuracy for chapters with uneven prose/dialogue mixing.
 - **Anchor management:** "Erase Anchor" removes a single locked anchor from a block; "Reset Alignment" clears all anchors for the current audiobook. Both trigger timeline recalculation. Available via context menu on locked-anchor cards in both the Reader and Timeline feeds.
 - **Reader-specific bottom toolbar:** When the Read tab is active, `BottomToolbarView` switches to reader-optimized controls (skip back, play/pause, skip forward, timeline, bookmark) instead of the standard transport layout. Skip durations use configurable seek settings with dynamic SF Symbol naming.
@@ -29,6 +35,8 @@ All notable changes to Orbit Audiobooks.
 - **Section disclosure groups in playlist**: logical chapters with sub-section data render as expandable `DisclosureGroup` rows, with tappable section rows and now-playing indicators.
 
 ### Changed
+- **Playlist document import unified:** The "Import EPUB" button now accepts both EPUB and PDF files, with automatic routing to the appropriate importer. The Reader tab falls back from EPUB to PDF to empty state based on available companion documents.
+- **Reader tab routing:** `RootTabView` now checks `model.hasPDF` when `model.hasEPUB` is false, routing to `PDFDocumentView` instead of `ReaderEmptyState`.
 - **Alignment interpolation now uses word-count-weighted proportional math** (Schema V8) instead of sequence-index-based linear interpolation. Results in more accurate timestamp estimates for paragraphs of varying lengths.
 - Settings, Book Settings, and Help toolbar buttons consolidated into a single "More" (`ellipsis.circle`) menu on both the NowPlaying tab and the NowPlaying top toolbar.
 - Simplified scrubber layout: time labels always below the slider.

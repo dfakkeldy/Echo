@@ -32,6 +32,8 @@ struct RootTabView: View {
                     case .read:
                         if model.hasEPUB {
                             ReaderTab(folderURL: model.folderURL!)
+                        } else if model.hasPDF {
+                            PDFDocumentView(folderURL: model.folderURL!)
                         } else {
                             ReaderEmptyState()
                         }

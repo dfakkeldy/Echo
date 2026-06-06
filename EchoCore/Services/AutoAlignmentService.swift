@@ -242,7 +242,22 @@ final class AutoAlignmentService {
         let existingIDs = Set(existingAnchors.map { $0.epubBlockID })
         let iso = AlignmentService.isoFormatter
         
-        let blocksByChapter = Dictionary(grouping: blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }, by: { $0.chapterIndex })
+        var workingBlocks = blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
+        if workingBlocks.contains(where: { $0.chapterIndex == nil }), let lastChapter = chapters.last {
+            let duration = lastChapter.endSeconds
+            let totalBlocks = Double(workingBlocks.count)
+            for i in 0..<workingBlocks.count {
+                if workingBlocks[i].chapterIndex == nil {
+                    let estimatedFraction = Double(workingBlocks[i].sequenceIndex) / totalBlocks
+                    let estimatedTime = estimatedFraction * duration
+                    if let matched = chapters.first(where: { ch in estimatedTime >= ch.startSeconds && estimatedTime < ch.endSeconds }) {
+                        workingBlocks[i].chapterIndex = matched.index
+                    }
+                }
+            }
+        }
+        
+        let blocksByChapter = Dictionary(grouping: workingBlocks, by: { $0.chapterIndex })
         
         guard let audioURL = audioEngine.audioFileURL else { return }
         state.update(phase: .mappingSilences, progress: 0.0, statusMessage: "Scanning audio for silences...")

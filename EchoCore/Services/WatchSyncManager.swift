@@ -59,9 +59,11 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             session.sendMessage(context, replyHandler: { _ in }) { error in
                 os_log(.error, "Immediate watch sync failed: %{private}@", error.localizedDescription)
                 try? WCSession.default.updateApplicationContext(context)
+                session.transferUserInfo(context)
             }
         } else {
             try? session.updateApplicationContext(context)
+            session.transferUserInfo(context)
         }
 
         sendThumbnailIfNeeded()

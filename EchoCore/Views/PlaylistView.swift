@@ -10,13 +10,13 @@ struct IdentifiableUUID: Identifiable, Hashable {
 /// A unified row in the playlist that mixes chapters, tracks, and bookmarks
 /// in chronological order.
 enum PlaylistRow: Identifiable {
-    case chapter(index: Int, chapter: Chapter)
+    case chapter(index: Int, chapter: Chapter, displayTitle: String)
     case track(index: Int, track: Track)
     case bookmark(Bookmark)
 
     var id: String {
         switch self {
-        case .chapter(_, let c): return "chapter-\(c.id)"
+        case .chapter(_, let c, _): return "chapter-\(c.id)"
         case .track(_, let t):   return "track-\(t.id)"
         case .bookmark(let b):   return "bookmark-\(b.id.uuidString)"
         }
@@ -24,7 +24,7 @@ enum PlaylistRow: Identifiable {
 
     var sortKey: Double {
         switch self {
-        case .chapter(_, let c): return c.startSeconds
+        case .chapter(_, let c, _): return c.startSeconds
         case .track(let i, _):   return Double(i) // track ordering
         case .bookmark(let b):   return b.timestamp
         }
@@ -47,8 +47,9 @@ struct PlaylistView: View {
     @State private var showChapters: Bool = true
     @State private var showBookmarks: Bool = true
     @State private var cachedPlaylistRows: [PlaylistRow] = []
-    @State private var showingEPUBImporter: Bool = false
+    @State private var showingDocumentImporter: Bool = false
     @State private var hasEPUB = false
+    @State private var hasPDF = false
     @State private var hasTranscript = false
     @State private var chapterForEPUBMatch: Chapter? = nil
     @State private var pendingEPUBMatches: [(audioChapter: Chapter, heading: EPubBlockRecord)] = []
@@ -127,6 +128,40 @@ struct PlaylistView: View {
         }
     }
 
+    private func computeHierarchicalTitles(for chapters: [Chapter]) -> [String] {
+        var results: [String] = []
+        var stack: [(rawTitle: String, level: Int)] = []
+        
+        func isProperPrefix(_ prefix: String, of full: String) -> Bool {
+            guard full.hasPrefix(prefix) else { return false }
+            if full.count == prefix.count { return true }
+            let nextChar = full[full.index(full.startIndex, offsetBy: prefix.count)]
+            return nextChar.isWhitespace || nextChar.isPunctuation
+        }
+        
+        for chapter in chapters {
+            let defaultTitle = String(localized: "Chapter \(chapter.index + 1)")
+            let rawTitle = (chapter.title ?? defaultTitle).applyingChapterTruncation(enabled: settings.truncateChapterNamesEnabled)
+            
+            while let last = stack.last, !isProperPrefix(last.rawTitle, of: rawTitle) {
+                stack.removeLast()
+            }
+            
+            if let parent = stack.last {
+                let level = parent.level + 1
+                let remainder = String(rawTitle.dropFirst(parent.rawTitle.count))
+                let trimmed = remainder.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ":-.,")))
+                let formatted = String(repeating: ".", count: level) + (trimmed.isEmpty ? rawTitle : trimmed)
+                results.append(formatted)
+                stack.append((rawTitle, level))
+            } else {
+                results.append(rawTitle)
+                stack.append((rawTitle, 0))
+            }
+        }
+        return results
+    }
+
     private func recomputePlaylistRows() -> [PlaylistRow] {
         var rows: [PlaylistRow] = []
         
@@ -146,8 +181,11 @@ struct PlaylistView: View {
                     }
                 }
                 
+                let hierarchicalTitles = computeHierarchicalTitles(for: model.chapters)
+                
                 for (index, chapter) in model.chapters.enumerated() {
-                    rows.append(.chapter(index: index, chapter: chapter))
+                    let displayTitle = hierarchicalTitles[index]
+                    rows.append(.chapter(index: index, chapter: chapter, displayTitle: displayTitle))
                     
                     if showBookmarks {
                         let chapterBookmarks = model.bookmarks
@@ -220,25 +258,34 @@ struct PlaylistView: View {
 
                 Spacer()
                 
-                if hasEPUB || hasTranscript {
-                    if onZoomIn != nil {
-                        Button {
-                            onZoomIn?()
-                        } label: {
-                            Image(systemName: "doc.text.magnifyingglass")
+                if hasEPUB || hasPDF || hasTranscript {
+                    Button {
+                        if let action = onZoomIn {
+                            action()
+                        } else {
+                            model.selectedTab = .read
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.accentColor)
-                        .accessibilityLabel(String(localized: "Read companion EPUB"))
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.accentColor)
+                    .accessibilityLabel(String(localized: "Read companion document"))
+                    .contextMenu {
+                        Button {
+                            showingDocumentImporter = true
+                        } label: {
+                            Label(String(localized: "Replace Document"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                        }
                     }
                 } else {
                     Button {
-                        showingEPUBImporter = true
+                        showingDocumentImporter = true
                     } label: {
                         Image(systemName: "doc.badge.plus")
                     }
                     .buttonStyle(.bordered)
-                    .accessibilityLabel(String(localized: "Import EPUB"))
+                    .accessibilityLabel(String(localized: "Import Document"))
                 }
             }
             .padding(.horizontal)
@@ -263,8 +310,8 @@ struct PlaylistView: View {
                 List {
                     ForEach(cachedPlaylistRows) { row in
                         switch row {
-                        case .chapter(let index, let chapter):
-                            chapterRow(index: index, chapter: chapter)
+                        case .chapter(let index, let chapter, let displayTitle):
+                            chapterRow(index: index, chapter: chapter, displayTitle: displayTitle)
                         case .track(let index, let track):
                             trackRow(index: index, track: track)
                         case .bookmark(let bm):
@@ -281,16 +328,20 @@ struct PlaylistView: View {
             }
         }
         .fileImporter(
-            isPresented: $showingEPUBImporter,
-            allowedContentTypes: [UTType(filenameExtension: "epub")].compactMap { $0 },
+            isPresented: $showingDocumentImporter,
+            allowedContentTypes: [UTType(filenameExtension: "epub"), UTType.pdf].compactMap { $0 },
             allowsMultipleSelection: false
         ) { result in
             switch result {
             case .success(let urls):
                 guard let selectedURL = urls.first else { return }
-                model.importEPUB(from: selectedURL)
+                if selectedURL.pathExtension.lowercased() == "pdf" {
+                    model.importPDF(from: selectedURL)
+                } else {
+                    model.importEPUB(from: selectedURL)
+                }
             case .failure(let error):
-                logger.error("Failed to select EPUB: \(error)")
+                logger.error("Failed to select document: \(error)")
             }
         }
         .sheet(item: Binding(
@@ -301,11 +352,13 @@ struct PlaylistView: View {
         }
         .onAppear {
             hasEPUB = model.hasEPUB
+            hasPDF = model.hasPDF
             hasTranscript = model.hasTranscript
             cachedPlaylistRows = recomputePlaylistRows()
         }
         .onChange(of: model.folderURL) { _, _ in
             hasEPUB = model.hasEPUB
+            hasPDF = model.hasPDF
             hasTranscript = model.hasTranscript
         }
         .onChange(of: model.chapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
@@ -319,29 +372,30 @@ struct PlaylistView: View {
                   ingestedID == audiobookID
             else { return }
             hasEPUB = model.hasEPUB
+            hasPDF = model.hasPDF
             hasTranscript = model.hasTranscript
         }
     }
 
     @ViewBuilder
-    private func chapterRow(index: Int, chapter: Chapter) -> some View {
+    private func chapterRow(index: Int, chapter: Chapter, displayTitle: String) -> some View {
         let sections = model.state.chapterSections[index] ?? []
         if sections.isEmpty {
-            chapterRowContent(index: index, chapter: chapter)
+            chapterRowContent(index: index, chapter: chapter, displayTitle: displayTitle)
         } else {
             DisclosureGroup {
                 ForEach(sections) { section in
                     sectionRow(section)
                 }
             } label: {
-                chapterRowContent(index: index, chapter: chapter)
+                chapterRowContent(index: index, chapter: chapter, displayTitle: displayTitle)
             }
             .tint(.secondary)
         }
     }
 
     @ViewBuilder
-    private func chapterRowContent(index: Int, chapter: Chapter) -> some View {
+    private func chapterRowContent(index: Int, chapter: Chapter, displayTitle: String) -> some View {
         HStack {
             Button {
                 model.toggleChapterEnabled(at: index)
@@ -359,8 +413,6 @@ struct PlaylistView: View {
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        let defaultTitle = String(localized: "Chapter \(chapter.index + 1)")
-                        let displayTitle = (chapter.title ?? defaultTitle).applyingChapterTruncation(enabled: settings.truncateChapterNamesEnabled)
                         Text(displayTitle)
                             .foregroundStyle(.primary)
                         Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
@@ -529,8 +581,9 @@ struct PlaylistView: View {
         if model.chapters.count >= 2 {
             if showChapters {
                 Section("Chapters") {
+                    let hierarchicalTitles = computeHierarchicalTitles(for: model.chapters)
                     ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
-                        editingChapterRow(index: index, chapter: chapter)
+                        editingChapterRow(index: index, chapter: chapter, displayTitle: hierarchicalTitles[index])
                     }
                     .onMove { source, destination in
                         model.moveChapters(from: source, to: destination)
@@ -556,11 +609,9 @@ struct PlaylistView: View {
     }
 
     @ViewBuilder
-    private func editingChapterRow(index: Int, chapter: Chapter) -> some View {
+    private func editingChapterRow(index: Int, chapter: Chapter, displayTitle: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                let defaultTitle = String(localized: "Chapter \(chapter.index + 1)")
-                let displayTitle = (chapter.title ?? defaultTitle).applyingChapterTruncation(enabled: settings.truncateChapterNamesEnabled)
                 Text(displayTitle)
                 Text(formatDuration(chapter.endSeconds - chapter.startSeconds))
                     .customFont(.caption, appFont: model.resolvedAppFont)
