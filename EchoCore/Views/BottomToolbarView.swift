@@ -182,7 +182,7 @@ struct BottomToolbarView: View {
             case .nowPlaying:
                 model.selectedTab = .timeline
             case .timeline:
-                model.selectedTab = model.hasEPUB ? .read : .nowPlaying
+                model.selectedTab = (model.hasEPUB || model.hasPDF) ? .read : .nowPlaying
             case .read:
                 model.selectedTab = .nowPlaying
             }
@@ -191,7 +191,7 @@ struct BottomToolbarView: View {
             Image(systemName: {
                 switch model.selectedTab {
                 case .nowPlaying: return "list.bullet"
-                case .timeline: return model.hasEPUB ? "book.pages" : "play.circle"
+                case .timeline: return (model.hasEPUB || model.hasPDF) ? "book.pages" : "play.circle"
                 case .read: return "play.circle"
                 }
             }())

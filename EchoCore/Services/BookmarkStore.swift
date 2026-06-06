@@ -108,7 +108,8 @@ final class BookmarkStore: BookmarkStoreProtocol {
             timestamp: timestamp,
             note: note,
             voiceMemoFileName: voiceMemoFileName,
-            bookmarkImageFileName: bookmarkImageFileName
+            bookmarkImageFileName: bookmarkImageFileName,
+            pdfViewState: draft.pdfViewState
         )
         bookmarks.append(bm)
         bookmarks.sort { $0.timestamp < $1.timestamp }

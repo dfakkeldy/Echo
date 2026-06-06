@@ -221,6 +221,24 @@ struct WatchAppSettingsView: View {
                             .onChange(of: settings.watchTitleScrollEnabled) { _, _ in
                                 model.syncToWatch()
                             }
+
+                        if settings.watchTitleScrollEnabled {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Scroll Speed")
+                                    .customFont(.caption, appFont: settings.appFont)
+                                    .foregroundStyle(.secondary)
+
+                                Picker("Scroll Speed", selection: $settings.watchTitleScrollSpeed) {
+                                    Text("Slow").tag(15.0)
+                                    Text("Normal").tag(30.0)
+                                    Text("Fast").tag(60.0)
+                                }
+                                .pickerStyle(.segmented)
+                                .onChange(of: settings.watchTitleScrollSpeed) { _, _ in
+                                    model.syncToWatch()
+                                }
+                            }
+                        }
                     }
                     .padding()
                     .background(

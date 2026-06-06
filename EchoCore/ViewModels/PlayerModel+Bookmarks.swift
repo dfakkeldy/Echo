@@ -54,7 +54,11 @@ extension PlayerModel {
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
         let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
-        return bookmarkStore.bookmarkDraft(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+        let draft = bookmarkStore.bookmarkDraft(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+        if let pdfState = currentPDFViewState {
+            return BookmarkDraft(id: draft.id, title: draft.title, folderKey: draft.folderKey, trackId: draft.trackId, timestamp: draft.timestamp, pdfViewState: pdfState)
+        }
+        return draft
     }
 
     /// Appends a bookmark created from a draft, persisting the updated list.
@@ -92,7 +96,6 @@ extension PlayerModel {
         )
     }
 
-    /// Copies the selected EPUB file into the current audiobook folder, cleans up previous blocks, and triggers auto-import.
     func importEPUB(from sourceURL: URL) {
         guard let folderURL = folderURL, let db = databaseService else { return }
         let didStartSource = sourceURL.startAccessingSecurityScopedResource()
@@ -105,6 +108,19 @@ extension PlayerModel {
             databaseService: db,
             chapters: state.chapters,
             duration: state.durationSeconds
+        )
+    }
+
+    /// Copies the selected PDF file into the current audiobook folder.
+    func importPDF(from sourceURL: URL) {
+        guard let folderURL = folderURL else { return }
+        let didStartSource = sourceURL.startAccessingSecurityScopedResource()
+        defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
+        let didStartDest = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStartDest { folderURL.stopAccessingSecurityScopedResource() } }
+        PDFImportCoordinator.importPDF(
+            from: sourceURL,
+            to: folderURL
         )
     }
 
@@ -193,6 +209,9 @@ extension PlayerModel {
         // Suppress retrigger when the user manually navigates to a bookmark.
         lastTriggeredBookmarkID = bm.id
         lastTriggeredAtPlayerSecond = bm.timestamp
+        if let pdfState = bm.pdfViewState {
+            pendingPDFViewStateRestore = pdfState
+        }
         seek(toSeconds: bm.timestamp)
     }
 }

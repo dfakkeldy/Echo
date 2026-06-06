@@ -65,6 +65,7 @@ extension PlayerModel {
         s.watchArtworkLayout = settings?.watchArtworkLayout ?? SettingsManager.Defaults.watchArtworkLayout
         s.watchBackgroundStyle = settings?.watchBackgroundStyle ?? SettingsManager.Defaults.watchBackgroundStyle
         s.watchTitleScrollEnabled = settings?.watchTitleScrollEnabled ?? SettingsManager.Defaults.watchTitleScrollEnabled
+        s.watchTitleScrollSpeed = settings?.watchTitleScrollSpeed ?? SettingsManager.Defaults.watchTitleScrollSpeed
 
         // Thumbnail availability
         s.hasThumbnail = watchThumbnailData != nil

@@ -37,6 +37,7 @@ final class SettingsManager: SettingsManagerProtocol {
         static let watchArtworkLayout = "immersive"
         static let watchBackgroundStyle = "artwork"
         static let watchTitleScrollEnabled = false
+        static let watchTitleScrollSpeed = 30.0
         static let isHapticFeedbackEnabled = true
         static let watchQuickBookmarkTimeoutSeconds = 5
         static let truncateChapterNamesEnabled = false
@@ -87,6 +88,7 @@ final class SettingsManager: SettingsManagerProtocol {
         static let watchArtworkLayout = "watchArtworkLayout"
         static let watchBackgroundStyle = "watchBackgroundStyle"
         static let watchTitleScrollEnabled = "watchTitleScrollEnabled"
+        static let watchTitleScrollSpeed = "watchTitleScrollSpeed"
         static let isHapticFeedbackEnabled = "isHapticFeedbackEnabled"
         static let volumeBoostGain = "volumeBoostGain"
         static let watchQuickBookmarkTimeoutSeconds = "watchQuickBookmarkTimeoutSeconds"
@@ -173,6 +175,7 @@ final class SettingsManager: SettingsManagerProtocol {
     var watchArtworkLayout: String { didSet { appGroupSet(watchArtworkLayout, forKey: Keys.watchArtworkLayout) } }
     var watchBackgroundStyle: String { didSet { appGroupSet(watchBackgroundStyle, forKey: Keys.watchBackgroundStyle) } }
     var watchTitleScrollEnabled: Bool { didSet { appGroupSet(watchTitleScrollEnabled, forKey: Keys.watchTitleScrollEnabled) } }
+    var watchTitleScrollSpeed: Double { didSet { appGroupSet(watchTitleScrollSpeed, forKey: Keys.watchTitleScrollSpeed) } }
     var isHapticFeedbackEnabled: Bool { didSet { appGroupSet(isHapticFeedbackEnabled, forKey: Keys.isHapticFeedbackEnabled) } }
     var truncateChapterNamesEnabled: Bool { didSet { appGroupSet(truncateChapterNamesEnabled, forKey: Keys.truncateChapterNamesEnabled) } }
     var volumeBoostGain: Float { didSet { defaults.set(volumeBoostGain, forKey: Keys.volumeBoostGain) } }
@@ -249,6 +252,7 @@ final class SettingsManager: SettingsManagerProtocol {
                 (Keys.watchArtworkLayout, { defaults.object(forKey: Keys.watchArtworkLayout) }),
                 (Keys.watchBackgroundStyle, { defaults.object(forKey: Keys.watchBackgroundStyle) }),
                 (Keys.watchTitleScrollEnabled, { defaults.object(forKey: Keys.watchTitleScrollEnabled) }),
+                (Keys.watchTitleScrollSpeed, { defaults.object(forKey: Keys.watchTitleScrollSpeed) }),
                 (Keys.isHapticFeedbackEnabled, { defaults.object(forKey: Keys.isHapticFeedbackEnabled) }),
                 (Keys.truncateChapterNamesEnabled, { defaults.object(forKey: Keys.truncateChapterNamesEnabled) }),
                 (Keys.watchQuickBookmarkTimeoutSeconds, { defaults.object(forKey: Keys.watchQuickBookmarkTimeoutSeconds) }),
@@ -309,6 +313,11 @@ final class SettingsManager: SettingsManagerProtocol {
         watchArtworkLayout = appGroupDefaults.string(forKey: Keys.watchArtworkLayout) ?? Defaults.watchArtworkLayout
         watchBackgroundStyle = appGroupDefaults.string(forKey: Keys.watchBackgroundStyle) ?? Defaults.watchBackgroundStyle
         watchTitleScrollEnabled = appGroupDefaults.bool(forKey: Keys.watchTitleScrollEnabled)
+        if let storedSpeed = appGroupDefaults.object(forKey: Keys.watchTitleScrollSpeed) as? Double {
+            watchTitleScrollSpeed = storedSpeed
+        } else {
+            watchTitleScrollSpeed = Defaults.watchTitleScrollSpeed
+        }
         isHapticFeedbackEnabled = appGroupDefaults.bool(forKey: Keys.isHapticFeedbackEnabled)
         truncateChapterNamesEnabled = appGroupDefaults.bool(forKey: Keys.truncateChapterNamesEnabled)
         volumeBoostGain = defaults.object(forKey: Keys.volumeBoostGain) as? Float ?? Defaults.volumeBoostGain
@@ -403,6 +412,7 @@ final class SettingsManager: SettingsManagerProtocol {
             Keys.watchArtworkLayout: Defaults.watchArtworkLayout,
             Keys.watchBackgroundStyle: Defaults.watchBackgroundStyle,
             Keys.watchTitleScrollEnabled: Defaults.watchTitleScrollEnabled,
+            Keys.watchTitleScrollSpeed: Defaults.watchTitleScrollSpeed,
             Keys.isHapticFeedbackEnabled: Defaults.isHapticFeedbackEnabled,
             Keys.truncateChapterNamesEnabled: Defaults.truncateChapterNamesEnabled,
             Keys.volumeBoostGain: Defaults.volumeBoostGain,

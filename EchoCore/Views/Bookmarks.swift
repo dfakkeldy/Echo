@@ -76,6 +76,8 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     var voiceMemoFileName: String?
     /// Filename (not full URL) for a picture bookmark image stored on disk.
     var bookmarkImageFileName: String?
+    /// The saved state of the PDF view when this bookmark was created.
+    var pdfViewState: PDFViewState?
     /// Whether this bookmark is active. Disabled bookmarks are ignored by the
     /// voice-memo trigger, but remain visible (grayed out) in the playlist.
     var isEnabled: Bool = true
@@ -89,6 +91,7 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         note: String? = nil,
         voiceMemoFileName: String? = nil,
         bookmarkImageFileName: String? = nil,
+        pdfViewState: PDFViewState? = nil,
         isEnabled: Bool = true
     ) {
         self.id = id
@@ -99,12 +102,13 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         self.note = note
         self.voiceMemoFileName = voiceMemoFileName
         self.bookmarkImageFileName = bookmarkImageFileName
+        self.pdfViewState = pdfViewState
         self.isEnabled = isEnabled
     }
 
     /// Backward-compat decoder so older Bookmarks (without `title`) still load.
     enum CodingKeys: String, CodingKey {
-        case id, title, folderKey, trackId, timestamp, note, voiceMemoFileName, bookmarkImageFileName, isEnabled
+        case id, title, folderKey, trackId, timestamp, note, voiceMemoFileName, bookmarkImageFileName, pdfViewState, isEnabled
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -116,6 +120,7 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         note = try? c.decode(String.self, forKey: .note)
         voiceMemoFileName = try? c.decode(String.self, forKey: .voiceMemoFileName)
         bookmarkImageFileName = try? c.decode(String.self, forKey: .bookmarkImageFileName)
+        pdfViewState = try? c.decode(PDFViewState.self, forKey: .pdfViewState)
         isEnabled = (try? c.decode(Bool.self, forKey: .isEnabled)) ?? true
     }
 
@@ -239,19 +244,22 @@ struct BookmarkDraft: Identifiable, Hashable {
     let folderKey: String?
     let trackId: String?
     let timestamp: TimeInterval
+    let pdfViewState: PDFViewState?
 
     init(
         id: UUID = UUID(),
         title: String,
         folderKey: String?,
         trackId: String?,
-        timestamp: TimeInterval
+        timestamp: TimeInterval,
+        pdfViewState: PDFViewState? = nil
     ) {
         self.id = id
         self.title = title
         self.folderKey = folderKey
         self.trackId = trackId
         self.timestamp = timestamp
+        self.pdfViewState = pdfViewState
     }
 }
 

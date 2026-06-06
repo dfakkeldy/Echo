@@ -120,6 +120,12 @@ struct TimelineIngestionService {
             guard !items.isEmpty else { return }
             try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
             try TimelineDAO(db: db.writer).ingest(items)
+            
+            if hasEPUB {
+                // Re-apply interpolations that TimelineIngestionFactory dropped
+                try AlignmentService(db: db.writer, audiobookID: audiobookID).recalculateTimeline()
+            }
+            
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: .timelineItemsIngested,

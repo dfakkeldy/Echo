@@ -127,10 +127,10 @@ struct EPUBImportService {
             for i in 0..<allBlocks.count {
                 let estimatedFraction = Double(allBlocks[i].sequenceIndex) / totalBlocks
                 let estimatedTime = estimatedFraction * duration
-                if let idx = chapters.firstIndex(where: { ch in
+                if let matchedChapter = chapters.first(where: { ch in
                     estimatedTime >= ch.startSeconds && estimatedTime < ch.endSeconds
                 }) {
-                    allBlocks[i].chapterIndex = idx
+                    allBlocks[i].chapterIndex = matchedChapter.index
                 }
             }
         }

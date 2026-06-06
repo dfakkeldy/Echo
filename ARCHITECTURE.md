@@ -70,6 +70,7 @@ Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
+Services/PDFImportCoordinator.swift
 Services/InlineFlashcardTriggerController.swift
 Services/LoopMode.swift
 Services/M4BParser.swift
@@ -154,10 +155,12 @@ Views/FlashcardReviewSession.swift
 Views/HelpContent.swift
 Views/HelpView.swift
 Views/ListeningProgressModuleView.swift
+Views/ManualAlignmentSheet.swift
 Views/NoteEditorView.swift
 Views/NowLineView.swift
 Views/NowPlayingLayout.swift
 Views/NowPlayingTab.swift
+Views/PDFDocumentView.swift
 Views/PhonePlayerSettingsView.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
@@ -172,6 +175,7 @@ Views/ReaderTab+Alignment.swift
 Views/RootTabView.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
+Views/ScrubberJoystick.swift
 Views/SmartRewindSettingsView.swift
 Views/SpeedCardView.swift
 Views/SpeedSuggestionBanner.swift
@@ -239,6 +243,7 @@ Database/Schema_V6.swift
 Database/Schema_V7.swift
 Database/Schema_V8.swift
 Database/Schema_V9.swift
+Database/Schema_V11.swift
 Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
@@ -250,6 +255,7 @@ KeychainStore.swift
 LayoutPreset.swift
 Logger+Subsystem.swift
 MediaPlayable.swift
+Models/PDFViewState.swift
 ReaderSettings.swift
 SafeFileName.swift
 String+Levenshtein.swift
@@ -348,6 +354,7 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V7 | `html_content` (TEXT) and `card_color` (TEXT) columns on `epub_block` — preserves inner HTML for rich text rendering and per-card tint overrides |
 | V8 | `word_count` (INTEGER) column on `epub_block` — enables proportional interpolation weighted by paragraph word length instead of raw sequence index |
 | V9 | `markers` (TEXT) and `text_formats` (TEXT) columns on `epub_block` — stores JSON-encoded `[SyncMarker]` and `[TextFormat]` arrays extracted during unified EPUB parsing for richer reader display |
+| V11 | `pdf_view_state_json` (TEXT) columns on `bookmark` and `timeline_item` — persists PDF page/zoom/scroll state for PDF bookmarks and alignment anchors |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 
@@ -407,7 +414,7 @@ CloudKit Sync
 ```
 ReaderTab (SwiftUI)
   ├── ReaderHeaderView          ← search bar ("Find in book..."), scroll-to-active button, TOC button, settings button
-  ├── Chapter/section title bar ← sticky context showing current chapter and section
+  ├── Part/Chapter/Section title bar ← three-level sticky context (part → chapter → section)
   ├── Hint banners              ← context menu tip (one-time), alignment guidance (until first anchor)
   └── ReaderFeedCollectionView  ← UICollectionView via UIViewRepresentable
        ├── 4 cell types: HeadingCardCell, ParagraphCardCell, ImageCardCell, ChapterDividerCell
@@ -438,6 +445,54 @@ ReaderTab (SwiftUI)
 - `EPubBlockRecord` — Database row for a parsed EPUB block (heading, paragraph, or image)
 - `ReaderSettings` — Font size, line spacing, and card tint color for the reader
 
+### PDF Companion Document Support (June 2026)
+
+When a PDF file is placed alongside an audiobook (alongside or instead of an EPUB), Echo provides a PDF reader with per-page alignment and bookmarking:
+
+```
+PDF in audiobook folder
+  └─ PDFImportCoordinator
+       └── Copies PDF into the audiobook folder (same-folder imports are no-ops)
+
+PDFDocumentView (SwiftUI)
+  ├── PDFKitView (UIViewRepresentable wrapping PDFKit.PDFView)
+  │    ├── Single-page continuous vertical scroll mode
+  │    ├── Auto-scales to fit width
+  │    ├── Tracks page, zoom, and scroll offset as PDFViewState
+  │    └── Long-press gesture → alignment/bookmark context menu
+  ├── Confirmation dialog: Align to Now / Align to Specific Time / Create Bookmark
+  ├── ManualAlignmentSheet → fine-tune alignment with scrubber joystick
+  └── Screenshot capture: renders current PDF page to JPEG for bookmark images
+
+PDFViewState (Codable, Equatable, Hashable)
+  ├── pageIndex: Int       ← which page is visible
+  ├── zoomScale: Double    ← current magnification
+  ├── offsetX: Double      ← horizontal scroll offset in page coordinates
+  └── offsetY: Double      ← vertical scroll offset in page coordinates
+
+Bookmark persistence (Schema V11):
+  ├── bookmark.pdf_view_state_json  ← JSON-encoded PDFViewState
+  └── timeline_item.pdf_view_state_json ← same for alignment anchors
+```
+
+**Key types:**
+- `PDFDocumentView` — SwiftUI view that loads and displays a PDF from the audiobook folder, with long-press context menu for alignment and bookmarking.
+- `PDFKitView` — `UIViewRepresentable` wrapping `PDFKit.PDFView` with `PDFViewPageChanged`/`PDFViewScaleChanged`/`PDFViewVisiblePagesChanged` notification observers for state tracking.
+- `PDFViewState` — Codable model capturing page index, zoom scale, and scroll offset for bookmark restoration.
+- `PDFImportCoordinator` — Stateless enum that copies a PDF into the target audiobook folder (security-scoped), skipping the copy when source and destination are the same file.
+- `ManualAlignmentSheet` — Modal sheet for fine-tuning PDF/audio alignment with play/pause, ±5s skip, a `ScrubberJoystick` for variable-speed scrubbing (exponential mapping), and audio snippet preview during scrub.
+- `ScrubberJoystick` — Horizontal drag-track control with a spring-returning knob. Maps drag offset to a -1.0…1.0 value with exponential mapping (small pulls = slow, big pulls = fast) for precise scrubbing.
+
+**Reader tab routing:** `RootTabView` checks `model.hasPDF` when `model.hasEPUB` is false, routing to `PDFDocumentView` instead of `ReaderEmptyState`.
+
+### Hierarchical Chapter Titles (June 2026)
+
+`PlaylistView.computeHierarchicalTitles(for:)` detects parent-child relationships between consecutive chapter titles using prefix matching, then formats nested chapters with leading dots (e.g., "Part 1", ".Chapter 1", "..Section A"). This makes Libation-style sub-section hierarchies and multi-level EPUB structures visually scannable in the playlist without requiring explicit part/section metadata.
+
+### Reader Tab Header Hierarchy (June 2026)
+
+The Reader tab's sticky header now displays a three-level hierarchy: **Part** (`.headline`, primary) → **Chapter** (`.headline` or `.subheadline`, primary or secondary) → **Section** (`.caption`, secondary). When a part title exists, the chapter title renders smaller and in secondary color, creating visual depth. The `ReaderFeedCollectionView` receives a `$topPartTitle` binding alongside the existing `$topChapterTitle` and `$topSectionTitle`.
+
 ### UI Architecture (3-Tab)
 
 The iOS app uses a 3-tab layout managed by `RootTabView`:
@@ -445,13 +500,15 @@ The iOS app uses a 3-tab layout managed by `RootTabView`:
 ```
 RootTabView
 ├── Tab 0: NowPlayingTab   ← pure media consumption (album art, scrubber, transport)
-├── Tab 1: ReaderTab        ← EPUB reader with search, alignment, and TOC (only when EPUB is loaded)
+├── Tab 1: ReaderTab        ← EPUB reader with search, alignment, and TOC (when EPUB is loaded)
+│                             falls back to PDFDocumentView (when PDF is loaded, no EPUB)
+│                             falls back to ReaderEmptyState (no companion document)
 └── Tab 2: TimelineTab      ← playlist, track/chapter list, bookmarks
 ```
 
 **NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`. It is strictly play/pause/scrubbing — all auxiliary controls (speed, sleep timer, bookmarks, loop mode) live in the `BottomToolbarView` and `DashboardShelf`.
 
-**ReaderTab** (available only when `model.hasEPUB` is true) is the EPUB-backed reading surface. It renders the book as a feed of styled cards — headings, paragraphs, and images — aligned to the audio playback position. The header auto-hides on scroll-down and reveals on scroll-up. It includes:
+**ReaderTab** (available when `model.hasEPUB` is true; `model.hasPDF` provides a `PDFDocumentView` fallback) is the EPUB-backed reading surface. It renders the book as a feed of styled cards — headings, paragraphs, and images — aligned to the audio playback position. The header auto-hides on scroll-down and reveals on scroll-up. It includes:
 - A search bar for full-text search across the EPUB with inline match highlighting
 - A Table of Contents sheet for structural navigation
 - Auto-scroll that follows the audio playhead, highlighting the active paragraph with a blue bar
@@ -523,7 +580,7 @@ Libation-ripped M4B audiobooks encode chapters as fine-grained sub-section atoms
 
 These actions are routed through `PlaybackController` → `WatchCommandRouter` → `WatchConnectivityCoordinator` for watch-initiated commands, and directly for phone transport controls (either as tap or long-press secondary actions).
 
-**Watch page layout:** The watch app supports up to 5 customizable pages of action slots (25 total), synced from the phone via `SettingsManager.watchPage1` through `watchPage5` App Group keys. Pages whose slots are all `.empty` are automatically hidden from the watch `TabView`. Configuration is managed in `WatchAppSettingsView` using a swipeable `TabView` with page indicators.
+**Watch page layout:** The watch app supports up to 5 customizable pages of action slots (25 total), synced from the phone via `SettingsManager.watchPage1` through `watchPage5` App Group keys. Pages whose slots are all `.empty` are automatically hidden from the watch `TabView`. Configuration is managed in `WatchAppSettingsView` using a swipeable `TabView` with page indicators. The `watchTitleScrollSpeed` setting (Double, defaults to 30.0) controls the pixels-per-second scrolling rate for long titles in the watch player.
 
 **Playlist disclosure groups:** In `PlaylistView`, logical chapters with section data render as `DisclosureGroup` rows, expanding to reveal tappable section rows that seek to each section boundary. A play icon indicates the currently active section.
 
@@ -545,7 +602,7 @@ The Reader uses a tap/long-press interaction model on card cells:
 
 **Playlist management:** `PlaylistView` (embedded in `TimelineTab`) provides track/chapter reordering via drag handles in edit mode, per-item enable/disable toggles, and bookmark browsing with swipe-to-edit. The backend is handled by `PlaylistManager` (track/chapter ordering and enabled-state persistence) and `PlaylistManifestService` (`.orbitplaylist.json` manifest I/O).
 
-### EPUB-to-Audio Data Model: Handling Mismatches
+### EPUB/PDF-to-Audio Data Model: Handling Mismatches
 
 The in-app alignment system estimates block timestamps from chapter boundaries and user-created anchors. When the EPUB contains content that has **no corresponding audio** — images, footnotes, skipped prose, tables — it is preserved in the feed for visual browsing.
 

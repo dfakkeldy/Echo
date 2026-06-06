@@ -93,6 +93,7 @@ final class DatabaseService {
         migrator.registerMigration("v8_epub_block_word_count") { db in try Schema_V8.migrate(db) }
         migrator.registerMigration("v9_epub_block_markers") { db in try Schema_V9.migrate(db) }
         migrator.registerMigration("v10_epub_block_chapter_theme") { db in try Schema_V10.migrate(db) }
+        migrator.registerMigration("v11_bookmark_pdf_state") { db in try Schema_V11.migrate(db) }
         try migrator.migrate(writer)
     }
 

@@ -7,6 +7,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     @Binding var activeBlockID: String?
     @Binding var isHeaderVisible: Bool
     @Binding var autoScrollEnabled: Bool
+    @Binding var topPartTitle: String?
     @Binding var topChapterTitle: String?
     @Binding var topSectionTitle: String?
     let settings: ReaderSettings
@@ -25,6 +26,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             onContextMenu: onContextMenu,
             isHeaderVisible: $isHeaderVisible,
             autoScrollEnabled: $autoScrollEnabled,
+            topPartTitle: $topPartTitle,
             topChapterTitle: $topChapterTitle,
             topSectionTitle: $topSectionTitle
         )
@@ -139,6 +141,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
         var isHeaderVisible: Binding<Bool>
         var autoScrollEnabled: Binding<Bool>
+        var topPartTitle: Binding<String?>
         var topChapterTitle: Binding<String?>
         var topSectionTitle: Binding<String?>
         var settings: ReaderSettings = ReaderSettings(fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8", appFont: "System")
@@ -153,11 +156,12 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var lastForceScrolledID: String?
         var lastForceScrollTrigger: Int = 0
 
-        init(onTapBlock: ((String) -> Void)?, onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?, isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>, topChapterTitle: Binding<String?>, topSectionTitle: Binding<String?>) {
+        init(onTapBlock: ((String) -> Void)?, onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?, isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>, topPartTitle: Binding<String?>, topChapterTitle: Binding<String?>, topSectionTitle: Binding<String?>) {
             self.onTapBlock = onTapBlock
             self.onContextMenu = onContextMenu
             self.isHeaderVisible = isHeaderVisible
             self.autoScrollEnabled = autoScrollEnabled
+            self.topPartTitle = topPartTitle
             self.topChapterTitle = topChapterTitle
             self.topSectionTitle = topSectionTitle
         }
@@ -346,21 +350,32 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             if let sectionID = dataSource?.snapshot().sectionIdentifiers[indexPath.section],
                let section = sections.first(where: { $0.id == sectionID }) {
                
+                var partTitle: String? = nil
                 var chapterTitle: String? = nil
                 var sectionTitle: String? = nil
                 
                 let stack = section.headingStack.filter { !$0.isEmpty }
-                
-                if stack.count == 1 {
-                    chapterTitle = stack.first
-                    sectionTitle = nil
-                } else if stack.count > 1 {
-                    chapterTitle = stack.first
-                    sectionTitle = stack.last
+                var uniqueStack: [String] = []
+                for item in stack {
+                    if uniqueStack.last != item {
+                        uniqueStack.append(item)
+                    }
                 }
                 
-                if chapterTitle == sectionTitle {
-                    sectionTitle = nil
+                if uniqueStack.count >= 1 {
+                    partTitle = uniqueStack[0]
+                }
+                if uniqueStack.count >= 2 {
+                    chapterTitle = uniqueStack[1]
+                }
+                if uniqueStack.count >= 3 {
+                    sectionTitle = uniqueStack.last
+                }
+                
+                if topPartTitle.wrappedValue != partTitle {
+                    DispatchQueue.main.async {
+                        self.topPartTitle.wrappedValue = partTitle
+                    }
                 }
                 
                 if topChapterTitle.wrappedValue != chapterTitle {
