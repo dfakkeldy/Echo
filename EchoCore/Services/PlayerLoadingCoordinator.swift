@@ -115,7 +115,8 @@ final class PlayerLoadingCoordinator {
         // Post-load hooks: SQL bookmarks, EPUB auto-import.
         // Use the normalized folderURL (always a directory — see above) so
         // EPUB blocks are keyed consistently regardless of entry point.
-        configurePostLoadHooks(folderURL: state.folderURL ?? url, state: state, bookmarkStore: bookmarkStore)
+        guard let db = databaseServiceProvider?() else { return }
+        bookmarkStore.configureSQLPersistence(database: db)
         onConfigureContinuousAlignment?()
     }
 
@@ -220,20 +221,6 @@ final class PlayerLoadingCoordinator {
         PlaylistManifestService.write(manifest, to: folderURL)
     }
 
-    /// Post-load setup: SQL bookmark persistence and EPUB auto-import.
-    private func configurePostLoadHooks(folderURL: URL, state: PlaybackState, bookmarkStore: BookmarkStore) {
-        guard let db = databaseServiceProvider?() else { return }
-        bookmarkStore.configureSQLPersistence(database: db)
-
-        let currentChapters = state.chapters
-        let currentDuration = state.durationSeconds
-        Task {
-            await EPUBAutoImportScanner.scanAndImportIfNeeded(
-                folderURL: folderURL, databaseService: db, chapters: currentChapters, duration: currentDuration
-            )
-        }
-    }
-
     // MARK: - Track preparation
 
     func prepareToPlay(index: Int, autoplay: Bool) {
@@ -261,9 +248,18 @@ final class PlayerLoadingCoordinator {
     // MARK: - prepareToPlay helpers
 
     private func saveProgressBeforeTrackChange(state: PlaybackState, persistence: Persistence, audioEngine: AudioEngine) {
+        // Only save progress when there's an actual item loaded with a meaningful
+        // playback position. After stop() — which is called during loadFolder before
+        // prepareToPlay — isItemLoaded is false and currentTime is 0. Saving 0 would
+        // corrupt the per-book progress that was just written by the old-book save
+        // in loadFolder, causing the position-restore seek in onDurationLoaded to
+        // be skipped (its guard requires progress.time > 0).
         guard let folder = state.folderURL?.absoluteString,
-              state.tracks.indices.contains(state.currentIndex) else { return }
-        persistence.saveBookProgress(for: folder, trackId: state.tracks[state.currentIndex].id, time: audioEngine.currentTime, folderURL: state.folderURL)
+              state.tracks.indices.contains(state.currentIndex),
+              audioEngine.isItemLoaded else { return }
+        let time = audioEngine.currentTime
+        guard time > 0 else { return }
+        persistence.saveBookProgress(for: folder, trackId: state.tracks[state.currentIndex].id, time: time, folderURL: state.folderURL)
     }
 
     private func configureTrackState(state: PlaybackState, index: Int, persistence: Persistence, playbackController: PlaybackController, audioEngine: AudioEngine) {
@@ -351,6 +347,21 @@ final class PlayerLoadingCoordinator {
                 }
             } else if autoplay {
                 playbackController.play()
+            }
+            
+            if let folderURL = state.folderURL, let db = self.databaseServiceProvider?() {
+                let currentChapters: [Chapter]
+                if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
+                    currentChapters = state.aggregatedChapters.map { agg in
+                        Chapter(index: agg.chapterIndex, title: agg.chapterTitle, startSeconds: agg.startSeconds, endSeconds: agg.endSeconds, isEnabled: true)
+                    }
+                } else {
+                    currentChapters = state.chapters
+                }
+                let currentDuration = state.isMultiM4B ? state.totalBookDuration : state.durationSeconds
+                await EPUBAutoImportScanner.scanAndImportIfNeeded(
+                    folderURL: folderURL, databaseService: db, chapters: currentChapters, duration: currentDuration
+                )
             }
         }
     }
