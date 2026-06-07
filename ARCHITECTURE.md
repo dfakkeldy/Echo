@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-03 08:28:35
+**Last generated:** 2026-06-07 13:40:08
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -54,13 +54,14 @@ Services/AudioSnippetPlayer.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
-Services/BookmarkArtworkCoordinator.swift
-Services/BookmarkStore.swift
 Services/BookPreferencesService.swift
 Services/BookSettingsOverrideStore.swift
+Services/BookmarkArtworkCoordinator.swift
+Services/BookmarkStore.swift
 Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
 Services/ChapterService.swift
+Services/ChapterTitleMatcher.swift
 Services/CloudKitSyncService.swift
 Services/ContinuousAlignmentService.swift
 Services/DeckImportService.swift
@@ -68,15 +69,16 @@ Services/DeepLinkHandler.swift
 Services/DominantColorExtractor.swift
 Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
+Services/EPUBHeuristicEngine.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
-Services/PDFImportCoordinator.swift
 Services/InlineFlashcardTriggerController.swift
 Services/LoopMode.swift
 Services/M4BParser.swift
 Services/MockMediaProvider.swift
 Services/NotificationNames.swift
 Services/NowPlayingController.swift
+Services/PDFImportCoordinator.swift
 Services/Persistence.swift
 Services/PlaybackController.swift
 Services/PlaybackEventLogger.swift
@@ -110,17 +112,17 @@ Utilities/SilenceAnalyzer.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
-ViewModels/PlayerModel.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
+ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
 ViewModels/TimelineFeedViewModel.swift
 Views/AutoAlignmentProgressView.swift
+Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
-Views/BookSettingsView.swift
 Views/BottomToolbarView.swift
 Views/CardColorPickerSheet.swift
 Views/Cells/AnkiCardCell.swift
@@ -150,6 +152,7 @@ Views/Components/TranscriptRowView.swift
 Views/Components/WordCloudView.swift
 Views/ContentCardEditor.swift
 Views/DashboardShelf.swift
+Views/EPUBHeadingPickerSheet.swift
 Views/FlashcardReviewCard.swift
 Views/FlashcardReviewSession.swift
 Views/HelpContent.swift
@@ -170,12 +173,12 @@ Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
 Views/ReaderSettingsSheet.swift
-Views/ReaderTab.swift
 Views/ReaderTab+Alignment.swift
+Views/ReaderTab.swift
 Views/RootTabView.swift
+Views/ScrubberJoystick.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
-Views/ScrubberJoystick.swift
 Views/SmartRewindSettingsView.swift
 Views/SpeedCardView.swift
 Views/SpeedSuggestionBanner.swift
@@ -185,8 +188,8 @@ Views/TimelineContentView.swift
 Views/TimelineFeedCollectionView.swift
 Views/TimelineHeaderView.swift
 Views/TimelineTab.swift
-Views/TransportControlsView.swift
 Views/TransportControlsView+LongPress.swift
+Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
@@ -231,6 +234,7 @@ Database/DatabaseService.swift
 Database/EPubBlockRecord.swift
 Database/Flashcard.swift
 Database/MigrationService.swift
+Database/Migrations/Schema_V11.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -243,13 +247,12 @@ Database/Schema_V6.swift
 Database/Schema_V7.swift
 Database/Schema_V8.swift
 Database/Schema_V9.swift
-Database/Schema_V11.swift
 Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
-EnhancedTranscriptionSegment.swift
 EPUBXMLParsing.swift
+EnhancedTranscriptionSegment.swift
 FileLocations.swift
 KeychainStore.swift
 LayoutPreset.swift

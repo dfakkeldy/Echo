@@ -59,6 +59,10 @@ final class ReaderFeedViewModel {
                 var parsedSections: [ReaderCardSection] = []
                 let sortedKeys = grouped.keys.sorted()
                 
+                var globalActiveHeadings: [String?] = Array(repeating: nil, count: 6)
+                var currentHeadingStack: [String] = []
+                var audioChaptersWithHeadings: Set<Int> = []
+
                 for key in sortedKeys {
                     guard let chapterBlocks = grouped[key], !chapterBlocks.isEmpty else { continue }
                     
@@ -68,11 +72,17 @@ final class ReaderFeedViewModel {
                         chapterTitle = ""
                     } else {
                         let chapters = try? chapterDAO.chapters(for: audiobookID)
-                        chapterTitle = chapters?[safe: key]?.title ?? "Chapter \(key + 1)"
+                        let rawTitle = chapters?[safe: key]?.title ?? "Chapter \(key + 1)"
+                        chapterTitle = Self.formatChapterTitle(rawTitle)
                     }
                     
-                    var activeHeadings: [String?] = Array(repeating: nil, count: 6)
-                    var currentHeadingStack: [String] = [chapterTitle]
+                    let validHeadings = globalActiveHeadings.compactMap { $0 }
+                    if globalActiveHeadings[0] != nil {
+                        currentHeadingStack = validHeadings
+                    } else {
+                        currentHeadingStack = [chapterTitle] + validHeadings
+                    }
+                    
                     var currentItems: [ReaderCardItem] = []
                     var sectionIndex = 0
 
@@ -96,19 +106,63 @@ final class ReaderFeedViewModel {
                                 }
                                 
                                 let markers = block.decodedMarkers
-                                var level = 1 // default
+                                var level: Int? = nil
                                 if let startMarker = markers.first(where: { $0.type == MarkerType.chapterStart }),
                                    let parsedLevel = Int(startMarker.payload) {
                                     level = parsedLevel
                                 }
+
+                                // Text-based heuristic override to maintain correct heading hierarchy
+                                // when structural levels aren't explicitly provided by the EPUB tags.
+                                let lowerText = text.lowercased().trimmingCharacters(in: .whitespaces)
+                                let isExplicitTopLevel = lowerText.range(of: "^(?:part|book|chapter)\\b", options: .regularExpression) != nil
                                 
-                                let depthIndex = max(0, min(5, level - 1))
-                                activeHeadings[depthIndex] = text
-                                for i in (depthIndex + 1)..<6 {
-                                    activeHeadings[i] = nil
+                                if lowerText.range(of: "^(?:part|book)\\b", options: .regularExpression) != nil {
+                                    level = 1
+                                } else if lowerText.range(of: "^chapter\\b", options: .regularExpression) != nil {
+                                    level = 2
+                                } else if lowerText.range(of: "^section\\b", options: .regularExpression) != nil {
+                                    level = 3
+                                }
+
+                                // Demote subsequent non-explicit headings in the same audio chapter
+                                let isFirstHeadingInAudioChapter = !audioChaptersWithHeadings.contains(key)
+                                if isFirstHeadingInAudioChapter {
+                                    audioChaptersWithHeadings.insert(key)
+                                } else if !isExplicitTopLevel {
+                                    if let explicit = level, explicit < 3 {
+                                        level = 3
+                                    }
+                                }
+
+                                let finalLevel: Int
+                                if let explicitLevel = level {
+                                    finalLevel = explicitLevel
+                                } else {
+                                    // If we already have top-level headings, default to level 3 (section)
+                                    // to avoid blowing away the main Chapter / Part context.
+                                    if globalActiveHeadings[0] != nil || globalActiveHeadings[1] != nil {
+                                        finalLevel = 3
+                                    } else {
+                                        finalLevel = 1
+                                    }
                                 }
                                 
-                                currentHeadingStack = [chapterTitle] + activeHeadings.compactMap { $0 }
+                                let depthIndex = max(0, min(5, finalLevel - 1))
+                                globalActiveHeadings[depthIndex] = text
+                                for i in (depthIndex + 1)..<6 {
+                                    globalActiveHeadings[i] = nil
+                                }
+                                
+                                let validHeadings = globalActiveHeadings.compactMap { $0 }
+                                if globalActiveHeadings[0] != nil {
+                                    // A valid top-level heading was found in the text!
+                                    // This supersedes the (potentially stale or misaligned) TOC title.
+                                    currentHeadingStack = validHeadings
+                                } else {
+                                    // No level 1 heading yet, fall back to TOC title for context.
+                                    currentHeadingStack = [chapterTitle] + validHeadings
+                                }
                             }
                         }
                         currentItems.append(.block(block))
@@ -254,6 +308,21 @@ final class ReaderFeedViewModel {
         }
 
         return false
+    }
+
+    /// Formats flattened TOC titles (e.g. "Part One: Chapter One") to extract just the 
+    /// overarching "Part" title, preventing nested chapter repetition in the feed.
+    nonisolated static func formatChapterTitle(_ title: String) -> String {
+        let lower = title.lowercased()
+        if lower.contains("part ") && lower.contains("chapter ") {
+            if let range = title.range(of: ":") ?? title.range(of: " - Chapter", options: .caseInsensitive) {
+                let firstPart = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                if firstPart.lowercased().contains("part") {
+                    return firstPart
+                }
+            }
+        }
+        return title
     }
 }
 

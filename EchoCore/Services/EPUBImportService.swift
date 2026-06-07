@@ -5,6 +5,7 @@ import os.log
 ///
 /// Responsibilities:
 /// - Parse OPF spine order and XHTML content into ordered blocks
+/// - Apply heuristic engine to infer true block structures
 /// - Split text into paragraph-level blocks (sentence-level optional for later)
 /// - Copy referenced images to app-controlled storage
 /// - Write `epub_block` records to the database
@@ -78,10 +79,9 @@ struct EPUBImportService {
         try assetStorage.prepare(for: audiobookID)
 
         // 4. Parse XHTML spine items into blocks.
-        var allBlocks: [EPubBlockRecord] = []
-        var sequenceIndex = 0
+        var parsedSpines: [(blocks: [TextBlockDescriptor], title: String?, url: URL)] = []
 
-        for (spineIdx, item) in spine.enumerated() {
+        for (_, item) in spine.enumerated() {
             let href = item.href
             let xhtmlURL: URL
             if href.hasPrefix("/") || href.contains("://") {
@@ -92,24 +92,44 @@ struct EPUBImportService {
 
             guard FileManager.default.fileExists(atPath: xhtmlURL.path) else {
                 logger.warning("Spine item not found: \(href)")
+                parsedSpines.append((blocks: [], title: nil, url: xhtmlURL))
                 continue
             }
 
             let xhtmlData = try Data(contentsOf: xhtmlURL)
             let parsedXHTML = parseXHTML(from: xhtmlData)
-            var textBlocks = parsedXHTML.blocks
+            parsedSpines.append((blocks: parsedXHTML.blocks, title: parsedXHTML.title, url: xhtmlURL))
+        }
+
+        // 5. Apply Heuristic Engine
+        var engine = EPUBHeuristicEngine(tocLabels: Array(tocMap.values), spineItemCount: spine.count)
+        let allExtractedBlocks = parsedSpines.flatMap { $0.blocks }
+        engine.buildCSSFingerprint(from: allExtractedBlocks)
+        
+        var allBlocks: [EPubBlockRecord] = []
+        var sequenceIndex = 0
+
+        for i in 0..<parsedSpines.count {
+            var textBlocks = parsedSpines[i].blocks
+            let spineHref = spine[i].href
+            
+            // Score pass
+            for j in 0..<textBlocks.count {
+                let newKind = engine.score(block: textBlocks[j])
+                // Create a new struct to update the kind
+                textBlocks[j] = TextBlockDescriptor(
+                    kind: newKind,
+                    text: textBlocks[j].text,
+                    imagePath: textBlocks[j].imagePath,
+                    htmlContent: textBlocks[j].htmlContent,
+                    markers: textBlocks[j].markers,
+                    textFormats: textBlocks[j].textFormats,
+                    rawClasses: textBlocks[j].rawClasses,
+                    rawTags: textBlocks[j].rawTags
+                )
+            }
             
             // Apply TOC Map or Document Title fallback if no *content* heading.
-            // The view model (ReaderFeedViewModel) later filters out utility
-            // markers, >100-char headings, figure captions, and front/back
-            // matter. If we only checked for the presence of *any* heading,
-            // a file with just "Title Page" or "Copyright" would skip the
-            // TOC fallback here, then have that heading suppressed by the
-            // view model — leaving the chapter with no heading at all.
-            //
-            // TOC map keys have fragment identifiers stripped (by TOCParserDelegate),
-            // so we must strip them from the spine href before lookup to avoid a
-            // mismatch that causes the sticky header to be one chapter ahead.
             let hasContentHeading = textBlocks.contains(where: { block in
                 guard block.kind == .heading,
                       let text = block.text,
@@ -122,10 +142,11 @@ struct EPUBImportService {
                 let isNonContent = ReaderFeedViewModel.isNonContentHeading(text)
                 return !(isUtility || isTooLong || isNonContent || isFigure)
             })
+            
             if !hasContentHeading {
-                let decodedHref = href.removingPercentEncoding ?? href
+                let decodedHref = spineHref.removingPercentEncoding ?? spineHref
                 let hrefWithoutFragment = String(decodedHref.components(separatedBy: "#")[0])
-                let fallbackTitle = tocMap[hrefWithoutFragment] ?? parsedXHTML.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fallbackTitle = tocMap[hrefWithoutFragment] ?? parsedSpines[i].title?.trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 if let title = fallbackTitle, !title.isEmpty, title.lowercased() != "untitled", title.lowercased() != "unknown" {
                     let headingBlock = TextBlockDescriptor(
@@ -133,9 +154,6 @@ struct EPUBImportService {
                         text: title,
                         imagePath: nil,
                         htmlContent: "<h2>\(title)</h2>",
-                        // TOC entries represent chapter-level (or higher) organization.
-                        // Using level 1 avoids false hierarchy where every TOC
-                        // fallback gets the same level as real <h2> sub-headings.
                         markers: [SyncMarker(type: .chapterStart, payload: "1", epubCharOffset: 0)],
                         textFormats: []
                     )
@@ -143,14 +161,14 @@ struct EPUBImportService {
                 }
             }
 
-            var blocks: [EPubBlockRecord] = []
+            var spineRecords: [EPubBlockRecord] = []
             for (blockIdx, textBlock) in textBlocks.enumerated() {
                 let wordCount = textBlock.text?.split(whereSeparator: { $0.isWhitespace }).count ?? 0
                 let block = EPubBlockRecord(
-                    id: "epub-\(audiobookID)-s\(spineIdx)-b\(blockIdx)",
+                    id: "epub-\(audiobookID)-s\(i)-b\(blockIdx)",
                     audiobookID: audiobookID,
-                    spineHref: href,
-                    spineIndex: spineIdx,
+                    spineHref: spineHref,
+                    spineIndex: i,
                     blockIndex: blockIdx,
                     sequenceIndex: sequenceIndex,
                     blockKind: textBlock.kind.rawValue,
@@ -167,12 +185,13 @@ struct EPUBImportService {
                     createdAt: AlignmentService.isoFormatter.string(from: Date()),
                     modifiedAt: nil
                 )
-                blocks.append(block)
+                spineRecords.append(block)
                 sequenceIndex += 1
             }
 
-            // 5. Copy images referenced in blocks to local asset storage.
-            for var block in blocks {
+            // 6. Copy images referenced in blocks to local asset storage.
+            let xhtmlURL = parsedSpines[i].url
+            for var block in spineRecords {
                 if block.blockKind == EPubBlockRecord.Kind.image.rawValue,
                    let imagePath = block.imagePath {
                     let sourceURL = resolveImageURL(href: imagePath, baseURL: xhtmlURL.deletingLastPathComponent(), epubRoot: epubURL, opfDir: opfDir)
@@ -184,20 +203,7 @@ struct EPUBImportService {
             }
         }
         
-        // 4.5. Assign Chapter Index based on cumulative word-count fraction.
-        // Word count correlates with reading time far better than raw block
-        // count, which is skewed by front matter (many short blocks) and
-        // uneven chapter lengths. Falls back to block-count fraction when
-        // the book has zero word count (image-only EPUBs, for instance).
-        //
-        // Front-matter guard: the first audio chapter always starts at
-        // time 0, so blocks before the first real heading (prologue,
-        // title page, etc.) would otherwise "steal" chapter index 0,
-        // causing the sticky header to be one chapter ahead everywhere.
-        // We defer assigning chapter 0 until we encounter the first
-        // heading block, which signals that we've reached actual content.
-        // A 25 % fallback prevents the guard from starving chapter
-        // assignment when a book genuinely has no headings.
+        // 7. Assign Chapter Index based on cumulative word-count fraction.
         if let duration = bookDuration, !chapters.isEmpty, !allBlocks.isEmpty {
             let totalWords = Double(allBlocks.reduce(0) { $0 + ($1.wordCount ?? 1) })
             if totalWords > 0 {
@@ -213,10 +219,6 @@ struct EPUBImportService {
                     if let matchedChapter = chapters.first(where: { ch in
                         estimatedTime >= ch.startSeconds && estimatedTime < ch.endSeconds
                     }) {
-                        // Front-matter guard: don't assign chapter 0 to
-                        // blocks before the first heading, unless we've
-                        // already passed 25 % of the book without finding
-                        // one (heading-less edge case).
                         if matchedChapter.index == 0,
                            !hasSeenFirstHeading,
                            estimatedFraction < 0.25 {
@@ -226,7 +228,6 @@ struct EPUBImportService {
                     }
                 }
             } else {
-                // Fallback: block-count fraction for image-only books.
                 let totalBlocks = Double(allBlocks.count)
                 for i in 0..<allBlocks.count {
                     let estimatedFraction = Double(allBlocks[i].sequenceIndex) / totalBlocks
@@ -240,7 +241,7 @@ struct EPUBImportService {
             }
         }
 
-        // 6. Write blocks to database.
+        // 8. Write blocks to database.
         guard let db = assetStorage.databaseService else {
             throw EPUBImportError.databaseNotAvailable
         }
@@ -286,4 +287,3 @@ enum EPUBImportError: LocalizedError, Equatable {
         }
     }
 }
-

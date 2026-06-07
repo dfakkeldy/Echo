@@ -18,20 +18,25 @@ struct SpineItemDescriptor: Sendable {
 /// A parsed block from XHTML content — a paragraph, heading, or image.
 struct TextBlockDescriptor: Sendable {
     let kind: EPubBlockRecord.Kind
-    let text: String?
+    var text: String?
     let imagePath: String?
     let htmlContent: String?
     let markers: [SyncMarker]
     let textFormats: [TextFormat]
+    let rawClasses: [String]
+    let rawTags: String
 
     init(kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?,
-         markers: [SyncMarker] = [], textFormats: [TextFormat] = []) {
+         markers: [SyncMarker] = [], textFormats: [TextFormat] = [],
+         rawClasses: [String] = [], rawTags: String = "") {
         self.kind = kind
         self.text = text
         self.imagePath = imagePath
         self.htmlContent = htmlContent
         self.markers = markers
         self.textFormats = textFormats
+        self.rawClasses = rawClasses
+        self.rawTags = rawTags
     }
 }
 
@@ -197,6 +202,8 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private var skipDepth = 0
     private var isInsideHead = false
     private var isInsideTitle = false
+    private var currentBlockClasses: [String] = []
+    private var currentBlockTags: String = ""
     private let skipTags: Set<String> = ["script", "style", "figcaption"]
     private let blockTags: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section"]
     private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br"]
@@ -241,6 +248,8 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             isInBlock = true
             currentHeading = ""
             currentHTML = ""
+            currentBlockTags = elementName
+            currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(String.init)
         } else if elementName == "img", let src = attributeDict["src"] {
             flushBlock()
             let marker = SyncMarker(type: .image, payload: src, epubCharOffset: currentCharOffset)
@@ -249,12 +258,16 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                 text: nil,
                 imagePath: src,
                 htmlContent: nil,
-                markers: [marker]
+                markers: [marker],
+                rawClasses: (attributeDict["class"] ?? "").split(separator: " ").map(String.init),
+                rawTags: "img"
             ))
         } else if blockTags.contains(elementName) {
             flushBlock()
             isInBlock = true
             currentHTML = ""
+            currentBlockTags = elementName
+            currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(String.init)
         } else if elementName == "a", let href = attributeDict["href"] {
             let marker = SyncMarker(type: .hyperlink, payload: href, epubCharOffset: currentCharOffset)
             blockMarkers.append(marker)
@@ -365,7 +378,9 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                     imagePath: nil,
                     htmlContent: html.isEmpty ? nil : html,
                     markers: headingMarkers,
-                    textFormats: []
+                    textFormats: [],
+                    rawClasses: currentBlockClasses,
+                    rawTags: currentBlockTags
                 ))
             }
         }
@@ -389,13 +404,19 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         blockMarkers = []
         blockFormats = []
         currentCharOffset = 0
+        let classes = currentBlockClasses
+        let tags = currentBlockTags
+        currentBlockClasses = []
+        currentBlockTags = ""
         textBlocks.append(TextBlockDescriptor(
             kind: .paragraph,
             text: text,
             imagePath: nil,
             htmlContent: html.isEmpty ? nil : html,
             markers: markers,
-            textFormats: formats
+            textFormats: formats,
+            rawClasses: classes,
+            rawTags: tags
         ))
     }
 }

@@ -51,6 +51,7 @@ All notable changes to Orbit Audiobooks.
 - Out-of-range crashes and settings view layout crash.
 - Security-scoped URL access permissions for EPUB auto-import.
 - Destructive file operations in EPUB import replaced with copy-only approach.
+- EPUB heading hierarchy bug where explicit HTML header tags (e.g., `<h1>`) on sub-sections incorrectly overwrote active chapter and part context.
 
 ---
 
