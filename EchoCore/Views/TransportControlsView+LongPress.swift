@@ -65,6 +65,8 @@ private func executeAction(_ action: WatchAction, model: PlayerModel) {
         if let draft = model.bookmarkDraftAtCurrentTime() {
             model.activeBookmarkDraft = draft
         }
+    case .pomodoro:
+        break
     case .empty:
         break
     }

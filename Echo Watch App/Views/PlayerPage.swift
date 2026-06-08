@@ -11,6 +11,7 @@ struct PlayerPage: View {
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
     let onArtworkTap: () -> Void
+    let onPomodoroLongPress: () -> Void
 
     private var isCompactLayout: Bool { layout == .classic }
     private var topControlInset: CGFloat { isCompactLayout ? 8 : 10 }
@@ -50,7 +51,8 @@ struct PlayerPage: View {
                         usesImmersiveChrome: true,
                         controlSize: topControlSize,
                         onBookmark: onBookmark,
-                        onSleepTimer: onSleepTimer
+                        onSleepTimer: onSleepTimer,
+                        onPomodoroLongPress: onPomodoroLongPress
                     )
                         .padding(.leading, topControlInset)
                     Spacer()
@@ -60,7 +62,8 @@ struct PlayerPage: View {
                         usesImmersiveChrome: true,
                         controlSize: topControlSize,
                         onBookmark: onBookmark,
-                        onSleepTimer: onSleepTimer
+                        onSleepTimer: onSleepTimer,
+                        onPomodoroLongPress: onPomodoroLongPress
                     )
                         .padding(.trailing, topControlInset)
                 }
@@ -107,7 +110,8 @@ struct PlayerPage: View {
                 usesImmersiveChrome: true,
                 isCompactLayout: isCompactLayout,
                 onBookmark: onBookmark,
-                onSleepTimer: onSleepTimer
+                onSleepTimer: onSleepTimer,
+                onPomodoroLongPress: onPomodoroLongPress
             )
         }
     }
@@ -120,7 +124,7 @@ struct PlayerPage: View {
                 : viewModel.totalProgressFraction
             ProgressView(value: linearProgress, total: 1.0)
                 .progressViewStyle(.linear)
-                .tint(.green)
+                .tint(viewModel.artworkAccentColor ?? .green)
                 .padding(.horizontal, 16)
                 .scaleEffect(y: 0.5)
                 .animation(viewModel.progressAnimationSuppressed ? nil : .linear(duration: 0.5), value: linearProgress)
@@ -201,6 +205,7 @@ struct TopSlotButton: View {
     let controlSize: CGFloat
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
+    let onPomodoroLongPress: () -> Void
 
     private var iconSize: CGFloat { controlSize <= 40 ? 21 : 23 }
     private var speedFontSize: CGFloat { controlSize <= 40 ? 13 : 14 }
@@ -209,6 +214,12 @@ struct TopSlotButton: View {
     var body: some View {
         if action == .empty {
             EmptyView()
+        } else if action == .pomodoro {
+            PomodoroButton(
+                viewModel: viewModel,
+                controlSize: controlSize,
+                onLongPress: onPomodoroLongPress
+            )
         } else {
             Button {
                 if action == .bookmark {
@@ -302,6 +313,7 @@ struct TopSlotButton: View {
         case .speed: return "Playback speed"
         case .sleepTimer: return "Sleep timer"
         case .bookmark: return "Bookmark"
+        case .pomodoro: return "Pomodoro timer"
         case .empty: return ""
         }
     }
@@ -405,6 +417,7 @@ struct TransportRow: View {
     let isCompactLayout: Bool
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
+    let onPomodoroLongPress: () -> Void
 
     private var sideButtonSize: CGFloat { isCompactLayout ? 38 : 42 }
     private var centerButtonSize: CGFloat { isCompactLayout ? 40 : 42 }
@@ -415,11 +428,11 @@ struct TransportRow: View {
 
     var body: some View {
         HStack(spacing: usesImmersiveChrome ? rowSpacing : 20) {
-            SideTransportButton(action: leftSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
+            SideTransportButton(action: leftSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
 
-            CenterTransportButton(action: centerSlot, viewModel: viewModel, controlSize: centerButtonSize, ringSize: ringSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
+            CenterTransportButton(action: centerSlot, viewModel: viewModel, controlSize: centerButtonSize, ringSize: ringSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
 
-            SideTransportButton(action: rightSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer)
+            SideTransportButton(action: rightSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
         }
         .padding(.horizontal, usesImmersiveChrome ? innerHorizontalPadding : 0)
         .padding(.vertical, usesImmersiveChrome ? 6 : 0)
@@ -439,65 +452,74 @@ struct SideTransportButton: View {
     let controlSize: CGFloat
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
+    let onPomodoroLongPress: () -> Void
 
     private var iconSize: CGFloat { controlSize <= 38 ? 18 : 20 }
     private var speedFontSize: CGFloat { controlSize <= 38 ? 12 : 14 }
     private var countdownOffset: CGFloat { controlSize <= 38 ? 12 : 14 }
 
     var body: some View {
-        Button {
-            if action == .bookmark {
-                onBookmark()
-            } else if action == .sleepTimer {
-                onSleepTimer()
-            } else {
-                viewModel.handle(action)
-            }
-        } label: {
-            Group {
-                if action == .loopMode && viewModel.loopMode == "bookmark" {
-                    ZStack {
-                        Image(systemName: "arrow.trianglehead.clockwise")
-                            .font(.system(size: iconSize))
-                        Image(systemName: "bookmark.fill")
-                            .font(.system(size: 7, weight: .bold))
-                    }
-                } else if action == .speed {
-                    Text(formatSpeed(viewModel.playbackSpeed))
-                        .font(.system(size: speedFontSize, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
+        if action == .pomodoro {
+            PomodoroButton(
+                viewModel: viewModel,
+                controlSize: usesImmersiveChrome ? controlSize : 38,
+                onLongPress: onPomodoroLongPress
+            )
+        } else {
+            Button {
+                if action == .bookmark {
+                    onBookmark()
                 } else if action == .sleepTimer {
-                    ZStack {
-                        Image(systemName: viewModel.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
-                            .font(.system(size: iconSize, weight: .semibold))
-                            .foregroundStyle(viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
-                        if viewModel.sleepTimerMode == "minutes" && viewModel.sleepTimerRemainingSeconds > 0 {
-                            Text(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))
-                                .font(.system(size: 9, weight: .bold, design: .rounded))
-                                .foregroundStyle(Color.accentColor)
-                                .monospacedDigit()
-                                .offset(y: countdownOffset)
-                        }
-                    }
+                    onSleepTimer()
                 } else {
-                    Image(systemName: sideIconName)
-                        .font(.system(size: iconSize))
+                    viewModel.handle(action)
+                }
+            } label: {
+                Group {
+                    if action == .loopMode && viewModel.loopMode == "bookmark" {
+                        ZStack {
+                            Image(systemName: "arrow.trianglehead.clockwise")
+                                .font(.system(size: iconSize))
+                            Image(systemName: "bookmark.fill")
+                                .font(.system(size: 7, weight: .bold))
+                        }
+                    } else if action == .speed {
+                        Text(formatSpeed(viewModel.playbackSpeed))
+                            .font(.system(size: speedFontSize, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                    } else if action == .sleepTimer {
+                        ZStack {
+                            Image(systemName: viewModel.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
+                                .font(.system(size: iconSize, weight: .semibold))
+                                .foregroundStyle(viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
+                            if viewModel.sleepTimerMode == "minutes" && viewModel.sleepTimerRemainingSeconds > 0 {
+                                Text(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color.accentColor)
+                                    .monospacedDigit()
+                                    .offset(y: countdownOffset)
+                            }
+                        }
+                    } else {
+                        Image(systemName: sideIconName)
+                            .font(.system(size: iconSize))
+                    }
+                }
+                .frame(width: usesImmersiveChrome ? controlSize : 38, height: usesImmersiveChrome ? controlSize : 38)
+                .padding(usesImmersiveChrome ? 0 : 15)
+                .contentShape(Rectangle())
+                .opacity(action == .empty ? 0.35 : 1.0)
+            }
+            .transportButtonStyle(usesImmersiveChrome: usesImmersiveChrome)
+            .background {
+                if usesImmersiveChrome {
+                    WatchControlBackground(shape: Circle())
                 }
             }
-            .frame(width: usesImmersiveChrome ? controlSize : 38, height: usesImmersiveChrome ? controlSize : 38)
-            .padding(usesImmersiveChrome ? 0 : 15)
-            .contentShape(Rectangle())
-            .opacity(action == .empty ? 0.35 : 1.0)
+            .disabled(action == .empty)
+            .accessibilityLabel(accessibilityLabelText)
+            .modifier(ToggleTraitModifier(isToggle: action == .loopMode, value: action == .loopMode ? loopModeAccessibilityValue : nil))
         }
-        .transportButtonStyle(usesImmersiveChrome: usesImmersiveChrome)
-        .background {
-            if usesImmersiveChrome {
-                WatchControlBackground(shape: Circle())
-            }
-        }
-        .disabled(action == .empty)
-        .accessibilityLabel(accessibilityLabelText)
-        .modifier(ToggleTraitModifier(isToggle: action == .loopMode, value: action == .loopMode ? loopModeAccessibilityValue : nil))
     }
 
     private var sideIconName: String {
@@ -538,6 +560,7 @@ struct SideTransportButton: View {
         case .speed: return "Playback speed"
         case .sleepTimer: return "Sleep timer"
         case .bookmark: return "Bookmark"
+        case .pomodoro: return "Pomodoro timer"
         case .empty: return "Empty slot"
         }
     }
@@ -561,63 +584,73 @@ struct CenterTransportButton: View {
     let ringSize: CGFloat
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
+    let onPomodoroLongPress: () -> Void
 
     private var iconSize: CGFloat { controlSize <= 40 ? 20 : 22 }
 
     var body: some View {
         ZStack {
-            if !viewModel.circularRingHidden {
-                let ringProgress = viewModel.circularRingMode == "total"
-                    ? viewModel.totalProgressFraction
-                    : viewModel.progressFraction
-                // Use the suppression flag matching whichever progress source the ring tracks.
-                let ringSuppressed = viewModel.circularRingMode == "chapter"
-                    ? viewModel.ringAnimationSuppressed
-                    : viewModel.progressAnimationSuppressed
-                Circle()
-                    .stroke(Color.white.opacity(0.2), lineWidth: 4)
-                    .frame(width: ringSize, height: ringSize)
+            if resolvedAction == .pomodoro {
+                PomodoroButton(
+                    viewModel: viewModel,
+                    controlSize: controlSize,
+                    ringSize: ringSize,
+                    onLongPress: onPomodoroLongPress
+                )
+            } else {
+                if !viewModel.circularRingHidden {
+                    let ringProgress = viewModel.circularRingMode == "total"
+                        ? viewModel.totalProgressFraction
+                        : viewModel.progressFraction
+                    // Use the suppression flag matching whichever progress source the ring tracks.
+                    let ringSuppressed = viewModel.circularRingMode == "chapter"
+                        ? viewModel.ringAnimationSuppressed
+                        : viewModel.progressAnimationSuppressed
+                    Circle()
+                        .stroke(Color.white.opacity(0.2), lineWidth: 4)
+                        .frame(width: ringSize, height: ringSize)
 
-                Circle()
-                    .trim(from: 0, to: ringProgress)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                    .frame(width: ringSize, height: ringSize)
-                    .rotationEffect(.degrees(-90))
-                    .animation(ringSuppressed ? nil : .linear(duration: 0.5), value: ringProgress)
-            }
-
-            Button {
-                if resolvedAction == .bookmark {
-                    onBookmark()
-                } else if resolvedAction == .sleepTimer {
-                    onSleepTimer()
-                } else {
-                    viewModel.handle(resolvedAction)
+                    Circle()
+                        .trim(from: 0, to: ringProgress)
+                        .stroke(viewModel.artworkAccentColor ?? Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .frame(width: ringSize, height: ringSize)
+                        .rotationEffect(.degrees(-90))
+                        .animation(ringSuppressed ? nil : .linear(duration: 0.5), value: ringProgress)
                 }
-            } label: {
-                Image(systemName: centerIconName)
-                    .font(.system(size: iconSize))
-                    .frame(width: controlSize, height: controlSize)
-                    .background {
-                        WatchControlBackground(shape: Circle())
+
+                Button {
+                    if resolvedAction == .bookmark {
+                        onBookmark()
+                    } else if resolvedAction == .sleepTimer {
+                        onSleepTimer()
+                    } else {
+                        viewModel.handle(resolvedAction)
                     }
-                    .clipShape(Circle())
-            }
-            .buttonStyle(PlainButtonStyle())
-            .accessibilityLabel(centerAccessibilityLabel)
-
-            // Hidden helper for the double-tap primary-action shortcut.
-            Button("") {
-                if resolvedAction == .bookmark {
-                    onBookmark()
-                } else if resolvedAction == .sleepTimer {
-                    onSleepTimer()
-                } else {
-                    viewModel.handle(resolvedAction)
+                } label: {
+                    Image(systemName: centerIconName)
+                        .font(.system(size: iconSize))
+                        .frame(width: controlSize, height: controlSize)
+                        .background {
+                            WatchControlBackground(shape: Circle())
+                        }
+                        .clipShape(Circle())
                 }
+                .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel(centerAccessibilityLabel)
+
+                // Hidden helper for the double-tap primary-action shortcut.
+                Button("") {
+                    if resolvedAction == .bookmark {
+                        onBookmark()
+                    } else if resolvedAction == .sleepTimer {
+                        onSleepTimer()
+                    } else {
+                        viewModel.handle(resolvedAction)
+                    }
+                }
+                .opacity(0)
+                .handGestureShortcut(.primaryAction)
             }
-            .opacity(0)
-            .handGestureShortcut(.primaryAction)
         }
     }
 
@@ -653,6 +686,7 @@ struct CenterTransportButton: View {
         case .speed: return "Playback speed"
         case .sleepTimer: return "Sleep timer"
         case .bookmark: return "Bookmark"
+        case .pomodoro: return "Pomodoro timer"
         case .empty: return ""
         }
     }

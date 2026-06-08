@@ -4,6 +4,7 @@ import WatchConnectivity
 import WatchKit
 import WidgetKit
 import os.log
+import SwiftUI
 
 /// Mutable playback state captured before an optimistic local update.
 /// If the iPhone doesn't confirm within 3 seconds or reports an error,
@@ -25,6 +26,17 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var bookmarks: [WatchBookmark] = []
     private let logger = Logger(category: "WatchViewModel")
     var dueCards: [WatchFlashcard] = []
+
+    // Pomodoro Timer State
+    var pomodoroActive: Bool = false
+    var pomodoroDuration: TimeInterval = 25 * 60
+    var pomodoroRemaining: TimeInterval = 25 * 60
+    @ObservationIgnored private var pomodoroTimer: Timer?
+    var artworkAccentColorHex: String? = nil
+    var artworkAccentColor: Color? {
+        guard let hex = artworkAccentColorHex else { return nil }
+        return Color(hex: hex)
+    }
 
     var isPlaying: Bool = false
     var title: String = "No track selected"
@@ -244,6 +256,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
            let image = UIImage(data: thumbnailData) {
             thumbnailImage = image
         }
+
+        artworkAccentColorHex = defaults.string(forKey: "artworkAccentColorHex")
+        let storedPomDuration = defaults.double(forKey: "pomodoroDuration")
+        pomodoroDuration = storedPomDuration > 0 ? storedPomDuration : (25 * 60)
+        pomodoroRemaining = pomodoroDuration
 
         if let data = defaults.data(forKey: "watchPage1"),
            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
@@ -525,6 +542,13 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.defaults.removeObject(forKey: "thumbnailData")
                 self.thumbnailImage = nil
             }
+            if let accentHex = state["artworkAccentColorHex"] as? String {
+                self.artworkAccentColorHex = accentHex
+                self.defaults.set(accentHex, forKey: "artworkAccentColorHex")
+            } else if state["trackId"] != nil, self.trackId != previousTrackId {
+                self.artworkAccentColorHex = nil
+                self.defaults.removeObject(forKey: "artworkAccentColorHex")
+            }
             if let wordCloudJSON = state["wordCloudJSON"] as? String,
                let jsonData = wordCloudJSON.data(using: .utf8),
                let words = try? JSONDecoder().decode([WordFrequency].self, from: jsonData) {
@@ -800,6 +824,62 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
         return payload
     }
+
+    // MARK: - Pomodoro Timer
+
+    func togglePomodoro() {
+        if pomodoroActive {
+            stopPomodoro()
+        } else {
+            startPomodoro()
+        }
+    }
+
+    func startPomodoro() {
+        guard !pomodoroActive else { return }
+        if pomodoroRemaining <= 0 {
+            pomodoroRemaining = pomodoroDuration
+        }
+        pomodoroActive = true
+        playHaptic(.start)
+        
+        pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.tickPomodoro()
+            }
+        }
+    }
+
+    func stopPomodoro() {
+        guard pomodoroActive else { return }
+        pomodoroActive = false
+        pomodoroTimer?.invalidate()
+        pomodoroTimer = nil
+        playHaptic(.stop)
+    }
+
+    func setPomodoroDuration(_ duration: TimeInterval) {
+        stopPomodoro()
+        self.pomodoroDuration = duration
+        self.pomodoroRemaining = duration
+        defaults.set(duration, forKey: "pomodoroDuration")
+    }
+
+    private func tickPomodoro() {
+        guard pomodoroActive else { return }
+        if pomodoroRemaining > 1 {
+            pomodoroRemaining -= 1
+        } else {
+            pomodoroRemaining = 0
+            pomodoroActive = false
+            pomodoroTimer?.invalidate()
+            pomodoroTimer = nil
+            
+            playHaptic(.notification)
+            WKInterfaceDevice.current().play(.success)
+        }
+    }
 }
 
 enum WatchBookmarkError: LocalizedError {
@@ -816,5 +896,23 @@ enum WatchBookmarkError: LocalizedError {
         case .noActiveBook:
             return "Start playback on iPhone before creating a bookmark."
         }
+    }
+}
+
+extension Color {
+    init?(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        guard Scanner(string: hex).scanHexInt64(&int) else { return nil }
+        let r, g, b: Double
+        switch hex.count {
+        case 6:
+            r = Double((int >> 16) & 0xFF) / 255
+            g = Double((int >> 8) & 0xFF) / 255
+            b = Double(int & 0xFF) / 255
+        default:
+            return nil
+        }
+        self.init(red: r, green: g, blue: b)
     }
 }

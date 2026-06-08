@@ -19,7 +19,7 @@ struct WatchAppSettingsView: View {
     private let palette: [WatchAction] = [
         .playPause, .skipForward, .skipBackward, .nextTrack,
         .previousTrack, .nextSection, .previousSection,
-        .loopMode, .speed, .sleepTimer, .bookmark
+        .loopMode, .speed, .sleepTimer, .bookmark, .pomodoro
     ]
 
     var body: some View {

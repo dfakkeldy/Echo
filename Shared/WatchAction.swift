@@ -14,6 +14,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
     case speed
     case sleepTimer
     case bookmark
+    case pomodoro
     case empty
 
     public var id: String { rawValue }
@@ -31,6 +32,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .speed:         return "gauge.medium"
         case .sleepTimer:    return "moon.zzz.fill"
         case .bookmark:      return "bookmark.fill"
+        case .pomodoro:      return "timer"
         case .empty:         return "plus"
         }
     }
@@ -68,6 +70,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .speed:         return "cycleSpeed"
         case .sleepTimer:    return "toggleSleepTimer"
         case .bookmark:      return "addBookmark"
+        case .pomodoro:      return "pomodoro"
         case .empty:         return ""
         }
     }

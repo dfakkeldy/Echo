@@ -21,6 +21,7 @@ struct Echo_Watch_AppTests {
         #expect(WatchAction.speed.command == "cycleSpeed")
         #expect(WatchAction.sleepTimer.command == "toggleSleepTimer")
         #expect(WatchAction.bookmark.command == "addBookmark")
+        #expect(WatchAction.pomodoro.command == "pomodoro")
         #expect(WatchAction.empty.command == "")
     }
 

@@ -258,6 +258,10 @@ struct TransportControlsView: View {
             .accessibilityLabel(Text("Add bookmark"))
             .disabled(model.tracks.isEmpty)
 
+        case .pomodoro:
+            Spacer()
+                .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+
         case .empty:
             Spacer()
                 .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)

@@ -51,6 +51,7 @@ struct WatchStateSnapshot {
 
     // MARK: Thumbnail availability
     var hasThumbnail: Bool = false
+    var artworkAccentColorHex: String?
 
     // MARK: Sleep timer state
     var sleepTimerMode: SleepTimerMode = .off
@@ -129,6 +130,9 @@ enum WatchStateContextBuilder {
         context["watchDateEnabled"] = s.watchDateEnabled
         context["watchDateFormat"] = s.watchDateFormat
         context["hasThumbnail"] = s.hasThumbnail
+        if let hex = s.artworkAccentColorHex {
+            context["artworkAccentColorHex"] = hex
+        }
 
         // Sleep timer
         switch s.sleepTimerMode {

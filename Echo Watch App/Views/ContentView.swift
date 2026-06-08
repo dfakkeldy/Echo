@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var isShowingNewBookmark = false
     @State private var isShowingSleepTimer = false
     @State private var isArtworkFullscreen = false
+    @State private var isShowingPomodoroPicker = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -33,6 +34,9 @@ struct ContentView: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isArtworkFullscreen = true
                         }
+                    },
+                    onPomodoroLongPress: {
+                        isShowingPomodoroPicker = true
                     }
                 )
                     .tag(0)
@@ -47,6 +51,9 @@ struct ContentView: View {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 isArtworkFullscreen = true
                             }
+                        },
+                        onPomodoroLongPress: {
+                            isShowingPomodoroPicker = true
                         }
                     )
                     .tag(1)
@@ -63,6 +70,9 @@ struct ContentView: View {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 isArtworkFullscreen = true
                             }
+                        },
+                        onPomodoroLongPress: {
+                            isShowingPomodoroPicker = true
                         }
                     )
                     .tag(2)
@@ -79,6 +89,9 @@ struct ContentView: View {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 isArtworkFullscreen = true
                             }
+                        },
+                        onPomodoroLongPress: {
+                            isShowingPomodoroPicker = true
                         }
                     )
                     .tag(3)
@@ -95,6 +108,9 @@ struct ContentView: View {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 isArtworkFullscreen = true
                             }
+                        },
+                        onPomodoroLongPress: {
+                            isShowingPomodoroPicker = true
                         }
                     )
                     .tag(4)
@@ -158,6 +174,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $isShowingSleepTimer) {
             SleepTimerView(viewModel: viewModel)
+        }
+        .sheet(isPresented: $isShowingPomodoroPicker) {
+            PomodoroTimerPickerView(viewModel: viewModel)
         }
         .onAppear {
             viewModel.requestCurrentState()
