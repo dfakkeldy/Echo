@@ -910,4 +910,13 @@ extension PlaybackController: AudioEngineDelegate {
     func audioEngineInterruptionEnded(_ engine: AudioEngine, shouldResume: Bool) {
         delegate?.playbackControllerInterruptionEnded(self, shouldResume: shouldResume)
     }
+
+    func audioEngineOutputDeviceDisconnected(_ engine: AudioEngine) {
+        // Output device (headphones / aux / Bluetooth) was unplugged. Pause rather
+        // than let playback fall through to the speaker. pause() drives the full state
+        // update — Now Playing, watch sync, pause timestamp — and, unlike an
+        // interruption, never arms wasPlayingBeforeInterruption, so playback stays
+        // paused until the user explicitly resumes.
+        pause()
+    }
 }

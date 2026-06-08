@@ -9,6 +9,7 @@ protocol AudioEngineDelegate: AnyObject {
     func audioEngineDidPlayToEnd(_ engine: AudioEngine)
     func audioEngineInterruptionBegan(_ engine: AudioEngine)
     func audioEngineInterruptionEnded(_ engine: AudioEngine, shouldResume: Bool)
+    func audioEngineOutputDeviceDisconnected(_ engine: AudioEngine)
 }
 
 // MARK: - AudioEngine
@@ -60,6 +61,7 @@ final class AudioEngine {
     // MARK: - Interruption State
 
     private var interruptionObserver: NSObjectProtocol?
+    private var routeChangeObserver: NSObjectProtocol?
     private var mediaServicesLostObserver: NSObjectProtocol?
     private var mediaServicesResetObserver: NSObjectProtocol?
     private var audioSessionConfigured = false
@@ -84,6 +86,7 @@ final class AudioEngine {
             os_log(.error, "AudioSession error: %{private}@", error.localizedDescription)
         }
         setupInterruptionObserver()
+        setupRouteChangeObserver()
         setupMediaServicesObservers()
         configureEngineGraph()
     }
@@ -303,6 +306,7 @@ final class AudioEngine {
         fadeTimer = nil
         stopTimeTimer()
         removeInterruptionObserver()
+        removeRouteChangeObserver()
         removeMediaServicesObservers()
         audioFile = nil
         audioSessionConfigured = false
@@ -462,6 +466,39 @@ final class AudioEngine {
             NotificationCenter.default.removeObserver(obs)
         }
         interruptionObserver = nil
+    }
+
+    private func setupRouteChangeObserver() {
+        guard routeChangeObserver == nil else { return }
+        routeChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let userInfo = notification.userInfo,
+                  let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
+            else { return }
+
+            // `.oldDeviceUnavailable` fires when the previous output device (wired
+            // headphones, aux / line-out, or Bluetooth) is removed. AVAudioEngine,
+            // unlike AVPlayer, does NOT auto-pause on this — left unhandled it falls
+            // back to the built-in speaker and keeps rendering, so the book suddenly
+            // plays out loud when you pull the cable. Pause to match expected behaviour.
+            guard reason == .oldDeviceUnavailable else { return }
+            MainActor.assumeIsolated {
+                guard self.isPlaying else { return }
+                self.delegate?.audioEngineOutputDeviceDisconnected(self)
+            }
+        }
+    }
+
+    private func removeRouteChangeObserver() {
+        if let obs = routeChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        routeChangeObserver = nil
     }
 
     private func setupMediaServicesObservers() {
