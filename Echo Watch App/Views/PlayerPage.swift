@@ -10,6 +10,7 @@ struct PlayerPage: View {
     let layout: WatchArtworkLayout
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
+    let onArtworkTap: () -> Void
 
     private var isCompactLayout: Bool { layout == .classic }
     private var topControlInset: CGFloat { isCompactLayout ? 8 : 10 }
@@ -20,6 +21,14 @@ struct PlayerPage: View {
             if layout == .classic {
                 classicContent
             } else {
+                Button {
+                    onArtworkTap()
+                } label: {
+                    Color.clear
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+
                 VStack(spacing: 8) {
                     Spacer(minLength: 42)
 
@@ -153,18 +162,23 @@ struct PlayerPage: View {
     @ViewBuilder
     private var classicArtwork: some View {
         if let image = viewModel.thumbnailImage {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 80, height: 80)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 0.5)
-                )
-                .shadow(color: Color.black.opacity(0.5), radius: 8, x: 0, y: 4)
-                .accessibilityLabel(Text(viewModel.title))
-                .accessibilityAddTraits(.isImage)
+            Button {
+                onArtworkTap()
+            } label: {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 80, height: 80)
+                    .clipShape(.rect(cornerRadius: 16))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.white.opacity(0.22), lineWidth: 0.5)
+                    )
+                    .shadow(color: Color.black.opacity(0.5), radius: 8, x: 0, y: 4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(viewModel.title))
+            .accessibilityAddTraits(.isImage)
         } else {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.ultraThinMaterial)

@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var selectedPage: Int = 0
     @State private var isShowingNewBookmark = false
     @State private var isShowingSleepTimer = false
+    @State private var isArtworkFullscreen = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -27,7 +28,12 @@ struct ContentView: View {
                     viewModel: viewModel,
                     layout: artworkLayout,
                     onBookmark: { isShowingNewBookmark = true },
-                    onSleepTimer: { isShowingSleepTimer = true }
+                    onSleepTimer: { isShowingSleepTimer = true },
+                    onArtworkTap: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isArtworkFullscreen = true
+                        }
+                    }
                 )
                     .tag(0)
                 if viewModel.page2Slots.contains(where: { $0 != .empty }) {
@@ -36,7 +42,12 @@ struct ContentView: View {
                         viewModel: viewModel,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
-                        onSleepTimer: { isShowingSleepTimer = true }
+                        onSleepTimer: { isShowingSleepTimer = true },
+                        onArtworkTap: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isArtworkFullscreen = true
+                            }
+                        }
                     )
                     .tag(1)
                 }
@@ -47,7 +58,12 @@ struct ContentView: View {
                         viewModel: viewModel,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
-                        onSleepTimer: { isShowingSleepTimer = true }
+                        onSleepTimer: { isShowingSleepTimer = true },
+                        onArtworkTap: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isArtworkFullscreen = true
+                            }
+                        }
                     )
                     .tag(2)
                 }
@@ -58,7 +74,12 @@ struct ContentView: View {
                         viewModel: viewModel,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
-                        onSleepTimer: { isShowingSleepTimer = true }
+                        onSleepTimer: { isShowingSleepTimer = true },
+                        onArtworkTap: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isArtworkFullscreen = true
+                            }
+                        }
                     )
                     .tag(3)
                 }
@@ -69,7 +90,12 @@ struct ContentView: View {
                         viewModel: viewModel,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
-                        onSleepTimer: { isShowingSleepTimer = true }
+                        onSleepTimer: { isShowingSleepTimer = true },
+                        onArtworkTap: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isArtworkFullscreen = true
+                            }
+                        }
                     )
                     .tag(4)
                 }
@@ -96,6 +122,29 @@ struct ContentView: View {
                 }
                 .ignoresSafeArea(.all, edges: .top)
                 .allowsHitTesting(false)
+            }
+
+            // Fullscreen Artwork Viewer Overlay
+            if isArtworkFullscreen, let image = viewModel.thumbnailImage {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isArtworkFullscreen = false
+                    }
+                } label: {
+                    ZStack {
+                        Color.black.ignoresSafeArea()
+                        
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(.top, 32)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .buttonStyle(.plain)
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .zIndex(10)
             }
         }
         .focusable(true, interactions: .edit)
