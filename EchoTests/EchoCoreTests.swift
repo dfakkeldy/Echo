@@ -26,6 +26,12 @@ struct EchoCoreTests {
         migrator.registerMigration("v3") { db in try Schema_V3.migrate(db) }
         migrator.registerMigration("v4") { db in try Schema_V4.migrate(db) }
         migrator.registerMigration("v5") { db in try Schema_V5.migrate(db) }
+        migrator.registerMigration("v6") { db in try Schema_V6.migrate(db) }
+        migrator.registerMigration("v7") { db in try Schema_V7.migrate(db) }
+        migrator.registerMigration("v8") { db in try Schema_V8.migrate(db) }
+        migrator.registerMigration("v9") { db in try Schema_V9.migrate(db) }
+        migrator.registerMigration("v10") { db in try Schema_V10.migrate(db) }
+        migrator.registerMigration("v11") { db in try Schema_V11.migrate(db) }
         try migrator.migrate(queue)
         return queue
     }

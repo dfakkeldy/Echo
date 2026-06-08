@@ -33,10 +33,13 @@ struct PlayerControlBar: View {
 
                 // Metadata Details
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(titleText)
-                        .customFont(.subheadline, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                    MarqueeText(
+                        text: titleText,
+                        fontStyle: .subheadline,
+                        fontWeight: .semibold,
+                        appFont: settings.appFont,
+                        foregroundStyle: .primary
+                    )
                     
                     if model.chapters.count >= 2 && !model.currentTitle.isEmpty {
                         Text(model.currentTitle)
@@ -65,19 +68,11 @@ struct PlayerControlBar: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("Mini-player"))
         .accessibilityValue(accessibilityValueText)
         .accessibilityHint(Text("Double tap to open full player"))
-        .padding(.horizontal, 16)
     }
 
     private var titleText: String {

@@ -43,7 +43,6 @@ struct PlayerScrubberView: View {
             }
         )
         .frame(minWidth: Self.minimumScrubberWidth, maxWidth: .infinity)
-        .tint(.primary)
         .accessibilityLabel(Text("Playback position"))
         .accessibilityValue(Text("\(model.elapsedText), \(model.progressText)"))
         .onChange(of: scrubFraction) { oldValue, newValue in
@@ -114,7 +113,7 @@ struct PlayerScrubberView: View {
     private func timeLabel(_ text: String, alignment: Alignment) -> some View {
         Text(text)
             .customFont(.footnote, appFont: model.resolvedAppFont)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.75)

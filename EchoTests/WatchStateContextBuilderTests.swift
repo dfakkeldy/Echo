@@ -61,7 +61,7 @@ struct WatchStateContextBuilderTests {
 
         let ctx = WatchStateContextBuilder.build(from: snap)
 
-        #expect(ctx["title"] as? String == "Chapter 1")
+        #expect(ctx["title"] as? String == "Ch 1")
     }
 
     @Test("title uses track title when fewer than 2 chapters")

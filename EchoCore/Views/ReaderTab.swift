@@ -9,9 +9,6 @@ struct ReaderTab: View {
     @Environment(SettingsManager.self) private var settingsManager
 
     @State var viewModel: ReaderFeedViewModel?
-    @State private var searchText = ""
-    @State private var showSettings = false
-    @State private var showTOC = false
     @State var showChapterPickerForBlockID: String? = nil
     @State var showCardColorPickerForBlockID: String? = nil
     @State var showChapterThemePickerForBlockID: String? = nil
@@ -82,16 +79,18 @@ struct ReaderTab: View {
         }
         .background(
             Rectangle()
-                .fill(topBannerColor)
-                .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
+                .fill(topChapterThemeColor.map { Color(hex: $0) } ?? .clear)
+                .opacity(topChapterThemeColor != nil ? 0.3 : 0.0)
         )
+        .background(.ultraThinMaterial)
+        .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
         .zIndex(1)
     }
 
     @ViewBuilder
     private var feedCollectionView: some View {
         if let vm = viewModel {
-            let query: String? = searchText.isEmpty ? nil : searchText
+            let query: String? = model.epubSearchText.isEmpty ? nil : model.epubSearchText
             let bindableVM = Bindable(vm)
             
             ReaderFeedCollectionView(
@@ -120,59 +119,71 @@ struct ReaderTab: View {
         }
     }
 
+    /// The reader's own floating header: the search/utilities row (when visible),
+    /// the sticky chapter-hierarchy title, and any active hint banners.
+    ///
+    /// Hosted via `.safeAreaInset` so the collection reserves exactly this view's
+    /// measured height — replacing the old hard-coded `topInset: 110`.
+    @ViewBuilder
+    private var readerHeaderOverlay: some View {
+        VStack(spacing: 0) {
+            if isHeaderVisible {
+                localUtilitiesRow
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            topChapterHeaderView
+
+            // ── Context menu / alignment hints ──
+            if !hasSeenContextMenuHint {
+                hintBanner(
+                    icon: "hand.point.up.left",
+                    message: "Long-press any card to align it with the audio, change its color, bookmark it, or copy text.",
+                    dismissible: true,
+                    onDismiss: { withAnimation { hasSeenContextMenuHint = true } }
+                )
+            } else if showAlignmentBanner && !hasDismissedAlignmentBanner {
+                hintBanner(
+                    icon: "align.horizontal.center",
+                    message: "The alignment was estimated automatically. Long-press any paragraph and choose \"Align to Now\" to make it exact — this makes the book fully searchable.",
+                    dismissible: true,
+                    onDismiss: { withAnimation { hasDismissedAlignmentBanner = true } }
+                )
+            }
+        }
+        .background(.ultraThinMaterial)
+        .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
+    }
+
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                if let vm = viewModel {
-                    if isHeaderVisible {
-                        ReaderHeaderView(
-                            searchText: $searchText,
-                            chapterTitle: "EPUB Reader",
-                            onScrollToActiveTap: {
-                                autoScrollEnabled = true
-                                if let activeID = viewModel?.activeBlockID {
-                                    forceScrollBlockID = activeID
-                                    forceScrollTrigger += 1
-                                }
-                            },
-                            onTOCTap: { showTOC = true },
-                            onSettingsTap: { showSettings = true }
-                        )
-                        .transition(.move(edge: .top).combined(with: .opacity))
+        @Bindable var model = model
+        Group {
+            if viewModel != nil {
+                // The collection fills the screen and scrolls behind the translucent
+                // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
+                //   1. the reader's own header (self-measuring),
+                //   2. Row 1 of UnifiedTopHeader (50pt, overlaid in RootTabView),
+                //   3. the floating bottom dock.
+                feedCollectionView
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        readerHeaderOverlay
                     }
-
-                    topChapterHeaderView
-
-                    // ── Context menu / alignment hints ──
-                    if !hasSeenContextMenuHint {
-                        hintBanner(
-                            icon: "hand.point.up.left",
-                            message: "Long-press any card to align it with the audio, change its color, bookmark it, or copy text.",
-                            dismissible: true,
-                            onDismiss: { withAnimation { hasSeenContextMenuHint = true } }
-                        )
-                    } else if showAlignmentBanner && !hasDismissedAlignmentBanner {
-                        hintBanner(
-                            icon: "align.horizontal.center",
-                            message: "The alignment was estimated automatically. Long-press any paragraph and choose \"Align to Now\" to make it exact — this makes the book fully searchable.",
-                            dismissible: true,
-                            onDismiss: { withAnimation { hasDismissedAlignmentBanner = true } }
-                        )
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        Color.clear.frame(height: 50)
                     }
-
-                    feedCollectionView
-                } else {
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        Color.clear.frame(height: model.bottomInset)
+                    }
+            } else {
+                VStack {
                     Spacer()
                     ProgressView("Loading EPUB...")
                     Spacer()
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: isHeaderVisible)
-
-            VStack {
-                Spacer()
-            }
         }
+        .animation(.easeInOut(duration: 0.25), value: isHeaderVisible)
+
         .onAppear {
             let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
             readerSettings = ReaderSettings.resolved(
@@ -194,16 +205,23 @@ struct ReaderTab: View {
         .onChange(of: readerSettings.fontSize) { _, newSize in settingsManager.readerFontSize = newSize }
         .onChange(of: readerSettings.lineSpacing) { _, newLineSpacing in settingsManager.readerLineSpacing = newLineSpacing }
         .onChange(of: readerSettings.cardTintHex) { _, newHex in settingsManager.readerCardTint = newHex }
-        .onChange(of: searchText) { _, newValue in
+        .onChange(of: model.epubSearchText) { _, newValue in
             viewModel?.searchQuery = newValue.isEmpty ? nil : newValue
+        }
+        .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
+            autoScrollEnabled = true
+            if let activeID = viewModel?.activeBlockID {
+                forceScrollBlockID = activeID
+                forceScrollTrigger += 1
+            }
         }
         .onChange(of: model.currentPlaybackTime) { _, newPos in
             viewModel?.updateActiveBlock(time: newPos)
         }
-        .sheet(isPresented: $showSettings) {
+        .sheet(isPresented: $model.showReaderSettings) {
             ReaderSettingsSheet(settings: $readerSettings)
         }
-        .sheet(isPresented: $showTOC) {
+        .sheet(isPresented: $model.showReaderTOC) {
             if let vm = viewModel {
                 EPUBTOCSheet(
                     sections: vm.sections,
@@ -212,7 +230,7 @@ struct ReaderTab: View {
                         seekToBlockAndScroll(blockID)
                         forceScrollBlockID = blockID
                         forceScrollTrigger += 1
-                        showTOC = false
+                        model.showReaderTOC = false
                     }
                 )
             }
@@ -280,7 +298,7 @@ struct ReaderTab: View {
         } message: {
             Text(autoAlignmentErrorMessage ?? "An unknown error occurred.")
         }
-        .background(topChapterThemeColor.map { Color(hex: $0) } ?? Color(uiColor: .systemBackground))
+        .background(Color.clear)
     }
 
     // MARK: - Helpers
@@ -413,6 +431,65 @@ struct ReaderTab: View {
         if let image = UIImage(contentsOfFile: url.path) {
             UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
         }
+    }
+
+    @ViewBuilder
+    private var localUtilitiesRow: some View {
+        @Bindable var model = model
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Find in book...", text: $model.epubSearchText)
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+                if !model.epubSearchText.isEmpty {
+                    Button {
+                        model.epubSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(10)
+            
+            Button {
+                model.epubScrollToActiveTrigger += 1
+            } label: {
+                Image(systemName: "arrow.down.to.line")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .frame(width: 36, height: 36)
+            .background(Color(.secondarySystemBackground), in: Circle())
+            .accessibilityLabel(Text("Scroll to current playback position"))
+            
+            Button {
+                model.showReaderTOC = true
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 16))
+            }
+            .frame(width: 36, height: 36)
+            .background(Color(.secondarySystemBackground), in: Circle())
+            .accessibilityLabel(Text("Table of Contents"))
+            
+            Button {
+                model.showReaderSettings = true
+            } label: {
+                Image(systemName: "textformat.size")
+                    .font(.system(size: 16))
+            }
+            .frame(width: 36, height: 36)
+            .background(Color(.secondarySystemBackground), in: Circle())
+            .accessibilityLabel(Text("Reader settings"))
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 }
 

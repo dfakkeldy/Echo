@@ -24,11 +24,29 @@ struct RootTabView: View {
     var body: some View {
         @Bindable var model = model
         NavigationStack {
-            ZStack(alignment: .bottom) {
+            ZStack(alignment: .top) {
+                // Saturated dynamic background ONLY on the player tab
+                if model.selectedTab == .nowPlaying {
+                    AdaptiveBackground()
+                } else {
+                    Color(uiColor: .systemBackground)
+                        .ignoresSafeArea()
+                }
+
+                // Main Tab Content. Each tab reserves its own top clearance for
+                // Row 1 natively (via `.safeAreaInset`), so the header can be a
+                // simple Z-stack overlay without displacing the child views.
                 Group {
                     switch model.selectedTab {
                     case .nowPlaying:
-                        NowPlayingTab()
+                        NowPlayingTab(
+                            showsBookSettings: model.folderURL != nil,
+                            openFolder: { showingFolderPicker = true },
+                            showHelp: { showingHelp = true },
+                            showBookSettings: { showingBookSettings = true },
+                            showSettings: { showingSettings = true },
+                            onCreateBookmark: { draft in newBookmarkDraft = draft }
+                        )
                     case .read:
                         if model.hasEPUB {
                             ReaderTab(folderURL: model.folderURL!)
@@ -46,73 +64,27 @@ struct RootTabView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
- 
-                if !model.isPlayingVoiceMemo {
-                    VStack(spacing: 8) {
-                        if model.selectedTab == .timeline && model.folderURL != nil && !model.tracks.isEmpty {
-                            PlayerControlBar()
-                        }
-                        BottomToolbarView(onCreateBookmark: { draft in newBookmarkDraft = draft })
-                    }
-                }
-            }
-            .overlay(alignment: .top) {
-                if model.selectedTab == .nowPlaying {
-                    NowPlayingTopToolbar(
-                        showsBookSettings: model.folderURL != nil,
-                        openFolder: { showingFolderPicker = true },
-                        showHelp: { showingHelp = true },
-                        showBookSettings: { showingBookSettings = true },
-                        showSettings: { showingSettings = true }
-                    )
-                }
-            }
-            .ignoresSafeArea(edges: model.selectedTab != .nowPlaying ? [] : .top)
-            .toolbarVisibility(model.selectedTab != .nowPlaying ? .automatic : .hidden, for: .navigationBar)
-            .toolbarBackground(model.selectedTab != .nowPlaying ? .automatic : .hidden, for: .navigationBar)
-            .toolbarBackgroundVisibility(model.selectedTab != .nowPlaying ? .automatic : .hidden, for: .navigationBar)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showingFolderPicker = true
-                    } label: {
-                        Image(systemName: "folder")
-                    }
-                    .accessibilityLabel(Text("Open folder"))
-                }
 
-                ToolbarItem(placement: .principal) {
-                    PlaybackTimeToolbarItem()
-                }
- 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            showingSettings = true
-                        } label: {
-                            Label("Global Settings", systemImage: "gearshape")
-                        }
-                        
-                        if model.folderURL != nil {
-                            Button {
-                                showingBookSettings = true
-                            } label: {
-                                Label("Book Settings", systemImage: "document.badge.gearshape")
-                            }
-                        }
-                        
-                        Button {
-                            showingHelp = true
-                        } label: {
-                            Label("Help", systemImage: "questionmark.circle")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                // Unified Top Header System (Row 1: global navigation), overlaid
+                // at the top of the Z-stack on top of the content behind it.
+                UnifiedTopHeader(
+                    onFolderTap: { showingFolderPicker = true },
+                    onSettingsTap: { showingSettings = true },
+                    onBookSettingsTap: { showingBookSettings = true },
+                    onHelpTap: { showingHelp = true }
+                )
+
+                // UnifiedBottomDock is only overlaid on non-NowPlaying views.
+                // In NowPlayingTab, it is placed at the bottom of the VStack.
+                if model.selectedTab != .nowPlaying && !model.isPlayingVoiceMemo {
+                    VStack {
+                        Spacer()
+                        UnifiedBottomDock(onCreateBookmark: { draft in newBookmarkDraft = draft })
                     }
-                    .accessibilityLabel(Text("More"))
                 }
             }
+            .ignoresSafeArea(edges: .bottom)
+            .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingFolderPicker) {
                 FolderPicker { url in
                     showingFolderPicker = false
@@ -174,6 +146,8 @@ struct RootTabView: View {
         }
     }
 
+
+
     private func colorScheme(for appearance: String) -> ColorScheme? {
         switch appearance {
         case "Light": return .light
@@ -197,130 +171,5 @@ struct RootTabView: View {
         guard let pendingDeepLink else { return }
         model.handleDeepLink(pendingDeepLink)
         self.pendingDeepLink = nil
-    }
-}
-
-private struct NowPlayingTopToolbar: View {
-    let showsBookSettings: Bool
-    let openFolder: () -> Void
-    let showHelp: () -> Void
-    let showBookSettings: () -> Void
-    let showSettings: () -> Void
-
-    @Environment(PlayerModel.self) private var model
-
-    var body: some View {
-        @Bindable var model = model
-        GeometryReader { _ in
-            HStack {
-                controlGroup {
-                    toolbarButton(
-                        systemName: "folder",
-                        accessibilityLabel: "Open folder",
-                        action: openFolder
-                    )
-                }
-
-                Spacer()
-                
-                PlaybackTimeGlassOverlay()
-
-                Spacer()
-
-                controlGroup {
-                    Menu {
-                        Button {
-                            showSettings()
-                        } label: {
-                            Label("Global Settings", systemImage: "gearshape")
-                        }
-                        
-                        if showsBookSettings {
-                            Button {
-                                showBookSettings()
-                            } label: {
-                                Label("Book Settings", systemImage: "document.badge.gearshape")
-                            }
-                        }
-                        
-                        Button {
-                            showHelp()
-                        } label: {
-                            Label("Help", systemImage: "questionmark.circle")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title2)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel(Text("More"))
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, NowPlayingLayout.topToolbarTopPadding)
-        }
-        .frame(height: NowPlayingLayout.topOverlayHeight)
-    }
-
-    private func toolbarButton(
-        systemName: String,
-        accessibilityLabel: LocalizedStringKey,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel(Text(accessibilityLabel))
-    }
-
-    private func controlGroup<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        HStack(spacing: 12) {
-            content()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .nowPlayingGlassToolbar()
-    }
-}
-
-private struct PlaybackTimeToolbarItem: View {
-    @Environment(PlayerModel.self) private var model
-
-    var body: some View {
-        Text(Duration.seconds(model.currentPlaybackTime).formatted(.time(pattern: .minuteSecond)))
-            .font(.subheadline.monospacedDigit().bold())
-            .foregroundStyle(.secondary)
-    }
-}
-
-private struct PlaybackTimeGlassOverlay: View {
-    @Environment(PlayerModel.self) private var model
-
-    var body: some View {
-        Text(Duration.seconds(model.currentPlaybackTime).formatted(.time(pattern: .minuteSecond)))
-            .font(.subheadline.monospacedDigit().bold())
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .nowPlayingGlassToolbar()
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func nowPlayingGlassToolbar() -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular, in: .capsule)
-        } else {
-            self
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
-                .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-        }
     }
 }

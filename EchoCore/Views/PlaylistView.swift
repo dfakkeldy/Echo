@@ -36,7 +36,6 @@ struct PlaylistView: View {
     @Environment(SettingsManager.self) private var settings
     @Environment(\.dismiss) private var dismiss
     @State private var editingBookmarkID: UUID? = nil
-    @State private var isEditing: Bool = false
 
     /// When true, renders only the list content without a NavigationStack or toolbar chrome.
     /// Used when PlaylistView is embedded inside another container view (e.g. TimelineTab).
@@ -44,10 +43,7 @@ struct PlaylistView: View {
     var onRowTapped: ((TimeInterval) -> Void)? = nil
     var onZoomIn: (() -> Void)? = nil
 
-    @State private var showChapters: Bool = true
-    @State private var showBookmarks: Bool = true
     @State private var cachedPlaylistRows: [PlaylistRow] = []
-    @State private var showingDocumentImporter: Bool = false
     @State private var hasEPUB = false
     @State private var hasPDF = false
     @State private var hasTranscript = false
@@ -70,27 +66,32 @@ struct PlaylistView: View {
     var body: some View {
         if isEmbedded {
             playlistContent
-                .environment(\.editMode, .constant(isEditing ? .active : .inactive))
+                // Reserve room for Row 1 of UnifiedTopHeader (overlaid in RootTabView).
+                // Native inset — stacks on the real safe area, no GeometryReader math.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    Color.clear.frame(height: 50)
+                }
+                .environment(\.editMode, .constant(model.isPlaylistEditing ? .active : .inactive))
         } else {
             NavigationStack {
                 playlistContent
                     .navigationTitle("Playlist")
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
-                            if isEditing {
+                            if model.isPlaylistEditing {
                                 Button("Done") {
-                                    withAnimation { isEditing = false }
+                                    withAnimation { model.isPlaylistEditing = false }
                                 }
                             } else {
                                 Button("Reset") { model.resetPlaylist() }
                             }
                         }
                         ToolbarItem(placement: .topBarTrailing) {
-                            if isEditing {
+                            if model.isPlaylistEditing {
                                 EmptyView()
                             } else {
                                 Button("Edit") {
-                                    withAnimation { isEditing = true }
+                                    withAnimation { model.isPlaylistEditing = true }
                                 }
                                 Button("Done") { dismiss() }
                             }
@@ -103,7 +104,7 @@ struct PlaylistView: View {
                         EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
                     }
             }
-            .environment(\.editMode, .constant(isEditing ? .active : .inactive))
+            .environment(\.editMode, .constant(model.isPlaylistEditing ? .active : .inactive))
             .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
             .sheet(item: $chapterForEPUBMatch) { _ in
                 if let url = model.folderURL {
@@ -168,11 +169,11 @@ struct PlaylistView: View {
         if model.chapters.count >= 2 {
             // Chapter Mode: respect custom chapter ordering if reordered.
             // If showChapters is true, we iterate over the chapters in their current array order.
-            if showChapters {
+            if model.showChapters {
                 let minStartSeconds = model.chapters.map { $0.startSeconds }.min() ?? 0.0
                 
                 // Show bookmarks that appear before any chapter first
-                if showBookmarks {
+                if model.showBookmarks {
                     let preBookmarks = model.bookmarks
                         .filter { $0.timestamp < minStartSeconds }
                         .sorted { $0.timestamp < $1.timestamp }
@@ -187,7 +188,7 @@ struct PlaylistView: View {
                     let displayTitle = hierarchicalTitles[index]
                     rows.append(.chapter(index: index, chapter: chapter, displayTitle: displayTitle))
                     
-                    if showBookmarks {
+                    if model.showBookmarks {
                         let chapterBookmarks = model.bookmarks
                             .filter { $0.timestamp >= chapter.startSeconds && $0.timestamp < chapter.endSeconds }
                             .sorted { $0.timestamp < $1.timestamp }
@@ -197,7 +198,7 @@ struct PlaylistView: View {
                     }
                 }
                 return rows
-            } else if showBookmarks {
+            } else if model.showBookmarks {
                 // If only bookmarks are shown, display them chronologically
                 return model.bookmarks
                     .sorted { $0.timestamp < $1.timestamp }
@@ -208,10 +209,10 @@ struct PlaylistView: View {
         } else {
             // Track Mode: group bookmarks inline right under their parent tracks
             for (index, track) in model.tracks.enumerated() {
-                if showChapters { // showChapters acts as "showTracks" when chapters aren't available
+                if model.showChapters { // showChapters acts as "showTracks" when chapters aren't available
                     rows.append(.track(index: index, track: track))
                 }
-                if showBookmarks {
+                if model.showBookmarks {
                     let trackBookmarks = model.bookmarks
                         .filter { $0.trackId == track.id }
                         .sorted(by: { $0.timestamp < $1.timestamp })
@@ -226,86 +227,36 @@ struct PlaylistView: View {
 
     /// Bookmarks displayed during edit mode, sorted by timestamp.
     private var editingBookmarkRows: [Bookmark] {
-        guard showBookmarks else { return [] }
+        guard model.showBookmarks else { return [] }
         return model.bookmarks.sorted { $0.timestamp < $1.timestamp }
     }
 
     private var playlistContent: some View {
-        VStack(spacing: 0) {
-            // Horizontal Filter Chips Row
-            HStack(spacing: 12) {
-                Toggle(isOn: $showChapters) {
-                    Image(systemName: showChapters ? (model.chapters.count >= 2 ? "book.fill" : "music.note") : (model.chapters.count >= 2 ? "book" : "music.note"))
-                }
-                .toggleStyle(.button)
-                .accessibilityLabel(model.chapters.count >= 2 ? String(localized: "Chapters") : String(localized: "Tracks"))
-                
-                Toggle(isOn: $showBookmarks) {
-                    Image(systemName: showBookmarks ? "bookmark.fill" : "bookmark")
-                }
-                .toggleStyle(.button)
-                .accessibilityLabel(String(localized: "Bookmarks"))
+        @Bindable var model = model
+        return VStack(spacing: 0) {
+            filterChipsRow
 
-                if isEmbedded && (model.chapters.count >= 2 || model.tracks.count > 1) {
-                    Button {
-                        withAnimation { isEditing.toggle() }
-                    } label: {
-                        Image(systemName: isEditing ? "checkmark.circle.fill" : "arrow.up.and.down")
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel(isEditing ? String(localized: "Done") : String(localized: "Reorder"))
-                }
-
-                Spacer()
-                
-                if hasEPUB || hasPDF || hasTranscript {
-                    Button {
-                        if let action = onZoomIn {
-                            action()
-                        } else {
-                            model.selectedTab = .read
-                        }
-                    } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.accentColor)
-                    .accessibilityLabel(String(localized: "Read companion document"))
-                    .contextMenu {
-                        Button {
-                            showingDocumentImporter = true
-                        } label: {
-                            Label(String(localized: "Replace Document"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
-                        }
-                    }
-                } else {
-                    Button {
-                        showingDocumentImporter = true
-                    } label: {
-                        Image(systemName: "doc.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel(String(localized: "Import Document"))
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-
-            if isEditing {
+            if model.isPlaylistEditing {
                 List {
                     editingContent
 
                     Color.clear
-                        .frame(height: model.folderURL != nil && !model.tracks.isEmpty ? 155 : 95)
+                        .frame(height: model.bottomInset)
                         .listRowBackground(Color.clear)
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(.clear)
             } else if cachedPlaylistRows.isEmpty {
-                ContentUnavailableView(
-                    "No Items",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("No chapters or bookmarks match the current filters.")
-                )
+                VStack {
+                    Spacer()
+                    ContentUnavailableView(
+                        "No Items",
+                        systemImage: "list.bullet.rectangle",
+                        description: Text("No chapters or bookmarks match the current filters.")
+                    )
+                    Spacer()
+                }
             } else {
                 List {
                     ForEach(cachedPlaylistRows) { row in
@@ -321,14 +272,16 @@ struct PlaylistView: View {
 
                     // Empty space at bottom to ensure items scroll past the floating BottomToolbarView
                     Color.clear
-                        .frame(height: model.folderURL != nil && !model.tracks.isEmpty ? 155 : 95)
+                        .frame(height: model.bottomInset)
                         .listRowBackground(Color.clear)
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(.clear)
             }
         }
         .fileImporter(
-            isPresented: $showingDocumentImporter,
+            isPresented: $model.showingDocumentImporter,
             allowedContentTypes: [UTType(filenameExtension: "epub"), UTType.pdf].compactMap { $0 },
             allowsMultipleSelection: false
         ) { result in
@@ -364,8 +317,8 @@ struct PlaylistView: View {
         .onChange(of: model.chapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
         .onChange(of: model.tracks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
         .onChange(of: model.bookmarks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
-        .onChange(of: showChapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
-        .onChange(of: showBookmarks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
+        .onChange(of: model.showChapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
+        .onChange(of: model.showBookmarks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
         .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { notification in
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
                   let audiobookID = model.folderURL?.absoluteString,
@@ -376,6 +329,69 @@ struct PlaylistView: View {
             hasTranscript = model.hasTranscript
         }
     }
+
+    @ViewBuilder
+    private var filterChipsRow: some View {
+        @Bindable var model = model
+        HStack(spacing: 12) {
+            Toggle(isOn: $model.showChapters) {
+                Image(systemName: model.showChapters ? (model.chapters.count >= 2 ? "book.fill" : "music.note") : (model.chapters.count >= 2 ? "book" : "music.note"))
+            }
+            .toggleStyle(.button)
+            .accessibilityLabel(model.chapters.count >= 2 ? String(localized: "Chapters") : String(localized: "Tracks"))
+            
+            Toggle(isOn: $model.showBookmarks) {
+                Image(systemName: model.showBookmarks ? "bookmark.fill" : "bookmark")
+            }
+            .toggleStyle(.button)
+            .accessibilityLabel(String(localized: "Bookmarks"))
+
+            if isEmbedded && (model.chapters.count >= 2 || model.tracks.count > 1) {
+                Button {
+                    withAnimation { model.isPlaylistEditing.toggle() }
+                } label: {
+                    Image(systemName: model.isPlaylistEditing ? "checkmark.circle.fill" : "arrow.up.and.down")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(model.isPlaylistEditing ? String(localized: "Done") : String(localized: "Reorder"))
+            }
+
+            Spacer()
+            
+            if hasEPUB || hasPDF || hasTranscript {
+                Button {
+                    if let action = onZoomIn {
+                        action()
+                    } else {
+                        model.selectedTab = .read
+                    }
+                } label: {
+                    Image(systemName: "doc.text.magnifyingglass")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
+                .accessibilityLabel(String(localized: "Read companion document"))
+                .contextMenu {
+                    Button {
+                        model.showingDocumentImporter = true
+                    } label: {
+                        Label(String(localized: "Replace Document"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                    }
+                }
+            } else {
+                Button {
+                    model.showingDocumentImporter = true
+                } label: {
+                    Image(systemName: "doc.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(String(localized: "Import Document"))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
 
     @ViewBuilder
     private func chapterRow(index: Int, chapter: Chapter, displayTitle: String) -> some View {
@@ -579,7 +595,7 @@ struct PlaylistView: View {
     @ViewBuilder
     private var editingContent: some View {
         if model.chapters.count >= 2 {
-            if showChapters {
+            if model.showChapters {
                 Section("Chapters") {
                     let hierarchicalTitles = computeHierarchicalTitles(for: model.chapters)
                     ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
@@ -590,7 +606,7 @@ struct PlaylistView: View {
                     }
                 }
             }
-        } else if showChapters {
+        } else if model.showChapters {
             Section("Tracks") {
                 ForEach(Array(model.tracks.enumerated()), id: \.element.id) { index, track in
                     editingTrackRow(index: index, track: track)
@@ -601,7 +617,7 @@ struct PlaylistView: View {
             }
         }
 
-        if showBookmarks {
+        if model.showBookmarks {
             ForEach(editingBookmarkRows, id: \.id) { bm in
                 bookmarkRow(bm)
             }

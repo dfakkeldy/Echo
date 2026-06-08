@@ -61,8 +61,8 @@ struct EPUBImportCoordinatorTests {
             duration: nil
         )
 
-        // Old EPUB is untouched.
-        #expect(FileManager.default.fileExists(atPath: oldURL.path))
+        // Old EPUB is cleaned up to ensure a single companion document.
+        #expect(!FileManager.default.fileExists(atPath: oldURL.path))
 
         // New EPUB was copied in.
         let destURL = tmpDir.appendingPathComponent("new.epub")

@@ -40,6 +40,26 @@ final class PlayerModel {
     /// The currently selected tab (Listen, Read, or Timeline).
     var selectedTab: TabSelection = .nowPlaying
 
+    // MARK: - Shared Top Header / Reader / Playlist state
+    var epubSearchText: String = ""
+    var showReaderSettings: Bool = false
+    var showReaderTOC: Bool = false
+    var epubScrollToActiveTrigger: Int = 0
+
+    var showChapters: Bool = true
+    var showBookmarks: Bool = true
+    var isPlaylistEditing: Bool = false
+    var showingDocumentImporter: Bool = false
+
+    /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
+    var bottomInset: CGFloat {
+        if folderURL != nil && !tracks.isEmpty {
+            return 170.0
+        } else {
+            return 90.0
+        }
+    }
+
     /// Backward-compatible accessor — reads `true` when the Timeline tab is active.
     var showingTimeline: Bool {
         selectedTab == .timeline

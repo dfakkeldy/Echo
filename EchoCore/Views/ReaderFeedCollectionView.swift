@@ -49,6 +49,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        // Native content-inset adjustment: the collection adopts the SwiftUI
+        // safe-area insets (status bar + the reader header / dock clearance that
+        // ReaderTab supplies via `.safeAreaInset`). No manual inset math here.
         collectionView.backgroundColor = .clear
         collectionView.delegate = context.coordinator
 

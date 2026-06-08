@@ -6,40 +6,19 @@ struct BottomToolbarView: View {
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Playback controls row
-            HStack {
-                if model.selectedTab == .read {
-                    skipBackwardButton
-                    Spacer()
-                    playPauseButton
-                    Spacer()
-                    skipForwardButton
-                    Spacer()
-                    timelineButton
-                    Spacer()
-                    addBookmarkButton
-                } else {
-                    loopModeButton
-                    Spacer()
-                    speedButton
-                    Spacer()
-                    sleepTimerMenu
-                    Spacer()
-                    timelineButton
-                    Spacer()
-                    addBookmarkButton
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(.ultraThinMaterial)
-            .clipShape(Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
+        HStack {
+            loopModeButton
+            Spacer()
+            speedButton
+            Spacer()
+            sleepTimerMenu
+            Spacer()
+            timelineButton
+            Spacer()
+            addBookmarkButton
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, -12)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Loop Mode
@@ -69,6 +48,7 @@ struct BottomToolbarView: View {
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
         }
+        .foregroundStyle(model.loopMode != .off ? (model.artworkAccentColor ?? .accentColor) : .secondary)
         .accessibilityLabel(Text("Loop mode"))
         .accessibilityValue(Text({
             switch model.loopMode {
@@ -108,6 +88,7 @@ struct BottomToolbarView: View {
                 .customFont(.headline)
                 .frame(minWidth: 44, minHeight: 44)
         }
+        .foregroundStyle(model.speed != 1.0 ? (model.artworkAccentColor ?? .accentColor) : .secondary)
         .accessibilityLabel(Text("Playback speed"))
         .accessibilityValue(Text(speedLabel))
         .onChange(of: model.speed) { _, newSpeed in
@@ -157,12 +138,13 @@ struct BottomToolbarView: View {
                 } else if case .endOfChapter = model.sleepTimerMode {
                     Text("EOC")
                         .customFont(.caption2, weight: .semibold)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(model.artworkAccentColor ?? .accentColor)
                 }
             }
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
         }
+        .foregroundStyle(model.sleepTimerMode.isActive ? (model.artworkAccentColor ?? .accentColor) : .secondary)
         .accessibilityLabel(Text("Sleep Timer"))
         .accessibilityValue(Text({
             switch model.sleepTimerMode {
@@ -178,28 +160,25 @@ struct BottomToolbarView: View {
 
     private var timelineButton: some View {
         Button {
-            switch model.selectedTab {
-            case .nowPlaying:
-                model.selectedTab = .timeline
-            case .timeline:
-                model.selectedTab = (model.hasEPUB || model.hasPDF) ? .read : .nowPlaying
-            case .read:
-                model.selectedTab = .nowPlaying
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                switch model.selectedTab {
+                case .nowPlaying:
+                    model.selectedTab = .timeline
+                case .timeline:
+                    model.selectedTab = .read
+                case .read:
+                    model.selectedTab = .timeline
+                }
             }
             Haptic.play(.medium)
         } label: {
-            Image(systemName: {
-                switch model.selectedTab {
-                case .nowPlaying: return "list.bullet"
-                case .timeline: return (model.hasEPUB || model.hasPDF) ? "book.pages" : "play.circle"
-                case .read: return "play.circle"
-                }
-            }())
-            .font(.title2)
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
+            Image(systemName: "list.bullet")
+                .font(.title2)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .accessibilityLabel(Text("Toggle view mode"))
+        .foregroundStyle((model.selectedTab == .timeline || model.selectedTab == .read) ? (model.artworkAccentColor ?? .accentColor) : .secondary)
+        .accessibilityLabel(Text("Toggle chapters list"))
         .disabled(model.tracks.isEmpty)
     }
 
@@ -215,8 +194,9 @@ struct BottomToolbarView: View {
             Image(systemName: "bookmark.fill")
                 .font(.title2)
                 .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            .contentShape(Rectangle())
         }
+        .foregroundStyle(.secondary)
         .accessibilityLabel(Text("Add bookmark at current time"))
         .disabled(model.tracks.isEmpty)
     }
@@ -274,7 +254,7 @@ private struct SleepTimerCountdownView: View {
         if model.sleepTimerRemainingSeconds > 0 {
             Text(sleepTimerCountdownText(model.sleepTimerRemainingSeconds))
                 .customFont(.caption2, weight: .semibold)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
                 .monospacedDigit()
         }
     }

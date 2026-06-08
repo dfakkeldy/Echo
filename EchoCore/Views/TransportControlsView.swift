@@ -6,7 +6,7 @@ struct TransportControlsView: View {
 
     var body: some View {
         let isCompact = settings.playerLayoutStyle == "compact"
-        HStack {
+        HStack(alignment: .center) {
             Spacer()
             ForEach(0..<5, id: \.self) { index in
                 let action = actionAt(index)
@@ -39,20 +39,28 @@ struct TransportControlsView: View {
     private func buttonForAction(_ action: WatchAction, longPressAction: WatchAction, isCompact: Bool) -> some View {
         switch action {
         case .playPause:
-            TransportButton(
-                tapAction: {
+            let totalDuration = model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
+            let elapsedSeconds: Double = {
+                if model.isMultiM4B {
+                    let bookOffset = model.m4bBooks.indices.contains(model.currentIndex) ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
+                    return bookOffset + model.currentPlaybackTime
+                } else {
+                    return model.currentPlaybackTime
+                }
+            }()
+            let totalFraction = totalDuration > 0 ? (elapsedSeconds / totalDuration) : 0.0
+
+            CircularProgressPlayButton(
+                isPlaying: model.isPlaying,
+                totalProgress: totalFraction,
+                chapterProgress: model.progressFraction,
+                action: {
                     model.togglePlayPause()
                     Haptic.play(.light)
                 },
                 longPressAction: longPressAction,
                 model: model
-            ) {
-                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: isCompact ? 36 : 44, weight: .bold))
-                    .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 60 : 76, height: isCompact ? 60 : 76)
-                    .contentShape(Rectangle())
-            }
+            )
             .accessibilityLabel(model.isPlaying ? Text("Pause") : Text("Play"))
 
         case .skipBackward:
@@ -65,9 +73,9 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: WatchAction.skipBackward.dynamicIconName(forDuration: settings.seekBackwardDuration))
-                    .font(.system(size: isCompact ? 24 : 28, weight: .regular))
+                    .font(.system(size: isCompact ? 14 : 16, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip back \(settings.seekBackwardDuration) seconds"))
@@ -82,9 +90,9 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: WatchAction.skipForward.dynamicIconName(forDuration: settings.seekForwardDuration))
-                    .font(.system(size: isCompact ? 24 : 28, weight: .regular))
+                    .font(.system(size: isCompact ? 14 : 16, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip forward \(settings.seekForwardDuration) seconds"))
@@ -99,9 +107,10 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
+                    .background(Circle().fill(Color.primary.opacity(0.1)))
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(model.chapters.count >= 2 ? Text("Previous chapter") : Text("Previous track"))
@@ -116,9 +125,10 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
+                    .background(Circle().fill(Color.primary.opacity(0.1)))
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(model.chapters.count >= 2 ? Text("Next chapter") : Text("Next track"))
@@ -133,9 +143,10 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "backward.fill")
-                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
+                    .background(Circle().fill(Color.primary.opacity(0.1)))
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Previous section"))
@@ -150,9 +161,10 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "forward.fill")
-                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
+                    .background(Circle().fill(Color.primary.opacity(0.1)))
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Next section"))

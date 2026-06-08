@@ -1,7 +1,9 @@
 import CoreGraphics
 
 enum NowPlayingLayout {
-    static let horizontalPadding: CGFloat = 24
+    /// Horizontal inset for all Now Playing content (artwork, metadata, scrubber).
+    /// Single tuning knob for edge breathing room on the player page.
+    static let horizontalPadding: CGFloat = 32
     static let artworkHorizontalInset: CGFloat = 0
     static let topToolbarTopPadding: CGFloat = 36
     static let topToolbarHeight: CGFloat = 60

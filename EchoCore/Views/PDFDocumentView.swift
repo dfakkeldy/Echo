@@ -29,6 +29,7 @@ struct PDFDocumentView: View {
                     }
                 )
                 .ignoresSafeArea(edges: .top)
+                .padding(.bottom, model.bottomInset)
             } else {
                 ProgressView()
                     .onAppear {
@@ -125,6 +126,7 @@ struct PDFKitView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
+        pdfView.backgroundColor = .clear
         pdfView.document = document
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous

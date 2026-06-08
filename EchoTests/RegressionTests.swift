@@ -24,7 +24,7 @@ struct RegressionTests {
 
     // MARK: - Enhanced transcript sidecar is discoverable
 
-    @Test func enhancedTranscriptSidecarIsDiscovered() throws {
+    @Test func enhancedTranscriptSidecarIsDiscovered() async throws {
         // Create a temporary audio file and an .enhanced.json sidecar.
         let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -46,7 +46,14 @@ struct RegressionTests {
         let service = TranscriptService(state: state)
 
         service.loadTranscript(for: audioFile)
-        let enhanced = state.enhancedTranscription
+        
+        var enhanced = state.enhancedTranscription
+        let start = Date()
+        while enhanced.isEmpty && Date().timeIntervalSince(start) < 1.0 {
+            try await Task.sleep(for: .milliseconds(10))
+            enhanced = state.enhancedTranscription
+        }
+
         #expect(!enhanced.isEmpty)
         #expect(enhanced.count == 1)
         #expect(enhanced.first?.text == "Hello world")

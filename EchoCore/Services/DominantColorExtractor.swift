@@ -132,6 +132,89 @@ enum DominantColorExtractor {
         return Color(red: Double(cr), green: Double(cg), blue: Double(cb))
     }
 
+    /// Returns the top `count` dominant colors from `image`, or default colors if none can be extracted.
+    static func extractColors(from image: UIImage, count: Int = 3) -> [Color] {
+        guard let cgImage = image.cgImage else {
+            return [Color.blue, Color.purple, Color.indigo]
+        }
+        guard let pixelData = downsampleAndRead(cgImage) else {
+            return [Color.blue, Color.purple, Color.indigo]
+        }
+        return analyseMultiple(pixelData: pixelData, count: count)
+    }
+
+    private static func analyseMultiple(pixelData: [UInt8], count: Int) -> [Color] {
+        var histogram = [BucketStats](repeating: BucketStats(), count: hueBuckets)
+        let centre = sampleSize / 2
+        let maxDistance = Float(sqrt(Double(centre * centre + centre * centre)))
+
+        let pixelCount = sampleSize * sampleSize
+        for i in 0..<pixelCount {
+            let offset = i * 4
+            let r = Float(pixelData[offset])     / 255.0
+            let g = Float(pixelData[offset + 1]) / 255.0
+            let b = Float(pixelData[offset + 2]) / 255.0
+
+            let (h, s, l) = rgbToHSL(r: r, g: g, b: b)
+
+            // Skip neutrals
+            guard l > minLightness && l < maxLightness else { continue }
+            guard s > minSaturation else { continue }
+
+            let saturationWeight = s * s
+            let x = Float(i % sampleSize)
+            let y = Float(i / sampleSize)
+            let dx = x - Float(centre)
+            let dy = y - Float(centre)
+            let distance = sqrt(dx * dx + dy * dy)
+            let centreWeight = 1.0 - (distance / maxDistance) * 0.4
+
+            let weight = saturationWeight * centreWeight
+
+            let bucket = min(Int(h * Float(hueBuckets)), hueBuckets - 1)
+            histogram[bucket].weight += weight
+            histogram[bucket].saturationSum += s * weight
+            histogram[bucket].lightnessSum += l * weight
+        }
+
+        // Get non-zero buckets sorted by weight descending
+        let sortedBuckets = histogram.enumerated()
+            .filter { $0.element.weight > 0 }
+            .sorted(by: { $0.element.weight > $1.element.weight })
+
+        if sortedBuckets.isEmpty {
+            return [Color.blue, Color.purple, Color.indigo]
+        }
+
+        var results: [Color] = []
+        for i in 0..<min(count, sortedBuckets.count) {
+            let index = sortedBuckets[i].offset
+            let stats = sortedBuckets[i].element
+
+            let avgSaturation = stats.saturationSum / stats.weight
+            let avgLightness = stats.lightnessSum / stats.weight
+
+            let finalS = max(avgSaturation, saturationFloor)
+            let finalL = min(max(avgLightness, lightnessTargetMin), lightnessTargetMax)
+            let finalH = Float(index) / Float(hueBuckets)
+
+            let (cr, cg, cb) = hslToRGB(h: finalH, s: finalS, l: finalL)
+            results.append(Color(red: Double(cr), green: Double(cg), blue: Double(cb)))
+        }
+
+        // Pad with slightly shifted/opacity variations if fewer than count
+        while results.count < count {
+            if let first = results.first {
+                results.append(first.opacity(0.6))
+            } else {
+                results.append(Color.accentColor)
+            }
+        }
+
+        return results
+    }
+
+
     // MARK: - Colour Space Conversions
 
     /// Converts RGB (0…1) to HSL (0…1).
