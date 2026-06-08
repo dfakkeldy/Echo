@@ -85,6 +85,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var watchBackgroundStyle: String = "artwork"
     var watchTitleScrollEnabled: Bool = false
     var watchTitleScrollSpeed: Double = 30.0
+    var watchDateEnabled: Bool = true
+    var watchDateFormat: String = "auto"
 
     /// Top words for the current chapter, received from the iPhone.
     var currentWordCloud: [WordFrequency] = []
@@ -279,6 +281,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         watchTitleScrollEnabled = defaults.bool(forKey: "watchTitleScrollEnabled")
         let storedSpeed = defaults.double(forKey: "watchTitleScrollSpeed")
         watchTitleScrollSpeed = storedSpeed > 0 ? storedSpeed : 30.0
+        watchDateEnabled = defaults.object(forKey: "watchDateEnabled") as? Bool ?? true
+        watchDateFormat = defaults.string(forKey: "watchDateFormat") ?? "auto"
     }
 
     private func parseSlots(_ raw: String) -> [WatchAction] {
@@ -500,6 +504,14 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             if let watchTitleScrollSpeed = state["watchTitleScrollSpeed"] as? Double {
                 self.watchTitleScrollSpeed = watchTitleScrollSpeed
                 self.defaults.set(watchTitleScrollSpeed, forKey: "watchTitleScrollSpeed")
+            }
+            if let watchDateEnabled = state["watchDateEnabled"] as? Bool {
+                self.watchDateEnabled = watchDateEnabled
+                self.defaults.set(watchDateEnabled, forKey: "watchDateEnabled")
+            }
+            if let watchDateFormat = state["watchDateFormat"] as? String {
+                self.watchDateFormat = watchDateFormat
+                self.defaults.set(watchDateFormat, forKey: "watchDateFormat")
             }
             if let thumbnailData = state["thumbnailData"] as? Data {
                 self.defaults.set(thumbnailData, forKey: "thumbnailData")

@@ -46,6 +46,8 @@ struct WatchStateSnapshot {
     var watchBackgroundStyle: String = SettingsManager.Defaults.watchBackgroundStyle
     var watchTitleScrollEnabled: Bool = SettingsManager.Defaults.watchTitleScrollEnabled
     var watchTitleScrollSpeed: Double = SettingsManager.Defaults.watchTitleScrollSpeed
+    var watchDateEnabled: Bool = SettingsManager.Defaults.watchDateEnabled
+    var watchDateFormat: String = SettingsManager.Defaults.watchDateFormat
 
     // MARK: Thumbnail availability
     var hasThumbnail: Bool = false
@@ -124,6 +126,8 @@ enum WatchStateContextBuilder {
         context["watchBackgroundStyle"] = s.watchBackgroundStyle
         context["watchTitleScrollEnabled"] = s.watchTitleScrollEnabled
         context["watchTitleScrollSpeed"] = s.watchTitleScrollSpeed
+        context["watchDateEnabled"] = s.watchDateEnabled
+        context["watchDateFormat"] = s.watchDateFormat
         context["hasThumbnail"] = s.hasThumbnail
 
         // Sleep timer

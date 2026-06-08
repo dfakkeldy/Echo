@@ -66,6 +66,8 @@ extension PlayerModel {
         s.watchBackgroundStyle = settings?.watchBackgroundStyle ?? SettingsManager.Defaults.watchBackgroundStyle
         s.watchTitleScrollEnabled = settings?.watchTitleScrollEnabled ?? SettingsManager.Defaults.watchTitleScrollEnabled
         s.watchTitleScrollSpeed = settings?.watchTitleScrollSpeed ?? SettingsManager.Defaults.watchTitleScrollSpeed
+        s.watchDateEnabled = settings?.watchDateEnabled ?? SettingsManager.Defaults.watchDateEnabled
+        s.watchDateFormat = settings?.watchDateFormat ?? SettingsManager.Defaults.watchDateFormat
 
         // Thumbnail availability
         s.hasThumbnail = watchThumbnailData != nil

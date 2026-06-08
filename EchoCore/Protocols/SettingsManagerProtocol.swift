@@ -36,6 +36,8 @@ import Foundation
     var watchBackgroundStyle: String { get set }
     var isHapticFeedbackEnabled: Bool { get set }
     var watchQuickBookmarkTimeoutSeconds: Int { get set }
+    var watchDateEnabled: Bool { get set }
+    var watchDateFormat: String { get set }
 
     // MARK: - Customizable Phone Controls & Presets
     var phonePage: [WatchAction] { get set }

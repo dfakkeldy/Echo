@@ -40,6 +40,8 @@ final class SettingsManager: SettingsManagerProtocol {
         static let watchTitleScrollSpeed = 30.0
         static let isHapticFeedbackEnabled = true
         static let watchQuickBookmarkTimeoutSeconds = 5
+        static let watchDateEnabled = true
+        static let watchDateFormat = "auto"
         static let truncateChapterNamesEnabled = false
         static let silenceDetectionLookbackSeconds = 10.0
         static let phonePage: [WatchAction] = [.previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack]
@@ -92,6 +94,8 @@ final class SettingsManager: SettingsManagerProtocol {
         static let isHapticFeedbackEnabled = "isHapticFeedbackEnabled"
         static let volumeBoostGain = "volumeBoostGain"
         static let watchQuickBookmarkTimeoutSeconds = "watchQuickBookmarkTimeoutSeconds"
+        static let watchDateEnabled = "watchDateEnabled"
+        static let watchDateFormat = "watchDateFormat"
         static let truncateChapterNamesEnabled = "truncateChapterNamesEnabled"
         static let silenceDetectionLookbackSeconds = "silenceDetectionLookbackSeconds"
         static let phonePage = "phonePage"
@@ -179,6 +183,8 @@ final class SettingsManager: SettingsManagerProtocol {
     var isHapticFeedbackEnabled: Bool { didSet { appGroupSet(isHapticFeedbackEnabled, forKey: Keys.isHapticFeedbackEnabled) } }
     var truncateChapterNamesEnabled: Bool { didSet { appGroupSet(truncateChapterNamesEnabled, forKey: Keys.truncateChapterNamesEnabled) } }
     var volumeBoostGain: Float { didSet { defaults.set(volumeBoostGain, forKey: Keys.volumeBoostGain) } }
+    var watchDateEnabled: Bool { didSet { appGroupSet(watchDateEnabled, forKey: Keys.watchDateEnabled) } }
+    var watchDateFormat: String { didSet { appGroupSet(watchDateFormat, forKey: Keys.watchDateFormat) } }
 
     // MARK: - Reader
 
@@ -325,6 +331,8 @@ final class SettingsManager: SettingsManagerProtocol {
             1,
             appGroupDefaults.integer(forKey: Keys.watchQuickBookmarkTimeoutSeconds)
         )
+        watchDateEnabled = appGroupDefaults.object(forKey: Keys.watchDateEnabled) as? Bool ?? Defaults.watchDateEnabled
+        watchDateFormat = appGroupDefaults.string(forKey: Keys.watchDateFormat) ?? Defaults.watchDateFormat
         phonePage = Self.decodeWatchPage(key: Keys.phonePage, from: defaults, fallback: Defaults.phonePage)
         phoneLongPressPage = Self.decodeWatchPage(key: Keys.phoneLongPressPage, from: defaults, fallback: Defaults.phoneLongPressPage)
         
@@ -416,7 +424,9 @@ final class SettingsManager: SettingsManagerProtocol {
             Keys.isHapticFeedbackEnabled: Defaults.isHapticFeedbackEnabled,
             Keys.truncateChapterNamesEnabled: Defaults.truncateChapterNamesEnabled,
             Keys.volumeBoostGain: Defaults.volumeBoostGain,
-            Keys.watchQuickBookmarkTimeoutSeconds: Defaults.watchQuickBookmarkTimeoutSeconds
+            Keys.watchQuickBookmarkTimeoutSeconds: Defaults.watchQuickBookmarkTimeoutSeconds,
+            Keys.watchDateEnabled: Defaults.watchDateEnabled,
+            Keys.watchDateFormat: Defaults.watchDateFormat
         ])
     }
 

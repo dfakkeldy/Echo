@@ -239,6 +239,31 @@ struct WatchAppSettingsView: View {
                                 }
                             }
                         }
+
+                        Divider()
+
+                        Toggle("Show Date", isOn: $settings.watchDateEnabled)
+                            .onChange(of: settings.watchDateEnabled) { _, _ in
+                                model.syncToWatch()
+                            }
+
+                        if settings.watchDateEnabled {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Date Format")
+                                    .customFont(.caption, appFont: settings.appFont)
+                                    .foregroundStyle(.secondary)
+
+                                Picker("Date Format", selection: $settings.watchDateFormat) {
+                                    Text("Auto").tag("auto")
+                                    Text("Mon Jun 8").tag("long")
+                                    Text("Mon 06/08").tag("short")
+                                }
+                                .pickerStyle(.segmented)
+                                .onChange(of: settings.watchDateFormat) { _, _ in
+                                    model.syncToWatch()
+                                }
+                            }
+                        }
                     }
                     .padding()
                     .background(

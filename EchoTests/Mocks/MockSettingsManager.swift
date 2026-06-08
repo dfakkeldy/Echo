@@ -33,6 +33,8 @@ final class MockSettingsManager: SettingsManagerProtocol {
     var watchBackgroundStyle: String = "artwork"
     var isHapticFeedbackEnabled: Bool = true
     var watchQuickBookmarkTimeoutSeconds: Int = 5
+    var watchDateEnabled: Bool = true
+    var watchDateFormat: String = "auto"
 
     var phonePage: [WatchAction] = [.previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack]
     var seekBackwardDuration: Int = 30

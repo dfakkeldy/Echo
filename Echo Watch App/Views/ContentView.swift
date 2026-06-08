@@ -80,6 +80,23 @@ struct ContentView: View {
                 }
             }
             .tabViewStyle(.page)
+
+            // Date overlay at the top left of the screen (opposite side of system time)
+            if viewModel.watchDateEnabled {
+                VStack {
+                    HStack {
+                        Text(dateString)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.leading, 12)
+                            .padding(.top, 16)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .ignoresSafeArea(.all, edges: .top)
+                .allowsHitTesting(false)
+            }
         }
         .focusable(true, interactions: .edit)
         .focused($isFocused)
@@ -133,6 +150,33 @@ struct ContentView: View {
             }
         } else {
             viewModel.sendCommand("volumeDelta", params: ["delta": delta])
+        }
+    }
+
+    private var dateString: String {
+        let date = Date.now
+        let weekday = date.formatted(.dateTime.weekday(.abbreviated))
+        
+        let useShortFormat: Bool
+        switch viewModel.watchDateFormat {
+        case "short":
+            useShortFormat = true
+        case "long":
+            useShortFormat = false
+        default: // "auto"
+            useShortFormat = WKInterfaceDevice.current().screenBounds.width < 175
+        }
+        
+        if useShortFormat {
+            // "Mon 06/08"
+            let month = date.formatted(.dateTime.month(.twoDigits))
+            let day = date.formatted(.dateTime.day(.twoDigits))
+            return "\(weekday) \(month)/\(day)"
+        } else {
+            // "Mon Jun 8"
+            let month = date.formatted(.dateTime.month(.abbreviated))
+            let day = date.formatted(.dateTime.day())
+            return "\(weekday) \(month) \(day)"
         }
     }
 
