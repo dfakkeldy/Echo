@@ -191,34 +191,68 @@ final class PlayerModel {
 
     // MARK: - Dynamic accent colour from artwork
 
-    /// Cached dominant colour extracted from the current cover artwork.
-    /// Invalidated automatically when `currentDisplayArtworkVersion` changes.
-    @ObservationIgnored private var cachedArtworkAccent: Color?
-    @ObservationIgnored private var cachedArtworkAccentVersion: Int = -1
+    /// Current UI colour scheme, fed from `RootTabView`. Drives surface-aware
+    /// contrast so the rescued accent recomputes on light/dark switches.
+    var uiColorScheme: ColorScheme = .light
 
-    /// Returns the best accent colour derived from the current book's cover,
-    /// or `nil` when no artwork is loaded or no vivid colour could be found.
-    var artworkAccentColor: Color? {
-        guard let image = currentDisplayArtwork else {
-            cachedArtworkAccent = nil
-            cachedArtworkAccentVersion = currentDisplayArtworkVersion
-            return nil
-        }
+    @ObservationIgnored private var cachedPalette: DominantColorExtractor.ArtworkPalette?
+    @ObservationIgnored private var cachedPaletteVersion: Int = -1
+
+    @ObservationIgnored private var cachedSafeAccent: Color?
+    @ObservationIgnored private var cachedSafeAccentVersion: Int = -1
+    @ObservationIgnored private var cachedSafeAccentScheme: ColorScheme = .light
+
+    /// One cached extraction pass for the current cover (or thumbnail).
+    var artworkPalette: DominantColorExtractor.ArtworkPalette {
         let version = currentDisplayArtworkVersion
-        if version != cachedArtworkAccentVersion {
-            cachedArtworkAccent = DominantColorExtractor.extract(from: image)
-            cachedArtworkAccentVersion = version
+        if version != cachedPaletteVersion || cachedPalette == nil {
+            if let image = currentDisplayArtwork ?? thumbnailImage {
+                cachedPalette = DominantColorExtractor.extractPalette(from: image)
+            } else {
+                cachedPalette = DominantColorExtractor.ArtworkPalette(
+                    rawAccent: nil, candidates: [], background: []
+                )
+            }
+            cachedPaletteVersion = version
         }
-        return cachedArtworkAccent
+        return cachedPalette!
     }
 
+    /// The contrast-safe accent for the current cover and colour scheme, or
+    /// `nil` when the cover has no vivid colour (greyscale / no image).
+    var artworkAccentColor: Color? {
+        let palette = artworkPalette
+        guard let raw = palette.rawAccent else { return nil }   // nil-contract
+
+        let version = currentDisplayArtworkVersion
+        if version == cachedSafeAccentVersion,
+           uiColorScheme == cachedSafeAccentScheme,
+           let cached = cachedSafeAccent {
+            return cached
+        }
+
+        let surface = AccentSafetyNet.representativeSurface(
+            background: palette.background.map(ColorMetrics.rgb),
+            scheme: uiColorScheme
+        )
+        let resolution = AccentSafetyNet.resolve(
+            rawAccent: ColorMetrics.rgb(raw),
+            candidates: palette.candidates.map(ColorMetrics.rgb),
+            surface: surface,
+            brand: ColorMetrics.rgb(Color.accentColor)
+        )
+        let safe = ColorMetrics.color(resolution.color)
+        cachedSafeAccent = safe
+        cachedSafeAccentVersion = version
+        cachedSafeAccentScheme = uiColorScheme
+        return safe
+    }
+
+    /// RAW (un-rescued) accent hex for the Watch, whose surface is always dark.
     var artworkAccentColorHex: String? {
-        guard let color = artworkAccentColor else { return nil }
+        guard let color = artworkPalette.rawAccent else { return nil }
         let uiColor = UIColor(color)
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         if uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) {
             let r = Int(round(red * 255.0))
             let g = Int(round(green * 255.0))
