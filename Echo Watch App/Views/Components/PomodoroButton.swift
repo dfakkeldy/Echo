@@ -56,7 +56,7 @@ struct PomodoroButton: View {
                 Text(timeString)
                     .font(.system(size: controlSize * 0.23, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(viewModel.pomodoroActive ? (viewModel.artworkAccentColor ?? Color.accentColor) : Color.white)
+                    .foregroundStyle(.white)
                     .frame(width: controlSize, height: controlSize)
                     .background {
                         WatchControlBackground(shape: Circle())
