@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-07 13:40:08
+**Last generated:** 2026-06-09 07:55:59
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -46,6 +46,7 @@ PrivacyInfo.xcprivacy
 Protocols/PlayerModelComponentProtocols.swift
 Protocols/SettingsManagerProtocol.swift
 Protocols/StoreManagerProtocol.swift
+Services/AccentSafetyNet.swift
 Services/AlignmentService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
@@ -54,10 +55,10 @@ Services/AudioSnippetPlayer.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
-Services/BookPreferencesService.swift
-Services/BookSettingsOverrideStore.swift
 Services/BookmarkArtworkCoordinator.swift
 Services/BookmarkStore.swift
+Services/BookPreferencesService.swift
+Services/BookSettingsOverrideStore.swift
 Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
 Services/ChapterService.swift
@@ -107,22 +108,25 @@ Services/WatchStateContextBuilder.swift
 Services/WatchSyncManager.swift
 Services/WhisperSession.swift
 State/PlaybackState.swift
+Utilities/ColorMetrics.swift
 Utilities/FolderPicker.swift
 Utilities/SilenceAnalyzer.swift
+Utilities/UIImage+Color.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
+ViewModels/PlayerModel.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
-ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
 ViewModels/TimelineFeedViewModel.swift
+Views/AudiobookPlayerUIArchitect.swift
 Views/AutoAlignmentProgressView.swift
-Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
+Views/BookSettingsView.swift
 Views/BottomToolbarView.swift
 Views/CardColorPickerSheet.swift
 Views/Cells/AnkiCardCell.swift
@@ -141,14 +145,19 @@ Views/Cells/TextSegmentCell.swift
 Views/Cells/TimelineCellDelegate.swift
 Views/ChapterPickerSheet.swift
 Views/ChapterTimeBlockView.swift
+Views/Components/AdaptiveBackground.swift
 Views/Components/AlbumArtHeroView.swift
+Views/Components/CircularProgressPlayButton.swift
 Views/Components/FlashcardCreationSheet.swift
 Views/Components/FlashcardOverlayView.swift
 Views/Components/Haptic.swift
 Views/Components/InlineStepperRow.swift
+Views/Components/MarqueeText.swift
 Views/Components/PlayerControlBar.swift
 Views/Components/TranscriptOverlayView.swift
 Views/Components/TranscriptRowView.swift
+Views/Components/UnifiedBottomDock.swift
+Views/Components/UnifiedTopHeader.swift
 Views/Components/WordCloudView.swift
 Views/ContentCardEditor.swift
 Views/DashboardShelf.swift
@@ -173,8 +182,8 @@ Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
 Views/ReaderSettingsSheet.swift
-Views/ReaderTab+Alignment.swift
 Views/ReaderTab.swift
+Views/ReaderTab+Alignment.swift
 Views/RootTabView.swift
 Views/ScrubberJoystick.swift
 Views/SettingsView.swift
@@ -188,8 +197,8 @@ Views/TimelineContentView.swift
 Views/TimelineFeedCollectionView.swift
 Views/TimelineHeaderView.swift
 Views/TimelineTab.swift
-Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
+Views/TransportControlsView+LongPress.swift
 Views/UpcomingReviewsModuleView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
@@ -233,8 +242,8 @@ Database/DAOs/TranscriptionDAO.swift
 Database/DatabaseService.swift
 Database/EPubBlockRecord.swift
 Database/Flashcard.swift
-Database/MigrationService.swift
 Database/Migrations/Schema_V11.swift
+Database/MigrationService.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -251,8 +260,8 @@ Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
-EPUBXMLParsing.swift
 EnhancedTranscriptionSegment.swift
+EPUBXMLParsing.swift
 FileLocations.swift
 KeychainStore.swift
 LayoutPreset.swift
@@ -694,6 +703,32 @@ The app can dynamically derive its accent (tint) color from the current audioboo
 - `EchoCoreApp.resolvedAccentColor` — returns the artwork-derived color when the theme is `.artwork`, otherwise the static theme color.
 - `ThemeSelectionView` — shows a live preview circle using the extracted color (or a dashed placeholder when no artwork is loaded), with a descriptive subtitle and fallback footer text.
 - `ThemeColor.artwork` added to the enum (before `.system` so it's the first/default option).
+
+### Accent Contrast Safety (June 2026)
+
+Artwork-derived accent colours are made legible against the player surface by a two-stage pipeline, fixed at the source so all consumers inherit it:
+
+1. **One extraction pass:** `DominantColorExtractor.extractPalette(from:)` returns `{ rawAccent, candidates, background }` from a single downsampled histogram scan (shared by `extract`, `extractColors`, and the background gradient).
+2. **Two-gate trigger:** `ColorMetrics.isLegible(_:on:)` flags an accent only when it fails **both** a WCAG luminance gate (`luminanceGate`) **and** a CIELAB ΔE chroma gate (`chromaGate`) against the estimated surface. Covers that clear either gate are left untouched.
+3. **A→B→C rescue:** `AccentSafetyNet.resolve(...)` escalates progressively — **A** nudge the winning hue's lightness to `contrastFloor` (within `distortionBudget`), **B** re-pick the next safe cover hue, **C** fall back to the nudged brand tint. Returns a `Tier` for debug/telemetry, mirroring the `AutoAlignmentService` progressive-tier convention.
+
+`PlayerModel.artworkAccentColor` is the single source of truth (the rescued colour, cached by artwork version + `uiColorScheme`, which `RootTabView` feeds in). `artworkAccentColorHex` stays **raw** for the Watch, whose surface is always dark.
+
+**Key types:**
+
+- `ColorMetrics` — Pure colour math: `RGB` value type, WCAG luminance/contrast, CIELAB ΔE76, HSL conversions, the `isLegible` two-gate, and the `nudged` lightness adjustment. Tunable constants (`luminanceGate`, `chromaGate`, `contrastFloor`, `distortionBudget`) tuned from a 5-cover sample.
+- `AccentSafetyNet` — The A→B→C rescue ladder (`resolve`) plus `representativeSurface(background:scheme:)`, which blends the cover's average background colour toward the scheme base by `materialWeight`.
+- `DominantColorExtractor.ArtworkPalette` — `{ rawAccent, candidates, background }` from one extraction pass.
+
+**Thresholds:**
+
+| Constant | Value | Rationale |
+|---|---|---|
+| `luminanceGate` | 2.4 : 1 | under Pragmatic (2.63), over Emotional (1.86) |
+| `chromaGate` (ΔE76) | 52 | over Brain (49), under Emotional (57) |
+| `contrastFloor` | 3.0 : 1 | Apple/WCAG minimum for UI controls |
+| `distortionBudget` | 0.22 (\|ΔL\|) | gold's 0.16 passes A; neon escalates to B |
+| `materialWeight` | 0.70 | two `.ultraThinMaterial` layers ≈ mostly scheme base |
 
 ### Watch Connectivity Fixes (June 2026)
 
