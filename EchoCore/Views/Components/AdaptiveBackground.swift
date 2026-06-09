@@ -4,16 +4,10 @@ struct AdaptiveBackground: View {
     @Environment(PlayerModel.self) private var model
 
     var body: some View {
-        let colors: [Color] = {
-            if let image = model.currentDisplayArtwork ?? model.thumbnailImage {
-                return DominantColorExtractor.extractColors(from: image, count: 3)
-            }
-            return [
-                Color.blue.opacity(0.2),
-                Color.purple.opacity(0.2),
-                Color.indigo.opacity(0.2)
-            ]
-        }()
+        let background = model.artworkPalette.background
+        let colors: [Color] = background.isEmpty
+            ? [Color.blue.opacity(0.2), Color.purple.opacity(0.2), Color.indigo.opacity(0.2)]
+            : background
 
         ZStack {
             Color(uiColor: .systemBackground)

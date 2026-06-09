@@ -7,6 +7,7 @@ struct RootTabView: View {
     @Environment(StoreManager.self) private var storeManager
     @Environment(\.displayScale) private var displayScale
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
@@ -143,6 +144,9 @@ struct RootTabView: View {
                 await storeManager.requestProducts()
             }
             .preferredColorScheme(colorScheme(for: settings.appAppearance))
+            .onChange(of: colorScheme, initial: true) { _, newScheme in
+                model.uiColorScheme = newScheme
+            }
         }
     }
 
