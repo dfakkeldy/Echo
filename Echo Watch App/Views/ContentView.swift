@@ -184,6 +184,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             viewModel.requestCurrentState()
+            viewModel.appWillEnterForeground()
         }
     }
 

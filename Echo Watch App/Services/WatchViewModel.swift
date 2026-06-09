@@ -32,6 +32,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var pomodoroDuration: TimeInterval = 25 * 60
     var pomodoroRemaining: TimeInterval = 25 * 60
     @ObservationIgnored private var pomodoroTimer: Timer?
+    @ObservationIgnored private var lastPomodoroTick: Date?
     var artworkAccentColorHex: String? = nil
     var artworkAccentColor: Color? {
         guard let hex = artworkAccentColorHex else { return nil }
@@ -841,6 +842,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             pomodoroRemaining = pomodoroDuration
         }
         pomodoroActive = true
+        lastPomodoroTick = Date()
         playHaptic(.start)
         
         pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -856,6 +858,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         pomodoroActive = false
         pomodoroTimer?.invalidate()
         pomodoroTimer = nil
+        lastPomodoroTick = nil
         playHaptic(.stop)
     }
 
@@ -863,21 +866,73 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         stopPomodoro()
         self.pomodoroDuration = duration
         self.pomodoroRemaining = duration
+        lastPomodoroTick = nil
         defaults.set(duration, forKey: "pomodoroDuration")
     }
 
     private func tickPomodoro() {
-        guard pomodoroActive else { return }
-        if pomodoroRemaining > 1 {
-            pomodoroRemaining -= 1
+        guard pomodoroActive, let lastTick = lastPomodoroTick else { return }
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastTick)
+        self.lastPomodoroTick = now
+        
+        if pomodoroRemaining > elapsed {
+            pomodoroRemaining -= elapsed
         } else {
             pomodoroRemaining = 0
             pomodoroActive = false
             pomodoroTimer?.invalidate()
             pomodoroTimer = nil
+            self.lastPomodoroTick = nil
             
-            playHaptic(.notification)
-            WKInterfaceDevice.current().play(.success)
+            playPersistentAlarmHaptics()
+        }
+    }
+
+    private func playPersistentAlarmHaptics() {
+        let startTime = Date()
+        WKInterfaceDevice.current().play(.notification)
+        
+        Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                guard Date().timeIntervalSince(startTime) < 3.0 else {
+                    timer.invalidate()
+                    return
+                }
+                WKInterfaceDevice.current().play(.notification)
+            }
+        }
+    }
+
+    func appWillEnterForeground() {
+        guard pomodoroActive else { return }
+        
+        if let lastTick = lastPomodoroTick {
+            let elapsed = Date().timeIntervalSince(lastTick)
+            self.lastPomodoroTick = Date()
+            
+            if pomodoroRemaining > elapsed {
+                pomodoroRemaining -= elapsed
+                
+                if pomodoroTimer == nil {
+                    pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                        guard let self else { return }
+                        MainActor.assumeIsolated {
+                            self.tickPomodoro()
+                        }
+                    }
+                }
+            } else {
+                pomodoroRemaining = 0
+                pomodoroActive = false
+                pomodoroTimer?.invalidate()
+                pomodoroTimer = nil
+                lastPomodoroTick = nil
+                
+                playPersistentAlarmHaptics()
+            }
+        } else {
+            lastPomodoroTick = Date()
         }
     }
 }

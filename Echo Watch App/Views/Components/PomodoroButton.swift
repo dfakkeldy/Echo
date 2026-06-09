@@ -10,14 +10,25 @@ struct PomodoroButton: View {
         ringSize ?? controlSize
     }
 
+    private var strokeWidth: CGFloat {
+        ringSize != nil ? 4.5 : 3.5
+    }
+
     private var ringProgress: Double {
         viewModel.pomodoroDuration > 0 ? (viewModel.pomodoroRemaining / viewModel.pomodoroDuration) : 0.0
     }
 
     private var timeString: String {
-        let mins = Int(viewModel.pomodoroRemaining) / 60
-        let secs = Int(viewModel.pomodoroRemaining) % 60
-        return String(format: "%02d:%02d", mins, secs)
+        let remaining = Int(viewModel.pomodoroRemaining)
+        if remaining >= 3600 {
+            let hours = remaining / 3600
+            let mins = (remaining % 3600) / 60
+            return String(format: "%02d:%02d", hours, mins)
+        } else {
+            let mins = remaining / 60
+            let secs = remaining % 60
+            return String(format: "%02d:%02d", mins, secs)
+        }
     }
 
     var body: some View {
@@ -27,7 +38,7 @@ struct PomodoroButton: View {
             ZStack {
                 // Background track
                 Circle()
-                    .stroke(Color.white.opacity(0.15), lineWidth: ringSize != nil ? 4 : 2.5)
+                    .stroke(Color.white.opacity(0.2), lineWidth: strokeWidth)
                     .frame(width: activeRingSize, height: activeRingSize)
 
                 // Active progress track
@@ -35,7 +46,7 @@ struct PomodoroButton: View {
                     .trim(from: 0, to: ringProgress)
                     .stroke(
                         viewModel.pomodoroActive ? (viewModel.artworkAccentColor ?? Color.accentColor) : Color.gray,
-                        style: StrokeStyle(lineWidth: ringSize != nil ? 4 : 2.5, lineCap: .round)
+                        style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
                     )
                     .frame(width: activeRingSize, height: activeRingSize)
                     .rotationEffect(.degrees(-90))
