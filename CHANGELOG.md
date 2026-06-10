@@ -27,6 +27,7 @@ All notable changes to Echo: Audiobook Study Player.
 - Local watch playback timer with independent progress tracking.
 - `os.log` migration for structured logging across all targets.
 - GitHub Pages marketing site and privacy policy page.
+- **Marketing & documentation suite (2026-06-09):** website rebranded Orbit→Echo and expanded with `learn.html` (learning-science guide), `manual.html` (complete user manual), and `devlog.html` (weekly build history from git log); markdown sources in `docs/guides/`; `MARKETING.md` strategy doc with positioning, channel plan, and a shipped-vs-vision honesty ledger; App Store metadata refreshed (photo bookmarks, PDF, Pomodoro; keywords brought under the 100-character limit).
 - Timeline freeze mode for EPUB browsing with sync-and-resume anchoring.
 - **Chapter grouping service** (`ChapterGroupingService`): detects and collapses Libation-style sub-section chapter atoms into logical chapters. Handles patterns like "Chapter 11. A" / "Chapter 11. B" → single "Chapter 11" spanning the full time range, with original sub-sections retained for scrubber tick marks.
 - **Section navigation**: new `.nextSection` and `.previousSection` `WatchAction` cases for skipping between sub-section boundaries within chapters. Available on both phone transport controls and watch button layouts.
