@@ -106,42 +106,42 @@ extension ReaderTab {
 
     func startAutoAlignment(model: PlayerModel) {
         guard let db = model.databaseService else { return }
+        guard let vm = viewModel else { return }
         let audiobookID = folderURL.absoluteString
 
         let chapters = model.alignmentPickerChapters
         let blocks = (try? EPubBlockDAO(db: db.writer).blocks(for: audiobookID)) ?? []
 
         guard !chapters.isEmpty, !blocks.isEmpty else {
-            showAutoAlignmentFailedAlert = true
-            autoAlignmentErrorMessage = "No chapters or EPUB blocks found."
+            vm.showAutoAlignmentFailedAlert = true
+            vm.autoAlignmentErrorMessage = "No chapters or EPUB blocks found."
             return
         }
 
-        autoAlignmentState.reset()
-        viewModel?.autoAlignmentState = autoAlignmentState
+        vm.autoAlignmentState.reset()
 
         let autoService = AutoAlignmentService(
             db: db.writer,
             audiobookID: audiobookID,
             audioEngine: model.audioEngine,
-            state: autoAlignmentState
+            state: vm.autoAlignmentState
         )
 
-        showAutoAlignmentProgress = true
-        autoAlignmentTask = autoService.startAutoAlignment(chapters: chapters, blocks: blocks)
+        vm.showAutoAlignmentProgress = true
+        vm.autoAlignmentTask = autoService.startAutoAlignment(chapters: chapters, blocks: blocks)
 
         Task { @MainActor in
             do {
-                try await autoAlignmentTask?.value
-                viewModel?.reload()
+                try await vm.autoAlignmentTask?.value
+                vm.reload()
                 haptic.impactOccurred()
             } catch is CancellationError {
                 // User cancelled — clean exit.
             } catch {
-                showAutoAlignmentFailedAlert = true
-                autoAlignmentErrorMessage = error.localizedDescription
+                vm.showAutoAlignmentFailedAlert = true
+                vm.autoAlignmentErrorMessage = error.localizedDescription
             }
-            autoAlignmentTask = nil
+            vm.autoAlignmentTask = nil
         }
     }
 

@@ -24,11 +24,6 @@ struct ReaderTab: View {
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
     @State private var hasDismissedAlignmentBanner = false
-    @State var autoAlignmentTask: Task<Void, Error>?
-    @State var showAutoAlignmentProgress = false
-    @State var showAutoAlignmentFailedAlert = false
-    @State var autoAlignmentErrorMessage: String?
-    @State var autoAlignmentState = AutoAlignmentState()
     let haptic = UIImpactFeedbackGenerator(style: .medium)
     let logger = Logger(category: "ReaderTab")
 
@@ -287,19 +282,27 @@ struct ReaderTab: View {
                 showChapterThemePickerForBlockID = nil
             }
         }
-        .sheet(isPresented: $showAutoAlignmentProgress) {
-            AutoAlignmentProgressView(
-                sharedState: autoAlignmentState,
-                onCancel: { autoAlignmentTask?.cancel() }
-            )
+        .sheet(isPresented: Binding(
+            get: { viewModel?.showAutoAlignmentProgress ?? false },
+            set: { viewModel?.showAutoAlignmentProgress = $0 }
+        )) {
+            if let vm = viewModel {
+                AutoAlignmentProgressView(
+                    sharedState: vm.autoAlignmentState,
+                    onCancel: { vm.autoAlignmentTask?.cancel() }
+                )
+            }
         }
-        .alert("Auto-Alignment Failed", isPresented: $showAutoAlignmentFailedAlert) {
+        .alert("Auto-Alignment Failed", isPresented: Binding(
+            get: { viewModel?.showAutoAlignmentFailedAlert ?? false },
+            set: { viewModel?.showAutoAlignmentFailedAlert = $0 }
+        )) {
             Button("OK") {}
         } message: {
-            Text(autoAlignmentErrorMessage ?? "An unknown error occurred.")
+            Text(viewModel?.autoAlignmentErrorMessage ?? "An unknown error occurred.")
         }
         .onDisappear {
-            autoAlignmentTask?.cancel()
+            viewModel?.autoAlignmentTask?.cancel()
         }
         .background(Color.clear)
     }

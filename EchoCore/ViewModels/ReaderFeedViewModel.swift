@@ -32,8 +32,22 @@ final class ReaderFeedViewModel {
     /// ID of the currently active block (based on playback position).
     var activeBlockID: String?
 
+    // MARK: - Auto-alignment workflow state
+
     /// Progress state for the auto-alignment pipeline. Bound by the UI sheet.
     var autoAlignmentState = AutoAlignmentState()
+
+    /// In-flight auto-alignment operation. Cancelled on view teardown or user action.
+    var autoAlignmentTask: Task<Void, Error>?
+
+    /// Whether the auto-alignment progress sheet is presented.
+    var showAutoAlignmentProgress = false
+
+    /// Whether the auto-alignment failure alert is presented.
+    var showAutoAlignmentFailedAlert = false
+
+    /// Last auto-alignment error message for the failure alert.
+    var autoAlignmentErrorMessage: String?
 
     /// Current search query. nil = show all blocks.
     var searchQuery: String? {
