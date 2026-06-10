@@ -313,7 +313,10 @@ enum EPUBAutoImportScanner {
 
         for entry in archive {
             guard entry.type == .file else { continue }
-            let destination = destDir.appendingPathComponent(entry.path)
+            // Validate the entry path *before* creating any directory or
+            // writing any file, so a hostile archive can never coax us into
+            // touching the filesystem outside `destDir`.
+            let destination = try safeDestination(for: entry.path, within: destDir)
             try FileManager.default.createDirectory(
                 at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -323,6 +326,32 @@ enum EPUBAutoImportScanner {
 
         logger.debug("Extracted EPUB to \(sanitizedPath(destDir.path))")
         return destDir
+    }
+
+    /// Resolves a ZIP entry path to its on-disk destination, guaranteeing the
+    /// result stays inside `root` (zip-slip / directory-traversal defense).
+    ///
+    /// ZIPFoundation's `unzipItem(at:to:)` performs this check internally, but
+    /// we extract entries individually (to validate the mimetype and stream
+    /// each entry), so the guard is ours to enforce. Throws when the entry path
+    /// is absolute or escapes `root` via `..` segments.  (CODE_AUDIT.md §6.1)
+    static func safeDestination(for entryPath: String, within root: URL) throws -> URL {
+        // Absolute entry paths have no legitimate use in an EPUB and would
+        // otherwise be silently re-rooted by `appendingPathComponent`.
+        guard !entryPath.hasPrefix("/") else {
+            throw ScannerError.unsafeEntryPath(entryPath)
+        }
+
+        let destination = root.appendingPathComponent(entryPath).standardizedFileURL
+        let rootPath = root.standardizedFileURL.path
+
+        // After normalizing `..` segments, the destination must remain within
+        // root — i.e. be root itself or a path beneath `root/`.
+        guard destination.path == rootPath || destination.path.hasPrefix(rootPath + "/") else {
+            throw ScannerError.unsafeEntryPath(entryPath)
+        }
+
+        return destination
     }
 
     /// Sanitizes a filesystem path for safe logging (strips the user's home
@@ -350,6 +379,7 @@ private enum ScannerError: LocalizedError {
     case cachesUnavailable
     case invalidArchive(url: URL)
     case invalidEPUB(path: String)
+    case unsafeEntryPath(String)
 
     var errorDescription: String? {
         switch self {
@@ -359,6 +389,8 @@ private enum ScannerError: LocalizedError {
             return "Cannot open archive: \(url.lastPathComponent)"
         case .invalidEPUB(let path):
             return "File is not a valid EPUB: \(path)"
+        case .unsafeEntryPath(let path):
+            return "EPUB contains an unsafe entry path: \(path)"
         }
     }
 }
