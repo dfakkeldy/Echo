@@ -171,13 +171,12 @@ final class TimelineService {
     private func pushForwardUncompletedItems() {
         guard let db else { return }
         let now = Date()
+        let dao = RealTimeEventDAO(db: db.writer)
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await db.writer.write { db in
-                    let dao = RealTimeEventDAO(db: db)
-                    try dao.pushForwardUncompleted(before: now, to: now)
-                }
+                // DAO handles its own write transaction internally
+                try dao.pushForwardUncompleted(before: now, to: now)
             } catch {
                 self.logger.error("Push-forward failed: \(error.localizedDescription)")
             }

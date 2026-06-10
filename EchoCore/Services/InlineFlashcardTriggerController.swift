@@ -40,8 +40,12 @@ final class InlineFlashcardTriggerController {
     func loadFlashcards(for trackKey: String) {
         guard !isLoadingFlashcards else { return }
         isLoadingFlashcards = true
-        let db = databaseServiceProvider?()
-        Task { [weak self] in
+        guard let dbService = databaseServiceProvider?() else {
+            isLoadingFlashcards = false
+            return
+        }
+        let dao = FlashcardDAO(db: dbService.writer)
+        Task.detached { [weak self] in
             guard let self else { return }
             defer {
                 Task { @MainActor [weak self] in
@@ -49,9 +53,8 @@ final class InlineFlashcardTriggerController {
                 }
             }
             do {
-                let cards = try await db?.writer.read { db in
-                    try FlashcardDAO(db: db).flashcards(for: trackKey)
-                } ?? []
+                // DAO handles its own read transaction internally
+                let cards = try dao.flashcards(for: trackKey)
                 await MainActor.run { [weak self] in
                     self?.cachedTrackFlashcards = cards
                     self?.cachedTrackFlashcardKey = trackKey
@@ -122,13 +125,12 @@ final class InlineFlashcardTriggerController {
     /// Grades the given flashcard in the database via async write to avoid
     /// blocking the main thread.
     func gradeCard(_ grade: Int, cardID: String) {
-        guard let db = databaseServiceProvider?() else { return }
-        Task { [weak self] in
-            guard self != nil else { return }
+        guard let dbService = databaseServiceProvider?() else { return }
+        let dao = FlashcardDAO(db: dbService.writer)
+        Task.detached {
             do {
-                try await db.writer.write { db in
-                    try FlashcardDAO(db: db).grade(cardID: cardID, grade: grade)
-                }
+                // DAO handles its own write transaction internally
+                try dao.grade(cardID: cardID, grade: grade)
             } catch {
                 Logger(category: "FlashcardTrigger").error("Failed to grade flashcard \(cardID): \(error.localizedDescription)")
             }

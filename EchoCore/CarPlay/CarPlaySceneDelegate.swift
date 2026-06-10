@@ -42,7 +42,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
         // ── Chapters ──
         if let model, model.isMultiM4B, !model.aggregatedChapters.isEmpty {
-            let chapterItems = model!.aggregatedChapters.map { chapter -> CPListItem in
+            let chapterItems = model.aggregatedChapters.map { chapter -> CPListItem in
                 let item = CPListItem(text: chapter.chapterTitle,
                                       detailText: "\(chapter.bookTitle) · \(NowPlayingController.formatTime(chapter.endSeconds - chapter.startSeconds))")
                 item.handler = { [weak model] _, completion in

@@ -311,12 +311,12 @@ private struct AppIconSelectionView: View {
     
     private func setAppIcon(to iconName: String?) {
         guard UIApplication.shared.supportsAlternateIcons else { return }
-        UIApplication.shared.setAlternateIconName(iconName) { [weak self] error in
+        UIApplication.shared.setAlternateIconName(iconName) { error in
             if let error = error {
                 Logger(category: "Settings").error("Failed to change app icon: \(error.localizedDescription)")
             } else {
-                Task { @MainActor [weak self] in
-                    self?.currentIcon = iconName
+                Task { @MainActor in
+                    self.currentIcon = iconName
                 }
             }
         }
