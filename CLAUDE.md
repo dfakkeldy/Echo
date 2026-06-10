@@ -6,7 +6,7 @@ You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo dev
 ## Project Context
 * **App:** Open-source media player app (MIT License).
 * **Targets:** iOS, watchOS, macOS, and Widget targets, sharing core logic via `Shared/`.
-* **Companion:** Transcript-generation pipeline (SwiftUI CLI & Python using OpenAI Whisper in `Tools/`).
+* **Companion:** Transcript-generation pipeline (Python using OpenAI Whisper in `Tools/`). Alignment is now entirely in-app via WhisperKit (on-device CoreML).
 * **Stack:** Swift, SwiftUI, Python.
 * **Current Phase:** Adding on-device auto-alignment (WhisperKit) and polishing EPUB reader UX.
 * **Auto-Alignment:** A 3-tier progressive alignment pipeline (`AutoAlignmentService`) that transcribes short audio clips at chapter boundaries using WhisperKit (on-device CoreML), fuzzy-matches against EPUB text (Levenshtein + word-level Jaccard), and inserts alignment anchors automatically. Tiers: (1) Chapter Snap — anchor start/end boundaries, (2) Drift Detection — flag misaligned chapters, (3) Drift Repair — bisect to insert correction anchors. Progress + debug log shown in `AutoAlignmentProgressView`.
