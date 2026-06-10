@@ -117,8 +117,15 @@ struct ArtworkCache {
         return nil
     }
 
+    /// In-memory cache for Watch transfer JPEG data, keyed by artwork version
+    /// to avoid redundant JPEG encodes on each sync cycle.
+    private static var cachedWatchJPEG: (version: Int, data: Data)?
+
     /// Creates a high-resolution (400x400) JPEG thumbnail suitable for Watch transfer.
-    static func makeWatchThumbnailData(from image: UIImage) -> Data? {
+    static func makeWatchThumbnailData(from image: UIImage, version: Int? = nil) -> Data? {
+        if let version, let cached = cachedWatchJPEG, cached.version == version {
+            return cached.data
+        }
         let watchSize = CGSize(width: 200, height: 200)
         let watchFormat = UIGraphicsImageRendererFormat()
         watchFormat.scale = 2.0
@@ -126,7 +133,11 @@ struct ArtworkCache {
         let watchImage = watchRenderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: watchSize))
         }
-        return watchImage.jpegData(compressionQuality: 0.75)
+        let data = watchImage.jpegData(compressionQuality: 0.75)
+        if let data, let version {
+            cachedWatchJPEG = (version, data)
+        }
+        return data
     }
 
     /// Generates display (300×300) and watch (400×400) thumbnails from a source image.
