@@ -20,6 +20,7 @@ final class ContinuousAlignmentService {
     private var isProcessing = false
     private var ringBuffer: AudioRingBuffer?
     private var timer: Timer?
+    private var transcriptionTask: Task<Void, Never>?
     
     // WhisperKit
     private var whisperKit: WhisperKit?
@@ -71,6 +72,8 @@ final class ContinuousAlignmentService {
     func stop() {
         guard isRunning else { return }
         isRunning = false
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
         timer?.invalidate()
         timer = nil
         audioEngine.removeCaptureTap()
@@ -95,7 +98,7 @@ final class ContinuousAlignmentService {
         let bufferDuration = Double(samples.count) / Config.sampleRate
 
         isProcessing = true
-        Task {
+        transcriptionTask = Task {
             defer { isProcessing = false }
             do {
                 try await loadModelIfNeeded()

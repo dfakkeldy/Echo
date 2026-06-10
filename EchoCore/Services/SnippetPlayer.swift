@@ -3,6 +3,9 @@ import os.log
 
 /// Plays a segment of an audio file using a separate AVAudioEngine instance,
 /// following the same pattern as BookmarkStore voice memo playback.
+///
+/// Also serves as the unified preview player (replaces the former
+/// AudioSnippetPlayer) with volume control and full-file playback support.
 @MainActor
 final class SnippetPlayer {
     private var engine: AVAudioEngine?
@@ -14,7 +17,8 @@ final class SnippetPlayer {
     var onPlaybackWillStart: (() -> Void)?
     var onPlaybackDidEnd: (() -> Void)?
 
-    func play(url: URL, startTime: TimeInterval, endTime: TimeInterval) {
+    /// Plays a time-range segment of an audio file.
+    func play(url: URL, startTime: TimeInterval, endTime: TimeInterval, volume: Float = 1.0) {
         stop()
         currentGeneration += 1
         let generation = currentGeneration
@@ -23,7 +27,7 @@ final class SnippetPlayer {
         do {
             file = try AVAudioFile(forReading: url)
         } catch {
-            os_log(.error, "SnippetPlayer: failed to read audio file at %{public}@: %{public}@", url.path, error.localizedDescription)
+            Logger(category: "SnippetPlayer").error("Failed to read audio file at \(url.path): \(error.localizedDescription)")
             onPlaybackDidEnd?()
             return
         }
@@ -32,7 +36,7 @@ final class SnippetPlayer {
         let endFrame = AVAudioFramePosition(min(Double(file.length), endTime * sampleRate))
         let framesToPlay = AVAudioFrameCount(endFrame - startFrame)
         guard framesToPlay > 0 else {
-            os_log(.error, "SnippetPlayer: zero-length segment (start=%.2f, end=%.2f)", startTime, endTime)
+            Logger(category: "SnippetPlayer").error("Zero-length segment (start=\(startTime), end=\(endTime))")
             onPlaybackDidEnd?()
             return
         }
@@ -41,11 +45,12 @@ final class SnippetPlayer {
         let node = AVAudioPlayerNode()
         eng.attach(node)
         eng.connect(node, to: eng.mainMixerNode, format: file.processingFormat)
+        eng.mainMixerNode.outputVolume = volume
 
         do {
             try eng.start()
         } catch {
-            os_log(.error, "SnippetPlayer: engine start failed: %{public}@", error.localizedDescription)
+            Logger(category: "SnippetPlayer").error("Engine start failed: \(error.localizedDescription)")
             onPlaybackDidEnd?()
             return
         }
@@ -64,6 +69,26 @@ final class SnippetPlayer {
         engine = eng
         playerNode = node
         isPlaying = true
+    }
+
+    /// Convenience: plays an entire audio file from start to finish.
+    /// - Parameters:
+    ///   - url: The audio file URL.
+    ///   - volume: Output volume (0…1). Defaults to 1.0.
+    ///   - completion: Called on the main actor when playback finishes.
+    func play(url: URL, volume: Float = 1.0, completion: (() -> Void)? = nil) {
+        guard let file = try? AVAudioFile(forReading: url) else {
+            Logger(category: "SnippetPlayer").error("Failed to read file at \(url.path)")
+            completion?()
+            return
+        }
+        let duration = Double(file.length) / file.processingFormat.sampleRate
+        let previousDidEnd = onPlaybackDidEnd
+        onPlaybackDidEnd = { [weak self] in
+            previousDidEnd?()
+            completion?()
+        }
+        play(url: url, startTime: 0, endTime: duration, volume: volume)
     }
 
     func stop() {
