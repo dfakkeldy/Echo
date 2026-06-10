@@ -102,6 +102,25 @@ enum HelpContent {
             """
         ),
         HelpSection(
+            id: "flashcards",
+            title: "Flashcards & Daily Review",
+            body: """
+            Echo includes a built-in spaced repetition system (SRS) — Anki-style flashcards scheduled with the SM-2 algorithm, so each card comes back right before you'd forget it.
+
+            Creating cards: Long-press a paragraph in the Reader and choose "Create Flashcard" (the text seeds the card), promote any bookmark to a card, or create one from scratch in the Timeline tab. Every card has a front (write it as a question) and a back (the answer), and can carry an audio snippet from the book.
+
+            Trigger timing: Each card can surface at the beginning or end of its audio moment during playback — a quick quiz in context — or be set to manual-only so it never interrupts listening.
+
+            Daily Review: Cards due today appear in the review queue. Grade each one Again, Hard, Good, or Easy — your grade determines when it returns (tomorrow if you missed it, weeks out if it was easy). Cards with audio play their snippet during review.
+
+            Review on Apple Watch: Full hands-free review sessions run on the watch — hear the card, think your answer, tap a grade.
+
+            Stats & reminders: The Timeline tab shows due count, reviewed-today, and total cards. Enable the daily review notification in Settings to get a local reminder when cards are due.
+
+            Deck import: Anki-style JSON decks can be imported with validation, so existing decks come along.
+            """
+        ),
+        HelpSection(
             id: "sleep-timer",
             title: "Sleep Timer",
             body: """
@@ -171,6 +190,17 @@ enum HelpContent {
             """
         ),
         HelpSection(
+            id: "pdf",
+            title: "PDF Companion Documents",
+            body: """
+            PDFs work as companion documents too — slides, scanned textbooks, sheet music. The import button accepts both EPUB and PDF and routes automatically; the Reader tab shows the PDF with continuous scrolling and zoom.
+
+            **Page alignment:** Long-press a page and choose "Align" to open the Manual Alignment sheet: play/pause, ±5 second skips, and a scrubber joystick — pull a little for slow, precise scrubbing, further for fast travel, with live audio preview while you drag. Confirm to lock the page to that audio position.
+
+            **Page bookmarks:** Long-press a page and choose "Save Bookmark." Echo stores a screenshot thumbnail plus your exact page, zoom, and scroll position — tapping the bookmark later restores the view precisely.
+            """
+        ),
+        HelpSection(
             id: "playlist",
             title: "Playlist",
             body: """
@@ -193,9 +223,21 @@ enum HelpContent {
             • Progress Display — Choose between a circular progress ring and a linear progress bar. Each can show either chapter progress or total book progress.
             • Artwork — Two layouts: Full Face (immersive artwork) and Classic (small artwork with background). Backgrounds can be blurred artwork or solid black.
             • Word Cloud — A watch page showing the most frequent words from the current chapter.
+            • Pomodoro Timer — A focus timer assignable to any button slot. Pick hours/minutes/seconds with the multi-wheel picker, watch the progress ring, and get a persistent alarm when time is up.
+            • Flashcard Review — Run your Daily Review hands-free from the wrist (see Flashcards & Daily Review).
+            • Fullscreen Artwork — Tap the album art on the player screen to view the cover fullscreen. An optional date overlay can show the day and date on the player.
             • Haptic feedback on button taps can be toggled in Settings.
 
             Configure all watch options from the iPhone app under Settings > Watch App.
+            """
+        ),
+        HelpSection(
+            id: "carplay",
+            title: "CarPlay",
+            body: """
+            Echo appears in CarPlay with a browse list and transport controls — play, pause, and skip from the car's screen. Playback also responds to your car's steering-wheel and head-unit controls via the system Now Playing integration.
+
+            CarPlay support is intentionally minimal for now; richer browsing is planned. No CarPlay in your car? Echo is designed so the Apple Watch remote covers the same job — the phone can stay in your pocket or on the aux cable.
             """
         ),
         HelpSection(
