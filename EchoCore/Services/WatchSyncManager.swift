@@ -83,6 +83,9 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         // Deliberately NOT transferUserInfo — that FIFO queue replays stale
         // snapshots (the same hazard the watch warns about for commands).
         if reason == .significant {
+            #if DEBUG
+            assertExpectedKeys(in: context)
+            #endif
             do {
                 try session.updateApplicationContext(context)
             } catch {
@@ -170,4 +173,25 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             self?.onReceiveApplicationContext?(applicationContext)
         }
     }
+
+    #if DEBUG
+    /// Expected keys in every significant application-context dictionary sent to
+    /// the watch. If a key is missing, the assertion fires so developers catch
+    /// context drift at the source instead of debugging stale watch UIs.
+    private let expectedContextKeys: Set<String> = [
+        "isPlaying", "progressFraction", "currentTime", "bookmarkStorageKey",
+        "folderKey", "title", "crownAction", "isHapticFeedbackEnabled",
+        "watchQuickBookmarkTimeoutSeconds", "loopMode", "playbackSpeed",
+        "seekBackwardDuration", "seekForwardDuration",
+        "watchPage1", "watchPage2", "watchPage3", "watchPage4", "watchPage5",
+        "linearBarMode", "linearBarHidden", "circularRingMode",
+        "circularRingHidden", "watchArtworkLayout", "watchBackgroundStyle",
+        "watchTitleScrollEnabled",
+    ]
+
+    private func assertExpectedKeys(in context: [String: Any]) {
+        let missing = expectedContextKeys.subtracting(context.keys)
+        assert(missing.isEmpty, "Watch application context missing keys: \(missing.sorted())")
+    }
+    #endif
 }
