@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.orbitaudiobooks</string>
+		<string>group.com.echo.audiobooks</string>
 	</array>
 	<!--
 	To enable CarPlay, uncomment the entitlement below. Requires:
@@ -23,7 +23,7 @@ To fix: create a Release .entitlements file or use build settings.
 	<string>Development</string>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
-		<string>iCloud.com.orbitaudiobooks</string>
+		<string>iCloud.com.echo.audiobooks</string>
 	</array>
 	<key>com.apple.developer.icloud-services</key>
 	<array>

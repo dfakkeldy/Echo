@@ -213,7 +213,7 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
             if let memo = bookmark.voiceMemoFileName {
                 output += "- [Voice Memo](\(memo))\n"
             }
-            output += "[Play in App](orbitaudio://play?time=\(bookmark.timestamp))\n\n"
+            output += "[Play in App](echoaudio://play?time=\(bookmark.timestamp))\n\n"
         }
         return output
     }

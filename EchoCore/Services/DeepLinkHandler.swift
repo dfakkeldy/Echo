@@ -10,7 +10,7 @@ enum DeepLinkAction: Equatable {
     case queueSeek(TimeInterval)
 }
 
-/// Parses and processes `orbitaudio://` deep link URLs, managing a pending
+/// Parses and processes `echoaudio://` deep link URLs, managing a pending
 /// seek queue for deep links that arrive before the audiobook is loaded.
 struct DeepLinkHandler {
 

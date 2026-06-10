@@ -15,7 +15,7 @@ import os.log
 @MainActor
 final class CloudKitSyncService {
     private let logger = Logger(category: "CloudKitSyncService")
-    private let container = CKContainer(identifier: "iCloud.com.orbitaudiobooks")
+    private let container = CKContainer(identifier: "iCloud.com.echo.audiobooks")
     private var publicDatabase: CKDatabase { container.publicCloudDatabase }
     
     // Dependencies

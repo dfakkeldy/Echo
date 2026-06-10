@@ -17,7 +17,7 @@ enum FileLocations {
     }
 
     /// The shared App Group container directory.
-    static func appGroupContainer(identifier: String = "group.com.orbitaudiobooks") throws -> URL {
+    static func appGroupContainer(identifier: String = "group.com.echo.audiobooks") throws -> URL {
         guard let url = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: identifier
         ) else {

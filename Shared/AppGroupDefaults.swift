@@ -3,7 +3,7 @@ import Foundation
 /// Shared app-group UserDefaults accessor for iOS, watchOS, macOS, and Widget targets.
 /// Provides a single source of truth for the suite name and migration logic.
 public enum AppGroupDefaults {
-    public static let suiteName = "group.com.orbitaudiobooks"
+    public static let suiteName = "group.com.echo.audiobooks"
 
     private static let migrationKey = "didMigrateWidgetDefaultsToAppGroup"
 

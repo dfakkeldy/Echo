@@ -681,7 +681,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.macos;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -724,7 +724,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.macos;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -750,7 +750,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo Widget/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Orbit AudioBooks Widget";
+				INFOPLIST_KEY_CFBundleDisplayName = "Echo Widget";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -759,7 +759,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -786,7 +786,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo Widget/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Orbit AudioBooks Widget";
+				INFOPLIST_KEY_CFBundleDisplayName = "Echo Widget";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -795,7 +795,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -958,7 +958,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = iphoneos;
@@ -1000,7 +1000,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = iphoneos;
@@ -1026,7 +1026,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = iphoneos;
@@ -1053,7 +1053,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1078,7 +1078,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = iphoneos;
@@ -1104,7 +1104,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1137,13 +1137,13 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UIBackgroundModes = audio;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.orbit.audiobooks;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.echo.audiobooks;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -1176,13 +1176,13 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UIBackgroundModes = audio;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.orbit.audiobooks;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.echo.audiobooks;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -1208,7 +1208,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1233,7 +1233,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1258,7 +1258,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1282,7 +1282,7 @@
 				DEVELOPMENT_TEAM = 8AXNA5B37R;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbit.audiobooks.watchkitapp.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.watchkitapp.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;

@@ -18,7 +18,7 @@ enum KeychainStore {
     }
 
     @discardableResult
-    static func set(_ data: Data, for key: Key, service: String = "com.orbitaudiobooks") -> Bool {
+    static func set(_ data: Data, for key: Key, service: String = "com.echo.audiobooks") -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key.rawValue,
@@ -36,7 +36,7 @@ enum KeychainStore {
     }
 
     /// Reads `Data` from the Keychain for the given key.
-    static func data(for key: Key, service: String = "com.orbitaudiobooks") -> Data? {
+    static func data(for key: Key, service: String = "com.echo.audiobooks") -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key.rawValue,
@@ -51,7 +51,7 @@ enum KeychainStore {
     }
 
     /// Removes the entry for the given key.
-    static func remove(_ key: Key, service: String = "com.orbitaudiobooks") {
+    static func remove(_ key: Key, service: String = "com.echo.audiobooks") {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key.rawValue,

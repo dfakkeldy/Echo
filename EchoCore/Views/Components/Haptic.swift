@@ -5,7 +5,7 @@ import UIKit
 enum Haptic {
     /// Whether haptic feedback is enabled per user preference.
     static var isEnabled: Bool {
-        UserDefaults(suiteName: "group.com.orbit.audiobooks")?
+        UserDefaults(suiteName: "group.com.echo.audiobooks")?
             .object(forKey: "isHapticFeedbackEnabled") as? Bool ?? true
     }
 

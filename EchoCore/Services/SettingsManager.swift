@@ -225,11 +225,11 @@ final class SettingsManager: SettingsManagerProtocol {
     init(
         defaults: UserDefaults = .standard,
         appGroupDefaults: UserDefaults = {
-            guard let d = UserDefaults(suiteName: "group.com.orbitaudiobooks") else {
-                assertionFailure("Unable to open app-group UserDefaults suite: group.com.orbitaudiobooks")
+            guard let d = UserDefaults(suiteName: "group.com.echo.audiobooks") else {
+                assertionFailure("Unable to open app-group UserDefaults suite: group.com.echo.audiobooks")
                 // Use a distinct fallback suite so watch-facing settings don't
                 // leak into .standard where the Watch cannot read them.
-                return UserDefaults(suiteName: "group.com.orbitaudiobooks.fallback") ?? .standard
+                return UserDefaults(suiteName: "group.com.echo.audiobooks.fallback") ?? .standard
             }
             return d
         }()
@@ -367,9 +367,9 @@ final class SettingsManager: SettingsManagerProtocol {
     static func registerDefaults(
         defaults: UserDefaults = .standard,
         appGroupDefaults: UserDefaults = {
-            guard let d = UserDefaults(suiteName: "group.com.orbitaudiobooks") else {
-                assertionFailure("Unable to open app-group UserDefaults suite: group.com.orbitaudiobooks")
-                return UserDefaults(suiteName: "group.com.orbitaudiobooks.fallback") ?? .standard
+            guard let d = UserDefaults(suiteName: "group.com.echo.audiobooks") else {
+                assertionFailure("Unable to open app-group UserDefaults suite: group.com.echo.audiobooks")
+                return UserDefaults(suiteName: "group.com.echo.audiobooks.fallback") ?? .standard
             }
             return d
         }()

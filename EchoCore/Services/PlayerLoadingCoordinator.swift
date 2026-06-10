@@ -107,7 +107,7 @@ final class PlayerLoadingCoordinator {
         // Restore last track position or start from the beginning.
         restoreTrackPosition(folderURL: url, state: state, persistence: persistence, autoplay: autoplay)
 
-        // Migrate per-folder UserDefaults state into .orbitplaylist.json if needed.
+        // Migrate per-folder UserDefaults state into .echoplaylist.json if needed.
         migrateManifestIfNeeded(isDir: isDir, folderURL: url, state: state, persistence: persistence, bookmarkStore: bookmarkStore)
 
         onPersistSelection?(url)
@@ -209,7 +209,7 @@ final class PlayerLoadingCoordinator {
         }
     }
 
-    /// Migrates per-folder UserDefaults state into .orbitplaylist.json if no manifest exists yet.
+    /// Migrates per-folder UserDefaults state into .echoplaylist.json if no manifest exists yet.
     private func migrateManifestIfNeeded(isDir: Bool, folderURL: URL, state: PlaybackState, persistence: Persistence, bookmarkStore: BookmarkStore) {
         guard isDir, !state.tracks.isEmpty else { return }
         let manifestURL = folderURL.appendingPathComponent(PlaylistManifestService.fileName)

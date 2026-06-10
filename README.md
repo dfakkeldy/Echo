@@ -118,7 +118,7 @@ Shared models and utilities used across targets include:
 	- **`ContinuousAlignmentService`** — Background audio capture and transcription: samples 15-second audio windows during playback, transcribes via WhisperKit, and inserts alignment anchors on-the-fly.
 	- **`FileLocations`** — Centralized directory access (`documentsDirectory`, `cachesDirectory`, `applicationSupportDirectory`, `epubUnpackedDirectory(safeID:)`) replacing ad-hoc `FileManager.default.urls(for:in:)` calls across the codebase.
 	- **`KeychainStore`** — Thin Keychain wrapper for storing security-scoped bookmark data and other sensitive blobs that should not live in unencrypted `UserDefaults`.
-	- **`Logger+Subsystem`** — Single `"com.orbitaudiobooks"` subsystem constant used by every logger in the project — prevents log fragmentation from typos in repeated string literals.
+	- **`Logger+Subsystem`** — Single `"com.echo.audiobooks"` subsystem constant used by every logger in the project — prevents log fragmentation from typos in repeated string literals.
 	- **`Schema_V11`** — Database migration adding `pdf_view_state_json` (TEXT) columns to `bookmark` and `timeline_item` tables for PDF page/zoom/scroll state persistence.
 		- **`AnimationDurations`** — Named animation timing constants (`.micro`, `.standard`, `.emphasized`, `.slow`) to replace magic-number literals scattered across view bodies.
 	- **`AudioSnippetPlayer`** — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.

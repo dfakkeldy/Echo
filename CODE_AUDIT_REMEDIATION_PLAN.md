@@ -194,7 +194,7 @@ runs `swift build` against `Tools/OrbitTranscriptionCLI/`, which was deleted fro
 This phase has `alwaysOutOfDate = 1` and `set -euo pipefail`, so it fails every build.
 
 **Root cause C — Missing entitlement:** `Echo macOS/Echo_macOS.entitlements` lacks the
-`group.com.orbitaudiobooks` app group, so `AppGroupDefaults` hits `assertionFailure` at
+`group.com.echo.audiobooks` app group, so `AppGroupDefaults` hits `assertionFailure` at
 `Shared/AppGroupDefaults.swift:11-13`.
 
 **Decision needed:** Revive or park the macOS target?
@@ -215,7 +215,7 @@ which links it to the iOS target).
 ```xml
 <key>com.apple.security.application-groups</key>
 <array>
-    <string>group.com.orbitaudiobooks</string>
+    <string>group.com.echo.audiobooks</string>
 </array>
 ```
 
@@ -378,7 +378,7 @@ calls `autoAlignmentTask?.cancel()`, but view teardown doesn't. Fix: cancel in
 
 **Before:**
 ```swift
-private let pushForwardQueue = DispatchQueue(label: "com.orbitaudiobooks.timeline.pushforward")
+private let pushForwardQueue = DispatchQueue(label: "com.echo.audiobooks.timeline.pushforward")
 
 private func pushForwardUncompletedItems() {
     guard let db else { return }
@@ -418,7 +418,7 @@ private func pushForwardUncompletedItems() {
 
 This eliminates the `@MainActor`-isolated `self` capture in a plain queue closure —
 the exact pattern Swift 6 strict mode rejects. Also fixes the queue label that
-still says `com.orbitaudiobooks`.
+still says `com.echo.audiobooks`.
 
 **Commit:** `refactor: replace TimelineService manual queue with GRDB async write`
 
@@ -767,11 +767,11 @@ public release, or freeze them permanently.
 
 **Current orbit-identifiers (complete list):**
 - 8 `PRODUCT_BUNDLE_IDENTIFIER` values in project.pbxproj
-- `group.com.orbitaudiobooks` in `Shared/AppGroupDefaults.swift:6` + entitlements
-- `iCloud.com.orbitaudiobooks` in entitlements
-- `Logger.orbitSubsystem = "com.orbitaudiobooks"` in `Shared/Logger+Subsystem.swift:8`
-- Queue label `"com.orbitaudiobooks.timeline.pushforward"` in `TimelineService.swift:36` (fixed in §3.2)
-- `com.orbit.pro.unlock` IAP product ID in build settings
+- `group.com.echo.audiobooks` in `Shared/AppGroupDefaults.swift:6` + entitlements
+- `iCloud.com.echo.audiobooks` in entitlements
+- `Logger.orbitSubsystem = "com.echo.audiobooks"` in `Shared/Logger+Subsystem.swift:8`
+- Queue label `"com.echo.audiobooks.timeline.pushforward"` in `TimelineService.swift:36` (fixed in §3.2)
+- `com.echo.pro.unlock` IAP product ID in build settings
 
 **Pre-release change:** Safe to rename all of these. Requires:
 - New bundle IDs in Xcode + App Store Connect

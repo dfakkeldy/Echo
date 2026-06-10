@@ -1,6 +1,6 @@
 import Foundation
 
-/// A portable manifest stored as `.orbitplaylist.json` in a playlist folder,
+/// A portable manifest stored as `.echoplaylist.json` in a playlist folder,
 /// consolidating track metadata, playback state, and bookmarks that were
 /// previously scattered across UserDefaults keys.
 struct EchoPlaylistManifest: Codable, Sendable {

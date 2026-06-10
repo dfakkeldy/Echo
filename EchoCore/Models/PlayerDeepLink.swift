@@ -4,7 +4,7 @@ struct PlayerDeepLink: Equatable, Sendable {
     let time: TimeInterval?
 
     init?(url: URL) {
-        guard url.scheme == "orbitaudio", url.host == "play" else {
+        guard url.scheme == "echoaudio", url.host == "play" else {
             return nil
         }
 

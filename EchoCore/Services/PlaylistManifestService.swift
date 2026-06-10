@@ -1,12 +1,12 @@
 import Foundation
 
-/// Reads, writes, and migrates `.orbitplaylist.json` manifest files within
+/// Reads, writes, and migrates `.echoplaylist.json` manifest files within
 /// playlist folders. The manifest consolidates per-folder state (track order,
 /// enabled states, speed, loop mode, playback progress, bookmarks) into a
 /// single portable JSON file stored alongside the audio files.
 struct PlaylistManifestService {
 
-    static let fileName = ".orbitplaylist.json"
+    static let fileName = ".echoplaylist.json"
 
     // MARK: - Read / Write
 

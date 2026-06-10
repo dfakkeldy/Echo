@@ -23,7 +23,7 @@ final class DatabaseService {
     @ObservationIgnored private let migrationFlag = "sql_migration_done"
     @ObservationIgnored private let appGroupIdentifier: String
 
-    init(appGroupIdentifier: String = "group.com.orbitaudiobooks") throws {
+    init(appGroupIdentifier: String = "group.com.echo.audiobooks") throws {
         self.appGroupIdentifier = appGroupIdentifier
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
@@ -36,7 +36,7 @@ final class DatabaseService {
             withIntermediateDirectories: true
         )
 
-        let path = containerURL.appendingPathComponent("orbit.sqlite").path
+        let path = containerURL.appendingPathComponent("echo.sqlite").path
         self.dbPath = path
 
         var config = Configuration()

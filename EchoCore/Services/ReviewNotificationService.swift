@@ -5,7 +5,7 @@ import os.log
 /// Schedules a daily local notification when the user has due flashcard reviews.
 enum ReviewNotificationService {
     private static let logger = Logger(category: "ReviewNotifications")
-    private static let identifier = "com.orbitaudiobooks.dailyReview"
+    private static let identifier = "com.echo.audiobooks.dailyReview"
 
     /// Updates (or removes) the daily review notification based on current due count.
     /// Call this after grading a card or loading the review queue.

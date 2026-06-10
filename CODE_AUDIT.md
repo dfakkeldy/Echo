@@ -147,10 +147,10 @@ Top items, in priority order:
 ## 5. Bugs / logic errors
 
 ### 5.1 The Echo macOS target does not build (two root causes)
-- **Status:** ✅ **FIXED 2026-06-09** (`307c236`, `ba1f439`). Revived the target: linked WhisperKit to Echo macOS, removed the orphaned "Build and Copy OrbitTranscriptionCLI" shell phase, and added the `group.com.orbitaudiobooks` app-group entitlement. Remaining cleanup tracked under §9.3 (move the duplicated `Mac*` logic into `Shared/`).
+- **Status:** ✅ **FIXED 2026-06-09** (`307c236`, `ba1f439`). Revived the target: linked WhisperKit to Echo macOS, removed the orphaned "Build and Copy OrbitTranscriptionCLI" shell phase, and added the `group.com.echo.audiobooks` app-group entitlement. Remaining cleanup tracked under §9.3 (move the duplicated `Mac*` logic into `Shared/`).
 - **Location:** (a) `Echo macOS/Services/MacGlobalAlignmentService.swift:4` — `import WhisperKit` while the WhisperKit product is linked only to the iOS target (`Echo.xcodeproj/project.pbxproj:220`, sole Frameworks entry); (b) `Echo.xcodeproj/project.pbxproj:577-601` — "Build and Copy OrbitTranscriptionCLI" shell phase owned by the macOS target (`:303`), `alwaysOutOfDate = 1`, `set -euo pipefail`, runs `swift build` against `Tools/OrbitTranscriptionCLI/`, a package deleted from git in commit `751e89c` (only untracked `.build/` remains on disk; a fresh clone has nothing)
 - **What:** `xcodebuild -scheme "Echo macOS"` fails at compile ("Unable to resolve module dependency: 'WhisperKit'"); even after fixing that, the unguarded script phase fails every build.
-- **Why:** The macOS product is entirely dead on main; CI or a fresh contributor cannot build it. Related: `Echo macOS/Views/MacPlayerModel.swift` uses `AppGroupDefaults` but `Echo macOS/Echo_macOS.entitlements` lacks the `group.com.orbitaudiobooks` entitlement, so even a fixed build hits the `assertionFailure` guard in `Shared/AppGroupDefaults.swift:11-13`.
+- **Why:** The macOS product is entirely dead on main; CI or a fresh contributor cannot build it. Related: `Echo macOS/Views/MacPlayerModel.swift` uses `AppGroupDefaults` but `Echo macOS/Echo_macOS.entitlements` lacks the `group.com.echo.audiobooks` entitlement, so even a fixed build hits the `assertionFailure` guard in `Shared/AppGroupDefaults.swift:11-13`.
 - **Action:** Decide the target's fate. To revive: link WhisperKit to Echo macOS, delete the orphaned script phase, add the app-group entitlement. To park: remove the scheme/target or mark it clearly in README so the broken state is intentional.
 - **Severity:** Critical
 
@@ -223,7 +223,7 @@ Top items, in priority order:
 - **Severity:** Low
 
 ### 6.3 One entitlements file shared by watch app and watch widget
-- **Location:** `Echo.xcodeproj/project.pbxproj:779`, `:814` (widget), `:1155`, `:1194` (watch app) → both point at root `Echo.entitlements`, which contains the app group *and* the `iCloud.com.orbitaudiobooks` container
+- **Location:** `Echo.xcodeproj/project.pbxproj:779`, `:814` (widget), `:1155`, `:1194` (watch app) → both point at root `Echo.entitlements`, which contains the app group *and* the `iCloud.com.echo.audiobooks` container
 - **What:** The watch widget inherits the iCloud container entitlement it doesn't use; the file's root-level name doesn't indicate ownership.
 - **Why:** Entitlements should be least-privilege per target; the shared file makes future entitlement changes apply to both silently.
 - **Action:** Split into per-target entitlements files declaring only what each target uses.
@@ -315,7 +315,7 @@ See **§3.2** — the same 23 synchronous DAO sites are the codebase's largest j
 - **Severity:** Medium
 
 ### 9.5 Rebrand residue: identifiers still `com.orbit*` — decide, don't drift
-- **Locations:** All 8 `PRODUCT_BUNDLE_IDENTIFIER`s (`com.orbit.audiobooks*`); `group.com.orbitaudiobooks` (`Shared/AppGroupDefaults.swift:6` + entitlements); `iCloud.com.orbitaudiobooks` (entitlements); `Logger.orbitSubsystem` = `"com.orbitaudiobooks"` (`Shared/Logger+Subsystem.swift:8`); queue label (`EchoCore/Services/TimelineService.swift:36`); `CLAUDE.md:9`
+- **Locations:** All 8 `PRODUCT_BUNDLE_IDENTIFIER`s (`com.echo.audiobooks*`); `group.com.echo.audiobooks` (`Shared/AppGroupDefaults.swift:6` + entitlements); `iCloud.com.echo.audiobooks` (entitlements); `Logger.orbitSubsystem` = `"com.echo.audiobooks"` (`Shared/Logger+Subsystem.swift:8`); queue label (`EchoCore/Services/TimelineService.swift:36`); `CLAUDE.md:9`
 - **What:** The Orbit→Echo rebrand (`751e89c`) renamed user-facing surfaces but left every machine identifier on the old name.
 - **Why:** This is *not* a mechanical fix: bundle IDs, app-group IDs, and the CloudKit container are the app's identity — changing them after release orphans user data and IAP. Before first public release is the only cheap moment to decide.
 - **Action:** Make the call now: either migrate all identifiers to an Echo domain in one commit (pre-release), or freeze the Orbit identifiers permanently and document that in README/CLAUDE.md so they stop looking like an oversight.
@@ -359,7 +359,7 @@ See **§3.2** — the same 23 synchronous DAO sites are the codebase's largest j
 - Test targets (`EchoTests/`, `Echo Watch AppTests/`, UI tests) — existence confirmed, coverage and quality not assessed.
 - Localization (`Localizable.xcstrings`) and Dynamic Type behaviour beyond spot checks.
 - CloudKit schema/record design in `CloudKitSyncService.swift` (concurrency posture sampled only).
-- StoreKit product configuration vs App Store Connect (`com.orbit.pro.unlock` exists in build settings; not validated).
+- StoreKit product configuration vs App Store Connect (`com.echo.pro.unlock` exists in build settings; not validated).
 - Runtime profiling — no Instruments traces were captured; performance findings are static-analysis only.
 
 ---

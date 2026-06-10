@@ -100,7 +100,7 @@ struct Echo_WidgetEntryView : View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(URL(string: "orbitaudio://play"))
+        .widgetURL(URL(string: "echoaudio://play"))
     }
 }
 
