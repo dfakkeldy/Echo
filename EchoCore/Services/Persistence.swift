@@ -22,17 +22,46 @@ import os.log
 struct Persistence {
     private let defaults = UserDefaults.standard
     private let bookmarkKey = "EchoAudiobooks.selection.bookmark"
-    private let progressKey = "EchoAudiobooks.progress.dictionary"
-    private let speedKey = "EchoAudiobooks.playback.speed.dictionary"
-    private let loopModeKey = "EchoAudiobooks.playback.loopMode.dictionary"
-    private let lastTrackKey = "EchoAudiobooks.lastTrack.dictionary"
+
+    // MARK: - Key generators (per-book — no cross-book collisions)
+
+    private func progressKey(for folderKey: String) -> String { "EchoAudiobooks.progress.\(folderKey)" }
+    private func speedKey(for title: String) -> String { "EchoAudiobooks.speed.\(title)" }
+    private func loopModeKey(for key: String) -> String { "EchoAudiobooks.loopMode.\(key)" }
+    private func lastTrackKey(for folderKey: String) -> String { "EchoAudiobooks.lastTrack.\(folderKey)" }
+    private func pauseTimestampKey(for folderKey: String) -> String { "EchoAudiobooks.pauseTimestamp.\(folderKey)" }
+
+    // Legacy dictionary key constants (used only for one-time migration).
+    private let legacyProgressDictKey = "EchoAudiobooks.progress.dictionary"
+    private let legacySpeedDictKey = "EchoAudiobooks.playback.speed.dictionary"
+    private let legacyLoopModeDictKey = "EchoAudiobooks.playback.loopMode.dictionary"
+    private let legacyLastTrackDictKey = "EchoAudiobooks.lastTrack.dictionary"
+    private let legacyPauseTimestampDictKey = "EchoAudiobooks.pauseTimestamp.dictionary"
+
+    // Migration flag: set once per legacy key after migration completes.
+    private let migrationFlagPrefix = "EchoAudiobooks.migratedPerBook."
+
+    // MARK: - Migration (one-time, safe to call on every read)
+
+    /// Copies entries from a legacy dictionary key to per-book keys,
+    /// then removes the legacy dictionary. Each legacy dict is keyed by
+    /// book identifier; the value is moved as-is to `perBookKey(bookID)`.
+    private func migrateIfNeeded(legacyKey: String, flagSuffix: String, to perBookKey: (String) -> String) {
+        let flag = migrationFlagPrefix + flagSuffix
+        guard !defaults.bool(forKey: flag) else { return }
+        defer { defaults.set(true, forKey: flag) }
+
+        guard let dict = defaults.dictionary(forKey: legacyKey) else { return }
+        for (bookID, value) in dict {
+            defaults.set(value, forKey: perBookKey(bookID))
+        }
+        defaults.removeObject(forKey: legacyKey)
+    }
 
     // MARK: - Track / Speed / Loop Persistence
 
     func saveLastTrack(for folderKey: String, trackId: String, folderURL: URL? = nil) {
-        var dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
-        dict[folderKey] = trackId
-        defaults.set(dict, forKey: lastTrackKey)
+        defaults.set(trackId, forKey: lastTrackKey(for: folderKey))
         if let url = folderURL {
             PlaylistManifestService.updatePlaybackState(folderURL: url, lastTrackId: trackId)
         }
@@ -43,14 +72,12 @@ struct Persistence {
            let manifest = PlaylistManifestService.read(from: url) {
             return manifest.playbackState.lastTrackId
         }
-        let dict = defaults.dictionary(forKey: lastTrackKey) as? [String: String] ?? [:]
-        return dict[folderKey]
+        migrateIfNeeded(legacyKey: legacyLastTrackDictKey, flagSuffix: "lastTrack", to: lastTrackKey(for:))
+        return defaults.string(forKey: lastTrackKey(for: folderKey))
     }
 
     func saveSpeed(for title: String, speed: Float, folderURL: URL? = nil) {
-        var dict = defaults.dictionary(forKey: speedKey) as? [String: Double] ?? [:]
-        dict[title] = Double(speed)
-        defaults.set(dict, forKey: speedKey)
+        defaults.set(Double(speed), forKey: speedKey(for: title))
         if let url = folderURL {
             PlaylistManifestService.updatePlaybackState(folderURL: url, speed: speed)
         }
@@ -61,14 +88,13 @@ struct Persistence {
            let manifest = PlaylistManifestService.read(from: url) {
             return Float(manifest.playbackState.speed)
         }
-        let dict = defaults.dictionary(forKey: speedKey) as? [String: Double] ?? [:]
-        return dict[title].map { Float($0) }
+        migrateIfNeeded(legacyKey: legacySpeedDictKey, flagSuffix: "speed", to: speedKey(for:))
+        guard let value = defaults.object(forKey: speedKey(for: title)) as? Double else { return nil }
+        return Float(value)
     }
 
     func saveLoopMode(for key: String, loopMode: String, folderURL: URL? = nil) {
-        var dict = defaults.dictionary(forKey: loopModeKey) as? [String: String] ?? [:]
-        dict[key] = loopMode
-        defaults.set(dict, forKey: loopModeKey)
+        defaults.set(loopMode, forKey: loopModeKey(for: key))
         if let url = folderURL {
             PlaylistManifestService.updatePlaybackState(folderURL: url, loopMode: loopMode)
         }
@@ -79,8 +105,8 @@ struct Persistence {
            let manifest = PlaylistManifestService.read(from: url) {
             return manifest.playbackState.loopMode
         }
-        let dict = defaults.dictionary(forKey: loopModeKey) as? [String: String] ?? [:]
-        return dict[key]
+        migrateIfNeeded(legacyKey: legacyLoopModeDictKey, flagSuffix: "loopMode", to: loopModeKey(for:))
+        return defaults.string(forKey: loopModeKey(for: key))
     }
 
     // MARK: - Order & Enabled State
@@ -118,9 +144,8 @@ struct Persistence {
     // MARK: - Book Progress
 
     func saveBookProgress(for folderKey: String, trackId: String, time: Double, folderURL: URL? = nil) {
-        var dict = defaults.dictionary(forKey: progressKey) as? [String: [String: Any]] ?? [:]
-        dict[folderKey] = ["trackId": trackId, "time": time]
-        defaults.set(dict, forKey: progressKey)
+        let item: [String: Any] = ["trackId": trackId, "time": time]
+        defaults.set(item, forKey: progressKey(for: folderKey))
         if let url = folderURL {
             PlaylistManifestService.updatePlaybackState(folderURL: url, lastTrackId: trackId, lastPosition: time)
         }
@@ -134,33 +159,27 @@ struct Persistence {
             }
             return nil
         }
-        let dict = defaults.dictionary(forKey: progressKey) as? [String: [String: Any]] ?? [:]
-        if let item = dict[folderKey], let trackId = item["trackId"] as? String, let time = item["time"] as? Double {
-            return (trackId, time)
-        }
-        return nil
+        migrateIfNeeded(legacyKey: legacyProgressDictKey, flagSuffix: "progress", to: progressKey(for:))
+        guard let item = defaults.dictionary(forKey: progressKey(for: folderKey)),
+              let trackId = item["trackId"] as? String,
+              let time = item["time"] as? Double else { return nil }
+        return (trackId, time)
     }
 
     // MARK: - Pause Timestamp
 
-    private let pauseTimestampKey = "EchoAudiobooks.pauseTimestamp.dictionary"
-
     func savePauseTimestamp(_ timestamp: Date?, for folderKey: String) {
-        var dict = defaults.dictionary(forKey: pauseTimestampKey) as? [String: Double] ?? [:]
         if let timestamp {
-            dict[folderKey] = timestamp.timeIntervalSince1970
+            defaults.set(timestamp.timeIntervalSince1970, forKey: pauseTimestampKey(for: folderKey))
         } else {
-            dict.removeValue(forKey: folderKey)
+            defaults.removeObject(forKey: pauseTimestampKey(for: folderKey))
         }
-        defaults.set(dict, forKey: pauseTimestampKey)
     }
 
     func getPauseTimestamp(for folderKey: String) -> Date? {
-        let dict = defaults.dictionary(forKey: pauseTimestampKey) as? [String: Double] ?? [:]
-        if let interval = dict[folderKey] {
-            return Date(timeIntervalSince1970: interval)
-        }
-        return nil
+        migrateIfNeeded(legacyKey: legacyPauseTimestampDictKey, flagSuffix: "pauseTimestamp", to: pauseTimestampKey(for:))
+        guard let interval = defaults.object(forKey: pauseTimestampKey(for: folderKey)) as? Double else { return nil }
+        return Date(timeIntervalSince1970: interval)
     }
 
     // MARK: - Security-Scoped Bookmark
