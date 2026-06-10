@@ -3,67 +3,244 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Orbit: Learn Audiobooks</title>
-    <meta name="description" content="Orbit is the first audiobook player designed for active learning, retention, and neurodivergent listeners.">
+    <title>Echo: Audiobook Study Player — Turn Listening into Learning</title>
+    <meta name="description" content="Echo is the open-source audiobook player built for learning and retention: chapter looping, smart rewind, photo & voice bookmarks, a synced EPUB/PDF reader, and built-in spaced repetition. Designed for AuDHD brains. Better for every brain.">
+    <meta property="og:title" content="Echo: Audiobook Study Player">
+    <meta property="og:description" content="The audiobook player that helps you remember what you heard. For Every Mind.">
+    <meta property="og:image" content="https://dfakkeldy.github.io/Echo/assets/icon.png">
+    <meta property="og:url" content="https://dfakkeldy.github.io/Echo/">
+    <meta property="og:type" content="website">
     <link rel="stylesheet" href="styles.css">
-    <!-- Favicon -->
     <link rel="icon" type="image/png" href="assets/icon.png">
 </head>
 <body>
-    <header>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
         <div class="logo-container">
-            <img src="assets/icon.png" alt="Orbit App Icon">
-            <span class="logo-text">Orbit</span>
+            <a href="index.html">
+                <img src="assets/icon.png" alt="Echo app icon — an infinity symbol in silver and gold">
+                <span class="logo-text">Echo <span class="infinity">∞</span></span>
+            </a>
         </div>
-        <nav>
-            <a href="https://github.com/dfakkeldy/Orbit_Audiobooks/issues" target="_blank" rel="noopener noreferrer">Support & Feedback</a>
+        <nav class="site-nav" aria-label="Main">
+            <a href="index.html" aria-current="page">Home</a>
+            <a href="learn.html">Learn</a>
+            <a href="manual.html">Manual</a>
+            <a href="devlog.html">Devlog</a>
+            <a class="nav-cta" href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
         </nav>
     </header>
 
-    <main>
+    <main id="main">
         <section class="hero">
-            <h1>Orbit: Learn Audiobooks</h1>
-            <p>Listen smarter, not harder.</p>
-            <p style="font-size: 1.1rem; max-width: 700px; margin: -1.5rem auto 3rem auto; color: var(--text-secondary);">
-                The first audiobook player designed for active learning, retention, and neurodivergent listeners. An app that actually adapts to how you listen.
+            <div class="echo-stage" aria-hidden="true">
+                <div class="echo-ring"></div>
+                <div class="echo-ring"></div>
+                <div class="echo-ring"></div>
+                <img src="assets/icon.png" alt="">
+            </div>
+            <p class="hero-kicker fade-up">For Every Mind</p>
+            <h1 class="fade-up d1">Turn listening<br>into learning.</h1>
+            <p class="tagline fade-up d2">
+                Echo is the audiobook player that helps you <em>remember</em> what you heard —
+                built around interruption, attention, and the actual science of memory.
             </p>
-            <!-- Using an anchor pointing to GitHub Issues as a placeholder since it's in beta -->
-            <a href="https://github.com/dfakkeldy/Orbit_Audiobooks/issues" class="cta-button" target="_blank" rel="noopener noreferrer">Request Beta Access</a>
+            <div class="hero-ctas fade-up d3">
+                <a href="https://github.com/dfakkeldy/Echo/issues" class="cta-button" target="_blank" rel="noopener noreferrer">Request Beta Access</a>
+                <a href="learn.html" class="cta-button secondary">See the science</a>
+            </div>
         </section>
 
-        <section class="features">
-            <div class="feature-card">
-                <div class="feature-icon">⏪</div>
-                <h3>Smart Rewind</h3>
-                <p>Standard players just keep playing when you zone out. Orbit automatically jumps back slightly when you resume playback. The longer you're paused, the further it rewinds.</p>
+        <section class="band" aria-labelledby="story-title">
+            <p class="section-label">The Origin Story</p>
+            <h2 class="section-title" id="story-title">Built on a mail route.</h2>
+            <div class="story">
+                <div class="story-text">
+                    <p>
+                        Echo's creator delivers mail — in and out of the car <strong>thirty times a shift</strong>,
+                        no CarPlay, an aux cable, and an AuDHD brain that learns from non-fiction audiobooks
+                        in stolen, interrupted minutes. No app on the internet would loop a single chapter until
+                        it stuck, stay ready to play on a watch after a long pause, or remember <em>why</em> a
+                        bookmark was made three driveways ago.
+                    </p>
+                    <p>
+                        So he built it. <strong>423 commits in eight weeks</strong>, nights and weekends around a
+                        full delivery route, with no formal programming background — an app for iPhone, Apple Watch,
+                        Mac, and CarPlay that treats audiobooks the way students treat textbooks. You can
+                        <a href="devlog.html" style="color: var(--link);">watch it being built, week by week</a>.
+                    </p>
+                    <p>
+                        Echo was designed for neurodivergent listeners first — and that's exactly why it works so
+                        well for everyone. Curb cuts were made for wheelchairs; they help every stroller, suitcase,
+                        and bicycle on the street. An app built for interrupted attention turns out to be what
+                        <strong>every</strong> commuter, student, and parent needed all along.
+                    </p>
+                </div>
+                <blockquote class="story-quote">
+                    "I wanted to loop one chapter all day until I knew everything in it.
+                    No audiobook app would do it. A month later, I had built my own."
+                    <footer>— Dan, Echo's creator · mail carrier · AuDHD</footer>
+                </blockquote>
             </div>
-            
-            <div class="feature-card">
-                <div class="feature-icon">🧠</div>
-                <h3>Active Retention</h3>
-                <p>Don't just listen. Set Anki-style timestamped flashcards, record your own voice memos, attach text notes to bookmarks, or loop specific chapters until you retain them.</p>
-            </div>
-            
-            <div class="feature-card">
-                <div class="feature-icon">✨</div>
-                <h3>Neurodivergent First</h3>
-                <p>Built from the ground up to support readers with ADHD, AuDHD, and dyslexia. Features custom typography like Lexend and OpenDyslexic to combat letter reversal.</p>
-            </div>
+        </section>
 
-            <div class="feature-card">
-                <div class="feature-icon">⌚</div>
-                <h3>Custom Watch Designer</h3>
-                <p>Leave your phone in your pocket. Customize the entire layout on your wrist. Map the Digital Crown to perfectly suit your physical workflow.</p>
+        <section class="band" aria-labelledby="features-title">
+            <p class="section-label">What Echo Does</p>
+            <h2 class="section-title" id="features-title">A study system disguised as a player.</h2>
+            <p class="section-lead">
+                Every feature exists because of something we know about how memory works.
+                The <a href="learn.html" style="color: var(--link);">Learn page</a> explains the science behind each one.
+            </p>
+            <div class="num-grid">
+                <article class="num-card">
+                    <span class="num">01</span>
+                    <h3>Smart Rewind</h3>
+                    <p>Hit play and Echo has already rewound — a little after a short pause, more after hours. Interruptions stop costing you context. The longer you're gone, the further it rewinds.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">02</span>
+                    <h3>Chapter Looping</h3>
+                    <p>Repeat one chapter until you own it — the feature Echo was born for. Loop the playlist, the chapter, or the exact passage between two bookmarks.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">03</span>
+                    <h3>Photo Bookmarks</h3>
+                    <p>Attach a photo of where you are; Echo switches the player art to your photo as you pass that moment again. Your brain encodes place alongside ideas — Echo turns that into a retrieval tool.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">04</span>
+                    <h3>Voice Memo Bookmarks</h3>
+                    <p>Hold a button, speak your thought, keep driving. Your memos play back inline when the narration reaches them — past-you briefing present-you.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">05</span>
+                    <h3>Built-in Spaced Repetition</h3>
+                    <p>An Anki-style flashcard system with audio on the cards, SM-2 scheduling, daily review, and hands-free review on Apple Watch. Never heard of Anki? <a href="learn.html#srs">We explain from zero.</a></p>
+                </article>
+                <article class="num-card">
+                    <span class="num">06</span>
+                    <h3>Chapter Study Mode</h3>
+                    <p>Treat chapters like flashcards: listen, grade yourself, and Echo schedules each chapter's return. Your due chapters become today's listening queue.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">07</span>
+                    <h3>Synced EPUB Reader</h3>
+                    <p>The text scrolls with the narration, diagrams appear when they're mentioned, and tapping a paragraph jumps the audio there. Search the whole book and leap to the spoken moment.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">08</span>
+                    <h3>On-Device Auto-Alignment</h3>
+                    <p>Echo's speech recognition aligns text to audio in tiers — chapter snap, drift detection, word-level repair — entirely on your device. No cloud. Ever.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">09</span>
+                    <h3>PDF Companions</h3>
+                    <p>Slides, scans, sheet music: align PDF pages to the audio with a precision scrubber joystick, and bookmark pages with exact zoom and position restore.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">10</span>
+                    <h3>A Watch Remote You Design</h3>
+                    <p>Up to 25 buttons across 5 pages, arranged your way from the phone. Digital Crown scrubbing or volume. Big targets you can hit in the rain without looking. Plus a Pomodoro timer on your wrist.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">11</span>
+                    <h3>Pristine Speed Control</h3>
+                    <p>Pitch-corrected speed from 0.5× up — narrators sound human at 1.25×. Every book remembers its own speed, and displayed times adjust to match.</p>
+                </article>
+                <article class="num-card">
+                    <span class="num">12</span>
+                    <h3>Dyslexia-Friendly by Design</h3>
+                    <p>Lexend and OpenDyslexic fonts built in (this site is set in OpenDyslexic), Dynamic Type support, VoiceOver labels, and reduced-motion respect throughout.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="band" aria-labelledby="science-title">
+            <p class="section-label">Why It Works</p>
+            <h2 class="section-title" id="science-title">Borrowed from a century of memory research.</h2>
+            <div class="science-strip">
+                <article class="science-card">
+                    <p class="phenomenon">Context-Dependent Memory</p>
+                    <h3>Your brain files <em>where</em> with <em>what</em>.</h3>
+                    <p>In a classic 1975 study, divers who learned underwater remembered best underwater. A photo of where you were is a key back into what you heard — that's photo bookmarks.</p>
+                </article>
+                <article class="science-card">
+                    <p class="phenomenon">The Spacing Effect</p>
+                    <h3>Reviews timed to the forgetting curve.</h3>
+                    <p>Memory decays on a schedule; well-timed reviews flatten the curve. Echo's SM-2 scheduler shows you each card right before you'd forget it.</p>
+                </article>
+                <article class="science-card">
+                    <p class="phenomenon">The Testing Effect</p>
+                    <h3>Recalling beats re-reading.</h3>
+                    <p>Struggling to retrieve an idea strengthens it far more than hearing it again. Grading yourself — Again, Hard, Good, Easy — is the workout.</p>
+                </article>
+            </div>
+            <p style="margin-top: 1.8rem;">
+                <a href="learn.html" class="cta-button secondary">Read the full guide: Getting the Most Out of Echo →</a>
+            </p>
+        </section>
+
+        <section class="band" aria-labelledby="platforms-title">
+            <p class="section-label">Everywhere You Listen</p>
+            <h2 class="section-title" id="platforms-title">One library, four screens, zero friction.</h2>
+            <div class="platform-row" role="list">
+                <span class="platform-chip" role="listitem">📱 iPhone &amp; iPad</span>
+                <span class="platform-chip" role="listitem">⌚ Apple Watch remote</span>
+                <span class="platform-chip" role="listitem">💻 Mac companion</span>
+                <span class="platform-chip" role="listitem">🚗 CarPlay</span>
+                <span class="platform-chip" role="listitem">🔲 Widgets &amp; Control Center</span>
+                <span class="platform-chip" role="listitem">🗣️ Siri bookmarks</span>
+            </div>
+        </section>
+
+        <section class="band">
+            <div class="trust-strip">
+                <div>
+                    <h3>🔒 Radically private</h3>
+                    <p>No accounts, no analytics, no ads, no servers. Speech recognition runs on your device. Even this website makes zero external requests.</p>
+                </div>
+                <div>
+                    <h3>🆓 Open source (MIT)</h3>
+                    <p>Every line of Echo is public. Read it, fork it, fix it — or just enjoy software you can actually trust with your library.</p>
+                </div>
+                <div>
+                    <h3>📚 Your files, unlocked</h3>
+                    <p>Echo plays the DRM-free audiobooks you own — MP3, M4A, M4B (multi-file too), plus EPUB and PDF companions. No store, no subscription.</p>
+                </div>
+                <div>
+                    <h3>♾️ For Every Mind</h3>
+                    <p>The infinity icon in silver and gold honors the AuDHD community Echo was built from. Designed for neurodivergent brains; better for all brains.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="band">
+            <div class="cta-final">
+                <h2>Stop forgetting your audiobooks.</h2>
+                <p>Echo is in beta. Request access, kick the tires, and help shape the player you always wanted.</p>
+                <div class="hero-ctas">
+                    <a href="https://github.com/dfakkeldy/Echo/issues" class="cta-button" target="_blank" rel="noopener noreferrer">Request Beta Access</a>
+                    <a href="manual.html" class="cta-button secondary">Read the manual</a>
+                </div>
             </div>
         </section>
     </main>
 
-    <footer>
+    <footer class="site-footer">
         <div class="footer-links">
-            <a href="https://github.com/dfakkeldy/Orbit_Audiobooks/issues" target="_blank" rel="noopener noreferrer">Support</a>
-            <a href="privacy.html">Privacy Policy</a>
+            <a href="learn.html">Learn</a>
+            <a href="manual.html">Manual</a>
+            <a href="devlog.html">Devlog</a>
+            <a href="privacy.html">Privacy</a>
+            <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Support</a>
         </div>
-        <p>&copy; 2026 Orbit Audiobooks. All rights reserved.</p>
+        <p>&copy; 2026 Echo. Open source under the MIT License.</p>
+        <p class="footer-fineprint">
+            This site is set in OpenDyslexic, hosts its own fonts, runs no scripts, and sets no cookies.
+            Echo is not a medical device and makes no clinical claims.
+        </p>
     </footer>
 </body>
 </html>

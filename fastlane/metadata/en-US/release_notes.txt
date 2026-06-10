@@ -21,6 +21,7 @@ WHAT TO TEST
 • Alternate Icons: Try all available icons from Settings.
 • Apple Watch: Test the customizable button layout and Digital Crown scrubbing.
 • Bookmarks & Flashcards: Create voice memo bookmarks and SRS flashcards during playback.
+• Photo Bookmarks: Attach a photo to a bookmark and confirm the player artwork switches to it as playback passes that spot.
 • Continuous Alignment: Enable in Settings and let it run during extended playback.
 
 Feedback is always welcome — submit issues on GitHub or through TestFlight.

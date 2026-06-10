@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Building Echo — The Devlog</title>
+    <meta name="description" content="How Echo was built: week-by-week summaries of 423 commits in eight weeks, by a mail carrier with no prior Swift experience. Open source, fully auditable.">
+    <meta property="og:title" content="Building Echo — The Devlog">
+    <meta property="og:description" content="From 'I wonder if I could make an iOS app' to a four-platform audiobook study system in eight weeks. The week-by-week story, from the real git history.">
+    <meta property="og:image" content="https://dfakkeldy.github.io/Echo/assets/icon.png">
+    <meta property="og:url" content="https://dfakkeldy.github.io/Echo/devlog.html">
+    <meta property="og:type" content="article">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="assets/icon.png">
+</head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+        <div class="logo-container">
+            <a href="index.html">
+                <img src="assets/icon.png" alt="Echo app icon — an infinity symbol in silver and gold">
+                <span class="logo-text">Echo <span class="infinity">∞</span></span>
+            </a>
+        </div>
+        <nav class="site-nav" aria-label="Main">
+            <a href="index.html">Home</a>
+            <a href="learn.html">Learn</a>
+            <a href="manual.html">Manual</a>
+            <a href="devlog.html" aria-current="page">Devlog</a>
+            <a class="nav-cta" href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
+    </header>
+
+    <main id="main">
+        <div class="page-hero">
+            <p class="section-label">Build in Public</p>
+            <h1>Building Echo — The Devlog</h1>
+            <p>
+                Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system in
+                about eight weeks. This is the week-by-week story, reconstructed from the actual git history —
+                <strong>423 commits between April 19 and June 9, 2026</strong>, written by a mail carrier with no
+                prior Swift experience, in the hours around a full-time delivery route.
+            </p>
+            <p>
+                It's all open source. You can audit every claim below:
+                <a href="https://github.com/dfakkeldy/Echo" style="color: var(--link);" target="_blank" rel="noopener noreferrer">github.com/dfakkeldy/Echo</a>.
+            </p>
+        </div>
+
+        <div class="devlog-timeline">
+            <article class="week-entry">
+                <p class="week-meta">Week 1 · April 19 · 10 commits</p>
+                <h2>The two-hour app</h2>
+                <p>It started with a problem, not a plan. No audiobook app on the internet would loop a single chapter, survive thirty interruptions a shift, and play at 1.25× without chipmunk-voicing the narrator. One Sunday of vibe-coding later: a working player that loaded a folder from iCloud, looped chapters, and played speed-corrected audio. By the end of the day it had background-persistence so it would still be ready to play after a long pause — the first brick of what became <strong>Smart Rewind</strong>.</p>
+                <p>Then the repo went quiet for ten days. (Day job. Also: using the thing every day on the route, finding out what was missing.)</p>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 2 · April 27 – May 3 · 20 commits</p>
+                <h2>The watch appears</h2>
+                <p>The project got a name (BookLoop — it wouldn't survive), and got serious: a playlist editor with a virtual chapter queue, disabled-chapter skipping, persistent progress, and per-book speed memory. Then the commit that changed the app's shape: <em>"feat: Add Apple Watch app with Connectivity, Haptics, and Glassmorphism UI."</em> One day later the watch had widgets and App Intents; by week's end the complication showed the current book's thumbnail with live progress. The phone could finally stay plugged into the aux cable, in a pocket, all shift.</p>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 3 · May 4 – 10 · 48 commits</p>
+                <h2>Bookmarks learn to talk</h2>
+                <p>The week of the signature features. <strong>Smart Rewind</strong> grew its three tiers — seconds, minutes, hours — so every interruption length got a proportional rewind. <strong>Voice memo bookmarks</strong> landed, including the detail that still surprises people: memos <em>play back inline</em> when the narration reaches them. Then bookmarks reached the watch, learned to <strong>loop between bookmarks</strong>, and got volume normalization.</p>
+                <p>Also this week: an Appearance menu with <strong>OpenDyslexic and Lexend</strong> fonts (the accessibility thread starts here, not as an afterthought), a sleep timer, the MIT relicense — and the first macOS app. Honesty corner: this is also the week of commits literally titled <em>"broke some stuff"</em>, <em>"broken"</em>, and <em>"stuck on computing dependencies"</em> ×2, as three Xcode targets were forcibly consolidated into one project. It got fixed. The git history keeps the scars.</p>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 4 · May 11 – 17 · 92 commits</p>
+                <h2>The study player thesis</h2>
+                <p>The week Echo decided what it was. <strong>Whisper transcription</strong> arrived via a Mac generator and Python/Swift CLIs — audiobooks became <em>text</em> you could search and sync-scroll on the phone. <strong>Picture bookmarks</strong> landed, with the player artwork dynamically switching to your photo as playback passes it (the context-dependent-memory feature, before we knew to call it that). Siri-dictated bookmarks, Markdown export, and deep links rounded out capture.</p>
+                <p>Under the hood, the foundation work began: the AVPlayer backend was replaced with <strong>AVAudioEngine</strong> (volume boost, pitch-true speed), the 2,900-line PlayerModel "god class" started its decomposition into focused services, settings were centralized, fastlane + App Store metadata appeared, and the app got <strong>Dutch localization</strong>, in-app <strong>help files</strong>, and a full accessibility pass. Five planning docs for an Anki-style SRS were committed — next week they'd become real.</p>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 5 · May 18 – 24 · 132 commits</p>
+                <h2>The big bang</h2>
+                <p>The busiest week in the project's history, and it reads like a different app shipped every day:</p>
+                <ul>
+                    <li><strong>A real database.</strong> GRDB/SQLite foundation with migrations, DAOs, and tests — bookmarks and everything after now had a durable home.</li>
+                    <li><strong>The Anki system.</strong> SM-2 daily review, inline flashcard recall during playback, audio snippet cards, JSON deck import, and hands-free <strong>flashcard review on the watch</strong>.</li>
+                    <li><strong>The EPUB alignment pipeline</strong> — a Swift CLI that unpacks an EPUB, parses the spine, and fuzzy-aligns transcribed audio to text. The hardest problem in the app, started properly, with tests.</li>
+                    <li><strong>V1 EPUB timeline core</strong> — block and anchor tables, an import service, manual anchors with interpolation: the seed of the Read tab.</li>
+                    <li>Plus: tab navigation, multi-file <strong>M4B support</strong>, <strong>CarPlay</strong>, a portable playlist manifest, a unified timeline feed — and this very <strong>website</strong> with the privacy policy.</li>
+                </ul>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 6 · May 25 – 31 · 81 commits</p>
+                <h2>Stabilize, audit, rebrand</h2>
+                <p>A maturity week. A systematic roadmap appeared and got executed: concurrency safety, crash elimination, silent-failure remediation, database integrity, accessibility polish — then a comprehensive code audit surfaced <strong>55 findings</strong>, all resolved within days. The SRS gained review stats and daily notifications.</p>
+                <p>Two headliners: the <strong>EPUB Reader Feed</strong> shipped — the dedicated Read tab with card-based rendering, full-text search with highlighting, per-passage colors, TOC, and auto-scroll that follows the narration. And <strong>WhisperKit auto-alignment</strong> arrived: on-device speech recognition snapping chapter boundaries, detecting drift, and repairing it automatically. The "align an entire audiobook to its EPUB with one tap" dream became a feature.</p>
+                <p>And at week's end: <em>"chore: Rebrand Orbit Audiobooks to <strong>Echo</strong>"</em> — new name, alternate app icons, and the "For Every Mind" positioning, with the infinity-symbol icon in silver and gold as a nod to the AuDHD community the app was built from.</p>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 7 · June 1 – 7 · 18 commits</p>
+                <h2>Word-level precision + PDF</h2>
+                <p>Fewer commits, bigger ones. <strong>TokenDTW</strong> replaced the earlier silence-mapping approach: word-level dynamic-time-warping alignment for drift repair, later optimized from ~125&nbsp;MB peak memory to ~25&nbsp;MB with a sliding two-row algorithm. The EPUB parser was unified across platforms and learned to preserve inline formatting (bold, italics, links, images). Tier 0 title matching made coarse alignment instant.</p>
+                <p>The reader grew up too: <strong>PDF companion documents</strong> shipped — page-level alignment, a manual-alignment sheet with a spring-loaded <strong>scrubber joystick</strong>, and page-screenshot bookmarks. The Now Playing screen was redesigned around full-bleed artwork, and accent colors started deriving from the cover art itself.</p>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 8 · June 8 – 14 · 22 commits so far · in progress</p>
+                <h2>Polish with a safety net</h2>
+                <p>Current work, straight from the log: a <strong>watch connectivity overhaul</strong> (durable application-context sync; stale transport commands can no longer replay and phantom-pause you), pause-on-headphone-disconnect, a <strong>Pomodoro timer</strong> on the watch with a persistent alarm, a fullscreen cover-art viewer, and a configurable date overlay.</p>
+                <p>The engineering flourish of the week: the <strong>accent contrast safety pipeline</strong>. Artwork-derived theme colors now pass WCAG/CIELAB legibility gates, with a three-stage rescue ladder (nudge the hue → re-pick a safe hue → fall back to brand tint) so no album cover can ever make the UI unreadable. Plus the unglamorous good stuff: a zip-slip path-traversal security fix in EPUB extraction, and documentation refreshed across the board.</p>
+            </article>
+        </div>
+
+        <section class="band" style="max-width: 72ch;">
+            <h2 class="section-title">The shape of the thing</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Eight working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database,
+                an on-device ML alignment pipeline, a spaced-repetition system, and an EPUB/PDF reader — built
+                nights-and-weekends around a mail route, by someone whose previous programming experience was
+                "some Python scripts for GIS and a Visual Basic call logger in high school."
+            </p>
+            <p style="color: var(--text-secondary);">
+                The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code:
+                you should be able to see exactly what you're trusting with your books and your attention — and maybe,
+                if you've been wondering whether you could build <em>your</em> app, this page is the nudge.
+            </p>
+            <p style="color: var(--text-secondary); margin-top: 1rem;"><em>The devlog updates roughly weekly, generated from the real commit history.</em></p>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-links">
+            <a href="learn.html">Learn</a>
+            <a href="manual.html">Manual</a>
+            <a href="devlog.html">Devlog</a>
+            <a href="privacy.html">Privacy</a>
+            <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Support</a>
+        </div>
+        <p>&copy; 2026 Echo. Open source under the MIT License.</p>
+        <p class="footer-fineprint">This site is set in OpenDyslexic, hosts its own fonts, runs no scripts, and sets no cookies.</p>
+    </footer>
+</body>
+</html>

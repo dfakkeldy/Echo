@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Echo User Manual — Complete Reference</title>
+    <meta name="description" content="The complete user manual for Echo: Audiobook Study Player — playback, smart rewind, bookmarks, flashcards, EPUB/PDF alignment, Apple Watch, widgets, CarPlay, Mac, and settings.">
+    <meta property="og:title" content="Echo User Manual">
+    <meta property="og:description" content="Every Echo feature and how it works, on iPhone, Apple Watch, Mac, and CarPlay.">
+    <meta property="og:image" content="https://dfakkeldy.github.io/Echo/assets/icon.png">
+    <meta property="og:url" content="https://dfakkeldy.github.io/Echo/manual.html">
+    <meta property="og:type" content="article">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="assets/icon.png">
+</head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+        <div class="logo-container">
+            <a href="index.html">
+                <img src="assets/icon.png" alt="Echo app icon — an infinity symbol in silver and gold">
+                <span class="logo-text">Echo <span class="infinity">∞</span></span>
+            </a>
+        </div>
+        <nav class="site-nav" aria-label="Main">
+            <a href="index.html">Home</a>
+            <a href="learn.html">Learn</a>
+            <a href="manual.html" aria-current="page">Manual</a>
+            <a href="devlog.html">Devlog</a>
+            <a class="nav-cta" href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
+    </header>
+
+    <main id="main">
+        <div class="page-hero">
+            <p class="section-label">Reference</p>
+            <h1>Echo User Manual</h1>
+            <p>
+                The complete reference for <strong>Echo: Audiobook Study Player</strong> on iPhone, iPad, Apple Watch,
+                Mac, CarPlay, and widgets. New to Echo? Read
+                <a href="learn.html" style="color: var(--link);">Getting the Most Out of Echo</a> first — it explains
+                <em>why</em> these features help you learn. This manual explains <em>how</em> everything works.
+            </p>
+        </div>
+
+        <div class="docs-layout">
+            <aside class="docs-toc" aria-label="Table of contents">
+                <h2>Contents</h2>
+                <ol>
+                    <li><a href="#getting-started">1 · Getting Started</a></li>
+                    <li><a href="#tabs">2 · The Three Tabs</a></li>
+                    <li><a href="#playback">3 · Playback</a></li>
+                    <li><a href="#smart-rewind">4 · Smart Rewind</a></li>
+                    <li><a href="#loop-modes">5 · Loop Modes</a></li>
+                    <li><a href="#sleep-timer">6 · Sleep Timer</a></li>
+                    <li><a href="#bookmarks">7 · Bookmarks</a></li>
+                    <li><a href="#study">8 · The Study System</a></li>
+                    <li><a href="#reader">9 · The Reader: EPUB</a></li>
+                    <li><a href="#alignment">10 · Audio–Text Alignment</a></li>
+                    <li><a href="#pdf">11 · PDF Companions</a></li>
+                    <li><a href="#playlist">12 · Playlist &amp; Timeline</a></li>
+                    <li><a href="#watch">13 · Apple Watch</a></li>
+                    <li><a href="#widgets">14 · Widgets &amp; Control Center</a></li>
+                    <li><a href="#carplay">15 · CarPlay</a></li>
+                    <li><a href="#mac">16 · Echo for Mac</a></li>
+                    <li><a href="#settings">17 · Settings Reference</a></li>
+                    <li><a href="#tools">18 · Transcription Tools</a></li>
+                    <li><a href="#privacy">19 · Privacy</a></li>
+                    <li><a href="#faq">20 · Troubleshooting &amp; FAQ</a></li>
+                </ol>
+            </aside>
+
+            <article class="prose">
+                <h2 id="getting-started"><span class="sec-num">01</span>Getting Started</h2>
+                <h3>What Echo plays</h3>
+                <p>Echo is a player for <strong>DRM-free</strong> audiobooks — files you own and can see in the Files app:</p>
+                <ul>
+                    <li><strong>MP3 / M4A</strong> — including folders of one-file-per-chapter rips</li>
+                    <li><strong>M4B</strong> — with full embedded chapter parsing, including books split across multiple M4B files (chapters are aggregated automatically)</li>
+                    <li><strong>FLAC, AAC, AIFF, OGG, OPUS, WMA</strong> — on Mac</li>
+                    <li><strong>EPUB</strong> — as a synced companion text (see <a href="#reader">The Reader</a>)</li>
+                    <li><strong>PDF</strong> — as a synced companion document (see <a href="#pdf">PDF Companions</a>)</li>
+                </ul>
+                <p>Echo does not bypass DRM and cannot play protected Audible/Apple Books titles. Tools like Libation or OpenAudible can export books you own to open formats.</p>
+
+                <h3>Loading your first book</h3>
+                <ol>
+                    <li>Put the audiobook in a folder — one folder per book is the happy path. iCloud Drive, "On My iPhone," third-party file providers: all work.</li>
+                    <li>In Echo, choose <strong>Load Folder</strong> and select the book's folder.</li>
+                    <li>Echo scans the folder, builds the chapter list, finds the cover art (embedded art, or a <code>cover.*</code> image in the folder), and picks up any EPUB or PDF sitting alongside the audio for automatic import.</li>
+                    <li>Press play.</li>
+                </ol>
+                <p>Echo remembers everything per book: position, speed, loop mode, and settings overrides. Reopen the app days later and it resumes exactly where you left off — with <a href="#smart-rewind">Smart Rewind</a> backing up just enough to restore your context.</p>
+
+                <div class="tip-note">
+                    <span class="label">Offline tip — important for iCloud users</span>
+                    <p>Long-press your audiobook folder in the Files app and choose <strong>Keep Downloaded</strong>. Otherwise iOS may evict the audio files to save space, and your book will need to re-download mid-commute.</p>
+                </div>
+
+                <h3>Cover art</h3>
+                <p>Echo looks for artwork in this order: image embedded in the audio file → an image file in the book folder (prefers <code>cover.*</code>) → the Echo app icon as fallback. Artwork drives the player background, the watch complication thumbnail, and the dynamic accent color (see <a href="#settings">Appearance</a>).</p>
+
+                <h2 id="tabs"><span class="sec-num">02</span>The Three Tabs</h2>
+                <table>
+                    <thead><tr><th scope="col">Tab</th><th scope="col">What it's for</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>Now Playing</strong></td><td>The player: artwork, scrubber, transport controls, speed, sleep timer, bookmarks.</td></tr>
+                        <tr><td><strong>Read</strong></td><td>The synced EPUB/PDF reader: read along, search, align, highlight, bookmark from text.</td></tr>
+                        <tr><td><strong>Timeline</strong></td><td>Your study feed: chapters, bookmarks, flashcards, and aligned text in one scrollable history, plus the review queue and stats.</td></tr>
+                    </tbody>
+                </table>
+                <p>A mini-player bar stays visible on the Timeline tab so transport controls are never more than one tap away.</p>
+
+                <h2 id="playback"><span class="sec-num">03</span>Playback</h2>
+                <h3>Transport controls</h3>
+                <p>The Now Playing tab gives you five configurable transport buttons. Defaults: skip back, previous chapter, play/pause, next chapter, skip forward.</p>
+                <ul>
+                    <li><strong>Skip durations</strong> are configurable from 5–60 seconds, independently for forward and backward, and sync to the watch.</li>
+                    <li><strong>Long-press secondary actions:</strong> each of the five buttons can carry a second action on long-press (e.g., long-press skip-forward for next chapter). Configure under <em>Settings → Player Controls</em>.</li>
+                    <li><strong>Sections:</strong> books with fine-grained chapter files (e.g., "Chapter 11. A", "Chapter 11. B") are automatically grouped into logical chapters. Next/Previous Section actions jump between the sub-sections; the scrubber shows a tick mark at each boundary and snaps to them with a haptic tap while dragging.</li>
+                </ul>
+
+                <h3>Speed control — pitch-corrected</h3>
+                <p>Echo plays from 0.5× to 2×+ with true pitch correction — voices stay natural at any speed (no chipmunks at 1.25×, no slow-motion growl at 0.8×).</p>
+                <ul>
+                    <li>Set a <strong>global default speed</strong> in Settings.</li>
+                    <li>Each book remembers its <strong>own speed</strong> — your dense textbook can live at 1× while your familiar re-listen runs 1.5×.</li>
+                    <li>All displayed times (elapsed, remaining, chapter lengths) adjust to your current speed, so "20 minutes left" means real minutes.</li>
+                </ul>
+
+                <h3>Volume boost</h3>
+                <p>Quiet narrator? Enable <strong>Volume Boost</strong> for up to +9 dB of clean gain (configurable). Works independently of system volume.</p>
+
+                <h3>Audio behavior</h3>
+                <ul>
+                    <li>Playback pauses automatically when your headphones disconnect or the aux cable is pulled — no broadcasting to the room.</li>
+                    <li>Calls, alarms, and Siri interruptions pause playback and resume correctly afterward (and Echo won't auto-resume if <em>you</em> had paused first).</li>
+                    <li>Audio is configured as spoken-word audio system-wide, which improves routing and voice processing on every output.</li>
+                </ul>
+
+                <h2 id="smart-rewind"><span class="sec-num">04</span>Smart Rewind</h2>
+                <p>Every time you press play after a pause, Echo rewinds first — proportionally to how long you were gone:</p>
+                <table>
+                    <thead><tr><th scope="col">You were away…</th><th scope="col">Echo rewinds (default)</th></tr></thead>
+                    <tbody>
+                        <tr><td>Seconds (a quick interruption)</td><td>a few seconds</td></tr>
+                        <tr><td>Minutes (delivered some mail, made coffee)</td><td>more</td></tr>
+                        <tr><td>Hours–days (overnight, the weekend)</td><td>the most</td></tr>
+                    </tbody>
+                </table>
+                <p>All three tiers are configurable under <em>Settings → Smart Rewind</em>. The rewind happens silently and automatically; you just press play and the story makes sense again.</p>
+                <p>This is Echo's signature feature: it makes interruption free. You never scrub backward hunting for the last sentence you remember.</p>
+
+                <h2 id="loop-modes"><span class="sec-num">05</span>Loop Modes</h2>
+                <p>Echo's loop button cycles through:</p>
+                <ul>
+                    <li><strong>Loop chapter</strong> — repeat the current chapter until you turn it off. <em>The feature Echo was built for:</em> loop one chapter all day until you know it.</li>
+                    <li><strong>Loop playlist</strong> — repeat the whole book/playlist.</li>
+                    <li><strong>Loop between bookmarks</strong> — repeat the passage between consecutive bookmarks: drop one bookmark at the start of a key argument, one at the end, and drill exactly that stretch.</li>
+                    <li><strong>Off</strong> — straight through.</li>
+                </ul>
+                <p>Loop mode is remembered per book and is available on the watch and as a transport long-press action.</p>
+
+                <h2 id="sleep-timer"><span class="sec-num">06</span>Sleep Timer</h2>
+                <p>Set a countdown (with fade-out) or stop at chapter end. When it fires, Echo pauses — and notes the pause time, so tomorrow's Smart Rewind backs you up over whatever you drifted through. Start, stop, and toggle the sleep timer from the phone or directly from the watch.</p>
+
+                <h2 id="bookmarks"><span class="sec-num">07</span>Bookmarks</h2>
+                <p>Bookmarks are Echo's capture tool — and they can carry far more than a timestamp.</p>
+
+                <h3>Creating bookmarks</h3>
+                <ul>
+                    <li><strong>Phone:</strong> tap the bookmark button in the player (or a configured transport long-press).</li>
+                    <li><strong>Reader:</strong> long-press any paragraph → <strong>Save Bookmark</strong> (the bookmark binds to that text <em>and</em> its audio moment).</li>
+                    <li><strong>Watch:</strong> one (configurable) button on the remote. A quick-bookmark timeout lets you confirm or auto-save.</li>
+                    <li><strong>Siri:</strong> dictate a bookmark hands-free — the note arrives transcribed.</li>
+                    <li><strong>PDF:</strong> long-press a page → bookmark with a screenshot of that page attached.</li>
+                </ul>
+
+                <h3>What a bookmark can hold</h3>
+                <table>
+                    <thead><tr><th scope="col">Element</th><th scope="col">Details</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>Title &amp; note</strong></td><td>Editable text; titles default to "Bookmark N".</td></tr>
+                        <tr><td><strong>Voice memo</strong></td><td>Record your thought in the moment. Memos are volume-normalized so they match the narration level.</td></tr>
+                        <tr><td><strong>Photo</strong></td><td>Attach from your photo library or camera — see below.</td></tr>
+                        <tr><td><strong>PDF view state</strong></td><td>For PDF bookmarks: exact page, zoom, and scroll position restore on tap.</td></tr>
+                        <tr><td><strong>Enabled/disabled</strong></td><td>Disabled bookmarks stay visible (grayed) but won't trigger inline playback.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Voice memos that play inline</h3>
+                <p>With <em>Inline Voice Memos</em> enabled, when playback reaches a bookmark that has a memo, Echo ducks the narration and plays <strong>your</strong> voice — past-you annotating the book for present-you — then resumes the narrator. Toggle globally or per book.</p>
+
+                <h3>Photo bookmarks &amp; dynamic artwork</h3>
+                <p>Attach a photo to a bookmark and Echo makes it part of the listening experience: as playback passes the bookmark, the <strong>player artwork switches to your photo</strong> (and back to the cover afterward) — on the phone, the watch, and the lock screen. Your photos become visual mileposts inside the book.</p>
+                <p>Why bother? Because your brain involuntarily memorizes <em>where you were</em> alongside <em>what you heard</em> — and a photo of the place re-triggers the passage. The full story is in <a href="learn.html#photos">the learning guide</a>.</p>
+
+                <div class="safety-note">
+                    <span class="label">Safety first</span>
+                    <p>Never take photos while driving. Pick from your library later — a photo taken around that time and place works nearly as well as one taken in the moment.</p>
+                </div>
+
+                <h3>Managing bookmarks</h3>
+                <ul>
+                    <li>Bookmarks group under their book in the playlist, sortable and editable (rename, retime, re-record, swap photo).</li>
+                    <li><strong>Loop between bookmarks</strong> uses them as loop fences (see <a href="#loop-modes">Loop Modes</a>).</li>
+                    <li><strong>Export to Markdown:</strong> share or archive a book's bookmarks — timestamps, notes, and deep links that reopen Echo at the exact second.</li>
+                    <li>Every bookmark can be promoted to a <strong>flashcard</strong> in one tap (see next section).</li>
+                </ul>
+
+                <h2 id="study"><span class="sec-num">08</span>The Study System (Flashcards &amp; Review)</h2>
+                <p>Echo includes a complete spaced-repetition system (SRS) — think Anki, built into your audiobook player, with audio on the cards. <em>(New to spaced repetition? The <a href="learn.html#srs">learning guide</a> explains it from zero.)</em></p>
+
+                <h3>Creating cards</h3>
+                <ul>
+                    <li><strong>From the reader:</strong> long-press a passage → <strong>Create Flashcard</strong>. The passage text seeds the card.</li>
+                    <li><strong>From a bookmark:</strong> any bookmark — note, voice memo, photo and all — becomes a card.</li>
+                    <li><strong>From scratch:</strong> in the Timeline tab.</li>
+                    <li><strong>Import a deck:</strong> Anki-style JSON decks import with validation — bring your existing decks along.</li>
+                </ul>
+                <p>Every card has a <strong>front</strong> (your prompt — write it as a question) and a <strong>back</strong> (the answer), and can carry:</p>
+                <ul>
+                    <li>an <strong>audio snippet</strong> — the actual narrated clip from the book,</li>
+                    <li>a <strong>photo</strong> — e.g., the one from its source bookmark,</li>
+                    <li>a <strong>trigger timing</strong> — play this card <em>before</em> or <em>after</em> its audio moment during listening, or keep it manual-review-only.</li>
+                </ul>
+
+                <h3>Inline recall during playback</h3>
+                <p>Cards with a trigger timing surface as you listen: reach the moment in the book and Echo quizzes you on the related card — a micro-review in context. Cards set to <em>manual only</em> never interrupt playback.</p>
+
+                <h3>Daily Review</h3>
+                <ul>
+                    <li>Echo schedules every card with the <strong>SM-2 algorithm</strong> (the same scheduling family Anki uses): grade a card and its next appearance is computed from your history — tomorrow if you missed it, weeks out if it was easy.</li>
+                    <li>The <strong>review queue</strong> shows everything due today. Grade each card <strong>Again / Hard / Good / Easy</strong>.</li>
+                    <li>Cards with audio play their snippet — review with your ears.</li>
+                    <li><strong>Stats:</strong> due count, reviewed-today, and total cards show on the Timeline tab's review module.</li>
+                    <li><strong>Notifications:</strong> an optional daily local notification reminds you when cards are due. (Local = generated on your device; Echo has no servers.)</li>
+                </ul>
+
+                <h3>Review on Apple Watch</h3>
+                <p>The full review session runs hands-free on the watch: hear the card, think your answer, tap a grade. Perfect for the walk between mailboxes.</p>
+
+                <h3>Chapter Study Mode</h3>
+                <p>For books you need to <em>master</em>, flip the whole book into a study deck:</p>
+                <ol>
+                    <li><strong>Set Up for Study</strong> on a book: Echo skips front-matter (intro, copyright, acknowledgments) and creates one card per main chapter — or per section, when the book has section-level structure.</li>
+                    <li>Listen to a chapter (loop it as much as you like). At the end, Echo asks for a grade: <strong>Again</strong> or <strong>Easy</strong>.</li>
+                    <li>The chapter is now scheduled like any flashcard. When it comes due, it appears in your <strong>study playlist</strong> — open Study Mode and your due chapters <em>are</em> your listening queue.</li>
+                </ol>
+                <p>Regular flashcards and chapter cards coexist: chapters teach the material; your hand-made cards pin down the details. And if you ignore the study system entirely, bookmarks are still just bookmarks — Echo never forces the workflow on you.</p>
+
+                <h2 id="reader"><span class="sec-num">09</span>The Reader: EPUB</h2>
+                <p>Add the EPUB alongside your audiobook and the <strong>Read</strong> tab becomes a full book reader, synchronized to the narration.</p>
+
+                <h3>Importing</h3>
+                <p>Drop the <code>.epub</code> in the book's folder — Echo's auto-import scanner picks it up — or use <strong>Import Document</strong> in the playlist. Echo parses the book (safely — imports are copy-only and validated), extracts every paragraph, heading, and image, and stores them in its local database. Inline formatting (bold, italics), block quotes, and links are preserved.</p>
+
+                <h3>Reading</h3>
+                <ul>
+                    <li>The book renders as a clean feed of cards: chapter headers, paragraphs, images.</li>
+                    <li><strong>Follow the narration:</strong> the active paragraph is highlighted and the feed auto-scrolls with playback. Scroll away to browse freely; auto-scroll politely disengages and a tap brings you back to the live position.</li>
+                    <li><strong>Tap to seek:</strong> tap any paragraph to jump the audio to that exact text. Tap images to view full-screen.</li>
+                    <li><strong>Search:</strong> full-text search with highlighted matches; tap a result to jump there — in text <em>and</em> in audio.</li>
+                    <li><strong>Table of contents:</strong> the chapter picker navigates the book's structure; the sticky header shows your position as Part → Chapter → Section.</li>
+                    <li><strong>Highlights:</strong> long-press → <strong>Change Color</strong> to tint passages — build your own color system.</li>
+                    <li><strong>Typography:</strong> font size, line spacing, and card background are adjustable; <strong>Lexend</strong> and <strong>OpenDyslexic</strong> (dyslexia-friendly) fonts are built in.</li>
+                </ul>
+
+                <h3>The reader toolbar</h3>
+                <p>While the Read tab is active, the bottom toolbar switches to reader-optimized controls: skip back / play–pause / skip forward, timeline, and bookmark — so you can drive playback without leaving the text.</p>
+
+                <h2 id="alignment"><span class="sec-num">10</span>Audio–Text Alignment</h2>
+                <p>Alignment is what binds the reader to the narration: every paragraph gets a timestamp. Echo builds this map for you and lets you correct it anywhere.</p>
+
+                <h3>Auto-Align (recommended)</h3>
+                <p>Tap <strong>Auto-Align Chapters</strong> and Echo's on-device speech recognition (WhisperKit, running on the Neural Engine — <em>no audio ever leaves your device</em>) aligns the book in tiers:</p>
+                <table>
+                    <thead><tr><th scope="col">Tier</th><th scope="col">What it does</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>0 — Title match</strong></td><td>Matches chapter titles to audio file/chapter names for instant coarse anchors.</td></tr>
+                        <tr><td><strong>1 — Chapter snap</strong></td><td>Transcribes a short clip at each chapter boundary and fuzzy-matches it to the text, anchoring every chapter start/end.</td></tr>
+                        <tr><td><strong>2 — Drift detection</strong></td><td>Spot-checks inside chapters to find passages drifting out of sync (narrators ad-lib; editions differ).</td></tr>
+                        <tr><td><strong>3 — Drift repair</strong></td><td>Bisects flagged regions and inserts word-level correction anchors using token-based dynamic time warping.</td></tr>
+                    </tbody>
+                </table>
+                <p>A progress view shows each tier working, with a debug log if you're curious. Between anchors, Echo interpolates positions weighted by paragraph word counts — long paragraphs get proportionally more time.</p>
+                <p><strong>Continuous Alignment</strong> (optional, in Settings) keeps refining in the background while you listen: Echo samples short windows of the audio it's already playing, transcribes them on-device, and drops new anchors as it confirms positions.</p>
+
+                <h3>Manual anchors</h3>
+                <p>Reality is messy — narrators skip forewords and editions disagree. Fix any spot in seconds:</p>
+                <ul>
+                    <li>Long-press a paragraph → <strong>Align to Now</strong> (or <strong>Align to 5s Ago</strong>) to lock it to the playhead.</li>
+                    <li>Heading cards offer <strong>Align to Chapter Start/End</strong> for bulk anchoring.</li>
+                    <li>Locked anchors show a green badge with their timestamp; interpolated text shows its estimated status.</li>
+                    <li><strong>Erase Anchor</strong> removes one; <strong>Reset Alignment</strong> clears the book and starts fresh. Recalculation is instant.</li>
+                </ul>
+
+                <h2 id="pdf"><span class="sec-num">11</span>PDF Companion Documents</h2>
+                <p>Working from a PDF (slides, sheet music, a scanned textbook)? Import it like an EPUB — the Import button accepts both and routes automatically.</p>
+                <ul>
+                    <li>The Read tab renders the PDF with continuous scroll and zoom.</li>
+                    <li><strong>Page-level alignment:</strong> long-press a page → align it to the current audio. The <strong>Manual Alignment sheet</strong> gives you play/pause, ±5s skips, and a <strong>scrubber joystick</strong> — pull a little for slow precise scrubbing, more for fast travel, with live audio preview while you drag.</li>
+                    <li><strong>Page bookmarks:</strong> bookmark a page and Echo stores a screenshot thumbnail plus your exact page, zoom, and scroll position — tapping the bookmark restores the view precisely.</li>
+                </ul>
+
+                <h2 id="playlist"><span class="sec-num">12</span>The Playlist &amp; Timeline</h2>
+                <h3>Playlist</h3>
+                <ul>
+                    <li>Chapters list in playback order with duration and progress; logical chapters expand to show their sections.</li>
+                    <li><strong>Drag to reorder</strong> when filenames sort badly.</li>
+                    <li><strong>Tap to dim</strong> a chapter to skip it ("this is the LibriVox disclaimer track") — dimmed chapters are skipped by playback and loops.</li>
+                    <li>Hierarchical titles render nested structure (Part 1 → Chapter 1 → Section A) with visual indentation.</li>
+                    <li>Playlist edits persist per book, and a portable manifest file keeps your ordering if you move the folder between devices.</li>
+                </ul>
+                <h3>Timeline</h3>
+                <p>The Timeline tab is your study history as a feed: chapters, bookmarks (with photos and memo indicators), flashcards, and aligned text excerpts, in book order. It's where the review module lives (due cards, stats, streaks) and the fastest place to skim everything you've captured from a book. <strong>Freeze</strong> the timeline while browsing so it stops following playback, then sync-and-resume when ready.</p>
+
+                <h2 id="watch"><span class="sec-num">13</span>Apple Watch</h2>
+                <p>Echo's watch app is a full remote — designed so you <em>never</em> need the phone in your hand (or out of the aux cable).</p>
+                <h3>The remote</h3>
+                <ul>
+                    <li><strong>Up to 25 buttons</strong>: five pages of five slots, every slot user-assignable: play/pause, skip forward/back (5–60s, configurable), next/previous chapter, next/previous section, loop mode, speed, sleep timer, bookmark, Pomodoro — or empty. Empty pages hide automatically.</li>
+                    <li><strong>Design it from the phone:</strong> drag-and-drop the layout in <em>Settings → Watch App</em>; it syncs to the wrist instantly.</li>
+                    <li><strong>Digital Crown:</strong> assign to volume or scrubbing (with a deadzone so a brushed crown doesn't jump your position).</li>
+                    <li><strong>Big targets:</strong> buttons are sized to hit without looking — gloves, rain, walking.</li>
+                </ul>
+                <h3>On-wrist features</h3>
+                <ul>
+                    <li><strong>Now playing screen</strong> with full-screen artwork (or the classic compact layout) — including photo-bookmark artwork switching, and a tap-for-fullscreen cover viewer.</li>
+                    <li><strong>Bookmarks with voice memos</strong>, recorded on the wrist, delivered reliably to the phone.</li>
+                    <li><strong>Hands-free flashcard review</strong> — full Daily Review sessions on the watch.</li>
+                    <li><strong>Pomodoro timer</strong> — hours/minutes/seconds wheels, a fat progress ring, persistent alarm. Lives right in the button grid.</li>
+                    <li><strong>Sleep timer</strong> start/stop, speed cycling, loop control.</li>
+                    <li><strong>Complication:</strong> current book thumbnail + progress ring on your watch face; tap to open the remote. The optional date overlay puts the day/date on the player screen.</li>
+                </ul>
+                <h3>Reliability</h3>
+                <p>State syncs via durable application context — the watch picks up the truth the moment it wakes, even after a weekend off-wrist, and stale commands are never replayed (no phantom pauses or position jumps). If watch and phone disagree, the watch asks the phone for the authoritative position and converges.</p>
+
+                <h2 id="widgets"><span class="sec-num">14</span>Widgets &amp; Control Center</h2>
+                <ul>
+                    <li><strong>Lock Screen / Home Screen widget:</strong> current book thumbnail with a progress ring.</li>
+                    <li><strong>Play/pause from the widget</strong> without opening the app.</li>
+                    <li><strong>Control Center:</strong> a toggle-playback control.</li>
+                </ul>
+
+                <h2 id="carplay"><span class="sec-num">15</span>CarPlay</h2>
+                <p>Echo appears in CarPlay with a browse list and remote transport commands — play, pause, skip — through the car's interface. (CarPlay is intentionally minimal for now; richer templates are on the roadmap.)</p>
+                <p>No CarPlay in your car (Echo's creator doesn't have it either)? That's what the watch remote and aux cable are for. Echo's whole design assumes the phone stays in your pocket.</p>
+
+                <h2 id="mac"><span class="sec-num">16</span>Echo for Mac</h2>
+                <ul>
+                    <li><strong>Three-pane layout:</strong> bookmarks sidebar, player with transport + speed controls, document pane.</li>
+                    <li>Plays the same folders (broadest format support, including FLAC/OGG/OPUS).</li>
+                    <li><strong>EPUB alignment</strong> with streaming on-device transcription — point it at a book and watch alignment build in real time.</li>
+                    <li><strong>Transcript pane</strong> with live highlighting and search; word-cloud visualization of any book's vocabulary.</li>
+                    <li>Bookmarks share the same format as iOS and live in the shared app-group store.</li>
+                </ul>
+
+                <h2 id="settings"><span class="sec-num">17</span>Settings Reference</h2>
+                <table>
+                    <thead><tr><th scope="col">Group</th><th scope="col">Settings</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>Playback</strong></td><td>Default speed · per-book speed memory · volume boost gain · seek forward/back durations (5–60s)</td></tr>
+                        <tr><td><strong>Smart Rewind</strong></td><td>Three tiers (short/medium/long pause) with per-tier rewind amounts</td></tr>
+                        <tr><td><strong>Bookmarks</strong></td><td>Inline voice memo playback (global + per book) · quick-bookmark timeout</td></tr>
+                        <tr><td><strong>Study</strong></td><td>Daily review notification · inline flashcard triggers · Chapter Study Mode setup</td></tr>
+                        <tr><td><strong>Reader</strong></td><td>Font (incl. Lexend, OpenDyslexic) · text size · line spacing · card tint · per-card colors</td></tr>
+                        <tr><td><strong>Appearance</strong></td><td>Theme accent color or <strong>Artwork mode</strong> (accent derived from the cover, automatically adjusted for legibility) · dark mode · app icon · player layout (Default/Compact) · transport button sizes</td></tr>
+                        <tr><td><strong>Player Controls</strong></td><td>Five tap actions + five long-press actions for the transport row</td></tr>
+                        <tr><td><strong>Watch App</strong></td><td>Button layout designer (5 pages × 5 slots) · Digital Crown mode · artwork layout · haptics · date overlay · title scroll speed</td></tr>
+                        <tr><td><strong>Per-book overrides</strong></td><td>Speed, font, volume boost, inline memos — any global setting, pinned per book</td></tr>
+                        <tr><td><strong>Help</strong></td><td>The full in-app help library</td></tr>
+                        <tr><td><strong>Language</strong></td><td>English and Dutch</td></tr>
+                    </tbody>
+                </table>
+
+                <h2 id="tools"><span class="sec-num">18</span>Transcription Tools (Power Users)</h2>
+                <p>The Echo repository ships companion CLI tools (<code>Tools/</code>) for generating full transcripts of your audiobooks on your Mac:</p>
+                <ul>
+                    <li><strong>Swift CLI</strong> (WhisperKit): <code>transcribe</code> a file or <code>--dir</code> for batch folders; <code>align</code> an EPUB to produce an enhanced, timestamped transcript.</li>
+                    <li><strong>Python CLI</strong> (OpenAI Whisper): same job, GPU-accelerated where available (<code>--device auto</code>).</li>
+                    <li>Output includes timestamped segments and word-frequency data (the Mac app renders these as word clouds).</li>
+                </ul>
+                <p>These are optional — the iOS app's built-in alignment needs none of this — but lovely for archival transcripts of your library.</p>
+
+                <h2 id="privacy"><span class="sec-num">19</span>Privacy</h2>
+                <p>The shortest section, because there's nothing to disclose:</p>
+                <ul>
+                    <li><strong>No accounts. No analytics. No tracking. No ads. No servers.</strong></li>
+                    <li>Your books, bookmarks, photos, voice memos, flashcards, and reading history stay on your devices (and your personal iCloud, if you enable sync).</li>
+                    <li>Speech recognition for alignment runs <strong>entirely on-device</strong>. Audio never leaves your hardware.</li>
+                    <li>The app is <strong>open source (MIT)</strong> — you can read every line: <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">github.com/dfakkeldy/Echo</a>.</li>
+                </ul>
+
+                <h2 id="faq"><span class="sec-num">20</span>Troubleshooting &amp; FAQ</h2>
+                <h3>My book won't play / chapters are missing.</h3>
+                <p>Check the files exist locally (see the <em>Keep Downloaded</em> tip in <a href="#getting-started">Getting Started</a>). For multi-file books, confirm the files sort correctly by name — and remember you can drag-reorder in the playlist.</p>
+                <h3>The reader text doesn't match the narration.</h3>
+                <p>Different editions drift. Run <strong>Auto-Align Chapters</strong> first; for stubborn spots, long-press the paragraph you're <em>hearing</em> and tap <strong>Align to Now</strong>. Two or three manual anchors usually tame even a messy book.</p>
+                <h3>Auto-alignment is slow or warm on my phone.</h3>
+                <p>The first run downloads and warms the on-device speech model, and transcription is real work for the Neural Engine. Plug in for the first full-book alignment of a long book; afterward, incremental repairs are quick.</p>
+                <h3>The watch shows a stale book/position.</h3>
+                <p>Raise the watch and give it a beat — it requests authoritative state from the phone on wake. Both devices on, same Wi-Fi/Bluetooth, helps. (The sync layer was specifically hardened against stale-state replays.)</p>
+                <h3>Voice memos are quiet/loud.</h3>
+                <p>Memos are volume-normalized on save; very old memos can be re-recorded from the bookmark editor.</p>
+                <h3>Inline flashcards interrupt me too much.</h3>
+                <p>Set those cards to <em>manual only</em>, or disable inline triggers in Settings → Study. Your reviews then live only in Daily Review.</p>
+                <h3>Where are my files? Can I get my data out?</h3>
+                <p>Your audio stays where you put it (Echo reads in place). Echo's own data lives in a local SQL database; bookmarks export to Markdown, and the open-source schema means your data is never hostage.</p>
+                <h3>Does Echo work fully offline?</h3>
+                <p>Yes — playback, reading, alignment, flashcards, everything. The only network use is your own iCloud file syncing.</p>
+                <h3>Can it play my Audible books?</h3>
+                <p>Not while they're DRM-locked. Echo plays open formats only.</p>
+
+                <p style="margin-top: 2.5rem;"><em>Echo is open source under the MIT license. Found a bug, or want a feature? <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Open an issue</a> — the developer reads every one.</em></p>
+            </article>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-links">
+            <a href="learn.html">Learn</a>
+            <a href="manual.html">Manual</a>
+            <a href="devlog.html">Devlog</a>
+            <a href="privacy.html">Privacy</a>
+            <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Support</a>
+        </div>
+        <p>&copy; 2026 Echo. Open source under the MIT License.</p>
+        <p class="footer-fineprint">This site is set in OpenDyslexic, hosts its own fonts, runs no scripts, and sets no cookies.</p>
+    </footer>
+</body>
+</html>
