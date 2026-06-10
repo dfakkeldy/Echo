@@ -181,7 +181,7 @@ class TranscriptionManager {
                     liveWordCloud = TranscriptStore.computeWordFrequencies(from: loaded)
                 }
 
-                NotificationCenter.default.post(name: NSNotification.Name("TranscriptDidUpdate"), object: nil)
+                NotificationCenter.default.post(name: .transcriptDidUpdate, object: nil)
                 return cachedURL
             }
         }
@@ -252,7 +252,7 @@ class TranscriptionManager {
         if process.terminationStatus == 0 {
             progress = 1.0
             appendLog(.completed, "Transcription complete.")
-            NotificationCenter.default.post(name: NSNotification.Name("TranscriptDidUpdate"), object: nil)
+            NotificationCenter.default.post(name: .transcriptDidUpdate, object: nil)
             return completedTranscriptURL ?? transcriptURL
         } else {
             appendLog(.error, "CLI exited with code \(process.terminationStatus)")

@@ -26,7 +26,7 @@ class TranscriptStore {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleTranscriptUpdate),
-            name: NSNotification.Name("TranscriptDidUpdate"),
+            name: .transcriptDidUpdate,
             object: nil
         )
     }
