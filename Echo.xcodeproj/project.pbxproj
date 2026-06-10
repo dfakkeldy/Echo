@@ -706,7 +706,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo macOS/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobookk Study Player";
+				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -748,7 +748,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo macOS/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobookk Study Player";
+				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
