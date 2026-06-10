@@ -298,6 +298,9 @@ struct ReaderTab: View {
         } message: {
             Text(autoAlignmentErrorMessage ?? "An unknown error occurred.")
         }
+        .onDisappear {
+            autoAlignmentTask?.cancel()
+        }
         .background(Color.clear)
     }
 

@@ -5,28 +5,13 @@ import UIKit
 /// Sheet presented during auto-alignment showing progress, phase, results,
 /// and a live diagnostic log.
 ///
-/// Uses a polling timer to copy state from the shared `AutoAlignmentState`
-/// into local `@State` properties, avoiding SwiftUI observation edge cases
-/// in sheets.
+/// Reads `AutoAlignmentState` (an `@Observable` type) directly — SwiftUI
+/// automatically tracks which properties are accessed in `body` and re-renders
+/// only when those specific properties change.
 struct AutoAlignmentProgressView: View {
     let sharedState: AutoAlignmentState
     @Environment(\.dismiss) private var dismiss
     var onCancel: (() -> Void)?
-
-    // Local copies refreshed by the polling timer.
-    @State private var phase = AutoAlignmentState.Phase.idle
-    @State private var progress: Double = 0
-    @State private var statusMessage = ""
-    @State private var currentChapter = 0
-    @State private var totalChapters = 0
-    @State private var anchoredChapters = 0
-    @State private var titleMatchedChapters = 0
-    @State private var driftedIDs: [Int] = []
-    @State private var repairCount = 0
-    @State private var errorMessage: String?
-    @State private var logEntries: [String] = []
-
-    @State private var pollTimer: Timer?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -34,15 +19,15 @@ struct AutoAlignmentProgressView: View {
             Image(systemName: phaseIcon)
                 .font(.system(size: 32))
                 .foregroundStyle(Color.accentColor)
-                .symbolEffect(.pulse, isActive: phase != .completed && phase != .failed && phase != .idle)
+                .symbolEffect(.pulse, isActive: sharedState.phase != .completed && sharedState.phase != .failed && sharedState.phase != .idle)
 
-            Text(phase != .completed && phase != .failed && phase != .idle
+            Text(sharedState.phase != .completed && sharedState.phase != .failed && sharedState.phase != .idle
                  ? "Auto-Aligning Chapters" : "Auto-Alignment")
                 .font(.title3.bold())
 
             // Progress bar
-            ProgressView(value: progress) {
-                Text(statusMessage)
+            ProgressView(value: sharedState.progress) {
+                Text(sharedState.statusMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -57,13 +42,13 @@ struct AutoAlignmentProgressView: View {
             // ── Debug log ──
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("Log (\(logEntries.count) entries)")
+                    Text("Log (\(sharedState.debugLog.count) entries)")
                         .font(.caption.bold())
                         .foregroundStyle(.secondary)
                     Spacer()
-                    if !logEntries.isEmpty {
+                    if !sharedState.debugLog.isEmpty {
                         Button("Copy") {
-                            UIPasteboard.general.string = logEntries.joined(separator: "\n")
+                            UIPasteboard.general.string = sharedState.debugLog.joined(separator: "\n")
                         }
                         .font(.caption2)
                     }
@@ -71,7 +56,7 @@ struct AutoAlignmentProgressView: View {
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
 
-                if logEntries.isEmpty {
+                if sharedState.debugLog.isEmpty {
                     Text("Waiting for alignment to start…")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -80,7 +65,7 @@ struct AutoAlignmentProgressView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(logEntries.enumerated()), id: \.offset) { _, entry in
+                                ForEach(Array(sharedState.debugLog.enumerated()), id: \.offset) { _, entry in
                                     Text(entry)
                                         .font(.system(size: 10, design: .monospaced))
                                         .foregroundStyle(logColor(entry))
@@ -93,8 +78,8 @@ struct AutoAlignmentProgressView: View {
                         .frame(maxHeight: 200)
                         .background(Color(.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .onChange(of: logEntries.count) { _, _ in
-                            if let last = logEntries.indices.last {
+                        .onChange(of: sharedState.debugLog.count) { _, _ in
+                            if let last = sharedState.debugLog.indices.last {
                                 withAnimation {
                                     proxy.scrollTo(last, anchor: .bottom)
                                 }
@@ -106,12 +91,12 @@ struct AutoAlignmentProgressView: View {
             .padding(.horizontal)
 
             // Actions
-            if phase == .completed {
+            if sharedState.phase == .completed {
                 Button("Done") { dismiss() }
                     .buttonStyle(.borderedProminent)
-            } else if phase == .failed {
+            } else if sharedState.phase == .failed {
                 VStack(spacing: 8) {
-                    Text(errorMessage ?? "An unknown error occurred.")
+                    Text(sharedState.errorMessage ?? "An unknown error occurred.")
                         .foregroundStyle(.red)
                         .font(.caption)
                         .multilineTextAlignment(.center)
@@ -129,46 +114,12 @@ struct AutoAlignmentProgressView: View {
         }
         .padding()
         .frame(minWidth: 360, idealWidth: 400)
-        .onAppear { startPolling() }
-        .onDisappear { stopPolling() }
-    }
-
-    // MARK: - Polling
-
-    private func startPolling() {
-        // Immediate first refresh.
-        refresh()
-        // Then poll every 0.3 seconds.
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
-            Task { @MainActor in
-                refresh()
-            }
-        }
-    }
-
-    private func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-    }
-
-    private func refresh() {
-        phase = sharedState.phase
-        progress = sharedState.progress
-        statusMessage = sharedState.statusMessage
-        currentChapter = sharedState.currentChapterIndex
-        totalChapters = sharedState.totalChapters
-        anchoredChapters = sharedState.anchoredChapterCount
-        titleMatchedChapters = sharedState.titleMatchedChapterCount
-        driftedIDs = sharedState.driftedChapterIDs
-        repairCount = sharedState.repairAnchorCount
-        errorMessage = sharedState.errorMessage
-        logEntries = sharedState.debugLog
     }
 
     // MARK: - Helpers
 
     private var phaseIcon: String {
-        switch phase {
+        switch sharedState.phase {
         case .idle, .loadingModel: return "arrow.down.circle"
         case .matchingTitles: return "text.badge.checkmark"
         case .mappingSilences: return "waveform"
@@ -188,26 +139,26 @@ struct AutoAlignmentProgressView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if phase == .completed {
+        if sharedState.phase == .completed {
             VStack(alignment: .leading, spacing: 4) {
-                if titleMatchedChapters > 0 {
-                    Text("• \(titleMatchedChapters) via title match (Tier 0)")
+                if sharedState.titleMatchedChapterCount > 0 {
+                    Text("• \(sharedState.titleMatchedChapterCount) via title match (Tier 0)")
                 }
-                if anchoredChapters > 0 {
-                    Text("• \(anchoredChapters) chapter\(anchoredChapters == 1 ? "" : "s") anchored")
+                if sharedState.anchoredChapterCount > 0 {
+                    Text("• \(sharedState.anchoredChapterCount) chapter\(sharedState.anchoredChapterCount == 1 ? "" : "s") anchored")
                 }
-                if !driftedIDs.isEmpty {
-                    Text("• \(driftedIDs.count) chapter\(driftedIDs.count == 1 ? "" : "s") flagged for drift")
+                if !sharedState.driftedChapterIDs.isEmpty {
+                    Text("• \(sharedState.driftedChapterIDs.count) chapter\(sharedState.driftedChapterIDs.count == 1 ? "" : "s") flagged for drift")
                 }
-                if repairCount > 0 {
-                    Text("• \(repairCount) repair anchor\(repairCount == 1 ? "" : "s") inserted")
+                if sharedState.repairAnchorCount > 0 {
+                    Text("• \(sharedState.repairAnchorCount) repair anchor\(sharedState.repairAnchorCount == 1 ? "" : "s") inserted")
                 }
-                if anchoredChapters == 0 && driftedIDs.isEmpty {
+                if sharedState.anchoredChapterCount == 0 && sharedState.driftedChapterIDs.isEmpty {
                     Text("No chapters needed alignment.")
                 }
             }
-        } else if phase != .idle && phase != .failed && phase != .completed {
-            Text("Chapter \(currentChapter + 1) of \(totalChapters)")
+        } else if sharedState.phase != .idle && sharedState.phase != .failed && sharedState.phase != .completed {
+            Text("Chapter \(sharedState.currentChapterIndex + 1) of \(sharedState.totalChapters)")
         }
     }
 }

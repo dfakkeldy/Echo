@@ -81,7 +81,8 @@ struct PlayerPage: View {
                 MarqueeText(
                     text: viewModel.title,
                     font: .system(.caption, design: .rounded),
-                    fontWeight: .medium
+                    fontWeight: .medium,
+                    isPlaying: viewModel.isPlaying
                 )
                 .padding(.horizontal)
             } else {
@@ -139,7 +140,8 @@ struct PlayerPage: View {
                     font: .system(.caption, design: .rounded),
                     fontWeight: .semibold,
                     foregroundStyle: Color.white,
-                    scrollSpeed: viewModel.watchTitleScrollSpeed
+                    scrollSpeed: viewModel.watchTitleScrollSpeed,
+                    isPlaying: viewModel.isPlaying
                 )
                 .padding(.horizontal, 10)
                 .padding(.vertical, layout == .classic ? 4 : 6)
@@ -905,7 +907,9 @@ struct MarqueeText: View {
     var fontWeight: Font.Weight = .regular
     var foregroundStyle: Color? = nil
     var scrollSpeed: Double = 30.0
+    var isPlaying: Bool = true
 
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     @State private var textWidth: CGFloat = 0
 
     var body: some View {
@@ -916,7 +920,7 @@ struct MarqueeText: View {
                     let containerWidth = proxy.size.width
 
                     if textWidth > containerWidth {
-                        TimelineView(.animation) { timeline in
+                        TimelineView(.animation(minimumInterval: 0.5, paused: !isPlaying || isLuminanceReduced)) { timeline in
                             let time = timeline.date.timeIntervalSinceReferenceDate
                             let distance = textWidth + 40
                             let offset = CGFloat(time * scrollSpeed).truncatingRemainder(dividingBy: distance)
