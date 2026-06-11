@@ -375,3 +375,20 @@ Open each cited location; every Critical/High claim below was confirmed by readi
 **Claims investigated and demoted/dropped during verification** (for transparency): CarPlay force-unwrap "Critical crash" → safe local binding, kept as Low style (§5.6); XMLParser XXE "High" → default already safe, kept as Low hardening (§6.2); XMLParser delegate "background-thread race" → delegates run synchronously on the calling thread, dropped; `DominantColorExtractor` NaN-index crash → impossible (saturation guard precedes bucket math), dropped; audio-tap "locks the realtime thread" → ring buffer is lock-free by design, dropped; stale-bookmark "uses stale data" → refresh path is correct, replaced by the `.minimalBookmark` concern (§5.2); `aggregatedChapters[idx]` bounds race → index derived from the same array in the same MainActor turn, dropped.
 
 If any finding doesn't reproduce at the cited line, flag the §number and it will be re-investigated.
+
+---
+
+## 13. Post-audit addendum
+
+### 13.1 `ColorMetrics.isLegible` ΔE76 chroma gate passed unreadable accents (found 2026-06-10, superseded)
+
+The two-gate legibility check (`WCAG ≥ 2.4 OR ΔE76 ≥ 52`) approved accents with
+high chromatic distance but near-zero luminance contrast — extractor gold
+`#EEC32B` on the Company of One beige surface measured **1.06:1** WCAG with
+ΔE76 65, so the `AccentSafetyNet` rescue ladder never ran. Higher saturation
+inflated ΔE76, making the most problematic accents the most likely to bypass
+rescue. Root cause: human acuity for fine detail is carried by the luminance
+channel; a chroma-only gate cannot certify glyph legibility. Resolved by
+replacing extract-then-rescue with constructed OKLCH tone recipes
+(`CoverThemeBuilder`, spec `docs/superpowers/specs/2026-06-10-cover-tonal-theme-design.md`);
+the gate, ladder, and their tests were deleted.

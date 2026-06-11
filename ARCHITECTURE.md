@@ -723,10 +723,9 @@ The app can dynamically derive its accent (tint) color from the current audioboo
 
 **Extraction pipeline (`DominantColorExtractor`):**
 - Downsamples the cover image to 100×100px for fast analysis.
-- Converts pixels to HSL and discards near-grey, near-white, and near-black pixels (they don't make good accent colors).
+- Converts pixels to HSL and discards near-grey, near-white, and near-black pixels.
 - Builds a saturation²-weighted hue histogram with centre-distance biasing (cover subjects tend to be centred).
-- Selects the most heavily weighted hue bucket, then clamps saturation ≥ 0.45 and lightness into [0.38, 0.60] for readability on variable backgrounds.
-- Returns `nil` for greyscale artwork — the UI falls back to the system default.
+- Emits a `CoverSignature` — ranked identity hues (OKLCH hue + chroma + weight) with an `isNeutral` flag (vivid coverage < 2%, so a stray pixel can't theme a book). The extractor reports what the cover IS; it has no opinion about how the UI looks.
 
 **Integration points:**
 - `PlayerModel.artworkAccentColor` — computed property with version-cached extraction, invalidated automatically when `currentDisplayArtworkVersion` changes.
@@ -734,31 +733,41 @@ The app can dynamically derive its accent (tint) color from the current audioboo
 - `ThemeSelectionView` — shows a live preview circle using the extracted color (or a dashed placeholder when no artwork is loaded), with a descriptive subtitle and fallback footer text.
 - `ThemeColor.artwork` added to the enum (before `.system` so it's the first/default option).
 
-### Accent Contrast Safety (June 2026)
+### Cover Tonal Themes (June 2026)
 
-Artwork-derived accent colours are made legible against the player surface by a two-stage pipeline, fixed at the source so all consumers inherit it:
+Cover colors are no longer used directly in the UI. The pipeline is
+construct-don't-rescue:
 
-1. **One extraction pass:** `DominantColorExtractor.extractPalette(from:)` returns `{ rawAccent, candidates, background }` from a single downsampled histogram scan (shared by `extract`, `extractColors`, and the background gradient).
-2. **Two-gate trigger:** `ColorMetrics.isLegible(_:on:)` flags an accent only when it fails **both** a WCAG luminance gate (`luminanceGate`) **and** a CIELAB ΔE chroma gate (`chromaGate`) against the estimated surface. Covers that clear either gate are left untouched.
-3. **A→B→C rescue:** `AccentSafetyNet.resolve(...)` escalates progressively — **A** nudge the winning hue's lightness to `contrastFloor` (within `distortionBudget`), **B** re-pick the next safe cover hue, **C** fall back to the nudged brand tint. Returns a `Tier` for debug/telemetry, mirroring the `AutoAlignmentService` progressive-tier convention.
+`UIImage → DominantColorExtractor.signature(from:) → CoverSignature → CoverThemeBuilder.build(from:scheme:) → CoverTheme`
 
-`PlayerModel.artworkAccentColor` is the single source of truth (the rescued colour, cached by artwork version + `uiColorScheme`, which `RootTabView` feeds in). `artworkAccentColorHex` stays **raw** for the Watch, whose surface is always dark.
+**`CoverThemeBuilder`** converts the cover's primary hue to OKLCH and builds
+role colors from per-scheme tone recipes — pale ramps in light mode
+(background L≈0.93–0.96), immersive deep tones in dark mode (L≈0.21–0.26),
+accent at L 0.47 (light) / 0.78 (dark) with gamut-clamped chroma. Contrast is
+guaranteed by construction: `CoverThemeBuilderTests` sweeps all 360 hues in
+both schemes asserting accent ≥3:1 vs backgrounds, ≥2.5:1 vs chip, and
+onAccent ≥4.5:1 vs accent. A bounded lightness-stepping safety valve covers
+extreme gamut corners. Roles: `accent`, `onAccent`, `secondaryAccent`
+(first candidate ≥60° away with ≥15% of the primary's weight, else a +30°
+sibling), `backgroundTop`/`backgroundBottom` (the `AdaptiveBackground` ramp),
+and `chip` (pills/control circles). Neutral covers (greyscale or `isNeutral`)
+get a warm-grey ramp with the brand accent.
 
-**Key types:**
+**Why OKLCH:** HSL lightness is not perceptual — yellow at HSL L 0.55 is
+near-white in real luminance while blue at the same L is dark. OKLab
+lightness is uniform across hues, which is what makes fixed tone recipes
+safe for every cover.
 
-- `ColorMetrics` — Pure colour math: `RGB` value type, WCAG luminance/contrast, CIELAB ΔE76, HSL conversions, the `isLegible` two-gate, and the `nudged` lightness adjustment. Tunable constants (`luminanceGate`, `chromaGate`, `contrastFloor`, `distortionBudget`) tuned from a 5-cover sample.
-- `AccentSafetyNet` — The A→B→C rescue ladder (`resolve`) plus `representativeSurface(background:scheme:)`, which blends the cover's average background colour toward the scheme base by `materialWeight`.
-- `DominantColorExtractor.ArtworkPalette` — `{ rawAccent, candidates, background }` from one extraction pass.
+**Integration:** `PlayerModel.coverTheme` (cached per artwork version +
+`uiColorScheme`); `PlayerModel.artworkAccentColor` remains the compatibility
+facade (nil for neutral covers so `?? .accentColor` fallbacks engage);
+`artworkAccentColorHex` sends the **dark-recipe** accent to the Watch, whose
+surface is always dark.
 
-**Thresholds:**
-
-| Constant | Value | Rationale |
-|---|---|---|
-| `luminanceGate` | 2.4 : 1 | under Pragmatic (2.63), over Emotional (1.86) |
-| `chromaGate` (ΔE76) | 52 | over Brain (49), under Emotional (57) |
-| `contrastFloor` | 3.0 : 1 | Apple/WCAG minimum for UI controls |
-| `distortionBudget` | 0.22 (\|ΔL\|) | gold's 0.16 passes A; neon escalates to B |
-| `materialWeight` | 0.70 | two `.ultraThinMaterial` layers ≈ mostly scheme base |
+**History:** this replaced the `AccentSafetyNet` two-gate rescue ladder. Its
+ΔE76 chroma gate passed high-chroma/equal-luminance accents (bright gold on
+beige at 1.06:1 WCAG) because chromatic distance alone cannot carry small
+glyphs — see CODE_AUDIT.md §13.
 
 ### Watch Connectivity Fixes (June 2026)
 
