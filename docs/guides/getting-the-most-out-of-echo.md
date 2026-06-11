@@ -176,7 +176,7 @@ Many people — especially many neurodivergent people — simply cannot absorb a
 - **Check coverage before a re-listen.** The chapter heatmap shows exactly which chapters you've actually heard versus skimmed past — re-listen to the gaps, not the whole book.
 - **Use the due forecast to right-size your card-making.** Fifty new cards today is two hundred reviews next month. The forecast makes the trade visible while you can still adjust.
 - **Find your golden hours.** The time-of-day chart tells you when you actually listen and retain. Schedule the dense book there.
-- **Streaks bend, they don't break.** A missed day is data, not a verdict. The goal is the trend line, not a perfect chain — see the [Focus guide on motivation](focus-field-guide.md#5-motivation--work-with-the-interest-based-engine-not-against-it) for why this matters double for ADHD brains.
+- **Streaks bend, they don't break.** A missed day is data, not a verdict. The goal is the trend line, not a perfect chain — see the [Focus guide on all-or-nothing thinking](focus-field-guide.md#6-all-or-nothing-thinking--finding-the-gray) for why this matters double for ADHD brains.
 
 > 📸 *Screenshot coming soon — Insights: listening totals, streak, chapter-coverage heatmap, retention curve.*
 
