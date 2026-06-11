@@ -583,13 +583,12 @@ iCloud Drive/
                 </table>
 
                 <h2 id="tools"><span class="sec-num">24</span>Transcription Tools (Power Users)</h2>
-                <p>The Echo repository ships companion CLI tools (<code>Tools/</code>) for generating full transcripts of your audiobooks on your Mac:</p>
+                <p>The Echo repository ships a companion command-line tool (<code>Tools/transcription_generator.py</code>) for generating full transcripts of your audiobooks on your Mac. EPUB/PDF alignment itself runs entirely inside the app (WhisperKit on-device) and needs none of this — the earlier Swift transcription/alignment CLI has been retired in favour of in-app alignment.</p>
                 <ul>
-                    <li><strong>Swift CLI</strong> (WhisperKit): <code>transcribe</code> a file or <code>--dir</code> for batch folders; <code>align</code> an EPUB to produce an enhanced, timestamped transcript.</li>
-                    <li><strong>Python CLI</strong> (OpenAI Whisper): same job, GPU-accelerated where available (<code>--device auto</code>).</li>
-                    <li>Output includes timestamped segments and word-frequency data (the Mac app renders these as word clouds).</li>
+                    <li><strong>Python CLI</strong> (faster-whisper): transcribe a single file with <code>--audio_path</code>, or a whole folder with <code>--dir</code> (files that already have a <code>.transcript.json</code> are skipped). Tune the run with <code>--model_size</code>, <code>--language</code>, <code>--device</code>, and <code>--force</code>.</li>
+                    <li>Output is a <code>.transcript.json</code> sidecar of timestamped segments plus word-frequency data (the Mac app renders these as word clouds).</li>
                 </ul>
-                <p>These are optional — the iOS app's built-in alignment needs none of this — but lovely for archival transcripts of your library.</p>
+                <p>This is optional — the iOS app's built-in alignment needs none of it — but lovely for archival transcripts of your library. Set it up with <code>pip install -r Tools/requirements.txt</code> and <code>brew install ffmpeg</code>.</p>
 
                 <h2 id="privacy"><span class="sec-num">25</span>Privacy</h2>
                 <p>The shortest section, because there's nothing to disclose:</p>

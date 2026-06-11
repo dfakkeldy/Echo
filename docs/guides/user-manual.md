@@ -510,13 +510,12 @@ Echo has no servers and no accounts — sync rides on *your* iCloud.
 
 ## 24. Transcription Tools (Power Users)
 
-Companion CLI tools in `Tools/` for archival transcripts on your Mac:
+A companion command-line tool (`Tools/transcription_generator.py`) for archival transcripts on your Mac. EPUB/PDF alignment runs entirely in-app now (on-device WhisperKit); the earlier Swift transcription/alignment CLI has been retired.
 
-- **Swift CLI** (WhisperKit): `transcribe` a file or `--dir` for batches; `align` an EPUB for an enhanced transcript.
-- **Python CLI** (OpenAI Whisper): same job, GPU-accelerated where available (`--device auto`).
-- Output includes timestamped segments and word-frequency data (rendered as word clouds on Mac).
+- **Python CLI** (faster-whisper): transcribe a single file with `--audio_path` or a folder with `--dir` (existing `.transcript.json` files are skipped). Tune with `--model_size`, `--language`, `--device`, and `--force`.
+- Output is a `.transcript.json` sidecar of timestamped segments plus word-frequency data (rendered as word clouds on Mac).
 
-Optional — the iOS app's built-in alignment needs none of this.
+Optional — the iOS app's built-in alignment needs none of this. Set up with `pip install -r Tools/requirements.txt` and `brew install ffmpeg`.
 
 ---
 

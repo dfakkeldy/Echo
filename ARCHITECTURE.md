@@ -587,7 +587,7 @@ showing artwork, title/chapter metadata, and play/pause — tapping it opens the
 | `WatchStateContextBuilder` | Builds the watch connectivity state dictionary |
 | `WatchCommandRouter` | Routes incoming watch commands to the appropriate facade method |
 | `PlaylistManager` | Track/chapter ordering, enabled-state toggling, reset |
-| `PlaylistManifestService` | `.orbitplaylist.json` manifest read/write/migration |
+| `PlaylistManifestService` | `.echoplaylist.json` manifest read/write/migration |
 | `Persistence` | UserDefaults and on-disk state persistence |
 | `SecurityScopeManager` | Security-scoped resource access grants |
 | `TranscriptService` | Transcript JSON loading, word cloud computation |
@@ -642,7 +642,7 @@ The Reader uses a tap/long-press interaction model on card cells:
 
 **Bookmark lifecycle:** Bookmarks created via `BottomToolbarView.addBookmarkButton` flow through `BookmarkStore.appendBookmark` → `BookmarkDAO.syncToTimeline` → `timeline_item` table. The `.bookmarksDidChange` notification triggers a feed refresh, ensuring bookmarks appear inline immediately.
 
-**Playlist management:** `PlaylistView` (embedded in `TimelineTab`) provides track/chapter reordering via drag handles in edit mode, per-item enable/disable toggles, and bookmark browsing with swipe-to-edit. The backend is handled by `PlaylistManager` (track/chapter ordering and enabled-state persistence) and `PlaylistManifestService` (`.orbitplaylist.json` manifest I/O).
+**Playlist management:** `PlaylistView` (embedded in `TimelineTab`) provides track/chapter reordering via drag handles in edit mode, per-item enable/disable toggles, and bookmark browsing with swipe-to-edit. The backend is handled by `PlaylistManager` (track/chapter ordering and enabled-state persistence) and `PlaylistManifestService` (`.echoplaylist.json` manifest I/O).
 
 ### EPUB/PDF-to-Audio Data Model: Handling Mismatches
 
