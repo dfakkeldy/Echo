@@ -37,19 +37,20 @@ struct EchoCoreTests {
     }
 
     @Test func playerDeepLinkParsesPlayURLWithoutTime() throws {
-        let link = try #require(PlayerDeepLink(url: URL(string: "orbitaudio://play")!))
+        let link = try #require(PlayerDeepLink(url: URL(string: "echoaudio://play")!))
 
         #expect(link.time == nil)
     }
 
     @Test func playerDeepLinkParsesPlayURLWithTime() throws {
-        let link = try #require(PlayerDeepLink(url: URL(string: "orbitaudio://play?time=30")!))
+        let link = try #require(PlayerDeepLink(url: URL(string: "echoaudio://play?time=30")!))
 
         #expect(link.time == 30)
     }
 
     @Test func playerDeepLinkRejectsUnregisteredScheme() {
-        #expect(PlayerDeepLink(url: URL(string: "orbitaudiobooks://play?time=30")!) == nil)
+        // The pre-rebrand scheme must no longer parse.
+        #expect(PlayerDeepLink(url: URL(string: "orbitaudio://play?time=30")!) == nil)
     }
 
     @Test func bookmarkMarkdownUsesCanonicalDeepLinkScheme() {
@@ -59,8 +60,8 @@ struct EchoCoreTests {
 
         let markdown = Bookmark.markdownExport(for: bookmarks)
 
-        #expect(markdown.contains("[Play in App](orbitaudio://play?time=42.5)"))
-        #expect(!markdown.contains("orbitaudiobooks://"))
+        #expect(markdown.contains("[Play in App](echoaudio://play?time=42.5)"))
+        #expect(!markdown.contains("orbitaudio"))
     }
 
     @Test func bookmarkSidecarURLUsesFolderNameForDirectoryBooks() throws {
