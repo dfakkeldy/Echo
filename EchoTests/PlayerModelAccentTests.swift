@@ -17,4 +17,19 @@ final class PlayerModelAccentTests: XCTestCase {
         model.uiColorScheme = .dark
         XCTAssertEqual(model.uiColorScheme, .dark)
     }
+
+    func testCoverThemeWithoutArtworkIsNeutralFallback() {
+        let model = PlayerModel()
+        XCTAssertTrue(model.coverTheme.isNeutralFallback)
+        XCTAssertNil(model.artworkAccentColor)
+    }
+
+    func testCoverThemeChangesWithScheme() {
+        let model = PlayerModel()
+        model.uiColorScheme = .light
+        let light = model.coverTheme
+        model.uiColorScheme = .dark
+        let dark = model.coverTheme
+        XCTAssertNotEqual(light, dark)
+    }
 }
