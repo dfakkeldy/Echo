@@ -102,17 +102,7 @@ final class ReaderFeedViewModel {
 
                     for block in chapterBlocks {
                         if block.blockKind == EPubBlockRecord.Kind.heading.rawValue, let text = block.text, !text.isEmpty {
-                            let lower = text.lowercased()
-                            let isUtility = lower == "tip" || lower == "warning" || lower == "note" || lower == "caution" || lower == "important"
-                            let isTooLong = text.count > 100
-                            let isFigure = lower.hasPrefix("figure ") || lower.hasPrefix("table ") || lower.hasPrefix("image ")
-
-                            // Comprehensive front/back matter detection.
-                            // Without this, copyright pages, dedications, TOC pages, etc.
-                            // create "junk chapters" that clutter the reader feed.
-                            let isNonContent = Self.isNonContentHeading(text)
-
-                            if !(isUtility || isTooLong || isNonContent || isFigure) {
+                            if !HeadingClassifier.isJunk(text) {
                                 if !currentItems.isEmpty {
                                     parsedSections.append(ReaderCardSection(id: "ch\(key)-s\(sectionIndex)", headingStack: currentHeadingStack, items: currentItems))
                                     currentItems = []
@@ -163,7 +153,9 @@ final class ReaderFeedViewModel {
                                 }
                                 
                                 let depthIndex = max(0, min(5, finalLevel - 1))
-                                globalActiveHeadings[depthIndex] = text
+                                // Collapse interior whitespace so the pinned
+                                // header never shows legacy line-broken titles.
+                                globalActiveHeadings[depthIndex] = text.collapsedWhitespace()
                                 for i in (depthIndex + 1)..<6 {
                                     globalActiveHeadings[i] = nil
                                 }
@@ -267,64 +259,7 @@ final class ReaderFeedViewModel {
         cardIndexByBlockID[blockID]
     }
 
-    // MARK: - Heading Classification
-
-    /// Returns `true` when a heading text matches common front-matter or back-matter
-    /// patterns that should not create reader-feed section splits.
-    ///
-    /// EPUBs often contain pages like "Title Page", "Copyright", "Contents", "Also by…"
-    /// whose headings were surfacing as junk chapters. This set-based check catches the
-    /// most common patterns without being so broad that it swallows legitimate chapter
-    /// titles (e.g. "Foreword" or "Introduction" are intentionally kept as content).
-    nonisolated static func isNonContentHeading(_ text: String) -> Bool {
-        let lower = text.lowercased().trimmingCharacters(in: .whitespaces)
-
-        /// Headings that are almost never real chapter content.
-        let nonContentExact: Set<String> = [
-            // Title / half-title pages
-            "title page", "title", "half title", "half-title",
-            // Copyright / colophon
-            "copyright", "copyright page", "colophon",
-            // Dedication / epigraph
-            "dedication", "dedications", "epigraph",
-            // Table of contents
-            "contents", "table of contents", "toc",
-            // Publisher / promotional
-            "also by", "also by the author", "also available",
-            "praise for", "praise", "coming soon",
-            "about the publisher", "credits",
-            // Lists of figures / tables
-            "list of illustrations", "list of figures", "list of tables",
-            "cast of characters", "maps", "timeline",
-            // Explicit front matter marker
-            "front matter", "frontmatter",
-            // Bibliographic / index
-            "bibliography", "references", "index", "glossary",
-            // End notes
-            "endnotes", "notes", "footnotes",
-            // Author bio
-            "about the author", "about the authors",
-        ]
-
-        if nonContentExact.contains(lower) {
-            return true
-        }
-
-        // Prefix checks for variable patterns like "Also by J.R.R. Tolkien"
-        let nonContentPrefixes = [
-            "also by ", "praise for ", "excerpt from ", "excerpt: ",
-            "about the author", "about the publisher",
-        ]
-        for prefix in nonContentPrefixes {
-            if lower.hasPrefix(prefix) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    /// Formats flattened TOC titles (e.g. "Part One: Chapter One") to extract just the 
+    /// Formats flattened TOC titles (e.g. "Part One: Chapter One") to extract just the
     /// overarching "Part" title, preventing nested chapter repetition in the feed.
     nonisolated static func formatChapterTitle(_ title: String) -> String {
         let lower = title.lowercased()
