@@ -64,12 +64,7 @@ final class HeadingCardCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     func configure(with block: EPubBlockRecord, font: UIFont, tint: UIColor, isExplicitHighlight: Bool, searchQuery: String? = nil) {
-        let text = block.text ?? ""
-        let plainText = text
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        let plainText = (block.text ?? "").collapsedWhitespace()
 
         let hasThemeOrCardColor = block.cardColor != nil || block.chapterThemeColor != nil
         let textColor = hasThemeOrCardColor ? tint.contrastingTextColor : (UITraitCollection.current.userInterfaceStyle == .dark ? UIColor.white : UIColor.label)

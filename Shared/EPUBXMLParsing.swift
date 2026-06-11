@@ -1,5 +1,16 @@
 import Foundation
 
+// MARK: - Whitespace Normalization
+
+extension StringProtocol {
+    /// Collapses every run of whitespace (spaces, newlines, tabs, NBSP) into a
+    /// single space and trims the ends. Publisher XHTML is pretty-printed, so
+    /// without this extracted titles and text keep source-file line breaks.
+    func collapsedWhitespace() -> String {
+        split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+}
+
 // MARK: - Models
 
 /// Describes a spine item from the OPF manifest (reading-order metadata).
@@ -7,12 +18,33 @@ struct SpineItemDescriptor: Sendable {
     let id: String
     let href: String
     let mediaType: String
+    /// `false` when the spine itemref carries `linear="no"` — auxiliary
+    /// content (cover pages, inserts) outside the main reading flow.
+    let linear: Bool
 
-    init(id: String, href: String, mediaType: String) {
+    init(id: String, href: String, mediaType: String, linear: Bool = true) {
         self.id = id
         self.href = href
         self.mediaType = mediaType
+        self.linear = linear
     }
+}
+
+/// A classified pointer from EPUB structural metadata: an EPUB 2
+/// `<guide><reference>` or an EPUB 3 landmarks entry.
+///
+/// `type` values follow the specs: "cover", "toc", "copyright-page",
+/// "text" (guide, EPUB 2) or "cover", "toc", "bodymatter" (landmarks, EPUB 3).
+struct GuideReference: Sendable {
+    let type: String
+    let href: String
+}
+
+/// Result of parsing an OPF package document.
+struct OPFParseResult: Sendable {
+    let spine: [SpineItemDescriptor]
+    let tocHref: String?
+    let guideReferences: [GuideReference]
 }
 
 /// A parsed block from XHTML content — a paragraph, heading, or image.
@@ -74,9 +106,14 @@ final class ContainerXMLParser: NSObject, XMLParserDelegate {
 /// elements to produce `SpineItemDescriptor` values in reading order.
 final class OPFParserDelegate: NSObject, XMLParserDelegate {
     var spineItems: [SpineItemDescriptor] = []
-    var tocHref: String?
+    /// Preferred TOC source: the EPUB 3 nav document when present (labels are
+    /// usually cleaner), otherwise the legacy NCX.
+    var tocHref: String? { navHref ?? ncxHref }
+    var guideReferences: [GuideReference] = []
+    private var navHref: String?
+    private var ncxHref: String?
     private var manifestItems: [String: SpineItemDescriptor] = [:]
-    private var spineIDRefs: [String] = []
+    private var spineRefs: [(idref: String, linear: Bool)] = []
     private var currentAttributes: [String: String] = [:]
 
     func parse(_ data: Data) {
@@ -95,7 +132,11 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
     ) {
         currentAttributes = attributeDict
         if elementName == "itemref", let idref = attributeDict["idref"] {
-            spineIDRefs.append(idref)
+            spineRefs.append((idref: idref, linear: attributeDict["linear"]?.lowercased() != "no"))
+        } else if elementName == "reference",
+                  let type = attributeDict["type"],
+                  let href = attributeDict["href"] {
+            guideReferences.append(GuideReference(type: type, href: href))
         }
     }
 
@@ -110,15 +151,22 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
            let href = currentAttributes["href"],
            let mediaType = currentAttributes["media-type"] {
             manifestItems[id] = SpineItemDescriptor(id: id, href: href, mediaType: mediaType)
-            
-            if id == "ncx" || mediaType == "application/x-dtbncx+xml" || currentAttributes["properties"] == "nav" {
-                tocHref = href
+
+            // `properties` is a space-separated list per spec (e.g. "nav scripted").
+            let properties = (currentAttributes["properties"] ?? "").split(separator: " ")
+            if properties.contains("nav") {
+                navHref = href
+            } else if id == "ncx" || mediaType == "application/x-dtbncx+xml" {
+                ncxHref = href
             }
         }
     }
 
     func parserDidEndDocument(_ parser: XMLParser) {
-        spineItems = spineIDRefs.compactMap { manifestItems[$0] }
+        spineItems = spineRefs.compactMap { ref in
+            guard let item = manifestItems[ref.idref] else { return nil }
+            return SpineItemDescriptor(id: item.id, href: item.href, mediaType: item.mediaType, linear: ref.linear)
+        }
     }
 }
 
@@ -127,9 +175,16 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
 /// Parses `toc.ncx` (EPUB 2) or `nav.xhtml` (EPUB 3) to extract a mapping from `href` to TOC title.
 final class TOCParserDelegate: NSObject, XMLParserDelegate {
     var tocMap: [String: String] = [:]
+    /// Entries from the EPUB 3 landmarks nav (`<nav epub:type="landmarks">`),
+    /// e.g. type "bodymatter" pointing at the first body-content file.
+    var landmarks: [GuideReference] = []
     private var isInsideNavLabelText = false
     private var currentText = ""
     private var currentSrc = ""
+    /// `epub:type` values of currently open `<nav>` elements (innermost last).
+    /// Only anchors inside the "toc" nav may contribute titles — otherwise
+    /// landmarks/page-list labels pollute the map.
+    private var navTypes: [String] = []
 
     func parse(_ data: Data) {
         let parser = XMLParser(data: data)
@@ -139,25 +194,36 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes attributeDict: [String: String] = [:]) {
-        if elementName == "text" { // NCX
+        if elementName == "nav" { // NAV (EPUB3)
+            navTypes.append(attributeDict["epub:type"] ?? "")
+        } else if elementName == "text" { // NCX
             isInsideNavLabelText = true
             currentText = ""
         } else if elementName == "content" { // NCX
             if let src = attributeDict["src"] {
                 currentSrc = src
-                if !currentText.isEmpty {
+                let label = currentText.collapsedWhitespace()
+                if !label.isEmpty {
                     let href = String(currentSrc.components(separatedBy: "#")[0])
                     let decodedHref = href.removingPercentEncoding ?? href
                     if tocMap[decodedHref] == nil {
-                        tocMap[decodedHref] = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        tocMap[decodedHref] = label
                     }
                 }
             }
         } else if elementName == "a" { // NAV (EPUB3)
             if let href = attributeDict["href"] {
-                currentSrc = href
-                isInsideNavLabelText = true
-                currentText = ""
+                let navWords = (navTypes.last ?? "").split(separator: " ")
+                if navWords.contains("landmarks") {
+                    let cleanHref = String(href.components(separatedBy: "#")[0])
+                    let decoded = cleanHref.removingPercentEncoding ?? cleanHref
+                    landmarks.append(GuideReference(type: attributeDict["epub:type"] ?? "", href: decoded))
+                } else if navWords.isEmpty || navWords.contains("toc") {
+                    currentSrc = href
+                    isInsideNavLabelText = true
+                    currentText = ""
+                }
+                // Anchors in other navs (page-list, etc.) are ignored.
             }
         }
     }
@@ -169,14 +235,18 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
-        if elementName == "text" { // NCX end text
+        if elementName == "nav" { // NAV (EPUB3)
+            if !navTypes.isEmpty { navTypes.removeLast() }
+        } else if elementName == "text" { // NCX end text
             isInsideNavLabelText = false
         } else if elementName == "a" { // NAV end a
+            guard isInsideNavLabelText else { return } // anchor was in a non-TOC nav
             isInsideNavLabelText = false
             let href = String(currentSrc.components(separatedBy: "#")[0])
             let decodedHref = href.removingPercentEncoding ?? href
-            if tocMap[decodedHref] == nil && !currentText.isEmpty {
-                tocMap[decodedHref] = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = currentText.collapsedWhitespace()
+            if tocMap[decodedHref] == nil && !label.isEmpty {
+                tocMap[decodedHref] = label
             }
         }
     }
@@ -224,6 +294,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         currentText = ""
         parser.parse()
         flushBlock()
+        documentTitle = documentTitle?.collapsedWhitespace()
     }
 
     func parser(
@@ -304,23 +375,44 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
         guard skipDepth == 0 else { return }
-        
+
         if isInsideTitle {
             let docTitle = documentTitle ?? ""
             documentTitle = docTitle + string
             return
         }
         if isInsideHead { return } // ignore all other text in head
-        
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isInHeading { currentHeading += trimmed + " " }
-        if !trimmed.isEmpty {
-            currentText += trimmed + " "
-            currentCharOffset += trimmed.count + 1  // +1 for the space
-        }
+
+        if isInHeading { appendCollapsed(string, to: &currentHeading) }
+        currentCharOffset += appendCollapsed(string, to: &currentText)
         if isInBlock || inlineDepth > 0 {
             currentHTML += string
         }
+    }
+
+    /// Appends `chunk` to `target`, collapsing whitespace runs into single
+    /// spaces and dropping leading whitespace while `target` is empty.
+    ///
+    /// XMLParser may deliver one text node as several chunks (it splits at
+    /// every entity reference), so chunks must be joined with NO separator —
+    /// only whitespace actually present in the source becomes a space.
+    /// Returns the number of characters appended so marker/format offsets
+    /// stay aligned with the accumulated text.
+    @discardableResult
+    private func appendCollapsed(_ chunk: String, to target: inout String) -> Int {
+        var appended = 0
+        for character in chunk {
+            if character.isWhitespace {
+                if !target.isEmpty && target.last != " " {
+                    target.append(" ")
+                    appended += 1
+                }
+            } else {
+                target.append(character)
+                appended += 1
+            }
+        }
+        return appended
     }
 
     func parser(
@@ -433,11 +525,16 @@ func parseContainerXML(from data: Data) -> String? {
     return parser.rootfilePath
 }
 
-/// Parse OPF data and return spine items in EPUB reading order, along with the optional TOC href.
-func parseOPF(from data: Data) -> (spine: [SpineItemDescriptor], tocHref: String?) {
+/// Parse OPF data and return spine items in EPUB reading order, the optional
+/// TOC href, and any `<guide>` references.
+func parseOPF(from data: Data) -> OPFParseResult {
     let parser = OPFParserDelegate()
     parser.parse(data)
-    return (parser.spineItems, parser.tocHref)
+    return OPFParseResult(
+        spine: parser.spineItems,
+        tocHref: parser.tocHref,
+        guideReferences: parser.guideReferences
+    )
 }
 
 /// Parse XHTML data into an array of text / image block descriptors and the document title if available.

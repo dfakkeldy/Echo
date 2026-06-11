@@ -499,14 +499,6 @@ struct ReaderTab: View {
     }
 }
 
-struct TOCNode: Identifiable {
-    let id: String
-    var title: String
-    let blockID: String
-    var children: [TOCNode]
-}
-
-
 /// Sheet showing the EPUB's Table of Contents (sections/headings) for navigation.
 struct EPUBTOCSheet: View {
     let sections: [ReaderCardSection]
@@ -525,107 +517,7 @@ struct EPUBTOCSheet: View {
                 }
             }
         }
-        
-        var rootNodes: [TOCNode] = []
-        var currentPartNodes: [TOCNode] = []
-        var currentPartId: String? = nil
-        var currentPartTitle: String = ""
-        var currentPartBlockID: String = ""
-        
-        var currentChapterNodes: [TOCNode] = []
-        var currentChapterId: String? = nil
-        var currentChapterTitle: String = ""
-        var currentChapterBlockID: String = ""
-
-        func flushChapter() {
-            if let cid = currentChapterId {
-                let c = TOCNode(id: cid, title: currentChapterTitle, blockID: currentChapterBlockID, children: currentChapterNodes)
-                if currentPartId != nil {
-                    currentPartNodes.append(c)
-                } else {
-                    rootNodes.append(c)
-                }
-            }
-            currentChapterNodes = []
-            currentChapterId = nil
-        }
-
-        func flushPart() {
-            flushChapter()
-            if let pid = currentPartId {
-                let p = TOCNode(id: pid, title: currentPartTitle, blockID: currentPartBlockID, children: currentPartNodes)
-                rootNodes.append(p)
-            }
-            currentPartNodes = []
-            currentPartId = nil
-        }
-        
-        var currentSpineIndex = -1
-        var fallbackBlock: EPubBlockRecord? = nil
-
-        func flushFallback() {
-            if let block = fallbackBlock {
-                flushChapter()
-                let fallbackTitle = URL(fileURLWithPath: block.spineHref).deletingPathExtension().lastPathComponent
-                    .replacingOccurrences(of: "_", with: " ")
-                    .capitalized
-                currentChapterId = "spine-\(block.spineIndex)"
-                currentChapterTitle = fallbackTitle
-                currentChapterBlockID = block.id
-            }
-            fallbackBlock = nil
-        }
-
-        for block in allBlocks {
-            if block.spineIndex != currentSpineIndex {
-                flushFallback()
-                flushChapter()
-                currentSpineIndex = block.spineIndex
-                fallbackBlock = block
-            }
-            
-            if block.blockKind == EPubBlockRecord.Kind.heading.rawValue, let text = block.text, !text.isEmpty {
-                let lower = text.lowercased()
-                if lower == "tip" || lower == "warning" || lower == "note" || lower == "caution" || lower == "important" {
-                    continue
-                }
-                if text.count > 100 { continue }
-                if lower.contains("front matter") || lower == "title" || lower == "copyright" {
-                    continue
-                }
-                
-                if fallbackBlock != nil {
-                    // First heading in this spine
-                    fallbackBlock = nil
-                    
-                    if lower.hasPrefix("part ") {
-                        flushPart()
-                        currentPartId = block.id
-                        currentPartTitle = text
-                        currentPartBlockID = block.id
-                    } else {
-                        currentChapterId = block.id
-                        currentChapterTitle = text
-                        currentChapterBlockID = block.id
-                    }
-                } else {
-                    // Subsequent heading in same spine
-                    let sectionNode = TOCNode(id: block.id, title: text, blockID: block.id, children: [])
-                    if currentChapterId != nil {
-                        currentChapterNodes.append(sectionNode)
-                    } else if currentPartId != nil {
-                        currentPartNodes.append(sectionNode)
-                    } else {
-                        rootNodes.append(sectionNode)
-                    }
-                }
-            }
-        }
-        
-        flushFallback()
-        flushPart()
-        
-        return rootNodes
+        return TOCTreeBuilder.build(from: allBlocks)
     }
 
     var body: some View {
