@@ -17,6 +17,47 @@ struct TOCNode: Identifiable {
 /// don't crowd the chapter list.
 enum TOCTreeBuilder {
 
+    /// Builds the TOC tree, preferring the publisher-declared TOC entries
+    /// (NCX/nav, persisted at import) over heading inference when available.
+    ///
+    /// Entry titles are the publisher's labels ("Topic 3. Software Entropy"),
+    /// not whatever the rendered heading text happens to be. Entries without
+    /// any resolvable target (own block or a descendant's) and junk titles
+    /// ("Contents", "Cover") are dropped with their children promoted, and
+    /// leading front-matter entries collapse into one group as before.
+    static func build(from blocks: [EPubBlockRecord], tocEntries: [EPubTOCEntryRecord]) -> [TOCNode] {
+        guard !tocEntries.isEmpty else { return build(from: blocks) }
+
+        let frontMatterBlockIDs = Set(blocks.lazy.filter(\.isFrontMatter).map(\.id))
+        let sorted = tocEntries.sorted { $0.orderIndex < $1.orderIndex }
+        let childrenByParent = Dictionary(grouping: sorted, by: \.parentID)
+
+        func nodes(forParent parentID: String?) -> [(node: TOCNode, isFrontMatter: Bool)] {
+            var result: [(node: TOCNode, isFrontMatter: Bool)] = []
+            for entry in childrenByParent[parentID] ?? [] {
+                let children = nodes(forParent: entry.id)
+                let title = entry.title.collapsedWhitespace()
+                guard let blockID = entry.blockID ?? children.first?.node.blockID,
+                      !title.isEmpty,
+                      !HeadingClassifier.isJunk(title)
+                else {
+                    result.append(contentsOf: children)
+                    continue
+                }
+                let node = TOCNode(
+                    id: entry.id,
+                    title: title,
+                    blockID: blockID,
+                    children: children.map(\.node)
+                )
+                result.append((node, frontMatterBlockIDs.contains(blockID)))
+            }
+            return result
+        }
+
+        return groupingLeadingFrontMatter(nodes(forParent: nil))
+    }
+
     static func build(from blocks: [EPubBlockRecord]) -> [TOCNode] {
         var rootNodes: [(node: TOCNode, isFrontMatter: Bool)] = []
 

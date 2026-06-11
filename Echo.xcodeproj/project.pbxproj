@@ -90,8 +90,8 @@
 
 /* Begin PBXFileReference section */
 		AA0100000000000000000001 /* Echo macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA0100000000000000000050 /* WhisperSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WhisperSession.swift; path = "EchoCore/Services/WhisperSession.swift"; sourceTree = SOURCE_ROOT; };
-		AA0100000000000000000052 /* ModelRetainBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ModelRetainBox.swift; path = "EchoCore/Services/ModelRetainBox.swift"; sourceTree = SOURCE_ROOT; };
+		AA0100000000000000000050 /* WhisperSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WhisperSession.swift; path = EchoCore/Services/WhisperSession.swift; sourceTree = SOURCE_ROOT; };
+		AA0100000000000000000052 /* ModelRetainBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ModelRetainBox.swift; path = EchoCore/Services/ModelRetainBox.swift; sourceTree = SOURCE_ROOT; };
 		CC00BC4D2FA6B66400323F38 /* Echo WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Echo WidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		CC00BC512FA6B66400323F38 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -278,6 +278,7 @@
 				DD0100000000000000000001 /* Shared */,
 				CC00BC4E2FA6B66400323F38 /* Frameworks */,
 				CC08EC5A2F9522F600206D2F /* Products */,
+				CCA5FE092FDB54160072C2EB /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -294,6 +295,15 @@
 				AA0100000000000000000001 /* Echo macOS.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		CCA5FE092FDB54160072C2EB /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				AA0100000000000000000050 /* WhisperSession.swift */,
+				AA0100000000000000000052 /* ModelRetainBox.swift */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

@@ -220,6 +220,7 @@ struct ReaderTab: View {
             if let vm = viewModel {
                 EPUBTOCSheet(
                     sections: vm.sections,
+                    tocEntries: vm.tocEntries,
                     activeBlockID: vm.activeBlockID,
                     onSelect: { blockID in
                         seekToBlockAndScroll(blockID)
@@ -502,6 +503,9 @@ struct ReaderTab: View {
 /// Sheet showing the EPUB's Table of Contents (sections/headings) for navigation.
 struct EPUBTOCSheet: View {
     let sections: [ReaderCardSection]
+    /// Publisher-declared TOC entries (NCX/nav). When present they define the
+    /// tree; heading inference is only a fallback for books without one.
+    var tocEntries: [EPubTOCEntryRecord] = []
     let activeBlockID: String?
     let onSelect: (String) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -517,7 +521,7 @@ struct EPUBTOCSheet: View {
                 }
             }
         }
-        return TOCTreeBuilder.build(from: allBlocks)
+        return TOCTreeBuilder.build(from: allBlocks, tocEntries: tocEntries)
     }
 
     var body: some View {

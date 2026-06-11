@@ -103,4 +103,116 @@ struct TOCTreeBuilderTests {
         ])
         #expect(nodes.first?.title == "Chapter 1 A Pragmatic Philosophy")
     }
+
+    // MARK: - Publisher-declared TOC entries (NCX / nav)
+
+    private func entry(
+        id: String,
+        parent: String? = nil,
+        order: Int,
+        depth: Int,
+        title: String,
+        blockID: String?
+    ) -> EPubTOCEntryRecord {
+        EPubTOCEntryRecord(
+            id: id,
+            audiobookID: "book-1",
+            parentID: parent,
+            orderIndex: order,
+            depth: depth,
+            title: title,
+            blockID: blockID,
+            spineIndex: nil
+        )
+    }
+
+    @Test func tocEntriesBuildTreeWithPublisherTitlesAndNesting() {
+        // Blocks carry source-mangled-ish titles; the tree must show the
+        // publisher's NCX labels ("Topic 3. Software Entropy") and nesting,
+        // not the per-file heading heuristic.
+        let blocks = [
+            block(id: "b0", spine: 0, text: "Foreword"),
+            block(id: "b1", spine: 1, text: "Chapter 1 A Pragmatic Philosophy"),
+            block(id: "b2", spine: 2, text: "Topic 3 Software Entropy"),
+            block(id: "b3", spine: 2, text: "Challenges"),
+        ]
+        let entries = [
+            entry(id: "t0", order: 0, depth: 0, title: "Foreword", blockID: "b0"),
+            entry(id: "t1", order: 1, depth: 0, title: "1. A Pragmatic Philosophy", blockID: "b1"),
+            entry(id: "t2", parent: "t1", order: 2, depth: 1, title: "Topic 3. Software Entropy", blockID: "b2"),
+        ]
+        let nodes = TOCTreeBuilder.build(from: blocks, tocEntries: entries)
+
+        #expect(nodes.map(\.title) == ["Foreword", "1. A Pragmatic Philosophy"])
+        #expect(nodes.last?.children.map(\.title) == ["Topic 3. Software Entropy"])
+        #expect(nodes.last?.children.first?.blockID == "b2")
+        // The in-file h3 must not surface as a top-level chapter.
+        #expect(!nodes.contains { $0.title == "Challenges" })
+    }
+
+    @Test func entryWithoutBlockFallsBackToFirstDescendantTarget() {
+        let blocks = [block(id: "b1", spine: 1, text: "Topic 1 It's Your Life")]
+        let entries = [
+            entry(id: "t0", order: 0, depth: 0, title: "1. A Pragmatic Philosophy", blockID: nil),
+            entry(id: "t1", parent: "t0", order: 1, depth: 1, title: "Topic 1. It's Your Life", blockID: "b1"),
+        ]
+        let nodes = TOCTreeBuilder.build(from: blocks, tocEntries: entries)
+        #expect(nodes.first?.blockID == "b1")
+        #expect(nodes.first?.children.first?.blockID == "b1")
+    }
+
+    @Test func entryWithNoTargetAnywhereIsDropped() {
+        let blocks = [block(id: "b0", spine: 0, text: "Chapter One")]
+        let entries = [
+            entry(id: "t0", order: 0, depth: 0, title: "Chapter One", blockID: "b0"),
+            entry(id: "t1", order: 1, depth: 0, title: "Ghost Chapter", blockID: nil),
+        ]
+        let nodes = TOCTreeBuilder.build(from: blocks, tocEntries: entries)
+        #expect(nodes.map(\.title) == ["Chapter One"])
+    }
+
+    @Test func emptyTOCEntriesFallBackToHeadingHeuristic() {
+        let nodes = TOCTreeBuilder.build(
+            from: [
+                block(id: "b0", spine: 0, text: "Chapter One"),
+                block(id: "b1", spine: 0, text: "Team Trust"),
+            ],
+            tocEntries: []
+        )
+        #expect(nodes.count == 1)
+        #expect(nodes.first?.title == "Chapter One")
+        #expect(nodes.first?.children.map(\.title) == ["Team Trust"])
+    }
+
+    @Test func leadingFrontMatterEntriesCollapseIntoGroup() {
+        // Junk titles ("Praise for…", "Cover") are dropped outright — see
+        // junkEntryTitlesAreDroppedWithChildrenPromoted — so the group holds
+        // the *content-bearing* front matter (forewords, prefaces).
+        let blocks = [
+            block(id: "b0", spine: 0, text: "Foreword", frontMatter: true),
+            block(id: "b1", spine: 1, text: "Preface to the Second Edition", frontMatter: true),
+            block(id: "b2", spine: 2, text: "Chapter One"),
+        ]
+        let entries = [
+            entry(id: "t0", order: 0, depth: 0, title: "Foreword", blockID: "b0"),
+            entry(id: "t1", order: 1, depth: 0, title: "Preface to the Second Edition", blockID: "b1"),
+            entry(id: "t2", order: 2, depth: 0, title: "Chapter One", blockID: "b2"),
+        ]
+        let nodes = TOCTreeBuilder.build(from: blocks, tocEntries: entries)
+        #expect(nodes.map(\.title) == ["Front Matter", "Chapter One"])
+        #expect(nodes.first?.children.map(\.title) == ["Foreword", "Preface to the Second Edition"])
+    }
+
+    @Test func junkEntryTitlesAreDroppedWithChildrenPromoted() {
+        let blocks = [
+            block(id: "b0", spine: 0, text: "Contents"),
+            block(id: "b1", spine: 1, text: "Chapter One"),
+        ]
+        let entries = [
+            entry(id: "t0", order: 0, depth: 0, title: "Contents", blockID: "b0"),
+            entry(id: "t1", parent: "t0", order: 1, depth: 1, title: "Chapter One", blockID: "b1"),
+        ]
+        let nodes = TOCTreeBuilder.build(from: blocks, tocEntries: entries)
+        #expect(nodes.map(\.title) == ["Chapter One"])
+    }
 }

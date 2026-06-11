@@ -40,6 +40,23 @@ struct GuideReference: Sendable {
     let href: String
 }
 
+/// A node in the publisher-declared TOC tree (NCX `navPoint` nesting or
+/// EPUB 3 nav `ol` nesting). `href` is the spine-relative file (decoded, no
+/// fragment); `fragment` is the anchor id within that file, when present.
+struct TOCEntryNode: Sendable, Equatable {
+    var title: String
+    var href: String
+    var fragment: String?
+    var children: [TOCEntryNode]
+
+    init(title: String, href: String, fragment: String? = nil, children: [TOCEntryNode] = []) {
+        self.title = title
+        self.href = href
+        self.fragment = fragment
+        self.children = children
+    }
+}
+
 /// Result of parsing an OPF package document.
 struct OPFParseResult: Sendable {
     let spine: [SpineItemDescriptor]
@@ -57,10 +74,13 @@ struct TextBlockDescriptor: Sendable {
     let textFormats: [TextFormat]
     let rawClasses: [String]
     let rawTags: String
+    /// Element `id` attributes seen within (or immediately wrapping) this
+    /// block, in document order — used to resolve TOC fragment targets.
+    let anchorIDs: [String]
 
     init(kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?,
          markers: [SyncMarker] = [], textFormats: [TextFormat] = [],
-         rawClasses: [String] = [], rawTags: String = "") {
+         rawClasses: [String] = [], rawTags: String = "", anchorIDs: [String] = []) {
         self.kind = kind
         self.text = text
         self.imagePath = imagePath
@@ -69,6 +89,7 @@ struct TextBlockDescriptor: Sendable {
         self.textFormats = textFormats
         self.rawClasses = rawClasses
         self.rawTags = rawTags
+        self.anchorIDs = anchorIDs
     }
 }
 
@@ -175,6 +196,8 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
 /// Parses `toc.ncx` (EPUB 2) or `nav.xhtml` (EPUB 3) to extract a mapping from `href` to TOC title.
 final class TOCParserDelegate: NSObject, XMLParserDelegate {
     var tocMap: [String: String] = [:]
+    /// Publisher-declared TOC tree (NCX navPoint / EPUB 3 nav ol nesting).
+    var tocEntries: [TOCEntryNode] = []
     /// Entries from the EPUB 3 landmarks nav (`<nav epub:type="landmarks">`),
     /// e.g. type "bodymatter" pointing at the first body-content file.
     var landmarks: [GuideReference] = []
@@ -185,6 +208,29 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
     /// Only anchors inside the "toc" nav may contribute titles — otherwise
     /// landmarks/page-list labels pollute the map.
     private var navTypes: [String] = []
+    /// Open NCX `navPoint` frames, outermost first; children attach on pop.
+    private var ncxFrames: [TOCEntryNode] = []
+    /// Open EPUB 3 nav `<ol>` levels, outermost first. Nodes collect per
+    /// level; a closing `<ol>` attaches its nodes as children of the last
+    /// node in the enclosing level.
+    private var navLevelStack: [[TOCEntryNode]] = []
+
+    /// Mirrors the anchor rule below: a nav with no `epub:type` is treated as
+    /// the TOC (lenient toward malformed nav docs), named navs must say "toc".
+    private var isInsideTOCNav: Bool {
+        let words = (navTypes.last ?? "").split(separator: " ")
+        return words.isEmpty || words.contains("toc")
+    }
+
+    /// Splits an `href`/`src` into a percent-decoded file path and fragment.
+    private static func splitTarget(_ src: String) -> (href: String, fragment: String?) {
+        let parts = src.components(separatedBy: "#")
+        let file = parts[0].removingPercentEncoding ?? parts[0]
+        guard parts.count > 1 else { return (file, nil) }
+        let rawFragment = parts.dropFirst().joined(separator: "#")
+        let fragment = rawFragment.removingPercentEncoding ?? rawFragment
+        return (file, fragment.isEmpty ? nil : fragment)
+    }
 
     func parse(_ data: Data) {
         let parser = XMLParser(data: data)
@@ -196,6 +242,10 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes attributeDict: [String: String] = [:]) {
         if elementName == "nav" { // NAV (EPUB3)
             navTypes.append(attributeDict["epub:type"] ?? "")
+        } else if elementName == "navPoint" { // NCX
+            ncxFrames.append(TOCEntryNode(title: "", href: ""))
+        } else if elementName == "ol" { // NAV (EPUB3)
+            if isInsideTOCNav { navLevelStack.append([]) }
         } else if elementName == "text" { // NCX
             isInsideNavLabelText = true
             currentText = ""
@@ -208,6 +258,16 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
                     let decodedHref = href.removingPercentEncoding ?? href
                     if tocMap[decodedHref] == nil {
                         tocMap[decodedHref] = label
+                    }
+                }
+                // Fill the innermost open navPoint frame (its <content> comes
+                // before any child navPoints, so innermost-empty is correct).
+                if !ncxFrames.isEmpty, ncxFrames[ncxFrames.count - 1].href.isEmpty {
+                    let target = Self.splitTarget(src)
+                    if !target.href.isEmpty {
+                        ncxFrames[ncxFrames.count - 1].href = target.href
+                        ncxFrames[ncxFrames.count - 1].fragment = target.fragment
+                        ncxFrames[ncxFrames.count - 1].title = label
                     }
                 }
             }
@@ -236,7 +296,28 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
         if elementName == "nav" { // NAV (EPUB3)
+            // Malformed docs may close the nav with <ol> levels still open;
+            // flush them innermost-out so collected entries aren't lost.
+            if isInsideTOCNav {
+                while !navLevelStack.isEmpty {
+                    attachClosedNavLevel(navLevelStack.removeLast())
+                }
+            }
             if !navTypes.isEmpty { navTypes.removeLast() }
+        } else if elementName == "navPoint" { // NCX
+            guard !ncxFrames.isEmpty else { return }
+            let frame = ncxFrames.removeLast()
+            // An entry without a display title or target file can't be a TOC
+            // row — keep its children by promoting them to this level.
+            let finished = (frame.title.isEmpty || frame.href.isEmpty) ? frame.children : [frame]
+            if ncxFrames.isEmpty {
+                tocEntries.append(contentsOf: finished)
+            } else {
+                ncxFrames[ncxFrames.count - 1].children.append(contentsOf: finished)
+            }
+        } else if elementName == "ol" { // NAV (EPUB3)
+            guard isInsideTOCNav, !navLevelStack.isEmpty else { return }
+            attachClosedNavLevel(navLevelStack.removeLast())
         } else if elementName == "text" { // NCX end text
             isInsideNavLabelText = false
         } else if elementName == "a" { // NAV end a
@@ -248,6 +329,30 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
             if tocMap[decodedHref] == nil && !label.isEmpty {
                 tocMap[decodedHref] = label
             }
+            let target = Self.splitTarget(currentSrc)
+            if !label.isEmpty, !target.href.isEmpty {
+                let node = TOCEntryNode(title: label, href: target.href, fragment: target.fragment)
+                if navLevelStack.isEmpty {
+                    tocEntries.append(node)
+                } else {
+                    navLevelStack[navLevelStack.count - 1].append(node)
+                }
+            }
+        }
+    }
+
+    /// Attaches a closed `<ol>` level: nested levels become children of the
+    /// last node in the enclosing level; the outermost level becomes roots.
+    private func attachClosedNavLevel(_ level: [TOCEntryNode]) {
+        guard !level.isEmpty else { return }
+        if navLevelStack.isEmpty {
+            tocEntries.append(contentsOf: level)
+        } else if navLevelStack[navLevelStack.count - 1].isEmpty {
+            // Malformed: a nested list with no preceding sibling anchor.
+            navLevelStack[navLevelStack.count - 1].append(contentsOf: level)
+        } else {
+            let lastIndex = navLevelStack[navLevelStack.count - 1].count - 1
+            navLevelStack[navLevelStack.count - 1][lastIndex].children.append(contentsOf: level)
         }
     }
 }
@@ -278,7 +383,12 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private var currentBlockTags: String = ""
     private let skipTags: Set<String> = ["script", "style", "figcaption"]
     private let blockTags: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section"]
-    private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br"]
+    private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br", "u"]
+
+    /// Element `id`s seen since the last emitted block. Carried forward across
+    /// empty flushes so an id on a wrapper (`<table id=…>` before any text)
+    /// lands on the block that eventually emits.
+    private var pendingAnchorIDs: [String] = []
 
     // MARK: - Marker & Format Tracking (ported from CLI XHTMLContentParser)
     private var currentCharOffset = 0
@@ -316,8 +426,19 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             return
         }
 
+        insertSoftWordBreakIfStructural(elementName)
+
+        // Capture the element id for TOC fragment resolution. Tags that flush
+        // the current block (headings, images, block tags) capture *after*
+        // flushing so the id lands on the block they open, not the one they
+        // close; everything else (table, td, inline tags, …) captures now.
+        let anchorID = attributeDict["id"]
+        let flushesBlock = elementName == "img" || blockTags.contains(elementName)
+        if !flushesBlock { captureAnchorID(anchorID) }
+
         if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(elementName) {
             flushBlock()
+            captureAnchorID(anchorID)
             isInHeading = true
             isInBlock = true
             currentHeading = ""
@@ -326,6 +447,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(String.init)
         } else if elementName == "img", let src = attributeDict["src"] {
             flushBlock()
+            captureAnchorID(anchorID)
             let marker = SyncMarker(type: .image, payload: src, epubCharOffset: currentCharOffset)
             textBlocks.append(TextBlockDescriptor(
                 kind: .image,
@@ -334,10 +456,13 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                 htmlContent: nil,
                 markers: [marker],
                 rawClasses: (attributeDict["class"] ?? "").split(separator: " ").map(String.init),
-                rawTags: "img"
+                rawTags: "img",
+                anchorIDs: pendingAnchorIDs
             ))
+            pendingAnchorIDs = []
         } else if blockTags.contains(elementName) {
             flushBlock()
+            captureAnchorID(anchorID)
             isInBlock = true
             currentHTML = ""
             currentBlockTags = elementName
@@ -390,6 +515,29 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         }
     }
 
+    /// Treats a structural element boundary as a word break.
+    ///
+    /// XMLParser splits one text node at every entity reference with NO
+    /// element events in between, so plain chunk joins must stay
+    /// separator-free (`it&#8217;s` → "it's"). But text arriving across an
+    /// element boundary is a different case: `<td>Topic 3</td><td>Software
+    /// Entropy</td>` or `<span>Chapter 1</span><br/><span>A Pragmatic
+    /// Philosophy</span>` renders as separate words. Non-inline tags and
+    /// explicit `<br>` inject a collapsible space; inline formatting tags
+    /// must not, because mid-word markup (`<em>un</em>do`) is real.
+    private func insertSoftWordBreakIfStructural(_ elementName: String) {
+        guard elementName == "br" || !inlineTags.contains(elementName) else { return }
+        guard !isInsideHead else { return }
+        if isInHeading { appendCollapsed(" ", to: &currentHeading) }
+        currentCharOffset += appendCollapsed(" ", to: &currentText)
+    }
+
+    /// Records an element `id` for fragment-target resolution.
+    private func captureAnchorID(_ id: String?) {
+        guard let id, !id.isEmpty else { return }
+        pendingAnchorIDs.append(id)
+    }
+
     /// Appends `chunk` to `target`, collapsing whitespace runs into single
     /// spaces and dropping leading whitespace while `target` is empty.
     ///
@@ -433,6 +581,8 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             return
         }
 
+        insertSoftWordBreakIfStructural(elementName)
+
         if inlineTags.contains(elementName) {
             currentHTML += "</\(elementName)>"
             inlineDepth = max(0, inlineDepth - 1)
@@ -475,8 +625,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                     markers: headingMarkers,
                     textFormats: [],
                     rawClasses: currentBlockClasses,
-                    rawTags: currentBlockTags
+                    rawTags: currentBlockTags,
+                    anchorIDs: pendingAnchorIDs
                 ))
+                pendingAnchorIDs = []
             }
         }
     }
@@ -511,8 +663,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             markers: markers,
             textFormats: formats,
             rawClasses: classes,
-            rawTags: tags
+            rawTags: tags,
+            anchorIDs: pendingAnchorIDs
         ))
+        pendingAnchorIDs = []
     }
 }
 
