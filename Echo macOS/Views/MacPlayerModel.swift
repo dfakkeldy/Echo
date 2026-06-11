@@ -90,7 +90,9 @@ final class MacPlayerModel {
         defaults.set(true, forKey: migrationFlag)
     }
 
-    deinit {
+    // `isolated` runs the deinitializer on the main actor so it can touch
+    // the actor-isolated observer/player state during teardown.
+    isolated deinit {
         if let timeObserver, let player {
             player.removeTimeObserver(timeObserver)
         }

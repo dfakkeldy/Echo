@@ -8,9 +8,9 @@ enum MacTranscriptDisplayMode: String, CaseIterable {
 }
 
 struct TranscriptPane: View {
-    @EnvironmentObject var transcriptStore: TranscriptStore
-    @EnvironmentObject var player: MacPlayerModel
-    @EnvironmentObject var transcriptionManager: TranscriptionManager
+    @Environment(TranscriptStore.self) var transcriptStore
+    @Environment(MacPlayerModel.self) var player
+    @Environment(TranscriptionManager.self) var transcriptionManager
     @Binding var searchText: String
     @State private var displayMode: MacTranscriptDisplayMode = .transcript
     @ScaledMetric(relativeTo: .body) private var wordCloudBaseSize: CGFloat = 10

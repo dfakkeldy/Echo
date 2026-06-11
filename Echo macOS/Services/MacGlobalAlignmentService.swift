@@ -57,7 +57,7 @@ public class MacGlobalAlignmentService {
         let tempDir = FileManager.default.temporaryDirectory
         let dbURL = tempDir.appendingPathComponent("dtw_tokens_\(UUID().uuidString).sqlite")
         let dbQueue = try DatabaseQueue(path: dbURL.path)
-        try dbQueue.write { db in
+        try await dbQueue.write { db in
             try db.create(table: "transTokenRecord") { t in
                 t.column("sequenceIndex", .integer).primaryKey()
                 t.column("word", .text).notNull()

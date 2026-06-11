@@ -10,10 +10,10 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct MacContentView: View {
-    @EnvironmentObject private var player: MacPlayerModel
-    @StateObject private var transcriptionManager = TranscriptionManager()
-    @StateObject private var transcriptStore = TranscriptStore()
-    @StateObject private var alignmentService = MacGlobalAlignmentService()
+    @Environment(MacPlayerModel.self) private var player
+    @State private var transcriptionManager = TranscriptionManager()
+    @State private var transcriptStore = TranscriptStore()
+    @State private var alignmentService = MacGlobalAlignmentService()
     @State private var searchText: String = ""
     @State private var lastOpenToken: UUID = UUID()
 
@@ -74,8 +74,8 @@ struct MacContentView: View {
                     .frame(width: 300)
             }
         }
-        .environmentObject(transcriptionManager)
-        .environmentObject(transcriptStore)
+        .environment(transcriptionManager)
+        .environment(transcriptStore)
         .toolbar {
             ToolbarItem(placement: .secondaryAction) {
                 TextField("Search transcript...", text: $searchText)
@@ -175,7 +175,7 @@ struct MacContentView: View {
 // MARK: - Sidebar
 
 private struct BookmarksSidebar: View {
-    @EnvironmentObject private var player: MacPlayerModel
+    @Environment(MacPlayerModel.self) private var player
     @State private var selection: MacBookmark.ID?
 
     var body: some View {
@@ -253,10 +253,12 @@ private struct BookmarkRow: View {
 // MARK: - Player Pane
 
 private struct PlayerPane: View {
-    @EnvironmentObject private var player: MacPlayerModel
+    @Environment(MacPlayerModel.self) private var player
 
     var body: some View {
-        VStack(spacing: 24) {
+        // Environment-injected @Observable objects need @Bindable for $ bindings.
+        @Bindable var player = player
+        return VStack(spacing: 24) {
             Spacer()
 
             Image(systemName: "books.vertical")
@@ -377,5 +379,5 @@ private struct PlayerPane: View {
 
 #Preview {
     MacContentView()
-        .environmentObject(MacPlayerModel())
+        .environment(MacPlayerModel())
 }

@@ -70,10 +70,10 @@ struct MacEPUBParser {
             throw NSError(domain: "MacEPUBParser", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not a valid EPUB: missing container.xml"])
         }
         
-        let opfRelativePath = try parseContainerXML(at: containerURL)
+        let opfRelativePath = try opfPath(at: containerURL)
         let opfURL = unzippedURL.appending(path: opfRelativePath)
         let opfDir = opfURL.deletingLastPathComponent()
-        let spineResult = try parseOPF(at: opfURL)
+        let spineResult = try opfResult(at: opfURL)
         let spine = spineResult.spine
         
         var extractions: [EPubTextExtraction] = []
@@ -106,7 +106,10 @@ struct MacEPUBParser {
     
     // MARK: - XML Parsing
 
-    private func parseContainerXML(at url: URL) throws -> String {
+    // Named differently from the shared global parsers (`parseContainerXML(from:)`,
+    // `parseOPF(from:)`) — an instance method with the same base name shadows the
+    // global inside this type and breaks unqualified calls to it.
+    private func opfPath(at url: URL) throws -> String {
         let data = try Data(contentsOf: url)
         guard let path = parseContainerXML(from: data) else {
             throw NSError(domain: "MacEPUBParser", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing OPF path"])
@@ -114,7 +117,7 @@ struct MacEPUBParser {
         return path
     }
 
-    private func parseOPF(at url: URL) throws -> OPFParseResult {
+    private func opfResult(at url: URL) throws -> OPFParseResult {
         let data = try Data(contentsOf: url)
         return parseOPF(from: data)
     }

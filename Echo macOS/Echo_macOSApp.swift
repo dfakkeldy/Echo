@@ -9,12 +9,12 @@ import SwiftUI
 
 @main
 struct Echo_macOSApp: App {
-    @StateObject private var player = MacPlayerModel()
+    @State private var player = MacPlayerModel()
 
     var body: some Scene {
         WindowGroup("Echo AudioBooks") {
             MacContentView()
-                .environmentObject(player)
+                .environment(player)
                 .frame(minWidth: 720, minHeight: 480)
         }
         .commands {

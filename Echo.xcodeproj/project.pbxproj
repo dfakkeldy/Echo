@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
+		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000012GRDB00000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -88,6 +90,8 @@
 
 /* Begin PBXFileReference section */
 		AA0100000000000000000001 /* Echo macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0100000000000000000050 /* WhisperSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WhisperSession.swift; path = "EchoCore/Services/WhisperSession.swift"; sourceTree = SOURCE_ROOT; };
+		AA0100000000000000000052 /* ModelRetainBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ModelRetainBox.swift; path = "EchoCore/Services/ModelRetainBox.swift"; sourceTree = SOURCE_ROOT; };
 		CC00BC4D2FA6B66400323F38 /* Echo WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Echo WidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		CC00BC512FA6B66400323F38 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -578,6 +582,8 @@
 		AA0100000000000000000032 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
+				AA0100000000000000000051 /* WhisperSession.swift in Sources */,
+				AA0100000000000000000053 /* ModelRetainBox.swift in Sources */,
 			);
 		};
 		CC00BC492FA6B66400323F38 /* Sources */ = {
