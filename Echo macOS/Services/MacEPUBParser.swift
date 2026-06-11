@@ -114,7 +114,7 @@ struct MacEPUBParser {
         return path
     }
 
-    private func parseOPF(at url: URL) throws -> (spine: [SpineItemDescriptor], tocHref: String?) {
+    private func parseOPF(at url: URL) throws -> OPFParseResult {
         let data = try Data(contentsOf: url)
         return parseOPF(from: data)
     }

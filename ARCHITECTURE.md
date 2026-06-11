@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-09 21:34:26
+**Last generated:** 2026-06-11 16:48:28
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -32,11 +32,13 @@ Models/ChapterSection.swift
 Models/ContentCard.swift
 Models/EchoPlaylistManifest.swift
 Models/FlashcardDeckImport.swift
+Models/LoopMode.swift
 Models/M4BBook.swift
 Models/Note.swift
 Models/PlayerDeepLink.swift
 Models/ReaderCardItem.swift
 Models/RealTimeEvent.swift
+Models/SleepTimerMode.swift
 Models/SpeedSuggestion.swift
 Models/TimelineDisplayItem.swift
 Models/TimelineGroup.swift
@@ -46,25 +48,24 @@ PrivacyInfo.xcprivacy
 Protocols/PlayerModelComponentProtocols.swift
 Protocols/SettingsManagerProtocol.swift
 Protocols/StoreManagerProtocol.swift
-Services/AccentSafetyNet.swift
 Services/AlignmentService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
 Services/AudioRingBuffer.swift
-Services/AudioSnippetPlayer.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
-Services/BookmarkArtworkCoordinator.swift
-Services/BookmarkStore.swift
 Services/BookPreferencesService.swift
 Services/BookSettingsOverrideStore.swift
+Services/BookmarkArtworkCoordinator.swift
+Services/BookmarkStore.swift
 Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
 Services/ChapterService.swift
 Services/ChapterTitleMatcher.swift
 Services/CloudKitSyncService.swift
 Services/ContinuousAlignmentService.swift
+Services/CoverThemeBuilder.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
 Services/DominantColorExtractor.swift
@@ -73,12 +74,11 @@ Services/EPUBAutoImportScanner.swift
 Services/EPUBHeuristicEngine.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
+Services/HeadingClassifier.swift
 Services/InlineFlashcardTriggerController.swift
-Services/LoopMode.swift
 Services/M4BParser.swift
 Services/MockMediaProvider.swift
 Services/ModelRetainBox.swift
-Services/NotificationNames.swift
 Services/NowPlayingController.swift
 Services/PDFImportCoordinator.swift
 Services/Persistence.swift
@@ -95,9 +95,9 @@ Services/SecurityScopeManager.swift
 Services/SettingsManager.swift
 Services/SilenceDetectionService.swift
 Services/SleepTimerManager.swift
-Services/SleepTimerMode.swift
 Services/SnippetPlayer.swift
 Services/StoreManager.swift
+Services/TOCTreeBuilder.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
 Services/TimelineService.swift
@@ -111,23 +111,22 @@ Services/WhisperSession.swift
 State/PlaybackState.swift
 Utilities/ColorMetrics.swift
 Utilities/FolderPicker.swift
+Utilities/OKLCH.swift
 Utilities/SilenceAnalyzer.swift
-Utilities/UIImage+Color.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
-ViewModels/PlayerModel.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
+ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
 ViewModels/TimelineFeedViewModel.swift
-Views/AudiobookPlayerUIArchitect.swift
 Views/AutoAlignmentProgressView.swift
+Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
-Views/BookSettingsView.swift
 Views/BottomToolbarView.swift
 Views/CardColorPickerSheet.swift
 Views/Cells/AnkiCardCell.swift
@@ -183,8 +182,8 @@ Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
 Views/ReaderSettingsSheet.swift
-Views/ReaderTab.swift
 Views/ReaderTab+Alignment.swift
+Views/ReaderTab.swift
 Views/RootTabView.swift
 Views/ScrubberJoystick.swift
 Views/SettingsView.swift
@@ -198,8 +197,8 @@ Views/TimelineContentView.swift
 Views/TimelineFeedCollectionView.swift
 Views/TimelineHeaderView.swift
 Views/TimelineTab.swift
-Views/TransportControlsView.swift
 Views/TransportControlsView+LongPress.swift
+Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
@@ -217,15 +216,16 @@ Services/MacEPUBParser.swift
 Services/MacGlobalAlignmentService.swift
 Views/MacContentView.swift
 Views/MacPlayerModel.swift
-Views/TranscriptionManager.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
+Views/TranscriptionManager.swift
 ```
 
 ## Echo Watch App
 
 ```
 EchoCoreWatchApp.swift
+EchoWatchApp.entitlements
 Info.plist
 Models/WatchBookmark.swift
 PrivacyInfo.xcprivacy
@@ -267,8 +267,9 @@ Database/DAOs/TranscriptionDAO.swift
 Database/DatabaseService.swift
 Database/EPubBlockRecord.swift
 Database/Flashcard.swift
-Database/Migrations/Schema_V11.swift
 Database/MigrationService.swift
+Database/Migrations/Schema_V11.swift
+Database/Migrations/Schema_V12.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -285,30 +286,35 @@ Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
-EnhancedTranscriptionSegment.swift
 EPUBXMLParsing.swift
+EnhancedTranscriptionSegment.swift
 FileLocations.swift
+ImageEncoding.swift
 KeychainStore.swift
 LayoutPreset.swift
 Logger+Subsystem.swift
 MediaPlayable.swift
 Models/PDFViewState.swift
+NotificationNames.swift
 ReaderSettings.swift
 SafeFileName.swift
 String+Levenshtein.swift
 SyncMarker.swift
 TabSelection.swift
+TextAlignmentUtilities.swift
 TimeFormatting.swift
 TranscriptionSegment.swift
 URL+SHA256.swift
 WatchAction.swift
 WatchFlashcard.swift
+WatchMessageKey.swift
 WordFrequency.swift
 ```
 
 ## Echo Widget
 
 ```
+EchoWidget.entitlements
 Info.plist
 Models/AppIntent.swift
 PrivacyInfo.xcprivacy
@@ -328,7 +334,9 @@ Views/Echo_WidgetControl.swift
 
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
-1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database.
+1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database. Parsing applies two correctness passes:
+   - **Whitespace normalization:** XHTML text accumulates with collapsing whitespace (`collapsedWhitespace()` / entity-split-safe chunk joining in `XHTMLBlockDelegate`), so pretty-printed source line breaks never reach `epub_block.text`, and words split by XML entity references (`it&#8217;s`) stay intact. NCX/nav TOC labels and document titles are normalized the same way — this also makes the heuristic engine's exact-TOC-label match reliable.
+   - **Front-matter classification:** the importer reads the EPUB's structural metadata — spine `linear="no"`, the EPUB 2 `<guide>` (`type="text"` = body start), and EPUB 3 nav landmarks (`epub:type="bodymatter"`) — to flag blocks before body matter as `is_front_matter` (Schema V12). Heading-less spines whose only available title is non-content per `HeadingClassifier` (cover, praise, printed TOC, …) are also flagged when no content heading has appeared yet. Front-matter spines never receive synthesized fallback headings, so cover/praise pages no longer become junk chapters. `HeadingClassifier` is the single source of truth for junk-heading rules shared by import, the reader feed, and the TOC sheet; `TOCTreeBuilder` builds the TOC sheet tree (no filename-derived titles, leading front matter collapsed into one expandable "Front Matter" group).
 2. **Auto-Alignment (4-tier pipeline, on-device):** `AutoAlignmentService` runs a progressive 4-tier pipeline using on-device speech recognition (WhisperKit + CoreML) and dynamic time warping (TokenDTW) to automatically align EPUB blocks to audio timestamps:
    - **Tier 0 — Metadata Title Matching:** `ChapterTitleMatcher` compares audiobook chapter titles (from M4B metadata) to EPUB heading blocks using composite Levenshtein + Jaccard fuzzy scoring. High-confidence matches (≥0.85) create immediate anchors and skip DTW entirely for those chapters.
    - **Tier 1 — VAD Chunking + DTW:** For chapters not matched in Tier 0, uses `SilenceDetectionService` to split audio into VAD-guided chunks, transcribes each with WhisperKit, then `TokenDTW.align()` matches transcribed audio tokens against EPUB tokens at word-level granularity to insert correction anchors.
@@ -396,7 +404,9 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V7 | `html_content` (TEXT) and `card_color` (TEXT) columns on `epub_block` — preserves inner HTML for rich text rendering and per-card tint overrides |
 | V8 | `word_count` (INTEGER) column on `epub_block` — enables proportional interpolation weighted by paragraph word length instead of raw sequence index |
 | V9 | `markers` (TEXT) and `text_formats` (TEXT) columns on `epub_block` — stores JSON-encoded `[SyncMarker]` and `[TextFormat]` arrays extracted during unified EPUB parsing for richer reader display |
+| V10 | `chapter_theme_color` (TEXT) column on `epub_block` — chapter-level themes set by the user on headings |
 | V11 | `pdf_view_state_json` (TEXT) columns on `bookmark` and `timeline_item` — persists PDF page/zoom/scroll state for PDF bookmarks and alignment anchors |
+| V12 | `is_front_matter` (BOOLEAN) column on `epub_block` — front-matter blocks (cover, praise pages, printed TOC) classified during import from EPUB structural metadata; grouped separately in the reader TOC and excluded from heading synthesis |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 

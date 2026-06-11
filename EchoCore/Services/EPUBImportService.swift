@@ -59,8 +59,9 @@ struct EPUBImportService {
             throw EPUBImportError.spineEmpty
         }
 
-        // 2.5 Parse TOC if available
+        // 2.5 Parse TOC (and EPUB 3 landmarks) if available
         var tocMap: [String: String] = [:]
+        var landmarks: [GuideReference] = []
         if let tocHref = opfResult.tocHref {
             let tocURL: URL
             if tocHref.hasPrefix("/") || tocHref.contains("://") {
@@ -72,8 +73,17 @@ struct EPUBImportService {
                 let tocParser = TOCParserDelegate()
                 tocParser.parse(tocData)
                 tocMap = tocParser.tocMap
+                landmarks = tocParser.landmarks
             }
         }
+
+        // 2.6 Locate where body matter starts so front matter (cover, praise
+        // pages, printed TOC, …) is never promoted to chapters.
+        let bodyStartSpineIndex = Self.bodyMatterStartIndex(
+            spine: spine,
+            guideReferences: opfResult.guideReferences,
+            landmarks: landmarks
+        )
 
         // 3. Prepare asset storage directory.
         try assetStorage.prepare(for: audiobookID)
@@ -108,6 +118,7 @@ struct EPUBImportService {
         
         var allBlocks: [EPubBlockRecord] = []
         var sequenceIndex = 0
+        var hasSeenContentHeading = false
 
         for i in 0..<parsedSpines.count {
             var textBlocks = parsedSpines[i].blocks
@@ -135,30 +146,37 @@ struct EPUBImportService {
                       let text = block.text,
                       !text.trimmingCharacters(in: .whitespaces).isEmpty
                 else { return false }
-                let lower = text.lowercased().trimmingCharacters(in: .whitespaces)
-                let isUtility = lower == "tip" || lower == "warning" || lower == "note" || lower == "caution" || lower == "important"
-                let isTooLong = text.count > 100
-                let isFigure = lower.hasPrefix("figure ") || lower.hasPrefix("table ") || lower.hasPrefix("image ")
-                let isNonContent = ReaderFeedViewModel.isNonContentHeading(text)
-                return !(isUtility || isTooLong || isNonContent || isFigure)
+                return !HeadingClassifier.isJunk(text)
             })
-            
-            if !hasContentHeading {
-                let decodedHref = spineHref.removingPercentEncoding ?? spineHref
-                let hrefWithoutFragment = String(decodedHref.components(separatedBy: "#")[0])
-                let fallbackTitle = tocMap[hrefWithoutFragment] ?? parsedSpines[i].title?.trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                if let title = fallbackTitle, !title.isEmpty, title.lowercased() != "untitled", title.lowercased() != "unknown" {
-                    let headingBlock = TextBlockDescriptor(
-                        kind: .heading,
-                        text: title,
-                        imagePath: nil,
-                        htmlContent: "<h2>\(title)</h2>",
-                        markers: [SyncMarker(type: .chapterStart, payload: "1", epubCharOffset: 0)],
-                        textFormats: []
-                    )
-                    textBlocks.insert(headingBlock, at: 0)
-                }
+
+            let decodedHref = spineHref.removingPercentEncoding ?? spineHref
+            let hrefWithoutFragment = String(decodedHref.components(separatedBy: "#")[0])
+            let fallbackTitle = tocMap[hrefWithoutFragment] ?? parsedSpines[i].title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let titleIsNonContent = fallbackTitle.map(HeadingClassifier.isNonContent) ?? false
+
+            // Front matter by structure (linear="no", or before the guide /
+            // landmarks body start), or — when the EPUB provides no structural
+            // info — by a non-content title on a heading-less spine before any
+            // real content has appeared.
+            let structuralFrontMatter = !spine[i].linear
+                || (bodyStartSpineIndex.map { i < $0 } ?? false)
+            let isFrontMatterSpine = structuralFrontMatter
+                || (!hasContentHeading && titleIsNonContent && !hasSeenContentHeading)
+
+            if hasContentHeading {
+                hasSeenContentHeading = true
+            } else if !isFrontMatterSpine, !titleIsNonContent,
+                      let title = fallbackTitle, !title.isEmpty,
+                      title.lowercased() != "untitled", title.lowercased() != "unknown" {
+                let headingBlock = TextBlockDescriptor(
+                    kind: .heading,
+                    text: title,
+                    imagePath: nil,
+                    htmlContent: "<h2>\(title)</h2>",
+                    markers: [SyncMarker(type: .chapterStart, payload: "1", epubCharOffset: 0)],
+                    textFormats: []
+                )
+                textBlocks.insert(headingBlock, at: 0)
             }
 
             var spineRecords: [EPubBlockRecord] = []
@@ -179,6 +197,7 @@ struct EPUBImportService {
                     chapterIndex: nil,
                     isHidden: false,
                     hiddenReason: nil,
+                    isFrontMatter: isFrontMatterSpine,
                     wordCount: max(1, wordCount),
                     markers: EPubBlockRecord.encodeMarkers(textBlock.markers),
                     textFormats: EPubBlockRecord.encodeFormats(textBlock.textFormats),
@@ -251,6 +270,44 @@ struct EPUBImportService {
 
         logger.info("Imported \(allBlocks.count) EPUB blocks for \(audiobookID)")
         return allBlocks
+    }
+
+    // MARK: - Front matter classification
+
+    /// Spine index where body matter starts, from EPUB 3 landmarks
+    /// (`epub:type="bodymatter"`) or the EPUB 2 guide (`type="text"`).
+    /// Returns nil when the EPUB provides neither signal.
+    static func bodyMatterStartIndex(
+        spine: [SpineItemDescriptor],
+        guideReferences: [GuideReference],
+        landmarks: [GuideReference]
+    ) -> Int? {
+        let candidates = landmarks.filter { $0.type.split(separator: " ").contains("bodymatter") }
+            + guideReferences.filter { $0.type == "text" }
+        for candidate in candidates {
+            if let index = spineIndex(of: candidate.href, in: spine) {
+                return index
+            }
+        }
+        return nil
+    }
+
+    private static func spineIndex(of href: String, in spine: [SpineItemDescriptor]) -> Int? {
+        let target = normalizeHref(href)
+        if let exact = spine.firstIndex(where: { normalizeHref($0.href) == target }) {
+            return exact
+        }
+        // Guide/landmark hrefs can be relative to a different directory than
+        // spine hrefs (nav doc vs OPF); fall back to filename equality.
+        let targetName = URL(fileURLWithPath: target).lastPathComponent
+        return spine.firstIndex(where: {
+            URL(fileURLWithPath: normalizeHref($0.href)).lastPathComponent == targetName
+        })
+    }
+
+    private static func normalizeHref(_ href: String) -> String {
+        let decoded = href.removingPercentEncoding ?? href
+        return String(decoded.components(separatedBy: "#")[0])
     }
 
     // MARK: - Image resolution

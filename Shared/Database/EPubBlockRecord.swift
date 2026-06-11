@@ -19,6 +19,9 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
     var chapterIndex: Int?
     var isHidden: Bool
     var hiddenReason: String?
+    /// `true` for blocks in front-matter spine items (cover, praise pages,
+    /// printed TOC, …) classified during import from EPUB structural metadata.
+    var isFrontMatter: Bool = false
     var wordCount: Int?
     var markers: String?        // JSON-encoded [SyncMarker]
     var textFormats: String?    // JSON-encoded [TextFormat]
@@ -43,6 +46,7 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
         case chapterIndex = "chapter_index"
         case isHidden = "is_hidden"
         case hiddenReason = "hidden_reason"
+        case isFrontMatter = "is_front_matter"
         case wordCount = "word_count"
         case markers
         case textFormats = "text_formats"
