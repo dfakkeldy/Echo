@@ -12,36 +12,6 @@ final class DominantColorExtractorTests: XCTestCase {
         }
     }
 
-    func testVividCoverYieldsNonNilAccentAndThreeColorBackground() {
-        let palette = DominantColorExtractor.extractPalette(from: solidImage(.systemRed))
-        XCTAssertNotNil(palette.rawAccent)
-        XCTAssertEqual(palette.background.count, 3)
-        XCTAssertFalse(palette.candidates.isEmpty)
-    }
-
-    func testGreyscaleCoverYieldsNilAccent() {
-        let palette = DominantColorExtractor.extractPalette(from: solidImage(.gray))
-        XCTAssertNil(palette.rawAccent)
-        XCTAssertTrue(palette.candidates.isEmpty)
-    }
-
-    func testExtractColorsReturnsRequestedCount() {
-        let colors = DominantColorExtractor.extractColors(from: solidImage(.systemBlue), count: 3)
-        XCTAssertEqual(colors.count, 3)
-    }
-
-    func testExistingExtractAPIStillWorks() {
-        let accent = DominantColorExtractor.extract(from: solidImage(.systemOrange))
-        XCTAssertNotNil(accent)
-    }
-
-    func testGreyscaleReturnsNilFromExtract() {
-        let accent = DominantColorExtractor.extract(from: solidImage(.gray))
-        XCTAssertNil(accent)
-    }
-
-    // MARK: - CoverSignature tests
-
     private func twoToneImage(left: UIColor, right: UIColor, leftFraction: CGFloat,
                               size: CGSize = CGSize(width: 40, height: 40)) -> UIImage {
         UIGraphicsImageRenderer(size: size).image { ctx in

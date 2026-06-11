@@ -191,30 +191,9 @@ final class PlayerModel {
 
     // MARK: - Dynamic accent colour from artwork
 
-    /// Current UI colour scheme, fed from `RootTabView`. Drives surface-aware
-    /// contrast so the rescued accent recomputes on light/dark switches.
+    /// Current UI colour scheme, fed from `RootTabView`. Drives theme
+    /// construction so light/dark switches rebuild the theme.
     var uiColorScheme: ColorScheme = .light
-
-    @ObservationIgnored private var cachedPalette: DominantColorExtractor.ArtworkPalette?
-    @ObservationIgnored private var cachedPaletteVersion: Int = -1
-
-    /// One cached extraction pass for the current cover (or thumbnail).
-    var artworkPalette: DominantColorExtractor.ArtworkPalette {
-        let version = currentDisplayArtworkVersion
-        if version != cachedPaletteVersion || cachedPalette == nil {
-            if let image = currentDisplayArtwork ?? thumbnailImage {
-                cachedPalette = DominantColorExtractor.extractPalette(from: image)
-                cachedPaletteVersion = version  // Only cache on successful image lookup
-            } else {
-                // Return empty palette WITHOUT caching the version,
-                // so next access will retry extraction when artwork is available.
-                return DominantColorExtractor.ArtworkPalette(
-                    rawAccent: nil, candidates: [], background: []
-                )
-            }
-        }
-        return cachedPalette!
-    }
 
     @ObservationIgnored private var cachedSignature: CoverSignature?
     @ObservationIgnored private var cachedSignatureVersion: Int = -1

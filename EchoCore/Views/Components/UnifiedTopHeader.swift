@@ -17,7 +17,7 @@ struct UnifiedTopHeader: View {
                     Image(systemName: "folder")
                         .font(.body.bold())
                         .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .background(chipFill, in: Circle())
                         .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                 }
                 .foregroundStyle(Color.accentColor)
@@ -47,7 +47,7 @@ struct UnifiedTopHeader: View {
                     Image(systemName: "ellipsis")
                         .font(.body.bold())
                         .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .background(chipFill, in: Circle())
                         .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                 }
                 .foregroundStyle(Color.accentColor)
@@ -74,6 +74,15 @@ struct UnifiedTopHeader: View {
                 .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
         }
     }
+
+    /// On Now Playing the header chips sit on the tonal ramp, where a solid
+    /// chip tone reads as designed; on other tabs they float over scrolling
+    /// content, where material blur is still the right call.
+    private var chipFill: AnyShapeStyle {
+        model.selectedTab == .nowPlaying
+            ? AnyShapeStyle(model.coverTheme.chip)
+            : AnyShapeStyle(.ultraThinMaterial)
+    }
     
     private var remainingTimeView: some View {
         Group {
@@ -82,7 +91,7 @@ struct UnifiedTopHeader: View {
                     .font(.subheadline.monospacedDigit().bold())
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(chipFill, in: Capsule())
                     .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                     .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
             } else {
@@ -90,7 +99,7 @@ struct UnifiedTopHeader: View {
                     .font(.subheadline.monospacedDigit().bold())
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(chipFill, in: Capsule())
                     .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                     .foregroundStyle(.secondary)
             }

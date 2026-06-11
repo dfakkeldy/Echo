@@ -17,18 +17,30 @@ struct NowPlayingLayoutTests {
         )
     }
 
-    @Test func adaptiveBackgroundUsesLayeredGradients() throws {
-        // The saturated player background moved out of NowPlayingTab into the
-        // reusable AdaptiveBackground component (rendered globally in RootTabView).
+    @Test func adaptiveBackgroundUsesTonalRamp() throws {
+        // The adaptive background is now a two-stop tonal ramp from the cover
+        // theme, replacing the old blurred three-hue gradient stack.
         let source = try Self.source(named: "Components/AdaptiveBackground.swift")
 
         #expect(
             source.contains("LinearGradient"),
-            "AdaptiveBackground should use a linear gradient base layer."
+            "AdaptiveBackground should use a linear gradient for the tonal ramp."
         )
         #expect(
-            source.contains("RadialGradient"),
-            "AdaptiveBackground should use a radial gradient accent layer."
+            source.contains("coverTheme"),
+            "AdaptiveBackground should source colors from the cover theme."
+        )
+        #expect(
+            !source.contains("RadialGradient"),
+            "AdaptiveBackground should no longer use a radial gradient accent layer."
+        )
+        #expect(
+            !source.contains("blur"),
+            "AdaptiveBackground should no longer use a blur pass."
+        )
+        #expect(
+            !source.contains("ultraThinMaterial"),
+            "AdaptiveBackground should no longer use a material overlay."
         )
     }
 
@@ -85,7 +97,7 @@ struct NowPlayingLayoutTests {
         if fileName == "NowPlayingTab.swift" {
             return "artworkView .padding(.horizontal, NowPlayingLayout.horizontalPadding)"
         } else if fileName == "Components/AdaptiveBackground.swift" {
-            return "LinearGradient RadialGradient"
+            return "LinearGradient coverTheme"
         } else if fileName == "PlayerScrubberView.swift" {
             return "timeLabelWidth Spacer()"
         } else if fileName == "RootTabView.swift" {
