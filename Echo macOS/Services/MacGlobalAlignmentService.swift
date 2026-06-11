@@ -106,8 +106,9 @@ public class MacGlobalAlignmentService {
                         tokenSequenceIndex += 1
                     }
                     
+                    let finalRecords = records
                     try await dbQueue.write { db in
-                        for record in records {
+                        for record in finalRecords {
                             try record.insert(db)
                         }
                     }
@@ -143,12 +144,13 @@ public class MacGlobalAlignmentService {
             guard !blockTokens.isEmpty else { continue }
             
             // Search in a window ahead of our last match
-            let endIndex = min(searchStartIndex + windowSize, totalTokens)
-            guard searchStartIndex < endIndex else { break }
+            let currentStartIndex = searchStartIndex
+            let currentEndIndex = min(currentStartIndex + windowSize, totalTokens)
+            guard currentStartIndex < currentEndIndex else { break }
             
             let searchWindowRecords = try await dbQueue.read { db in
                 try TransTokenRecord
-                    .filter(Column("sequenceIndex") >= searchStartIndex && Column("sequenceIndex") < endIndex)
+                    .filter(Column("sequenceIndex") >= currentStartIndex && Column("sequenceIndex") < currentEndIndex)
                     .order(Column("sequenceIndex"))
                     .fetchAll(db)
             }

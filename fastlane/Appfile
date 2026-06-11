@@ -1,4 +1,4 @@
-app_identifier("com.orbit.audiobooks") # Your main bundle ID
+app_identifier("com.echo.audiobooks") # Your main bundle ID
 # TODO(Echo rebrand): Update bundle IDs to com.echo.audiobooks when Phase 8 rebrand ships
 
 apple_id("") # Set via FASTLANE_USER env var or fill in your Apple ID
@@ -9,10 +9,10 @@ team_id("8AXNA5B37R") # Put your real Team ID here
 # Since you have macOS and watchOS extensions, you can explicitly add them too:
 for_lane :beta do
   app_identifier([
-    "com.orbit.audiobooks",
-    "com.orbit.audiobooks.watchkitapp",
-    "com.orbit.audiobooks.watchkitapp.widget",
-    "com.orbit.audiobooks.macos"
+    "com.echo.audiobooks",
+    "com.echo.audiobooks.watchkitapp",
+    "com.echo.audiobooks.watchkitapp.widget",
+    "com.echo.audiobooks.macos"
   ])
   # TODO(Echo rebrand): Update to com.echo.audiobooks equivalents
 end

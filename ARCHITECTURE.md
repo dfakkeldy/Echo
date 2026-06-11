@@ -86,6 +86,7 @@ Services/Persistence.swift
 Services/PlaybackController.swift
 Services/PlaybackEventLogger.swift
 Services/PlaybackProgressPresenter.swift
+Services/PlaybackSessionRecorder.swift
 Services/PlaybackTimelineService.swift
 Services/PlayerLoadingCoordinator.swift
 Services/PlayerTimelinePersistenceService.swift
@@ -277,6 +278,7 @@ Database/MigrationService.swift
 Database/Migrations/Schema_V11.swift
 Database/Migrations/Schema_V12.swift
 Database/Migrations/Schema_V13.swift
+Database/Migrations/Schema_V14.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -305,6 +307,7 @@ Models/PDFViewState.swift
 NotificationNames.swift
 ReaderSettings.swift
 SafeFileName.swift
+Stats/PlaybackSegmentBuilder.swift
 String+Levenshtein.swift
 SyncMarker.swift
 TabSelection.swift

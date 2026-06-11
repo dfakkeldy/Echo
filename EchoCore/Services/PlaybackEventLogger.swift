@@ -66,13 +66,14 @@ struct PlaybackEventLogger {
         guard let db = databaseService else { return }
         let dao = RealTimeEventDAO(db: db.writer)
         let folderKey = folderURL?.absoluteString
+        let now = Date()
         do {
             try dao.log(
                 eventType: type.rawValue,
                 audiobookID: folderKey,
                 mediaTimestamp: timestamp,
-                startedAt: Date(),
-                endedAt: nil,
+                startedAt: now,
+                endedAt: now,
                 title: title,
                 subtitle: subtitle,
                 metadataJSON: nil,

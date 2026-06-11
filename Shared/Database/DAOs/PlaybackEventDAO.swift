@@ -41,6 +41,50 @@ struct PlaybackEventDAO {
                 .fetchAll(db)
         }
     }
+
+    /// Opens a listening segment as a self-consistent zero-length row.
+    /// Heartbeats and finalize() extend it; a crash leaves valid data.
+    func insertOpen(
+        audiobookID: String,
+        trackID: String?,
+        startedAt: Date,
+        startPosition: TimeInterval,
+        speed: Double,
+        source: String
+    ) throws -> Int64 {
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO playback_event
+                    (audiobook_id, track_id, started_at, ended_at, start_position, end_position, speed, event_type, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'play', ?)
+                    """,
+                arguments: [
+                    audiobookID, trackID,
+                    startedAt.ISO8601Format(), startedAt.ISO8601Format(),
+                    startPosition, startPosition, speed, source
+                ]
+            )
+            return db.lastInsertedRowID
+        }
+    }
+
+    /// Extends an open segment (heartbeat and final close use the same shape).
+    func extend(id: Int64, endedAt: Date, endPosition: TimeInterval) throws {
+        try db.write { db in
+            try db.execute(
+                sql: "UPDATE playback_event SET ended_at = ?, end_position = ? WHERE id = ?",
+                arguments: [endedAt.ISO8601Format(), endPosition, id]
+            )
+        }
+    }
+
+    /// Removes a discarded micro-segment (< minimum duration).
+    func delete(id: Int64) throws {
+        try db.write { db in
+            try db.execute(sql: "DELETE FROM playback_event WHERE id = ?", arguments: [id])
+        }
+    }
 }
 
 /// A single playback session record.

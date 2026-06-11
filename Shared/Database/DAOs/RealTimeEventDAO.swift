@@ -108,22 +108,6 @@ struct RealTimeEventDAO {
         }
     }
 
-    // MARK: - Push-forward logic
-
-    /// Advance uncompleted events whose started_at is before `now` to a new time.
-    func pushForwardUncompleted(before now: Date, to newDate: Date) throws {
-        try db.write { db in
-            try db.execute(
-                sql: """
-                    UPDATE real_time_event
-                    SET started_at = ?
-                    WHERE ended_at IS NULL
-                      AND started_at < ?
-                    """,
-                arguments: [newDate.ISO8601Format(), now.ISO8601Format()]
-            )
-        }
-    }
 
     // MARK: - Count / Stats
 

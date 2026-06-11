@@ -3,6 +3,7 @@ import Observation
 import GRDB
 import os.log
 
+@MainActor
 @Observable
 final class DailyReviewViewModel {
     var dueCards: [Flashcard] = []
@@ -92,13 +93,14 @@ final class DailyReviewViewModel {
         do {
             let meta = try JSONSerialization.data(withJSONObject: ["cardId": card.id, "grade": grade])
             let metaJSON = String(data: meta, encoding: .utf8)
+            let now = Date()
             try dao.log(
                 id: UUID().uuidString,
-                eventType: "flashcardReviewed",
+                eventType: RealTimeEventType.flashcardReviewed.rawValue,
                 audiobookID: card.audiobookID,
                 mediaTimestamp: card.mediaTimestamp,
-                startedAt: Date(),
-                endedAt: nil,
+                startedAt: now,
+                endedAt: now,
                 title: card.frontText,
                 subtitle: "Grade: \(grade)",
                 metadataJSON: metaJSON,

@@ -279,7 +279,7 @@ final class MacPlayerModel {
     }
 
     func skip(by seconds: Double) {
-        guard let player else { return }
+        guard player != nil else { return }
         let target = max(0, min(duration, currentTime + seconds))
         seek(to: target)
     }

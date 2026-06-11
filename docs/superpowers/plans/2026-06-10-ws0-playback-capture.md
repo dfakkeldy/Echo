@@ -266,7 +266,14 @@ struct RealTimeEventIntegrityTests {
 Run: `xcodebuild test ... -only-testing:EchoTests/RealTimeEventIntegrityTests 2>&1 | tail -10`
 Expected: PASS. (The test documents correct usage; the bug is at the call site.)
 
-- [ ] **Step 3: Fix the call site**
+- [ ] **Step 3: Fix the call site and apply @MainActor isolation**
+
+Mark `DailyReviewViewModel` with `@MainActor` to ensure concurrency safety for this observable class:
+
+```swift
+@MainActor @Observable
+final class DailyReviewViewModel {
+```
 
 In `EchoCore/ViewModels/DailyReviewViewModel.swift`, `logFlashcardReviewed` (lines 95-107), change two arguments:
 
@@ -726,8 +733,8 @@ struct PlaybackSegmentBuilder: Sendable {
         switch event {
         case let .opened(audiobookID, trackID, position, speed, source, at):
             var actions: [SegmentAction] = []
-            if open != nil {
-                actions.append(closeAction(endPosition: open!.lastKnownPosition, at: at, isSplit: true))
+            if let current = open {
+                actions.append(closeAction(endPosition: current.lastKnownPosition, at: at, isSplit: true))
             }
             let segment = OpenSegment(
                 audiobookID: audiobookID, trackID: trackID, startedAt: at,
@@ -739,9 +746,8 @@ struct PlaybackSegmentBuilder: Sendable {
             return actions
 
         case let .progressTick(position, at):
-            guard open != nil else { return [] }
-            open!.lastKnownPosition = position
-            open!.lastKnownAt = at
+            open?.lastKnownPosition = position
+            open?.lastKnownAt = at
             return []
 
         case let .speedChanged(newSpeed, at):
@@ -782,7 +788,9 @@ struct PlaybackSegmentBuilder: Sendable {
     private func closeAction(
         endPosition: TimeInterval, at: Date, isSplit: Bool, segment: OpenSegment? = nil
     ) -> SegmentAction {
-        let seg = segment ?? open!
+        guard let seg = segment ?? open else {
+            return .discard
+        }
         let duration = at.timeIntervalSince(seg.startedAt)
         if !isSplit && duration < Self.minimumSegmentDuration {
             return .discard
@@ -913,6 +921,24 @@ import Foundation
 import GRDB
 import os.log
 
+/// Thread-safe count tracker for the test drain.
+private final class SafeCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var value = 0
+
+    func increment() {
+        lock.lock()
+        value += 1
+        lock.unlock()
+    }
+
+    func decrement() {
+        lock.lock()
+        value -= 1
+        lock.unlock()
+    }
+}
+
 /// Consumes RecorderEvents from playback seams and persists listening
 /// segments to playback_event via PlaybackSegmentBuilder policy.
 ///
@@ -925,6 +951,7 @@ actor PlaybackSessionRecorder {
 
     private let writer: any DatabaseWriter
     private let logger = Logger(category: "PlaybackSessionRecorder")
+    private let pendingCount = SafeCounter()
 
     private var builder = PlaybackSegmentBuilder()
     private var openRowID: Int64?
@@ -941,15 +968,23 @@ actor PlaybackSessionRecorder {
         Task { await self.start() }
     }
 
+    deinit {
+        continuation.finish()
+        heartbeatTask?.cancel()
+    }
+
     /// Synchronous and non-blocking — safe from the main actor and deinit.
     nonisolated func yield(_ event: RecorderEvent) {
+        pendingCount.increment()
         continuation.yield(event)
     }
 
     private func start() {
         guard consumerTask == nil else { return }
-        consumerTask = Task {
+        let continuation = self.continuation
+        consumerTask = Task { [weak self] in
             for await event in stream {
+                guard let self else { break }
                 await handle(event)
             }
         }
@@ -964,23 +999,17 @@ actor PlaybackSessionRecorder {
     func shutdown() {
         continuation.finish()
         heartbeatTask?.cancel()
-        consumerTask?.cancel()
     }
 
     /// Test hook: wait until every yielded event so far has been persisted.
     func drain() async {
-        // Events are handled in yield order on this actor; enqueueing a
-        // sentinel through the same stream and awaiting its handling would
-        // race with `for await`; instead handle() is serial on the actor, so
-        // re-entering the actor after a yield barrier suffices:
-        await Task.yield()
-        while pendingDrain { await Task.yield() }
+        while pendingCount.value > 0 {
+            await Task.yield()
+        }
     }
-    private var pendingDrain = false
 
     private func handle(_ event: RecorderEvent) async {
-        pendingDrain = true
-        defer { pendingDrain = false }
+        defer { pendingCount.decrement() }
         for action in builder.handle(event) {
             await perform(action)
         }

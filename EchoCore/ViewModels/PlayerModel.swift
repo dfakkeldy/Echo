@@ -22,6 +22,11 @@ final class PlayerModel {
     )
     @ObservationIgnored let eventLogger = PlaybackEventLogger()
 
+    /// Analytics-grade listening-segment capture (playback_event table).
+    /// Parallel to eventLogger's real_time_event channel, which feeds the
+    /// timeline UI; this one feeds Stats. Nil when the database is unavailable.
+    @ObservationIgnored private(set) var sessionRecorder: PlaybackSessionRecorder?
+
     var audioEngine: AudioEngine { playbackController.audioEngine }
     @ObservationIgnored weak var settingsManager: SettingsManager?
     let bookSettingsOverrideStore = BookSettingsOverrideStore()
@@ -473,6 +478,11 @@ final class PlayerModel {
         set {
             timelinePersistence.databaseService = newValue
             configureContinuousAlignment()
+            if let db = newValue {
+                sessionRecorder = PlaybackSessionRecorder(writer: db.writer)
+            } else {
+                sessionRecorder = nil
+            }
         }
     }
 
@@ -713,12 +723,15 @@ final class PlayerModel {
             self?.checkVoiceMemoTrigger(at: at, previousSeconds: prev)
         }
         playbackController.coordinator_seekCompleted = { [weak self] isManual in
+            guard let self else { return }
             if !isManual {
-                self?.updateCurrentChapterFromPlayerTime()
+                self.updateCurrentChapterFromPlayerTime()
             }
+            self.sessionRecorder?.yield(.seeked(toPosition: self.audioEngine.currentTime, at: Date()))
         }
         playbackController.coordinator_persistSpeed = { [weak self] key, speed in
             self?.persistence.saveSpeed(for: key, speed: speed)
+            self?.sessionRecorder?.yield(.speedChanged(newSpeed: Double(speed), at: Date()))
         }
         playbackController.coordinator_persistLoopMode = { [weak self] key, mode in
             self?.persistence.saveLoopMode(for: key, loopMode: mode)
@@ -729,6 +742,9 @@ final class PlayerModel {
         playbackController.coordinator_refreshProgress = { [weak self] in
             self?.updateNowPlayingElapsedTime()
             self?.updateProgressFromPlayer()
+            if let self, self.audioEngine.currentTime.isFinite {
+                self.sessionRecorder?.yield(.progressTick(position: self.audioEngine.currentTime, at: Date()))
+            }
         }
         playbackController.coordinator_enabledBookmarks = { [weak self] in
             self?.enabledCurrentTrackBookmarks ?? []
@@ -770,14 +786,25 @@ final class PlayerModel {
             self?.startCurrentFileSecurityScopeIfNeeded()
         }
         playbackController.coordinator_playStateChanged = { [weak self] isPlaying in
+            guard let self else { return }
             if isPlaying {
-                self?.startPlaybackSessionLogging()
-                if self?.settingsManager?.continuousAutoAlignmentEnabled == true {
-                    self?.continuousAlignmentService?.start()
+                self.startPlaybackSessionLogging()
+                self.sessionRecorder?.yield(.opened(
+                    audiobookID: self.folderURL?.absoluteString ?? "unknown",
+                    trackID: self.state.tracks.indices.contains(self.state.currentIndex)
+                        ? self.state.tracks[self.state.currentIndex].id : nil,
+                    position: self.audioEngine.currentTime,
+                    speed: Double(self.playbackController.speed),
+                    source: "user",
+                    at: Date()
+                ))
+                if self.settingsManager?.continuousAutoAlignmentEnabled == true {
+                    self.continuousAlignmentService?.start()
                 }
             } else {
-                self?.endPlaybackSessionLogging()
-                self?.continuousAlignmentService?.stop()
+                self.endPlaybackSessionLogging()
+                self.sessionRecorder?.yield(.closed(position: self.audioEngine.currentTime, at: Date()))
+                self.continuousAlignmentService?.stop()
             }
         }
         playlistManager.coordinator_postResetRefresh = { [weak self] in
@@ -807,6 +834,7 @@ final class PlayerModel {
         // Synchronous teardown on the MainActor instead of a fire-and-forget Task.
         // PlayerModel is @MainActor, so the deinit runs on the main actor.
         MainActor.assumeIsolated {
+            sessionRecorder?.yield(.closed(position: nil, at: Date()))
             audioEngine.cleanup()
             bookmarkStore.stopVoiceMemo()
             if pauseBackgroundTask != .invalid {

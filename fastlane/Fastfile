@@ -55,9 +55,9 @@ platform :ios do
       api_key: @api_key,
       type: "appstore",
       app_identifier: [
-        "com.orbit.audiobooks",                   # main iOS app
-        "com.orbit.audiobooks.watchkitapp",         # bundled watchOS app
-        "com.orbit.audiobooks.watchkitapp.widget"   # widget extension
+        "com.echo.audiobooks",                   # main iOS app
+        "com.echo.audiobooks.watchkitapp",         # bundled watchOS app
+        "com.echo.audiobooks.watchkitapp.widget"   # widget extension
       ],
       readonly: is_ci
     )
@@ -66,7 +66,7 @@ platform :ios do
     sync_code_signing(
       api_key: @api_key,
       type: "appstore",
-      app_identifier: ["com.orbit.audiobooks.macos"],
+      app_identifier: ["com.echo.audiobooks.macos"],
       readonly: is_ci
     )
 

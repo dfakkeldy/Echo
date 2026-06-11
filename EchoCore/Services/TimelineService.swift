@@ -33,10 +33,6 @@ final class TimelineService {
 
     private var hasDatabase: Bool { db != nil }
 
-    // MARK: - Push-forward timer
-
-    @ObservationIgnored private var pushForwardTimer: Timer?
-    private let pushForwardInterval: TimeInterval = 60
 
     // MARK: - "Now" timer
 
@@ -47,13 +43,10 @@ final class TimelineService {
     init(databaseService: DatabaseService? = nil) {
         self.db = databaseService
         startNowTimer()
-        if databaseService != nil {
-            startPushForwardTimer()
-        }
+
     }
 
     deinit {
-        pushForwardTimer?.invalidate()
         nowTimer?.invalidate()
     }
 
@@ -171,30 +164,6 @@ final class TimelineService {
         viewportEnd = center.addingTimeInterval(span / 2)
     }
 
-    // MARK: - Push-forward logic
-
-    private func startPushForwardTimer() {
-        pushForwardTimer = Timer.scheduledTimer(withTimeInterval: pushForwardInterval, repeats: true) { _ in
-            Task { @MainActor [weak self] in
-                self?.pushForwardUncompletedItems()
-            }
-        }
-    }
-
-    private func pushForwardUncompletedItems() {
-        guard let db else { return }
-        let now = Date()
-        let dao = RealTimeEventDAO(db: db.writer)
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                // DAO handles its own write transaction internally
-                try dao.pushForwardUncompleted(before: now, to: now)
-            } catch {
-                self.logger.error("Push-forward failed: \(error.localizedDescription)")
-            }
-        }
-    }
 
     // MARK: - Now timer
 
@@ -207,8 +176,6 @@ final class TimelineService {
     }
 
     private func stopTimers() {
-        pushForwardTimer?.invalidate()
-        pushForwardTimer = nil
         nowTimer?.invalidate()
         nowTimer = nil
     }

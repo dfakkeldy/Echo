@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved', 'Echo.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Run iOS Tests
+        run: |
+          xcodebuild test \
+            -project Echo.xcodeproj \
+            -scheme Echo \
+            -destination "platform=iOS Simulator,OS=latest" \
+            -quiet
+
+      - name: Run watchOS Tests
+        run: |
+          xcodebuild test \
+            -project Echo.xcodeproj \
+            -scheme "Echo Watch App" \
+            -destination "platform=watchOS Simulator,OS=latest" \
+            -quiet
+
+      - name: Build macOS Target
+        run: |
+          xcodebuild build \
+            -project Echo.xcodeproj \
+            -scheme "Echo macOS" \
+            -destination "platform=macOS" \
+            -quiet
