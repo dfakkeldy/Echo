@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-11 22:10:36
+**Last generated:** 2026-06-11 23:28:11
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -55,10 +55,10 @@ Services/AudioRingBuffer.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
-Services/BookmarkArtworkCoordinator.swift
-Services/BookmarkStore.swift
 Services/BookPreferencesService.swift
 Services/BookSettingsOverrideStore.swift
+Services/BookmarkArtworkCoordinator.swift
+Services/BookmarkStore.swift
 Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
 Services/ChapterPartGrouper.swift
@@ -99,10 +99,10 @@ Services/SleepTimerManager.swift
 Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
 Services/StoreManager.swift
+Services/TOCTreeBuilder.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
 Services/TimelineService.swift
-Services/TOCTreeBuilder.swift
 Services/TokenDTW.swift
 Services/TranscriptService.swift
 Services/WatchCommandRouter.swift
@@ -118,17 +118,17 @@ Utilities/SilenceAnalyzer.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
-ViewModels/PlayerModel.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
+ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
 ViewModels/TimelineFeedViewModel.swift
 Views/AutoAlignmentProgressView.swift
+Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
-Views/BookSettingsView.swift
 Views/BottomToolbarView.swift
 Views/CardColorPickerSheet.swift
 Views/Cells/AnkiCardCell.swift
@@ -186,8 +186,8 @@ Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
 Views/ReaderSettingsSheet.swift
-Views/ReaderTab.swift
 Views/ReaderTab+Alignment.swift
+Views/ReaderTab.swift
 Views/RootTabView.swift
 Views/ScrubberJoystick.swift
 Views/SettingsView.swift
@@ -201,8 +201,8 @@ Views/TimelineContentView.swift
 Views/TimelineFeedCollectionView.swift
 Views/TimelineHeaderView.swift
 Views/TimelineTab.swift
-Views/TransportControlsView.swift
 Views/TransportControlsView+LongPress.swift
+Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
@@ -220,9 +220,9 @@ Services/MacEPUBParser.swift
 Services/MacGlobalAlignmentService.swift
 Views/MacContentView.swift
 Views/MacPlayerModel.swift
-Views/TranscriptionManager.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
+Views/TranscriptionManager.swift
 ```
 
 ## Echo Watch App
@@ -273,10 +273,10 @@ Database/DatabaseService.swift
 Database/EPubBlockRecord.swift
 Database/EPubTOCEntryRecord.swift
 Database/Flashcard.swift
+Database/MigrationService.swift
 Database/Migrations/Schema_V11.swift
 Database/Migrations/Schema_V12.swift
 Database/Migrations/Schema_V13.swift
-Database/MigrationService.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -293,8 +293,8 @@ Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
-EnhancedTranscriptionSegment.swift
 EPUBXMLParsing.swift
+EnhancedTranscriptionSegment.swift
 FileLocations.swift
 ImageEncoding.swift
 KeychainStore.swift
@@ -346,7 +346,7 @@ Alignment is now performed entirely in-app, without any external tools or API ca
    - **Front-matter classification:** the importer reads the EPUB's structural metadata — spine `linear="no"`, the EPUB 2 `<guide>` (`type="text"` = body start), and EPUB 3 nav landmarks (`epub:type="bodymatter"`) — to flag blocks before body matter as `is_front_matter` (Schema V12). Heading-less spines whose only available title is non-content per `HeadingClassifier` (cover, praise, printed TOC, …) are also flagged when no content heading has appeared yet. Front-matter spines never receive synthesized fallback headings, so cover/praise pages no longer become junk chapters. `HeadingClassifier` is the single source of truth for junk-heading rules shared by import, the reader feed, and the TOC sheet.
    - **TOC hierarchy (Schema V13):** `TOCParserDelegate` preserves the publisher's declared TOC tree — NCX `navPoint` nesting (EPUB 2) or nav `<ol>` nesting (EPUB 3) — as `TOCEntryNode` values instead of flattening to per-file labels. At import, `EPUBImportService.resolveTOCEntries` maps each entry to a concrete block (fragment anchor → first heading → first block; `XHTMLBlockDelegate` records element `id`s per block as `anchorIDs` for the fragment step) and persists the tree as `epub_toc_entry` rows. Fragment-resolved targets that aren't `<h1>`–`<h6>` (e.g. The Pragmatic Programmer's table-marked "Topic N" titles) are promoted to heading blocks when their text essentially matches the TOC label (normalized + Levenshtein ≥ 0.85 gate so body prose is never promoted). `TOCTreeBuilder.build(from:tocEntries:)` renders the TOC sheet from these entries (publisher titles + nesting) and falls back to heading inference only when a book declares no TOC; the reader breadcrumb (`ReaderFeedViewModel`) likewise derives ancestry from the entry path at the block's sequence position, appending deeper in-file headings, with the heading-level cascade as fallback.
 2. **Auto-Alignment (4-tier pipeline, on-device):** `AutoAlignmentService` runs a progressive 4-tier pipeline using on-device speech recognition (WhisperKit + CoreML) and dynamic time warping (TokenDTW) to automatically align EPUB blocks to audio timestamps:
-   - **Tier 0 — Metadata Title Matching:** `ChapterTitleMatcher` compares audiobook chapter titles (from M4B metadata) to EPUB heading blocks using composite Levenshtein + Jaccard fuzzy scoring. High-confidence matches (≥0.85) create immediate anchors and skip DTW entirely for those chapters.
+   - **Tier 0 — Metadata Title Matching:** `ChapterTitleMatcher` compares audiobook chapter titles (from M4B metadata) to EPUB heading blocks using composite Levenshtein + Jaccard fuzzy scoring. High-confidence matches (≥0.85) create immediate anchors and skip DTW entirely for those chapters. Generic numeric track labels ("Chapter 7", "Pt. 2", "12") are excluded — M4B metadata numbers *tracks*, not book chapters (track 1 is often opening credits), so those chapters always fall through to content alignment. Titles whose numbers contradict the heading's number are vetoed outright, and each heading block accepts at most one chapter match. Each pipeline run first deletes its previous `auto-tier0-`/`auto-dtw-` anchors so re-alignment can correct earlier results.
    - **Tier 1 — VAD Chunking + DTW:** For chapters not matched in Tier 0, uses `SilenceDetectionService` to split audio into VAD-guided chunks, transcribes each with WhisperKit, then `TokenDTW.align()` matches transcribed audio tokens against EPUB tokens at word-level granularity to insert correction anchors.
    - **Tier 2 — Drift Detection:** Compares interpolated block positions against chapter boundaries to detect chapters that have drifted out of alignment (planned).
    - **Tier 3 — Drift Repair:** Bisects flagged chapters to locate the drift point and inserts correction anchors (planned).
@@ -379,7 +379,7 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 **Key types:**
 
 - `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, `hideChapter(chapterIndex:reason:)`, and `anchorChapterEnd(blockID:chapterIndex:time:)` for anchor and content management.
-- `ChapterTitleMatcher` — Tier 0 metadata-based matcher that compares audiobook chapter titles (from M4B metadata) to EPUB headings using composite Levenshtein + Jaccard fuzzy scoring. Runs before any ML model loading — high-confidence matches (≥0.85) create anchors immediately and skip DTW transcription for those chapters.
+- `ChapterTitleMatcher` — Tier 0 metadata-based matcher that compares audiobook chapter titles (from M4B metadata) to EPUB headings using composite Levenshtein + Jaccard fuzzy scoring. Runs before any ML model loading — high-confidence matches (≥0.85) create anchors immediately and skip DTW transcription for those chapters. Skips generic numeric track labels (`isGenericNumericTitle`), vetoes matches with contradicting numbers, and returns at most one chapter per heading block.
 - `AutoAlignmentService` — Progressive 4-tier WhisperKit-based auto-alignment orchestrator. Runs Tier 0 (metadata title matching), Tier 1 (VAD chunking + TokenDTW), Tier 2 (drift detection), Tier 3 (drift repair), and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
 - `AutoAlignmentTextMatcher` — Fuzzy text matching engine for auto-alignment. Uses Levenshtein distance and word-level Jaccard similarity to match transcribed audio against EPUB paragraphs. Provides `projectedBlockStart()` for time-offset calculation from match position within a block.
 - `TokenDTW` — Dynamic Time Warping aligner that matches EPUB tokens against audio transcription tokens at word-level granularity. Uses flat `Int32` cost and `Int8` direction arrays for memory-efficient alignment (Levenshtein-like fuzzy matching with prefix/suffix matching). Replaces the earlier Tier 0 silence-mapping approach with precise token-level alignment for drift repair (Tier 3).

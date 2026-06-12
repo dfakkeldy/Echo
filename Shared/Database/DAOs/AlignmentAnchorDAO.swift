@@ -33,6 +33,20 @@ struct AlignmentAnchorDAO {
         }
     }
 
+    /// Deletes anchors created by the auto-alignment pipeline (Tier 0 title
+    /// matches and DTW-mapped anchors) so a re-run starts from a clean slate.
+    /// Manual anchors and continuous-background anchors are preserved.
+    /// - Returns: The number of anchors removed.
+    @discardableResult
+    func deleteAutoPipelineAnchors(for audiobookID: String) throws -> Int {
+        try db.write { db in
+            try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("id").like("auto-tier0-%") || Column("id").like("auto-dtw-%"))
+                .deleteAll(db)
+        }
+    }
+
     // MARK: - Queries
 
     /// All anchors for an audiobook, ordered by audio time.
