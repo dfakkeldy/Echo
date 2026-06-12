@@ -90,16 +90,18 @@ final class MacPlayerModel {
         defaults.set(true, forKey: migrationFlag)
     }
 
-    // `isolated` runs the deinitializer on the main actor so it can touch
-    // the actor-isolated observer/player state during teardown.
-    isolated deinit {
-        if let timeObserver, let player {
-            player.removeTimeObserver(timeObserver)
+    deinit {
+        // AVPlayer observer cleanup — assumes the main actor is still valid
+        // during deinit (which holds for @MainActor classes).
+        MainActor.assumeIsolated {
+            if let timeObserver, let player {
+                player.removeTimeObserver(timeObserver)
+            }
+            if let endObserver {
+                NotificationCenter.default.removeObserver(endObserver)
+            }
+            currentScopedURL?.stopAccessingSecurityScopedResource()
         }
-        if let endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-        }
-        currentScopedURL?.stopAccessingSecurityScopedResource()
     }
 
     // MARK: - Async helpers
@@ -279,7 +281,7 @@ final class MacPlayerModel {
     }
 
     func skip(by seconds: Double) {
-        guard let player else { return }
+        guard player != nil else { return }
         let target = max(0, min(duration, currentTime + seconds))
         seek(to: target)
     }

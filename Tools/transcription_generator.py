@@ -2,7 +2,7 @@
 """Generate .transcript.json sidecar files from audio using faster-whisper.
 
 The output JSON matches the TranscriptionSegment Codable schema consumed by
-the Orbit Audiobooks iOS and macOS apps:
+the Echo Audiobooks iOS and macOS apps:
   [{"text": "...", "startTime": 1.0, "endTime": 2.5}, ...]
 
 Prerequisites:
@@ -135,7 +135,7 @@ def transcribe_file(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Transcribe audio to .transcript.json sidecars for Orbit Audiobooks."
+        description="Transcribe audio to .transcript.json sidecars for Echo Audiobooks."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(

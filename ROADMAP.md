@@ -217,9 +217,9 @@ Goal: let users create and edit alignment anchors between EPUB blocks and audio 
 
 Goal: prevent regressions as the codebase grows.
 
-- [ ] **Expand unit test coverage** — current test files exist but are sparse. Add tests for: `ChapterGroupingService`, `PlaybackController` state transitions, `BookmarkStore` CRUD, `DatabaseService` migration paths, `AlignmentService` interpolation math.
+- [~] **Expand unit test coverage** — current test files exist but are sparse. Added tests for `PlaybackSessionRecorder` and `PlaybackSegmentBuilder` state machine.
 - [ ] **Add snapshot tests** for critical UI — NowPlayingTab, TimelineFeed cells, PlayerScrubberView section ticks.
-- [ ] **Add database migration tests** — verify each schema version upgrade path with realistic data.
+- [x] **Add database migration tests** — verify each schema version upgrade path with realistic data. (Added SchemaV14Tests covering stats/bookmark columns and backfills).
 - [ ] **Add pipeline integration tests** — end-to-end EPUB → align → enhanced transcript with known fixtures.
 - [ ] **Set up CI** (GitHub Actions or Xcode Cloud) — build all 4 targets, run tests, enforce Swift 6 concurrency checking.
 - [ ] **Add performance regression tests** — timeline feed scroll FPS, database query latency with large datasets.

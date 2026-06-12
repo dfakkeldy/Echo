@@ -8,7 +8,7 @@ extension Logger {
     static nonisolated let echoSubsystem = "com.echo.audiobooks"
 
     /// Convenience initializer that fills in the shared subsystem.
-    init(category: String) {
+    nonisolated init(category: String) {
         self.init(subsystem: Logger.echoSubsystem, category: category)
     }
 }

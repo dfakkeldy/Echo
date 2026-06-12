@@ -46,7 +46,7 @@ struct MacEPUBParser {
             // Validate that no extracted files escape the temp directory (path-traversal prevention)
             let tempDirStandardized = tempDir.standardized
             if let enumerator = FileManager.default.enumerator(at: tempDir, includingPropertiesForKeys: nil) {
-                for case let fileURL as URL in enumerator {
+                while let fileURL = enumerator.nextObject() as? URL {
                     guard fileURL.standardized.path.hasPrefix(tempDirStandardized.path) else {
                         throw NSError(domain: "MacEPUBParser", code: 4, userInfo: [
                             NSLocalizedDescriptionKey: "Path traversal detected: extracted file \(fileURL.path) escapes temp directory"

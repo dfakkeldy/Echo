@@ -96,6 +96,7 @@ final class DatabaseService {
         migrator.registerMigration("v11_bookmark_pdf_state") { db in try Schema_V11.migrate(db) }
         migrator.registerMigration("v12_epub_block_front_matter") { db in try Schema_V12.migrate(db) }
         migrator.registerMigration("v13_epub_toc_entries") { db in try Schema_V13.migrate(db) }
+        migrator.registerMigration("v14_capture_and_context") { db in try Schema_V14.migrate(db) }
         try migrator.migrate(writer)
     }
 
