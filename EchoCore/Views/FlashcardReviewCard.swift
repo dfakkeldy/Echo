@@ -9,32 +9,36 @@ struct FlashcardReviewCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Card face
-            VStack {
-                if isRevealed {
-                    Text(backText)
-                        .font(.body)
-                        .multilineTextAlignment(.center)
-                        .padding(20)
-                        .frame(maxWidth: .infinity, minHeight: 120)
-                        .background(.purple.opacity(0.08))
-                        .transition(.flip)
-                } else {
-                    Text(frontText)
-                        .font(.headline)
-                        .multilineTextAlignment(.center)
-                        .padding(20)
-                        .frame(maxWidth: .infinity, minHeight: 120)
-                        .background(.white.opacity(0.05))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.secondary.opacity(0.2)))
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .onTapGesture {
+            // Card face — Button for proper accessibility, keyboard nav, and hit-testing.
+            Button {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     isRevealed.toggle()
                 }
+            } label: {
+                VStack {
+                    if isRevealed {
+                        Text(backText)
+                            .font(.body)
+                            .multilineTextAlignment(.center)
+                            .padding(20)
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                            .background(.purple.opacity(0.08))
+                            .transition(.flip)
+                    } else {
+                        Text(frontText)
+                            .font(.headline)
+                            .multilineTextAlignment(.center)
+                            .padding(20)
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                            .background(.white.opacity(0.05))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.secondary.opacity(0.2)))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isRevealed ? Text("Answer") : Text("Question: \(frontText)"))
+            .accessibilityHint(isRevealed ? String(localized: "Tap to show question") : String(localized: "Tap to reveal answer"))
 
             // Grade buttons (shown after reveal)
             if isRevealed {
@@ -55,8 +59,7 @@ struct FlashcardReviewCard: View {
                             .background(gradeColor(grade).opacity(0.15))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(Text("Grade \(grade): \(gradeLabel(grade))"))
                     }
                 }
                 .padding(.top, 8)

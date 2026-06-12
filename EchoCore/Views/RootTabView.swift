@@ -148,7 +148,10 @@ struct RootTabView: View {
                 await storeManager.requestProducts()
             }
             .preferredColorScheme(colorScheme(for: settings.appAppearance))
-            .onChange(of: colorScheme, initial: true) { _, newScheme in
+            .onAppear {
+                model.uiColorScheme = colorScheme
+            }
+            .onChange(of: colorScheme) { _, newScheme in
                 model.uiColorScheme = newScheme
             }
         }

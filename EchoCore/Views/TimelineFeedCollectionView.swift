@@ -131,7 +131,6 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UICollectionView, coordinator: Coordinator) {
-        coordinator.stopDisplayLink()
         coordinator.collectionView = nil
     }
 
@@ -183,50 +182,28 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
         var lastScrollTarget: TimeInterval?
         private var isProgrammaticScroll = false
 
-        // MARK: - DisplayLink for smooth scrolling
+        // MARK: - Smooth scroll (Core Animation — offloaded to render server)
 
-        private var displayLink: CADisplayLink?
-        private var scrollTarget: CGFloat?
-        private var displayLinkContinuations: Int = 0
-        private let maxDisplayLinkFrames: Int = 300 // ~5 seconds at 60fps
-
-        func startDisplayLink(targetOffset: CGFloat) {
-            scrollTarget = targetOffset
-            displayLinkContinuations = 0
-            guard displayLink == nil else { return }
-            displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFired))
-            displayLink?.add(to: .main, forMode: .default)
-        }
-
-        func stopDisplayLink() {
-            displayLink?.invalidate()
-            displayLink = nil
-            scrollTarget = nil
-        }
-
-        @objc private func displayLinkFired() {
-            guard let cv = collectionView,
-                  let target = scrollTarget,
-                  displayLinkContinuations < maxDisplayLinkFrames
-            else {
-                stopDisplayLink()
-                return
-            }
-
-            displayLinkContinuations += 1
-            let currentOffset = cv.contentOffset.y
+        /// Animates the collection view's content offset using `UIView.animate`,
+        /// which hands the interpolation to Core Animation on the render server.
+        /// This avoids the 60 fps main-thread wake-ups of a `CADisplayLink`.
+        private func animateScrollTo(targetOffset: CGFloat) {
+            guard let cv = collectionView else { return }
             let maxOffset = max(0, cv.contentSize.height - cv.bounds.height)
+            let clamped = min(max(0, targetOffset), maxOffset)
 
-            // Ease-in interpolation: each frame moves 15% closer to target
-            let newOffset = currentOffset + (target - currentOffset) * 0.15
-            let clamped = min(max(0, newOffset), maxOffset)
-
-            cv.setContentOffset(CGPoint(x: 0, y: clamped), animated: false)
-
-            // Stop when close enough to target (within 0.5pt)
-            if abs(clamped - target) < 0.5 {
-                stopDisplayLink()
-            }
+            isProgrammaticScroll = true
+            UIView.animate(
+                withDuration: 0.35,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState],
+                animations: {
+                    cv.contentOffset = CGPoint(x: 0, y: clamped)
+                },
+                completion: { [weak self] _ in
+                    self?.isProgrammaticScroll = false
+                }
+            )
         }
 
         // MARK: - Data Source
@@ -369,7 +346,6 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             guard !isProgrammaticScroll else { return }
-            stopDisplayLink()
             parent?.onUserScrolled()
         }
 
@@ -552,7 +528,9 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             }
         }
 
-        /// Smooth scroll to center the NowLine in the viewport using CADisplayLink interpolation.
+        /// Smooth scroll to center the NowLine in the viewport. Animated scroll
+        /// is offloaded to Core Animation via `UIView.animate` (render-server
+        /// interpolation instead of 60 fps main-thread CADisplayLink wake-ups).
         func scrollToNowLine(animated: Bool = true) {
             guard let cv = collectionView else { return }
 
@@ -566,7 +544,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
             // Get the layout attributes for the NowLine cell
             guard let attrs = cv.collectionViewLayout.layoutAttributesForItem(at: indexPath) else {
-                // Fallback: use scrollToItem
+                // Fallback: use scrollToItem which is also render-server offloaded
                 isProgrammaticScroll = true
                 cv.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -579,11 +557,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
             let targetOffset = cellCenter - (cv.bounds.height / 2)
 
             if animated {
-                isProgrammaticScroll = true
-                startDisplayLink(targetOffset: targetOffset)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.isProgrammaticScroll = false
-                }
+                animateScrollTo(targetOffset: targetOffset)
             } else {
                 cv.setContentOffset(CGPoint(x: 0, y: max(0, targetOffset)), animated: false)
             }

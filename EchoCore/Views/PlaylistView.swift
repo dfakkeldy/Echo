@@ -48,6 +48,7 @@ struct PlaylistView: View {
 
     @State private var cachedPlaylistRows: [PlaylistRow] = []
     @State private var searchText = ""
+    @State private var rebuildToken = 0
     @State private var hasEPUB = false
     @State private var hasPDF = false
     @State private var hasTranscript = false
@@ -165,6 +166,12 @@ struct PlaylistView: View {
             }
         }
         return results
+    }
+
+    /// Increments the rebuild token to coalesce multiple source-of-truth changes
+    /// (chapters, tracks, bookmarks, filters) into a single recomputation.
+    private func scheduleRebuild() {
+        rebuildToken &+= 1
     }
 
     private func recomputePlaylistRows() -> [PlaylistRow] {
@@ -370,12 +377,12 @@ struct PlaylistView: View {
             hasPDF = model.hasPDF
             hasTranscript = model.hasTranscript
         }
-        .onChange(of: model.chapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
-        .onChange(of: model.tracks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
-        .onChange(of: model.bookmarks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
-        .onChange(of: model.showChapters) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
-        .onChange(of: model.showBookmarks) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
-        .onChange(of: searchText) { _, _ in cachedPlaylistRows = recomputePlaylistRows() }
+        .onChange(of: model.chapters) { _, _ in scheduleRebuild() }
+        .onChange(of: model.tracks) { _, _ in scheduleRebuild() }
+        .onChange(of: model.bookmarks) { _, _ in scheduleRebuild() }
+        .onChange(of: model.showChapters) { _, _ in scheduleRebuild() }
+        .onChange(of: model.showBookmarks) { _, _ in scheduleRebuild() }
+        .onChange(of: searchText) { _, _ in scheduleRebuild() }
         .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { notification in
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
                   let audiobookID = model.folderURL?.absoluteString,
@@ -384,6 +391,13 @@ struct PlaylistView: View {
             hasEPUB = model.hasEPUB
             hasPDF = model.hasPDF
             hasTranscript = model.hasTranscript
+        }
+        .task(id: rebuildToken) {
+            guard rebuildToken > 0 else { return }
+            // Tiny yield so multiple synchronous source-of-truth mutations
+            // coalesce into a single `recomputePlaylistRows()` call.
+            try? await Task.sleep(for: .milliseconds(16))
+            cachedPlaylistRows = recomputePlaylistRows()
         }
     }
 

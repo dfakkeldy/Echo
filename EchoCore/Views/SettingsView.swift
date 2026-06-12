@@ -13,10 +13,10 @@ struct SettingsView: View {
     @State private var isRetryingProducts = false
     @State private var showingDeckImporter = false
     @State private var importAlert: (title: String, message: String)?
-    @State private var volumeBoostEnabled = false
 
     var body: some View {
         @Bindable var settings = settings
+        @Bindable var model = model
 
         NavigationStack {
             Form {
@@ -55,14 +55,7 @@ struct SettingsView: View {
                 }
 
                 Section("Playback") {
-                    Toggle("Volume Boost", isOn: $volumeBoostEnabled)
-                        .onAppear { volumeBoostEnabled = model.isVolumeBoostEnabled }
-                        .onChange(of: volumeBoostEnabled) { _, newValue in
-                            model.setVolumeBoost(enabled: newValue)
-                        }
-                        .onChange(of: model.isVolumeBoostEnabled) { _, newValue in
-                            volumeBoostEnabled = newValue
-                        }
+                    Toggle("Volume Boost", isOn: $model.isVolumeBoostEnabled)
                     Picker("Default Speed", selection: $settings.defaultPlaybackSpeed) {
                         Text("1.0×").tag(1.0)
                         Text("1.25×").tag(1.25)
@@ -70,27 +63,21 @@ struct SettingsView: View {
                         Text("2.0×").tag(2.0)
                         Text("3.0×").tag(3.0)
                     }
-                    Picker("Seek Backward", selection: Binding(
-                        get: { settings.seekBackwardDuration },
-                        set: {
-                            settings.seekBackwardDuration = $0
-                            model.syncToWatch()
-                        }
-                    )) {
+                    Picker("Seek Backward", selection: $settings.seekBackwardDuration) {
                         ForEach([5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { duration in
                             Text("\(duration)s").tag(duration)
                         }
                     }
-                    Picker("Seek Forward", selection: Binding(
-                        get: { settings.seekForwardDuration },
-                        set: {
-                            settings.seekForwardDuration = $0
-                            model.syncToWatch()
-                        }
-                    )) {
+                    .onChange(of: settings.seekBackwardDuration) { _, _ in
+                        model.syncToWatch()
+                    }
+                    Picker("Seek Forward", selection: $settings.seekForwardDuration) {
                         ForEach([5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { duration in
                             Text("\(duration)s").tag(duration)
                         }
+                    }
+                    .onChange(of: settings.seekForwardDuration) { _, _ in
+                        model.syncToWatch()
                     }
                     NavigationLink("Smart Rewind") {
                         SmartRewindSettingsView()

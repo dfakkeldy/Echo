@@ -4,8 +4,9 @@ struct TransportControlsView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
 
+    private var isCompact: Bool { settings.playerLayoutStyle == "compact" }
+
     var body: some View {
-        let isCompact = settings.playerLayoutStyle == "compact"
         HStack(alignment: .center) {
             Spacer()
             ForEach(0..<5, id: \.self) { index in

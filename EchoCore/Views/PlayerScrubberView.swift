@@ -169,17 +169,41 @@ struct PlayerScrubberView: View {
     }
 
     private func timeLabel(_ text: String, alignment: Alignment) -> some View {
+        ScrubberTimeLabel(
+            text: text,
+            appFont: model.resolvedAppFont,
+            alignment: alignment
+        )
+        .equatable()
+    }
+
+    fileprivate static let timeLabelWidth: CGFloat = 54
+    private static let minimumScrubberWidth: CGFloat = 210
+}
+
+// MARK: - ScrubberTimeLabel
+
+/// POD (Plain Old Data) time label for the scrubber. Conforms to `Equatable`
+/// so SwiftUI can use fast `memcmp` diffing — the body only re-evaluates when
+/// the formatted text string actually changes, not on every playback tick.
+private struct ScrubberTimeLabel: View, Equatable {
+    let text: String
+    let appFont: String
+    let alignment: Alignment
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.text == rhs.text && lhs.appFont == rhs.appFont && lhs.alignment == rhs.alignment
+    }
+
+    var body: some View {
         Text(text)
-            .customFont(.footnote, appFont: model.resolvedAppFont)
+            .customFont(.footnote, appFont: appFont)
             .foregroundStyle(.primary)
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .frame(width: Self.timeLabelWidth, alignment: alignment)
+            .frame(width: PlayerScrubberView.timeLabelWidth, alignment: alignment)
     }
-
-    private static let timeLabelWidth: CGFloat = 54
-    private static let minimumScrubberWidth: CGFloat = 210
 }
 
 // MARK: - SectionTickOverlay
@@ -189,6 +213,11 @@ struct PlayerScrubberView: View {
 ///
 /// Tick positions are computed as fractions of the chapter duration, then
 /// mapped to horizontal pixel positions within the slider rail width.
+///
+/// Uses `GeometryReader` here because the `Slider` rail's actual drawable
+/// width (inset by the thumb radius) is not directly available to the
+/// overlay — the geometry proxy provides the only reliable measurement
+/// for mapping fractional positions to pixel coordinates.
 ///
 /// The view is rendered with `allowsHitTesting(false)` so the `Slider`
 /// underneath remains fully interactive.

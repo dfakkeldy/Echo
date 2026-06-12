@@ -400,7 +400,9 @@ final class AudioEngine {
 
     private func startTimeTimer() {
         stopTimeTimer()
-        timeTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        // 2 Hz tick — frequent enough for smooth time-label updates and scrubber
+        // tracking, while halving the view-tree re-evaluation cost vs. the old 4 Hz.
+        timeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
                 self.updateCurrentTime()

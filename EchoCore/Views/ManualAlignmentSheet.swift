@@ -4,6 +4,7 @@ struct ManualAlignmentSheet: View {
     let folderURL: URL
     @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     
     @State private var scrubbedTime: TimeInterval = 0
     @State private var joystickValue: Double = 0
@@ -76,6 +77,9 @@ struct ManualAlignmentSheet: View {
             .onDisappear {
                 stopScrubbing()
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .background { stopScrubbing() }
+            }
             .onChange(of: joystickValue) { _, newValue in
                 if newValue != 0 && joystickTimer == nil {
                     startScrubbing()
@@ -93,15 +97,15 @@ struct ManualAlignmentSheet: View {
     
     private func startScrubbing() {
         joystickTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 let speed = joystickValue * 10.0 // up to 10 seconds per 0.1s tick
                 scrubbedTime = max(0, min(model.durationSeconds ?? .infinity, scrubbedTime + speed))
                 model.seek(toSeconds: scrubbedTime)
             }
         }
-        
+
         snippetTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 playScrubSnippet()
             }
         }
