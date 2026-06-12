@@ -16,15 +16,22 @@ import os.log
 /// titles (from M4B metadata) against EPUB heading blocks before any
 /// transcription. Generic track labels ("Chapter 7", "12") are skipped —
 /// they number tracks, not book chapters, so only descriptive titles can
-/// bootstrap anchors. High-confidence matches skip DTW for that chapter.
+/// bootstrap anchors. Tier 0 anchors are bootstraps, not final answers:
+/// content alignment still runs and supersedes them with precise times.
 ///
-/// **VAD + DTW Content Alignment:** For remaining chapters, chunks the audio
-/// at detected silences, transcribes each chunk, and aligns transcript
-/// tokens against the chapter's EPUB blocks with dynamic time warping,
-/// inserting `chapterStart`/`point`/`chapterEnd` anchors.
+/// **Content Alignment (VAD + DTW):** For every chapter, captures bounded
+/// audio chunks (`AlignmentChunkPlanner`), transcribes them with word-level
+/// timestamps (`AlignmentTranscript`), and aligns transcript tokens against
+/// the chapter's EPUB blocks — plus a slack margin of neighbouring-chapter
+/// blocks for text mis-binned across the estimated boundary — with
+/// `TokenDTW.alignWithBisection`. Only candidates inside a strong match run
+/// survive `AnchorSelector`; blocks whose text was never narrated get no
+/// anchor at all and are bridged by interpolation instead.
 ///
-/// Each run first deletes anchors created by previous runs (`auto-tier0-`/
-/// `auto-dtw-` prefixes) so re-alignment can correct earlier results.
+/// Each run first deletes anchors created by previous automatic passes
+/// (`auto-tier0-` / `auto-dtw-` / `auto-continuous-` prefixes) so
+/// re-alignment can correct earlier results. Human-made anchors survive and
+/// their blocks are never re-anchored.
 @MainActor
 final class AutoAlignmentService {
     let logger = Logger(category: "AutoAlignment")
@@ -50,17 +57,21 @@ final class AutoAlignmentService {
     // MARK: - Configuration
 
     private nonisolated enum Config {
-        static let chapterStartCaptureDuration: TimeInterval = 5.0
-        static let chapterEndCaptureDuration: TimeInterval = 5.0
-        static let driftCheckDuration: TimeInterval = 5.0
-        static let preambleSkipDuration: TimeInterval = 8.0
         static let matchThreshold: Double = 0.35
-        static let driftConfidenceThreshold: Double = 0.40
         static let modelKeepAliveSeconds: TimeInterval = 120.0
         static let modelSize: String = "base.en"
         static let sampleRate: Double = 16_000
-        static let blockMatchWindowCount: Int = 20
-        static let tier3CaptureDuration: TimeInterval = 3.0
+        /// Capture chunk bounds for the planner.
+        static let minChunkSeconds: TimeInterval = 15.0
+        static let maxChunkSeconds: TimeInterval = 45.0
+        /// Blocks borrowed from each neighbouring chapter so text mis-binned
+        /// across an estimated chapter boundary can still anchor.
+        static let boundarySlackBlockCount = 12
+        /// Minimum strong-run length for an anchor to be kept.
+        static let minAnchorRunLength = 3
+        /// Candidates may land slightly outside the chapter's audio window
+        /// (slack blocks near boundaries); anything further out is dropped.
+        static let chapterWindowSlack: TimeInterval = 30.0
     }
 
     // MARK: - Lifecycle
@@ -78,7 +89,7 @@ final class AutoAlignmentService {
 
     // MARK: - Public API
 
-    /// Start the full 3-tier auto-alignment pipeline.
+    /// Start the full auto-alignment pipeline.
     ///
     /// - Parameters:
     ///   - chapters: The audiobook's chapter list (from `PlayerModel.alignmentPickerChapters`).
@@ -105,20 +116,21 @@ final class AutoAlignmentService {
             return
         }
 
-        // ── Clear previous pipeline runs ──
-        // Anchors from an earlier auto-alignment run would otherwise survive
-        // (Tier 0 would stack duplicates; DTW skips already-anchored blocks),
-        // so a re-run could never correct a bad earlier result.
+        // ── Clear previous automatic runs ──
+        // Anchors from earlier automatic passes (pipeline or continuous
+        // background) would otherwise survive and block re-anchoring, so a
+        // re-run could never correct a bad earlier result.
         let clearedCount = try anchorDAO.deleteAutoPipelineAnchors(for: audiobookID)
         if clearedCount > 0 {
             try alignmentService.recalculateTimeline()
-            state.log("Cleared \(clearedCount) anchors from a previous auto-alignment run")
+            state.log("Cleared \(clearedCount) anchors from previous automatic runs")
         }
 
         // ── Tier 0: Metadata Title Matching ──
         // Compare audiobook chapter titles (from M4B metadata) to EPUB
-        // heading blocks before doing any expensive transcription. A
-        // strong match lets us skip DTW for that chapter entirely.
+        // heading blocks before doing any expensive transcription. These
+        // bootstrap anchors give the timeline rough shape immediately;
+        // content alignment refines or supersedes them below.
         state.phase = .matchingTitles
         state.update(phase: .matchingTitles, progress: 0.0,
                      statusMessage: "Matching chapter titles to EPUB headings…")
@@ -128,27 +140,24 @@ final class AutoAlignmentService {
             ChapterTitleMatcher.isGenericNumericTitle(chapter.title ?? "")
         }
         if genericTitleCount > 0 {
-            state.log("Tier 0: \(genericTitleCount)/\(chapters.count) titles are generic track labels (\"Chapter N\") — those chapters use content alignment instead")
+            state.log("Tier 0: \(genericTitleCount)/\(chapters.count) titles are generic track labels (\"Chapter N\") — no metadata signal there")
         }
 
         let titleMatches = ChapterTitleMatcher.matchChapterTitles(
             chapters: chapters, blocks: blocks
         )
-        let highConfidenceIndices = Set(titleMatches
-            .filter { $0.confidence >= ChapterTitleMatcher.Threshold.highConfidence }
-            .map { $0.chapter.index })
-        let mediumConfidenceIndices = Set(titleMatches
-            .filter { $0.confidence < ChapterTitleMatcher.Threshold.highConfidence }
-            .map { $0.chapter.index })
 
+        var tier0AnchorIDByBlockID: [String: String] = [:]
         if !titleMatches.isEmpty {
-            state.log("Tier 0: \(titleMatches.count) title matches — \(highConfidenceIndices.count) high-confidence, \(mediumConfidenceIndices.count) medium-confidence")
             let titleAnchors = createTitleMatchAnchors(matches: titleMatches)
             try alignmentService.insertAnchors(titleAnchors)
-            state.log("Tier 0: inserted \(titleAnchors.count) title-match anchors")
+            tier0AnchorIDByBlockID = Dictionary(
+                uniqueKeysWithValues: titleAnchors.map { ($0.epubBlockID, $0.id) }
+            )
+            state.log("Tier 0: inserted \(titleAnchors.count) bootstrap anchors — content alignment will refine them")
             state.titleMatchedChapterCount = titleMatches.count
         } else {
-            state.log("Tier 0: no title matches — falling through to DTW pipeline")
+            state.log("Tier 0: no title matches — content alignment only")
         }
 
         guard !Task.isCancelled else { return }
@@ -168,62 +177,55 @@ final class AutoAlignmentService {
 
         guard !Task.isCancelled else { return }
 
-        // ── VAD Chunking + DTW Alignment ──
+        // ── Content alignment ──
         try await runDTWPipeline(
             chapters: chapters,
             blocks: blocks,
-            skipChapterIndices: highConfidenceIndices
+            tier0AnchorIDByBlockID: tier0AnchorIDByBlockID
         )
 
         guard !Task.isCancelled else { return }
 
-        state.log("═══ Pipeline complete: \(state.anchoredChapterCount) chapters anchored (\(state.titleMatchedChapterCount) via title match) ═══")
+        state.log("═══ Pipeline complete: \(state.anchoredChapterCount) chapters anchored (\(state.titleMatchedChapterCount) title-matched) ═══")
         state.complete()
         scheduleModelUnload()
     }
 
     // MARK: - Manual Alignment Fine-Tuning
-    
-    /// Auto-transcription for Manual Alignments
-    /// Uses a 10s window (+/- 5s) around the specified time to locate the exact anchor position.
+
+    /// Auto-transcription for manual alignments.
+    /// Uses a 10 s window (±5 s) around the specified time to locate the
+    /// block's first-word position from real word timestamps.
     func fineTuneManualAlignment(blockID: String, around time: TimeInterval) async throws -> TimeInterval? {
         let allBlocks = try blockDAO.blocks(for: audiobookID)
         guard let targetBlock = allBlocks.first(where: { $0.id == blockID }) else { return nil }
-        
+
+        try await loadWhisperModel()
+
         let windowStart = max(0, time - 5.0)
         let duration = 10.0
-        
+
         state.log("fine-tune: capturing \(duration)s at \(String(format: "%.1f", windowStart))s for block \(blockID)")
-        
-        guard let capture = try await captureAndTranscribe(at: windowStart, duration: duration), !capture.text.isEmpty else {
+
+        let words = try await captureAndTranscribe(at: windowStart, duration: duration)
+        defer { scheduleModelUnload() }
+        guard !words.isEmpty else {
             state.log("fine-tune: capture/transcription failed or empty")
             return nil
         }
-        
-        // Single candidate text matching
-        let candidates = [targetBlock]
-        if let match = findBestMatch(transcribedText: capture.text, candidates: candidates, expectedIndex: 0) {
-            let projected = AutoAlignmentTextMatcher.projectedBlockStart(
-                windowStart: windowStart,
-                firstWordOffset: capture.offset,
-                captureDuration: duration,
-                transcriptTokenCount: match.transcriptTokenCount,
-                matchedBlockWindowStart: match.bestWindowStart
-            )
-            state.log("fine-tune ✓ conf: \(String(format: "%.2f", match.confidence)), aligned from \(String(format: "%.1f", time))s to \(String(format: "%.1f", projected))s")
-            
-            // Unload immediately after fine tuning since it's a one-off
-            scheduleModelUnload()
-            
-            return projected
-        } else {
+
+        let transcript = words.map(\.text).joined(separator: " ")
+        guard let match = findBestMatch(transcribedText: transcript, candidates: [targetBlock], expectedIndex: 0),
+              let projected = AlignmentTranscript.projectBlockStart(
+                  words: words, matchedBlockWindowStart: match.bestWindowStart
+              ) else {
             state.log("fine-tune ✗ no high-confidence match found in window")
-            scheduleModelUnload()
             return nil
         }
+
+        state.log("fine-tune ✓ conf: \(String(format: "%.2f", match.confidence)), aligned from \(String(format: "%.1f", time))s to \(String(format: "%.1f", projected))s")
+        return projected
     }
-
-
 
     // MARK: - Tier 0: Title Match Anchors
 
@@ -232,7 +234,7 @@ final class AutoAlignmentService {
     ///
     /// Each match produces a `chapterStart` anchor at the chapter's `startSeconds`,
     /// pointing to the matched EPUB heading block. These anchors serve as
-    /// high-quality bootstrap points for timeline interpolation.
+    /// bootstrap points until content alignment supersedes them.
     private func createTitleMatchAnchors(
         matches: [ChapterTitleMatcher.Match]
     ) -> [AlignmentAnchorRecord] {
@@ -253,24 +255,34 @@ final class AutoAlignmentService {
         }
     }
 
+    // MARK: - Content Alignment
+
     private func runDTWPipeline(
         chapters: [Chapter],
         blocks: [EPubBlockRecord],
-        skipChapterIndices: Set<Int> = []
+        tier0AnchorIDByBlockID: [String: String]
     ) async throws {
+        // Blocks anchored by a human are off-limits. Tier 0 anchors are
+        // machine bootstraps and may be superseded by a strong content match.
         let existingAnchors = try anchorDAO.anchors(for: audiobookID)
-        let existingIDs = Set(existingAnchors.map { $0.epubBlockID })
+        let protectedBlockIDs = Set(existingAnchors
+            .filter { anchor in
+                !anchor.id.hasPrefix("auto-tier0-")
+                    && !anchor.id.hasPrefix("auto-dtw-")
+                    && !anchor.id.hasPrefix("auto-continuous-")
+            }
+            .map(\.epubBlockID))
         let iso = AlignmentService.isoFormatter
-        
+
         var workingBlocks = blocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
         if workingBlocks.contains(where: { $0.chapterIndex == nil }), let lastChapter = chapters.last {
             let duration = lastChapter.endSeconds
             let totalWordCount = workingBlocks.reduce(0) { $0 + ($1.wordCount ?? max(1, $1.text?.split(separator: " ").count ?? 1)) }
             var currentWordCount = 0
-            
+
             for i in 0..<workingBlocks.count {
                 let blockWordCount = workingBlocks[i].wordCount ?? max(1, workingBlocks[i].text?.split(separator: " ").count ?? 1)
-                
+
                 if workingBlocks[i].chapterIndex == nil {
                     let estimatedFraction = totalWordCount > 0 ? Double(currentWordCount) / Double(totalWordCount) : 0
                     let estimatedTime = estimatedFraction * duration
@@ -281,281 +293,188 @@ final class AutoAlignmentService {
                 currentWordCount += blockWordCount
             }
         }
-        
+
         let blocksByChapter = Dictionary(grouping: workingBlocks, by: { $0.chapterIndex })
-        
+
         guard let audioURL = audioEngine.audioFileURL else { return }
         state.update(phase: .mappingSilences, progress: 0.0, statusMessage: "Scanning audio for silences...")
-        
+
         let silenceDetector = SilenceDetectionService(audioURL: audioURL)
         let silences = try await silenceDetector.detectSilences()
-        
-        var createdAnchors: [AlignmentAnchorRecord] = []
+
+        var anchoredBlockIDs = protectedBlockIDs
+        var lastGlobalAnchorTime: TimeInterval = 0
         var chapterAnchoredCount = 0
+        var totalInserted = 0
 
         for (idx, chapter) in chapters.enumerated() {
             try Task.checkCancellation()
-            
+
             state.currentChapterIndex = idx
             let baseProgress = Double(idx) / Double(max(1, chapters.count))
+            let progressSlice = 1.0 / Double(max(1, chapters.count))
 
-            // Skip chapters that already have a high-confidence Tier 0 title match.
-            if skipChapterIndices.contains(chapter.index) {
-                state.log("═══ Chapter \(idx + 1) — skipped (Tier 0 title match) ═══")
-                chapterAnchoredCount += 1
-                continue
-            }
+            state.log("═══ Chapter \(idx + 1) content alignment ═══")
 
-            state.log("═══ Chapter \(idx + 1) DTW Alignment ═══")
-            
             guard let chapterBlocks = blocksByChapter[chapter.index], !chapterBlocks.isEmpty else {
                 state.log("ch\(idx): skip — no visible blocks")
                 continue
             }
-            
+
             let chapterDuration = chapter.endSeconds - chapter.startSeconds
             guard chapterDuration > 5 else {
                 state.log("ch\(idx): skip — too short")
                 continue
             }
-            
-            // 1. Generate audio chunks bounded by silence
-            var chunks: [(start: TimeInterval, end: TimeInterval)] = []
-            var currentChunkStart = chapter.startSeconds
-            
-            let chapterSilences = silences.filter { $0.end > chapter.startSeconds && $0.start < chapter.endSeconds }
-            
-            for s in chapterSilences {
-                let silenceMid = (s.start + s.end) / 2.0
-                if silenceMid - currentChunkStart >= 15.0 {
-                    chunks.append((start: currentChunkStart, end: silenceMid))
-                    currentChunkStart = silenceMid
-                }
-            }
-            if chapter.endSeconds - currentChunkStart > 5.0 {
-                chunks.append((start: currentChunkStart, end: chapter.endSeconds))
-            }
-            if chunks.isEmpty {
-                chunks.append((start: chapter.startSeconds, end: chapter.endSeconds))
-            }
-            
-            state.log("ch\(idx): generated \(chunks.count) VAD chunks")
-            
-            // 2. Transcribe chunks
-            var audioTokens: [TokenDTW.AudioToken] = []
+
+            // Text near an estimated chapter boundary may actually be
+            // narrated in the neighbouring track — include a slack margin of
+            // blocks so mis-binned boundary text can still anchor here. The
+            // run-length gate keeps text that truly belongs elsewhere out.
+            let previousBlocks = idx > 0 ? (blocksByChapter[chapters[idx - 1].index] ?? []) : []
+            let nextBlocks = idx + 1 < chapters.count ? (blocksByChapter[chapters[idx + 1].index] ?? []) : []
+            let alignmentBlocks = Array(previousBlocks.suffix(Config.boundarySlackBlockCount))
+                + chapterBlocks
+                + Array(nextBlocks.prefix(Config.boundarySlackBlockCount))
+
+            // 1. Capture + transcribe in bounded chunks.
+            let chunks = AlignmentChunkPlanner.plan(
+                chapterStart: chapter.startSeconds,
+                chapterEnd: chapter.endSeconds,
+                silences: silences,
+                minChunk: Config.minChunkSeconds,
+                maxChunk: Config.maxChunkSeconds
+            )
+            state.log("ch\(idx): \(chunks.count) capture chunks")
+
+            var words: [TranscribedWord] = []
             for (cIdx, chunk) in chunks.enumerated() {
                 try Task.checkCancellation()
-                
-                let p = baseProgress + (Double(cIdx) / Double(max(1, chunks.count))) * (1.0 / Double(max(1, chapters.count)))
+
+                let p = baseProgress + (Double(cIdx) / Double(max(1, chunks.count))) * progressSlice
                 state.update(phase: .transcribingAudio, progress: p,
                              statusMessage: "Transcribing chapter \(idx + 1) (chunk \(cIdx + 1)/\(chunks.count))…")
-                
-                let duration = chunk.end - chunk.start
-                guard let capture = try await captureAndTranscribe(at: chunk.start, duration: duration), !capture.text.isEmpty else { continue }
-                
-                let tokens = TokenDTW.normalize(capture.text)
-                guard !tokens.isEmpty else { continue }
-                
-                let firstWordTime = chunk.start + capture.offset
-                let elapsed = duration - capture.offset
-                for (tIdx, tStr) in tokens.enumerated() {
-                    let tokenTime = firstWordTime + (Double(tIdx) / Double(tokens.count)) * elapsed
-                    audioTokens.append(TokenDTW.AudioToken(text: tStr, time: tokenTime))
-                }
+
+                words += try await captureAndTranscribe(at: chunk.start, duration: chunk.duration)
             }
-            
-            guard !audioTokens.isEmpty else {
+
+            guard !words.isEmpty else {
                 state.log("ch\(idx): skip — no transcribed text")
                 continue
             }
-            
-            // 3. Prepare EPUB blocks
-            state.update(phase: .computingAlignment, progress: baseProgress + 0.99 * (1.0 / Double(max(1, chapters.count))),
-                         statusMessage: "Aligning chapter \(idx + 1)…")
-            
-            var epubTokens: [TokenDTW.EPubToken] = []
-            for block in chapterBlocks {
-                guard let text = block.text, !block.isHidden else { continue }
-                let tokens = TokenDTW.normalize(text)
-                for tStr in tokens {
-                    epubTokens.append(TokenDTW.EPubToken(text: tStr, blockID: block.id))
-                }
+
+            // 2. Token streams — every audio token carries its word's real
+            //    timestamp, so pauses and rate changes cost nothing.
+            let audioTokens = words.flatMap { word in
+                TokenDTW.normalize(word.text).map { TokenDTW.AudioToken(text: $0, time: word.start) }
             }
-            
-            // 4. Align with DTW
-            let alignment = TokenDTW.align(epub: epubTokens, audio: audioTokens)
-            state.log("ch\(idx): DTW aligned \(alignment.count) blocks")
-            
-            var chapterCreated = 0
-            for (blockID, time) in alignment {
-                if existingIDs.contains(blockID) { continue }
-                
-                guard time >= chapter.startSeconds - 5.0 && time <= chapter.endSeconds + 5.0 else { continue }
-                
-                let clampedTime = max(chapter.startSeconds, min(chapter.endSeconds, time))
-                
-                let isFirst = blockID == chapterBlocks.first?.id
-                let isLast = blockID == chapterBlocks.last?.id
-                let kind = isFirst ? AlignmentAnchorRecord.AnchorKind.chapterStart.rawValue :
-                           (isLast ? AlignmentAnchorRecord.AnchorKind.chapterEnd.rawValue : AlignmentAnchorRecord.AnchorKind.point.rawValue)
-                
-                let anchor = AlignmentAnchorRecord(
+            var epubTokens: [TokenDTW.EPubToken] = []
+            for block in alignmentBlocks {
+                guard let text = block.text, !block.isHidden else { continue }
+                epubTokens += TokenDTW.normalize(text).map { TokenDTW.EPubToken(text: $0, blockID: block.id) }
+            }
+            guard !audioTokens.isEmpty, !epubTokens.isEmpty else {
+                state.log("ch\(idx): skip — no tokens")
+                continue
+            }
+
+            // 3. Align, then gate to strong, monotonic, in-window anchors.
+            state.update(phase: .computingAlignment,
+                         progress: baseProgress + 0.99 * progressSlice,
+                         statusMessage: "Aligning chapter \(idx + 1)…")
+
+            let candidates = TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens)
+            let windowStart = chapter.startSeconds - Config.chapterWindowSlack
+            let windowEnd = chapter.endSeconds + Config.chapterWindowSlack
+            let eligible = candidates.filter { candidate in
+                !anchoredBlockIDs.contains(candidate.blockID)
+                    && candidate.time >= windowStart
+                    && candidate.time <= windowEnd
+                    && candidate.time + 0.25 >= lastGlobalAnchorTime
+            }
+            let selected = AnchorSelector.select(
+                candidates: eligible, minRunLength: Config.minAnchorRunLength
+            )
+            state.log("ch\(idx): \(words.count) words → \(candidates.count) candidates → \(selected.count) anchors (gate: run ≥ \(Config.minAnchorRunLength))")
+
+            guard !selected.isEmpty else { continue }
+
+            // 4. Persist per chapter so alignment improves progressively. A
+            //    strong content match supersedes the block's Tier 0 anchor.
+            var chapterAnchors: [AlignmentAnchorRecord] = []
+            for candidate in selected {
+                if let tier0ID = tier0AnchorIDByBlockID[candidate.blockID] {
+                    try anchorDAO.delete(id: tier0ID)
+                }
+                let isFirst = candidate.blockID == chapterBlocks.first?.id
+                let isLast = candidate.blockID == chapterBlocks.last?.id
+                let kind = isFirst ? AlignmentAnchorRecord.AnchorKind.chapterStart.rawValue
+                    : (isLast ? AlignmentAnchorRecord.AnchorKind.chapterEnd.rawValue
+                              : AlignmentAnchorRecord.AnchorKind.point.rawValue)
+
+                chapterAnchors.append(AlignmentAnchorRecord(
                     id: "auto-dtw-\(UUID().uuidString)",
                     audiobookID: audiobookID,
-                    epubBlockID: blockID,
-                    audioTime: clampedTime,
+                    epubBlockID: candidate.blockID,
+                    audioTime: candidate.time,
                     audioEndTime: nil,
                     anchorKind: kind,
                     source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
-                    note: "auto: dtw mapped",
+                    note: "auto: dtw (run \(candidate.exactRunLength))",
                     createdAt: iso.string(from: Date()),
                     modifiedAt: nil
-                )
-                createdAnchors.append(anchor)
-                chapterCreated += 1
+                ))
+                anchoredBlockIDs.insert(candidate.blockID)
             }
-            
-            if chapterCreated > 0 {
-                chapterAnchoredCount += 1
-            }
+            try alignmentService.insertAnchors(chapterAnchors)
+            totalInserted += chapterAnchors.count
+            chapterAnchoredCount += 1
+            lastGlobalAnchorTime = max(lastGlobalAnchorTime, selected.map(\.time).max() ?? lastGlobalAnchorTime)
         }
-        
-        if !createdAnchors.isEmpty {
-            try alignmentService.insertAnchors(createdAnchors)
-            state.log("Inserted \(createdAnchors.count) anchors total")
-        }
+
+        state.log("Inserted \(totalInserted) anchors total")
         state.anchoredChapterCount = chapterAnchoredCount
     }
 
     // MARK: - Audio Capture + Transcription
 
     /// Reads `duration` seconds of audio starting at `time` from the audio
-    /// file, converts to 16 kHz mono Float32, and transcribes with WhisperKit.
+    /// file and transcribes with WhisperKit, returning time-stamped words on
+    /// the audio file's clock.
     ///
     /// Uses direct file reading rather than a real-time tap, so it does not
-    /// interrupt playback or require format conversion on the mixer bus.
+    /// interrupt playback or pick up time-pitch distortion at non-1× speeds.
     func captureAndTranscribe(at time: TimeInterval,
-                                      duration: TimeInterval) async throws -> (text: String, offset: TimeInterval)? {
+                              duration: TimeInterval) async throws -> [TranscribedWord] {
         guard let fileURL = audioEngine.audioFileURL else {
             state.log("capture: no audio file loaded")
-            return nil
+            return []
         }
 
         let maxTime = audioEngine.duration ?? 0
         guard maxTime > 0, time < maxTime else {
             state.log("capture: bad time \(String(format: "%.1f", time)) max=\(String(format: "%.1f", maxTime))")
-            return nil
+            return []
         }
 
         let clampedTime = max(0, min(time, maxTime - duration))
 
-        // Read the audio segment on a background queue.
-        let samples: [Float] = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let file = try AVAudioFile(forReading: fileURL)
-                    let fileFormat = file.processingFormat
-                    let fileSampleRate = fileFormat.sampleRate
-
-                    let startFrame = AVAudioFramePosition(clampedTime * fileSampleRate)
-                    let frameCount = AVAudioFrameCount(duration * fileSampleRate)
-                    let totalFrames = file.length
-
-                    guard startFrame < totalFrames else {
-                        continuation.resume(returning: [])
-                        return
-                    }
-                    let actualFrames = min(frameCount, AVAudioFrameCount(totalFrames - startFrame))
-
-                    file.framePosition = startFrame
-
-                    guard let buffer = AVAudioPCMBuffer(
-                        pcmFormat: fileFormat, frameCapacity: actualFrames
-                    ) else {
-                        continuation.resume(throwing: AutoAlignmentError.captureFailed)
-                        return
-                    }
-
-                    try file.read(into: buffer)
-
-                    // Convert to 16 kHz mono Float32 if needed.
-                    guard let floatData = self.convertTo16kHzMono(
-                        buffer: buffer,
-                        sourceFormat: fileFormat
-                    ) else {
-                        continuation.resume(throwing: AutoAlignmentError.captureFailed)
-                        return
-                    }
-
-                    continuation.resume(returning: floatData)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-
+        let samples = try await AudioSegmentReader.samples(
+            from: fileURL, at: clampedTime, duration: duration
+        )
         guard samples.count >= Int(Config.sampleRate * 1.0) else {
             state.log("capture: only \(samples.count) samples at \(String(format: "%.1f", clampedTime))s (need \(Int(Config.sampleRate)))")
-            return nil
+            return []
         }
 
-        let capture = try await transcribe(samples)
-        if capture.text.isEmpty {
+        let words = try await transcribe(samples, captureStart: clampedTime)
+        if words.isEmpty {
             state.log("transcribed: (empty/silence)")
         } else {
-            let preview = String(capture.text.prefix(80)).replacingOccurrences(of: "\n", with: " ")
-            state.log("transcribed: \"\(preview)\" offset: \(String(format: "%.2f", capture.offset))s")
+            let preview = words.prefix(12).map(\.text).joined(separator: " ")
+            state.log("transcribed: \"\(preview)…\" first word @ \(String(format: "%.2f", words[0].start))s, \(words.count) words")
         }
-        return capture.text.isEmpty ? nil : capture
-    }
-
-    /// Converts an audio buffer to 16 kHz mono Float32 samples.
-    /// Non-isolated so it can be called from the background file-reading queue.
-    private nonisolated func convertTo16kHzMono(buffer: AVAudioPCMBuffer,
-                                                 sourceFormat: AVAudioFormat) -> [Float]? {
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: Config.sampleRate,
-            channels: 1,
-            interleaved: false
-        ) else { return nil }
-
-        // If the source already matches, copy directly.
-        if sourceFormat.sampleRate == Config.sampleRate,
-           sourceFormat.channelCount == 1,
-           sourceFormat.commonFormat == .pcmFormatFloat32 {
-            guard let channelData = buffer.floatChannelData else { return nil }
-            let count = Int(buffer.frameLength)
-            return Array(UnsafeBufferPointer(start: channelData[0], count: count))
-        }
-
-        // Convert via AVAudioConverter.
-        guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
-            return nil
-        }
-
-        let inputFrames = buffer.frameLength
-        let outputFrames = AVAudioFrameCount(
-            Double(inputFrames) * (Config.sampleRate / sourceFormat.sampleRate)
-        )
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: targetFormat, frameCapacity: outputFrames
-        ) else { return nil }
-
-        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
-            outStatus.pointee = .haveData
-            return buffer
-        }
-
-        var conversionError: NSError?
-        let status = converter.convert(to: outputBuffer, error: &conversionError, withInputFrom: inputBlock)
-        if status == .error || conversionError != nil {
-            return nil
-        }
-
-        guard let channelData = outputBuffer.floatChannelData else { return nil }
-        let count = Int(outputBuffer.frameLength)
-        return Array(UnsafeBufferPointer(start: channelData[0], count: count))
+        return words
     }
 
     // MARK: - WhisperKit
@@ -569,39 +488,20 @@ final class AutoAlignmentService {
         self.whisperKit = try await WhisperSession.shared.acquire(model: Config.modelSize)
     }
 
-    func transcribe(_ audioArray: [Float]) async throws -> (text: String, offset: TimeInterval) {
-        guard !audioArray.isEmpty else { return ("", 0) }
+    /// Transcribes raw samples into time-stamped words. `captureStart` is
+    /// the absolute audio-file time of the first sample.
+    func transcribe(_ audioArray: [Float], captureStart: TimeInterval) async throws -> [TranscribedWord] {
+        guard !audioArray.isEmpty else { return [] }
 
         guard let wk = whisperKit else {
             throw AutoAlignmentError.modelNotLoaded
         }
 
-        let options = DecodingOptions(
-            task: .transcribe,
-            language: "en",
-            temperature: 0.0,
-            wordTimestamps: true,
-            suppressBlank: true,
-            chunkingStrategy: .vad
+        let words = await AlignmentTranscript.transcribeWords(
+            with: wk, samples: audioArray, captureStart: captureStart
         )
-
-        let results = await wk.transcribe(audioArrays: [audioArray],
-                                           decodeOptions: options)
-
-        let allSegments = results.compactMap { $0?.first?.segments }.flatMap { $0 }
-        let wordOffset = TimeInterval(allSegments.first?.words?.first?.start ?? 0)
-
-        let text = results
-            .compactMap { $0?.first?.segments.map(\.text).joined(separator: " ") }
-            .joined(separator: " ")
-            .replacingOccurrences(of: "<\\|[^|]*\\|>",
-                                 with: "",
-                                 options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-
         scheduleModelUnload()
-
-        return (text, wordOffset)
+        return words
     }
 
     func scheduleModelUnload() {
@@ -632,32 +532,6 @@ final class AutoAlignmentService {
             expectedIndex: expectedIndex
         )
     }
-
-    // MARK: - Block Lookup Helpers
-
-    /// Returns the EPUB block whose timeline item covers the given time,
-    /// using the interpolated timeline.
-    private func blockAtTime(_ time: TimeInterval,
-                             blocks: [EPubBlockRecord]) -> EPubBlockRecord? {
-        let blockByID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
-
-        // Query timeline for items near this time.
-        guard let timelineItems = try? timelineDAO.items(for: audiobookID) else { return nil }
-
-        var bestItem: TimelineItem?
-        for item in timelineItems.sorted(by: { $0.audioStartTime < $1.audioStartTime }) {
-            guard item.audioStartTime >= 0, item.epubBlockID != nil else { continue }
-            if item.audioStartTime <= time {
-                bestItem = item
-            } else {
-                break
-            }
-        }
-
-        guard let matchedBlockID = bestItem?.epubBlockID else { return nil }
-        return blockByID[matchedBlockID]
-    }
-
 }
 
 // MARK: - AutoAlignmentError
