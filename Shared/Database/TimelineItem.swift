@@ -104,6 +104,44 @@ extension TimelineItem {
     }
 }
 
+// MARK: - EPUB Block Materialization
+
+extension TimelineItem {
+    /// Canonical timeline row for an EPUB block, with unaligned defaults.
+    ///
+    /// Single source of truth shared by bulk ingestion
+    /// (`EPUBBlockIngestionStrategy`) and the alignment self-heal path
+    /// (`AlignmentService.recalculateTimeline`), so both produce identical rows.
+    static func fromEPubBlock(_ block: EPubBlockRecord, audiobookID: String) -> TimelineItem {
+        TimelineItem(
+            id: "epub-\(block.id)",
+            audiobookID: audiobookID,
+            itemType: EPubBlockRecord.Kind(rawValue: block.blockKind) == .image ? .imageAsset : .textSegment,
+            title: block.text ?? "Image",
+            subtitle: nil,
+            textPayload: block.text,
+            imagePath: block.imagePath,
+            audioStartTime: -1,
+            audioEndTime: nil,
+            epubSequenceIndex: block.sequenceIndex,
+            granularityLevel: .paragraph,
+            playlistPosition: nil,
+            isEnabled: !block.isHidden,
+            sourceTable: "epub_block",
+            sourceRowid: block.id,
+            metadataJSON: nil,
+            epubBlockID: block.id,
+            timestampSource: TimestampSource.none.rawValue,
+            alignmentStatus: block.isHidden
+                ? AlignmentStatus.omitted.rawValue
+                : AlignmentStatus.unaligned.rawValue,
+            alignmentConfidence: nil,
+            createdAt: block.createdAt,
+            modifiedAt: nil
+        )
+    }
+}
+
 // MARK: - Alignment Constants
 
 enum TimestampSource: String {

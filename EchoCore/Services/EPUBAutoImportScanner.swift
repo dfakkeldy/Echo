@@ -14,12 +14,16 @@ enum EPUBAutoImportScanner {
     ///   - databaseService: The database service for checking existing imports and persisting blocks.
     ///   - chapters: The parsed chapter list for this audiobook.
     ///   - duration: The total audiobook duration (used for timestamp estimation).
+    /// - Returns: `true` when an EPUB was actually imported (blocks created) —
+    ///   callers must re-ingest timeline items so `timeline_item` rows reference
+    ///   the freshly created block IDs. `false` when skipped or failed.
+    @discardableResult
     static func scanAndImportIfNeeded(
         folderURL: URL,
         databaseService: DatabaseService,
         chapters: [Chapter],
         duration: TimeInterval?
-    ) async {
+    ) async -> Bool {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
@@ -51,17 +55,17 @@ enum EPUBAutoImportScanner {
             epubFiles = contents.filter { $0.pathExtension.lowercased() == "epub" }
         } catch {
             logger.warning("Cannot scan folder for EPUB files: \(sanitizedPath(targetURL.path)) — \(error.localizedDescription)")
-            return
+            return false
         }
 
         guard let epubURL = epubFiles.first else {
             logger.debug("No .epub file found in folder: \(sanitizedPath(folderURL.path))")
-            return
+            return false
         }
 
         logger.info("Found EPUB file: \(sanitizedPath(epubURL.lastPathComponent))")
 
-        await importEPUBFile(
+        return await importEPUBFile(
             epubURL: epubURL,
             audiobookID: audiobookID,
             databaseService: databaseService,
@@ -72,6 +76,8 @@ enum EPUBAutoImportScanner {
     }
 
     /// Imports a specific EPUB file for an audiobook, extracting and parsing its blocks.
+    /// - Returns: `true` when blocks were imported, `false` when skipped or failed.
+    @discardableResult
     static func importEPUBFile(
         epubURL: URL,
         audiobookID: String,
@@ -79,7 +85,7 @@ enum EPUBAutoImportScanner {
         chapters: [Chapter],
         duration: TimeInterval?,
         force: Bool = false
-    ) async {
+    ) async -> Bool {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
@@ -88,7 +94,7 @@ enum EPUBAutoImportScanner {
             let alreadyImported = (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID).isEmpty) == false
             if alreadyImported {
                 logger.debug("EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import.")
-                return
+                return false
             }
         }
 
@@ -102,7 +108,7 @@ enum EPUBAutoImportScanner {
             cacheDir = try prepareCacheDirectory(safeID: safeID)
         } catch {
             logger.error("Failed to prepare EPUB cache directory: \(error.localizedDescription)")
-            return
+            return false
         }
 
         let extractedDir: URL
@@ -110,7 +116,7 @@ enum EPUBAutoImportScanner {
             extractedDir = try extractEPUB(epubURL, to: cacheDir, safeID: safeID)
         } catch {
             logger.error("Failed to extract EPUB \(sanitizedPath(epubURL.lastPathComponent)): \(error.localizedDescription)")
-            return
+            return false
         }
 
         // Import extracted EPUB blocks.
@@ -225,8 +231,10 @@ enum EPUBAutoImportScanner {
                     userInfo: ["audiobookID": audiobookID]
                 )
             }
+            return true
         } catch {
             logger.error("EPUB auto-import failed: \(error.localizedDescription)")
+            return false
         }
     }
 

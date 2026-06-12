@@ -108,57 +108,14 @@ struct EPUBBlockIngestionStrategy: TimelineIngestionStrategy {
         // 2. EPUB blocks → timeline items (preferred feed source)
         if let blocks = epubBlocks {
             for block in blocks {
-                let isHidden = block.isHidden
-                let anchor = anchorByBlockID[block.id]
-
-                let audioStart: TimeInterval
-                let audioEnd: TimeInterval?
-                let timestampSrc: String
-                let alignStatus: String
-
-                if let anchor = anchor {
-                    audioStart = anchor.audioTime
-                    audioEnd = anchor.audioEndTime
-                    timestampSrc = TimestampSource.lockedAnchor.rawValue
-                    alignStatus = AlignmentStatus.lockedAnchor.rawValue
-                } else if isHidden {
-                    audioStart = -1
-                    audioEnd = nil
-                    timestampSrc = TimestampSource.none.rawValue
-                    alignStatus = AlignmentStatus.omitted.rawValue
-                } else {
-                    audioStart = -1
-                    audioEnd = nil
-                    timestampSrc = TimestampSource.none.rawValue
-                    alignStatus = AlignmentStatus.unaligned.rawValue
+                var item = TimelineItem.fromEPubBlock(block, audiobookID: audiobookID)
+                if let anchor = anchorByBlockID[block.id] {
+                    item.audioStartTime = anchor.audioTime
+                    item.audioEndTime = anchor.audioEndTime
+                    item.timestampSource = TimestampSource.lockedAnchor.rawValue
+                    item.alignmentStatus = AlignmentStatus.lockedAnchor.rawValue
+                    item.alignmentConfidence = 1.0
                 }
-
-                let itemType: TimelineItemType = block.blockKind == "image" ? .imageAsset : .textSegment
-
-                let item = TimelineItem(
-                    id: "epub-\(block.id)",
-                    audiobookID: audiobookID,
-                    itemType: itemType,
-                    title: block.text ?? "Image",
-                    subtitle: nil,
-                    textPayload: block.text,
-                    imagePath: block.imagePath,
-                    audioStartTime: audioStart,
-                    audioEndTime: audioEnd,
-                    epubSequenceIndex: block.sequenceIndex,
-                    granularityLevel: .paragraph,
-                    playlistPosition: nil,
-                    isEnabled: !isHidden,
-                    sourceTable: "epub_block",
-                    sourceRowid: block.id,
-                    metadataJSON: nil,
-                    epubBlockID: block.id,
-                    timestampSource: timestampSrc,
-                    alignmentStatus: alignStatus,
-                    alignmentConfidence: anchor != nil ? 1.0 : nil,
-                    createdAt: block.createdAt,
-                    modifiedAt: nil
-                )
                 items.append(item)
             }
         }

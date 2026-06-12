@@ -110,6 +110,10 @@ extension PlayerModel {
                 chapters: self.state.chapters,
                 duration: self.state.durationSeconds
             )
+            // The import wiped and re-created epub_block rows (cascade-deleting
+            // their anchors); timeline_item still references the dead block IDs.
+            // Rebuild it so the reader and timeline feed reflect the new import.
+            await self.reingestTimelineFromEPUB()
             await MainActor.run {
                 self.playbackController.state.documentIngestionTrigger += 1
             }

@@ -359,9 +359,23 @@ final class PlayerLoadingCoordinator {
                     currentChapters = state.chapters
                 }
                 let currentDuration = state.isMultiM4B ? state.totalBookDuration : state.durationSeconds
-                await EPUBAutoImportScanner.scanAndImportIfNeeded(
+                let didImport = await EPUBAutoImportScanner.scanAndImportIfNeeded(
                     folderURL: folderURL, databaseService: db, chapters: currentChapters, duration: currentDuration
                 )
+                if didImport, let timelinePersistence = self.timelinePersistence {
+                    // A first-time import lands after the load-time ingestion pass,
+                    // so timeline_item has no EPUB-block rows yet. Rebuild it now
+                    // that blocks exist, or the reader/feed shows no timestamps
+                    // until the next load.
+                    await timelinePersistence.ingestTimelineItems(
+                        audiobookID: folderURL.absoluteString,
+                        audioURL: trackURL,
+                        chapters: currentChapters,
+                        transcription: state.transcription,
+                        enhancedTranscription: state.enhancedTranscription,
+                        folderURL: folderURL
+                    )
+                }
             }
         }
     }

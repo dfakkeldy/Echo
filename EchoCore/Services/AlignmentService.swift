@@ -168,6 +168,10 @@ struct AlignmentService {
     /// 2. Blocks between two anchors interpolate linearly by `sequence_index`
     ///    using proportional word counts.
     /// 3. Hidden blocks become `alignment_status = omitted`, `is_enabled = false`
+    /// 4. Blocks with no `timeline_item` row get one materialized on the spot —
+    ///    the book may have been loaded before its EPUB import finished, or the
+    ///    blocks re-imported under new IDs. Without this, the UPDATE-only write
+    ///    would silently discard the computed alignment.
     func recalculateTimeline() throws {
         let blocks = try blockDAO.blocks(for: audiobookID)
         let anchors = try anchorDAO.anchors(for: audiobookID)
@@ -207,6 +211,7 @@ struct AlignmentService {
         let totalDuration = maxEndTime ?? 1.0
 
         // Single transaction: all alignment writes batched together.
+        var healedRowCount = 0
         try timelineDAO.db.write { db in
 
             // ── Global flat interpolation ──
@@ -328,7 +333,7 @@ struct AlignmentService {
 
             for block in blocks {
                 guard let computed = computedByBlockID[block.id] else { continue }
-                try TimelineDAO.writeAlignment(
+                let updatedExistingRow = try TimelineDAO.writeAlignment(
                     db: db,
                     epubBlockID: block.id,
                     audiobookID: audiobookID,
@@ -338,9 +343,23 @@ struct AlignmentService {
                     alignmentStatus: computed.alignmentStatus,
                     isEnabled: computed.isEnabled
                 )
+                if !updatedExistingRow {
+                    var item = TimelineItem.fromEPubBlock(block, audiobookID: audiobookID)
+                    item.audioStartTime = computed.audioStart
+                    item.audioEndTime = audioEndByBlockID[block.id]
+                    item.timestampSource = computed.timestampSource
+                    item.alignmentStatus = computed.alignmentStatus
+                    item.isEnabled = computed.isEnabled
+                    item.modifiedAt = Date().ISO8601Format()
+                    try item.insert(db)
+                    healedRowCount += 1
+                }
             }
         }
 
+        if healedRowCount > 0 {
+            logger.warning("Materialized \(healedRowCount) missing timeline_item rows for \(self.audiobookID) — timeline was stale or never EPUB-ingested")
+        }
         logger.info("Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors")
     }
 
@@ -401,6 +420,11 @@ extension TimelineDAO {
     /// Writes alignment within an existing transaction — does NOT open its own.
     /// Fileprivate so `AlignmentService.recalculateTimeline` can batch many calls
     /// inside a single `db.write` block.
+    ///
+    /// Returns whether an existing `timeline_item` row matched the UPDATE.
+    /// `false` means no row exists for this block — the caller decides whether
+    /// to materialize one (a zero-row UPDATE is not an error in SQLite).
+    @discardableResult
     fileprivate static func writeAlignment(
         db: Database,
         epubBlockID: String,
@@ -410,7 +434,7 @@ extension TimelineDAO {
         timestampSource: String,
         alignmentStatus: String,
         isEnabled: Bool
-    ) throws {
+    ) throws -> Bool {
         try db.execute(
             sql: """
                 UPDATE timeline_item
@@ -434,5 +458,6 @@ extension TimelineDAO {
                 "audiobookID": audiobookID
             ]
         )
+        return db.changesCount > 0
     }
 }
