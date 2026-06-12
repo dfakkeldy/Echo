@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-11 19:28:06
+**Last generated:** 2026-06-11 22:10:36
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -55,12 +55,13 @@ Services/AudioRingBuffer.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
-Services/BookPreferencesService.swift
-Services/BookSettingsOverrideStore.swift
 Services/BookmarkArtworkCoordinator.swift
 Services/BookmarkStore.swift
+Services/BookPreferencesService.swift
+Services/BookSettingsOverrideStore.swift
 Services/ChapterGroupingService.swift
 Services/ChapterLoadingCoordinator.swift
+Services/ChapterPartGrouper.swift
 Services/ChapterService.swift
 Services/ChapterTitleMatcher.swift
 Services/CloudKitSyncService.swift
@@ -95,12 +96,13 @@ Services/SecurityScopeManager.swift
 Services/SettingsManager.swift
 Services/SilenceDetectionService.swift
 Services/SleepTimerManager.swift
+Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
 Services/StoreManager.swift
-Services/TOCTreeBuilder.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
 Services/TimelineService.swift
+Services/TOCTreeBuilder.swift
 Services/TokenDTW.swift
 Services/TranscriptService.swift
 Services/WatchCommandRouter.swift
@@ -116,17 +118,17 @@ Utilities/SilenceAnalyzer.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
+ViewModels/PlayerModel.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
-ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
 ViewModels/TimelineFeedViewModel.swift
 Views/AutoAlignmentProgressView.swift
-Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
+Views/BookSettingsView.swift
 Views/BottomToolbarView.swift
 Views/CardColorPickerSheet.swift
 Views/Cells/AnkiCardCell.swift
@@ -147,6 +149,7 @@ Views/ChapterPickerSheet.swift
 Views/ChapterTimeBlockView.swift
 Views/Components/AdaptiveBackground.swift
 Views/Components/AlbumArtHeroView.swift
+Views/Components/BookProgressTrack.swift
 Views/Components/CircularProgressPlayButton.swift
 Views/Components/FlashcardCreationSheet.swift
 Views/Components/FlashcardOverlayView.swift
@@ -154,6 +157,7 @@ Views/Components/Haptic.swift
 Views/Components/InlineStepperRow.swift
 Views/Components/MarqueeText.swift
 Views/Components/PlayerControlBar.swift
+Views/Components/SleepTimerPill.swift
 Views/Components/TranscriptOverlayView.swift
 Views/Components/TranscriptRowView.swift
 Views/Components/UnifiedBottomDock.swift
@@ -182,8 +186,8 @@ Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
 Views/ReaderSettingsSheet.swift
-Views/ReaderTab+Alignment.swift
 Views/ReaderTab.swift
+Views/ReaderTab+Alignment.swift
 Views/RootTabView.swift
 Views/ScrubberJoystick.swift
 Views/SettingsView.swift
@@ -197,8 +201,8 @@ Views/TimelineContentView.swift
 Views/TimelineFeedCollectionView.swift
 Views/TimelineHeaderView.swift
 Views/TimelineTab.swift
-Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
+Views/TransportControlsView+LongPress.swift
 Views/UpcomingReviewsModuleView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
@@ -216,9 +220,9 @@ Services/MacEPUBParser.swift
 Services/MacGlobalAlignmentService.swift
 Views/MacContentView.swift
 Views/MacPlayerModel.swift
+Views/TranscriptionManager.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
-Views/TranscriptionManager.swift
 ```
 
 ## Echo Watch App
@@ -269,10 +273,10 @@ Database/DatabaseService.swift
 Database/EPubBlockRecord.swift
 Database/EPubTOCEntryRecord.swift
 Database/Flashcard.swift
-Database/MigrationService.swift
 Database/Migrations/Schema_V11.swift
 Database/Migrations/Schema_V12.swift
 Database/Migrations/Schema_V13.swift
+Database/MigrationService.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -289,8 +293,8 @@ Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
-EPUBXMLParsing.swift
 EnhancedTranscriptionSegment.swift
+EPUBXMLParsing.swift
 FileLocations.swift
 ImageEncoding.swift
 KeychainStore.swift
