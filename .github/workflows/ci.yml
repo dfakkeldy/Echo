@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  build-and-test:
+  ci:
     runs-on: macos-15
 
     steps:
@@ -30,12 +30,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Run iOS Tests
+      - name: Build iOS (build-for-testing — no simulator on free runner)
         run: |
-          xcodebuild test \
+          xcodebuild build-for-testing \
             -project Echo.xcodeproj \
             -scheme Echo \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
+            -destination "generic/platform=iOS" \
             -quiet
 
       - name: Build watchOS
@@ -43,7 +43,7 @@ jobs:
           xcodebuild build-for-testing \
             -project Echo.xcodeproj \
             -scheme "Echo Watch App" \
-            -destination "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest" \
+            -destination "generic/platform=watchOS" \
             -quiet
 
       - name: Build macOS Target
