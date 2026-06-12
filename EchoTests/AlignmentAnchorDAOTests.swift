@@ -40,9 +40,11 @@ struct AlignmentAnchorDAOTests {
 
         let removed = try dao.deleteAutoPipelineAnchors(for: audiobookID)
 
-        #expect(removed == 2)
+        // Every machine-made anchor goes (tier 0, DTW, continuous) so a
+        // re-run can correct earlier mistakes; human-made anchors survive.
+        #expect(removed == 3)
         let survivors = try dao.anchors(for: audiobookID).map(\.id).sorted()
-        #expect(survivors == ["anchor-jkl", "auto-continuous-ghi"])
+        #expect(survivors == ["anchor-jkl"])
     }
 
     /// Anchors for other audiobooks are out of scope for the cleanup.

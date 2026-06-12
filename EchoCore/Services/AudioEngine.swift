@@ -396,34 +396,6 @@ final class AudioEngine {
         }
     }
 
-    // MARK: - Audio Capture Tap
-
-    /// Installs a tap on the main mixer node for capturing rendered audio.
-    ///
-    /// The tap provides post-EQ, post-time-pitch PCM buffers suitable for
-    /// feeding into WhisperKit. The format should be 16 kHz mono Float32
-    /// to match WhisperKit's expected input.
-    ///
-    /// - Parameters:
-    ///   - format: Desired output format (typically 16 kHz mono Float32).
-    ///   - bufferSize: Frames per callback (4096 recommended).
-    ///   - callback: Called on a real-time thread with each buffer.
-    func installCaptureTap(format: AVAudioFormat,
-                           bufferSize: AVAudioFrameCount,
-                           callback: @escaping AVAudioNodeTapBlock) {
-        guard let mixer = engine?.mainMixerNode else {
-            os_log(.error, "AudioEngine: cannot install capture tap — no mixer node")
-            return
-        }
-        mixer.removeTap(onBus: 0)
-        mixer.installTap(onBus: 0, bufferSize: bufferSize, format: format, block: callback)
-    }
-
-    /// Removes the capture tap from the main mixer node.
-    func removeCaptureTap() {
-        engine?.mainMixerNode.removeTap(onBus: 0)
-    }
-
     // MARK: - Time Timer
 
     private func startTimeTimer() {

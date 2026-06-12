@@ -71,47 +71,6 @@ struct AutoAlignmentTextMatcherTests {
         #expect(result.bestWindowStart == 0)
     }
 
-    @Test func projectedBlockStartReturnsCaptureStartWhenMatchedWindowIsAtBlockStart() {
-        // When the matched window begins at block token 0, the capture's first
-        // word IS the block's first word — no back-projection needed.
-        let projected = AutoAlignmentTextMatcher.projectedBlockStart(
-            windowStart: 100,
-            firstWordOffset: 0.5,
-            captureDuration: 5,
-            transcriptTokenCount: 10,
-            matchedBlockWindowStart: 0
-        )
-        #expect(abs(projected - 100.5) < 0.001)
-    }
-
-    @Test func projectedBlockStartBacksUpProportionallyWhenWindowStartsMidBlock() {
-        // 10 tokens spoken in 5s of capture → 0.5s per token. If the matched
-        // window begins at block token 4, the block's first word was 4 × 0.5
-        // = 2s before the capture's first detected word.
-        let projected = AutoAlignmentTextMatcher.projectedBlockStart(
-            windowStart: 100,
-            firstWordOffset: 0.5,
-            captureDuration: 5,
-            transcriptTokenCount: 10,
-            matchedBlockWindowStart: 4
-        )
-        // 100 + 0.5 − (4 × 0.5) = 98.5
-        #expect(abs(projected - 98.5) < 0.001)
-    }
-
-    @Test func projectedBlockStartFallsBackWhenTokenCountTooSmallToEstimateRate() {
-        // Two-token transcripts give an unreliable seconds-per-token estimate;
-        // refuse to back-project and return the capture start instead.
-        let projected = AutoAlignmentTextMatcher.projectedBlockStart(
-            windowStart: 100,
-            firstWordOffset: 0.5,
-            captureDuration: 5,
-            transcriptTokenCount: 2,
-            matchedBlockWindowStart: 10
-        )
-        #expect(abs(projected - 100.5) < 0.001)
-    }
-
     @Test func reportsTranscriptTokenCount() throws {
         let candidates = [
             EPubBlockRecord(id: "b", audiobookID: "book", spineHref: "ch.xhtml",

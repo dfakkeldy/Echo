@@ -10,9 +10,8 @@ struct AutoAlignmentTextMatcher {
         /// audio time.
         let bestWindowStart: Int
         /// Token count of the transcript after lowercasing + letters-only
-        /// filtering. Combined with capture duration, callers can estimate
-        /// seconds-per-token to convert `bestWindowStart` into an audio
-        /// offset.
+        /// filtering. Diagnostic context for logs; time projection itself
+        /// uses real word timestamps (`AlignmentTranscript.projectBlockStart`).
         let transcriptTokenCount: Int
     }
 
@@ -82,34 +81,6 @@ struct AutoAlignmentTextMatcher {
         }
 
         return best
-    }
-
-    /// Back-projects from a capture's window-start time to the matched
-    /// block's first-word audio time.
-    ///
-    /// When the matcher's best window begins at block token `N`, the
-    /// captured audio corresponds to roughly `N` tokens *into* the block —
-    /// so the block's first word was spoken `N × secondsPerToken` earlier
-    /// than the first transcribed word in the clip.
-    ///
-    /// Requires at least 3 transcript tokens to estimate a speech rate;
-    /// otherwise returns `windowStart + firstWordOffset` (the prior,
-    /// un-projected behavior) as a safe fallback.
-    static func projectedBlockStart(
-        windowStart: TimeInterval,
-        firstWordOffset: TimeInterval,
-        captureDuration: TimeInterval,
-        transcriptTokenCount: Int,
-        matchedBlockWindowStart: Int
-    ) -> TimeInterval {
-        let captureStart = windowStart + firstWordOffset
-        guard matchedBlockWindowStart > 0,
-              transcriptTokenCount >= 3,
-              captureDuration > 0 else {
-            return captureStart
-        }
-        let secondsPerToken = captureDuration / Double(transcriptTokenCount)
-        return captureStart - Double(matchedBlockWindowStart) * secondsPerToken
     }
 
     // MARK: - Cached helpers
