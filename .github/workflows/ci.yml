@@ -24,7 +24,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Build iOS (simulator SDK, no test execution)
+      - name: Build iOS
         run: |
           xcodebuild build \
             -project Echo.xcodeproj \
@@ -32,7 +32,7 @@ jobs:
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=iPhone 16" \
             CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tail -30
+            -quiet
 
       - name: Build macOS
         run: |
@@ -40,4 +40,5 @@ jobs:
             -project Echo.xcodeproj \
             -scheme "Echo macOS" \
             -destination "platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO \
             -quiet
