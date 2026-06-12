@@ -24,10 +24,11 @@ struct UnifiedTopHeader: View {
                 .accessibilityLabel(Text("Open folder"))
                 
                 Spacer()
-                
-                // Center: overall total time remaining
-                remainingTimeView
-                
+
+                // Center: the single timer home (audit B1). Book-remaining time
+                // moved to the scrubber caption on Now Playing.
+                SleepTimerPill()
+
                 Spacer()
                 
                 // Right: ellipsis menu button
@@ -84,51 +85,5 @@ struct UnifiedTopHeader: View {
             : AnyShapeStyle(.ultraThinMaterial)
     }
     
-    private var remainingTimeView: some View {
-        Group {
-            if model.folderURL != nil && !model.tracks.isEmpty {
-                Text(formattedRemainingTime)
-                    .font(.subheadline.monospacedDigit().bold())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(chipFill, in: Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
-                    .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
-            } else {
-                Text("0:00")
-                    .font(.subheadline.monospacedDigit().bold())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(chipFill, in: Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-    
-    private var formattedRemainingTime: String {
-        let speed = model.speed > 0 ? Double(model.speed) : 1.0
-        let currentSeconds = model.currentPlaybackTime
-        let totalBookDuration = model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
-        let elapsedSeconds: Double
-        if model.isMultiM4B {
-            let bookOffset = model.m4bBooks.indices.contains(model.currentIndex) ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
-            elapsedSeconds = bookOffset + currentSeconds
-        } else {
-            elapsedSeconds = currentSeconds
-        }
-        let remainingSeconds = max(0, totalBookDuration - elapsedSeconds) / speed
-        let total = Int(remainingSeconds)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 {
-            let mStr = m < 10 ? "0\(m)" : "\(m)"
-            return "\(h):\(mStr)"
-        } else {
-            let sStr = s < 10 ? "0\(s)" : "\(s)"
-            return "\(m):\(sStr)"
-        }
-    }
 }
 
