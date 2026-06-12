@@ -8,20 +8,23 @@ import os.log
 
 // MARK: - AutoAlignmentService
 
-/// Orchestrates a progressive 3-tier auto-alignment pipeline that transcribes
-/// strategic short audio clips with WhisperKit and matches them against EPUB
-/// text to create alignment anchors automatically.
+/// Orchestrates the progressive auto-alignment pipeline that transcribes
+/// audio with WhisperKit and matches it against EPUB text to create
+/// alignment anchors automatically.
 ///
-/// **Tier 1 — Chapter Snap:** Transcribes ~8 s at chapter start/end boundaries,
-/// fuzzy-matches to nearby EPUB blocks, and inserts `chapterStart`/`chapterEnd`
-/// anchors.
+/// **Tier 0 — Metadata Title Matching:** Fuzzy-matches audiobook chapter
+/// titles (from M4B metadata) against EPUB heading blocks before any
+/// transcription. Generic track labels ("Chapter 7", "12") are skipped —
+/// they number tracks, not book chapters, so only descriptive titles can
+/// bootstrap anchors. High-confidence matches skip DTW for that chapter.
 ///
-/// **Tier 2 — Drift Detection:** Transcribes ~5 s at each chapter midpoint and
-/// compares against the interpolated timeline. Flags chapters where the
-/// transcript diverges from the expected text.
+/// **VAD + DTW Content Alignment:** For remaining chapters, chunks the audio
+/// at detected silences, transcribes each chunk, and aligns transcript
+/// tokens against the chapter's EPUB blocks with dynamic time warping,
+/// inserting `chapterStart`/`point`/`chapterEnd` anchors.
 ///
-/// **Tier 3 — Drift Repair:** Bisects flagged chapters to locate the drift point
-/// and inserts a correction anchor.
+/// Each run first deletes anchors created by previous runs (`auto-tier0-`/
+/// `auto-dtw-` prefixes) so re-alignment can correct earlier results.
 @MainActor
 final class AutoAlignmentService {
     let logger = Logger(category: "AutoAlignment")
@@ -102,6 +105,16 @@ final class AutoAlignmentService {
             return
         }
 
+        // ── Clear previous pipeline runs ──
+        // Anchors from an earlier auto-alignment run would otherwise survive
+        // (Tier 0 would stack duplicates; DTW skips already-anchored blocks),
+        // so a re-run could never correct a bad earlier result.
+        let clearedCount = try anchorDAO.deleteAutoPipelineAnchors(for: audiobookID)
+        if clearedCount > 0 {
+            try alignmentService.recalculateTimeline()
+            state.log("Cleared \(clearedCount) anchors from a previous auto-alignment run")
+        }
+
         // ── Tier 0: Metadata Title Matching ──
         // Compare audiobook chapter titles (from M4B metadata) to EPUB
         // heading blocks before doing any expensive transcription. A
@@ -110,6 +123,13 @@ final class AutoAlignmentService {
         state.update(phase: .matchingTitles, progress: 0.0,
                      statusMessage: "Matching chapter titles to EPUB headings…")
         state.log("Tier 0: matching \(chapters.count) chapter titles against EPUB headings…")
+
+        let genericTitleCount = chapters.count { chapter in
+            ChapterTitleMatcher.isGenericNumericTitle(chapter.title ?? "")
+        }
+        if genericTitleCount > 0 {
+            state.log("Tier 0: \(genericTitleCount)/\(chapters.count) titles are generic track labels (\"Chapter N\") — those chapters use content alignment instead")
+        }
 
         let titleMatches = ChapterTitleMatcher.matchChapterTitles(
             chapters: chapters, blocks: blocks
@@ -225,7 +245,7 @@ final class AutoAlignmentService {
                 audioTime: match.chapter.startSeconds,
                 audioEndTime: nil,
                 anchorKind: AlignmentAnchorRecord.AnchorKind.chapterStart.rawValue,
-                source: AlignmentAnchorRecord.Source.imported.rawValue,
+                source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
                 note: "auto: tier0 title match (conf: \(String(format: "%.2f", match.confidence)))",
                 createdAt: iso.string(from: Date()),
                 modifiedAt: nil
@@ -386,7 +406,7 @@ final class AutoAlignmentService {
                     audioTime: clampedTime,
                     audioEndTime: nil,
                     anchorKind: kind,
-                    source: AlignmentAnchorRecord.Source.imported.rawValue,
+                    source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
                     note: "auto: dtw mapped",
                     createdAt: iso.string(from: Date()),
                     modifiedAt: nil

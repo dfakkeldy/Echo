@@ -35,13 +35,15 @@ struct ChapterTitleMatcher {
     /// - Parameters:
     ///   - chapters: Audiobook chapters parsed from M4B metadata via
     ///     `ChapterService.parseChapters(from:)`. Only chapters with non-nil,
-    ///     non-empty titles are considered.
+    ///     non-empty, non-generic titles are considered — see
+    ///     `isGenericNumericTitle(_:)`.
     ///   - blocks: All EPUB blocks in reading order. Only blocks with
     ///     `blockKind == "heading"` and non-nil `text` are candidates.
     /// - Returns: Matches where confidence ≥ `Threshold.mediumConfidence`,
     ///   sorted by chapter index. Each chapter appears at most once (its best
-    ///   heading match). Headings may match multiple chapters if titles are
-    ///   similar — the caller should handle that case.
+    ///   heading match), and each heading block appears at most once (its
+    ///   strongest chapter) — anchoring two audio times to one block would
+    ///   make the alignment timeline non-monotonic.
     static func matchChapterTitles(
         chapters: [Chapter],
         blocks: [EPubBlockRecord]
@@ -58,6 +60,13 @@ struct ChapterTitleMatcher {
                   !title.isEmpty else {
                 continue
             }
+
+            // Generic track labels ("Chapter 7", "Track 03", "12") number
+            // tracks, not book chapters — track 1 is routinely opening
+            // credits, shifting every label off the EPUB's numbering. They
+            // carry no correspondence signal, so leave those chapters to the
+            // content-based DTW pipeline.
+            guard !isGenericNumericTitle(title) else { continue }
 
             var best: (block: EPubBlockRecord, confidence: Double)?
 
@@ -78,8 +87,47 @@ struct ChapterTitleMatcher {
             }
         }
 
-        return matches.sorted { $0.chapter.index < $1.chapter.index }
+        // One block, one chapter: when several chapters claim the same
+        // heading, keep the strongest claim (earliest chapter wins ties).
+        var bestByBlockID: [String: Match] = [:]
+        for match in matches {
+            if let existing = bestByBlockID[match.block.id],
+               existing.confidence >= match.confidence {
+                continue
+            }
+            bestByBlockID[match.block.id] = match
+        }
+
+        return bestByBlockID.values.sorted { $0.chapter.index < $1.chapter.index }
     }
+
+    // MARK: - Generic Title Detection
+
+    /// True when a title is a generic track label — a bare number, or a
+    /// structural keyword plus a number ("Chapter 7", "Pt. 2", "Track 03",
+    /// "Chapter IX", "12").
+    ///
+    /// M4B chapter metadata frequently numbers *tracks* rather than book
+    /// chapters (Audible rips label opening credits "Chapter 1"), so an exact
+    /// title match proves nothing about which EPUB heading the audio
+    /// corresponds to. Tier 0 must skip these titles entirely rather than
+    /// create anchors from them.
+    static func isGenericNumericTitle(_ title: String) -> Bool {
+        let normalized = normalize(title)
+        guard !normalized.isEmpty else { return false }
+
+        // Structural keyword followed by an arabic or roman number.
+        if normalized.range(of: Self.keywordNumberPattern,
+                            options: .regularExpression) != nil {
+            return true
+        }
+        // A bare number, optionally decorated with separators ("12", "07.").
+        return normalized.range(of: #"^[\s.:#\-–—]*[0-9]+[\s.:#\-–—]*$"#,
+                                options: .regularExpression) != nil
+    }
+
+    private static let keywordNumberPattern =
+        #"^(chapter|chap|ch|part|pt|track|section|sec|disc|book)[\s.:#\-–—]*([0-9]+|[ivxlcdm]+)[\s.:#\-–—]*$"#
 
     // MARK: - Similarity
 
@@ -90,10 +138,22 @@ struct ChapterTitleMatcher {
     /// either the full-string edit distance or the bag-of-words overlap is
     /// strong.
     ///
+    /// Numbers override both metrics: "Chapter 2" and "Chapter 1" are
+    /// *different places* no matter how similar the surrounding words are,
+    /// so when both titles carry numbers and neither side's numbers contain
+    /// the other's, the match is disqualified outright.
+    ///
     /// - Returns: A value in [0.0, 1.0] where 1.0 is an exact match.
     static func similarity(between a: String, and b: String) -> Double {
         let normalizedA = normalize(a)
         let normalizedB = normalize(b)
+
+        let numbersA = numberTokens(in: normalizedA)
+        let numbersB = numberTokens(in: normalizedB)
+        if !numbersA.isEmpty, !numbersB.isEmpty,
+           !numbersA.isSubset(of: numbersB), !numbersB.isSubset(of: numbersA) {
+            return 0.0
+        }
 
         // Character-level Levenshtein on the full normalized strings.
         let stringConfidence = normalizedA.normalizedLevenshteinSimilarity(to: normalizedB)
@@ -122,7 +182,7 @@ struct ChapterTitleMatcher {
 
     // MARK: - Private Helpers
 
-    private static let nonLetters = CharacterSet.letters.inverted
+    private static let nonAlphanumerics = CharacterSet.alphanumerics.inverted
 
     /// Lowercase, collapse whitespace, trim.
     private static func normalize(_ text: String) -> String {
@@ -132,9 +192,34 @@ struct ChapterTitleMatcher {
             .joined(separator: " ")
     }
 
-    /// Split into lowercase word tokens of 2+ letters for Jaccard comparison.
+    /// Split into tokens for Jaccard comparison: words of 2+ characters,
+    /// plus standalone numbers of any length — digits are what distinguish
+    /// "Chapter 1" from "Chapter 2", so they must survive tokenization.
     private static func tokenize(_ text: String) -> [String] {
-        text.components(separatedBy: nonLetters)
-            .filter { $0.count >= 2 }
+        text.components(separatedBy: nonAlphanumerics)
+            .filter { $0.count >= 2 || $0.contains(where: { $0.isASCII && $0.isNumber }) }
+    }
+
+    /// Maximal ASCII digit runs in a normalized string, with leading zeros
+    /// stripped so "03" and "3" compare equal ("chapter 12: 1944" → {"12",
+    /// "1944"}).
+    private static func numberTokens(in normalized: String) -> Set<String> {
+        var tokens: Set<String> = []
+        var current = ""
+        func flush() {
+            guard !current.isEmpty else { return }
+            let stripped = current.drop(while: { $0 == "0" })
+            tokens.insert(stripped.isEmpty ? "0" : String(stripped))
+            current = ""
+        }
+        for character in normalized {
+            if character.isASCII, character.isNumber {
+                current.append(character)
+            } else {
+                flush()
+            }
+        }
+        flush()
+        return tokens
     }
 }
