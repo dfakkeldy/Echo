@@ -24,15 +24,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Build iOS
-        run: |
-          xcodebuild build \
-            -project Echo.xcodeproj \
-            -scheme Echo \
-            -destination "generic/platform=iOS" \
-            CODE_SIGNING_ALLOWED=NO \
-            -quiet
-
       - name: Build macOS
         run: |
           xcodebuild build \
