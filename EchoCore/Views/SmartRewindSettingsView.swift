@@ -31,7 +31,7 @@ struct SmartRewindSettingsView: View {
                     )
                 }
 
-                Section("Medium Pauses") {
+                Section {
                     InlineStepperRow(
                         title: String(localized: "Trigger after:"),
                         value: $settings.rewindPauseMinutesThreshold,
@@ -46,6 +46,12 @@ struct SmartRewindSettingsView: View {
                         step: 5,
                         valueText: "\(settings.rewindAmountAfterMinutes)s"
                     )
+                } header: {
+                    Text("Medium Pauses")
+                } footer: {
+                    // Audit E6: teach by example — a live worked case,
+                    // recomputed as the steppers change.
+                    Text(currentPolicy.exampleText(forPausedMinutes: settings.rewindPauseMinutesThreshold + 2))
                 }
 
                 Section("Long Pauses") {
@@ -70,5 +76,16 @@ struct SmartRewindSettingsView: View {
             }
         }
         .navigationTitle("Smart Rewind")
+    }
+
+    private var currentPolicy: SmartRewindPolicy {
+        SmartRewindPolicy(
+            secondsThreshold: settings.rewindPauseSecondsThreshold,
+            secondsAmount: settings.rewindAmountAfterSeconds,
+            minutesThreshold: settings.rewindPauseMinutesThreshold,
+            minutesAmount: settings.rewindAmountAfterMinutes,
+            hoursThreshold: settings.rewindPauseHoursThreshold,
+            hoursAmount: settings.rewindAmountAfterHours
+        )
     }
 }

@@ -85,15 +85,12 @@ struct EchoCoreApp: App {
         }
     }
 
-    /// Resolves the active accent colour: uses the artwork-derived colour when
-    /// the theme is set to `.artwork`, otherwise falls back to the static theme colour.
+    /// Resolves the active accent colour (audit E2): the single source of
+    /// truth lives on PlayerModel so settings sheets resolve identically.
     /// When both the theme and artwork colour are unavailable, SwiftUI uses the
     /// system default (blue) automatically via `nil` coalescing in the modifier chain.
     private var resolvedAccentColor: Color? {
-        if settings.themeColor == ThemeColor.artwork.rawValue {
-            return model.artworkAccentColor
-        }
-        return ThemeColor(rawValue: settings.themeColor)?.color
+        model.resolvedThemeTint
     }
 
     private func handleDeepLink(_ url: URL) {

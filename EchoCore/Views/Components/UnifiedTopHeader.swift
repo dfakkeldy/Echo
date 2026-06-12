@@ -33,13 +33,10 @@ struct UnifiedTopHeader: View {
                 
                 // Right: ellipsis menu button
                 Menu {
+                    // Audit E1: one settings destination — book overrides live
+                    // at the top of Settings (and via the player's eyebrow).
                     Button(action: onSettingsTap) {
-                        Label("Global Settings", systemImage: "gearshape")
-                    }
-                    if model.folderURL != nil {
-                        Button(action: onBookSettingsTap) {
-                            Label("Book Settings", systemImage: "document.badge.gearshape")
-                        }
+                        Label("Settings", systemImage: "gearshape")
                     }
                     Button(action: onHelpTap) {
                         Label("Help", systemImage: "questionmark.circle")

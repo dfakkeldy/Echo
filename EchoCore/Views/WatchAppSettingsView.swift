@@ -411,7 +411,7 @@ struct WatchAppSettingsView: View {
                     model.syncToWatch()
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 } label: {
-                    Text("Force Sync to Watch")
+                    Text("Sync Now")
                         .customFont(.headline, weight: .bold, appFont: settings.appFont)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)

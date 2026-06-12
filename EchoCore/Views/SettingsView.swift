@@ -20,6 +20,15 @@ struct SettingsView: View {
 
         NavigationStack {
             Form {
+                // Audit E1: one settings surface — the loaded book's overrides
+                // live in a clearly-labeled section at the top.
+                if model.folderURL != nil {
+                    BookOverridesSections(
+                        model: model,
+                        headerTitle: bookOverridesHeader
+                    )
+                }
+
                 Section("Display") {
                     NavigationLink("Appearance") {
                         SettingsAppearanceView()
@@ -88,7 +97,11 @@ struct SettingsView: View {
                     }
                 }
 
+                // Audit E4: the "for testing" lookback slider is debug tooling
+                // and must not ship in release builds.
+                #if DEBUG
                 SettingsSilenceDetectionSection()
+                #endif
 
                 SettingsAutoAlignmentSection()
 
@@ -144,7 +157,16 @@ struct SettingsView: View {
             }
         }
         .preferredColorScheme(colorScheme(for: settings.appAppearance))
-        .tint(ThemeColor(rawValue: settings.themeColor)?.color)
+        // Audit E2: resolved tint includes the artwork accent — the
+        // static-only lookup nil'd it out and toggles fell back to green.
+        .tint(model.resolvedThemeTint)
+    }
+
+    private var bookOverridesHeader: String {
+        let title = model.currentTitle
+        return title.isEmpty
+            ? String(localized: "This Book — overrides global")
+            : String(localized: "\(title) — overrides global")
     }
 
     // MARK: - Helpers
@@ -191,12 +213,13 @@ private struct SettingsAppearanceView: View {
         @Bindable var settings = settings
         Form {
             Section {
-                Picker("Appearance", selection: $settings.appAppearance) {
+                // "Color Scheme" — the screen title is already "Appearance"
+                // (audit E3: same label twice reads as a bug).
+                Picker("Color Scheme", selection: $settings.appAppearance) {
                     Text("System").tag("System")
                     Text("Light").tag("Light")
                     Text("Dark").tag("Dark")
                 }
-                .tint(ThemeColor(rawValue: settings.themeColor)?.color)
             }
             #if os(iOS)
             Section("App Icon") {
@@ -241,7 +264,7 @@ private struct SettingsAppearanceView: View {
                     }
                 }
             }
-            Section("Display Options") {
+            Section {
                 Toggle("Truncate Chapter to Ch.", isOn: Binding(
                     get: { settings.truncateChapterNamesEnabled },
                     set: {
@@ -249,11 +272,13 @@ private struct SettingsAppearanceView: View {
                         model.syncToWatch()
                     }
                 ))
+            } header: {
+                Text("Display Options")
+            } footer: {
+                Text("Shortens \u{201C}Chapter 12\u{201D} to \u{201C}Ch. 12\u{201D} in tight spaces, like the watch and mini-player.")
             }
         }
         .navigationTitle("Appearance")
-        .tint(ThemeColor(rawValue: settings.themeColor)?.color)
-        .accentColor(ThemeColor(rawValue: settings.themeColor)?.color)
     }
 
     #if os(iOS)

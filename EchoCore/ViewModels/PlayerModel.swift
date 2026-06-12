@@ -242,6 +242,17 @@ final class PlayerModel {
         return theme.isNeutralFallback ? nil : theme.accent
     }
 
+    /// The accent the whole app should be tinted with (audit E2): the
+    /// artwork-derived accent when the theme is "Artwork", else the static
+    /// theme color, else nil (system default). Settings sheets must use this
+    /// too — re-applying the static-only tint nils out the artwork accent.
+    var resolvedThemeTint: Color? {
+        if settingsManager?.themeColor == ThemeColor.artwork.rawValue {
+            return artworkAccentColor
+        }
+        return ThemeColor(rawValue: settingsManager?.themeColor ?? "")?.color
+    }
+
     /// Accent hex for the Watch, built with the DARK recipe — Watch surfaces
     /// are always dark regardless of the phone's scheme.
     var artworkAccentColorHex: String? {
