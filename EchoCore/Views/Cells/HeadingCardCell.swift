@@ -36,9 +36,6 @@ final class HeadingCardCell: UICollectionViewCell {
         didSet {
             activeBar.isHidden = !isActiveBlock
             contentView.alpha = isActiveBlock ? 1.0 : 0.95
-            // Audit D1: the timestamp doubles as the "you are here" marker —
-            // visible on the active card only; others reveal via long-press.
-            anchorLabel.isHidden = !(isActiveBlock && hasAnchorText)
         }
     }
 
@@ -108,10 +105,12 @@ final class HeadingCardCell: UICollectionViewCell {
         return attributed
     }
     
+    // Alignment debugging aid: every card shows its timestamp —
+    // red = locked anchor, grey = interpolated.
     func setManuallyAligned(_ isAnchored: Bool, timeString: String?) {
         hasAnchorText = (timeString != nil)
         anchorLabel.text = timeString
         anchorLabel.textColor = isAnchored ? .systemRed : .secondaryLabel
-        anchorLabel.isHidden = !(isActiveBlock && hasAnchorText)
+        anchorLabel.isHidden = !hasAnchorText
     }
 }
