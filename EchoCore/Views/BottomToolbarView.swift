@@ -11,12 +11,30 @@ struct BottomToolbarView: View {
             Spacer()
             speedButton
             Spacer()
+            markPassageButton
+            Spacer()
             timelineButton
             Spacer()
             addBookmarkButton
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
+    }
+
+    // MARK: - Mark Passage
+
+    private var markPassageButton: some View {
+        Button {
+            model.markPassageAtCurrentTime()
+            Haptic.play(.light)
+        } label: {
+            utilityChip(isActive: false) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.title3)
+            }
+        }
+        .accessibilityLabel(Text("Mark passage for later"))
+        .disabled(model.tracks.isEmpty)
     }
 
     // MARK: - Shared chip treatment
