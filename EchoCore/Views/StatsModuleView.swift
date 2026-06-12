@@ -1,8 +1,10 @@
 import SwiftUI
 
+/// Today's total listening time, queried from playback_event via StatsRepository.
 struct StatsModuleView: View {
     @Environment(PlayerModel.self) private var model
     @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
+    @State private var todayDuration: TimeInterval = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -10,14 +12,12 @@ struct StatsModuleView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            if let duration = model.durationSeconds, let position = model.durationSeconds.flatMap({ _ in model.currentPlaybackTime }) {
-                let listenedToday = min(position, duration)
-                Text(formatDuration(listenedToday))
+            if todayDuration > 0 {
+                Text(formatDuration(todayDuration))
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundStyle(.green)
-
-                Text("of \(formatDuration(duration))")
+                Text("listened")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
@@ -25,19 +25,31 @@ struct StatsModuleView: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundStyle(.secondary)
+                Text("No listening yet")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(12)
         .frame(width: cardWidth)
         .background(.green.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .task { await loadToday() }
+    }
+
+    private func loadToday() async {
+        guard let db = model.databaseService else { return }
+        do {
+            let repo = StatsRepository(reader: db.writer)
+            let overview = try await repo.fetchOverview()
+            todayDuration = overview.todayDuration
+        } catch { }
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {
-        let total = max(0, Int(interval.rounded(.down)))
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        if h > 0 { return "\(h)h \(m)m" }
-        return "\(m)m"
+        let hours = Int(interval) / 3600
+        let minutes = (Int(interval) % 3600) / 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
     }
 }
