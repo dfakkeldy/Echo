@@ -34,17 +34,17 @@ struct CircularProgressPlayButton: View {
 
             // Progress Ring Background
             Circle()
-                .stroke(model.coverTheme.chip, lineWidth: 3.5)
-                .frame(width: 86, height: 86)
+                .stroke(model.coverTheme.chip, lineWidth: 3)
+                .frame(width: 92, height: 92)
 
             // Progress Ring Fill
             Circle()
                 .trim(from: 0, to: CGFloat(min(max(currentProgress, 0), 1)))
                 .stroke(
                     Color.accentColor,
-                    style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
                 )
-                .frame(width: 86, height: 86)
+                .frame(width: 92, height: 92)
                 .rotationEffect(.degrees(-90))
                 .animation(.smooth(duration: 0.35), value: currentProgress)
 
@@ -57,10 +57,10 @@ struct CircularProgressPlayButton: View {
                 ZStack {
                     Circle()
                         .fill(model.artworkAccentColor ?? .accentColor)
-                        .frame(width: 74, height: 74)
+                        .frame(width: 78, height: 78)
 
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 34, weight: .bold))
+                        .font(.system(size: 36, weight: .bold))
                         .foregroundStyle(model.coverTheme.onAccent)
                 }
             }

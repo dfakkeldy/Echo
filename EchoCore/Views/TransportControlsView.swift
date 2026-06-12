@@ -73,9 +73,10 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: WatchAction.skipBackward.dynamicIconName(forDuration: settings.seekBackwardDuration))
-                    .font(.system(size: isCompact ? 14 : 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
+                    .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
+                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                    .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
+                    .background(Circle().fill(model.coverTheme.chip))
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip back \(settings.seekBackwardDuration) seconds"))
@@ -90,9 +91,10 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: WatchAction.skipForward.dynamicIconName(forDuration: settings.seekForwardDuration))
-                    .font(.system(size: isCompact ? 14 : 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
+                    .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
+                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                    .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
+                    .background(Circle().fill(model.coverTheme.chip))
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip forward \(settings.seekForwardDuration) seconds"))
@@ -107,10 +109,9 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
-                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
-                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
-                    .background(Circle().fill(model.coverTheme.chip))
+                    .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(model.chapters.count >= 2 ? Text("Previous chapter") : Text("Previous track"))
@@ -125,10 +126,9 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
-                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
-                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
-                    .background(Circle().fill(model.coverTheme.chip))
+                    .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(model.chapters.count >= 2 ? Text("Next chapter") : Text("Next track"))
@@ -143,10 +143,9 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "backward.fill")
-                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
-                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
-                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
-                    .background(Circle().fill(model.coverTheme.chip))
+                    .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Previous section"))
@@ -161,10 +160,9 @@ struct TransportControlsView: View {
                 model: model
             ) {
                 Image(systemName: "forward.fill")
-                    .font(.system(size: isCompact ? 26 : 30, weight: .semibold))
-                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
-                    .frame(width: isCompact ? 60 : 72, height: isCompact ? 60 : 72)
-                    .background(Circle().fill(model.coverTheme.chip))
+                    .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Next section"))
