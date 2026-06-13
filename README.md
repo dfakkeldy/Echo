@@ -94,7 +94,7 @@ The program runs as dependency-ordered workstreams (~14 weeks solo), each landin
 |---|---|---|
 | WS0 | **Listening capture layer** | The playback-event recorder — ships *first* so insights data accumulates from the next beta build onward |
 | WS1 | **Identity & macOS foundation** | The Echo rebrand completed through every identifier, and the Mac target on a solid footing |
-| WS2 | **CI** | GitHub Actions building all schemes + tests on every PR |
+| WS2 | **CI** | GitHub Actions compiles every scheme + the test target on each PR (the unit/integration suites run locally via `make test` while the CI runner's iOS simulator carries an Apple isolated-deinit runtime bug) |
 | WS3–4 | **Insights** | Stats backend (pure, tested aggregation) + the Insights screen with Swift Charts and live dashboard modules |
 | WS5 | **Context Memory** | Opt-in, reduced-accuracy place capture on sessions, bookmarks, and chapter starts — privacy-first, deletable |
 | WS6 | **Anki core** | Decks + tags schema, the mark-later Card Inbox, a full card editor, deck management; inline popups retire |

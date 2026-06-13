@@ -1,6 +1,7 @@
-import Testing
 import Foundation
 import GRDB
+import Testing
+
 @testable import Echo
 
 @MainActor
@@ -40,6 +41,10 @@ struct StandaloneTranscriptionServiceTests {
         let db = try makeTestDB()
 
         try db.write { db in
+            // Seed the parent audiobook so standalone_transcript's NOT NULL
+            // audiobook_id foreign key (Schema_V16) is satisfied.
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             var record = StandaloneTranscriptRecord(
                 id: "seg-1",
                 audiobookID: "book-1",
@@ -67,6 +72,9 @@ struct StandaloneTranscriptionServiceTests {
         let now = ISO8601DateFormatter().string(from: Date())
 
         try db.write { db in
+            // Parent audiobook for the standalone_transcript FK (Schema_V16).
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             for i in 0..<5 {
                 var record = StandaloneTranscriptRecord(
                     id: "seg-\(i)",
@@ -98,11 +106,13 @@ struct StandaloneTranscriptionServiceTests {
         let db = try makeTestDB()
 
         let tables = try db.read { db in
-            try String.fetchAll(db, sql: """
-                SELECT name FROM sqlite_master
-                WHERE type='table'
-                ORDER BY name
-                """)
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT name FROM sqlite_master
+                    WHERE type='table'
+                    ORDER BY name
+                    """)
         }
         #expect(tables.contains("standalone_transcript"))
     }
@@ -139,7 +149,7 @@ struct StandaloneTranscriptionServiceTests {
     @Test func transcribedWordEncodingAndDecoding() throws {
         let words = [
             StandaloneTranscribedWord(word: "Hello", start: 0.0, end: 0.5, confidence: 0.95),
-            StandaloneTranscribedWord(word: "world.", start: 0.5, end: 1.0, confidence: 0.88)
+            StandaloneTranscribedWord(word: "world.", start: 0.5, end: 1.0, confidence: 0.88),
         ]
         let data = try JSONEncoder().encode(words)
         let decoded = try JSONDecoder().decode([StandaloneTranscribedWord].self, from: data)
@@ -162,6 +172,9 @@ struct StandaloneTranscriptionServiceTests {
         let wordsJSON = String(data: wordsData, encoding: .utf8)
 
         try db.write { db in
+            // Parent audiobook for the standalone_transcript FK (Schema_V16).
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-2', 'Test', 3600)")
             var record = StandaloneTranscriptRecord(
                 id: "seg-w1",
                 audiobookID: "book-2",

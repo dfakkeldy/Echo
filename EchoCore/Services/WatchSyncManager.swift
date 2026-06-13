@@ -1,5 +1,5 @@
-import WatchConnectivity
 import Foundation
+import WatchConnectivity
 import os.log
 
 /// Manages bidirectional WatchConnectivity communication with the Apple Watch companion.
@@ -48,6 +48,13 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
     private func setup() {
         guard WCSession.isSupported() else { return }
+        // Unit tests construct many PlayerModels; each would re-point and
+        // re-activate the process-wide WCSession.default singleton, churning its
+        // delegate and corrupting the framework's internal state (a double-free
+        // that crashes the test process on the CI simulator). The app only ever
+        // creates one PlayerModel, so skipping activation under XCTest is a no-op
+        // in production — the env var is set only by the test runner.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
         let session = WCSession.default
         session.delegate = self
         session.activate()
@@ -84,12 +91,14 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         // snapshots (the same hazard the watch warns about for commands).
         if reason == .significant {
             #if DEBUG
-            assertExpectedKeys(in: context)
+                assertExpectedKeys(in: context)
             #endif
             do {
                 try session.updateApplicationContext(context)
             } catch {
-                os_log(.error, "updateApplicationContext failed: %{private}@", error.localizedDescription)
+                os_log(
+                    .error, "updateApplicationContext failed: %{private}@",
+                    error.localizedDescription)
             }
         }
 
@@ -97,7 +106,9 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         // is dropped, the application context above still carries the change.
         if session.isReachable {
             session.sendMessage(context, replyHandler: { _ in }) { error in
-                os_log(.error, "Live watch sync dropped (context still carries it): %{private}@", error.localizedDescription)
+                os_log(
+                    .error, "Live watch sync dropped (context still carries it): %{private}@",
+                    error.localizedDescription)
             }
         }
 
@@ -107,15 +118,15 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     private func sendThumbnailIfNeeded() {
         let session = WCSession.default
         guard session.activationState == .activated,
-              let (artworkKey, data) = thumbnailProvider?(),
-              let artworkKey, let data,
-              artworkKey != lastSyncedArtworkKey
+            let (artworkKey, data) = thumbnailProvider?(),
+            let artworkKey, let data,
+            artworkKey != lastSyncedArtworkKey
         else { return }
 
         lastSyncedArtworkKey = artworkKey
         let payload: [String: Any] = [
             "artworkKey": artworkKey,
-            "thumbnailData": data
+            "thumbnailData": data,
         ]
         // Since thumbnail is large, transferUserInfo is still appropriate here
         // as updateApplicationContext overwrites and we don't want to lose the
@@ -126,10 +137,15 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
     // MARK: - WCSessionDelegate
 
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+    func session(
+        _ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
+        error: Error?
+    ) {
         guard activationState == .activated else {
             if let error {
-                os_log(.error, "WatchConnectivity activation failed: %{private}@", error.localizedDescription)
+                os_log(
+                    .error, "WatchConnectivity activation failed: %{private}@",
+                    error.localizedDescription)
             }
             return
         }
@@ -150,7 +166,10 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         }
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+    func session(
+        _ session: WCSession, didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
+    ) {
         Task { @MainActor [weak self] in
             self?.onMessage?(message, replyHandler)
         }
@@ -168,30 +187,32 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         }
     }
 
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+    func session(
+        _ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]
+    ) {
         Task { @MainActor [weak self] in
             self?.onReceiveApplicationContext?(applicationContext)
         }
     }
 
     #if DEBUG
-    /// Expected keys in every significant application-context dictionary sent to
-    /// the watch. If a key is missing, the assertion fires so developers catch
-    /// context drift at the source instead of debugging stale watch UIs.
-    private let expectedContextKeys: Set<String> = [
-        "isPlaying", "progressFraction", "currentTime", "bookmarkStorageKey",
-        "folderKey", "title", "crownAction", "isHapticFeedbackEnabled",
-        "watchQuickBookmarkTimeoutSeconds", "loopMode", "playbackSpeed",
-        "seekBackwardDuration", "seekForwardDuration",
-        "watchPage1", "watchPage2", "watchPage3", "watchPage4", "watchPage5",
-        "linearBarMode", "linearBarHidden", "circularRingMode",
-        "circularRingHidden", "watchArtworkLayout", "watchBackgroundStyle",
-        "watchTitleScrollEnabled",
-    ]
+        /// Expected keys in every significant application-context dictionary sent to
+        /// the watch. If a key is missing, the assertion fires so developers catch
+        /// context drift at the source instead of debugging stale watch UIs.
+        private let expectedContextKeys: Set<String> = [
+            "isPlaying", "progressFraction", "currentTime", "bookmarkStorageKey",
+            "folderKey", "title", "crownAction", "isHapticFeedbackEnabled",
+            "watchQuickBookmarkTimeoutSeconds", "loopMode", "playbackSpeed",
+            "seekBackwardDuration", "seekForwardDuration",
+            "watchPage1", "watchPage2", "watchPage3", "watchPage4", "watchPage5",
+            "linearBarMode", "linearBarHidden", "circularRingMode",
+            "circularRingHidden", "watchArtworkLayout", "watchBackgroundStyle",
+            "watchTitleScrollEnabled",
+        ]
 
-    private func assertExpectedKeys(in context: [String: Any]) {
-        let missing = expectedContextKeys.subtracting(context.keys)
-        assert(missing.isEmpty, "Watch application context missing keys: \(missing.sorted())")
-    }
+        private func assertExpectedKeys(in context: [String: Any]) {
+            let missing = expectedContextKeys.subtracting(context.keys)
+            assert(missing.isEmpty, "Watch application context missing keys: \(missing.sorted())")
+        }
     #endif
 }
