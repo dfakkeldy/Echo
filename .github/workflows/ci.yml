@@ -6,12 +6,23 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Cancel superseded runs on the same branch/PR to save runner minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
+    name: Build gate + tests
     runs-on: macos-15
 
+    env:
+      # The shared "Echo" scheme builds the iOS app + embedded watch app + widget.
+      IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
+      WATCH_DESTINATION: "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)"
+
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Cache Swift Package Manager
@@ -24,21 +35,34 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Diagnostics & Environment Info
+      - name: Diagnostics
         run: |
-          echo "=== Xcode Version ==="
           xcodebuild -version
-          echo "=== Available Simulators ==="
           xcrun simctl list devices available | grep -E "iPhone|Watch" || true
 
-      - name: Resolve Package Dependencies
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project Echo.xcodeproj \
-            -scheme "Echo macOS"
+      - name: Resolve package dependencies
+        run: xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 
-      - name: Build macOS
+      # ── BUILD GATE ──────────────────────────────────────────────────────────
+      # Compile every shipping target AND the test target before running a single
+      # test. This is the gate for non-compiling commits — e.g. the @frozen-on-an-
+      # internal-struct error and the missing `import Foundation` in a test file,
+      # both of which merged uncaught (CODE_AUDIT.md §10 rec. 5; §5.1).
+      # `build-for-testing` compiles app + widget + embedded watch app + EchoTests
+      # without booting a simulator, so it fails fast and clearly on compile errors.
+      - name: Build for testing — Echo (iOS app + widget + watch + tests)
         run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project Echo.xcodeproj \
+            -scheme Echo \
+            -destination "$IOS_DESTINATION" \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+
+      - name: Build — Echo macOS
+        run: |
+          set -o pipefail
           xcodebuild build \
             -project Echo.xcodeproj \
             -scheme "Echo macOS" \
@@ -46,25 +70,30 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 
-      - name: Test iOS
+      # ── TESTS ───────────────────────────────────────────────────────────────
+      # Run the products built above (test-without-building reuses them, so no
+      # recompile). Catches runtime/logic regressions a compile-only gate misses —
+      # e.g. the card_type NOT NULL insert failures across the flashcard subsystem.
+      - name: Test — EchoTests (iOS)
         run: |
-          xcodebuild test \
+          set -o pipefail
+          xcodebuild test-without-building \
             -project Echo.xcodeproj \
-            -scheme "Echo" \
-            -destination "platform=iOS Simulator,name=iPhone 16" \
+            -scheme Echo \
+            -destination "$IOS_DESTINATION" \
             -only-testing:EchoTests \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 
-      - name: Test watchOS
+      - name: Test — Echo Watch AppTests (watchOS)
         run: |
+          set -o pipefail
           xcodebuild test \
             -project Echo.xcodeproj \
             -scheme "Echo Watch App" \
-            -destination "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)" \
+            -destination "$WATCH_DESTINATION" \
             -only-testing:"Echo Watch AppTests" \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
-
