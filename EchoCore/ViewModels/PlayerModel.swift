@@ -22,6 +22,19 @@ final class PlayerModel {
     )
     @ObservationIgnored let eventLogger = PlaybackEventLogger()
 
+    /// Voice memo recorder used for CarPlay voice-memo capture. Owned by
+    /// PlayerModel so recordings can start even when no bookmark-editing view
+    /// is presented (e.g. fired from a CarPlay notification).
+    /// Guarded by `canImport(UIKit)` because `VoiceMemoRecorder` is defined
+    /// inside that same conditional in Bookmarks.swift.
+    #if canImport(UIKit)
+    @ObservationIgnored private(set) var carPlayVoiceMemoRecorder = VoiceMemoRecorder()
+    #endif
+
+    /// Observer tokens for CarPlay notifications. Retained so they can be
+    /// removed in deinit, preventing stale callbacks after PlayerModel is torn down.
+    @ObservationIgnored private var carPlayNotificationObservers: [NSObjectProtocol] = []
+
     /// Analytics-grade listening-segment capture (playback_event table).
     /// Parallel to eventLogger's real_time_event channel, which feeds the
     /// timeline UI; this one feeds Stats. Nil when the database is unavailable.
@@ -347,6 +360,17 @@ final class PlayerModel {
         } catch {
             return false
         }
+    }
+
+    /// Whether a standalone transcript exists for the current audiobook (no EPUB/PDF).
+    var hasStandaloneTranscript: Bool {
+        _ = state.documentIngestionTrigger // register dependency
+        guard let db = databaseService, let folder = folderURL?.absoluteString else { return false }
+        return ((try? db.read { db in
+            try StandaloneTranscriptRecord
+                .filter(Column("audiobook_id") == folder)
+                .fetchCount(db)
+        } ) ?? 0) > 0
     }
 
     /// Whether transcript or enhanced transcript data is loaded for the current audiobook.
@@ -814,6 +838,39 @@ final class PlayerModel {
         playlistManager.coordinator_postResetRefresh = { [weak self] in
             self?.updateCurrentChapterFromPlayerTime()
         }
+
+        // MARK: - CarPlay notification observers
+
+        let bookmarkObs = NotificationCenter.default.addObserver(
+            forName: .carPlayAddBookmark,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.addBookmarkAtCurrentTime()
+        }
+
+        let voiceMemoObs = NotificationCenter.default.addObserver(
+            forName: .carPlayVoiceMemo,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            #if canImport(UIKit)
+            self?.carPlayStartVoiceMemo()
+            #else
+            // CarPlay is iOS-only; this observer never fires on macOS.
+            os_log("CarPlay voice memo requested — CarPlay not available on this platform")
+            #endif
+        }
+
+        let markPassageObs = NotificationCenter.default.addObserver(
+            forName: .carPlayMarkPassage,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.markPassageAtCurrentTime()
+        }
+
+        carPlayNotificationObservers = [bookmarkObs, voiceMemoObs, markPassageObs]
     }
 
     /// Delegates to `WatchSyncManager.syncToWatch(reason:)`. Defaults to
@@ -838,6 +895,12 @@ final class PlayerModel {
         // Synchronous teardown on the MainActor instead of a fire-and-forget Task.
         // PlayerModel is @MainActor, so the deinit runs on the main actor.
         MainActor.assumeIsolated {
+            // Remove CarPlay notification observers to prevent stale callbacks.
+            carPlayNotificationObservers.forEach {
+                NotificationCenter.default.removeObserver($0)
+            }
+            carPlayNotificationObservers.removeAll()
+
             sessionRecorder?.yield(.closed(position: nil, at: Date()))
             audioEngine.cleanup()
             bookmarkStore.stopVoiceMemo()
@@ -1231,6 +1294,32 @@ final class PlayerModel {
         playbackController.applySpeedToCurrentItem()
         updateNowPlayingInfo(isPaused: false)
     }
+
+    /// Called from the CarPlay voice-memo notification.  Creates a bookmark at the
+    /// current playback position and starts an audio recording.  Pauses playback so
+    /// the microphone can capture the driver's note without bleed from the audiobook.
+    /// The recording can be stopped / saved later through the bookmark editing UI.
+    /// Guarded by `canImport(UIKit)` because `VoiceMemoRecorder` is defined inside
+    /// that same conditional in Bookmarks.swift (CarPlay is iOS-only, so this code
+    /// path is never reached on macOS).
+    #if canImport(UIKit)
+    func carPlayStartVoiceMemo() {
+        addBookmarkAtCurrentTime()
+
+        guard folderURL != nil else {
+            os_log("CarPlay voice memo: no audiobook folder — recording skipped")
+            return
+        }
+
+        pause()
+
+        do {
+            try carPlayVoiceMemoRecorder.startRecording(in: folderURL)
+        } catch {
+            os_log(.error, "CarPlay voice memo recording failed: %{public}@", error.localizedDescription)
+        }
+    }
+    #endif
 
     /// Delegates to BookmarkStore to detect and fire inline voice memo triggers.
     func checkVoiceMemoTrigger(at currentSeconds: Double, previousSeconds: Double?) {

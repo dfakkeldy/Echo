@@ -72,11 +72,10 @@ struct FlashcardDAO {
         }
     }
 
-    func grade(cardID: String, grade: Int, now: Date = Date()) throws {
+    func grade(cardID: String, grade: Int, now: Date = Date(), scheduler: some SchedulingAlgorithm = SM2Scheduler()) throws {
         try db.write { db in
             guard let card = try Flashcard.fetchOne(db, key: cardID) else { return }
-            let result = SpacedRepetitionService.apply(grade: grade, to: card)
-            let updated = result
+            let updated = scheduler.review(card: card, grade: grade, now: now)
             try updated.update(db)
             try syncToTimeline(db, card: updated)
         }

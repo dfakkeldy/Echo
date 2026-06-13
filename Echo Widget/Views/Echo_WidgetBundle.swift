@@ -12,6 +12,8 @@ import SwiftUI
 struct Echo_WidgetBundle: WidgetBundle {
     var body: some Widget {
         Echo_Widget()
+        #if !os(watchOS)
         Echo_WidgetControl()
+        #endif
     }
 }

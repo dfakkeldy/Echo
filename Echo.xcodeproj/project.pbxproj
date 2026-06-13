@@ -70,21 +70,25 @@
 /* Begin PBXCopyFilesBuildPhase section */
 		CC00BC622FA6B66500323F38 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolder = PlugIns;
+			dstSubfolderSpec = 13;
 			files = (
 				CC00BC612FA6B66500323F38 /* Echo WidgetExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48E8D2FA6AAC30003458B /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
-			dstSubfolder = Product;
+			dstSubfolderSpec = 16;
 			files = (
 				CCC48EBB2FA6AB350003458B /* Echo Watch App.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
@@ -205,52 +209,68 @@
 /* Begin PBXFrameworksBuildPhase section */
 		AA0100000000000000000030 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 				CC0000000011GRDB00000011 /* GRDB in Frameworks */,
 				CC0000000016WHSK00000016 /* WhisperKit in Frameworks */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC00BC4A2FA6B66400323F38 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 				CC00BC522FA6B66400323F38 /* SwiftUI.framework in Frameworks */,
 				CC00BC502FA6B66400323F38 /* WidgetKit.framework in Frameworks */,
 				CC0000000013GRDB00000013 /* GRDB in Frameworks */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC562F9522F600206D2F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 				CC0000000010GRDB00000010 /* GRDB in Frameworks */,
 				CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */,
 				CC0000000015WHSK00000015 /* WhisperKit in Frameworks */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC632F9522F800206D2F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC6D2F9522F800206D2F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48E982FA6AB330003458B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 				CC0000000012GRDB00000012 /* GRDB in Frameworks */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EA42FA6AB340003458B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EAE2FA6AB340003458B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
@@ -319,6 +339,8 @@
 			);
 			buildRules = (
 			);
+			dependencies = (
+			);
 			fileSystemSynchronizedGroups = (
 				AA0100000000000000000010 /* Echo macOS */,
 				DD0100000000000000000001 /* Shared */,
@@ -337,6 +359,8 @@
 				CC00BC4B2FA6B66400323F38 /* Resources */,
 			);
 			buildRules = (
+			);
+			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
 				CC00BC532FA6B66400323F38 /* Echo Widget */,
@@ -548,88 +572,120 @@
 /* Begin PBXResourcesBuildPhase section */
 		AA0100000000000000000031 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC00BC4B2FA6B66400323F38 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC572F9522F600206D2F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC642F9522F800206D2F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC6E2F9522F800206D2F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48E992FA6AB330003458B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EA52FA6AB340003458B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EAF2FA6AB340003458B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		AA0100000000000000000032 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 				AA0100000000000000000051 /* WhisperSession.swift in Sources */,
 				AA0100000000000000000053 /* ModelRetainBox.swift in Sources */,
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC00BC492FA6B66400323F38 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC552F9522F600206D2F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC622F9522F800206D2F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC08EC6C2F9522F800206D2F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48E972FA6AB330003458B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EA32FA6AB340003458B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EAD2FA6AB340003458B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
@@ -668,7 +724,7 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		AA01000000000000000000A6 /* Debug configuration for PBXNativeTarget "Echo macOS" */ = {
+		AA01000000000000000000A6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -711,7 +767,7 @@
 			};
 			name = Debug;
 		};
-		AA01000000000000000000A7 /* Release configuration for PBXNativeTarget "Echo macOS" */ = {
+		AA01000000000000000000A7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -755,7 +811,7 @@
 			};
 			name = Release;
 		};
-		CC00BC632FA6B66500323F38 /* Debug configuration for PBXNativeTarget "Echo WidgetExtension" */ = {
+		CC00BC632FA6B66500323F38 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -787,11 +843,11 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				VERSIONING_SYSTEM = "apple-generic";
-				WATCHOS_DEPLOYMENT_TARGET = 26.4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Debug;
 		};
-		CC00BC642FA6B66500323F38 /* Release configuration for PBXNativeTarget "Echo WidgetExtension" */ = {
+		CC00BC642FA6B66500323F38 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -824,11 +880,11 @@
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";
-				WATCHOS_DEPLOYMENT_TARGET = 26.4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Release;
 		};
-		CC08EC782F9522F800206D2F /* Debug configuration for PBXProject "Echo" */ = {
+		CC08EC782F9522F800206D2F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -892,7 +948,7 @@
 			};
 			name = Debug;
 		};
-		CC08EC792F9522F800206D2F /* Release configuration for PBXProject "Echo" */ = {
+		CC08EC792F9522F800206D2F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -948,7 +1004,7 @@
 			};
 			name = Release;
 		};
-		CC08EC7B2F9522F800206D2F /* Debug configuration for PBXNativeTarget "Echo" */ = {
+		CC08EC7B2F9522F800206D2F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -990,7 +1046,7 @@
 			};
 			name = Debug;
 		};
-		CC08EC7C2F9522F800206D2F /* Release configuration for PBXNativeTarget "Echo" */ = {
+		CC08EC7C2F9522F800206D2F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -1032,7 +1088,7 @@
 			};
 			name = Release;
 		};
-		CC08EC7E2F9522F800206D2F /* Debug configuration for PBXNativeTarget "EchoTests" */ = {
+		CC08EC7E2F9522F800206D2F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -1059,7 +1115,7 @@
 			};
 			name = Debug;
 		};
-		CC08EC7F2F9522F800206D2F /* Release configuration for PBXNativeTarget "EchoTests" */ = {
+		CC08EC7F2F9522F800206D2F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -1085,7 +1141,7 @@
 			};
 			name = Release;
 		};
-		CC08EC812F9522F800206D2F /* Debug configuration for PBXNativeTarget "EchoUITests" */ = {
+		CC08EC812F9522F800206D2F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -1111,7 +1167,7 @@
 			};
 			name = Debug;
 		};
-		CC08EC822F9522F800206D2F /* Release configuration for PBXNativeTarget "EchoUITests" */ = {
+		CC08EC822F9522F800206D2F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -1136,7 +1192,7 @@
 			};
 			name = Release;
 		};
-		CCC48EBD2FA6AB350003458B /* Debug configuration for PBXNativeTarget "Echo Watch App" */ = {
+		CCC48EBD2FA6AB350003458B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-ComplexWaves";
@@ -1175,7 +1231,7 @@
 			};
 			name = Debug;
 		};
-		CCC48EBE2FA6AB350003458B /* Release configuration for PBXNativeTarget "Echo Watch App" */ = {
+		CCC48EBE2FA6AB350003458B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-ComplexWaves";
@@ -1215,7 +1271,7 @@
 			};
 			name = Release;
 		};
-		CCC48EC02FA6AB350003458B /* Debug configuration for PBXNativeTarget "Echo Watch AppTests" */ = {
+		CCC48EC02FA6AB350003458B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -1240,7 +1296,7 @@
 			};
 			name = Debug;
 		};
-		CCC48EC12FA6AB350003458B /* Release configuration for PBXNativeTarget "Echo Watch AppTests" */ = {
+		CCC48EC12FA6AB350003458B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -1266,7 +1322,7 @@
 			};
 			name = Release;
 		};
-		CCC48EC32FA6AB350003458B /* Debug configuration for PBXNativeTarget "Echo Watch AppUITests" */ = {
+		CCC48EC32FA6AB350003458B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -1290,7 +1346,7 @@
 			};
 			name = Debug;
 		};
-		CCC48EC42FA6AB350003458B /* Release configuration for PBXNativeTarget "Echo Watch AppUITests" */ = {
+		CCC48EC42FA6AB350003458B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -1321,73 +1377,82 @@
 		AA0100000000000000000040 /* Build configuration list for PBXNativeTarget "Echo macOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AA01000000000000000000A6 /* Debug configuration for PBXNativeTarget "Echo macOS" */,
-				AA01000000000000000000A7 /* Release configuration for PBXNativeTarget "Echo macOS" */,
+				AA01000000000000000000A6 /* Debug */,
+				AA01000000000000000000A7 /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CC00BC652FA6B66500323F38 /* Build configuration list for PBXNativeTarget "Echo WidgetExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CC00BC632FA6B66500323F38 /* Debug configuration for PBXNativeTarget "Echo WidgetExtension" */,
-				CC00BC642FA6B66500323F38 /* Release configuration for PBXNativeTarget "Echo WidgetExtension" */,
+				CC00BC632FA6B66500323F38 /* Debug */,
+				CC00BC642FA6B66500323F38 /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "Echo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CC08EC782F9522F800206D2F /* Debug configuration for PBXProject "Echo" */,
-				CC08EC792F9522F800206D2F /* Release configuration for PBXProject "Echo" */,
+				CC08EC782F9522F800206D2F /* Debug */,
+				CC08EC792F9522F800206D2F /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CC08EC7A2F9522F800206D2F /* Build configuration list for PBXNativeTarget "Echo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CC08EC7B2F9522F800206D2F /* Debug configuration for PBXNativeTarget "Echo" */,
-				CC08EC7C2F9522F800206D2F /* Release configuration for PBXNativeTarget "Echo" */,
+				CC08EC7B2F9522F800206D2F /* Debug */,
+				CC08EC7C2F9522F800206D2F /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CC08EC7D2F9522F800206D2F /* Build configuration list for PBXNativeTarget "EchoTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CC08EC7E2F9522F800206D2F /* Debug configuration for PBXNativeTarget "EchoTests" */,
-				CC08EC7F2F9522F800206D2F /* Release configuration for PBXNativeTarget "EchoTests" */,
+				CC08EC7E2F9522F800206D2F /* Debug */,
+				CC08EC7F2F9522F800206D2F /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CC08EC802F9522F800206D2F /* Build configuration list for PBXNativeTarget "EchoUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CC08EC812F9522F800206D2F /* Debug configuration for PBXNativeTarget "EchoUITests" */,
-				CC08EC822F9522F800206D2F /* Release configuration for PBXNativeTarget "EchoUITests" */,
+				CC08EC812F9522F800206D2F /* Debug */,
+				CC08EC822F9522F800206D2F /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CCC48EBC2FA6AB350003458B /* Build configuration list for PBXNativeTarget "Echo Watch App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CCC48EBD2FA6AB350003458B /* Debug configuration for PBXNativeTarget "Echo Watch App" */,
-				CCC48EBE2FA6AB350003458B /* Release configuration for PBXNativeTarget "Echo Watch App" */,
+				CCC48EBD2FA6AB350003458B /* Debug */,
+				CCC48EBE2FA6AB350003458B /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CCC48EBF2FA6AB350003458B /* Build configuration list for PBXNativeTarget "Echo Watch AppTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CCC48EC02FA6AB350003458B /* Debug configuration for PBXNativeTarget "Echo Watch AppTests" */,
-				CCC48EC12FA6AB350003458B /* Release configuration for PBXNativeTarget "Echo Watch AppTests" */,
+				CCC48EC02FA6AB350003458B /* Debug */,
+				CCC48EC12FA6AB350003458B /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CCC48EC22FA6AB350003458B /* Build configuration list for PBXNativeTarget "Echo Watch AppUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				CCC48EC32FA6AB350003458B /* Debug configuration for PBXNativeTarget "Echo Watch AppUITests" */,
-				CCC48EC42FA6AB350003458B /* Release configuration for PBXNativeTarget "Echo Watch AppUITests" */,
+				CCC48EC32FA6AB350003458B /* Debug */,
+				CCC48EC42FA6AB350003458B /* Release */,
 			);
+			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */

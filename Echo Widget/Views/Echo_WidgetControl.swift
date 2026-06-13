@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AppIntents
 import SwiftUI
 import WidgetKit
@@ -17,3 +18,5 @@ struct Echo_WidgetControl: ControlWidget {
         .description("Toggle audiobook playback.")
     }
 }
+#endif
+

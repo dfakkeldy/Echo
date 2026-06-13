@@ -6,16 +6,45 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 @main
 struct Echo_macOSApp: App {
     @State private var player = MacPlayerModel()
+    @State private var transcriptionManager = TranscriptionManager()
+    @State private var transcriptStore = TranscriptStore()
+    /// Shared database — falls back to in-memory if the App Group DB is unavailable.
+    @State private var dbService: DatabaseService = {
+        (try? DatabaseService()) ?? Self.makeInMemoryDB()
+    }()
+    @State private var lastOpenToken: UUID = UUID()
+
+    // WS-12: Bulk alignment and Anki export state
+    @State private var bulkAlignmentService = MacBulkAlignmentService()
+    @State private var showBulkAlignment = false
+    @State private var showAnkiExport = false
 
     var body: some Scene {
         WindowGroup("Echo AudioBooks") {
-            MacContentView()
+            MacTriPaneView()
                 .environment(player)
-                .frame(minWidth: 720, minHeight: 480)
+                .environment(transcriptionManager)
+                .environment(transcriptStore)
+                .environment(dbService)
+                .frame(minWidth: 900, minHeight: 560)
+                .onChange(of: player.openFileRequestToken) { _, newValue in
+                    if newValue != lastOpenToken {
+                        lastOpenToken = newValue
+                        showOpenPanel()
+                    }
+                }
+                // WS-12 sheets
+                .sheet(isPresented: $showBulkAlignment) {
+                    MacBulkAlignmentProgressView(service: bulkAlignmentService)
+                }
+                .sheet(isPresented: $showAnkiExport) {
+                    MacAnkiExportView()
+                }
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -23,35 +52,197 @@ struct Echo_macOSApp: App {
                     player.requestOpenFile()
                 }
                 .keyboardShortcut("o", modifiers: [.command])
+
+                Divider()
+
+                Button("Bulk Align Folder…") {
+                    showBulkAlignmentFolderPicker()
+                }
+                .keyboardShortcut("b", modifiers: [.command, .option])
+
+                Divider()
+
+                Button("Export Transcript…") {
+                    NotificationCenter.default.post(name: .requestExportTranscript, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+            }
+
+            CommandGroup(replacing: .textEditing) {
+                Button("Find in Book") {
+                    NotificationCenter.default.post(name: .requestFocusSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command])
+                .disabled(!player.hasMedia)
+            }
+
+            CommandMenu("View") {
+                Button("Toggle Notes Pane") {
+                    NotificationCenter.default.post(name: .requestToggleDetailPane, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: [.command])
             }
 
             CommandMenu("Playback") {
-                Button(player.isPlaying ? String(localized: "Pause") : String(localized: "Play")) {
+                Button(player.isPlaying ? "Pause" : "Play") {
                     player.togglePlayPause()
                 }
                 .keyboardShortcut(.space, modifiers: [])
                 .disabled(!player.hasMedia)
 
-                Button("Skip Backward 30s") {
-                    player.skip(by: -30)
+                Divider()
+
+                Button("Skip Back 15s") {
+                    player.skip(by: -15)
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+                .disabled(!player.hasMedia)
+
+                Button("Skip Forward 15s") {
+                    player.skip(by: 15)
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+                .disabled(!player.hasMedia)
+
+                Divider()
+
+                Button("Previous Chapter") {
+                    player.previousTrack()
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
+                .disabled(!player.hasMultipleTracks)
+
+                Button("Next Chapter") {
+                    player.nextTrack()
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [.command])
+                .disabled(!player.hasMultipleTracks)
+
+                Divider()
+
+                Button("Skip Back 30s") {
+                    player.skip(by: -30)
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                 .disabled(!player.hasMedia)
 
                 Button("Skip Forward 30s") {
                     player.skip(by: 30)
                 }
-                .keyboardShortcut(.rightArrow, modifiers: [.command])
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
                 .disabled(!player.hasMedia)
+            }
 
-                Divider()
-
-                Button("Add Bookmark") {
+            CommandMenu("Study") {
+                Button("Bookmark") {
                     player.addBookmarkAtCurrentTime()
                 }
                 .keyboardShortcut("b", modifiers: [.command])
                 .disabled(!player.hasMedia)
+
+                Button("Mark Passage") {
+                    markPassage()
+                }
+                .keyboardShortcut("m", modifiers: [.command])
+                .disabled(!player.hasMedia)
+
+                Button("New Note") {
+                    NotificationCenter.default.post(name: .requestNewNote, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: [.command])
+                .disabled(!player.hasMedia)
+
+                Divider()
+
+                Button("Export for Anki…") {
+                    showAnkiExport = true
+                }
+                .keyboardShortcut("e", modifiers: [.command, .option])
             }
         }
     }
+
+    // MARK: - Actions
+
+    /// Marks the current playback position as a passage for later flashcard
+    /// conversion, via the shared database's MarkedPassageDAO.
+    private func markPassage() {
+        guard let audiobookID = player.audiobookID, player.hasMedia else { return }
+        let dao = MarkedPassageDAO(db: dbService.writer)
+        try? dao.insert(
+            audiobookID: audiobookID,
+            mediaTimestamp: player.currentTime,
+            endTimestamp: nil,
+            transcriptSnippet: nil,
+            note: nil
+        )
+    }
+
+    // MARK: - Open Panel
+
+    /// Presents an NSOpenPanel to select a folder for bulk alignment,
+    /// then kicks off the MacBulkAlignmentService.
+    private func showBulkAlignmentFolderPicker() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Select Audiobook Folder for Bulk Alignment")
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = String(localized: "Choose a folder containing audiobooks (M4B/MP3/M4A) with companion EPUB/PDF files.")
+
+        if panel.runModal() == .OK, let url = panel.url {
+            showBulkAlignment = true
+            Task {
+                await bulkAlignmentService.start(folderURL: url)
+            }
+        }
+    }
+
+    func showOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Open Audiobook…")
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.message = String(localized: "Select an audiobook file or folder containing audio files.")
+        let audioTypes: [UTType] = [
+            .audio, .mp3, .mpeg4Audio,
+            UTType(filenameExtension: "aiff") ?? .audio,
+            UTType(filenameExtension: "aac") ?? .audio,
+            UTType(filenameExtension: "ogg") ?? .audio,
+            UTType(filenameExtension: "opus") ?? .audio,
+            UTType(filenameExtension: "wma") ?? .audio,
+            UTType(filenameExtension: "flac") ?? .audio,
+        ]
+        panel.allowedContentTypes = audioTypes
+        if panel.runModal() == .OK, let url = panel.url {
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            if isDirectory {
+                player.loadFolder(url: url)
+            } else {
+                player.open(url: url)
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// In-memory database used as a safe fallback when the shared App Group
+    /// database cannot be initialised (first launch, no entitlements, etc.).
+    private static func makeInMemoryDB() -> DatabaseService {
+        (try? DatabaseService(inMemory: ())) ?? (try! DatabaseService(inMemory: ()))
+    }
+}
+
+// MARK: - Notifications
+
+extension Notification.Name {
+    /// Posted when the user presses the "New Note" menu command.
+    static let requestNewNote = Notification.Name("com.echo.requestNewNote")
+    /// Posted when the user presses "Find in Book".
+    static let requestFocusSearch = Notification.Name("com.echo.requestFocusSearch")
+    /// Posted when the user presses "Toggle Notes Pane".
+    static let requestToggleDetailPane = Notification.Name("com.echo.requestToggleDetailPane")
+    /// Posted when the user presses "Export Transcript".
+    static let requestExportTranscript = Notification.Name("com.echo.requestExportTranscript")
 }

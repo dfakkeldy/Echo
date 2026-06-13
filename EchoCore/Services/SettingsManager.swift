@@ -61,6 +61,10 @@ final class SettingsManager: SettingsManagerProtocol {
         static let autoAlignmentDriftDetectionEnabled = true
         static let autoAlignmentDriftRepairEnabled = true
         static let continuousAutoAlignmentEnabled = false
+        static let chimeInterval: TimeInterval = 0
+        static let chimeSound: String = ChimeSound.softChime.rawValue
+        static let chimeVolume: Double = 0.3
+        static let soundscapeVolume: Float = 0.5
     }
 
     private enum Keys {
@@ -118,6 +122,10 @@ final class SettingsManager: SettingsManagerProtocol {
         static let autoAlignmentDriftDetectionEnabled = "autoAlignmentDriftDetectionEnabled"
         static let autoAlignmentDriftRepairEnabled = "autoAlignmentDriftRepairEnabled"
         static let continuousAutoAlignmentEnabled = "continuousAutoAlignmentEnabled"
+        static let chimeInterval = "chimeInterval"
+        static let chimeSound = "chimeSound"
+        static let chimeVolume = "chimeVolume"
+        static let soundscapeVolume = "soundscapeVolume"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -217,6 +225,13 @@ final class SettingsManager: SettingsManagerProtocol {
     var autoAlignmentDriftDetectionEnabled: Bool { didSet { defaults.set(autoAlignmentDriftDetectionEnabled, forKey: Keys.autoAlignmentDriftDetectionEnabled) } }
     var autoAlignmentDriftRepairEnabled: Bool { didSet { defaults.set(autoAlignmentDriftRepairEnabled, forKey: Keys.autoAlignmentDriftRepairEnabled) } }
     var continuousAutoAlignmentEnabled: Bool { didSet { defaults.set(continuousAutoAlignmentEnabled, forKey: Keys.continuousAutoAlignmentEnabled) } }
+
+    // MARK: - Focus (Soundscapes & Chimes)
+
+    var chimeInterval: TimeInterval { didSet { defaults.set(chimeInterval, forKey: Keys.chimeInterval) } }
+    var chimeSound: String { didSet { defaults.set(chimeSound, forKey: Keys.chimeSound) } }
+    var chimeVolume: Double { didSet { defaults.set(chimeVolume, forKey: Keys.chimeVolume) } }
+    var soundscapeVolume: Float { didSet { defaults.set(soundscapeVolume, forKey: Keys.soundscapeVolume) } }
 
     var watchQuickBookmarkTimeoutSeconds: Int {
         didSet {
@@ -370,6 +385,11 @@ final class SettingsManager: SettingsManagerProtocol {
         autoAlignmentDriftDetectionEnabled = defaults.object(forKey: Keys.autoAlignmentDriftDetectionEnabled) as? Bool ?? Defaults.autoAlignmentDriftDetectionEnabled
         autoAlignmentDriftRepairEnabled = defaults.object(forKey: Keys.autoAlignmentDriftRepairEnabled) as? Bool ?? Defaults.autoAlignmentDriftRepairEnabled
         continuousAutoAlignmentEnabled = defaults.object(forKey: Keys.continuousAutoAlignmentEnabled) as? Bool ?? Defaults.continuousAutoAlignmentEnabled
+
+        chimeInterval = defaults.object(forKey: Keys.chimeInterval) as? TimeInterval ?? Defaults.chimeInterval
+        chimeSound = defaults.string(forKey: Keys.chimeSound) ?? Defaults.chimeSound
+        chimeVolume = defaults.object(forKey: Keys.chimeVolume) as? Double ?? Defaults.chimeVolume
+        soundscapeVolume = defaults.object(forKey: Keys.soundscapeVolume) as? Float ?? Defaults.soundscapeVolume
     }
 
     static func registerDefaults(

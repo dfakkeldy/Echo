@@ -13,6 +13,8 @@ struct PhonePlayerSettingsView: View {
     @State private var longPressSlots: [WatchAction] = Array(repeating: .empty, count: 5)
     @State private var showingSaveAlert = false
     @State private var newPresetName = ""
+    @State private var showingSoundscapePicker = false
+    @State private var showingChimeSettings = false
 
     private let palette: [WatchAction] = [
         .playPause, .skipForward, .skipBackward, .nextTrack,
@@ -169,6 +171,34 @@ struct PhonePlayerSettingsView: View {
                         .fill(.quaternary)
                 )
 
+                // MARK: Focus
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Focus")
+                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        showingSoundscapePicker = true
+                    } label: {
+                        Label("Soundscape", systemImage: "waveform")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        showingChimeSettings = true
+                    } label: {
+                        Label("Interval Chime", systemImage: "bell")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(.quaternary)
+                )
+
                 // MARK: Layout Presets
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -271,6 +301,12 @@ struct PhonePlayerSettingsView: View {
         .navigationTitle("Phone Player Settings")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadSlots() }
+        .sheet(isPresented: $showingSoundscapePicker) {
+            SoundscapePickerView(engine: model.audioEngine.soundscapeMixer)
+        }
+        .sheet(isPresented: $showingChimeSettings) {
+            ChimeSettingsView(engine: model.audioEngine.chimePlayer)
+        }
     }
 
     private func loadSlots() {

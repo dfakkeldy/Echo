@@ -12,6 +12,23 @@ protocol AudioEngineDelegate: AnyObject {
     func audioEngineOutputDeviceDisconnected(_ engine: AudioEngine)
 }
 
+// MARK: - WS-4 Audio Engine Upgrade Protocols
+
+protocol SoundscapePlaying: AnyObject {
+    func play(preset: SoundscapePreset) async
+    func stop()
+    var volume: Float { get set }
+}
+
+protocol ChimeScheduling: AnyObject {
+    func schedule(interval: TimeInterval, sound: ChimeSound)
+    func cancel()
+}
+
+protocol VisualizerDataProviding: AnyObject {
+    var frames: AsyncStream<VisualizerFrame> { get }
+}
+
 // MARK: - AudioEngine
 
 /// Encapsulates AVAudioEngine-powered playback through an
@@ -48,6 +65,12 @@ final class AudioEngine {
     private var eqNode: AVAudioUnitEQ?
     private var timePitchNode: AVAudioUnitTimePitch?
     private var audioFile: AVAudioFile?
+
+    // MARK: - WS-4 Subsystems
+
+    nonisolated(unsafe) var soundscapeMixer: SoundscapePlaying?
+    nonisolated(unsafe) var chimePlayer: ChimeScheduling?
+    nonisolated(unsafe) var visualizerTap: VisualizerDataProviding?
 
     // MARK: - Time Tracking
 
@@ -118,6 +141,11 @@ final class AudioEngine {
         self.playerNode = playerNode
         self.eqNode = eqNode
         self.timePitchNode = timePitchNode
+
+        // Wire WS-4 subsystems into the audio graph.
+        soundscapeMixer = DefaultSoundscapeMixer(engine: engine)
+        chimePlayer = DefaultChimePlayer(engine: engine)
+        visualizerTap = DefaultVisualizerTap(engine: engine)
     }
 
     // MARK: - Playback Controls
@@ -334,6 +362,10 @@ final class AudioEngine {
         duration = nil
         seekOffset = 0
 
+        // Stop WS-4 subsystems.
+        soundscapeMixer?.stop()
+        chimePlayer?.cancel()
+
         fadeTimer?.invalidate()
         fadeTimer = nil
         stopTimeTimer()
@@ -350,6 +382,9 @@ final class AudioEngine {
         playerNode = nil
         eqNode = nil
         timePitchNode = nil
+        soundscapeMixer = nil
+        chimePlayer = nil
+        visualizerTap = nil
     }
 
     // MARK: - Pre-buffering (multi-M4B gapless transition)
