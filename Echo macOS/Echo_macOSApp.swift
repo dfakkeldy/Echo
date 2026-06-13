@@ -19,6 +19,11 @@ struct Echo_macOSApp: App {
     }()
     @State private var lastOpenToken: UUID = UUID()
 
+    // WS-12: Bulk alignment and Anki export state
+    @State private var bulkAlignmentService = MacBulkAlignmentService()
+    @State private var showBulkAlignment = false
+    @State private var showAnkiExport = false
+
     var body: some Scene {
         WindowGroup("Echo AudioBooks") {
             MacTriPaneView()
@@ -33,6 +38,13 @@ struct Echo_macOSApp: App {
                         showOpenPanel()
                     }
                 }
+                // WS-12 sheets
+                .sheet(isPresented: $showBulkAlignment) {
+                    MacBulkAlignmentProgressView(service: bulkAlignmentService)
+                }
+                .sheet(isPresented: $showAnkiExport) {
+                    MacAnkiExportView()
+                }
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -40,6 +52,13 @@ struct Echo_macOSApp: App {
                     player.requestOpenFile()
                 }
                 .keyboardShortcut("o", modifiers: [.command])
+
+                Divider()
+
+                Button("Bulk Align Folder…") {
+                    showBulkAlignmentFolderPicker()
+                }
+                .keyboardShortcut("b", modifiers: [.command, .option])
 
                 Divider()
 
@@ -132,6 +151,13 @@ struct Echo_macOSApp: App {
                 }
                 .keyboardShortcut("n", modifiers: [.command])
                 .disabled(!player.hasMedia)
+
+                Divider()
+
+                Button("Export for Anki…") {
+                    showAnkiExport = true
+                }
+                .keyboardShortcut("e", modifiers: [.command, .option])
             }
         }
     }
@@ -153,6 +179,24 @@ struct Echo_macOSApp: App {
     }
 
     // MARK: - Open Panel
+
+    /// Presents an NSOpenPanel to select a folder for bulk alignment,
+    /// then kicks off the MacBulkAlignmentService.
+    private func showBulkAlignmentFolderPicker() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Select Audiobook Folder for Bulk Alignment")
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = String(localized: "Choose a folder containing audiobooks (M4B/MP3/M4A) with companion EPUB/PDF files.")
+
+        if panel.runModal() == .OK, let url = panel.url {
+            showBulkAlignment = true
+            Task {
+                await bulkAlignmentService.start(folderURL: url)
+            }
+        }
+    }
 
     func showOpenPanel() {
         let panel = NSOpenPanel()
