@@ -17,6 +17,7 @@ struct RootTabView: View {
     @State private var editingBookmarkID: UUID? = nil
     @State private var showingReview = false
     @State private var reviewViewModel: DailyReviewViewModel?
+    @State private var editingIdentifiableUUID: IdentifiableUUID?
 
     init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
         _pendingDeepLink = pendingDeepLink
@@ -113,10 +114,7 @@ struct RootTabView: View {
                         }
                 }
             }
-            .sheet(item: Binding(
-                get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
-                set: { editingBookmarkID = $0?.id }
-            )) { wrapper in
+            .sheet(item: $editingIdentifiableUUID) { wrapper in
                 EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
             }
             .sheet(item: $newBookmarkDraft) { draft in
@@ -143,6 +141,9 @@ struct RootTabView: View {
                 if newPhase == .background || newPhase == .inactive {
                     model.persistCurrentState()
                 }
+            }
+            .onChange(of: editingBookmarkID) { _, newValue in
+                editingIdentifiableUUID = newValue.map { IdentifiableUUID(id: $0) }
             }
             .task {
                 await storeManager.requestProducts()

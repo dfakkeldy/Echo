@@ -23,7 +23,7 @@ struct EchoCoreApp: App {
     /// static weak singleton. A shared container service (e.g. a registry keyed by
     /// scene identifier) would eliminate the global and avoid concurrency ordering
     /// hazards without changing the CarPlay code paths.
-    static weak var playerModel: PlayerModel?
+    @MainActor static weak var playerModel: PlayerModel?
 
     init() {
         #if DEBUG && targetEnvironment(simulator)
