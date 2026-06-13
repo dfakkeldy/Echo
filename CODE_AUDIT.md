@@ -23,6 +23,32 @@ Findings cite `path/to/file.swift:LINE`. Every Critical/High was personally veri
 
 ---
 
+## Remediation progress
+
+_2026-06-13 (session 2), branch `claude/elegant-heyrovsky-309173` (fast-forwarded onto the build-repair + CarPlay §5.2 commits). Verified with `make build-tests` → `** TEST BUILD SUCCEEDED **` and targeted `xcodebuild test-without-building` runs (`StatsAggregatorTests`, `StatsRepositoryTests`, `ChapterCardDrafterTests` all green)._
+
+**Legend:** ✅ fixed & verified · ⏭ delegated · 🔲 open
+
+### ✅ Swift-6 readiness milestone (the three Highs + quick wins)
+- **§3.1 [High]** Both Widget `AppIntent.perform()` methods marked `@MainActor`, so they may legally touch the main-actor, non-Sendable `AppGroupDefaults`/`Bookmark` (an `async` protocol requirement is satisfiable by a `@MainActor` witness). 5 warnings cleared.
+- **§3.2 [High]** `ChapterCardDrafter` captured-`var card` race → `let card` + a local mutable copy inside the `@Sendable` `db.write` closure.
+- **§3.3 [High]** The four pure stats/FSRS functions (`retentionCurve`, `dueForecast`, `gradeDistribution`, `plannerAdherence`) marked `nonisolated static` — per-function, *not* whole-type: the other aggregators legitimately call main-actor helpers (`Calendar.startOfPeriod`, `ListeningSegment.adjustedDuration`). 4 warnings cleared.
+- **§3.4 [Low]** `AudioEngine` subsystem refs: the `nonisolated(unsafe)` was a no-op (all access is main-actor) — removed it → plain `var`, clearing 3 "has no effect" warnings and restoring the observation the settings/visualizer views rely on. (Plain `nonisolated` is illegal on a mutable `@ObservationTracked` stored property.)
+- **§3.9 [Low]** Removed the two spurious `await`s on synchronous GRDB reads in `ChapterCardDrafter`.
+- **§9.5 [Low]** Removed the dead `dailyTotals` binding in `StatsRepository`.
+
+### ✅ Bugs surfaced by repairing the test target (beyond the original audit scope)
+- **The EchoTests target had never compiled** — `EchoTests/SchedulingAlgorithmTests.swift` was missing `import Foundation` (`Date` unresolved under the `MemberImportVisibility` upcoming feature). Added the import. _The prior audit verified `xcodebuild build` (app), not `build-for-testing`, so this and the two bugs below were invisible._
+- **`ChapterCardDrafter` produced zero cards** — it never set `cardType`, so every insert hit `card_type NOT NULL` (V16's column default does not apply to an explicit NULL). Added `cardType: "normal"`; `ChapterCardDrafterTests` now passes.
+
+### ⏭ Delegated (separate task)
+- **FSRS / SM-2 schedulers off-spec** — `SchedulingAlgorithmTests` has 6 failures (wrong SM-2 intervals `[1,6,14,33,77]` vs canonical `[1,6,15,37,92]`; FSRS stability stuck at `1.0`). Surfaced once the test target compiled. Spun off as its own task — algorithm-correctness work, not an audit finding (§11 noted scheduler math was unreviewed). Fold §5.4 (FSRS calendar overflow) into that fix.
+
+### 🔲 Still open from this audit
+Highs: **none remaining.** Mediums/Lows: §3.5–§3.8, §4.x, §5.3–§5.7, §6.x, §7.x, §8.x, §9.1–§9.3, and the CI build-gate (§10 rec. 5).
+
+---
+
 ## 1. Executive summary
 
 Top items to address, in priority order:
@@ -56,6 +82,7 @@ These deliver outsized value relative to effort and have no architectural ripple
 ## 3. Concurrency
 
 ### 3.1 Widget AppIntents access a main-actor, non-Sendable `AppGroupDefaults` from a nonisolated `perform()`
+- **Status:** ✅ **FIXED (2026-06-13 session 2)** — both `perform()` methods marked `@MainActor`; 5 warnings cleared, build verified.
 - **Location:** `Echo Widget/Models/AppIntent.swift:11, 28, 36` (root: `Shared/AppGroupDefaults.swift:10`)
 - **What:** Under `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `AppGroupDefaults.shared` (a `UserDefaults`) and `Bookmark.init` are main-actor-isolated, but `AppIntent.perform()` is nonisolated `async`; the compiler emits 5 warnings ("cannot be accessed from outside of the actor" / "non-Sendable type 'UserDefaults' … cannot exit main actor-isolated context" — errors in Swift 6).
 - **Why:** This is the project's main Swift-6-language-mode blocker; `UserDefaults` is not `Sendable` and crossing the boundary is a data race the compiler will reject.
@@ -63,6 +90,7 @@ These deliver outsized value relative to effort and have no architectural ripple
 - **Severity:** High
 
 ### 3.2 Data race: captured `var card` mutated inside a `@Sendable` GRDB write closure
+- **Status:** ✅ **FIXED (2026-06-13 session 2)** — `let card` + a local mutable copy inside the write closure; warning cleared, `ChapterCardDrafterTests` green.
 - **Location:** `Shared/Services/ChapterCardDrafter.swift:72-97` (mutation at `:97`)
 - **What:** `var card` (line 72) is captured by the `@Sendable` `db.write { db in try card.insert(db) }` closure (line 97); GRDB's `insert` is `mutating`, so the closure mutates a `var` that also lives in the enclosing scope — "mutation of captured var 'card' in concurrently-executing code" (Swift-6-mode error).
 - **Why:** Today the `await` serializes execution so no runtime race occurs, but it is a Swift-6 blocker and a genuinely fragile pattern in the new auto-draft path.
@@ -70,6 +98,7 @@ These deliver outsized value relative to effort and have no architectural ripple
 - **Severity:** High
 
 ### 3.3 Pure stats / FSRS functions are implicitly `@MainActor` but invoked off-main
+- **Status:** ✅ **FIXED (2026-06-13 session 2)** — the four functions marked `nonisolated static` (per-function, not whole-type); 4 warnings cleared, `StatsAggregatorTests`/`StatsRepositoryTests` green.
 - **Location:** call sites `Shared/Stats/StatsRepository.swift:333, 354, 374, 450`; definitions `Shared/Stats/StatsAggregator.swift:303, 320, 344, 354`
 - **What:** `retentionCurve`, `dueForecast`, `gradeDistribution`, and `plannerAdherence` are pure static functions but are implicitly main-actor-isolated under default isolation; `StatsRepository` calls them inside `nonisolated`/DB-reader contexts → "call to main actor-isolated static method … in a synchronous nonisolated context."
 - **Why:** Forces analytics math onto the main actor (jank risk on large histories) and is a Swift-6-mode error at each call site.
@@ -77,6 +106,7 @@ These deliver outsized value relative to effort and have no architectural ripple
 - **Severity:** High
 
 ### 3.4 `nonisolated(unsafe)` has no effect on the AudioEngine subsystem properties
+- **Status:** ✅ **FIXED (2026-06-13 session 2)** — annotation removed → plain `var` (all access is main-actor); 3 warnings cleared. NB: plain `nonisolated` is illegal on a mutable `@ObservationTracked` stored property, so removal — not `nonisolated` — is the correct fix.
 - **Location:** `EchoCore/Services/AudioEngine.swift:71-73` (`soundscapeMixer`, `chimePlayer`, `visualizerTap`)
 - **What:** All three are declared `nonisolated(unsafe) var`; the compiler reports the `unsafe` qualifier "has no effect, consider using 'nonisolated'."
 - **Why:** Misleading annotation — it signals a data-race concern that the compiler says doesn't exist here, adding cognitive noise.
@@ -112,6 +142,7 @@ These deliver outsized value relative to effort and have no architectural ripple
 - **Severity:** Medium
 
 ### 3.9 Spurious `await` on synchronous expressions
+- **Status:** ✅ **FIXED (2026-06-13 session 2)** — both redundant `await`s removed.
 - **Location:** `Shared/Services/ChapterCardDrafter.swift:32, 112`
 - **What:** "no 'async' operations occur within 'await' expression" — the awaited GRDB read closures resolve synchronously here.
 - **Why:** Harmless but noisy; obscures which awaits are real suspension points.
