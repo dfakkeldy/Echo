@@ -98,6 +98,7 @@ final class DatabaseService {
         migrator.registerMigration("v13_epub_toc_entries") { db in try Schema_V13.migrate(db) }
         migrator.registerMigration("v14_capture_and_context") { db in try Schema_V14.migrate(db) }
         migrator.registerMigration("v15_anki_decks") { db in try Schema_V15.migrate(db) }
+        migrator.registerMigration("v16_fsrs_cloze_transcript") { db in try Schema_V16.migrate(db) }
         try migrator.migrate(writer)
     }
 
