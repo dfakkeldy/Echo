@@ -210,7 +210,7 @@ struct PhonePlayerSettingsView: View {
                                         longPressSlots = Array(repeating: .empty, count: 5)
                                     }
                                     saveSlots()
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    Haptic.play(.medium)
                                 } label: {
                                     Text("Load")
                                         .customFont(.caption, weight: .bold, appFont: settings.appFont)

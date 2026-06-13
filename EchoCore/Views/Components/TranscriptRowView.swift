@@ -29,6 +29,7 @@ struct TranscriptRowView: View {
         .onTapGesture {
             player.seek(toSeconds: segment.startTime)
         }
+        .accessibilityAddTraits(.isButton)
         .contextMenu {
             Button {
                 showingNoteEditor = true
