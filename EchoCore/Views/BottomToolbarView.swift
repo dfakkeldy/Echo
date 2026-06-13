@@ -4,6 +4,7 @@ struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
+    var onShowFidget: (() -> Void)?
 
     var body: some View {
         HStack {
@@ -14,6 +15,8 @@ struct BottomToolbarView: View {
             markPassageButton
             Spacer()
             timelineButton
+            Spacer()
+            fidgetButton
             Spacer()
             addBookmarkButton
         }
@@ -159,6 +162,22 @@ struct BottomToolbarView: View {
             ? String(localized: "Player")
             : model.selectedTab == .timeline ? String(localized: "Timeline") : String(localized: "Reader")))
         .accessibilityAddTraits((model.selectedTab == .timeline || model.selectedTab == .read) ? .isSelected : [])
+        .disabled(model.tracks.isEmpty)
+    }
+
+    // MARK: - Fidget
+
+    private var fidgetButton: some View {
+        Button {
+            onShowFidget?()
+            Haptic.play(.light)
+        } label: {
+            utilityChip(isActive: false) {
+                Image(systemName: "circle.hexagongrid.fill")
+                    .font(.title2)
+            }
+        }
+        .accessibilityLabel(Text("Fidget tools"))
         .disabled(model.tracks.isEmpty)
     }
 

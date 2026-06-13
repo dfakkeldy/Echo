@@ -15,6 +15,7 @@ struct RootTabView: View {
     // showingHelp presentation state resides on PlayerModel
     @State private var newBookmarkDraft: BookmarkDraft? = nil
     @State private var editingBookmarkID: UUID? = nil
+    @State private var showingFidget = false
     @State private var showingReview = false
     @State private var reviewViewModel: DailyReviewViewModel?
     @State private var editingIdentifiableUUID: IdentifiableUUID?
@@ -47,13 +48,21 @@ struct RootTabView: View {
                             showHelp: { model.showingHelp = true },
                             showBookSettings: { showingBookSettings = true },
                             showSettings: { showingSettings = true },
-                            onCreateBookmark: { draft in newBookmarkDraft = draft }
+                            onCreateBookmark: { draft in newBookmarkDraft = draft },
+                            onShowFidget: { showingFidget = true }
                         )
                     case .read:
                         if model.hasEPUB {
                             ReaderTab(folderURL: model.folderURL!)
                         } else if model.hasPDF {
                             PDFDocumentView(folderURL: model.folderURL!)
+                        } else if model.hasStandaloneTranscript,
+                                  let folder = model.folderURL,
+                                  let db = model.databaseService {
+                            StandaloneTranscriptView(
+                                audiobookID: folder.absoluteString,
+                                db: db.writer
+                            )
                         } else {
                             ReaderEmptyState()
                         }
@@ -85,7 +94,7 @@ struct RootTabView: View {
                 if model.selectedTab != .nowPlaying && !model.isPlayingVoiceMemo {
                     VStack {
                         Spacer()
-                        UnifiedBottomDock(onCreateBookmark: { draft in newBookmarkDraft = draft })
+                        UnifiedBottomDock(onCreateBookmark: { draft in newBookmarkDraft = draft }, onShowFidget: { showingFidget = true })
                     }
                 }
             }
@@ -127,6 +136,9 @@ struct RootTabView: View {
                 if let vm = reviewViewModel {
                     FlashcardReviewSession(viewModel: vm)
                 }
+            }
+            .sheet(isPresented: $showingFidget) {
+                FidgetOverlayView(audiobookID: model.folderURL?.lastPathComponent ?? "unknown")
             }
             .onAppear {
                 model.setSettingsManager(settings)

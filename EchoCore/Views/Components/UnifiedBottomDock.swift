@@ -3,6 +3,7 @@ import SwiftUI
 struct UnifiedBottomDock: View {
     @Environment(PlayerModel.self) private var model
     var onCreateBookmark: (BookmarkDraft) -> Void
+    var onShowFidget: (() -> Void)?
 
     private var showsControls: Bool {
         model.selectedTab == .nowPlaying || (model.folderURL != nil && !model.tracks.isEmpty)
@@ -39,7 +40,7 @@ struct UnifiedBottomDock: View {
             }
 
             // Lower layer: Static 5-Button Utility Bar
-            BottomToolbarView(onCreateBookmark: onCreateBookmark)
+            BottomToolbarView(onCreateBookmark: onCreateBookmark, onShowFidget: onShowFidget)
                 .padding(.horizontal, 16)
         }
         // Uniform vertical breathing room so the circular play-button progress
