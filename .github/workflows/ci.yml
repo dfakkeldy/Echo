@@ -87,26 +87,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 
-      # TEMPORARY DIAGNOSTIC (revert after capturing the backtrace): the
-      # PlayerModelAccentTests double-free generates no crash report on this runner,
-      # so run just those 4 tests under AddressSanitizer. ASan interposes the
-      # process-wide allocator and reports a double-free with the symbolicated
-      # free + original-allocation backtraces on stderr — captured here in the log.
-      - name: ASan diagnostic — PlayerModelAccentTests
-        env:
-          SIMCTL_CHILD_ASAN_OPTIONS: "abort_on_error=1:symbolize=1:print_stats=0"
-        run: |
-          xcodebuild test \
-            -project Echo.xcodeproj \
-            -scheme Echo \
-            -destination "$IOS_DESTINATION" \
-            -only-testing:EchoTests/PlayerModelAccentTests \
-            -enableAddressSanitizer YES \
-            -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | tee asan.log || true
-          echo "================= ASan report ================="
-          grep -nE "AddressSanitizer|double-free|attempting free|not malloc|freed by thread|previously allocated|allocated by thread|#[0-9]+ +0x|SUMMARY:|PlayerModel|LocationCapture|SettingsManager|UserDefaults|WatchSync|NowPlaying|AudioEngine|Persistence|CoreLocation|CoreFoundation" asan.log | head -150 || echo "(no ASan report captured)"
-
       # ── TESTS ───────────────────────────────────────────────────────────────
       # Run the products built above (test-without-building reuses them, so no
       # recompile). Catches runtime/logic regressions a compile-only gate misses —
@@ -135,20 +115,3 @@ jobs:
             -only-testing:"Echo Watch AppTests" \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
-
-      # On a test crash (e.g. a SIGABRT from a malloc double-free) the abort line
-      # alone doesn't say WHERE it happened. The simulated app's crash report,
-      # written to the runner's DiagnosticReports, carries the symbolicated
-      # backtrace — dump it so the failing frame is visible directly in the log.
-      - name: Dump crash reports on failure
-        if: failure()
-        run: |
-          echo "=== ~/Library/Logs/DiagnosticReports ==="
-          ls -lt ~/Library/Logs/DiagnosticReports/ 2>/dev/null || echo "(none)"
-          for f in $(ls -t ~/Library/Logs/DiagnosticReports/Echo*.ips 2>/dev/null | head -3); do
-            echo "===================== $f ====================="
-            cat "$f"
-          done
-          echo "=== CoreSimulator device crash logs (Echo) ==="
-          find ~/Library/Developer/CoreSimulator/Devices -name "Echo*.ips" -newermt "-30 minutes" 2>/dev/null \
-            | head -3 | while read -r f; do echo "===== $f ====="; cat "$f"; done || true
