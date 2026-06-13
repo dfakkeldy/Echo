@@ -2,9 +2,12 @@ import SwiftUI
 import GRDB
 
 /// Lists all flashcard decks with card counts and due counts.
+import os.log
+
 struct DeckListView: View {
     @Environment(PlayerModel.self) private var model
     @State private var decks: [DeckSummary] = []
+    private let logger = Logger(category: "DeckListView")
 
     struct DeckSummary: Identifiable {
         let id: String
@@ -78,7 +81,7 @@ struct DeckListView: View {
                     LEFT JOIN flashcard f ON f.deck_id = d.id
                     GROUP BY d.id, d.name
                     ORDER BY d.name
-                    """, arguments: [Date().ISO8601Format()])
+                    """, arguments: [Date()])
                 var result: [DeckSummary] = []
                 while let row = try rows.next() {
                     result.append(DeckSummary(
@@ -90,6 +93,8 @@ struct DeckListView: View {
                 }
                 return result
             }
-        } catch { }
+        } catch {
+            logger.error("Failed to load decks: \(error.localizedDescription)")
+        }
     }
 }

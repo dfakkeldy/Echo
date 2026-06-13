@@ -1,8 +1,10 @@
 import Foundation
 import GRDB
+import os.log
 
 /// Mark-later passage capture — the replacement for inline flashcard popups.
 extension PlayerModel {
+    private static let markedPassagesLogger = Logger(category: "MarkedPassages")
 
     /// Captures a marked passage at the current playback position.
     /// Default range: [now − 15s, now + 5s]. Fire-and-forget — never blocks playback.
@@ -27,7 +29,9 @@ extension PlayerModel {
                 transcriptSnippet: snippet,
                 note: nil
             )
-        } catch { }
+        } catch {
+            Self.markedPassagesLogger.error("Failed to save marked passage: \(error.localizedDescription)")
+        }
     }
 
     private func resolveSnippet(at timestamp: TimeInterval, bookID: String, db: DatabaseService) -> String? {

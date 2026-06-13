@@ -35,6 +35,8 @@ struct PlaybackSegmentBuilder: Sendable {
     /// taps, instant track skips) and are deleted rather than finalized.
     static let minimumSegmentDuration: TimeInterval = 5
 
+    nonisolated init() {}
+
     private(set) var open: OpenSegment?
 
     mutating func handle(_ event: RecorderEvent) -> [SegmentAction] {

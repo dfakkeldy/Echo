@@ -64,7 +64,7 @@ extension BookmarkRecord {
         self.placeName = model.placeName
         self.pdfViewStateJSON = {
             if let state = model.pdfViewState {
-                return String(data: try! JSONEncoder().encode(state), encoding: .utf8)
+                return String(data: (try? JSONEncoder().encode(state)) ?? Data(), encoding: .utf8)
             }
             return nil
         }()

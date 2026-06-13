@@ -119,7 +119,7 @@ struct ArtworkCache {
 
     /// In-memory cache for Watch transfer JPEG data, keyed by artwork version
     /// to avoid redundant JPEG encodes on each sync cycle.
-    private static var cachedWatchJPEG: (version: Int, data: Data)?
+    @MainActor private static var cachedWatchJPEG: (version: Int, data: Data)?
 
     /// Creates a high-resolution (400x400) JPEG thumbnail suitable for Watch transfer.
     static func makeWatchThumbnailData(from image: UIImage, version: Int? = nil) -> Data? {

@@ -79,7 +79,10 @@ final class PlaylistManager {
     }
 
     func moveChapters(from source: IndexSet, to destination: Int) {
-        let currentID = (state.currentChapterIndex != nil && state.chapters.indices.contains(state.currentChapterIndex!)) ? state.chapters[state.currentChapterIndex!].id : nil
+        let currentID: String? = {
+            guard let idx = state.currentChapterIndex, state.chapters.indices.contains(idx) else { return nil }
+            return state.chapters[idx].id
+        }()
         state.chapters.move(fromOffsets: source, toOffset: destination)
         if let currentID, let newIdx = state.chapters.firstIndex(where: { $0.id == currentID }) {
             state.currentChapterIndex = newIdx

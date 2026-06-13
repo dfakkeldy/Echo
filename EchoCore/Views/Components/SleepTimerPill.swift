@@ -33,8 +33,11 @@ struct SleepTimerPill: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(model.coverTheme.chip, in: Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                .background {
+                    Capsule()
+                        .fill(model.coverTheme.chip)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                }
                 .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
             } else {
                 Image(systemName: "moon.zzz")

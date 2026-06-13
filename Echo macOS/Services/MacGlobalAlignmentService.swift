@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 import os.log
 @preconcurrency import WhisperKit
 import GRDB

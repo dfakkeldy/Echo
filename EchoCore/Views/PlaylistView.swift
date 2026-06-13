@@ -806,8 +806,7 @@ struct PlaylistView: View {
         let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
         do {
             try alignmentService.moveBlockToCurrentTime(blockID: heading.id, time: audioChapter.startSeconds)
-            let haptic = UINotificationFeedbackGenerator()
-            haptic.notificationOccurred(.success)
+            Haptic.play(.medium)
         } catch {
             logger.error("Failed to align chapter: \(error.localizedDescription)")
         }
@@ -853,8 +852,7 @@ struct PlaylistView: View {
             }
         }
         
-        let haptic = UINotificationFeedbackGenerator()
-        haptic.notificationOccurred(.success)
+        Haptic.play(.medium)
         pendingEPUBMatches.removeAll()
     }
 }

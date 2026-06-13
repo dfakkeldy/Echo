@@ -2,10 +2,13 @@ import SwiftUI
 import Charts
 
 /// Main stats screen: overview, listening charts, SRS, and planner sections.
+import os.log
+
 struct StatsView: View {
     @Environment(PlayerModel.self) private var model
     @State private var selectedBucket: StatsBucket = .week
     @State private var overview: StatsOverview?
+    private let logger = Logger(category: "StatsView")
     @State private var bucketedTotals: [BucketTotal] = []
     @State private var perBookTotals: [BookTotal] = []
     @State private var srsStats: SRSStats?
@@ -148,12 +151,12 @@ struct StatsView: View {
             LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                 StatCardView(
                     title: "Completed",
-                    value: "\(plannerAdherence!.completedSessions)/\(plannerAdherence!.totalPlannedSessions)",
-                    subtitle: String(format: "%.0f%%", plannerAdherence!.completionRate * 100),
+                    value: "\(plannerAdherence?.completedSessions ?? 0)/\(plannerAdherence?.totalPlannedSessions ?? 0)",
+                    subtitle: String(format: "%.0f%%", (plannerAdherence?.completionRate ?? 0) * 100),
                     systemImage: "checklist", tint: .green)
                 StatCardView(
                     title: "In Session",
-                    value: fmt(plannerAdherence!.actualListenedDuringPlanned),
+                    value: fmt(plannerAdherence?.actualListenedDuringPlanned ?? 0),
                     systemImage: "headphones", tint: .purple)
             }
         }
@@ -174,7 +177,9 @@ struct StatsView: View {
             let repo = StatsRepository(reader: db.writer)
             overview = try await repo.fetchOverview()
             perBookTotals = try await repo.fetchPerBookTotals()
-        } catch { }
+        } catch {
+            logger.error("Failed to load stats: \(error.localizedDescription)")
+        }
     }
 
     private func loadBucketed() async {
@@ -182,7 +187,9 @@ struct StatsView: View {
         do {
             let repo = StatsRepository(reader: db.writer)
             bucketedTotals = try await repo.fetchBucketedTotals(by: selectedBucket)
-        } catch { }
+        } catch {
+            logger.error("Failed to load stats: \(error.localizedDescription)")
+        }
     }
 
     private func loadSRS() async {
@@ -191,7 +198,9 @@ struct StatsView: View {
             let repo = StatsRepository(reader: db.writer)
             srsStats = try await repo.fetchSRSStats()
             dueForecast = try await repo.fetchDueForecast(days: 30)
-        } catch { }
+        } catch {
+            logger.error("Failed to load stats: \(error.localizedDescription)")
+        }
     }
 
     private func loadPlanner() async {
@@ -199,7 +208,9 @@ struct StatsView: View {
         do {
             let repo = StatsRepository(reader: db.writer)
             plannerAdherence = try await repo.fetchPlannerAdherence()
-        } catch { }
+        } catch {
+            logger.error("Failed to load stats: \(error.localizedDescription)")
+        }
     }
 
     private func fmt(_ interval: TimeInterval) -> String {

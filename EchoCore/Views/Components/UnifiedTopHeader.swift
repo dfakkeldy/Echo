@@ -17,8 +17,11 @@ struct UnifiedTopHeader: View {
                     Image(systemName: "folder")
                         .font(.body.bold())
                         .frame(width: 40, height: 40)
-                        .background(chipFill, in: Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                        .background {
+                            Circle()
+                                .fill(chipFill)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                        }
                 }
                 .foregroundStyle(Color.accentColor)
                 .accessibilityLabel(Text("Open folder"))
@@ -45,8 +48,11 @@ struct UnifiedTopHeader: View {
                     Image(systemName: "ellipsis")
                         .font(.body.bold())
                         .frame(width: 40, height: 40)
-                        .background(chipFill, in: Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                        .background {
+                            Circle()
+                                .fill(chipFill)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                        }
                 }
                 .foregroundStyle(Color.accentColor)
                 .accessibilityLabel(Text("More options"))

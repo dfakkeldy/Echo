@@ -28,7 +28,7 @@ struct TimelineSearchResult: Identifiable, Equatable {
 /// - `.book`: queries `AudiobookDAO.all()` → `.audiobookCard` items
 /// - `.chapter`: queries `TimelineDAO.feedWindow(granularity: .chapter)` → `.timelineItem` items
 /// - `.transcription`: queries `TimelineDAO.feedWindow(granularity: .sentence)` → `.timelineItem` items
-@Observable
+@MainActor @Observable
 final class TimelineFeedViewModel {
     // MARK: - Published state
 

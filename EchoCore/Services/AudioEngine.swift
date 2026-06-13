@@ -244,7 +244,7 @@ final class AudioEngine {
         var currentStep = 0
         let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 currentStep += 1
                 if currentStep >= steps {
                     self.eqNode?.globalGain = targetGain
@@ -404,7 +404,7 @@ final class AudioEngine {
         // tracking, while halving the view-tree re-evaluation cost vs. the old 4 Hz.
         timeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self.updateCurrentTime()
             }
         }

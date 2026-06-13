@@ -2,11 +2,14 @@ import SwiftUI
 import GRDB
 
 /// Mark-later inbox: passages flagged for flashcard conversion, grouped by book.
+import os.log
+
 struct CardInboxView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var passages: [MarkedPassage] = []
     @State private var inboxCount: Int = 0
+    private let logger = Logger(category: "CardInboxView")
 
     var body: some View {
         NavigationStack {
@@ -135,7 +138,9 @@ struct CardInboxView: View {
             let dao = MarkedPassageDAO(db: db.writer)
             try dao.markConverted(id: passage.id, cardID: cardID)
             Task { await load() }
-        } catch { }
+        } catch {
+            logger.error("Failed to save/dismiss passage: \(error.localizedDescription)")
+        }
     }
 
     private func dismissPassage(_ passage: MarkedPassage) {
@@ -144,7 +149,9 @@ struct CardInboxView: View {
             let dao = MarkedPassageDAO(db: db.writer)
             try dao.dismiss(id: passage.id)
             Task { await load() }
-        } catch { }
+        } catch {
+            logger.error("Failed to save/dismiss passage: \(error.localizedDescription)")
+        }
     }
 
     private func formatTimestamp(_ seconds: TimeInterval) -> String {

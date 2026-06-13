@@ -65,6 +65,7 @@ actor PlaybackSessionRecorder {
 
     deinit {
         continuation.finish()
+        consumerTask?.cancel()
         heartbeatTask?.cancel()
     }
 

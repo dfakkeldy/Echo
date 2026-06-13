@@ -18,7 +18,7 @@
 §6.3: Production builds should use "Production" environment for CloudKit.
 -->
 	<key>com.apple.developer.icloud-container-environment</key>
-	<string>Development</string>
+	<string>Production</string>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.com.echo.audiobooks</string>

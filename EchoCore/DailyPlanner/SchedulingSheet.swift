@@ -1,8 +1,11 @@
 import SwiftUI
 
+import os.log
+
 struct SchedulingSheet: View {
     @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    private let logger = Logger(category: "SchedulingSheet")
 
     let audiobookID: String
     let startPosition: TimeInterval?
@@ -105,7 +108,7 @@ struct SchedulingSheet: View {
         do {
             try dao.insert(session.toRecord())
         } catch {
-            // Fail silently — the timeline will refresh from DB
+            logger.error("Failed to save scheduled session: \(error.localizedDescription)")
         }
     }
 

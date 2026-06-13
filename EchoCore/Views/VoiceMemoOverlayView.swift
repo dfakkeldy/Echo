@@ -22,8 +22,11 @@ struct VoiceMemoOverlayView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(.quaternary, lineWidth: 1))
+        .background {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .stroke(.quaternary, lineWidth: 1)
+        }
         .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
         .transition(.opacity.combined(with: .scale))
         .overlay(alignment: .bottom) {

@@ -1,11 +1,14 @@
 import SwiftUI
 
 /// Current listening streak from playback_event active days.
+import os.log
+
 struct StreakModuleView: View {
     @Environment(PlayerModel.self) private var model
     @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
     @State private var currentStreak: Int = 0
     @State private var longestStreak: Int = 0
+    private let logger = Logger(category: "StreakModuleView")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -45,6 +48,8 @@ struct StreakModuleView: View {
             let overview = try await repo.fetchOverview()
             currentStreak = overview.streak.currentStreakDays
             longestStreak = overview.streak.longestStreakDays
-        } catch { }
+        } catch {
+            logger.error("Failed to load streak stats: \(error.localizedDescription)")
+        }
     }
 }

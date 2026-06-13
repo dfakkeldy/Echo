@@ -177,7 +177,7 @@ final class PlayerLoadingCoordinator {
                     allChapters.append(Chapter(index: allChapters.count, title: track.title, startSeconds: 0, endSeconds: duration.isFinite ? duration : 0, isEnabled: true))
                 }
             }
-            guard !allChapters.isEmpty else { return }
+            guard !allChapters.isEmpty, !tracks.isEmpty else { return }
             await timelinePersistence.ingestTimelineItems(
                 audiobookID: folderURL.absoluteString, audioURL: tracks[0].url, chapters: allChapters,
                 transcription: state.transcription, enhancedTranscription: state.enhancedTranscription, folderURL: folderURL

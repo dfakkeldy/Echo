@@ -1,7 +1,10 @@
 import SwiftUI
 
 /// Today's total listening time, queried from playback_event via StatsRepository.
+import os.log
+
 struct StatsModuleView: View {
+    private let logger = Logger(category: "StatsModuleView")
     @Environment(PlayerModel.self) private var model
     @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
     @State private var todayDuration: TimeInterval = 0
@@ -43,7 +46,9 @@ struct StatsModuleView: View {
             let repo = StatsRepository(reader: db.writer)
             let overview = try await repo.fetchOverview()
             todayDuration = overview.todayDuration
-        } catch { }
+        } catch {
+            logger.error("Failed to load today stats: \(error.localizedDescription)")
+        }
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {

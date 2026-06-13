@@ -364,7 +364,7 @@ struct WatchAppSettingsView: View {
                                     if let p4 = preset.page4 { page4Slots = padded(p4) } else { page4Slots = Array(repeating: .empty, count: 5) }
                                     if let p5 = preset.page5 { page5Slots = padded(p5) } else { page5Slots = Array(repeating: .empty, count: 5) }
                                     saveSlots()
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    Haptic.play(.medium)
                                 } label: {
                                     Text("Load")
                                         .customFont(.caption, weight: .bold, appFont: settings.appFont)
@@ -375,7 +375,7 @@ struct WatchAppSettingsView: View {
                                 
                                 Button(role: .destructive) {
                                     settings.watchPresets.removeAll(where: { $0.id == preset.id })
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    Haptic.play(.light)
                                 } label: {
                                     Image(systemName: "trash")
                                         .foregroundStyle(.red)
@@ -409,7 +409,7 @@ struct WatchAppSettingsView: View {
                 Button {
                     saveSlots()
                     model.syncToWatch()
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    Haptic.play(.medium)
                 } label: {
                     Text("Sync Now")
                         .customFont(.headline, weight: .bold, appFont: settings.appFont)

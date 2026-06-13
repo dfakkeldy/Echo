@@ -42,14 +42,12 @@ extension ReaderTab {
                     try? alignmentService.moveBlockToCurrentTime(blockID: blockID, time: exactTime)
                     await MainActor.run {
                         viewModel?.reload()
-                        let successHaptic = UINotificationFeedbackGenerator()
-                        successHaptic.notificationOccurred(.success)
+                        Haptic.play(.medium)
                     }
                 }
             }
         } catch {
-            let errorHaptic = UINotificationFeedbackGenerator()
-            errorHaptic.notificationOccurred(.error)
+            Haptic.play(.rigid)
         }
     }
 
@@ -99,8 +97,7 @@ extension ReaderTab {
             viewModel?.reload()
             haptic.impactOccurred()
         } catch {
-            let errorHaptic = UINotificationFeedbackGenerator()
-            errorHaptic.notificationOccurred(.error)
+            Haptic.play(.rigid)
         }
     }
 
@@ -154,8 +151,7 @@ extension ReaderTab {
             viewModel?.reload()
             haptic.impactOccurred()
         } catch {
-            let errorHaptic = UINotificationFeedbackGenerator()
-            errorHaptic.notificationOccurred(.error)
+            Haptic.play(.rigid)
         }
     }
 

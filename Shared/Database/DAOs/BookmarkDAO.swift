@@ -82,7 +82,7 @@ struct BookmarkDAO {
             sourceRowid: bookmark.id,
             metadataJSON: bookmark.voiceMemoPath.flatMap { path in
                 let md = ["voiceMemoFileName": path]
-                return String(data: try! JSONEncoder().encode(md), encoding: .utf8)
+                return String(data: (try? JSONEncoder().encode(md)) ?? Data(), encoding: .utf8)
             },
             pdfViewStateJSON: bookmark.pdfViewStateJSON,
             createdAt: bookmark.createdAt,

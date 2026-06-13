@@ -20,7 +20,7 @@ Development has lower quotas, no SLA, and can be reset by developers.
 To fix: create a Release .entitlements file or use build settings.
 -->
 	<key>com.apple.developer.icloud-container-environment</key>
-	<string>Development</string>
+	<string>Production</string>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.com.echo.audiobooks</string>

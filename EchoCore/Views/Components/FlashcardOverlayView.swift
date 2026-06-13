@@ -11,6 +11,7 @@ struct FlashcardOverlayView: View {
         ZStack {
             Color.black.opacity(0.4).ignoresSafeArea()
                 .onTapGesture { onDismiss() }
+                .accessibilityAddTraits(.isButton)
 
             FlashcardReviewCard(
                 frontText: card.frontText,

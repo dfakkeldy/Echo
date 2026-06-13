@@ -210,7 +210,7 @@ struct TimelineFeedCollectionView: UIViewRepresentable {
 
         lazy var dataSource: UICollectionViewDiffableDataSource<Int, String> = {
             guard let cv = collectionView else {
-                fatalError("CollectionView not available for data source setup")
+                preconditionFailure("CollectionView not available for data source setup")
             }
             let ds = UICollectionViewDiffableDataSource<Int, String>(
                 collectionView: cv

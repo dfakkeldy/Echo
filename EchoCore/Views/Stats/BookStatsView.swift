@@ -1,6 +1,8 @@
 import SwiftUI
 
 /// Per-book stats: chapter coverage and listening totals.
+import os.log
+
 struct BookStatsView: View {
     @Environment(PlayerModel.self) private var model
 
@@ -10,6 +12,7 @@ struct BookStatsView: View {
     @State private var chapters: [ChapterCoverage] = []
     @State private var totalSegments: Int = 0
     @State private var totalDuration: TimeInterval = 0
+    private let logger = Logger(category: "BookStatsView")
 
     var body: some View {
         List {
@@ -51,7 +54,9 @@ struct BookStatsView: View {
             )
             totalSegments = segs.count
             totalDuration = segs.reduce(0) { $0 + $1.adjustedDuration }
-        } catch { }
+        } catch {
+            logger.error("Failed to load book stats: \(error.localizedDescription)")
+        }
     }
 
     private func fmt(_ interval: TimeInterval) -> String {

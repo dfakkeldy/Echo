@@ -2,6 +2,8 @@ import SwiftUI
 import GRDB
 
 /// Cards in a deck: searchable list with edit shortcuts.
+import os.log
+
 struct DeckDetailView: View {
     @Environment(PlayerModel.self) private var model
 
@@ -10,6 +12,7 @@ struct DeckDetailView: View {
 
     @State private var cards: [Flashcard] = []
     @State private var searchText: String = ""
+    private let logger = Logger(category: "DeckDetailView")
 
     var filteredCards: [Flashcard] {
         if searchText.isEmpty { return cards }
@@ -74,6 +77,8 @@ struct DeckDetailView: View {
                         .fetchAll(db)
                 }
             }
-        } catch { }
+        } catch {
+            logger.error("Failed to load deck detail: \(error.localizedDescription)")
+        }
     }
 }
