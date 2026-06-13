@@ -138,7 +138,10 @@ struct RootTabView: View {
                 }
             }
             .sheet(isPresented: $showingFidget) {
-                FidgetOverlayView(audiobookID: model.folderURL?.lastPathComponent ?? "unknown")
+                FidgetOverlayView(
+                    audiobookID: model.folderURL?.lastPathComponent ?? "unknown",
+                    frameStream: model.audioEngine.visualizerTap?.frames
+                )
             }
             .onAppear {
                 model.setSettingsManager(settings)

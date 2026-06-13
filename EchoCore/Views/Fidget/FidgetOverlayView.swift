@@ -12,6 +12,7 @@ struct FidgetOverlayView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var mode: FidgetMode = .doodle
     let audiobookID: String
+    let frameStream: AsyncStream<VisualizerFrame>?
 
     enum FidgetMode: String, CaseIterable {
         case doodle
@@ -28,12 +29,22 @@ struct FidgetOverlayView: View {
     }
 
     /// Modes available on the current platform.
+    /// The visualizer mode is only offered when a `frameStream` is available
+    /// and Metal is supported (iOS/macOS, not watchOS).
     private var availableModes: [FidgetMode] {
+        let base: [FidgetMode] = {
 #if os(iOS)
-        FidgetMode.allCases
+            FidgetMode.allCases
+#elseif os(macOS)
+            [.tactile, .visualizer]
 #else
-        [.tactile, .visualizer]
+            [.tactile]
 #endif
+        }()
+        if frameStream == nil {
+            return base.filter { $0 != .visualizer }
+        }
+        return base
     }
 
     var body: some View {
@@ -58,7 +69,15 @@ struct FidgetOverlayView: View {
                     case .tactile:
                         TactilePlaygroundView()
                     case .visualizer:
+#if os(iOS) || os(macOS)
+                        if let frameStream {
+                            VisualizerPickerView(frameStream: frameStream)
+                        } else {
+                            placeholderView
+                        }
+#else
                         placeholderView
+#endif
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
