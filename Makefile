@@ -1,4 +1,4 @@
-.PHONY: help docs architecture test build-tests test-only
+.PHONY: help docs architecture test build-tests test-only hooks-test
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -31,3 +31,7 @@ build-tests: ## Build test products once after a code change
 test-only: ## Re-run without rebuilding: make test-only FILTER=EchoTests/TOCTreeBuilderTests
 	xcodebuild test-without-building -scheme Echo -destination '$(SIM_DEST)' \
 	  -only-testing:$(or $(FILTER),EchoTests) -parallel-testing-enabled NO
+
+hooks-test: ## Run the Claude Code hook test suites (xcodebuild guard + swift-format)
+	@bash .claude/hooks/test-guard-xcodebuild.sh
+	@bash .claude/hooks/test-swift-format-on-edit.sh
