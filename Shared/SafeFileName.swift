@@ -33,4 +33,14 @@ enum SafeFileName {
         let prefix = String(filtered.prefix(scalarLimit - suffix.count - 1))
         return "\(prefix)-\(suffix)"
     }
+
+    /// Strips filesystem-reserved characters from a display name (deck / book /
+    /// note title) so it is safe as a file or directory name in an export.
+    /// Distinct from `fromAudiobookID`, which hashes `file://` identifiers — this
+    /// preserves the readable name and only removes invalid characters.
+    static func sanitizeForFilename(_ name: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\?%*:|\"<>")
+        return name.components(separatedBy: invalid).joined(separator: "_")
+            .trimmingCharacters(in: .whitespaces)
+    }
 }

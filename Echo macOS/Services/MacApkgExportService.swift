@@ -343,9 +343,7 @@ struct MacApkgExportService {
     }
 
     private func sanitize(_ name: String) -> String {
-        let invalid = CharacterSet(charactersIn: "/\\?%*:|\"<>")
-        return name.components(separatedBy: invalid).joined(separator: "_")
-            .trimmingCharacters(in: .whitespaces)
+        SafeFileName.sanitizeForFilename(name)
     }
 
     /// CRC-32 checksum (IEEE polynomial) used by Anki for note sorting.

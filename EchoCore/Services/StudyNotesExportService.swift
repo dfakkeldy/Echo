@@ -122,9 +122,7 @@ struct StudyNotesExportService {
     // MARK: - Helpers
 
     private func sanitize(_ name: String) -> String {
-        let invalid = CharacterSet(charactersIn: "/\\?%*:|\"<>")
-        return name.components(separatedBy: invalid).joined(separator: "_")
-            .trimmingCharacters(in: .whitespaces)
+        SafeFileName.sanitizeForFilename(name)
     }
 
     private func formatTimestamp(_ seconds: TimeInterval) -> String {
