@@ -65,7 +65,7 @@ struct ReaderHeaderView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(Color(.secondarySystemBackground))
-            .cornerRadius(10)
+            .clipShape(.rect(cornerRadius: 10))
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
 

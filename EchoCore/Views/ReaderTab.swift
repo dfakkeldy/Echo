@@ -464,7 +464,7 @@ struct ReaderTab: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Color(.secondarySystemBackground))
-            .cornerRadius(10)
+            .clipShape(.rect(cornerRadius: 10))
             
             Button {
                 model.epubScrollToActiveTrigger += 1

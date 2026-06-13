@@ -30,8 +30,11 @@ struct FlashcardReviewCard: View {
                             .multilineTextAlignment(.center)
                             .padding(20)
                             .frame(maxWidth: .infinity, minHeight: 120)
-                            .background(.white.opacity(0.05))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.secondary.opacity(0.2)))
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(.white.opacity(0.05))
+                                    .stroke(.secondary.opacity(0.2))
+                            }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
