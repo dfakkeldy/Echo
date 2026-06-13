@@ -120,6 +120,8 @@ final class CarPlayManager: NSObject {
     // MARK: - Data Population
 
     /// Queries the `audiobook` table and populates the Library tab.
+    /// Displays title/author immediately, then loads cover thumbnails
+    /// asynchronously via ArtworkCache and updates the template once done.
     func refreshLibrary() {
         guard let model = EchoCoreApp.playerModel,
               let db = model.databaseService else {
@@ -155,6 +157,35 @@ final class CarPlayManager: NSObject {
             return item
         }
 
+        // Show text-only list immediately.
+        libraryTemplate?.updateSections([CPListSection(items: items)])
+
+        // Load cover thumbnails in the background and refresh when done.
+        Task { @MainActor [weak self] in
+            await self?.loadLibraryCoverThumbnails(records: records, items: items)
+        }
+    }
+
+    /// Loads cover artwork thumbnails for each audiobook in the library using
+    /// ArtworkCache (folder scan + embedded artwork), then updates the template.
+    /// Concurrency is serial deliberately — each load may hit the file system
+    /// or AVAsset, so one-at-a-time keeps memory pressure low on 16 GB machines.
+    private func loadLibraryCoverThumbnails(records: [AudiobookRecord], items: [CPListItem]) async {
+        for (index, record) in records.enumerated() {
+            guard index < items.count else { break }
+            guard let url = URL(string: record.id) else { continue }
+
+            // ArtworkCache.folderArtworkImage takes a URL inside the folder and
+            // uses deletingLastPathComponent() to derive the folder to scan.
+            // We pass a synthetic child URL to trigger the folder scan correctly.
+            let probeURL = url.appendingPathComponent("cover.jpg")
+            guard let thumbnail = await ArtworkCache.folderArtworkImage(near: probeURL) else {
+                continue
+            }
+            items[index].setImage(thumbnail)
+        }
+
+        // Single bulk update after all thumbnails are loaded.
         libraryTemplate?.updateSections([CPListSection(items: items)])
     }
 
