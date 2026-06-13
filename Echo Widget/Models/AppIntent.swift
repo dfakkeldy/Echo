@@ -5,6 +5,11 @@ struct TogglePlaybackIntent: AppIntent {
     static var title: LocalizedStringResource = "Toggle Playback"
     static var openAppWhenRun: Bool = true
 
+    // Runs on the main actor: `AppGroupDefaults.shared` (a non-Sendable
+    // `UserDefaults`) is main-actor-isolated under the project's default
+    // isolation, so a nonisolated `perform()` cannot touch it (audit §3.1).
+    // An `async` requirement may be witnessed by a `@MainActor` method.
+    @MainActor
     func perform() async throws -> some IntentResult {
         // Widget extensions cannot import WatchConnectivity. The main app
         // handles watch communication when openAppWhenRun opens it.
@@ -24,9 +29,13 @@ struct CreateBookmarkIntent: AppIntent {
     @Parameter(title: "Note")
     var note: String?
 
+    // Main-actor isolated: reads `AppGroupDefaults.shared` and constructs a
+    // main-actor `Bookmark`, neither reachable from a nonisolated `perform()`
+    // (audit §3.1).
+    @MainActor
     func perform() async throws -> some IntentResult {
         let defaults = AppGroupDefaults.shared
-        
+
         guard let folderKey = defaults.string(forKey: "folderKey"),
               let trackId = defaults.string(forKey: "trackId"),
               let currentTime = defaults.object(forKey: "currentTime") as? TimeInterval else {
