@@ -46,8 +46,16 @@ _2026-06-13 (session 2), branch `claude/elegant-heyrovsky-309173` (fast-forwarde
 - **SM-2 `intervalGrowsOverPerfectReviews`** — the *test* was wrong, the impl is canonical. Grades `[3,4,4,4,4]`: the grade-3 review drops EF 2.5→2.36, so intervals are `[1,6,14,33,77]`, not the test's EF-stays-2.5 `[1,6,15,37,92]`. Corrected the expectation.
 - **FSRS (`firstFail`, `stabilityGrows`)** — the *impl* was broken. `FSRSScheduler` had the canonical FSRS-4.5 default weights but misapplied them: no first-review path, wrong `S₀` indexing (`w[2]` for fail vs canonical `w[0]`), `easyBonus = exp(w₁₆·(D−1))` (explodes; canonical is `w₁₆`), hard penalty on Good not Hard, inverted difficulty update, and `interval ≈ S/100`. Rewrote to canonical FSRS-4.5 (first-review seeds `S₀/D₀`; recall/lapse stability, mean-reverting difficulty, `R=(1+FACTOR·t/S)^DECAY`, `interval≈S` at 90% retention). Corrected the two tests (fail S₀=`w[0]`=0.4; the growth test now advances the clock so `R<1`, since same-instant reviews correctly yield no gain). **Also fixes §5.4** (interval clamped to 36,500 days). Removed the dead, duplicate `SpacedRepetitionService` SM-2 in `Flashcard.swift` (zero references).
 
+### ✅ Infrastructure + Medium findings (session 2, continued)
+- **CI build-gate (§10 rec. 5)** — `.github/workflows/ci.yml` now runs an explicit `build-for-testing` gate (compiles app + widget + watch + `EchoTests`) before `test-without-building`, so compile breaks fail fast. _Action still required: enable branch protection on `main` requiring the "CI" check, and confirm the runner's Xcode matches the project SDK._
+- **§5.3** Metal command-buffer/encoder force-unwraps → `guard` + skip frame.
+- **§7.2** `VisualizerView` created two `MTLDevice`s → one shared device.
+- **§7.1** realtime visualizer tap: FFT setup created once (not per callback) + analyze the buffer pointer in place (no `Array(samples)` copy); vDSP math unchanged.
+- **§9.1** triplicated `sanitize()` → `SafeFileName.sanitizeForFilename` (verified iOS + macOS).
+- **§8.3** onboarding hero icons → `@ScaledMetric` + `accessibilityHidden`.
+
 ### 🔲 Still open from this audit
-Highs: **none remaining.** Mediums/Lows: §3.5–§3.8, §4.x, §5.3–§5.7, §6.x, §7.x, §8.x, §9.1–§9.3, and the CI build-gate (§10 rec. 5).
+Highs: **none remaining.** Mediums: §3.5 (redundant `DispatchQueue.main.async`), §3.6 (`Task.detached` cancellation), §3.7 (CarPlay singleton backdoor), §3.8 (macOS continuation/KVO race), §4.1 (`Timer`→structured), §5.5 (location auth), §5.7 (widget bookmark integrity), §6.1 (`.apkg` zip-bomb cap), §7.3 (CarPlay sync DB read), §7.4 (unbounded `AsyncStream`), §8.1 (fidget `@State` in `Canvas`), §8.2 (stats in `body`), §8.4 (theme contrast); §9.2 oversized files deferred. Plus the Lows (§3.4 done; §4.2, §5.6, §6.2–§6.4, §8.5–§8.7, §9.3).
 
 ---
 
