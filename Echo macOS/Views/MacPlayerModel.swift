@@ -41,6 +41,11 @@ final class MacPlayerModel {
     private(set) var isPlaying: Bool = false
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
+    /// The folder URL that contains the audiobook files. Used as the
+    /// `audiobookID` for GRDB queries against the shared database.
+    private(set) var folderURL: URL?
+    /// The audiobook ID used for database lookups — derived from the folder URL.
+    var audiobookID: String? { folderURL?.absoluteString }
     var playbackRate: Float = 1.0 {
         didSet {
             if isPlaying { player?.rate = playbackRate }
@@ -145,6 +150,10 @@ final class MacPlayerModel {
 
         currentURL = url
         currentTitle = url.deletingPathExtension().lastPathComponent
+        // Infer folder from the file's parent directory if not already set.
+        if folderURL == nil {
+            folderURL = url.deletingLastPathComponent()
+        }
         // If tracks is empty (single-file open, not folder), populate with this file.
         if tracks.isEmpty {
             tracks = [url]
@@ -208,6 +217,7 @@ final class MacPlayerModel {
 
         guard !audioFiles.isEmpty else { return }
 
+        self.folderURL = folderURL
         tracks = audioFiles
         currentTrackIndex = 0
         open(url: audioFiles[0])
