@@ -47,8 +47,11 @@ struct SchedulingAlgorithmTests {
             card = scheduler.review(card: card, grade: grade, now: now)
             intervals.append(card.intervalDays)
         }
-        // After first correct: 1, second: 6, then 6*2.5=15, 15*2.5=37, 37*2.5=92
-        #expect(intervals == [1, 6, 15, 37, 92])
+        // Canonical SM-2: the first grade-3 review drops EF from 2.5 to 2.36
+        // (ΔEF = 0.1 - (5-3)(0.08 + (5-3)·0.02) = -0.14); grade-4 reviews leave EF
+        // unchanged, so from review 3 intervals grow by 2.36×:
+        // 6×2.36=14.16→14, 14×2.36=33.04→33, 33×2.36=77.88→77.
+        #expect(intervals == [1, 6, 14, 33, 77])
     }
 
     // ── MARK: FSRS ──
@@ -57,7 +60,7 @@ struct SchedulingAlgorithmTests {
         let card = makeCard()
         let scheduler = FSRSScheduler()
         let result = scheduler.review(card: card, grade: 3, now: now)
-        // w[0] + w[1] * 0 = 0.4 for grade 3
+        // First-review stability is S_0(Good) = w[2] = 2.4.
         #expect(result.stability != nil)
         #expect(result.difficulty != nil)
         #expect(result.intervalDays >= 1)
@@ -67,19 +70,26 @@ struct SchedulingAlgorithmTests {
         let card = makeCard()
         let scheduler = FSRSScheduler()
         let result = scheduler.review(card: card, grade: 1, now: now)
-        // w[2] = 2.4 for fail
-        #expect(result.stability ?? 0 == 2.4)
+        // First-review stability is the initial DSR S_0(G) = w[G-1]; for a fail
+        // (Again, G=1) that is w[0] = 0.4 — the lowest of the four initial values.
+        #expect(result.stability ?? 0 == 0.4)
         #expect(result.intervalDays >= 1)
     }
 
     @Test func fsrs_stabilityGrowsWithGoodGrades() {
         var card = makeCard()
         let scheduler = FSRSScheduler()
+        var reviewDate = now
         let stabilities: [Double] = (1...5).map { _ in
-            card = scheduler.review(card: card, grade: 4, now: now)
+            card = scheduler.review(card: card, grade: 4, now: reviewDate)
+            // Review on schedule: advance the clock by the new interval so the
+            // next review happens after a real delay (retrievability < 1).
+            // Reviewing repeatedly at the same instant correctly yields no
+            // stability gain in FSRS, so the clock must move.
+            reviewDate = reviewDate.addingTimeInterval(Double(card.intervalDays) * 86_400)
             return card.stability ?? 0
         }
-        // Each successive review should increase stability
+        // Each successive on-schedule review should increase stability.
         for i in 1..<stabilities.count {
             #expect(stabilities[i] > stabilities[i - 1])
         }
