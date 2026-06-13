@@ -8,7 +8,7 @@ enum FlashcardTriggerTiming: String, Codable, Sendable, CaseIterable {
     case manualOnly = "manualOnly"
 }
 
-/// GRDB record for the `flashcard` table with SM-2 scheduling support.
+/// GRDB record for the `flashcard` table with SM-2 / FSRS scheduling support.
 struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var audiobookID: String
@@ -31,6 +31,12 @@ struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
     var playlistPosition: Double?
     var createdAt: String?
     var modifiedAt: String?
+
+    // MARK: FSRS fields (V16)
+    var stability: Double?
+    var difficulty: Double?
+    var cardType: String?
+    var clozeIndex: Int?
 
     static let databaseTableName = "flashcard"
 
@@ -56,6 +62,10 @@ struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
         case playlistPosition = "playlist_position"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
+        case stability
+        case difficulty
+        case cardType = "card_type"
+        case clozeIndex = "cloze_index"
     }
 }
 
