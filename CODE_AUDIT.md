@@ -53,9 +53,19 @@ _2026-06-13 (session 2), branch `claude/elegant-heyrovsky-309173` (fast-forwarde
 - **§7.1** realtime visualizer tap: FFT setup created once (not per callback) + analyze the buffer pointer in place (no `Array(samples)` copy); vDSP math unchanged.
 - **§9.1** triplicated `sanitize()` → `SafeFileName.sanitizeForFilename` (verified iOS + macOS).
 - **§8.3** onboarding hero icons → `@ScaledMetric` + `accessibilityHidden`.
+- **§7.3** CarPlay library read moved off the main actor (`AudiobookDAO.allAsync()`).
+- **§8.1** fidget physics advanced via `.onChange(of:)`, not inside the `Canvas` render closure.
+- **§6.1** `.apkg`/EPUB extraction now capped (per-entry 100 MB, total 512 MB) via `ArchiveExtractionLimits` + unit tests.
+- **§3.7 (partial)** corrected the stale backdoor comment; the registry refactor remains a deliberate decision.
+- **§8.4 (partial)** removed the dead `topBannerColor`; the header-contrast question remains (and the audit headline was inaccurate — see below).
+
+_A read-only multi-agent pass re-verified the remaining findings against the current tree. Several were over-stated or mis-framed: §3.6 (the one looping task already does what's asked; the others are one-shot/struct where deinit-cancel is impossible/harmful), §8.2 (`StatsView`'s citation has no such problem — only `DeckDetailView`'s per-keystroke filter is real), §8.4 (the flagged color is user-picked, not image-derived; the cover-derived value is already contrast-safe), §7.4 (a naive bounded buffer would hang the test suite via the `pendingCount` leak and corrupt analytics)._
 
 ### 🔲 Still open from this audit
-Highs: **none remaining.** Mediums: §3.5 (redundant `DispatchQueue.main.async`), §3.6 (`Task.detached` cancellation), §3.7 (CarPlay singleton backdoor), §3.8 (macOS continuation/KVO race), §4.1 (`Timer`→structured), §5.5 (location auth), §5.7 (widget bookmark integrity), §6.1 (`.apkg` zip-bomb cap), §7.3 (CarPlay sync DB read), §7.4 (unbounded `AsyncStream`), §8.1 (fidget `@State` in `Canvas`), §8.2 (stats in `body`), §8.4 (theme contrast); §9.2 oversized files deferred. Plus the Lows (§3.4 done; §4.2, §5.6, §6.2–§6.4, §8.5–§8.7, §9.3).
+Highs: **none remaining.**
+- **Safe to do next** (low-risk, build/test-verifiable): §3.5 (unwrap 13 no-op `DispatchQueue.main.async`), §3.8 (macOS continuation single-shot guard), §8.2 (`DeckDetailView` per-keystroke filter only).
+- **Needs a decision**: §3.6 (transcript-staleness generation token, or close as over-stated), §3.7 (CarPlay registry vs. keep), §5.5 (location auth: in-actor delegate bridge vs. a Settings toggle that doesn't exist yet — feature currently unreachable), §5.7 (pick the single bookmark source-of-truth — split 3 ways today), §7.4 (coalesce idempotent progress-ticks vs. bounded buffer), §8.4 (header foreground contrast approach).
+- **Deferred**: §4.1 (`Timer`→structured, 9 sites, not a bug), §9.2 (oversized files). Plus the Lows (§3.4 done; §4.2, §5.6, §6.2–§6.4, §8.5–§8.7, §9.3).
 
 ---
 
