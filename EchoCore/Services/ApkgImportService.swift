@@ -125,8 +125,17 @@ struct ApkgImportService {
 
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
 
+        var totalExtracted: UInt64 = 0
         for entry in archive {
             guard entry.type == .file else { continue }
+            // Reject decompression bombs before touching the filesystem (audit §6.1).
+            do {
+                totalExtracted = try ArchiveExtractionLimits.checkedTotal(
+                    addingEntryOfSize: entry.uncompressedSize, to: totalExtracted
+                )
+            } catch {
+                throw ImportError.extractionFailed(error)
+            }
             let destination = try Self.safeDestination(for: entry.path, within: tmpDir)
             try FileManager.default.createDirectory(
                 at: destination.deletingLastPathComponent(),

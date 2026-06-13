@@ -317,8 +317,17 @@ enum EPUBAutoImportScanner {
             }
         }
 
+        var totalExtracted: UInt64 = 0
         for entry in archive {
             guard entry.type == .file else { continue }
+            // Reject decompression bombs before touching the filesystem (audit §6.1).
+            do {
+                totalExtracted = try ArchiveExtractionLimits.checkedTotal(
+                    addingEntryOfSize: entry.uncompressedSize, to: totalExtracted
+                )
+            } catch {
+                throw ScannerError.invalidArchive(url: epubURL)
+            }
             // Validate the entry path *before* creating any directory or
             // writing any file, so a hostile archive can never coax us into
             // touching the filesystem outside `destDir`.
