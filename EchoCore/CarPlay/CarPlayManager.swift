@@ -130,40 +130,41 @@ final class CarPlayManager: NSObject {
         }
 
         let dao = AudiobookDAO(db: db.writer)
-        let records: [AudiobookRecord]
-        do {
-            records = try dao.all()
-        } catch {
-            logger.error("Failed to query audiobooks: \(error.localizedDescription)")
-            showEmptyLibrary()
-            return
-        }
-
-        guard !records.isEmpty else {
-            showEmptyLibrary()
-            return
-        }
-
-        let items: [CPListItem] = records.map { record in
-            let item = CPListItem(
-                text: record.title,
-                detailText: record.author ?? NowPlayingController.formatTime(record.duration)
-            )
-            // Selecting a book from the library loads it for playback.
-            item.handler = { [weak model] _, completion in
-                defer { completion() }
-                guard let model, let url = URL(string: record.id) else { return }
-                model.loadFolder(url, autoplay: true)
-            }
-            return item
-        }
-
-        // Show text-only list immediately.
-        libraryTemplate?.updateSections([CPListSection(items: items)])
-
-        // Load cover thumbnails in the background and refresh when done.
+        // Read off the main actor so a large library doesn't block the CarPlay
+        // UI thread on connect (audit §7.3).
         Task { @MainActor [weak self] in
-            await self?.loadLibraryCoverThumbnails(records: records, items: items)
+            guard let self else { return }
+            let records: [AudiobookRecord]
+            do {
+                records = try await dao.allAsync()
+            } catch {
+                self.logger.error("Failed to query audiobooks: \(error.localizedDescription)")
+                self.showEmptyLibrary()
+                return
+            }
+
+            guard !records.isEmpty else {
+                self.showEmptyLibrary()
+                return
+            }
+
+            let items: [CPListItem] = records.map { record in
+                let item = CPListItem(
+                    text: record.title,
+                    detailText: record.author ?? NowPlayingController.formatTime(record.duration)
+                )
+                // Selecting a book from the library loads it for playback.
+                item.handler = { [weak model] _, completion in
+                    defer { completion() }
+                    guard let model, let url = URL(string: record.id) else { return }
+                    model.loadFolder(url, autoplay: true)
+                }
+                return item
+            }
+
+            // Show text-only list, then load cover thumbnails and refresh.
+            self.libraryTemplate?.updateSections([CPListSection(items: items)])
+            await self.loadLibraryCoverThumbnails(records: records, items: items)
         }
     }
 

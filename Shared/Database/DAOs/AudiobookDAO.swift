@@ -26,6 +26,18 @@ struct AudiobookDAO {
         }
     }
 
+    /// Async variant for callers on the main actor (e.g. CarPlay connect) so the
+    /// query runs on GRDB's pool rather than blocking the UI thread (audit §7.3).
+    /// Named distinctly from `all()` so it doesn't shadow the sync overload at
+    /// existing async call sites (which would then need `await`).
+    func allAsync() async throws -> [AudiobookRecord] {
+        try await db.read { db in
+            try AudiobookRecord
+                .order(Column("added_at").desc)
+                .fetchAll(db)
+        }
+    }
+
     func delete(_ id: String) throws {
         _ = try db.write { db in
             try AudiobookRecord.deleteOne(db, key: id)
