@@ -31,13 +31,6 @@ struct ReaderTab: View {
         fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8", appFont: "System"
     )
 
-    private var topBannerColor: Color {
-        if let hex = topChapterThemeColor {
-            return Color(hex: hex).opacity(0.95)
-        }
-        return Color(uiColor: .systemBackground).opacity(0.95)
-    }
-
     @ViewBuilder
     private var topChapterHeaderView: some View {
         VStack(spacing: 4) {

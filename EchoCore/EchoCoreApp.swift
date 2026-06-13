@@ -15,14 +15,14 @@ struct EchoCoreApp: App {
     @State private var pendingDeepLink: PlayerDeepLink?
     @State private var databaseError: Error?
 
-    /// Static reference for CarPlay scene delegate and other non-SwiftUI contexts
-    /// that need access to the shared PlayerModel instance.
+    /// Shared `PlayerModel` reference for non-SwiftUI contexts. `CarPlaySceneDelegate`
+    /// is instantiated by UIKit from Info.plist, so it lives outside the SwiftUI
+    /// environment and cannot receive `PlayerModel` via injection; `CarPlayManager`'s
+    /// library/chapters/bookmarks refreshes read it here (3 sites).
     ///
-    /// REFACTOR-TODO (§3.13): This is a backdoor for CarPlaySceneDelegate (line 35).
-    /// CarPlay should receive PlayerModel via dependency injection rather than a
-    /// static weak singleton. A shared container service (e.g. a registry keyed by
-    /// scene identifier) would eliminate the global and avoid concurrency ordering
-    /// hazards without changing the CarPlay code paths.
+    /// REFACTOR-TODO (audit §3.7): replace this static with a `@MainActor` registry
+    /// keyed by scene identifier. Kept as a deliberate backdoor for now — the capture
+    /// buttons already push the other way via `NotificationCenter`.
     @MainActor static weak var playerModel: PlayerModel?
 
     init() {
