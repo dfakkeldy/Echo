@@ -50,7 +50,7 @@ struct VisualizerView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MTKView {
         let view = MTKView()
-        view.device = MTLCreateSystemDefaultDevice()
+        view.device = context.coordinator.device
         view.delegate = context.coordinator
         view.framebufferOnly = false
         view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
@@ -70,6 +70,9 @@ struct VisualizerView: UIViewRepresentable {
     // MARK: - Coordinator
 
     class Coordinator: NSObject, MTKViewDelegate {
+        /// The system GPU device, created once and shared between the view's
+        /// drawable and the command queue (audit §7.2).
+        let device: MTLDevice?
         var style: VisualizerStyle
         var currentFrame: VisualizerFrame?
         private var startTime = CACurrentMediaTime()
@@ -79,10 +82,11 @@ struct VisualizerView: UIViewRepresentable {
 
         init(style: VisualizerStyle, frameStream: AsyncStream<VisualizerFrame>) {
             self.style = style
+            let device = MTLCreateSystemDefaultDevice()
+            self.device = device
             super.init()
 
-            guard let device = MTLCreateSystemDefaultDevice() else { return }
-            commandQueue = device.makeCommandQueue()
+            commandQueue = device?.makeCommandQueue()
 
             task = Task { [weak self] in
                 for await frame in frameStream {
@@ -96,7 +100,7 @@ struct VisualizerView: UIViewRepresentable {
         func draw(in view: MTKView) {
             guard let drawable = view.currentDrawable,
                   let descriptor = view.currentRenderPassDescriptor,
-                  let device = view.device,
+                  let device,
                   let commandQueue else { return }
 
             // Build pipeline once per style change
@@ -114,8 +118,10 @@ struct VisualizerView: UIViewRepresentable {
                 spectrum: currentFrame?.spectrum ?? [Float](repeating: 0, count: 16)
             )
 
-            let buffer = commandQueue.makeCommandBuffer()!
-            let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor)!
+            // Both can return nil under GPU memory pressure or app backgrounding
+            // mid-draw — skip the frame rather than crash (audit §5.3).
+            guard let buffer = commandQueue.makeCommandBuffer(),
+                  let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor) else { return }
             encoder.setRenderPipelineState(pipeline)
             encoder.setFragmentBytes(&uniforms, length: MemoryLayout<VisualizerUniforms>.size, index: 0)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
