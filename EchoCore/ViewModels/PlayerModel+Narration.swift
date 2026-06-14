@@ -48,10 +48,23 @@ extension PlayerModel {
                 // Audio" in the reader are excluded from narration, matching the
                 // alignment/timeline paths.
                 let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
-                let chapters = NarrationChapterPlanner.plan(from: blocks)
-                guard !chapters.isEmpty else {
+                let plan = NarrationChapterPlanner.plan(from: blocks)
+                guard !plan.isEmpty else {
                     self.state.narrationRenderInFlight = false
                     return
+                }
+                // Resume at the last-played chapter (forward-only). The pipeline's
+                // own position-restore seeks within that chapter, because the
+                // narration Track.id is the deterministic per-chapter file URL.
+                let chapters: [NarrationChapterPlanner.PlannedChapter]
+                if let lastTrackID = self.persistence.getLastTrack(for: audiobookID),
+                    let fileName = URL(string: lastTrackID)?.lastPathComponent,
+                    let resumeIndex = NarrationFileNaming.chapterIndex(fromFileName: fileName)
+                {
+                    chapters = NarrationChapterPlanner.resume(
+                        plan, startingAtChapterIndex: resumeIndex)
+                } else {
+                    chapters = plan
                 }
 
                 // Pay the one-time ANE model compile before the first chapter.
