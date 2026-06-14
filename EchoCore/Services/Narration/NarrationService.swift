@@ -67,7 +67,8 @@ final class NarrationService {
 
         try Task.checkCancellation()
         let fileURL = cacheDirectory.appendingPathComponent(
-            "\(audiobookID)-ch\(chapterIndex)-\(voice.rawValue).m4a")
+            NarrationFileNaming.chapterFileName(
+                audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
         let duration = try await audioWriter.write(chunks, to: fileURL)
 
         try Task.checkCancellation()  // last gate before any DB write

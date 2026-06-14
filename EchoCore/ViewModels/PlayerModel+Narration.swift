@@ -1,0 +1,101 @@
+import AVFoundation
+import Foundation
+import GRDB
+
+// MARK: - On-device narration playback
+
+extension PlayerModel {
+
+    /// Plays an audio-less study book's narration through the main playback
+    /// pipeline: each chapter is rendered to a file and injected as a `Track`,
+    /// so CarPlay, the lock screen, and the scrubber drive it like a normal
+    /// audiobook. Chapter 1 starts playing as soon as it's rendered; the rest
+    /// render ahead and append, and the pipeline advances automatically.
+    ///
+    /// Safe to call right after `loadFolder` for a book that has no audio: it
+    /// renders nothing and returns if the book has no narratable EPUB text.
+    func startNarrationPlayback(voice: NarrationVoice = VoiceCatalog.default) {
+        guard let audiobookID = folderURL?.absoluteString,
+            let db = databaseService?.writer
+        else { return }
+
+        narrationRenderTask?.cancel()
+        narrationPlaybackState.reset()
+        state.narrationRenderInFlight = true
+        state.awaitingNarrationChapter = false
+
+        let cacheDirectory = Self.narrationCacheDirectory()
+        let service = NarrationService(
+            db: db, audiobookID: audiobookID, tts: narrationTTS,
+            audioWriter: AVFoundationAudioWriter(), cacheDirectory: cacheDirectory,
+            state: narrationPlaybackState)
+
+        narrationRenderTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // visibleBlocks (not blocks) so blocks the user marked "Not in
+                // Audio" in the reader are excluded from narration, matching the
+                // alignment/timeline paths.
+                let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
+                let chapters = NarrationChapterPlanner.plan(from: blocks)
+                guard !chapters.isEmpty else {
+                    self.state.narrationRenderInFlight = false
+                    return
+                }
+
+                // Pay the one-time ANE model compile before the first chapter.
+                try await self.narrationTTS.prepare()
+
+                for (offset, chapter) in chapters.enumerated() {
+                    try Task.checkCancellation()
+                    try await service.renderChapter(
+                        chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
+                    try Task.checkCancellation()
+                    // Bail if the user switched books while this chapter rendered.
+                    guard self.folderURL?.absoluteString == audiobookID else { return }
+
+                    let fileURL = cacheDirectory.appendingPathComponent(
+                        NarrationFileNaming.chapterFileName(
+                            audiobookID: audiobookID, chapterIndex: chapter.index, voice: voice.id))
+                    let track = Track(
+                        url: fileURL, title: String(localized: "Chapter \(chapter.index + 1)"))
+
+                    if offset == 0 {
+                        // First chapter: start playing through the pipeline.
+                        self.tracks = [track]
+                        self.playerLoadingCoordinator.prepareToPlay(index: 0, autoplay: true)
+                    } else {
+                        // Render-ahead: append so the player advances into it.
+                        self.tracks.append(track)
+                        // If playback paused at the end of the queue waiting for
+                        // this chapter, advance into it now.
+                        if self.state.awaitingNarrationChapter {
+                            self.state.awaitingNarrationChapter = false
+                            self.playbackController.nextTrack()
+                        }
+                    }
+                }
+                // All chapters rendered and queued.
+                guard self.folderURL?.absoluteString == audiobookID else { return }
+                self.state.narrationRenderInFlight = false
+                self.narrationPlaybackState.complete()
+            } catch is CancellationError {
+                // Switched books or stopped — loadFolder resets the flags.
+            } catch {
+                // Don't stamp a stale failure onto a book the user switched to.
+                guard self.folderURL?.absoluteString == audiobookID else { return }
+                self.state.narrationRenderInFlight = false
+                self.narrationPlaybackState.fail(error.localizedDescription)
+            }
+        }
+    }
+
+    /// App-owned, stable location for rendered narration audio — survives the
+    /// session (unlike the temporary directory, which can be purged mid-play).
+    private static func narrationCacheDirectory() -> URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Narration", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }
+}

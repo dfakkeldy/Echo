@@ -110,14 +110,16 @@ struct EPUBImportService {
 
             let xhtmlData = try Data(contentsOf: xhtmlURL)
             let parsedXHTML = parseXHTML(from: xhtmlData)
-            parsedSpines.append((blocks: parsedXHTML.blocks, title: parsedXHTML.title, url: xhtmlURL))
+            parsedSpines.append(
+                (blocks: parsedXHTML.blocks, title: parsedXHTML.title, url: xhtmlURL))
         }
 
         // 5. Apply Heuristic Engine
-        var engine = EPUBHeuristicEngine(tocLabels: Array(tocMap.values), spineItemCount: spine.count)
+        var engine = EPUBHeuristicEngine(
+            tocLabels: Array(tocMap.values), spineItemCount: spine.count)
         let allExtractedBlocks = parsedSpines.flatMap { $0.blocks }
         engine.buildCSSFingerprint(from: allExtractedBlocks)
-        
+
         var allBlocks: [EPubBlockRecord] = []
         var sequenceIndex = 0
         var hasSeenContentHeading = false
@@ -132,7 +134,7 @@ struct EPUBImportService {
         for i in 0..<parsedSpines.count {
             var textBlocks = parsedSpines[i].blocks
             let spineHref = spine[i].href
-            
+
             // Score pass
             for j in 0..<textBlocks.count {
                 let newKind = engine.score(block: textBlocks[j])
@@ -149,35 +151,40 @@ struct EPUBImportService {
                     anchorIDs: textBlocks[j].anchorIDs
                 )
             }
-            
+
             // Apply TOC Map or Document Title fallback if no *content* heading.
             let hasContentHeading = textBlocks.contains(where: { block in
                 guard block.kind == .heading,
-                      let text = block.text,
-                      !text.trimmingCharacters(in: .whitespaces).isEmpty
+                    let text = block.text,
+                    !text.trimmingCharacters(in: .whitespaces).isEmpty
                 else { return false }
                 return !HeadingClassifier.isJunk(text)
             })
 
             let decodedHref = spineHref.removingPercentEncoding ?? spineHref
             let hrefWithoutFragment = String(decodedHref.components(separatedBy: "#")[0])
-            let fallbackTitle = tocMap[hrefWithoutFragment] ?? parsedSpines[i].title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fallbackTitle =
+                tocMap[hrefWithoutFragment]
+                ?? parsedSpines[i].title?.trimmingCharacters(in: .whitespacesAndNewlines)
             let titleIsNonContent = fallbackTitle.map(HeadingClassifier.isNonContent) ?? false
 
             // Front matter by structure (linear="no", or before the guide /
             // landmarks body start), or — when the EPUB provides no structural
             // info — by a non-content title on a heading-less spine before any
             // real content has appeared.
-            let structuralFrontMatter = !spine[i].linear
+            let structuralFrontMatter =
+                !spine[i].linear
                 || (bodyStartSpineIndex.map { i < $0 } ?? false)
-            let isFrontMatterSpine = structuralFrontMatter
+            let isFrontMatterSpine =
+                structuralFrontMatter
                 || (!hasContentHeading && titleIsNonContent && !hasSeenContentHeading)
 
             if hasContentHeading {
                 hasSeenContentHeading = true
             } else if !isFrontMatterSpine, !titleIsNonContent,
-                      let title = fallbackTitle, !title.isEmpty,
-                      title.lowercased() != "untitled", title.lowercased() != "unknown" {
+                let title = fallbackTitle, !title.isEmpty,
+                title.lowercased() != "untitled", title.lowercased() != "unknown"
+            {
                 let headingBlock = TextBlockDescriptor(
                     kind: .heading,
                     text: title,
@@ -191,7 +198,8 @@ struct EPUBImportService {
 
             var spineRecords: [EPubBlockRecord] = []
             for (blockIdx, textBlock) in textBlocks.enumerated() {
-                let wordCount = textBlock.text?.split(whereSeparator: { $0.isWhitespace }).count ?? 0
+                let wordCount =
+                    textBlock.text?.split(whereSeparator: { $0.isWhitespace }).count ?? 0
                 let block = EPubBlockRecord(
                     id: "epub-\(audiobookID)-s\(i)-b\(blockIdx)",
                     audiobookID: audiobookID,
@@ -222,7 +230,8 @@ struct EPUBImportService {
             firstBlockIDBySpine[i] = spineRecords.first?.id
             for (descriptor, record) in zip(textBlocks, spineRecords) {
                 if firstHeadingBlockIDBySpine[i] == nil,
-                   record.blockKind == EPubBlockRecord.Kind.heading.rawValue {
+                    record.blockKind == EPubBlockRecord.Kind.heading.rawValue
+                {
                     firstHeadingBlockIDBySpine[i] = record.id
                 }
                 for anchor in descriptor.anchorIDs where anchorBlockIDBySpine[i]?[anchor] == nil {
@@ -234,16 +243,22 @@ struct EPUBImportService {
             let xhtmlURL = parsedSpines[i].url
             for var block in spineRecords {
                 if block.blockKind == EPubBlockRecord.Kind.image.rawValue,
-                   let imagePath = block.imagePath {
-                    let sourceURL = resolveImageURL(href: imagePath, baseURL: xhtmlURL.deletingLastPathComponent(), epubRoot: epubURL, opfDir: opfDir)
-                    if let localPath = assetStorage.copyImage(from: sourceURL, audiobookID: audiobookID, filename: URL(fileURLWithPath: imagePath).lastPathComponent) {
+                    let imagePath = block.imagePath
+                {
+                    let sourceURL = resolveImageURL(
+                        href: imagePath, baseURL: xhtmlURL.deletingLastPathComponent(),
+                        epubRoot: epubURL, opfDir: opfDir)
+                    if let localPath = assetStorage.copyImage(
+                        from: sourceURL, audiobookID: audiobookID,
+                        filename: URL(fileURLWithPath: imagePath).lastPathComponent)
+                    {
                         block.imagePath = localPath
                     }
                 }
                 allBlocks.append(block)
             }
         }
-        
+
         // 6.5 Resolve the publisher's TOC tree (NCX navPoint / nav ol nesting)
         // to concrete blocks, promoting fragment targets that aren't marked up
         // as headings (table-styled topic titles) so the reader can style and
@@ -276,8 +291,9 @@ struct EPUBImportService {
                         estimatedTime >= ch.startSeconds && estimatedTime < ch.endSeconds
                     }) {
                         if matchedChapter.index == 0,
-                           !hasSeenFirstHeading,
-                           estimatedFraction < 0.25 {
+                            !hasSeenFirstHeading,
+                            estimatedFraction < 0.25
+                        {
                             continue
                         }
                         allBlocks[i].chapterIndex = matchedChapter.index
@@ -295,6 +311,27 @@ struct EPUBImportService {
                     }
                 }
             }
+        } else if chapters.isEmpty, bookDuration == nil, !allBlocks.isEmpty {
+            // Standalone EPUB (no audiobook): there are no audio chapters to map
+            // blocks to, so the book's own spine items are its chapters. The
+            // reader and on-device narration read blocks by chapter index —
+            // otherwise every block stays at chapterIndex nil and "chapter 0" is
+            // empty. Map BODY-matter spine items to 0-based chapter indices and
+            // leave front matter (cover/title/copyright) unassigned, so the first
+            // narrated chapter is the book's real chapter 1, not the copyright
+            // page. Front-matter blocks still appear in the reader (ordered by
+            // sequence); they simply aren't a narration chapter.
+            var chapterForSpine: [Int: Int] = [:]
+            let bodySpines = Set(allBlocks.filter { !$0.isFrontMatter }.map(\.spineIndex))
+            // Degenerate book that is entirely front matter: fall back to all
+            // spines so there is still a chapter 0 to read.
+            let spinesToNumber = bodySpines.isEmpty ? Set(allBlocks.map(\.spineIndex)) : bodySpines
+            for spine in spinesToNumber.sorted() {
+                chapterForSpine[spine] = chapterForSpine.count
+            }
+            for i in 0..<allBlocks.count {
+                allBlocks[i].chapterIndex = chapterForSpine[allBlocks[i].spineIndex]
+            }
         }
 
         // 8. Write blocks to database.
@@ -309,7 +346,9 @@ struct EPUBImportService {
         try tocDAO.deleteAll(for: audiobookID)
         try tocDAO.insertAll(tocRecords)
 
-        logger.info("Imported \(allBlocks.count) EPUB blocks and \(tocRecords.count) TOC entries for \(audiobookID)")
+        logger.info(
+            "Imported \(allBlocks.count) EPUB blocks and \(tocRecords.count) TOC entries for \(audiobookID)"
+        )
         return allBlocks
     }
 
@@ -364,30 +403,35 @@ struct EPUBImportService {
                 var resolvedBlockID: String?
                 var fragmentResolved = false
                 if let fragment = node.fragment,
-                   let anchorHit = anchorBlockIDBySpine[spineIdx]?[fragment] {
+                    let anchorHit = anchorBlockIDBySpine[spineIdx]?[fragment]
+                {
                     resolvedBlockID = anchorHit
                     fragmentResolved = true
                 } else {
-                    resolvedBlockID = firstHeadingBlockIDBySpine[spineIdx] ?? firstBlockIDBySpine[spineIdx]
+                    resolvedBlockID =
+                        firstHeadingBlockIDBySpine[spineIdx] ?? firstBlockIDBySpine[spineIdx]
                 }
 
                 let entryID = "toc-\(audiobookID)-\(orderCounter)"
-                records.append(EPubTOCEntryRecord(
-                    id: entryID,
-                    audiobookID: audiobookID,
-                    parentID: parentID,
-                    orderIndex: orderCounter,
-                    depth: depth,
-                    title: node.title,
-                    blockID: resolvedBlockID,
-                    spineIndex: spineIdx
-                ))
+                records.append(
+                    EPubTOCEntryRecord(
+                        id: entryID,
+                        audiobookID: audiobookID,
+                        parentID: parentID,
+                        orderIndex: orderCounter,
+                        depth: depth,
+                        title: node.title,
+                        blockID: resolvedBlockID,
+                        spineIndex: spineIdx
+                    ))
                 orderCounter += 1
 
                 if fragmentResolved,
-                   let blockID = resolvedBlockID,
-                   let arrayIdx = blockArrayIndexByID[blockID] {
-                    promoteToHeadingIfTitleMatches(&blocks[arrayIdx], title: node.title, depth: depth)
+                    let blockID = resolvedBlockID,
+                    let arrayIdx = blockArrayIndexByID[blockID]
+                {
+                    promoteToHeadingIfTitleMatches(
+                        &blocks[arrayIdx], title: node.title, depth: depth)
                 }
 
                 appendEntries(node.children, parentID: entryID, depth: depth + 1)
@@ -406,8 +450,8 @@ struct EPUBImportService {
         _ block: inout EPubBlockRecord, title: String, depth: Int
     ) {
         guard block.blockKind == EPubBlockRecord.Kind.paragraph.rawValue,
-              let text = block.text, !text.isEmpty, text.count <= 120,
-              titlesEssentiallyMatch(text, title)
+            let text = block.text, !text.isEmpty, text.count <= 120,
+            titlesEssentiallyMatch(text, title)
         else { return }
 
         block.blockKind = EPubBlockRecord.Kind.heading.rawValue
@@ -446,7 +490,8 @@ struct EPUBImportService {
         guideReferences: [GuideReference],
         landmarks: [GuideReference]
     ) -> Int? {
-        let candidates = landmarks.filter { $0.type.split(separator: " ").contains("bodymatter") }
+        let candidates =
+            landmarks.filter { $0.type.split(separator: " ").contains("bodymatter") }
             + guideReferences.filter { $0.type == "text" }
         for candidate in candidates {
             if let index = spineIndex(of: candidate.href, in: spine) {

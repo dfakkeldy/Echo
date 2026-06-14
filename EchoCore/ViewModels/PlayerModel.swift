@@ -423,6 +423,14 @@ final class PlayerModel {
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
     var continuousAlignmentService: ContinuousAlignmentService?
 
+    // On-device narration playback: an audio-less study EPUB renders its
+    // narration into the main playback pipeline (so CarPlay / lock screen / the
+    // scrubber all work). The TTS engine is reused across books so the one-time
+    // ANE model compile is paid once, not per book.
+    @ObservationIgnored lazy var narrationTTS: any TTSEngine = KokoroTTSEngine()
+    @ObservationIgnored var narrationRenderTask: Task<Void, Never>?
+    let narrationPlaybackState = NarrationState()
+
     private func computeWordClouds() {
         transcriptService.computeWordClouds()
     }
@@ -1002,6 +1010,14 @@ final class PlayerModel {
     ///   - url: The folder or file URL to load.
     ///   - autoplay: Whether to automatically begin playback after loading. Defaults to `true`.
     func loadFolder(_ url: URL, autoplay: Bool = true) {
+        // Stop narrating the previous book before its tracks are replaced, so a
+        // stale render can't append chapters onto the newly loaded book, and
+        // clear its narration playback state so the new book starts fresh.
+        narrationRenderTask?.cancel()
+        narrationRenderTask = nil
+        state.narrationRenderInFlight = false
+        state.awaitingNarrationChapter = false
+        narrationPlaybackState.reset()
         playerLoadingCoordinator.loadFolder(url, autoplay: autoplay)
     }
 

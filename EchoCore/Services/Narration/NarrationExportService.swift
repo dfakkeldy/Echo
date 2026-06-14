@@ -16,8 +16,7 @@ actor NarrationExportService {
     /// This is the fast, free export path (7a).
     func exportChapterFiles(for bookID: String, cacheDirectory: URL) async throws -> [URL] {
         let fileManager = FileManager.default
-        // Must match the writer's cache filename: "<audiobookID>-ch<n>-<voice>.m4a".
-        let prefix = "\(bookID)-ch"
+        let prefix = NarrationFileNaming.chapterPrefix(audiobookID: bookID)
 
         let allFiles = try fileManager.contentsOfDirectory(
             at: cacheDirectory, includingPropertiesForKeys: nil)

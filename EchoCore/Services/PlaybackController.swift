@@ -1,11 +1,12 @@
-import Foundation
 import AVFoundation
+import Foundation
 import Observation
 
 // MARK: - PlaybackControllerDelegate
 
 protocol PlaybackControllerDelegate: AnyObject {
-    func playbackController(_ controller: PlaybackController, didUpdateTime currentTime: TimeInterval)
+    func playbackController(
+        _ controller: PlaybackController, didUpdateTime currentTime: TimeInterval)
     func playbackControllerDidPlayToEnd(_ controller: PlaybackController)
     func playbackControllerInterruptionBegan(_ controller: PlaybackController)
     func playbackControllerInterruptionEnded(_ controller: PlaybackController, shouldResume: Bool)
@@ -29,10 +30,12 @@ final class PlaybackController {
 
     // Coordinators — set by PlayerModel to handle cross-cutting concerns.
     @ObservationIgnored var coordinator_smartRewind: ((_ pausedDuration: TimeInterval) -> Double)?
-    @ObservationIgnored var coordinator_jumpToChapterStartForHours: ((_ pausedDuration: TimeInterval) -> Bool)?
+    @ObservationIgnored var coordinator_jumpToChapterStartForHours:
+        ((_ pausedDuration: TimeInterval) -> Bool)?
     @ObservationIgnored var coordinator_loadTrack: ((_ index: Int, _ autoplay: Bool) -> Void)?
     @ObservationIgnored var coordinator_persistAndSync: ((_ isPaused: Bool) -> Void)?
-    @ObservationIgnored var coordinator_checkVoiceMemo: ((_ at: Double, _ previous: Double?) -> Void)?
+    @ObservationIgnored var coordinator_checkVoiceMemo:
+        ((_ at: Double, _ previous: Double?) -> Void)?
     @ObservationIgnored var coordinator_seekCompleted: ((_ isManual: Bool) -> Void)?
     @ObservationIgnored var coordinator_persistSpeed: ((_ key: String, _ speed: Float) -> Void)?
     @ObservationIgnored var coordinator_persistLoopMode: ((_ key: String, _ mode: String) -> Void)?
@@ -42,7 +45,8 @@ final class PlaybackController {
     @ObservationIgnored var coordinator_jumpToBookmark: ((Bookmark) -> Void)?
     @ObservationIgnored var coordinator_refreshArtwork: ((TimeInterval, Bool) -> Void)?
     @ObservationIgnored var coordinator_endBackgroundTask: (() -> Void)?
-    @ObservationIgnored var coordinator_saveProgress: ((_ folder: String, _ trackId: String, _ time: TimeInterval) -> Void)?
+    @ObservationIgnored var coordinator_saveProgress:
+        ((_ folder: String, _ trackId: String, _ time: TimeInterval) -> Void)?
     @ObservationIgnored var coordinator_stopSecurityScope: (() -> Void)?
     @ObservationIgnored var coordinator_handleChapterEndSleepTimer: (() -> Bool)?
     @ObservationIgnored var coordinator_currentTrackBookmarks: (() -> [Bookmark])?
@@ -75,14 +79,18 @@ final class PlaybackController {
             if let idx = state.currentChapterIndex, !state.chapters[idx].isEnabled {
                 if let nextIdx = ChapterService.nextEnabledIndex(after: idx, in: state.chapters) {
                     seekToChapter(at: nextIdx)
-                } else if loopMode == .chapter, let firstIdx = ChapterService.nextEnabledIndex(after: -1, in: state.chapters) {
+                } else if loopMode == .chapter,
+                    let firstIdx = ChapterService.nextEnabledIndex(after: -1, in: state.chapters)
+                {
                     seekToChapter(at: firstIdx)
                 } else {
                     nextTrack()
                 }
             }
         } else {
-            if state.tracks.indices.contains(state.currentIndex), !state.tracks[state.currentIndex].isEnabled {
+            if state.tracks.indices.contains(state.currentIndex),
+                !state.tracks[state.currentIndex].isEnabled
+            {
                 nextTrack()
             }
         }
@@ -114,13 +122,16 @@ final class PlaybackController {
 
         guard !state.tracks.isEmpty else { return }
 
-        assert(coordinator_configureAudioSession != nil,
-               "coordinator_configureAudioSession must be wired — audio session setup required for playback")
+        assert(
+            coordinator_configureAudioSession != nil,
+            "coordinator_configureAudioSession must be wired — audio session setup required for playback"
+        )
         coordinator_configureAudioSession?()
 
         if !audioEngine.isItemLoaded {
-            assert(coordinator_loadTrack != nil,
-                   "coordinator_loadTrack must be wired — track loading required for playback")
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — track loading required for playback")
             coordinator_loadTrack?(state.currentIndex, false)
         }
         coordinator_startSecurityScope?()
@@ -151,7 +162,8 @@ final class PlaybackController {
 
         let current = audioEngine.currentTime
         let rewindAmount = coordinator_smartRewind?(pausedDuration) ?? 0
-        let target = computeRewindTarget(current: current, pausedDuration: pausedDuration, rewindAmount: rewindAmount)
+        let target = computeRewindTarget(
+            current: current, pausedDuration: pausedDuration, rewindAmount: rewindAmount)
 
         guard target != current else { return }
 
@@ -163,7 +175,9 @@ final class PlaybackController {
     }
 
     /// Determines the rewind target time, clamping to chapter boundaries when appropriate.
-    private func computeRewindTarget(current: TimeInterval, pausedDuration: TimeInterval, rewindAmount: TimeInterval) -> TimeInterval {
+    private func computeRewindTarget(
+        current: TimeInterval, pausedDuration: TimeInterval, rewindAmount: TimeInterval
+    ) -> TimeInterval {
         if coordinator_jumpToChapterStartForHours?(pausedDuration) == true {
             return computeChapterStartTarget(current: current)
         } else if rewindAmount > 0 {
@@ -176,7 +190,9 @@ final class PlaybackController {
 
     private func computeChapterStartTarget(current: TimeInterval) -> TimeInterval {
         if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-            let currentOffset = state.m4bBooks.indices.contains(state.currentIndex) ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let currentOffset =
+                state.m4bBooks.indices.contains(state.currentIndex)
+                ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
             let globalTime = currentOffset + current
             if let idx = aggregatedChapterIndex(at: globalTime) {
                 return max(0, state.aggregatedChapters[idx].startSeconds - currentOffset)
@@ -188,12 +204,16 @@ final class PlaybackController {
     }
 
     /// Clamps the rewind target to the current chapter's start, preventing cross-chapter rewinds.
-    private func clampToChapterBoundary(target: TimeInterval, current: TimeInterval) -> TimeInterval {
+    private func clampToChapterBoundary(target: TimeInterval, current: TimeInterval) -> TimeInterval
+    {
         if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-            let currentOffset = state.m4bBooks.indices.contains(state.currentIndex) ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let currentOffset =
+                state.m4bBooks.indices.contains(state.currentIndex)
+                ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
             let globalTime = currentOffset + current
             if let idx = aggregatedChapterIndex(at: globalTime) {
-                let intraBookStart = max(0, state.aggregatedChapters[idx].startSeconds - currentOffset)
+                let intraBookStart = max(
+                    0, state.aggregatedChapters[idx].startSeconds - currentOffset)
                 return max(target, intraBookStart)
             }
         } else if state.chapters.count >= 2, let idx = state.currentChapterIndex {
@@ -215,9 +235,11 @@ final class PlaybackController {
         coordinator_playStateChanged?(false)
 
         if audioEngine.isItemLoaded,
-           let folder = state.folderURL?.absoluteString,
-           state.tracks.indices.contains(state.currentIndex) {
-            coordinator_saveProgress?(folder, state.tracks[state.currentIndex].id, audioEngine.currentTime)
+            let folder = state.folderURL?.absoluteString,
+            state.tracks.indices.contains(state.currentIndex)
+        {
+            coordinator_saveProgress?(
+                folder, state.tracks[state.currentIndex].id, audioEngine.currentTime)
         }
     }
 
@@ -275,8 +297,10 @@ final class PlaybackController {
         state.elapsedText = "--:--"
 
         audioEngine.stop()
-        assert(coordinator_stopSecurityScope != nil,
-               "coordinator_stopSecurityScope must be wired — security-scoped resource cleanup required")
+        assert(
+            coordinator_stopSecurityScope != nil,
+            "coordinator_stopSecurityScope must be wired — security-scoped resource cleanup required"
+        )
         coordinator_stopSecurityScope?()
     }
 
@@ -291,13 +315,23 @@ final class PlaybackController {
             nextChapter()
             return
         }
-        if let newIndex = findNextEnabledTrackIndex(in: state.tracks, currentIndex: state.currentIndex) {
-            assert(coordinator_loadTrack != nil,
-                   "coordinator_loadTrack must be wired — track navigation required")
+        if let newIndex = findNextEnabledTrackIndex(
+            in: state.tracks, currentIndex: state.currentIndex)
+        {
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — track navigation required")
             coordinator_loadTrack?(newIndex, true)
+        } else if state.narrationRenderInFlight {
+            // A narration book whose next chapter hasn't finished rendering: wait
+            // for it rather than looping back to chapter 1. startNarrationPlayback
+            // advances us when the chapter is appended.
+            state.awaitingNarrationChapter = true
+            pause()
         } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(coordinator_loadTrack != nil,
-                   "coordinator_loadTrack must be wired — track navigation required")
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — track navigation required")
             coordinator_loadTrack?(firstEnabled, true)
         }
     }
@@ -319,9 +353,12 @@ final class PlaybackController {
             return
         }
 
-        if let newIndex = findPrevEnabledTrackIndex(in: state.tracks, currentIndex: state.currentIndex) {
-            assert(coordinator_loadTrack != nil,
-                   "coordinator_loadTrack must be wired — track navigation required")
+        if let newIndex = findPrevEnabledTrackIndex(
+            in: state.tracks, currentIndex: state.currentIndex)
+        {
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — track navigation required")
             coordinator_loadTrack?(newIndex, true)
         } else {
             state.isManualSeeking = true
@@ -344,13 +381,17 @@ final class PlaybackController {
         let currentIdx = state.currentChapterIndex ?? -1
         if let nextIdx = ChapterService.nextEnabledIndex(after: currentIdx, in: state.chapters) {
             seekToChapter(at: nextIdx)
-        } else if let newIndex = findNextEnabledTrackIndex(in: state.tracks, currentIndex: state.currentIndex) {
-            assert(coordinator_loadTrack != nil,
-                   "coordinator_loadTrack must be wired — chapter navigation fallback")
+        } else if let newIndex = findNextEnabledTrackIndex(
+            in: state.tracks, currentIndex: state.currentIndex)
+        {
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — chapter navigation fallback")
             coordinator_loadTrack?(newIndex, true)
         } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(coordinator_loadTrack != nil,
-                   "coordinator_loadTrack must be wired — chapter navigation fallback")
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — chapter navigation fallback")
             coordinator_loadTrack?(firstEnabled, true)
         }
     }
@@ -386,7 +427,9 @@ final class PlaybackController {
         let t = audioEngine.currentTime
         guard t.isFinite else { return }
 
-        if let _ = state.currentChapterIndex, let current = currentChapterForTime(t), (t - current.startSeconds) > 5 {
+        if state.currentChapterIndex != nil, let current = currentChapterForTime(t),
+            (t - current.startSeconds) > 5
+        {
             seekToChapter(at: current.index)
             return
         }
@@ -394,7 +437,8 @@ final class PlaybackController {
         let currentIdx = state.currentChapterIndex ?? 0
         if let prevIdx = ChapterService.prevEnabledIndex(before: currentIdx, in: state.chapters) {
             seekToChapter(at: prevIdx)
-        } else if let firstEnabled = ChapterService.nextEnabledIndex(after: -1, in: state.chapters) {
+        } else if let firstEnabled = ChapterService.nextEnabledIndex(after: -1, in: state.chapters)
+        {
             seekToChapter(at: firstEnabled)
         } else {
             seekToChapter(at: state.chapters.first?.index ?? 0)
@@ -437,12 +481,14 @@ final class PlaybackController {
             nextAggregatedChapter()
             return
         }
-        
-        guard let idx = state.currentChapterIndex, let sections = state.chapterSections[idx], !sections.isEmpty else {
+
+        guard let idx = state.currentChapterIndex, let sections = state.chapterSections[idx],
+            !sections.isEmpty
+        else {
             nextChapter()
             return
         }
-        
+
         let t = audioEngine.currentTime
         if let nextSec = sections.first(where: { $0.startSeconds > t + 0.5 }) {
             seekToSection(nextSec)
@@ -456,19 +502,23 @@ final class PlaybackController {
             previousAggregatedChapterOrRestart()
             return
         }
-        
-        guard let idx = state.currentChapterIndex, let sections = state.chapterSections[idx], !sections.isEmpty else {
+
+        guard let idx = state.currentChapterIndex, let sections = state.chapterSections[idx],
+            !sections.isEmpty
+        else {
             previousChapterOrRestart()
             return
         }
-        
+
         let t = audioEngine.currentTime
-        
-        if let currentSec = sections.last(where: { $0.startSeconds <= t }), (t - currentSec.startSeconds) > 5 {
+
+        if let currentSec = sections.last(where: { $0.startSeconds <= t }),
+            (t - currentSec.startSeconds) > 5
+        {
             seekToSection(currentSec)
             return
         }
-        
+
         if let prevSec = sections.last(where: { $0.startSeconds < t - 5.0 }) {
             seekToSection(prevSec)
         } else {
@@ -547,8 +597,9 @@ final class PlaybackController {
             }
         } else {
             // Different book — load the new track. prepareToPlay will set chapters.
-            assert(coordinator_loadTrack != nil,
-                   "coordinator_loadTrack must be wired — cross-book navigation required")
+            assert(
+                coordinator_loadTrack != nil,
+                "coordinator_loadTrack must be wired — cross-book navigation required")
             coordinator_loadTrack?(agg.bookIndex, true)
             // Defer seeking until the track is loaded (handled in PlayerModel).
             state.pendingAggregatedChapter = agg
@@ -576,8 +627,9 @@ final class PlaybackController {
     @discardableResult
     func skipBackwardNavigation() -> Bool {
         if loopMode == .bookmark,
-           audioEngine.currentTime.isFinite,
-           jumpToPreviousBookmark(from: audioEngine.currentTime) {
+            audioEngine.currentTime.isFinite,
+            jumpToPreviousBookmark(from: audioEngine.currentTime)
+        {
             return true
         }
 
@@ -592,8 +644,9 @@ final class PlaybackController {
     @discardableResult
     func skipForwardNavigation() -> Bool {
         if loopMode == .bookmark,
-           audioEngine.currentTime.isFinite,
-           jumpToNextBookmark(from: audioEngine.currentTime) {
+            audioEngine.currentTime.isFinite,
+            jumpToNextBookmark(from: audioEngine.currentTime)
+        {
             return true
         }
 
@@ -628,7 +681,9 @@ final class PlaybackController {
 
         // Clamp to chapter start to prevent unintended chapter crossings
         if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-            let currentOffset = state.m4bBooks.indices.contains(state.currentIndex) ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let currentOffset =
+                state.m4bBooks.indices.contains(state.currentIndex)
+                ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
             let globalTime = currentOffset + current
             if let idx = aggregatedChapterIndex(at: globalTime) {
                 let agg = state.aggregatedChapters[idx]
@@ -722,7 +777,10 @@ final class PlaybackController {
 
     private func jumpToNextBookmark(from currentTime: Double) -> Bool {
         let bookmarks = coordinator_enabledBookmarks?() ?? []
-        guard let target = bookmarks.first(where: { $0.timestamp > currentTime + 1.0 }) ?? bookmarks.first else {
+        guard
+            let target = bookmarks.first(where: { $0.timestamp > currentTime + 1.0 })
+                ?? bookmarks.first
+        else {
             return false
         }
         coordinator_jumpToBookmark?(target)
@@ -731,7 +789,10 @@ final class PlaybackController {
 
     private func jumpToPreviousBookmark(from currentTime: Double) -> Bool {
         let bookmarks = coordinator_enabledBookmarks?() ?? []
-        guard let target = bookmarks.last(where: { $0.timestamp < currentTime - 2.0 }) ?? bookmarks.last else {
+        guard
+            let target = bookmarks.last(where: { $0.timestamp < currentTime - 2.0 })
+                ?? bookmarks.last
+        else {
             return false
         }
         coordinator_jumpToBookmark?(target)
@@ -742,7 +803,9 @@ final class PlaybackController {
 
     func applyChapterLoopIfNeeded() {
         guard !state.isManualSeeking else { return }
-        guard state.chapters.count >= 2, let idx = state.currentChapterIndex, audioEngine.isItemLoaded else { return }
+        guard state.chapters.count >= 2, let idx = state.currentChapterIndex,
+            audioEngine.isItemLoaded
+        else { return }
         guard !state.isSeekingForChapterBoundary else { return }
 
         let t = audioEngine.currentTime
@@ -783,7 +846,8 @@ final class PlaybackController {
     }
 
     func applyBookmarkLoopIfNeeded() {
-        guard loopMode == .bookmark, !state.isManualSeeking, !state.isSeekingForChapterBoundary else { return }
+        guard loopMode == .bookmark, !state.isManualSeeking, !state.isSeekingForChapterBoundary
+        else { return }
         guard audioEngine.isItemLoaded else { return }
         let t = audioEngine.currentTime
         guard t.isFinite else { return }
@@ -870,8 +934,10 @@ extension PlaybackController: AudioEngineDelegate {
         if state.isMultiM4B, let duration = engine.duration, duration > 0 {
             let remaining = duration - currentTime
             if remaining < 5, remaining > 0,
-               let nextIdx = findNextEnabledTrackIndex(in: state.tracks, currentIndex: state.currentIndex),
-               state.tracks.indices.contains(nextIdx) {
+                let nextIdx = findNextEnabledTrackIndex(
+                    in: state.tracks, currentIndex: state.currentIndex),
+                state.tracks.indices.contains(nextIdx)
+            {
                 engine.prebuffer(next: state.tracks[nextIdx].url)
             }
         }

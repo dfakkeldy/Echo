@@ -3,7 +3,7 @@ import SwiftUI
 struct VoicePickerView: View {
     @Bindable var viewModel: BookDetailViewModel
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
         NavigationStack {
             List(VoiceCatalog.all) { voice in
@@ -18,9 +18,9 @@ struct VoicePickerView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         Spacer()
-                        
+
                         if viewModel.selectedVoice.id == voice.id {
                             Image(systemName: "checkmark")
                                 .foregroundStyle(.tint)
@@ -29,7 +29,8 @@ struct VoicePickerView: View {
                     }
                     .contentShape(Rectangle())
                     .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(viewModel.selectedVoice.id == voice.id ? [.isSelected] : [])
+                    .accessibilityAddTraits(
+                        viewModel.selectedVoice.id == voice.id ? [.isSelected] : [])
                 }
                 .buttonStyle(.plain)
             }
@@ -41,8 +42,7 @@ struct VoicePickerView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Start Narration") {
-                        // Pass empty blocks here for the stub; in a real scenario, we'd pass the actual blocks
-                        viewModel.startNarration(blocks: [])
+                        viewModel.startNarration()
                         dismiss()
                     }
                 }
