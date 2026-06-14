@@ -29,6 +29,12 @@ enum AlignmentChunkPlanner {
         maxChunk: TimeInterval = 45
     ) -> [Chunk] {
         guard chapterEnd > chapterStart else { return [] }
+        // Defensive: an inverted/zero chunk config (minChunk >= maxChunk) makes
+        // windowStart > windowEnd and would emit negative-length chunks (§5.12).
+        // Fall back to a single chapter-length chunk rather than garbage.
+        guard minChunk > 0, maxChunk > minChunk else {
+            return [Chunk(start: chapterStart, end: chapterEnd)]
+        }
         let minTail: TimeInterval = 5
 
         let midpoints =
