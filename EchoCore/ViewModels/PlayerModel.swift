@@ -1,11 +1,11 @@
-import SwiftUI
-import Observation
 import AVFoundation
-import MediaPlayer
-import WatchConnectivity
-import UIKit
-import os.log
 import GRDB
+import MediaPlayer
+import Observation
+import SwiftUI
+import UIKit
+import WatchConnectivity
+import os.log
 
 // MARK: - Model
 
@@ -29,7 +29,7 @@ final class PlayerModel {
     /// Guarded by `canImport(UIKit)` because `VoiceMemoRecorder` is defined
     /// inside that same conditional in Bookmarks.swift.
     #if canImport(UIKit)
-    @ObservationIgnored private(set) var carPlayVoiceMemoRecorder = VoiceMemoRecorder()
+        @ObservationIgnored private(set) var carPlayVoiceMemoRecorder = VoiceMemoRecorder()
     #endif
 
     /// Observer tokens for CarPlay notifications. Retained so they can be
@@ -119,8 +119,10 @@ final class PlayerModel {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "global_volumeBoostEnabled")
-            playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabled,
-                                                gainDB: settingsManager?.volumeBoostGain ?? SettingsManager.Defaults.volumeBoostGain)
+            playbackController.setVolumeBoost(
+                enabled: resolvedVolumeBoostEnabled,
+                gainDB: settingsManager?.volumeBoostGain ?? SettingsManager.Defaults.volumeBoostGain
+            )
         }
     }
 
@@ -142,15 +144,19 @@ final class PlayerModel {
     }
 
     var resolvedAppFont: String {
-        BookPreferencesService.resolveAppFont(override: bookFontOverride, globalFont: settingsManager?.appFont)
+        BookPreferencesService.resolveAppFont(
+            override: bookFontOverride, globalFont: settingsManager?.appFont)
     }
 
     var resolvedPlayBookmarksInline: Bool {
-        BookPreferencesService.resolvePlayBookmarksInline(override: bookPlayBookmarksInlineOverride, globalValue: settingsManager?.playBookmarksInline)
+        BookPreferencesService.resolvePlayBookmarksInline(
+            override: bookPlayBookmarksInlineOverride,
+            globalValue: settingsManager?.playBookmarksInline)
     }
 
     var resolvedVolumeBoostEnabled: Bool {
-        BookPreferencesService.resolveVolumeBoost(override: bookVolumeBoostOverride, globalEnabled: isVolumeBoostEnabled)
+        BookPreferencesService.resolveVolumeBoost(
+            override: bookVolumeBoostOverride, globalEnabled: isVolumeBoostEnabled)
     }
 
     func updateBookFontOverride(_ value: String?) {
@@ -172,8 +178,9 @@ final class PlayerModel {
         if let key = folderURL?.absoluteString {
             bookSettingsOverrideStore.persistVolumeBoostOverride(value, for: key)
         }
-        playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabled,
-                                           gainDB: settingsManager?.volumeBoostGain ?? SettingsManager.Defaults.volumeBoostGain)
+        playbackController.setVolumeBoost(
+            enabled: resolvedVolumeBoostEnabled,
+            gainDB: settingsManager?.volumeBoostGain ?? SettingsManager.Defaults.volumeBoostGain)
     }
 
     // MARK: - Sleep timer state (pass-through to SleepTimerManager)
@@ -198,7 +205,8 @@ final class PlayerModel {
     var isPlaying: Bool { state.isPlaying }
     var currentTitle: String { state.currentTitle }
     var currentSubtitle: String {
-        state.currentSubtitle.applyingChapterTruncation(enabled: settingsManager?.truncateChapterNamesEnabled ?? false)
+        state.currentSubtitle.applyingChapterTruncation(
+            enabled: settingsManager?.truncateChapterNamesEnabled ?? false)
     }
     var isManualSeeking: Bool { state.isManualSeeking }
 
@@ -249,8 +257,9 @@ final class PlayerModel {
         }
         let version = currentDisplayArtworkVersion
         if version == cachedThemeVersion,
-           uiColorScheme == cachedThemeScheme,
-           let theme = cachedTheme {
+            uiColorScheme == cachedThemeScheme,
+            let theme = cachedTheme
+        {
             return theme
         }
         let theme = CoverThemeBuilder.build(from: signature, scheme: uiColorScheme)
@@ -288,10 +297,11 @@ final class PlayerModel {
             brand: ColorMetrics.rgb(Color.accentColor)
         )
         let a = resolved.accent
-        return String(format: "#%02X%02X%02X",
-                      Int((a.r * 255).rounded()),
-                      Int((a.g * 255).rounded()),
-                      Int((a.b * 255).rounded()))
+        return String(
+            format: "#%02X%02X%02X",
+            Int((a.r * 255).rounded()),
+            Int((a.g * 255).rounded()),
+            Int((a.b * 255).rounded()))
     }
 
     // MARK: - Chapters (pass-through to PlaybackState)
@@ -300,13 +310,14 @@ final class PlayerModel {
         get { state.chapters }
         set { state.chapters = newValue }
     }
-    
+
     var alignmentPickerChapters: [Chapter] {
         if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
             return state.aggregatedChapters.map { agg in
                 Chapter(
                     index: agg.chapterIndex,
-                    title: agg.chapterTitle.isEmpty ? "Chapter \(agg.chapterIndex + 1)" : agg.chapterTitle,
+                    title: agg.chapterTitle.isEmpty
+                        ? "Chapter \(agg.chapterIndex + 1)" : agg.chapterTitle,
                     startSeconds: agg.startSeconds,
                     endSeconds: agg.endSeconds,
                     isEnabled: true
@@ -347,13 +358,13 @@ final class PlayerModel {
 
     /// Whether EPUB blocks have been imported for the current audiobook.
     var hasEPUB: Bool {
-        _ = state.documentIngestionTrigger // register dependency
+        _ = state.documentIngestionTrigger  // register dependency
         return timelinePersistence.hasEPUB(for: folderURL?.absoluteString)
     }
 
     /// Whether a PDF file is present in the current audiobook folder.
     var hasPDF: Bool {
-        _ = state.documentIngestionTrigger // register dependency
+        _ = state.documentIngestionTrigger  // register dependency
         guard let url = folderURL else { return false }
         do {
             let files = try FileManager.default.contentsOfDirectory(atPath: url.path)
@@ -365,18 +376,19 @@ final class PlayerModel {
 
     /// Whether a standalone transcript exists for the current audiobook (no EPUB/PDF).
     var hasStandaloneTranscript: Bool {
-        _ = state.documentIngestionTrigger // register dependency
+        _ = state.documentIngestionTrigger  // register dependency
         guard let db = databaseService, let folder = folderURL?.absoluteString else { return false }
-        return ((try? db.read { db in
-            try StandaloneTranscriptRecord
-                .filter(GRDB.Column("audiobook_id") == folder)
-                .fetchCount(db)
-        } ) ?? 0) > 0
+        return
+            ((try? db.read { db in
+                try StandaloneTranscriptRecord
+                    .filter(GRDB.Column("audiobook_id") == folder)
+                    .fetchCount(db)
+            }) ?? 0) > 0
     }
 
     /// Whether transcript or enhanced transcript data is loaded for the current audiobook.
     var hasTranscript: Bool {
-        _ = state.documentIngestionTrigger // register dependency
+        _ = state.documentIngestionTrigger  // register dependency
         return !transcription.isEmpty || !enhancedTranscription.isEmpty
     }
 
@@ -454,7 +466,7 @@ final class PlayerModel {
     /// Background task claim held during pause to reduce the chance of eviction
     /// from the system Now Playing slot.
     private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
-    
+
     /// Tracks if audio was playing prior to an interruption, to determine if we should resume.
     var wasPlayingBeforeInterruption: Bool = false
 
@@ -496,7 +508,9 @@ final class PlayerModel {
         do {
             try FlashcardDAO(db: writer).grade(cardID: cardID, grade: grade)
         } catch {
-            os_log(.error, "gradeFlashcard failed for %{public}@: %{public}@", cardID, error.localizedDescription)
+            os_log(
+                .error, "gradeFlashcard failed for %{public}@: %{public}@", cardID,
+                error.localizedDescription)
         }
     }
 
@@ -514,10 +528,6 @@ final class PlayerModel {
             }
         }
     }
-
-    /// Optional timeline service for event logging.
-    /// Set externally when the Timeline tab is active.
-    var timelineService: TimelineService?
 
     init() {
         SettingsManager.registerDefaults()
@@ -614,11 +624,15 @@ final class PlayerModel {
         artworkCoordinator.bookmarkProvider = { [weak self] in self?.bookmarkStore.bookmarks ?? [] }
         artworkCoordinator.folderURLProvider = { [weak self] in self?.folderURL }
         artworkCoordinator.trackIDProvider = { [weak self] in
-            guard let self, self.state.tracks.indices.contains(self.currentIndex) else { return nil }
+            guard let self, self.state.tracks.indices.contains(self.currentIndex) else {
+                return nil
+            }
             return self.state.tracks[self.currentIndex].id
         }
         artworkCoordinator.isPlayingProvider = { [weak self] in self?.isPlaying ?? false }
-        artworkCoordinator.currentPlaybackTimeProvider = { [weak self] in self?.currentPlaybackTime ?? 0 }
+        artworkCoordinator.currentPlaybackTimeProvider = { [weak self] in
+            self?.currentPlaybackTime ?? 0
+        }
         artworkCoordinator.onUpdateNowPlaying = { [weak self] isPaused in
             self?.updateNowPlayingInfo(isPaused: isPaused)
         }
@@ -627,13 +641,16 @@ final class PlayerModel {
         }
 
         // Wire flashcard trigger controller dependencies.
-        flashcardTriggerController.databaseServiceProvider = { [weak self] in self?.databaseService }
+        flashcardTriggerController.databaseServiceProvider = { [weak self] in self?.databaseService
+        }
         flashcardTriggerController.trackKeyProvider = { [weak self] in
             guard let self, self.state.tracks.indices.contains(self.currentIndex) else { return "" }
             return self.state.tracks[self.currentIndex].url.lastPathComponent
         }
         flashcardTriggerController.isPlayingProvider = { [weak self] in self?.isPlaying ?? false }
-        flashcardTriggerController.isManualSeekingProvider = { [weak self] in self?.isManualSeeking ?? false }
+        flashcardTriggerController.isManualSeekingProvider = { [weak self] in
+            self?.isManualSeeking ?? false
+        }
         flashcardTriggerController.loopModeProvider = { [weak self] in self?.loopMode ?? .off }
 
         // Wire progress presenter dependencies.
@@ -643,7 +660,9 @@ final class PlayerModel {
         progressPresenter.speedProvider = { [weak self] in self?.speed ?? 1.0 }
         progressPresenter.currentTitleProvider = { [weak self] in self?.currentTitle ?? "" }
         progressPresenter.currentSubtitleProvider = { [weak self] in self?.currentSubtitle ?? "" }
-        progressPresenter.currentDisplayArtworkProvider = { [weak self] in self?.currentDisplayArtwork }
+        progressPresenter.currentDisplayArtworkProvider = { [weak self] in
+            self?.currentDisplayArtwork
+        }
         progressPresenter.thumbnailImageProvider = { [weak self] in self?.thumbnailImage }
         progressPresenter.onSyncToWatch = { [weak self] in self?.syncToWatch(reason: .progress) }
         progressPresenter.onChapterOutOfBounds = { [weak self] in
@@ -661,22 +680,27 @@ final class PlayerModel {
             self?.progressPresenter.updateNowPlayingInfo(isPaused: isPaused)
         }
         chapterLoadingCoordinator.onSyncToWatch = { [weak self] in self?.syncToWatch() }
-        chapterLoadingCoordinator.onUpdateProgress = { [weak self] in self?.progressPresenter.updateProgress() }
+        chapterLoadingCoordinator.onUpdateProgress = { [weak self] in
+            self?.progressPresenter.updateProgress()
+        }
         chapterLoadingCoordinator.onComputeWordClouds = { [weak self] in self?.computeWordClouds() }
         chapterLoadingCoordinator.onDurationLoaded = { [weak self] seconds in
             guard let self else { return }
             if self.deepLinkHandler.pendingSeekTime != nil {
                 Task { @MainActor in
-                    if let action = self.deepLinkHandler.applyPendingSeekIfPossible(isItemLoaded: self.audioEngine.isItemLoaded),
-                       case .seek(let time) = action {
+                    if let action = self.deepLinkHandler.applyPendingSeekIfPossible(
+                        isItemLoaded: self.audioEngine.isItemLoaded),
+                        case .seek(let time) = action
+                    {
                         self.seek(toSeconds: time)
                     }
                 }
             } else if let folder = self.folderURL?.absoluteString,
-                      let progress = self.persistence.getBookProgress(for: folder),
-                      self.state.tracks.indices.contains(self.currentIndex),
-                      progress.trackId == self.state.tracks[self.currentIndex].id,
-                      progress.time > 0, progress.time < seconds {
+                let progress = self.persistence.getBookProgress(for: folder),
+                self.state.tracks.indices.contains(self.currentIndex),
+                progress.trackId == self.state.tracks[self.currentIndex].id,
+                progress.time > 0, progress.time < seconds
+            {
                 let savedTime = progress.time
                 Task { @MainActor in
                     self.state.isManualSeeking = true
@@ -713,21 +737,37 @@ final class PlayerModel {
         playerLoadingCoordinator.nowPlayingController = nowPlayingController
         playerLoadingCoordinator.deepLinkHandler = deepLinkHandler
         playerLoadingCoordinator.databaseServiceProvider = { [weak self] in self?.databaseService }
-        playerLoadingCoordinator.resolvedVolumeBoostEnabledProvider = { [weak self] in self?.resolvedVolumeBoostEnabled ?? false }
-        playerLoadingCoordinator.defaultPlaybackSpeedProvider = { [weak self] in
-            Float(self?.settingsManager?.defaultPlaybackSpeed ?? SettingsManager.Defaults.defaultPlaybackSpeed)
+        playerLoadingCoordinator.resolvedVolumeBoostEnabledProvider = { [weak self] in
+            self?.resolvedVolumeBoostEnabled ?? false
         }
-        playerLoadingCoordinator.onConfigureRemoteCommands = { [weak self] in self?.configureRemoteCommandsIfNeeded() }
-        playerLoadingCoordinator.onPersistSelection = { [weak self] url in self?.persistSelection(url: url) }
-        playerLoadingCoordinator.onResetBookmarkCheckSecond = { [weak self] in self?.lastBookmarkCheckSecond = nil }
-        playerLoadingCoordinator.onConfigureContinuousAlignment = { [weak self] in self?.configureContinuousAlignment() }
+        playerLoadingCoordinator.defaultPlaybackSpeedProvider = { [weak self] in
+            Float(
+                self?.settingsManager?.defaultPlaybackSpeed
+                    ?? SettingsManager.Defaults.defaultPlaybackSpeed)
+        }
+        playerLoadingCoordinator.onConfigureRemoteCommands = { [weak self] in
+            self?.configureRemoteCommandsIfNeeded()
+        }
+        playerLoadingCoordinator.onPersistSelection = { [weak self] url in
+            self?.persistSelection(url: url)
+        }
+        playerLoadingCoordinator.onResetBookmarkCheckSecond = { [weak self] in
+            self?.lastBookmarkCheckSecond = nil
+        }
+        playerLoadingCoordinator.onConfigureContinuousAlignment = { [weak self] in
+            self?.configureContinuousAlignment()
+        }
 
         // Wire PlaybackController coordination closures.
         playbackController.coordinator_seekBackwardDuration = { [weak self] in
-            Double(self?.settingsManager?.seekBackwardDuration ?? SettingsManager.Defaults.seekBackwardDuration)
+            Double(
+                self?.settingsManager?.seekBackwardDuration
+                    ?? SettingsManager.Defaults.seekBackwardDuration)
         }
         playbackController.coordinator_seekForwardDuration = { [weak self] in
-            Double(self?.settingsManager?.seekForwardDuration ?? SettingsManager.Defaults.seekForwardDuration)
+            Double(
+                self?.settingsManager?.seekForwardDuration
+                    ?? SettingsManager.Defaults.seekForwardDuration)
         }
 
         playbackController.coordinator_smartRewind = { [weak self] pausedDuration in
@@ -754,7 +794,8 @@ final class PlayerModel {
             if !isManual {
                 self.updateCurrentChapterFromPlayerTime()
             }
-            self.sessionRecorder?.yield(.seeked(toPosition: self.audioEngine.currentTime, at: Date()))
+            self.sessionRecorder?.yield(
+                .seeked(toPosition: self.audioEngine.currentTime, at: Date()))
         }
         playbackController.coordinator_persistSpeed = { [weak self] key, speed in
             self?.persistence.saveSpeed(for: key, speed: speed)
@@ -770,7 +811,8 @@ final class PlayerModel {
             self?.updateNowPlayingElapsedTime()
             self?.updateProgressFromPlayer()
             if let self, self.audioEngine.currentTime.isFinite {
-                self.sessionRecorder?.yield(.progressTick(position: self.audioEngine.currentTime, at: Date()))
+                self.sessionRecorder?.yield(
+                    .progressTick(position: self.audioEngine.currentTime, at: Date()))
             }
         }
         playbackController.coordinator_enabledBookmarks = { [weak self] in
@@ -816,21 +858,23 @@ final class PlayerModel {
             guard let self else { return }
             if isPlaying {
                 self.startPlaybackSessionLogging()
-                self.sessionRecorder?.yield(.opened(
-                    audiobookID: self.folderURL?.absoluteString ?? "unknown",
-                    trackID: self.state.tracks.indices.contains(self.state.currentIndex)
-                        ? self.state.tracks[self.state.currentIndex].id : nil,
-                    position: self.audioEngine.currentTime,
-                    speed: Double(self.playbackController.speed),
-                    source: "user",
-                    at: Date()
-                ))
+                self.sessionRecorder?.yield(
+                    .opened(
+                        audiobookID: self.folderURL?.absoluteString ?? "unknown",
+                        trackID: self.state.tracks.indices.contains(self.state.currentIndex)
+                            ? self.state.tracks[self.state.currentIndex].id : nil,
+                        position: self.audioEngine.currentTime,
+                        speed: Double(self.playbackController.speed),
+                        source: "user",
+                        at: Date()
+                    ))
                 if self.settingsManager?.continuousAutoAlignmentEnabled == true {
                     self.continuousAlignmentService?.start()
                 }
             } else {
                 self.endPlaybackSessionLogging()
-                self.sessionRecorder?.yield(.closed(position: self.audioEngine.currentTime, at: Date()))
+                self.sessionRecorder?.yield(
+                    .closed(position: self.audioEngine.currentTime, at: Date()))
                 self.continuousAlignmentService?.stop()
             }
         }
@@ -854,10 +898,10 @@ final class PlayerModel {
             queue: .main
         ) { [weak self] _ in
             #if canImport(UIKit)
-            self?.carPlayStartVoiceMemo()
+                self?.carPlayStartVoiceMemo()
             #else
-            // CarPlay is iOS-only; this observer never fires on macOS.
-            os_log("CarPlay voice memo requested — CarPlay not available on this platform")
+                // CarPlay is iOS-only; this observer never fires on macOS.
+                os_log("CarPlay voice memo requested — CarPlay not available on this platform")
             #endif
         }
 
@@ -883,9 +927,12 @@ final class PlayerModel {
     /// Called when the app enters the background to prevent data loss.
     func persistCurrentState() {
         if audioEngine.isItemLoaded,
-           let folder = state.folderURL?.absoluteString,
-           state.tracks.indices.contains(state.currentIndex) {
-            persistence.saveBookProgress(for: folder, trackId: state.tracks[state.currentIndex].id, time: audioEngine.currentTime, folderURL: state.folderURL)
+            let folder = state.folderURL?.absoluteString,
+            state.tracks.indices.contains(state.currentIndex)
+        {
+            persistence.saveBookProgress(
+                for: folder, trackId: state.tracks[state.currentIndex].id,
+                time: audioEngine.currentTime, folderURL: state.folderURL)
             persistence.savePauseTimestamp(state.pauseTimestamp, for: folder)
         }
     }
@@ -948,7 +995,6 @@ final class PlayerModel {
 
     /// Restores the last selected folder or file from a security-scoped bookmark,
 
-
     /// Re-ingests timeline items for the current audiobook, reloading EPUB blocks
     /// and anchors from the database. Call after EPUB import or anchor changes.
     func reingestTimelineFromEPUB() async {
@@ -975,9 +1021,9 @@ final class PlayerModel {
     func restoreLastSelectionIfPossible() {
         guard let url = persistence.restoreBookmark() else {
             #if DEBUG && targetEnvironment(simulator)
-            if let sampleURL = MockMediaProvider.sampleAudiobookURL() {
-                loadFolder(sampleURL, autoplay: false)
-            }
+                if let sampleURL = MockMediaProvider.sampleAudiobookURL() {
+                    loadFolder(sampleURL, autoplay: false)
+                }
             #endif
             return
         }
@@ -992,9 +1038,10 @@ final class PlayerModel {
             return
         }
         if continuousAlignmentService == nil {
-            continuousAlignmentService = ContinuousAlignmentService(audioEngine: audioEngine, db: db, audiobookID: audiobookID)
+            continuousAlignmentService = ContinuousAlignmentService(
+                audioEngine: audioEngine, db: db, audiobookID: audiobookID)
         }
-        
+
         if isPlaying && settingsManager?.continuousAutoAlignmentEnabled == true {
             continuousAlignmentService?.start()
         } else {
@@ -1003,7 +1050,10 @@ final class PlayerModel {
     }
 
     func handleDeepLink(_ deepLink: PlayerDeepLink) {
-        guard let action = deepLinkHandler.handle(deepLink, isItemLoaded: audioEngine.isItemLoaded, isPlaying: isPlaying) else { return }
+        guard
+            let action = deepLinkHandler.handle(
+                deepLink, isItemLoaded: audioEngine.isItemLoaded, isPlaying: isPlaying)
+        else { return }
         switch action {
         case .play:
             play()
@@ -1025,12 +1075,18 @@ final class PlayerModel {
         let settings = settingsManager
 
         let policy = SmartRewindPolicy(
-            secondsThreshold: settings?.rewindPauseSecondsThreshold ?? SettingsManager.Defaults.rewindPauseSecondsThreshold,
-            secondsAmount: settings?.rewindAmountAfterSeconds ?? SettingsManager.Defaults.rewindAmountAfterSeconds,
-            minutesThreshold: settings?.rewindPauseMinutesThreshold ?? SettingsManager.Defaults.rewindPauseMinutesThreshold,
-            minutesAmount: settings?.rewindAmountAfterMinutes ?? SettingsManager.Defaults.rewindAmountAfterMinutes,
-            hoursThreshold: settings?.rewindPauseHoursThreshold ?? SettingsManager.Defaults.rewindPauseHoursThreshold,
-            hoursAmount: settings?.rewindAmountAfterHours ?? SettingsManager.Defaults.rewindAmountAfterHours
+            secondsThreshold: settings?.rewindPauseSecondsThreshold
+                ?? SettingsManager.Defaults.rewindPauseSecondsThreshold,
+            secondsAmount: settings?.rewindAmountAfterSeconds
+                ?? SettingsManager.Defaults.rewindAmountAfterSeconds,
+            minutesThreshold: settings?.rewindPauseMinutesThreshold
+                ?? SettingsManager.Defaults.rewindPauseMinutesThreshold,
+            minutesAmount: settings?.rewindAmountAfterMinutes
+                ?? SettingsManager.Defaults.rewindAmountAfterMinutes,
+            hoursThreshold: settings?.rewindPauseHoursThreshold
+                ?? SettingsManager.Defaults.rewindPauseHoursThreshold,
+            hoursAmount: settings?.rewindAmountAfterHours
+                ?? SettingsManager.Defaults.rewindAmountAfterHours
         )
         var rewindAmount = policy.rewindAmount(forPausedDuration: pausedDuration)
 
@@ -1049,8 +1105,12 @@ final class PlayerModel {
 
     private func shouldJumpToChapterStartForHoursLevel(pausedDuration: TimeInterval) -> Bool {
         let settings = settingsManager
-        let hoursThreshold = settings?.rewindPauseHoursThreshold ?? SettingsManager.Defaults.rewindPauseHoursThreshold
-        let hoursToChapterStart = settings?.rewindHoursToChapterStart ?? SettingsManager.Defaults.rewindHoursToChapterStart
+        let hoursThreshold =
+            settings?.rewindPauseHoursThreshold
+            ?? SettingsManager.Defaults.rewindPauseHoursThreshold
+        let hoursToChapterStart =
+            settings?.rewindHoursToChapterStart
+            ?? SettingsManager.Defaults.rewindHoursToChapterStart
         return hoursToChapterStart && pausedDuration >= Double(hoursThreshold * 3600)
     }
 
@@ -1232,8 +1292,10 @@ final class PlayerModel {
             skipForward: { [weak self] in self?.skipForward30() },
             previousTrack: { [weak self] in self?.skipBackwardNavigation() },
             seek: { [weak self] position in self?.seek(toSeconds: position) },
-            skipBackwardInterval: settingsManager?.seekBackwardDuration ?? SettingsManager.Defaults.seekBackwardDuration,
-            skipForwardInterval: settingsManager?.seekForwardDuration ?? SettingsManager.Defaults.seekForwardDuration
+            skipBackwardInterval: settingsManager?.seekBackwardDuration
+                ?? SettingsManager.Defaults.seekBackwardDuration,
+            skipForwardInterval: settingsManager?.seekForwardDuration
+                ?? SettingsManager.Defaults.seekForwardDuration
         )
     }
 
@@ -1249,11 +1311,9 @@ final class PlayerModel {
         progressPresenter.updateProgress()
     }
 
-
     private func loadDurationForNowPlaying() async {
         await chapterLoadingCoordinator.loadDurationForNowPlaying()
     }
-
 
     private func loadChaptersForCurrentItem() async {
         await chapterLoadingCoordinator.loadChaptersForCurrentItem()
@@ -1271,8 +1331,9 @@ final class PlayerModel {
         audioEngine.pause()
         updateNowPlayingInfo(isPaused: true)
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio,
-                                 options: [.interruptSpokenAudioAndMixWithOthers, .duckOthers])
+        try? session.setCategory(
+            .playback, mode: .spokenAudio,
+            options: [.interruptSpokenAudioAndMixWithOthers, .duckOthers])
         try? session.setActive(true)
     }
 
@@ -1302,27 +1363,30 @@ final class PlayerModel {
     /// that same conditional in Bookmarks.swift (CarPlay is iOS-only, so this code
     /// path is never reached on macOS).
     #if canImport(UIKit)
-    func carPlayStartVoiceMemo() {
-        addBookmarkAtCurrentTime()
+        func carPlayStartVoiceMemo() {
+            addBookmarkAtCurrentTime()
 
-        guard folderURL != nil else {
-            os_log("CarPlay voice memo: no audiobook folder — recording skipped")
-            return
+            guard folderURL != nil else {
+                os_log("CarPlay voice memo: no audiobook folder — recording skipped")
+                return
+            }
+
+            pause()
+
+            do {
+                try carPlayVoiceMemoRecorder.startRecording(in: folderURL)
+            } catch {
+                os_log(
+                    .error, "CarPlay voice memo recording failed: %{public}@",
+                    error.localizedDescription)
+            }
         }
-
-        pause()
-
-        do {
-            try carPlayVoiceMemoRecorder.startRecording(in: folderURL)
-        } catch {
-            os_log(.error, "CarPlay voice memo recording failed: %{public}@", error.localizedDescription)
-        }
-    }
     #endif
 
     /// Delegates to BookmarkStore to detect and fire inline voice memo triggers.
     func checkVoiceMemoTrigger(at currentSeconds: Double, previousSeconds: Double?) {
-        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
+        let trackId =
+            state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         if let memoURL = bookmarkStore.checkVoiceMemoTrigger(
             at: currentSeconds,
             previousSeconds: previousSeconds,
