@@ -61,7 +61,12 @@ extension PlayerModel {
                 let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
                 let plan = NarrationChapterPlanner.plan(from: blocks)
                 guard !plan.isEmpty else {
+                    // No narratable text: clear the interim "Preparing narration…"
+                    // status set synchronously above so Now Playing doesn't stay
+                    // stuck on it (playback never starts to overwrite it).
                     self.state.narrationRenderInFlight = false
+                    self.state.currentSubtitle = ""
+                    self.progressPresenter.updateNowPlayingInfo(isPaused: true)
                     return
                 }
                 // Resume at the last-played chapter (forward-only). The pipeline's
