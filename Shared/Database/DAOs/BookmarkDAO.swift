@@ -25,6 +25,15 @@ struct BookmarkDAO {
         }
     }
 
+    /// Inserts within an existing transaction (no nested write) and ignores
+    /// duplicates. Used by the one-shot UserDefaults→SQL migration, which already
+    /// holds a write transaction and must be idempotent on re-run (§5.10).
+    func insert(_ bookmark: BookmarkRecord, in db: Database) throws {
+        var bm = bookmark
+        try bm.insert(db, onConflict: .ignore)
+        try syncToTimeline(db, bookmark: bm)
+    }
+
     func update(_ bookmark: BookmarkRecord) throws {
         var bm = bookmark
         try db.write { db in
