@@ -12,7 +12,8 @@ struct NowPlayingTab: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
 
-    @State private var narrationVM: BookDetailViewModel?
+    @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
+    @State private var showingVoicePicker = false
 
     var body: some View {
         ZStack {
@@ -33,11 +34,11 @@ struct NowPlayingTab: View {
                     .padding(.top, 16)
 
                 // C2. On-device narration — shown when the book has EPUB text.
-                if model.hasEPUB, let narrationVM {
+                if model.hasEPUB {
                     VStack(spacing: 8) {
-                        NarrationStatusView(state: narrationVM.narrationState)
-                        if !narrationVM.narrationState.isRunning {
-                            NarrationNudgeView(viewModel: narrationVM)
+                        NarrationStatusView(state: model.narrationPlaybackState)
+                        if !model.narrationPlaybackState.isRunning {
+                            NarrationNudgeView(onListen: { showingVoicePicker = true })
                         }
                     }
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
@@ -86,12 +87,12 @@ struct NowPlayingTab: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task(id: model.folderURL) {
-            if let writer = model.databaseService?.writer, let id = model.folderURL?.absoluteString
-            {
-                narrationVM = BookDetailViewModel(
-                    db: writer, audiobookID: id, audioEngine: model.audioEngine)
-            } else {
-                narrationVM = nil
+            // Pre-warm the ANE model compile so the first Listen tap isn't a long stall.
+            if model.hasEPUB { try? await model.narrationTTS.prepare() }
+        }
+        .sheet(isPresented: $showingVoicePicker) {
+            VoicePickerView(selectedVoice: $selectedVoice) {
+                model.startNarrationPlayback(voice: selectedVoice)
             }
         }
     }
