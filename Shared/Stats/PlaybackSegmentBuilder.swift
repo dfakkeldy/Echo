@@ -14,7 +14,9 @@ struct OpenSegment: Equatable, Sendable {
 
 /// Events yielded from main-actor playback seams. All carry their own clock.
 enum RecorderEvent: Sendable {
-    case opened(audiobookID: String, trackID: String?, position: TimeInterval, speed: Double, source: String, at: Date)
+    case opened(
+        audiobookID: String, trackID: String?, position: TimeInterval, speed: Double,
+        source: String, at: Date)
     case progressTick(position: TimeInterval, at: Date)
     case speedChanged(newSpeed: Double, at: Date)
     case seeked(toPosition: TimeInterval, at: Date)
@@ -24,10 +26,10 @@ enum RecorderEvent: Sendable {
 
 /// IO instructions for the recorder actor, in order.
 enum SegmentAction: Equatable, Sendable {
-    case finalize(endedAt: Date, endPosition: TimeInterval)   // extend() the current row one last time
-    case discard                                              // delete() the current row (micro-segment)
-    case begin(OpenSegment)                                   // insertOpen() a new row
-    case extendOpen(endedAt: Date, endPosition: TimeInterval) // heartbeat extend()
+    case finalize(endedAt: Date, endPosition: TimeInterval)  // extend() the current row one last time
+    case discard  // delete() the current row (micro-segment)
+    case begin(OpenSegment)  // insertOpen() a new row
+    case extendOpen(endedAt: Date, endPosition: TimeInterval)  // heartbeat extend()
 }
 
 struct PlaybackSegmentBuilder: Sendable {
@@ -41,10 +43,11 @@ struct PlaybackSegmentBuilder: Sendable {
 
     mutating func handle(_ event: RecorderEvent) -> [SegmentAction] {
         switch event {
-        case let .opened(audiobookID, trackID, position, speed, source, at):
+        case .opened(let audiobookID, let trackID, let position, let speed, let source, let at):
             var actions: [SegmentAction] = []
             if let current = open {
-                actions.append(closeAction(endPosition: current.lastKnownPosition, at: at, isSplit: true))
+                actions.append(
+                    closeAction(endPosition: current.lastKnownPosition, at: at, isSplit: true))
             }
             let segment = OpenSegment(
                 audiobookID: audiobookID, trackID: trackID, startedAt: at,
@@ -55,12 +58,12 @@ struct PlaybackSegmentBuilder: Sendable {
             actions.append(.begin(segment))
             return actions
 
-        case let .progressTick(position, at):
+        case .progressTick(let position, let at):
             open?.lastKnownPosition = position
             open?.lastKnownAt = at
             return []
 
-        case let .speedChanged(newSpeed, at):
+        case .speedChanged(let newSpeed, let at):
             guard let current = open else { return [] }
             let close = closeAction(endPosition: current.lastKnownPosition, at: at, isSplit: true)
             var next = current
@@ -71,7 +74,7 @@ struct PlaybackSegmentBuilder: Sendable {
             open = next
             return [close, .begin(next)]
 
-        case let .seeked(toPosition, at):
+        case .seeked(let toPosition, let at):
             guard let current = open else { return [] }
             let close = closeAction(endPosition: current.lastKnownPosition, at: at, isSplit: true)
             var next = current
@@ -82,12 +85,16 @@ struct PlaybackSegmentBuilder: Sendable {
             open = next
             return [close, .begin(next)]
 
-        case let .closed(position, at):
+        case .closed(let position, let at):
             guard let current = open else { return [] }
             open = nil
-            return [closeAction(endPosition: position ?? current.lastKnownPosition, at: at, isSplit: false, segment: current)]
+            return [
+                closeAction(
+                    endPosition: position ?? current.lastKnownPosition, at: at, isSplit: false,
+                    segment: current)
+            ]
 
-        case let .heartbeat(at):
+        case .heartbeat(let at):
             guard let current = open else { return [] }
             return [.extendOpen(endedAt: at, endPosition: current.lastKnownPosition)]
         }

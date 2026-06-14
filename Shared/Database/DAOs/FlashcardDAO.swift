@@ -35,11 +35,13 @@ struct FlashcardDAO {
 
     func reviewStats() throws -> ReviewStats {
         try db.read { db in
-            let due = try Flashcard
+            let due =
+                try Flashcard
                 .filter(Column("next_review_date") <= Date().ISO8601Format())
                 .fetchCount(db)
-            let today = Date().ISO8601Format().prefix(10) // YYYY-MM-DD
-            let reviewed = try Flashcard
+            let today = Date().ISO8601Format().prefix(10)  // YYYY-MM-DD
+            let reviewed =
+                try Flashcard
                 .filter(Column("last_reviewed_at") >= "\(today)T00:00:00")
                 .fetchCount(db)
             let total = try Flashcard.fetchCount(db)
@@ -72,7 +74,10 @@ struct FlashcardDAO {
         }
     }
 
-    func grade(cardID: String, grade: Int, now: Date = Date(), scheduler: some SchedulingAlgorithm = SM2Scheduler()) throws {
+    func grade(
+        cardID: String, grade: Int, now: Date = Date(),
+        scheduler: some SchedulingAlgorithm = SM2Scheduler()
+    ) throws {
         try db.write { db in
             guard let card = try Flashcard.fetchOne(db, key: cardID) else { return }
             let updated = scheduler.review(card: card, grade: grade, now: now)
@@ -112,10 +117,11 @@ struct FlashcardDAO {
             "intervalDays": card.intervalDays,
             "easeFactor": card.easeFactor,
             "repetitions": card.repetitions,
-            "lastGrade": card.lastGrade as Any
+            "lastGrade": card.lastGrade as Any,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
-              let json = String(data: data, encoding: .utf8) else { return nil }
+            let json = String(data: data, encoding: .utf8)
+        else { return nil }
         return json
     }
 }
