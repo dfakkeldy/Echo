@@ -1,1 +1,1 @@
-Echo: Audiobook Study Player
+Audiobook Study Player: Echo
