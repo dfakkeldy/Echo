@@ -1,8 +1,8 @@
 import Foundation
-import Observation
 import GRDB
-import os.log
+import Observation
 @preconcurrency import WhisperKit
+import os.log
 
 /// Orchestrates the solo transcription pipeline for audiobooks without
 /// an EPUB or PDF companion.
@@ -63,7 +63,7 @@ final class StandaloneTranscriptionService {
                     self.progress.isRunning = false
                 }
             }
-            for i in 1 ..< chapters.count {
+            for i in 1..<chapters.count {
                 guard !Task.isCancelled else { break }
                 await self.transcribeChapter(
                     audioFileURL: audioFileURL,
@@ -121,6 +121,11 @@ final class StandaloneTranscriptionService {
             let wk = try await WhisperSession.shared.acquire()
             defer { WhisperSession.shared.release() }
 
+            // Don't start the (uninterruptible) transcription if cancellation
+            // arrived while reading audio or acquiring the model — otherwise a
+            // pause()/cancel() still runs a full chapter (CODE_AUDIT.md §3.10).
+            guard !Task.isCancelled else { return }
+
             // 3. Transcribe with VAD chunking — WhisperKit handles silence
             //    splitting internally so we get one segment per speech burst.
             let options = DecodingOptions(
@@ -156,7 +161,8 @@ final class StandaloneTranscriptionService {
             }
             logger.info("Saved \(records.count) segments for chapter \(chapterIndex)")
         } catch {
-            logger.error("Failed to transcribe chapter \(chapterIndex): \(error.localizedDescription)")
+            logger.error(
+                "Failed to transcribe chapter \(chapterIndex): \(error.localizedDescription)")
         }
     }
 
@@ -168,7 +174,8 @@ final class StandaloneTranscriptionService {
         chapterIndex: Int,
         audiobookID: String
     ) -> [StandaloneTranscriptRecord] {
-        let segments = results
+        let segments =
+            results
             .compactMap { $0 }
             .flatMap { $0 }
             .flatMap { $0.segments }
