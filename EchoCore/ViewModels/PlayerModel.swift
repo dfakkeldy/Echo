@@ -954,6 +954,11 @@ final class PlayerModel {
                 UIApplication.shared.endBackgroundTask(pauseBackgroundTask)
             }
             stopAllSecurityScope()
+            // Stop the opt-in continuous-alignment service: its 15s repeating
+            // timer and WhisperKit task would otherwise keep running untethered
+            // after PlayerModel is torn down (CODE_AUDIT.md §3.3).
+            continuousAlignmentService?.stop()
+            continuousAlignmentService = nil
         }
     }
 
