@@ -24,6 +24,14 @@ extension PlayerModel {
         state.narrationRenderInFlight = true
         state.awaitingNarrationChapter = false
 
+        // Show the book + a preparing status on Now Playing / lock screen while
+        // the first chapter renders, instead of the audio-less placeholder.
+        if let title = folderURL?.deletingPathExtension().lastPathComponent {
+            state.currentTitle = title
+        }
+        state.currentSubtitle = String(localized: "Preparing narration…")
+        progressPresenter.updateNowPlayingInfo(isPaused: true)
+
         let cacheDirectory = Self.narrationCacheDirectory()
         let service = NarrationService(
             db: db, audiobookID: audiobookID, tts: narrationTTS,
