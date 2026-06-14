@@ -11,6 +11,7 @@ final class BookDetailViewModel {
     // Core narration components
     let narrationState: NarrationState
     let narrationService: NarrationService
+    let cacheDirectory: URL
     
     // UI state
     var isShowingVoicePicker = false
@@ -25,16 +26,15 @@ final class BookDetailViewModel {
         // Setup narration engine dependencies
         // In real app, KokoroTTSEngine and AVFoundationAudioWriter would be injected
         let tts = KokoroTTSEngine()
-        // AudioFileWriting stub - replacing with dummy for compilation if missing
-        let writer = DummyAudioWriter()
-        let cacheDir = FileManager.default.temporaryDirectory
+        let writer = AVFoundationAudioWriter()
+        self.cacheDirectory = FileManager.default.temporaryDirectory
         
         self.narrationService = NarrationService(
             db: db,
             audiobookID: audiobookID,
             tts: tts,
             audioWriter: writer,
-            cacheDirectory: cacheDir,
+            cacheDirectory: self.cacheDirectory,
             state: self.narrationState
         )
     }
@@ -60,11 +60,35 @@ final class BookDetailViewModel {
     func cancelNarration() {
         narrationState.reset()
     }
-}
-
-/// Dummy writer just to satisfy compilation until real AVFoundation AudioWriter is built
-struct DummyAudioWriter: AudioFileWriting {
-    func write(_ chunks: [TTSChunk], to url: URL) async throws -> TimeInterval {
-        return chunks.reduce(0) { $0 + $1.duration }
+    
+    // MARK: - Export
+    
+    func exportM4B() async {
+        do {
+            let tempOutput = FileManager.default.temporaryDirectory.appendingPathComponent("\(audiobookID).m4b")
+            let exportService = NarrationExportService()
+            try await exportService.exportM4B(
+                for: audiobookID,
+                bookTitle: "Unknown Title", // Requires reading title from DB in production
+                cacheDirectory: self.cacheDirectory,
+                outputURL: tempOutput
+            )
+            // Signal UI to show share sheet with `tempOutput`
+        } catch {
+            print("Export M4B failed: \(error)")
+        }
+    }
+    
+    func exportChapters() async {
+        do {
+            let exportService = NarrationExportService()
+            let files = try await exportService.exportChapterFiles(
+                for: audiobookID,
+                cacheDirectory: self.cacheDirectory
+            )
+            // Signal UI to show share sheet with `files`
+        } catch {
+            print("Export chapters failed: \(error)")
+        }
     }
 }
