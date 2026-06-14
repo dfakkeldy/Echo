@@ -61,6 +61,19 @@ struct DeckImportService {
             }
         }
 
+        // Ensure the target audiobook row exists: flashcard.audiobook_id is a
+        // NOT NULL FK, and an imported deck may target a book not yet on this
+        // device. INSERT OR IGNORE is a no-op when the book already exists, so
+        // it never clobbers a real title. (Mirrors ApkgImportService.)
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT OR IGNORE INTO audiobook (id, title, author, duration, added_at)
+                    VALUES (?, ?, 'json_import', 0, ?)
+                    """,
+                arguments: [deck.targetMediaID, deck.deckName, Date().ISO8601Format()])
+        }
+
         let dao = FlashcardDAO(db: db)
         for card in deck.cards {
             let flashcard = Flashcard(
