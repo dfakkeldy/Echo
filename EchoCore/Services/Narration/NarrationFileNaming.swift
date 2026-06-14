@@ -29,3 +29,15 @@ enum NarrationFileNaming {
         return digits.isEmpty ? nil : Int(digits)
     }
 }
+
+/// Pure helpers for keeping the rendered-narration directory tidy.
+enum NarrationCacheStore {
+    /// File names belonging to `bookPrefix` rendered with a voice other than
+    /// `currentVoice` — safe to delete when (re)rendering with the new voice.
+    static func staleVoiceFiles(
+        _ fileNames: [String], bookPrefix: String, currentVoice: VoiceID
+    ) -> [String] {
+        let keepSuffix = "-\(currentVoice.rawValue).m4a"
+        return fileNames.filter { $0.hasPrefix(bookPrefix) && !$0.hasSuffix(keepSuffix) }
+    }
+}
