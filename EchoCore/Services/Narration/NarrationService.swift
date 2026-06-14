@@ -20,9 +20,6 @@ final class NarrationService {
     private let cacheDirectory: URL
     let state: NarrationState
 
-    private let trackDAO: TrackDAO
-    private let anchorDAO: AlignmentAnchorDAO
-
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
         audioWriter: AudioFileWriting, cacheDirectory: URL, state: NarrationState
@@ -33,11 +30,10 @@ final class NarrationService {
         self.audioWriter = audioWriter
         self.cacheDirectory = cacheDirectory
         self.state = state
-        self.trackDAO = TrackDAO(db: db)
-        self.anchorDAO = AlignmentAnchorDAO(db: db)
     }
 
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
+    /// Idempotent: re-rendering the same chapter (e.g. a voice change) upserts in place.
     func renderChapter(chapterIndex: Int, blocks: [EPubBlockRecord], voice: VoiceID) async throws {
         state.update(
             phase: .preparingChapter, progress: 0,
@@ -81,8 +77,16 @@ final class NarrationService {
             title: "Chapter \(chapterIndex + 1)", duration: duration,
             filePath: fileURL.path, isEnabled: true, sortOrder: chapterIndex,
             playlistPosition: nil, narrationVoice: voice.rawValue)
-        try trackDAO.insertAll([track], audiobookID: audiobookID)
-        for anchor in anchors { try anchorDAO.insert(anchor) }
+
+        // One atomic, idempotent transaction off the main thread: upsert the track
+        // + every anchor so a re-render (e.g. a voice change) updates in place
+        // instead of throwing on a duplicate primary key, and a failure can't
+        // leave a half-written chapter.
+        try await db.write { db in
+            var savedTrack = track
+            try savedTrack.save(db)
+            for var anchor in anchors { try anchor.save(db) }
+        }
 
         state.renderedChapterCount += 1
         logger.info("Rendered chapter \(chapterIndex) → \(anchors.count) anchors")

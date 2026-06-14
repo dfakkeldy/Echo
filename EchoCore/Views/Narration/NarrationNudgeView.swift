@@ -33,6 +33,9 @@ struct NarrationNudgeView: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .clipShape(.rect(cornerRadius: 16))
+        .task {
+            await viewModel.prepareTTS()
+        }
         .sheet(isPresented: $viewModel.isShowingVoicePicker) {
             VoicePickerView(viewModel: viewModel)
         }

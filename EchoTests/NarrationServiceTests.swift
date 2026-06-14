@@ -115,4 +115,28 @@ import Testing
         let trackCount = try db.read { db in try TrackRecord.fetchCount(db) }
         #expect(trackCount == 0)
     }
+
+    @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["abcd", "ef"])
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        // Re-render the same chapter with a different voice — must upsert in place,
+        // not throw on the duplicate anchor primary key or create duplicate rows.
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("bf_emma"))
+
+        let anchorCount = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchCount(db)
+        }
+        let trackCount = try db.read { db in try TrackRecord.fetchCount(db) }
+        let voiceCol = try db.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT narration_voice FROM track WHERE audiobook_id = 'b1'")
+        }
+        #expect(anchorCount == 2)  // 2, not 4 — upserted
+        #expect(trackCount == 1)  // 1, not 2
+        #expect(voiceCol == "bf_emma")  // re-render updated the voice
+    }
 }
