@@ -70,8 +70,20 @@ extension PlayerModel {
                 // Pay the one-time ANE model compile before the first chapter.
                 try await self.narrationTTS.prepare()
 
+                let lookAhead = 2
                 for (offset, chapter) in chapters.enumerated() {
                     try Task.checkCancellation()
+                    // Render-ahead backpressure: don't synthesize more than
+                    // `lookAhead` chapters past the one currently playing, and
+                    // don't render while paused. (offset 0 always renders first.)
+                    while offset > 0,
+                        self.folderURL?.absoluteString == audiobookID,
+                        self.state.currentIndex + lookAhead < offset || !self.isPlaying
+                    {
+                        try await Task.sleep(for: .seconds(1))
+                        try Task.checkCancellation()
+                    }
+                    guard self.folderURL?.absoluteString == audiobookID else { return }
                     try await service.renderChapter(
                         chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
                     try Task.checkCancellation()
