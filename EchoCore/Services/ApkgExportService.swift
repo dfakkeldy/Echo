@@ -71,18 +71,18 @@ struct ApkgExportService {
 
     /// Exports all decks and their cards into a single .apkg file.
     func exportAll(db: DatabaseWriter) throws -> URL {
-        let decks = try db.read { db in
-            try Deck.fetchAll(db)
-        }
-        var allCards: [Flashcard] = []
-        for deck in decks {
-            let cards = try db.read { db in
+        let (decks, allCards) = try db.read { db -> ([Deck], [Flashcard]) in
+            let decks = try Deck.fetchAll(db)
+            let deckIDs = decks.map(\.id)
+            // One query for all decks' cards instead of one read per deck (§7.6);
+            // group in-memory to preserve the per-deck, created_at order.
+            let cards =
                 try Flashcard
-                    .filter(Column("deck_id") == deck.id)
-                    .order(Column("created_at"))
-                    .fetchAll(db)
-            }
-            allCards.append(contentsOf: cards)
+                .filter(deckIDs.contains(Column("deck_id")))
+                .order(Column("created_at"))
+                .fetchAll(db)
+            let byDeck = Dictionary(grouping: cards, by: \.deckID)
+            return (decks, decks.flatMap { byDeck[$0.id] ?? [] })
         }
 
         if allCards.isEmpty {

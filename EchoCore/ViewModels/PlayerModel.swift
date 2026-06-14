@@ -218,6 +218,8 @@ final class PlayerModel {
     var durationText: String { state.durationText }
     var durationSeconds: Double? { state.durationSeconds }
     var currentPlaybackTime: TimeInterval { audioEngine.currentTime }
+    /// Coarse 0–100 book progress that changes ~1 Hz, not per tick (§7.3).
+    var bookProgressPercent: Int { state.bookProgressPercent }
     var thumbnailImage: UIImage? { state.thumbnailImage }
     var currentDisplayArtwork: UIImage? { state.currentDisplayArtwork }
     var currentDisplayArtworkVersion: Int { state.currentDisplayArtworkVersion }
@@ -362,16 +364,19 @@ final class PlayerModel {
         return timelinePersistence.hasEPUB(for: folderURL?.absoluteString)
     }
 
-    /// Whether a PDF file is present in the current audiobook folder.
+    @ObservationIgnored private var cachedHasPDF: (trigger: Int, value: Bool)?
+
+    /// Whether a PDF file is present in the current audiobook folder. The
+    /// directory scan is cached against `documentIngestionTrigger`, so it runs
+    /// once per import rather than on every view-body read (§7.2).
     var hasPDF: Bool {
-        _ = state.documentIngestionTrigger  // register dependency
-        guard let url = folderURL else { return false }
-        do {
-            let files = try FileManager.default.contentsOfDirectory(atPath: url.path)
-            return files.contains { $0.lowercased().hasSuffix(".pdf") }
-        } catch {
-            return false
-        }
+        let trigger = state.documentIngestionTrigger  // register observation dependency
+        if let cached = cachedHasPDF, cached.trigger == trigger { return cached.value }
+        let value =
+            (folderURL.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) })?
+            .contains { $0.lowercased().hasSuffix(".pdf") } ?? false
+        cachedHasPDF = (trigger, value)
+        return value
     }
 
     /// Whether a standalone transcript exists for the current audiobook (no EPUB/PDF).

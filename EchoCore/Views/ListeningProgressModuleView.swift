@@ -4,18 +4,14 @@ struct ListeningProgressModuleView: View {
     @Environment(PlayerModel.self) private var model
     @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
 
-    private var progressFraction: Double {
-        guard let duration = model.durationSeconds, duration > 0 else { return 0 }
-        return min(1.0, model.currentPlaybackTime / duration)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Label("Progress", systemImage: "book")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("\(Int(progressFraction * 100))%")
+            // Observes the coarse ~1 Hz percent, not per-tick currentPlaybackTime (§7.3).
+            Text("\(model.bookProgressPercent)%")
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundStyle(.blue)
