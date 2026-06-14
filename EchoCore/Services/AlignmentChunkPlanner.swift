@@ -31,7 +31,8 @@ enum AlignmentChunkPlanner {
         guard chapterEnd > chapterStart else { return [] }
         let minTail: TimeInterval = 5
 
-        let midpoints = silences
+        let midpoints =
+            silences
             .map { ($0.start + $0.end) / 2 }
             .filter { $0 > chapterStart && $0 < chapterEnd }
             .sorted()
