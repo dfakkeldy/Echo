@@ -18,6 +18,9 @@ final class PlayerLoadingCoordinator {
     @ObservationIgnored var playlistManager: PlaylistManager?
     @ObservationIgnored var persistence: Persistence?
     @ObservationIgnored var timelinePersistence: PlayerTimelinePersistenceService?
+    /// The in-flight no-audio document import (EPUB blocks). `startNarrationPlayback`
+    /// awaits this so a freshly opened book isn't read before its blocks exist.
+    @ObservationIgnored var documentImportTask: Task<Void, Never>?
     @ObservationIgnored var bookSettingsOverrideStore: BookSettingsOverrideStore?
     @ObservationIgnored var securityScope: SecurityScopeManager?
     @ObservationIgnored var artworkCoordinator: BookmarkArtworkCoordinator?
@@ -187,7 +190,7 @@ final class PlayerLoadingCoordinator {
     ) {
         let audiobookID = folderURL.absoluteString
         let importedEPUBFile = !isDirectory && pickedURL.pathExtension.lowercased() == "epub"
-        Task { @MainActor in
+        documentImportTask = Task { @MainActor in
             let didImport: Bool
             if importedEPUBFile {
                 didImport = await EPUBAutoImportScanner.importEPUBFile(

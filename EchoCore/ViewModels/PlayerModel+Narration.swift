@@ -41,6 +41,9 @@ extension PlayerModel {
         narrationRenderTask = Task { [weak self] in
             guard let self else { return }
             do {
+                // Wait for loadFolder's no-audio EPUB import to finish so a
+                // first-ever open isn't read before its blocks are committed.
+                await self.playerLoadingCoordinator.documentImportTask?.value
                 // visibleBlocks (not blocks) so blocks the user marked "Not in
                 // Audio" in the reader are excluded from narration, matching the
                 // alignment/timeline paths.
