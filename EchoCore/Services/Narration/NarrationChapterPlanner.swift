@@ -26,4 +26,16 @@ enum NarrationChapterPlanner {
             return PlannedChapter(index: index, blocks: chapterBlocks)
         }
     }
+
+    /// Reorders a plan to begin at `resumeIndex` (forward-only). Earlier chapters
+    /// are dropped from the queue — going back before the resume point re-narrates
+    /// from scratch, which is acceptable for v1. Unknown index → unchanged plan.
+    static func resume(_ chapters: [PlannedChapter], startingAtChapterIndex resumeIndex: Int)
+        -> [PlannedChapter]
+    {
+        guard let pos = chapters.firstIndex(where: { $0.index == resumeIndex }) else {
+            return chapters
+        }
+        return Array(chapters[pos...])
+    }
 }

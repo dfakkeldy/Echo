@@ -38,4 +38,18 @@ import Testing
     @Test func emptyInputYieldsNoChapters() {
         #expect(NarrationChapterPlanner.plan(from: []).isEmpty)
     }
+
+    @Test func resumeStartsAtChapterThenForwardOnly() {
+        let plan = [0, 1, 2, 3].map {
+            NarrationChapterPlanner.PlannedChapter(
+                index: $0, blocks: [block(id: "b\($0)", chapter: $0, text: "t", seq: 0)])
+        }
+        #expect(
+            NarrationChapterPlanner.resume(plan, startingAtChapterIndex: 2).map(\.index) == [2, 3])
+        // Unknown index → full plan from the start.
+        #expect(
+            NarrationChapterPlanner.resume(plan, startingAtChapterIndex: 99).map(\.index) == [
+                0, 1, 2, 3,
+            ])
+    }
 }
