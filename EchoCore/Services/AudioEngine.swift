@@ -156,6 +156,10 @@ final class AudioEngine {
 
     func play() {
         guard let playerNode, engine != nil, isItemLoaded, !isPlaying else { return }
+        // stop() removed the route/interruption observers and cleared the
+        // session-configured flag; re-arm before resuming so unplugging
+        // headphones or an interruption still pauses playback (§5.9).
+        if !audioSessionConfigured { configureAudioSession() }
         startEngineIfNeeded()
         timePitchNode?.rate = speed
         playerNode.play()
@@ -166,6 +170,7 @@ final class AudioEngine {
     func playImmediately(atRate rate: Float) {
         setSpeed(rate)
         guard let playerNode, engine != nil, isItemLoaded else { return }
+        if !audioSessionConfigured { configureAudioSession() }  // re-arm after stop() (§5.9)
         startEngineIfNeeded()
         timePitchNode?.rate = rate
         playerNode.play()
