@@ -564,9 +564,14 @@ final class AutoAlignmentService {
         modelUnloadTimer = Timer.scheduledTimer(
             withTimeInterval: Config.modelKeepAliveSeconds,
             repeats: false
-        ) { _ in
+        ) { [weak self] _ in
             Task { @MainActor in
                 WhisperSession.shared.release()
+                // Mirror the shared box: once released, the cached handle may
+                // point at an unloaded model, so drop it. The next
+                // loadWhisperModel() then re-acquires instead of early-returning
+                // on a stale `whisperKit != nil` (CODE_AUDIT.md §5.2).
+                self?.whisperKit = nil
             }
         }
     }
