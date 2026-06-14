@@ -274,13 +274,21 @@ final class AudioEngine {
         }
         let gainDelta = (targetGain - startGain) / Float(steps)
         var currentStep = 0
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) {
+            [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
             Task { @MainActor in
                 currentStep += 1
                 if currentStep >= steps {
                     self.eqNode?.globalGain = targetGain
-                    timer.invalidate()
+                    // Invalidate via the stored reference, not the captured
+                    // `timer` param: capturing a non-Sendable Timer into this
+                    // @Sendable Task is a Swift-6 error (CODE_AUDIT.md §3.1).
+                    self.fadeTimer?.invalidate()
+                    self.fadeTimer = nil
                 } else {
                     self.eqNode?.globalGain = startGain + gainDelta * Float(currentStep)
                 }
@@ -349,7 +357,9 @@ final class AudioEngine {
                 startTimeTimer()
             }
         } catch {
-            os_log(.error, "AudioEngine: replaceCurrentItem error: %{private}@", error.localizedDescription)
+            os_log(
+                .error, "AudioEngine: replaceCurrentItem error: %{private}@",
+                error.localizedDescription)
             audioFile = nil
             duration = nil
         }
@@ -411,13 +421,16 @@ final class AudioEngine {
         do {
             try engine.start()
         } catch {
-            os_log(.error, "AudioEngine: engine start error: %{private}@", error.localizedDescription)
+            os_log(
+                .error, "AudioEngine: engine start error: %{private}@", error.localizedDescription)
         }
     }
 
-    private func scheduleSegment(file: AVAudioFile,
-                                  from startFrame: AVAudioFramePosition,
-                                  frames: AVAudioFrameCount) {
+    private func scheduleSegment(
+        file: AVAudioFile,
+        from startFrame: AVAudioFramePosition,
+        frames: AVAudioFrameCount
+    ) {
         let generation = seekGeneration
         playerNode?.scheduleSegment(
             file,
@@ -460,7 +473,8 @@ final class AudioEngine {
     private func updateCurrentTime() {
         guard let playerNode, isPlaying else { return }
         guard let nodeTime = playerNode.lastRenderTime,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else { return }
+            let playerTime = playerNode.playerTime(forNodeTime: nodeTime)
+        else { return }
 
         let position = Double(playerTime.sampleTime) / playerTime.sampleRate
         let time = seekOffset + position
@@ -480,9 +494,9 @@ final class AudioEngine {
             queue: .main
         ) { [weak self] notification in
             guard let self,
-                  let userInfo = notification.userInfo,
-                  let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+                let userInfo = notification.userInfo,
+                let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+                let type = AVAudioSession.InterruptionType(rawValue: typeValue)
             else { return }
 
             switch type {
@@ -521,9 +535,9 @@ final class AudioEngine {
             queue: .main
         ) { [weak self] notification in
             guard let self,
-                  let userInfo = notification.userInfo,
-                  let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
-                  let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
+                let userInfo = notification.userInfo,
+                let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
             else { return }
 
             // `.oldDeviceUnavailable` fires when the previous output device (wired

@@ -3,7 +3,7 @@ import GRDB
 import os.log
 
 /// Thread-safe count tracker for the test drain.
-private final class SafeCounter: @unchecked Sendable {
+private nonisolated final class SafeCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var _value = 0
 
@@ -119,15 +119,16 @@ actor PlaybackSessionRecorder {
     private func perform(_ action: SegmentAction) async {
         do {
             switch action {
-            case let .begin(segment):
+            case .begin(let segment):
                 try await ensureAudiobookRow(id: segment.audiobookID)
                 openRowID = try await insertOpen(segment)
-            case let .extendOpen(endedAt, endPosition),
-                 let .finalize(endedAt, endPosition):
+            case .extendOpen(let endedAt, let endPosition),
+                .finalize(let endedAt, let endPosition):
                 guard let id = openRowID else { return }
                 try await writer.write { db in
                     try db.execute(
-                        sql: "UPDATE playback_event SET ended_at = ?, end_position = ? WHERE id = ?",
+                        sql:
+                            "UPDATE playback_event SET ended_at = ?, end_position = ? WHERE id = ?",
                         arguments: [endedAt.ISO8601Format(), endPosition, id]
                     )
                 }
@@ -166,7 +167,7 @@ actor PlaybackSessionRecorder {
                 arguments: [
                     s.audiobookID, trackID,
                     s.startedAt.ISO8601Format(), s.startedAt.ISO8601Format(),
-                    s.startPosition, s.startPosition, s.speed, s.source
+                    s.startPosition, s.startPosition, s.speed, s.source,
                 ]
             )
             return db.lastInsertedRowID

@@ -9,6 +9,7 @@ import os.log
 ///
 /// The WatchSyncManager itself conforms to WCSessionDelegate and owns no domain knowledge
 /// of audiobook playback, chapters, or bookmarks.
+@MainActor
 final class WatchSyncManager: NSObject, WCSessionDelegate {
     // MARK: - Callback Closures
 
@@ -137,7 +138,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
     // MARK: - WCSessionDelegate
 
-    func session(
+    nonisolated func session(
         _ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
     ) {
@@ -154,19 +155,19 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         }
     }
 
-    func sessionDidBecomeInactive(_ session: WCSession) {}
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
-    func sessionDidDeactivate(_ session: WCSession) {
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {
         session.activate()
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         Task { @MainActor [weak self] in
             self?.onMessage?(message, nil)
         }
     }
 
-    func session(
+    nonisolated func session(
         _ session: WCSession, didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
@@ -175,19 +176,20 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         }
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:])
+    {
         Task { @MainActor [weak self] in
             self?.onQueuedMessage?(userInfo)
         }
     }
 
-    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+    nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
         Task { @MainActor [weak self] in
             self?.onReceiveFile?(file)
         }
     }
 
-    func session(
+    nonisolated func session(
         _ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]
     ) {
         Task { @MainActor [weak self] in

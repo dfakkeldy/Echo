@@ -2,13 +2,13 @@ import SwiftUI
 
 /// Role-based theme derived from one cover's `CoverSignature`.
 struct CoverTheme: Equatable {
-    let accent: Color           // interactive tint — ≥3:1 vs backgrounds and ≥2.5:1 vs chip
-    let onAccent: Color         // glyphs inside accent-filled controls — ≥4.5:1 vs accent
+    let accent: Color  // interactive tint — ≥3:1 vs backgrounds and ≥2.5:1 vs chip
+    let onAccent: Color  // glyphs inside accent-filled controls — ≥4.5:1 vs accent
     let secondaryAccent: Color  // gradients, secondary indicators
-    let backgroundTop: Color    // AdaptiveBackground ramp
+    let backgroundTop: Color  // AdaptiveBackground ramp
     let backgroundBottom: Color
-    let chip: Color             // pills and control circles
-    let isNeutralFallback: Bool // drives artworkAccentColor's nil contract
+    let chip: Color  // pills and control circles
+    let isNeutralFallback: Bool  // drives artworkAccentColor's nil contract
 }
 
 /// Constructs `CoverTheme`s from tone recipes: the hue comes from the cover,
@@ -79,9 +79,11 @@ enum CoverThemeBuilder {
     }
 
     /// Pure core. `brand` is injected so tests don't depend on the asset catalog.
-    static func resolve(_ signature: CoverSignature,
-                        scheme: ColorScheme,
-                        brand: ColorMetrics.RGB) -> Resolved {
+    static func resolve(
+        _ signature: CoverSignature,
+        scheme: ColorScheme,
+        brand: ColorMetrics.RGB
+    ) -> Resolved {
         let recipe = scheme == .dark ? dark : light
 
         guard !signature.isNeutral, let primary = signature.candidates.first else {
@@ -128,8 +130,10 @@ enum CoverThemeBuilder {
 
     /// First candidate ≥60° (circular) from the primary with ≥15% of its
     /// weight; otherwise a +30° sibling of the primary (spec §4).
-    private static func secondaryHue(for signature: CoverSignature,
-                                     primary: CoverSignature.HueCandidate) -> Double {
+    private static func secondaryHue(
+        for signature: CoverSignature,
+        primary: CoverSignature.HueCandidate
+    ) -> Double {
         for candidate in signature.candidates.dropFirst() {
             let delta = abs(candidate.hue - primary.hue)
             let circular = min(delta, 360 - delta)
@@ -142,7 +146,8 @@ enum CoverThemeBuilder {
 
     private static func neutralResolved(recipe: Recipe, brand: ColorMetrics.RGB) -> Resolved {
         let backgroundTop = roleColor((recipe.backgroundTop.l, neutralRampChroma), hue: neutralHue)
-        let backgroundBottom = roleColor((recipe.backgroundBottom.l, neutralRampChroma), hue: neutralHue)
+        let backgroundBottom = roleColor(
+            (recipe.backgroundBottom.l, neutralRampChroma), hue: neutralHue)
         let chip = roleColor((recipe.chip.l, neutralRampChroma), hue: neutralHue)
 
         let brandHue = OKLCH.fromSRGB(brand).H
@@ -168,10 +173,12 @@ enum CoverThemeBuilder {
 
     // MARK: - Safety valve (spec §4)
 
-    private static func enforcedAccent(_ color: ColorMetrics.RGB,
-                                       hue: Double,
-                                       backgrounds: [ColorMetrics.RGB],
-                                       chip: ColorMetrics.RGB) -> ColorMetrics.RGB {
+    private static func enforcedAccent(
+        _ color: ColorMetrics.RGB,
+        hue: Double,
+        backgrounds: [ColorMetrics.RGB],
+        chip: ColorMetrics.RGB
+    ) -> ColorMetrics.RGB {
         var result = enforced(color, hue: hue, floor: accentFloor, against: backgrounds)
         result = enforced(result, hue: hue, floor: chipFloor, against: [chip])
         // The chip pass moves L the same direction, but re-verify the backgrounds.
@@ -181,16 +188,19 @@ enum CoverThemeBuilder {
     /// Steps lightness away from `surfaces` in 0.01 increments (re-clamping
     /// chroma each step) until every surface clears `floor`. Bounded by L
     /// reaching 0 or 1 — at the bound it returns the max-contrast candidate.
-    private static func enforced(_ color: ColorMetrics.RGB,
-                                 hue: Double,
-                                 floor: Double,
-                                 against surfaces: [ColorMetrics.RGB]) -> ColorMetrics.RGB {
+    private static func enforced(
+        _ color: ColorMetrics.RGB,
+        hue: Double,
+        floor: Double,
+        against surfaces: [ColorMetrics.RGB]
+    ) -> ColorMetrics.RGB {
         func clears(_ rgb: ColorMetrics.RGB) -> Bool {
             surfaces.allSatisfy { ColorMetrics.contrastRatio(rgb, $0) >= floor }
         }
         if clears(color) { return color }
 
-        let meanSurfaceLuminance = surfaces
+        let meanSurfaceLuminance =
+            surfaces
             .map(ColorMetrics.relativeLuminance)
             .reduce(0, +) / Double(surfaces.count)
         let step: Double = meanSurfaceLuminance > 0.5 ? -0.01 : 0.01

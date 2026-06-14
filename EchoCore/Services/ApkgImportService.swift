@@ -15,7 +15,7 @@ import os.log
 /// The three formats share the same logical schema (`col`, `notes`, `cards`,
 /// `revlog` tables). The service detects the actual `.anki*` filename and
 /// opens it via GRDB, so schema-version-specific handling is minimal.
-struct ApkgImportService {
+nonisolated struct ApkgImportService {
     private let logger = Logger(category: "ApkgImport")
 
     enum ImportError: LocalizedError {
@@ -190,19 +190,19 @@ struct ApkgImportService {
         var guid: String
         var mid: Int64
         var tags: String
-        var flds: String          // Field values separated by \x1f
-        var sfld: String          // Sort field (usually Front)
+        var flds: String  // Field values separated by \x1f
+        var sfld: String  // Sort field (usually Front)
     }
 
     private struct AnkiCard {
         var id: Int64
-        var nid: Int64            // Note ID
-        var did: Int64            // Deck ID
-        var ord: Int              // Card ordinal within note
+        var nid: Int64  // Note ID
+        var did: Int64  // Deck ID
+        var ord: Int  // Card ordinal within note
         var type: Int
         var queue: Int
-        var ivl: Int              // Interval in days
-        var factor: Int           // Ease factor (1000ths)
+        var ivl: Int  // Interval in days
+        var factor: Int  // Ease factor (1000ths)
         var reps: Int
     }
 
@@ -214,9 +214,11 @@ struct ApkgImportService {
         }
 
         // --- Read notes ---
-        let noteRows = try Row.fetchAll(db, sql: """
-            SELECT id, guid, mid, tags, flds, sfld FROM notes
-            """)
+        let noteRows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT id, guid, mid, tags, flds, sfld FROM notes
+                """)
 
         let notes: [AnkiNote] = noteRows.map { row in
             AnkiNote(
@@ -230,9 +232,11 @@ struct ApkgImportService {
         }
 
         // --- Read cards ---
-        let cardRows = try Row.fetchAll(db, sql: """
-            SELECT id, nid, did, ord, type, queue, ivl, factor, reps FROM cards
-            """)
+        let cardRows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT id, nid, did, ord, type, queue, ivl, factor, reps FROM cards
+                """)
 
         let cards: [AnkiCard] = cardRows.map { row in
             AnkiCard(
@@ -270,17 +274,22 @@ struct ApkgImportService {
             deckID = existingID
         } else {
             deckID = UUID().uuidString
-            try db.execute(sql: """
-                INSERT INTO deck (id, name, source, created_at, modified_at)
-                VALUES (?, ?, 'apkg_import', ?, ?)
-                """, arguments: [deckID, collection.deckName, Date().ISO8601Format(), Date().ISO8601Format()])
+            try db.execute(
+                sql: """
+                    INSERT INTO deck (id, name, source, created_at, modified_at)
+                    VALUES (?, ?, 'apkg_import', ?, ?)
+                    """,
+                arguments: [
+                    deckID, collection.deckName, Date().ISO8601Format(), Date().ISO8601Format(),
+                ])
         }
 
         // Ensure a placeholder audiobook exists for the FK constraint.
-        try db.execute(sql: """
-            INSERT OR IGNORE INTO audiobook (id, title, author, duration, added_at)
-            VALUES ('apkg-import', 'Imported from Anki', 'apkg', 0, ?)
-            """, arguments: [Date().ISO8601Format()])
+        try db.execute(
+            sql: """
+                INSERT OR IGNORE INTO audiobook (id, title, author, duration, added_at)
+                VALUES ('apkg-import', 'Imported from Anki', 'apkg', 0, ?)
+                """, arguments: [Date().ISO8601Format()])
 
         var importedCount = 0
 
@@ -338,19 +347,21 @@ struct ApkgImportService {
     /// The format is `{"12345": {"name": "My Deck", ...}, ...}`.
     private func parseFirstDeckName(from json: String) -> String? {
         guard let data = json.data(using: .utf8),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
 
         // Anki stores the default deck with id 1.
         if let defaultDeck = dict["1"] as? [String: Any],
-           let name = defaultDeck["name"] as? String {
+            let name = defaultDeck["name"] as? String
+        {
             return name
         }
 
         // Fall back to the first deck in the dictionary.
         for (_, value) in dict {
             if let deck = value as? [String: Any],
-               let name = deck["name"] as? String {
+                let name = deck["name"] as? String
+            {
                 return name
             }
         }

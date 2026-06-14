@@ -6,7 +6,7 @@ import Foundation
 /// - Grades >= 3 are correct responses that increase the interval.
 /// - Grades < 3 reset repetitions and interval to 1 day.
 /// - Ease factor has a floor of 1.3.
-struct SM2Scheduler: SchedulingAlgorithm {
+nonisolated struct SM2Scheduler: SchedulingAlgorithm {
     func review(card: Flashcard, grade: Int, now: Date) -> Flashcard {
         var updated = card
 

@@ -12,5 +12,5 @@ protocol SchedulingAlgorithm: Sendable {
     ///   - grade: User-assigned grade (typically 1–4 or 0–5 depending on the algorithm).
     ///   - now: The current date used for interval calculations.
     /// - Returns: A new `Flashcard` with updated scheduling fields.
-    func review(card: Flashcard, grade: Int, now: Date) -> Flashcard
+    nonisolated func review(card: Flashcard, grade: Int, now: Date) -> Flashcard
 }

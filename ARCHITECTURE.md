@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-11 23:28:11
+**Last generated:** 2026-06-13 22:20:36
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -16,6 +16,8 @@ out).
 ## EchoCore (iOS)
 
 ```
+CarPlay/CarPlayManager.swift
+CarPlay/CarPlayNotificationNames.swift
 CarPlay/CarPlaySceneDelegate.swift
 DailyPlanner/PlannedSession.swift
 DailyPlanner/RealTimeProjectionService.swift
@@ -28,8 +30,6 @@ Info.plist
 Localizable.xcstrings
 Models/AggregatedChapter.swift
 Models/Chapter.swift
-Models/ChapterSection.swift
-Models/ContentCard.swift
 Models/EchoPlaylistManifest.swift
 Models/FlashcardDeckImport.swift
 Models/LoopMode.swift
@@ -37,21 +37,23 @@ Models/M4BBook.swift
 Models/Note.swift
 Models/PlayerDeepLink.swift
 Models/ReaderCardItem.swift
-Models/RealTimeEvent.swift
+Models/RealTimeEventType.swift
 Models/SleepTimerMode.swift
 Models/SpeedSuggestion.swift
-Models/TimelineDisplayItem.swift
-Models/TimelineGroup.swift
-Models/TimelineScope.swift
 Models/Track.swift
 PrivacyInfo.xcprivacy
 Protocols/PlayerModelComponentProtocols.swift
 Protocols/SettingsManagerProtocol.swift
 Protocols/StoreManagerProtocol.swift
+Services/AlignmentChunkPlanner.swift
 Services/AlignmentService.swift
+Services/AlignmentTranscript.swift
+Services/AnchorSelector.swift
+Services/ApkgExportService.swift
+Services/ApkgImportService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
-Services/AudioRingBuffer.swift
+Services/AudioSegmentReader.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
@@ -69,6 +71,9 @@ Services/ContinuousAlignmentService.swift
 Services/CoverThemeBuilder.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
+Services/DefaultChimePlayer.swift
+Services/DefaultSoundscapeMixer.swift
+Services/DefaultVisualizerTap.swift
 Services/DominantColorExtractor.swift
 Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
@@ -77,6 +82,7 @@ Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
 Services/HeadingClassifier.swift
 Services/InlineFlashcardTriggerController.swift
+Services/LocationCaptureService.swift
 Services/M4BParser.swift
 Services/MockMediaProvider.swift
 Services/ModelRetainBox.swift
@@ -87,7 +93,6 @@ Services/PlaybackController.swift
 Services/PlaybackEventLogger.swift
 Services/PlaybackProgressPresenter.swift
 Services/PlaybackSessionRecorder.swift
-Services/PlaybackTimelineService.swift
 Services/PlayerLoadingCoordinator.swift
 Services/PlayerTimelinePersistenceService.swift
 Services/PlaylistManager.swift
@@ -99,11 +104,12 @@ Services/SilenceDetectionService.swift
 Services/SleepTimerManager.swift
 Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
+Services/StandaloneTranscriptionService.swift
 Services/StoreManager.swift
+Services/StudyNotesExportService.swift
 Services/TOCTreeBuilder.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
-Services/TimelineService.swift
 Services/TokenDTW.swift
 Services/TranscriptService.swift
 Services/WatchCommandRouter.swift
@@ -115,39 +121,28 @@ State/PlaybackState.swift
 Utilities/ColorMetrics.swift
 Utilities/FolderPicker.swift
 Utilities/OKLCH.swift
-Utilities/SilenceAnalyzer.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
 ViewModels/PlayerModel+Bookmarks.swift
+ViewModels/PlayerModel+MarkedPassages.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
 ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
-ViewModels/TimelineFeedViewModel.swift
 Views/AutoAlignmentProgressView.swift
 Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
 Views/BottomToolbarView.swift
 Views/CardColorPickerSheet.swift
-Views/Cells/AnkiCardCell.swift
-Views/Cells/BookCardCell.swift
-Views/Cells/BookmarkCell.swift
-Views/Cells/CellHelpers.swift
-Views/Cells/ChapterMarkerCell.swift
-Views/Cells/ElasticScrubberCell.swift
+Views/CardInboxView.swift
 Views/Cells/HeadingCardCell.swift
-Views/Cells/ImageAssetCell.swift
 Views/Cells/ImageCardCell.swift
-Views/Cells/NowLineCell.swift
 Views/Cells/ParagraphCardCell.swift
-Views/Cells/StickyReviewHeaderView.swift
-Views/Cells/TextSegmentCell.swift
-Views/Cells/TimelineCellDelegate.swift
 Views/ChapterPickerSheet.swift
-Views/ChapterTimeBlockView.swift
+Views/ChimeSettingsView.swift
 Views/Components/AdaptiveBackground.swift
 Views/Components/AlbumArtHeroView.swift
 Views/Components/BookProgressTrack.swift
@@ -159,14 +154,17 @@ Views/Components/InlineStepperRow.swift
 Views/Components/MarqueeText.swift
 Views/Components/PlayerControlBar.swift
 Views/Components/SleepTimerPill.swift
-Views/Components/TranscriptOverlayView.swift
-Views/Components/TranscriptRowView.swift
 Views/Components/UnifiedBottomDock.swift
 Views/Components/UnifiedTopHeader.swift
 Views/Components/WordCloudView.swift
-Views/ContentCardEditor.swift
 Views/DashboardShelf.swift
 Views/EPUBHeadingPickerSheet.swift
+Views/Fidget/BubblePopView.swift
+Views/Fidget/DoodlePadView.swift
+Views/Fidget/FidgetOverlayView.swift
+Views/Fidget/InfinityScrollView.swift
+Views/Fidget/KineticSandView.swift
+Views/Fidget/TactilePlaygroundView.swift
 Views/FlashcardReviewCard.swift
 Views/FlashcardReviewSession.swift
 Views/HelpContent.swift
@@ -174,14 +172,13 @@ Views/HelpView.swift
 Views/ListeningProgressModuleView.swift
 Views/ManualAlignmentSheet.swift
 Views/NoteEditorView.swift
-Views/NowLineView.swift
 Views/NowPlayingLayout.swift
 Views/NowPlayingTab.swift
+Views/OnboardingView.swift
 Views/PDFDocumentView.swift
 Views/PhonePlayerSettingsView.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
-Views/PlaylistTimelineView.swift
 Views/PlaylistView.swift
 Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
@@ -194,17 +191,25 @@ Views/ScrubberJoystick.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
 Views/SmartRewindSettingsView.swift
+Views/SoundscapePickerView.swift
 Views/SpeedCardView.swift
 Views/SpeedSuggestionBanner.swift
+Views/StandaloneTranscriptView.swift
+Views/Stats/BookStatsView.swift
+Views/Stats/DeckDetailView.swift
+Views/Stats/DeckListView.swift
+Views/Stats/StatCardView.swift
+Views/Stats/StatsView.swift
 Views/StatsModuleView.swift
-Views/TimelineContentCard.swift
-Views/TimelineContentView.swift
-Views/TimelineFeedCollectionView.swift
-Views/TimelineHeaderView.swift
+Views/StreakModuleView.swift
 Views/TimelineTab.swift
 Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
+Views/Visualizer/VisualizerPickerView.swift
+Views/Visualizer/VisualizerShaders.metal
+Views/Visualizer/VisualizerStyle.swift
+Views/Visualizer/VisualizerView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
 ```
@@ -217,10 +222,18 @@ Echo_macOSApp.swift
 Info.plist
 PrivacyInfo.xcprivacy
 Services/AudioExtractor.swift
+Services/MacApkgExportService.swift
+Services/MacBulkAlignmentService.swift
 Services/MacEPUBParser.swift
 Services/MacGlobalAlignmentService.swift
+Views/MacAnkiExportView.swift
+Views/MacBulkAlignmentProgressView.swift
 Views/MacContentView.swift
+Views/MacNotesPane.swift
 Views/MacPlayerModel.swift
+Views/MacReaderFeedView.swift
+Views/MacTOCTreeView.swift
+Views/MacTriPaneView.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
 Views/TranscriptionManager.swift
@@ -251,9 +264,12 @@ Views/WatchReviewView.swift
 ```
 AnimationDurations.swift
 AppGroupDefaults.swift
+ArchiveExtractionLimits.swift
+ChimeSound.swift
 Database/AlignmentAnchorRecord.swift
 Database/BookmarkRecord.swift
 Database/ChapterRecord.swift
+Database/ClozeParser.swift
 Database/DAOs/AlignmentAnchorDAO.swift
 Database/DAOs/AudiobookDAO.swift
 Database/DAOs/BookmarkDAO.swift
@@ -264,24 +280,29 @@ Database/DAOs/FlashcardDAO.swift
 Database/DAOs/NoteDAO.swift
 Database/DAOs/PlannedSessionDAO.swift
 Database/DAOs/PlaybackEventDAO.swift
-Database/DAOs/PlaybackStateDAO.swift
 Database/DAOs/RealTimeEventDAO.swift
-Database/DAOs/SettingsDAO.swift
 Database/DAOs/TimelineDAO.swift
 Database/DAOs/TrackDAO.swift
 Database/DAOs/TranscriptionDAO.swift
 Database/DatabaseService.swift
+Database/Deck.swift
 Database/EPubBlockRecord.swift
 Database/EPubTOCEntryRecord.swift
+Database/FSRSScheduler.swift
 Database/Flashcard.swift
+Database/MarkedPassageRecord.swift
 Database/MigrationService.swift
 Database/Migrations/Schema_V11.swift
 Database/Migrations/Schema_V12.swift
 Database/Migrations/Schema_V13.swift
 Database/Migrations/Schema_V14.swift
+Database/Migrations/Schema_V15.swift
+Database/Migrations/Schema_V16.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
+Database/SM2Scheduler.swift
+Database/SchedulingAlgorithm.swift
 Database/Schema_V1.swift
 Database/Schema_V2.swift
 Database/Schema_V3.swift
@@ -307,7 +328,13 @@ Models/PDFViewState.swift
 NotificationNames.swift
 ReaderSettings.swift
 SafeFileName.swift
+Services/ChapterCardDrafter.swift
+SoundscapePreset.swift
+StandaloneTranscriptRecord.swift
 Stats/PlaybackSegmentBuilder.swift
+Stats/StatsAggregator.swift
+Stats/StatsModels.swift
+Stats/StatsRepository.swift
 String+Levenshtein.swift
 SyncMarker.swift
 TabSelection.swift
@@ -315,6 +342,7 @@ TextAlignmentUtilities.swift
 TimeFormatting.swift
 TranscriptionSegment.swift
 URL+SHA256.swift
+VisualizerFrame.swift
 WatchAction.swift
 WatchFlashcard.swift
 WatchMessageKey.swift
@@ -455,10 +483,11 @@ User anchors (manual)
 Code organization (June 2026):
   ├─ TokenDTW: new word-level DTW alignment engine replacing Tier 0 silence mapping
   │   └── Uses flat Int32/Int8 arrays for memory-efficient 3000×3000 token grid alignment
-  ├─ TimelineFeedCollectionView: 1,825 → 627 lines — 11 cell subclasses
-  │   extracted to Views/Cells/ (BookCardCell, TextSegmentCell, ChapterMarkerCell,
-  │   BookmarkCell, AnkiCardCell, ImageAssetCell, NowLineCell, ElasticScrubberCell,
-  │   StickyReviewHeaderView, TimelineCellDelegate, CellHelpers)
+  ├─ Timeline Feed prototype: REMOVED 2026-06-13 — TimelineFeedCollectionView /
+  │   TimelineFeedViewModel + its 10 orphaned cell subclasses, the ContentCard /
+  │   TimelineService / RealTimeEvent (struct) models, and TranscriptOverlayView were
+  │   dead (the Reader feed replaced them); ~3.9k LOC deleted. RealTimeEventType
+  │   survives in Models/RealTimeEventType.swift (used by PlaybackEventLogger).
   ├─ ReaderTab: 901 → 576 lines — alignment & context menu operations
   │   extracted to ReaderTab+Alignment.swift
   ├─ PlayerModel: 1,295 → 1,103 lines — Bookmarks API extracted to
