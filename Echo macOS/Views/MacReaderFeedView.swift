@@ -1,5 +1,5 @@
-import SwiftUI
 import GRDB
+import SwiftUI
 
 /// Center pane — scrollable card feed of EPUB blocks matching the iOS reader.
 ///
@@ -38,6 +38,7 @@ struct MacReaderFeedView: View {
                         LazyVStack(spacing: 0) {
                             ForEach(blocks, id: \.id) { block in
                                 MacBlockCardView(block: block, isActive: block.id == currentBlockID)
+                                    .equatable()
                                     .id(block.id)
                             }
                         }
@@ -108,20 +109,24 @@ struct MacReaderFeedView: View {
     private func trackCurrentBlock() async {
         while !Task.isCancelled {
             if let audiobookID = player.audiobookID,
-               player.isPlaying,
-               player.currentTime > 0 {
+                player.isPlaying,
+                player.currentTime > 0
+            {
                 do {
                     let blockID = try await dbService.writer.read { db in
-                        try Row.fetchOne(db, sql: """
-                            SELECT eb.id
-                            FROM epub_block eb
-                            JOIN timeline_item ti ON ti.epub_block_id = eb.id
-                            WHERE eb.audiobook_id = ?
-                              AND ti.audio_start_time <= ?
-                              AND ti.audio_end_time > ?
-                            ORDER BY eb.sequence_index
-                            LIMIT 1
-                            """, arguments: [audiobookID, player.currentTime, player.currentTime]
+                        try Row.fetchOne(
+                            db,
+                            sql: """
+                                SELECT eb.id
+                                FROM epub_block eb
+                                JOIN timeline_item ti ON ti.epub_block_id = eb.id
+                                WHERE eb.audiobook_id = ?
+                                  AND ti.audio_start_time <= ?
+                                  AND ti.audio_end_time > ?
+                                ORDER BY eb.sequence_index
+                                LIMIT 1
+                                """,
+                            arguments: [audiobookID, player.currentTime, player.currentTime]
                         )?["id"] as? String
                     }
                     currentBlockID = blockID
@@ -131,17 +136,23 @@ struct MacReaderFeedView: View {
             } else {
                 currentBlockID = nil
             }
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s
         }
     }
 }
 
 // MARK: - Block Card Views
 
-private struct MacBlockCardView: View {
+private struct MacBlockCardView: View, Equatable {
     @Environment(MacPlayerModel.self) private var player
     let block: EPubBlockRecord
     let isActive: Bool
+
+    // Equatable so the polled reader feed re-evaluates only the cards that
+    // actually changed (§8.2). Rendering depends solely on block + isActive.
+    nonisolated static func == (lhs: MacBlockCardView, rhs: MacBlockCardView) -> Bool {
+        lhs.block.id == rhs.block.id && lhs.isActive == rhs.isActive
+    }
 
     var body: some View {
         Group {
@@ -194,7 +205,8 @@ private struct MacBlockCardView: View {
         Group {
             if let imagePath = block.imagePath, !imagePath.isEmpty {
                 if let resolvedURL = resolveImageURL(imagePath: imagePath),
-                   let nsImage = NSImage(contentsOf: resolvedURL) {
+                    let nsImage = NSImage(contentsOf: resolvedURL)
+                {
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -226,7 +238,8 @@ private struct MacBlockCardView: View {
     private func resolveImageURL(imagePath: String) -> URL? {
         guard let folderURL = player.folderURL else { return nil }
         let assetsDir = SafeFileName.fromAudiobookID(folderURL.absoluteString)
-        let base = folderURL
+        let base =
+            folderURL
             .deletingLastPathComponent()
             .appendingPathComponent(assetsDir)
             .appendingPathComponent("EPUBAssets")
@@ -237,12 +250,13 @@ private struct MacBlockCardView: View {
 
 // MARK: - Color from hex string
 
-private extension Color {
-    init?(hex: String) {
+extension Color {
+    fileprivate init?(hex: String) {
         let sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "#", with: "")
         guard sanitized.count == 6,
-              let value = UInt64(sanitized, radix: 16) else { return nil }
+            let value = UInt64(sanitized, radix: 16)
+        else { return nil }
         let r = Double((value >> 16) & 0xFF) / 255.0
         let g = Double((value >> 8) & 0xFF) / 255.0
         let b = Double(value & 0xFF) / 255.0

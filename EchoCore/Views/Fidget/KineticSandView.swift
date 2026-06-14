@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - KineticSandView
 
@@ -31,7 +32,7 @@ struct KineticSandView: View {
             // not inside Canvas: mutating @State during the render pass is
             // undefined behavior in SwiftUI (audit §8.1).
             .onChange(of: context.date) { _, now in
-                let dt = min(now.timeIntervalSince(lastUpdate), 1 / 30) // cap dt
+                let dt = min(now.timeIntervalSince(lastUpdate), 1 / 30)  // cap dt
                 guard dt > 0, canvasSize != .zero else { return }
                 lastUpdate = now
                 updateParticles(size: canvasSize, dt: dt)
@@ -114,5 +115,11 @@ struct KineticSandView: View {
 
 extension Color {
     /// A warm sandy beige tone.
-    static let sand = Color(red: 0.76, green: 0.70, blue: 0.50)
+    /// Dimmer in dark mode so the sand doesn't glare against a dark surface (§8.3).
+    static let sand = Color(
+        UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.45, green: 0.40, blue: 0.28, alpha: 1)
+                : UIColor(red: 0.76, green: 0.70, blue: 0.50, alpha: 1)
+        })
 }
