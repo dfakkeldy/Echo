@@ -1,6 +1,7 @@
 import SwiftUI
+
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 /// Pure colour math shared by the cover-theme pipeline.
@@ -9,7 +10,7 @@ import UIKit
 /// unit-testable without UIKit. Only the `Color`↔`RGB` bridge touches the
 /// platform. WCAG luminance/contrast lives here; perceptual conversions
 /// live in `OKLCH`.
-enum ColorMetrics {
+nonisolated enum ColorMetrics {
 
     /// sRGB triple, components in 0…1.
     struct RGB: Equatable {
@@ -42,17 +43,20 @@ enum ColorMetrics {
     // MARK: - Color bridge (the only platform-touching part)
 
     #if canImport(UIKit)
-    /// Extracts sRGB components from a SwiftUI `Color`.
-    static func rgb(_ color: Color) -> RGB {
-        let ui = UIColor(color)
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        ui.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return RGB(r: Double(r), g: Double(g), b: Double(b))
-    }
+        /// Extracts sRGB components from a SwiftUI `Color`.
+        static func rgb(_ color: Color) -> RGB {
+            let ui = UIColor(color)
+            var r: CGFloat = 0
+            var g: CGFloat = 0
+            var b: CGFloat = 0
+            var a: CGFloat = 0
+            ui.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return RGB(r: Double(r), g: Double(g), b: Double(b))
+        }
 
-    /// Creates a SwiftUI `Color` from an sRGB triple.
-    static func color(_ c: RGB) -> Color {
-        Color(red: c.r, green: c.g, blue: c.b)
-    }
+        /// Creates a SwiftUI `Color` from an sRGB triple.
+        static func color(_ c: RGB) -> Color {
+            Color(red: c.r, green: c.g, blue: c.b)
+        }
     #endif
 }

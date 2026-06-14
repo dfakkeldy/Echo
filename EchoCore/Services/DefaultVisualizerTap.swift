@@ -1,5 +1,5 @@
-import Accelerate
 import AVFoundation
+import Accelerate
 import os.log
 
 // MARK: - DefaultVisualizerTap
@@ -32,7 +32,9 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
         AsyncStream { [weak self] continuation in
             self?.continuation = continuation
             continuation.onTermination = { [weak self] _ in
-                self?.removeTap()
+                // onTermination is a @Sendable closure; removeTap() is @MainActor,
+                // so hop to the main actor (CODE_AUDIT.md §3.1).
+                Task { @MainActor in self?.removeTap() }
             }
         }
     }
@@ -56,7 +58,8 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
         let bufferSize = frameInterval
 
-        engine.mainMixerNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in
+        engine.mainMixerNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) {
+            [weak self] buffer, _ in
             guard let self, let channelData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
             guard frameLength > 0 else { return }
@@ -79,7 +82,9 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
 
     private func analyze(samples: UnsafeBufferPointer<Float>, count: Int) -> VisualizerFrame {
         guard count > 0, let base = samples.baseAddress else {
-            return VisualizerFrame(rms: 0, peak: 0, spectrum: Array(repeating: 0, count: numberOfBands), timestamp: CACurrentMediaTime())
+            return VisualizerFrame(
+                rms: 0, peak: 0, spectrum: Array(repeating: 0, count: numberOfBands),
+                timestamp: CACurrentMediaTime())
         }
 
         // --- RMS --- (vDSP reads the buffer in place; no copy)
@@ -95,15 +100,19 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
         let spectrum: [Float]
         if count >= fftSize {
             // Use the first fftSize samples directly — no allocation/copy.
-            spectrum = computeSpectrum(samples: UnsafeBufferPointer(start: base, count: fftSize), bands: numberOfBands)
+            spectrum = computeSpectrum(
+                samples: UnsafeBufferPointer(start: base, count: fftSize), bands: numberOfBands)
         } else {
             // Rare (callback shorter than fftSize): pad into a local buffer.
             var padded = [Float](repeating: 0, count: fftSize)
             for i in 0..<count { padded[i] = base[i] }
-            spectrum = padded.withUnsafeBufferPointer { computeSpectrum(samples: $0, bands: numberOfBands) }
+            spectrum = padded.withUnsafeBufferPointer {
+                computeSpectrum(samples: $0, bands: numberOfBands)
+            }
         }
 
-        return VisualizerFrame(rms: rms, peak: peak, spectrum: spectrum, timestamp: CACurrentMediaTime())
+        return VisualizerFrame(
+            rms: rms, peak: peak, spectrum: spectrum, timestamp: CACurrentMediaTime())
     }
 
     /// Compute a power spectrum via vDSP forward FFT and bin the

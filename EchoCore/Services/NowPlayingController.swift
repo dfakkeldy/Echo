@@ -4,6 +4,7 @@ import MediaPlayer
 /// Manages MPNowPlayingInfoCenter metadata updates and MPRemoteCommandCenter
 /// handler registration. Does not decide *when* to update — PlayerModel drives
 /// the timing and provides the data.
+@MainActor
 final class NowPlayingController {
     private var didConfigureRemoteCommands = false
     private var remoteCommandTokens: [Any] = []
@@ -80,7 +81,7 @@ final class NowPlayingController {
                 let positionTime = evt.positionTime
                 Task { @MainActor in seek(positionTime) }
                 return .success
-            }
+            },
         ]
     }
 
@@ -106,9 +107,11 @@ final class NowPlayingController {
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
 
         if let chapterIdx = params.chapterIndex,
-           let chapterElapsed = params.chapterElapsed,
-           let chapterDuration = params.chapterDuration {
-            info[MPMediaItemPropertyTitle] = params.subtitle.isEmpty ? "Ch \(chapterIdx + 1)" : params.subtitle
+            let chapterElapsed = params.chapterElapsed,
+            let chapterDuration = params.chapterDuration
+        {
+            info[MPMediaItemPropertyTitle] =
+                params.subtitle.isEmpty ? "Ch \(chapterIdx + 1)" : params.subtitle
             info[MPMediaItemPropertyAlbumTitle] = params.title
             info[MPMediaItemPropertyPlaybackDuration] = chapterDuration
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = chapterElapsed
@@ -128,7 +131,9 @@ final class NowPlayingController {
         }
 
         if let image = params.artworkImage {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
+                image
+            }
         }
 
         info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
@@ -141,7 +146,8 @@ final class NowPlayingController {
             info[MPNowPlayingInfoPropertyChapterNumber] = chapterIdx + 1
         }
         if params.duration.isFinite, params.duration > 0 {
-            info[MPNowPlayingInfoPropertyPlaybackProgress] = params.duration > 0
+            info[MPNowPlayingInfoPropertyPlaybackProgress] =
+                params.duration > 0
                 ? min(1, max(0, params.elapsed / params.duration)) : 0
         }
 

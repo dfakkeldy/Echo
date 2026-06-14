@@ -60,7 +60,8 @@ final class InlineFlashcardTriggerController {
                     self?.cachedTrackFlashcardKey = trackKey
                 }
             } catch {
-                Logger(category: "FlashcardTrigger").error("Failed to load flashcards for \(trackKey): \(error.localizedDescription)")
+                Logger(category: "FlashcardTrigger").error(
+                    "Failed to load flashcards for \(trackKey): \(error.localizedDescription)")
                 await MainActor.run { [weak self] in
                     self?.cachedTrackFlashcards = []
                     self?.cachedTrackFlashcardKey = trackKey
@@ -80,9 +81,9 @@ final class InlineFlashcardTriggerController {
         hasActiveCard: Bool
     ) -> Flashcard? {
         guard !hasActiveCard,
-              isPlayingProvider?() == true,
-              isManualSeekingProvider?() == false,
-              loopModeProvider?() != .bookmark
+            isPlayingProvider?() == true,
+            isManualSeekingProvider?() == false,
+            loopModeProvider?() != .bookmark
         else { return nil }
 
         let toleranceAfter: Double = 0.75
@@ -132,7 +133,8 @@ final class InlineFlashcardTriggerController {
                 // DAO handles its own write transaction internally
                 try dao.grade(cardID: cardID, grade: grade)
             } catch {
-                Logger(category: "FlashcardTrigger").error("Failed to grade flashcard \(cardID): \(error.localizedDescription)")
+                Logger(category: "FlashcardTrigger").error(
+                    "Failed to grade flashcard \(cardID): \(error.localizedDescription)")
             }
         }
     }

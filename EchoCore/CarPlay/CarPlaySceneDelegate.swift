@@ -1,5 +1,6 @@
 import CarPlay
 
+@MainActor
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var manager: CarPlayManager?
 
@@ -16,8 +17,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     func templateApplicationScene(
         _ templateApplicationScene: CPTemplateApplicationScene,
-        didDisconnect interfaceController: CPInterfaceController
+        didDisconnectInterfaceController interfaceController: CPInterfaceController
     ) {
+        // The previous `didDisconnect:` label matched no protocol requirement, so
+        // the framework never called it and CarPlay teardown never ran (§4.2).
         manager?.disconnect()
         self.manager = nil
     }

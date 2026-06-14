@@ -29,7 +29,7 @@ struct TokenDTW {
         /// Index within the block's tokens of the first strong match.
         let firstMatchTokenIndex: Int
     }
-    
+
     /// Tokenizes text for alignment: lowercased, split on non-alphanumerics,
     /// digit runs expanded to spoken number words so "Chapter 2" can match a
     /// narrator's "chapter two". Pure-letter tokens shorter than 2 characters
@@ -48,9 +48,16 @@ struct TokenDTW {
         return tokens
     }
 
-    private static let onesWords = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-    private static let teensWords = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
-    private static let tensWords = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+    private static let onesWords = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    ]
+    private static let teensWords = [
+        "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+        "eighteen", "nineteen",
+    ]
+    private static let tensWords = [
+        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+    ]
 
     /// Expands a digit run into spoken-word tokens. One- and two-digit
     /// numbers read naturally ("21" → twenty, one); anything longer reads
@@ -153,7 +160,8 @@ struct TokenDTW {
             case 0:
                 let eToken = epub[i - 1].text
                 let aToken = audio[j - 1].text
-                let strong = eToken == aToken
+                let strong =
+                    eToken == aToken
                     || eToken.hasPrefix(aToken) || aToken.hasPrefix(eToken)
                 matches.append(PathMatch(epubIndex: i - 1, audioIndex: j - 1, strong: strong))
                 i -= 1
@@ -181,8 +189,9 @@ struct TokenDTW {
             let match = matches[k]
             let time = audio[match.audioIndex].time
             if k > 0, runIDs[k - 1] >= 0,
-               matches[k - 1].epubIndex == match.epubIndex - 1,
-               matches[k - 1].audioIndex == match.audioIndex - 1 {
+                matches[k - 1].epubIndex == match.epubIndex - 1,
+                matches[k - 1].audioIndex == match.audioIndex - 1
+            {
                 runIDs[k] = runIDs[k - 1]
                 runs[runIDs[k]].count += 1
                 runs[runIDs[k]].lastTime = time
@@ -223,7 +232,11 @@ struct TokenDTW {
             // catapult the projection.
             let rate: TimeInterval
             if stats.count >= 2 {
-                rate = min(1.0, max(0.15, (stats.lastTime - stats.firstTime) / Double(stats.count - 1)))
+                // WhisperKit word times aren't guaranteed monotonic across
+                // concatenated chunks, so guard against a negative span that
+                // would otherwise produce a bogus rate (§5.11).
+                let span = max(0, stats.lastTime - stats.firstTime)
+                rate = min(1.0, max(0.15, span / Double(stats.count - 1)))
             } else {
                 rate = 0.4
             }
@@ -285,7 +298,8 @@ struct TokenDTW {
         let pivot = Int(Double(splitIndex) / Double(audio.count) * Double(epub.count))
         let pivotOrdinal = blockStartIndices.lastIndex { $0 <= pivot } ?? 0
         let firstCutOrdinal = pivotOrdinal + slackBlocks + 1
-        let epubFirstEnd = firstCutOrdinal < blockStartIndices.count
+        let epubFirstEnd =
+            firstCutOrdinal < blockStartIndices.count
             ? blockStartIndices[firstCutOrdinal] : epub.count
         let epubSecondStart = blockStartIndices[max(0, pivotOrdinal - slackBlocks)]
 

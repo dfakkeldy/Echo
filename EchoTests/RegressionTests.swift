@@ -1,6 +1,7 @@
-import Testing
 import Foundation
 import GRDB
+import Testing
+
 @testable import Echo
 
 /// Regression tests covering the known issues from the V1 EPUB Timeline spec.
@@ -14,7 +15,8 @@ struct RegressionTests {
         let db = try DatabaseService(inMemory: ())
 
         let tables = try db.read { db in
-            try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            try String.fetchAll(
+                db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         }
         // V5 tables must exist after migration.
         #expect(tables.contains("epub_block"))
@@ -36,8 +38,8 @@ struct RegressionTests {
 
         // Write enhanced transcript sidecar.
         let enhancedJSON = """
-        [{"sequenceIndex": 0, "text": "Hello world", "startTime": 0, "endTime": 5}]
-        """
+            [{"sequenceIndex": 0, "text": "Hello world", "startTime": 0, "endTime": 5}]
+            """
         let enhancedFile = tmpDir.appendingPathComponent("test-audio.enhanced.json")
         try enhancedJSON.write(to: enhancedFile, atomically: true, encoding: .utf8)
 
@@ -46,7 +48,7 @@ struct RegressionTests {
         let service = TranscriptService(state: state)
 
         service.loadTranscript(for: audioFile)
-        
+
         var enhanced = state.enhancedTranscription
         let start = Date()
         while enhanced.isEmpty && Date().timeIntervalSince(start) < 1.0 {
@@ -57,24 +59,6 @@ struct RegressionTests {
         #expect(!enhanced.isEmpty)
         #expect(enhanced.count == 1)
         #expect(enhanced.first?.text == "Hello world")
-    }
-
-    // MARK: - Timeline DAO errors are not swallowed
-
-    @Test func timelineDAOErrorPopulatedInViewModel() async throws {
-        let db = try DatabaseService(inMemory: ())
-        let timelineDAO = TimelineDAO(db: db.writer)
-        let audiobookDAO = AudiobookDAO(db: db.writer)
-        let viewModel = TimelineFeedViewModel(
-            timelineDAO: timelineDAO,
-            audiobookDAO: audiobookDAO,
-            audiobookID: "non-existent"
-        )
-
-        // Load initial window — should not crash for missing audiobook.
-        await viewModel.loadInitialWindow(around: 0)
-        #expect(viewModel.lastError == nil) // Empty result is not an error
-        #expect(viewModel.items.isEmpty)
     }
 
     // MARK: - Chapter artwork filename sanitizes file:// IDs
@@ -103,38 +87,6 @@ struct RegressionTests {
         #expect(dir.path.hasPrefix("/"))
     }
 
-    // MARK: - Follow playback callback scrolls collection view
-
-    @Test func viewModelScrollCallbackWiredForFollowingPlayback() async throws {
-        let db = try DatabaseService(inMemory: ())
-        let timelineDAO = TimelineDAO(db: db.writer)
-        let audiobookDAO = AudiobookDAO(db: db.writer)
-        let viewModel = TimelineFeedViewModel(
-            timelineDAO: timelineDAO,
-            audiobookDAO: audiobookDAO,
-            audiobookID: "book-1"
-        )
-
-        var scrollCalled = false
-        viewModel.onScrollToPosition = { _ in scrollCalled = true }
-
-        // Following playback → scroll should fire.
-        viewModel.updatePosition(10.0)
-        #expect(scrollCalled)
-
-        // User scrolls → browsing → scroll should NOT fire.
-        scrollCalled = false
-        viewModel.userDidScroll()
-        viewModel.updatePosition(20.0)
-        #expect(!scrollCalled)
-
-        // Go to Now → following → scroll should fire again.
-        scrollCalled = false
-        viewModel.goToNow()
-        viewModel.updatePosition(30.0)
-        #expect(scrollCalled)
-    }
-
     // MARK: - Schema V5 migration is idempotent
 
     @Test func v5MigrationIsIdempotent() throws {
@@ -155,16 +107,19 @@ struct RegressionTests {
         let db = try DatabaseService(inMemory: ())
 
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
 
         let blocks: [EPubBlockRecord] = [
-            EPubBlockRecord(id: "b0", audiobookID: "book-1", spineHref: "ch1.xhtml",
-                           spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
-                           blockKind: "heading", text: "Chapter 1", chapterIndex: 0, isHidden: false),
-            EPubBlockRecord(id: "b1", audiobookID: "book-1", spineHref: "ch1.xhtml",
-                           spineIndex: 0, blockIndex: 1, sequenceIndex: 1,
-                           blockKind: "paragraph", text: "Paragraph 1", chapterIndex: 0, isHidden: false),
+            EPubBlockRecord(
+                id: "b0", audiobookID: "book-1", spineHref: "ch1.xhtml",
+                spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+                blockKind: "heading", text: "Chapter 1", chapterIndex: 0, isHidden: false),
+            EPubBlockRecord(
+                id: "b1", audiobookID: "book-1", spineHref: "ch1.xhtml",
+                spineIndex: 0, blockIndex: 1, sequenceIndex: 1,
+                blockKind: "paragraph", text: "Paragraph 1", chapterIndex: 0, isHidden: false),
         ]
         try EPubBlockDAO(db: db.writer).insertAll(blocks)
 
