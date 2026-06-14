@@ -91,17 +91,6 @@ extension TimelineItem {
     var isTimestamped: Bool {
         audioStartTime >= 0
     }
-
-    /// Maps the database item type to the UI-facing card type.
-    var timelineCardType: TimelineCardType {
-        switch itemType {
-        case .textSegment:   return .textSegment
-        case .chapterMarker: return .chapterMarker
-        case .imageAsset:    return .imageAsset
-        case .bookmark:      return .bookmark
-        case .ankiCard:      return .ankiCard
-        }
-    }
 }
 
 // MARK: - EPUB Block Materialization
@@ -116,7 +105,8 @@ extension TimelineItem {
         TimelineItem(
             id: "epub-\(block.id)",
             audiobookID: audiobookID,
-            itemType: EPubBlockRecord.Kind(rawValue: block.blockKind) == .image ? .imageAsset : .textSegment,
+            itemType: EPubBlockRecord.Kind(rawValue: block.blockKind) == .image
+                ? .imageAsset : .textSegment,
             title: block.text ?? "Image",
             subtitle: nil,
             textPayload: block.text,
@@ -160,25 +150,18 @@ enum AlignmentStatus: String {
     case omitted
 }
 
-// MARK: - MediaPlayable
-
-extension TimelineItem: MediaPlayable {
-    var startTime: TimeInterval { audioStartTime }
-    var endTime: TimeInterval? { audioEndTime }
-}
-
 // MARK: - Legacy compatibility
 
 extension TimelineItemType {
     /// Maps legacy item types to new unified types for migration support.
     init?(legacyRawValue: String) {
         switch legacyRawValue {
-        case "track":       self = .chapterMarker
-        case "chapter":     self = .chapterMarker
-        case "bookmark":    self = .bookmark
-        case "flashcard":   self = .ankiCard
+        case "track": self = .chapterMarker
+        case "chapter": self = .chapterMarker
+        case "bookmark": self = .bookmark
+        case "flashcard": self = .ankiCard
         case "transcription": self = .textSegment
-        case "note":        self = .bookmark
+        case "note": self = .bookmark
         default: return nil
         }
     }
