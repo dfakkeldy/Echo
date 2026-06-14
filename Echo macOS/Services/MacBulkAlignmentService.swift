@@ -8,8 +8,8 @@
 //
 
 import Foundation
-import os.log
 import Observation
+import os.log
 
 @MainActor
 @Observable
@@ -58,29 +58,44 @@ final class MacBulkAlignmentService {
                 // Find matching companion document in same directory
                 let dir = audioURL.deletingLastPathComponent()
                 let fm = FileManager.default
-                let siblings = (try? fm.contentsOfDirectory(
-                    at: dir,
-                    includingPropertiesForKeys: nil,
-                    options: .skipsHiddenFiles
-                )) ?? []
+                let siblings =
+                    (try? fm.contentsOfDirectory(
+                        at: dir,
+                        includingPropertiesForKeys: nil,
+                        options: .skipsHiddenFiles
+                    )) ?? []
 
                 let epub = siblings.first { $0.pathExtension.lowercased() == "epub" }
                 let pdf = siblings.first { $0.pathExtension.lowercased() == "pdf" }
 
                 do {
+                    // Mirror the iOS audiobook identifier (`folderURL.absoluteString`)
+                    // so the shared block-ID formula matches the importer's.
+                    let audiobookID = dir.absoluteString
                     if let epub {
-                        logger.debug("Aligning \(audioURL.lastPathComponent) with EPUB \(epub.lastPathComponent)")
-                        try await alignmentService.alignStreaming(audioURL: audioURL, epubURL: epub)
+                        logger.debug(
+                            "Aligning \(audioURL.lastPathComponent) with EPUB \(epub.lastPathComponent)"
+                        )
+                        try await alignmentService.alignStreaming(
+                            audiobookID: audiobookID, audioURL: audioURL, epubURL: epub)
                     } else if let pdf {
-                        // PDF alignment uses the same pipeline — MacEPUBParser also handles PDF text extraction
-                        logger.debug("Aligning \(audioURL.lastPathComponent) with PDF \(pdf.lastPathComponent)")
-                        try await alignmentService.alignStreaming(audioURL: audioURL, epubURL: pdf)
+                        // PDF text extraction is not implemented; this call fails the
+                        // container.xml check and is skipped (logged below).
+                        logger.debug(
+                            "Aligning \(audioURL.lastPathComponent) with PDF \(pdf.lastPathComponent)"
+                        )
+                        try await alignmentService.alignStreaming(
+                            audiobookID: audiobookID, audioURL: audioURL, epubURL: pdf)
                     } else {
-                        logger.debug("Skipping \(audioURL.lastPathComponent): no EPUB or PDF found in directory")
+                        logger.debug(
+                            "Skipping \(audioURL.lastPathComponent): no EPUB or PDF found in directory"
+                        )
                         continue
                     }
                 } catch {
-                    logger.error("Alignment failed for \(audioURL.lastPathComponent): \(error.localizedDescription)")
+                    logger.error(
+                        "Alignment failed for \(audioURL.lastPathComponent): \(error.localizedDescription)"
+                    )
                     // Continue with next book rather than aborting the entire batch
                 }
 
@@ -147,7 +162,8 @@ final class MacBulkAlignmentService {
             process.arguments = ["sleepnow"]
             try process.run()
         } catch {
-            Logger(category: "MacBulkAlignment").error("Failed to trigger sleep: \(error.localizedDescription)")
+            Logger(category: "MacBulkAlignment").error(
+                "Failed to trigger sleep: \(error.localizedDescription)")
         }
     }
 }

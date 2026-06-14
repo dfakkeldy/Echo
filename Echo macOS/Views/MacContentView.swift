@@ -5,8 +5,8 @@
 //  Minimal Mac-native UI for opening, playing, and bookmarking audiobooks.
 //
 
-import SwiftUI
 import AppKit
+import SwiftUI
 import UniformTypeIdentifiers
 
 struct MacContentView: View {
@@ -37,14 +37,17 @@ struct MacContentView: View {
                             ProgressView(value: alignmentService.alignmentProgress)
                                 .progressViewStyle(.linear)
                                 .frame(width: 200)
-                            
+
                             HStack {
                                 Text("Match %:")
                                     .font(.caption)
                                 Slider(value: $alignmentService.matchThreshold, in: 0.1...1.0)
                                     .frame(width: 100)
-                                Text(alignmentService.matchThreshold, format: .number.precision(.fractionLength(2)))
-                                    .font(.caption)
+                                Text(
+                                    alignmentService.matchThreshold,
+                                    format: .number.precision(.fractionLength(2))
+                                )
+                                .font(.caption)
                             }
                             .padding(.top, 4)
                         }
@@ -63,7 +66,9 @@ struct MacContentView: View {
                                     .padding(.horizontal, 40)
                                     .padding(.vertical, 12)
                                     .background(.ultraThinMaterial)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .clipShape(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    )
                                     .padding(.bottom, 16)
                             }
                         }
@@ -98,11 +103,19 @@ struct MacContentView: View {
                         Label("Transcribe", systemImage: "text.quote")
                     }
                     .disabled(!player.hasMedia)
-                    
+
                     Button {
                         if let audioURL = player.currentURL,
-                           let epubURL = showEPUBPicker() {
-                            Task { try? await alignmentService.alignStreaming(audioURL: audioURL, epubURL: epubURL) }
+                            let epubURL = showEPUBPicker()
+                        {
+                            // Mirror the iOS audiobook identifier
+                            // (`folderURL.absoluteString`) so the shared
+                            // block-ID formula matches the importer's.
+                            let audiobookID = audioURL.deletingLastPathComponent().absoluteString
+                            Task {
+                                try? await alignmentService.alignStreaming(
+                                    audiobookID: audiobookID, audioURL: audioURL, epubURL: epubURL)
+                            }
                         }
                     } label: {
                         Label("Align EPUB", systemImage: "link")
@@ -122,13 +135,18 @@ struct MacContentView: View {
     /// The transcription segment covering the current playback time, if available.
     private var currentSubtitleSegment: TranscriptionSegment? {
         guard player.isPlaying,
-              let url = player.currentURL,
-              player.currentTime > 0 else { return nil }
+            let url = player.currentURL,
+            player.currentTime > 0
+        else { return nil }
 
         let hash = url.sha256Hash
-        guard let segments = transcriptStore.transcriptions[hash], !segments.isEmpty else { return nil }
+        guard let segments = transcriptStore.transcriptions[hash], !segments.isEmpty else {
+            return nil
+        }
 
-        return segments.first { player.currentTime >= $0.startTime && player.currentTime <= $0.endTime }
+        return segments.first {
+            player.currentTime >= $0.startTime && player.currentTime <= $0.endTime
+        }
     }
 
     func showOpenPanel() {
@@ -137,7 +155,8 @@ struct MacContentView: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.message = String(localized: "Select an audiobook file or folder containing audio files.")
+        panel.message = String(
+            localized: "Select an audiobook file or folder containing audio files.")
         let audioTypes: [UTType] = [
             .audio, .mp3, .mpeg4Audio,
             UTType(filenameExtension: "aiff") ?? .audio,
@@ -149,7 +168,8 @@ struct MacContentView: View {
         ]
         panel.allowedContentTypes = audioTypes
         if panel.runModal() == .OK, let url = panel.url {
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let isDirectory =
+                (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             if isDirectory {
                 player.loadFolder(url: url)
             } else {
@@ -220,7 +240,8 @@ private struct BookmarksSidebar: View {
                 }
                 .onChange(of: selection) { _, newValue in
                     if let id = newValue,
-                       let bm = player.bookmarks.first(where: { $0.id == id }) {
+                        let bm = player.bookmarks.first(where: { $0.id == id })
+                    {
                         player.jumpTo(bm)
                     }
                 }
