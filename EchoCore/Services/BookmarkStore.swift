@@ -9,7 +9,7 @@ import os.log
 /// Owns no persistence directly — callers supply save/load closures so the
 /// store stays testable and storage-agnostic.
 @MainActor @Observable
-final class BookmarkStore: BookmarkStoreProtocol {
+final class BookmarkStore {
 
     private let logger = Logger(category: "BookmarkStore")
 
