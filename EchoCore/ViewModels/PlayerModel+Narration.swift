@@ -33,6 +33,17 @@ extension PlayerModel {
         progressPresenter.updateNowPlayingInfo(isPaused: true)
 
         let cacheDirectory = Self.narrationCacheDirectory()
+        // Drop this book's files rendered with a previous voice so the store
+        // doesn't grow unbounded across voice changes.
+        let bookPrefix = NarrationFileNaming.chapterPrefix(audiobookID: audiobookID)
+        if let names = try? FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path) {
+            for stale in NarrationCacheStore.staleVoiceFiles(
+                names, bookPrefix: bookPrefix, currentVoice: voice.id)
+            {
+                try? FileManager.default.removeItem(
+                    at: cacheDirectory.appendingPathComponent(stale))
+            }
+        }
         let service = NarrationService(
             db: db, audiobookID: audiobookID, tts: narrationTTS,
             audioWriter: AVFoundationAudioWriter(), cacheDirectory: cacheDirectory,
@@ -126,12 +137,19 @@ extension PlayerModel {
         }
     }
 
-    /// App-owned, stable location for rendered narration audio — survives the
-    /// session (unlike the temporary directory, which can be purged mid-play).
-    private static func narrationCacheDirectory() -> URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    /// App-owned, durable location for rendered narration audio. Application
+    /// Support (not Caches) so iOS won't purge a queued chapter mid-play, and it's
+    /// excluded from iCloud/iTunes backup since it's regenerable.
+    static func narrationCacheDirectory() -> URL {
+        let fm = FileManager.default
+        var base =
+            (fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory)
             .appendingPathComponent("Narration", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? base.setResourceValues(values)
         return base
     }
 }
