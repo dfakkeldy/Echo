@@ -8,7 +8,8 @@ enum DatabaseError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .appGroupNotFound(let identifier):
-            return "App Group container not found for identifier: \(identifier). Check entitlements."
+            return
+                "App Group container not found for identifier: \(identifier). Check entitlements."
         }
     }
 }
@@ -25,9 +26,11 @@ final class DatabaseService {
 
     init(appGroupIdentifier: String = "group.com.echo.audiobooks") throws {
         self.appGroupIdentifier = appGroupIdentifier
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupIdentifier
-        ) else {
+        guard
+            let containerURL = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroupIdentifier
+            )
+        else {
             throw DatabaseError.appGroupNotFound(appGroupIdentifier)
         }
 
@@ -92,13 +95,17 @@ final class DatabaseService {
         migrator.registerMigration("v7_epub_reader_columns") { db in try Schema_V7.migrate(db) }
         migrator.registerMigration("v8_epub_block_word_count") { db in try Schema_V8.migrate(db) }
         migrator.registerMigration("v9_epub_block_markers") { db in try Schema_V9.migrate(db) }
-        migrator.registerMigration("v10_epub_block_chapter_theme") { db in try Schema_V10.migrate(db) }
+        migrator.registerMigration("v10_epub_block_chapter_theme") { db in
+            try Schema_V10.migrate(db)
+        }
         migrator.registerMigration("v11_bookmark_pdf_state") { db in try Schema_V11.migrate(db) }
-        migrator.registerMigration("v12_epub_block_front_matter") { db in try Schema_V12.migrate(db) }
+        migrator.registerMigration("v12_epub_block_front_matter") { db in try Schema_V12.migrate(db)
+        }
         migrator.registerMigration("v13_epub_toc_entries") { db in try Schema_V13.migrate(db) }
         migrator.registerMigration("v14_capture_and_context") { db in try Schema_V14.migrate(db) }
         migrator.registerMigration("v15_anki_decks") { db in try Schema_V15.migrate(db) }
         migrator.registerMigration("v16_fsrs_cloze_transcript") { db in try Schema_V16.migrate(db) }
+        migrator.registerMigration("v17_track_narration_voice") { db in try Schema_V17.migrate(db) }
         try migrator.migrate(writer)
     }
 

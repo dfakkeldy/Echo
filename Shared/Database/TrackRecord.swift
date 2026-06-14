@@ -11,6 +11,9 @@ struct TrackRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var isEnabled: Bool
     var sortOrder: Int
     var playlistPosition: Double?
+    /// The TTS voice that rendered this synthesized track (`narration_voice`
+    /// column). `nil` marks a normal, non-synthesized audiobook track.
+    var narrationVoice: String? = nil
 
     static let databaseTableName = "track"
 
@@ -23,5 +26,6 @@ struct TrackRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case isEnabled = "is_enabled"
         case sortOrder = "sort_order"
         case playlistPosition = "playlist_position"
+        case narrationVoice = "narration_voice"
     }
 }

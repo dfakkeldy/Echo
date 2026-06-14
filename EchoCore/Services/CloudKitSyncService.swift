@@ -54,7 +54,7 @@ final class CloudKitSyncService {
         switch AlignmentAnchorRecord.Source(rawValue: source) {
         case .moveToNow, .searchResult, .chapterBoundary: return 2
         case .imported: return 1
-        case .autoAlignment, .continuousBackground, nil: return 0
+        case .autoAlignment, .continuousBackground, .synthesized, nil: return 0
         }
     }
 
