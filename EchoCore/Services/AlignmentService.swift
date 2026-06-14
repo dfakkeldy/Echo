@@ -213,7 +213,10 @@ struct AlignmentService {
                     WHERE audiobook_id = ? AND item_type = 'chapterMarker'
                     """, arguments: [audiobookID])
         }
-        let totalDuration = maxEndTime ?? 1.0
+        // Optional: nil until chapter-marker rows materialize. Do NOT fall back
+        // to 1.0 — that collapses the whole tail of the book into the first
+        // second on an early recalc (§5.7).
+        let totalDuration = maxEndTime
 
         // Single transaction: all alignment writes batched together.
         var healedRowCount = 0
@@ -262,18 +265,27 @@ struct AlignmentService {
                 }
             }
             if let last = sortedAllBlocks.last, syntheticAnchorTimes[last.id] == nil {
-                anchoredBlocks.append(last)
                 if let lastAnchored = sortedAllBlocks.last(where: {
                     anchorTimeByBlockID[$0.id] != nil
                 }) {
+                    anchoredBlocks.append(last)
                     let distance =
                         (wordPositionByBlockID[last.id] ?? 0)
                         - (wordPositionByBlockID[lastAnchored.id] ?? 0)
                     let projected = anchorTimeByBlockID[lastAnchored.id]! + (distance / averageCPS)
                     let clampMin =
                         sortedAllBlocks.first.flatMap { syntheticAnchorTimes[$0.id] } ?? 0.0
-                    syntheticAnchorTimes[last.id] = min(totalDuration, max(clampMin, projected))
-                } else {
+                    let bounded = max(clampMin, projected)
+                    // Clamp to the book's known end only once it's known; before
+                    // then leave the projection unbounded rather than clamping to
+                    // a bogus 1.0s (§5.7).
+                    syntheticAnchorTimes[last.id] =
+                        totalDuration.map { min($0, bounded) } ?? bounded
+                } else if let totalDuration {
+                    // Only synthesize a book-end boundary when the duration is
+                    // actually known; otherwise leave the tail unanchored for a
+                    // later recalc instead of pinning it to 1.0s (§5.7).
+                    anchoredBlocks.append(last)
                     syntheticAnchorTimes[last.id] = totalDuration
                 }
             }
