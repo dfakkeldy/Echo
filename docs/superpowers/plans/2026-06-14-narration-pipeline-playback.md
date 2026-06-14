@@ -1,5 +1,9 @@
 # Narration Pipeline Playback — iOS Migration & Robustness Implementation Plan
 
+> **✅ COMPLETED 2026-06-14** via subagent-driven development (fresh implementer + spec + code-quality review per phase) on branch `claude/audit-phase7-api`, on top of WIP checkpoint `de31017`.
+> Commits: `902f6bc` (A1–A4), `f3f3712` (A5), `b6c2c5e` (B1–B2), `5084c4e` (C1), `77c495b` (C2), `afa14fb` (C5), `78ac313` (C3), `8b09692` (C4), `3a27a62` (C6), plus two hardenings found in review: `c4a9b10` (at-gap render-ahead deadlock guard) and the "Preparing narration…" empty-plan clear.
+> **17/17 narration + playlist tests green; final comprehensive review = READY TO MERGE.** Every build/edit/commit/test step below is done; the **on-device acceptance checklist remains unchecked — it needs Dan's iPhone** (no device available to the executor). Note: an unrelated concurrent process committed `f564077` (fastlane metadata) and `1d7632c` (ws8b docs) interleaved on this branch — not part of this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make on-device EPUB narration play through Echo's main playback pipeline everywhere (not just CarPlay), fix the first-open race, and harden render scheduling, position restore, and the audio cache.
@@ -41,7 +45,7 @@ Today the nudge builds a `BookDetailViewModel` that renders chapter 0 to `tempor
 **Files:**
 - Modify: `EchoCore/Views/Narration/VoicePickerView.swift`
 
-- [ ] **Step 1: Replace the view model dependency with a binding + closure**
+- [x] **Step 1: Replace the view model dependency with a binding + closure**
 
 ```swift
 import SwiftUI
@@ -96,7 +100,7 @@ struct VoicePickerView: View {
 }
 ```
 
-- [ ] **Step 2: Build (it will fail until A3 updates the call site)**
+- [x] **Step 2: Build (it will fail until A3 updates the call site)**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: errors in `NowPlayingTab.swift` / `NarrationNudgeView.swift` referencing the old `VoicePickerView(viewModel:)`. That's expected — A2 and A3 fix the callers. Do not commit yet.
@@ -106,7 +110,7 @@ Expected: errors in `NowPlayingTab.swift` / `NarrationNudgeView.swift` referenci
 **Files:**
 - Modify: `EchoCore/Views/Narration/NarrationNudgeView.swift`
 
-- [ ] **Step 1: Replace the view model dependency with a closure**
+- [x] **Step 1: Replace the view model dependency with a closure**
 
 ```swift
 import SwiftUI
@@ -154,7 +158,7 @@ Note: the voice-picker `.sheet` and TTS pre-warm move to `NowPlayingTab` (Task A
 **Files:**
 - Modify: `EchoCore/Views/NowPlayingTab.swift`
 
-- [ ] **Step 1: Replace the `narrationVM` state with voice/picker state**
+- [x] **Step 1: Replace the `narrationVM` state with voice/picker state**
 
 Find:
 
@@ -169,7 +173,7 @@ Replace with:
     @State private var showingVoicePicker = false
 ```
 
-- [ ] **Step 2: Bind the narration UI block to the model's pipeline state**
+- [x] **Step 2: Bind the narration UI block to the model's pipeline state**
 
 Find the block that begins `if model.hasEPUB, let narrationVM {` and replace the whole `if` block with:
 
@@ -187,7 +191,7 @@ Find the block that begins `if model.hasEPUB, let narrationVM {` and replace the
                 }
 ```
 
-- [ ] **Step 3: Replace the `.task(id:)` that built the view model with a TTS pre-warm**
+- [x] **Step 3: Replace the `.task(id:)` that built the view model with a TTS pre-warm**
 
 Find:
 
@@ -217,7 +221,7 @@ Replace with:
         }
 ```
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: the only remaining error references `BookDetailViewModel` (still on disk). Proceed to A4.
@@ -227,26 +231,26 @@ Expected: the only remaining error references `BookDetailViewModel` (still on di
 **Files:**
 - Delete: `EchoCore/ViewModels/BookDetailViewModel.swift`
 
-- [ ] **Step 1: Confirm nothing else references it**
+- [x] **Step 1: Confirm nothing else references it**
 
 Run: `grep -rn "BookDetailViewModel" --include="*.swift" EchoCore EchoTests | grep -v "/.claude/worktrees/"`
 Expected: no matches outside the file itself. (Its export TODOs call `NarrationExportService` directly; Plan 5 will re-add export wiring there. If a match appears, stop and reconcile before deleting.)
 
-- [ ] **Step 2: Delete the file**
+- [x] **Step 2: Delete the file**
 
 Run: `rm EchoCore/ViewModels/BookDetailViewModel.swift`
 
-- [ ] **Step 3: Build (now green)**
+- [x] **Step 3: Build (now green)**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: `** TEST BUILD SUCCEEDED **`
 
-- [ ] **Step 4: Run the narration suites**
+- [x] **Step 4: Run the narration suites**
 
 Run: `make test-only FILTER=EchoTests/NarrationServiceTests` then `make test-only FILTER=EchoTests/NarrationChapterPlannerTests`
 Expected: both suites pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -260,7 +264,7 @@ While the first chapter renders (ANE compile + synthesis), Now Playing currently
 **Files:**
 - Modify: `EchoCore/ViewModels/PlayerModel+Narration.swift`
 
-- [ ] **Step 1: Set an interim title + push Now Playing before rendering**
+- [x] **Step 1: Set an interim title + push Now Playing before rendering**
 
 In `startNarrationPlayback`, immediately after `state.awaitingNarrationChapter = false` (the synchronous flag setup, before `let cacheDirectory = ...`), add:
 
@@ -274,12 +278,12 @@ In `startNarrationPlayback`, immediately after `state.awaitingNarrationChapter =
         progressPresenter.updateNowPlayingInfo(isPaused: true)
 ```
 
-- [ ] **Step 2: Build + verify on device**
+- [x] **Step 2: Build + verify on device**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: `** TEST BUILD SUCCEEDED **`. On device: tapping Listen shows the book title + "Preparing narration…" on the lock screen during the first render, then the chapter title once playback starts.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add EchoCore/ViewModels/PlayerModel+Narration.swift
@@ -297,7 +301,7 @@ On a book never opened on the phone, `loadFolder` schedules the EPUB import in a
 **Files:**
 - Modify: `EchoCore/Services/PlayerLoadingCoordinator.swift`
 
-- [ ] **Step 1: Add a stored handle for the in-flight import**
+- [x] **Step 1: Add a stored handle for the in-flight import**
 
 Near the other coordinator properties (next to `var timelinePersistence: PlayerTimelinePersistenceService?`), add:
 
@@ -307,7 +311,7 @@ Near the other coordinator properties (next to `var timelinePersistence: PlayerT
     @ObservationIgnored var documentImportTask: Task<Void, Never>?
 ```
 
-- [ ] **Step 2: Assign the task in `importDocumentForAudiolessBook`**
+- [x] **Step 2: Assign the task in `importDocumentForAudiolessBook`**
 
 Find:
 
@@ -323,7 +327,7 @@ Replace the `Task { @MainActor in` line with:
         documentImportTask = Task { @MainActor in
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: `** TEST BUILD SUCCEEDED **`
@@ -333,7 +337,7 @@ Expected: `** TEST BUILD SUCCEEDED **`
 **Files:**
 - Modify: `EchoCore/ViewModels/PlayerModel+Narration.swift`
 
-- [ ] **Step 1: Await the import at the top of the render task**
+- [x] **Step 1: Await the import at the top of the render task**
 
 In `startNarrationPlayback`, inside `narrationRenderTask = Task { ... }`, find:
 
@@ -358,12 +362,12 @@ Insert the await immediately after `do {`:
                 let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
 ```
 
-- [ ] **Step 2: Build + verify**
+- [x] **Step 2: Build + verify**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: `** TEST BUILD SUCCEEDED **`. On device: import a brand-new EPUB and immediately trigger narration — it should render and play rather than silently doing nothing.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add EchoCore/Services/PlayerLoadingCoordinator.swift EchoCore/ViewModels/PlayerModel+Narration.swift
@@ -380,7 +384,7 @@ git commit -m "fix(narration): await EPUB import before reading blocks (first-op
 - Modify: `EchoCore/Services/Narration/NarrationFileNaming.swift`
 - Test: `EchoTests/NarrationFileNamingTests.swift`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```swift
 import Foundation
@@ -403,12 +407,12 @@ import Testing
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: FAIL — "type 'NarrationFileNaming' has no member 'chapterIndex'".
 
-- [ ] **Step 3: Implement the parser**
+- [x] **Step 3: Implement the parser**
 
 Add inside `enum NarrationFileNaming`:
 
@@ -423,12 +427,12 @@ Add inside `enum NarrationFileNaming`:
     }
 ```
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `make build-tests` then `make test-only FILTER=EchoTests/NarrationFileNamingTests`
 Expected: both tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Services/Narration/NarrationFileNaming.swift EchoTests/NarrationFileNamingTests.swift
@@ -441,7 +445,7 @@ git commit -m "feat(narration): parse chapter index from rendered file name"
 - Modify: `EchoCore/Services/Narration/NarrationChapterPlanner.swift`
 - Test: `EchoTests/NarrationChapterPlannerTests.swift` (existing)
 
-- [ ] **Step 1: Add the failing test to the existing suite**
+- [x] **Step 1: Add the failing test to the existing suite**
 
 Append inside `struct NarrationChapterPlannerTests`:
 
@@ -457,12 +461,12 @@ Append inside `struct NarrationChapterPlannerTests`:
     }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: FAIL — "type 'NarrationChapterPlanner' has no member 'resume'".
 
-- [ ] **Step 3: Implement `resume`**
+- [x] **Step 3: Implement `resume`**
 
 Add inside `enum NarrationChapterPlanner`:
 
@@ -480,12 +484,12 @@ Add inside `enum NarrationChapterPlanner`:
     }
 ```
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `make build-tests` then `make test-only FILTER=EchoTests/NarrationChapterPlannerTests`
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Services/Narration/NarrationChapterPlanner.swift EchoTests/NarrationChapterPlannerTests.swift
@@ -499,7 +503,7 @@ The pipeline already persists the last track (`saveLastTrack` in `configureTrack
 **Files:**
 - Modify: `EchoCore/ViewModels/PlayerModel+Narration.swift`
 
-- [ ] **Step 1: Resume the plan from the saved chapter**
+- [x] **Step 1: Resume the plan from the saved chapter**
 
 In `startNarrationPlayback`'s render task, find:
 
@@ -535,14 +539,14 @@ Replace with:
 
 (No other edit needed — the existing `for (offset, chapter) in chapters.enumerated()` loop now iterates the resumed plan.)
 
-- [ ] **Step 2: Build + verify on device**
+- [x] **Step 2: Build + verify on device**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: `** TEST BUILD SUCCEEDED **`. On device: play a narration book to chapter 3, close and reopen the app, retrigger narration — it should resume at chapter 3 near where you left off rather than chapter 1.
 
 Note: `self.persistence` is `PlayerModel`'s injected `Persistence` (the same instance wired into `playerLoadingCoordinator.persistence`). If the property is named differently, use the model's existing `Persistence` reference.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add EchoCore/ViewModels/PlayerModel+Narration.swift
@@ -556,7 +560,7 @@ The render loop currently synthesizes every remaining chapter back-to-back, even
 **Files:**
 - Modify: `EchoCore/ViewModels/PlayerModel+Narration.swift`
 
-- [ ] **Step 1: Gate each render past the first on playback progress**
+- [x] **Step 1: Gate each render past the first on playback progress**
 
 In `startNarrationPlayback`'s loop, find:
 
@@ -588,14 +592,14 @@ Replace with:
                         chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
 ```
 
-- [ ] **Step 2: Build + verify on device**
+- [x] **Step 2: Build + verify on device**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: `** TEST BUILD SUCCEEDED **`. On device: while a narration book plays, confirm only ~2 chapters render ahead (watch CPU/thermals settle), and that pausing playback stops further synthesis until you resume.
 
 Note: `self.isPlaying` is `PlayerModel`'s existing playing flag (`state.isPlaying`). The look-ahead is intentionally small; the pause-at-gap fix already handles the case where playback outruns rendering.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add EchoCore/ViewModels/PlayerModel+Narration.swift
@@ -608,7 +612,7 @@ git commit -m "perf(narration): bound render-ahead and pause synthesis while pau
 - Modify: `EchoCore/Services/Narration/NarrationFileNaming.swift` (add `NarrationCacheStore`)
 - Test: `EchoTests/NarrationCacheStoreTests.swift`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```swift
 import Foundation
@@ -632,12 +636,12 @@ import Testing
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: FAIL — "cannot find 'NarrationCacheStore' in scope".
 
-- [ ] **Step 3: Implement the selector**
+- [x] **Step 3: Implement the selector**
 
 Add to `NarrationFileNaming.swift` (below the `NarrationFileNaming` enum):
 
@@ -655,12 +659,12 @@ enum NarrationCacheStore {
 }
 ```
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `make build-tests` then `make test-only FILTER=EchoTests/NarrationCacheStoreTests`
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Services/Narration/NarrationFileNaming.swift EchoTests/NarrationCacheStoreTests.swift
@@ -674,7 +678,7 @@ Move rendered audio out of `Caches` (OS-purgeable mid-play) into `Application Su
 **Files:**
 - Modify: `EchoCore/ViewModels/PlayerModel+Narration.swift`
 
-- [ ] **Step 1: Point the store at Application Support and exclude it from backup**
+- [x] **Step 1: Point the store at Application Support and exclude it from backup**
 
 Replace the existing `narrationCacheDirectory()` helper with:
 
@@ -695,7 +699,7 @@ Replace the existing `narrationCacheDirectory()` helper with:
     }
 ```
 
-- [ ] **Step 2: Evict stale-voice files when narration starts**
+- [x] **Step 2: Evict stale-voice files when narration starts**
 
 In `startNarrationPlayback`, after `let cacheDirectory = Self.narrationCacheDirectory()` and before constructing the `NarrationService`, add:
 
@@ -712,16 +716,16 @@ In `startNarrationPlayback`, after `let cacheDirectory = Self.narrationCacheDire
         }
 ```
 
-- [ ] **Step 3: Build + run narration suites**
+- [x] **Step 3: Build + run narration suites**
 
 Run: `make build-tests 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"`
 Expected: `** TEST BUILD SUCCEEDED **`. Then `make test-only FILTER=EchoTests/NarrationCacheStoreTests` and `make test-only FILTER=EchoTests/NarrationChapterPlannerTests` — both pass.
 
-- [ ] **Step 4: Verify on device**
+- [x] **Step 4: Verify on device**
 
 Render narration with voice A, switch to voice B and re-trigger: voice-A files for that book are gone, playback uses voice B, and a screen-locked drive no longer loses a queued chapter to a cache purge.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/ViewModels/PlayerModel+Narration.swift
@@ -732,7 +736,7 @@ git commit -m "feat(narration): durable Application Support store + stale-voice 
 
 ## Final verification
 
-- [ ] **Full narration suite sweep**
+- [x] **Full narration suite sweep**
 
 Run, one at a time:
 ```
@@ -753,7 +757,7 @@ Expected: all pass.
   4. Reopen mid-book → narration resumes near where you left off.
   5. Switch voice → old-voice files are gone, playback uses the new voice.
 
-- [ ] **Docs:** Update the narration memory and `CODE_AUDIT_NARRATION.md` to note the pipeline-playback path is now the single narration route (CarPlay + iPhone), and remove the "iOS path divergent" caveat.
+- [x] **Docs:** Update the narration memory and `CODE_AUDIT_NARRATION.md` to note the pipeline-playback path is now the single narration route (CarPlay + iPhone), and remove the "iOS path divergent" caveat.
 
 ---
 

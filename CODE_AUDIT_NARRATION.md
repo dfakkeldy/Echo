@@ -4,6 +4,12 @@
 
 **Verdict in one line:** Plan 1's mock-backed core (PR #58) is sound. Everything PR #61 added on top — Kokoro inference, Misaki G2P, model download, `.m4b` export, the "benchmark," and the UI — is **non-functional spike code merged as if finished.** It is not currently hurting users only because the entire narration UI is dead code (never mounted). Treat the feature as **not shipped**, regardless of the "Finish Kokoro…" merge message.
 
+> **Status update — 2026-06-14 (narration pipeline-playback plan).** The stack has moved well past the "spike merged as finished" state this audit captured:
+> - **Engine is real.** Kokoro-82M runs on-device via FluidAudio/ANE (confirmed producing audio on an iPhone 12 Pro). The 4 confirmed-High engine bugs — §3.1 (cancel), §3.2 (main-actor encode/DB), §5.1 (idempotency), §5.2 (export prefix) — were addressed earlier (commit `c0e6e98`).
+> - **Single narration route (iPhone + CarPlay).** `BookDetailViewModel` and its standalone `AVAudioPlayer` path are **deleted**; the iPhone "Listen" UI now drives the same `PlayerModel.startNarrationPlayback` pipeline as CarPlay, so lock-screen transport, the scrubber, and Now Playing all work. This resolves §8.1 (dead UI slice) and **removes the "iOS path divergent" caveat — there is no longer a second playback path.**
+> - **Also resolved by the pipeline-playback plan:** the first-open race (narration awaits the no-audio EPUB import before reading blocks); rendered audio moved out of `temporaryDirectory`/`Caches` into a backup-excluded **Application Support** store (§5.11), with stale-voice eviction; render-ahead is now **bounded** (look-ahead 2) and pause-aware (with an at-gap exemption so render/playback can't deadlock); resume-at-last-chapter on reopen; an interim "Preparing narration…" Now Playing state during the first render.
+> - **Still open from this audit (untouched by that plan):** security §6.1 (untrusted-zip / zip-slip) and §6.2 (synthesized anchors in the *public* CloudKit payload), plus the perf/quality items in §7 and §9. Re-audit before 1.0.
+
 ---
 
 ## 1. Executive summary
