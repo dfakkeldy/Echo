@@ -86,10 +86,15 @@ extension PlayerModel {
                     try Task.checkCancellation()
                     // Render-ahead backpressure: don't synthesize more than
                     // `lookAhead` chapters past the one currently playing, and
-                    // don't render while paused. (offset 0 always renders first.)
+                    // don't render while the *user* paused. (offset 0 always
+                    // renders first.) `awaitingNarrationChapter` means playback
+                    // auto-paused at the end of the queue waiting for THIS
+                    // chapter — never block then, or render and playback would
+                    // deadlock waiting on each other.
                     while offset > 0,
                         self.folderURL?.absoluteString == audiobookID,
-                        self.state.currentIndex + lookAhead < offset || !self.isPlaying
+                        self.state.currentIndex + lookAhead < offset
+                            || (!self.isPlaying && !self.state.awaitingNarrationChapter)
                     {
                         try await Task.sleep(for: .seconds(1))
                         try Task.checkCancellation()
