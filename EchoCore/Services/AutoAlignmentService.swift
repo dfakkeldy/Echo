@@ -88,6 +88,20 @@ final class AutoAlignmentService {
         self.state = state
     }
 
+    deinit {
+        // Stop the keep-alive timer and release any held model on dealloc, so a
+        // dropped service doesn't leave the ~40 MB model resident until the
+        // timer fires (CODE_AUDIT.md §3.6). Race-free with the timer because its
+        // release path is now synchronous (MainActor.assumeIsolated).
+        MainActor.assumeIsolated {
+            modelUnloadTimer?.invalidate()
+            if whisperKit != nil {
+                WhisperSession.shared.release()
+                whisperKit = nil
+            }
+        }
+    }
+
     // MARK: - Public API
 
     /// Start the full auto-alignment pipeline.
@@ -565,12 +579,15 @@ final class AutoAlignmentService {
             withTimeInterval: Config.modelKeepAliveSeconds,
             repeats: false
         ) { [weak self] _ in
-            Task { @MainActor in
+            // Fires on the main run loop (scheduled from a @MainActor context),
+            // so release synchronously rather than via a queued Task that could
+            // double-release against deinit (CODE_AUDIT.md §3.6).
+            MainActor.assumeIsolated {
                 WhisperSession.shared.release()
                 // Mirror the shared box: once released, the cached handle may
-                // point at an unloaded model, so drop it. The next
-                // loadWhisperModel() then re-acquires instead of early-returning
-                // on a stale `whisperKit != nil` (CODE_AUDIT.md §5.2).
+                // point at an unloaded model, so drop it so the next
+                // loadWhisperModel() re-acquires instead of early-returning on a
+                // stale `whisperKit != nil` (§5.2).
                 self?.whisperKit = nil
             }
         }

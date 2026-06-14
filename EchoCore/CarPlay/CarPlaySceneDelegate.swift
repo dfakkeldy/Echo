@@ -1,5 +1,6 @@
 import CarPlay
 
+@MainActor
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var manager: CarPlayManager?
 
