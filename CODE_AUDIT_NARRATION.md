@@ -12,7 +12,7 @@
 
 ## 1. Executive summary
 
-1. **[Critical] Kokoro vocoder traps on A14 for real-book-length input — the P0 blocker** — uncatchable `EXC_BREAKPOINT`/SIGTRAP in `libBNNS` `BNNSGraphContextExecute_v2`; A14-ANE-specific, **not** a routing bug, **not** fixable by any FluidAudio compute-unit config — §3.1 — `KokoroTTSEngine.swift:6,28`.
+1. **[~~Critical~~ → ✅ RESOLVED] A14 narration crash — the P0 blocker** — device-verified fixed by **stream-to-sink** (§7.1) + the existing ≤200-char chunking. Phase 0 on the iPhone 12 Pro narrated 9+ chapters with zero crash/jetsam. The crash was **memory-dominated (jetsam)**, not the BNNS vocoder trap; the model swap is gated out (kept as a standby for the residual >9 kHz vocoder *whine*, a quality issue) — §3.1 — `KokoroTTSEngine.swift:6,28`.
 2. **[High] T5 voice-switch deletes the currently-playing file before stopping playback** — `startNarrationPlayback` evicts stale-voice files synchronously at the top, before the AVPlayer pointed at one of them is stopped — §5.1 — `PlayerModel+Narration.swift:38-46`.
 3. **[High] Read-along "Layer 2": `recalculateTimeline` interpolates across track boundaries** — corrupts `audio_start_time` for MP3-folder / multi-m4b books; narration is shielded by `anchoredOnly`, the general case is not — §5.2 — `AlignmentService.swift:340-359,425-446`.
 4. **[Medium] Resume is forward-only → only the resumed chapter is queued** (owner design ask B) — `NarrationChapterPlanner.resume` slices the plan and the render loop only ever queues that slice — §5.3 — `PlayerModel+Narration.swift:75-134`, `NarrationChapterPlanner.swift:33-40`.
@@ -39,13 +39,26 @@
 
 ## 3. Concurrency & runtime stability
 
-### 3.1 Kokoro vocoder traps on A14 for real-book-length input (THE P0 BLOCKER)
+### 3.1 Kokoro vocoder traps on A14 for real-book-length input — ✅ RESOLVED (Phase 0 device test, 2026-06-15)
+
+> **Phase 0 verdict (on the iPhone 12 Pro, A14, with stream-to-sink):** narration ran end-to-end
+> through chapters 7/8/9 at 2×, **past the ~6-chapter jetsam wall, with ZERO crash/jetsam reports**.
+> **The dominant A14 failure was JETSAM (signal 9) from per-chapter PCM accumulation, fixed by
+> stream-to-sink (§7.1) — not the BNNS vocoder trap.** The residual BNNS-trap risk is held off by
+> the existing `NarrationTextChunker` ≤200-char bound (already shipped), which keeps every
+> synthesis call's tensor shape small. Net: **the A14 narrates real books WITHOUT a model swap.**
+> The model-swap plan is therefore gated out (see `2026-06-15-narration-model-swap.md` resolution
+> banner). A *separate* residual — a >9 kHz vocoder WHINE — is a quality issue (not a crash),
+> addressed by an in-renderer low-pass (or, optionally, the swap). The forensic analysis below is
+> retained as history; its *conclusion* ("must change the model asset") was over-attributed —
+> the crash was memory-dominated, and chunking + stream-to-sink suffice.
+
 - **Location:** `KokoroTTSEngine.swift:6,28` (`KokoroAneManager()` → `manager.synthesizeDetailed`); crash is entirely inside `libBNNS.dylib`.
 - **What:** Synthesizing a real book paragraph on the iPhone 12 Pro (A14, iOS 26.5) traps with an uncatchable `EXC_BREAKPOINT`/SIGTRAP. `xcsym` shows the triggered thread (`com.apple.e5rt.concurrentExecutionQueue`) is 100% inside `BNNSGraphContextExecute_v2` ← `E5RT::Ops::BnnsCpuInferenceOperation::ExecuteSync()` — zero Echo frames. Short content synthesizes fine; long input crashes.
 - **Root cause (verified):** On A14 the ANE compiler rejects the Kokoro vocoder's palettized large-stride convolution (load warning: *"Palette weight for Large stride convolution is not supported"*). CoreML falls that op back to CPU/BNNS, and BNNS traps on the large dynamic tensor shape that long input (high acoustic-frame count `T_a`) produces. It is a **trap, not a Swift throw** — uncatchable, only preventable. **It is NOT a compute-unit routing bug:** FluidAudio 0.15.3 already ships the per-stage `ane-tail-gpu` split as `KokoroAneComputeUnits.default`, and the no-arg `KokoroAneManager()` resolves to exactly that (`KokoroAneManager.swift:47`). Git proves `.default` was the crashing config: commits `69c4a71`→`c0e6e98`→`153d3c4` all ran `KokoroAneManager()`, and **both crash logs were captured while that build was live**; the subsequent vocoder→GPU experiment (`d3a4a99`) failed differently (*"Invalid shape for output feature 'anchor'"* — the vocoder's `anchor` output is a deliberate ANE graph-anchor, invalid off-ANE) and was reverted (`613c577`). Char-chunking (`NarrationTextChunker`, ≤200 chars) cannot help because the bad shape is driven by `T_a`, not character count.
 - **Why:** This is the gate on the entire feature. Until it's resolved, no real book can be narrated on the A14 target, and nothing downstream can be device-verified.
 - **Action:** **Change the model asset, not the routing** (see the plan's Phase 1). The only Kokoro path with a confirmed iPhone 12 Pro run is the fixed-shape, non-palettized `mattmireles/kokoro-coreml` (static fp16 duration buckets, no dynamic ops, no palettized large-stride conv). FluidAudio exposes no model-revision override, so adopt it by vendoring the fixed-shape `.mlmodelc` behind the existing `TTSEngine` seam (thin CoreML runner) or forking FluidAudio's resource resolver. Run one decisive on-device test of current HEAD first (predicted: still crashes). Fallback: gate narration on A15+ (excludes the A14 target — interim only).
-- **Severity: Critical** (confirmed; upstream/hardware).
+- **Severity: ~~Critical~~ → RESOLVED** (stream-to-sink + existing chunking; device-verified Phase 0, 2026-06-15). The "Action" above is retained as the standby model-swap playbook for the *quality* whine only.
 
 > **Resolved since the prior audit:** §3.1-cancel (render task is now stored + cancelled in `startNarrationPlayback` and on book-switch — `PlayerModel+Narration.swift:22,52`), §3.2-main-actor (AAC encode is now off-main and the track+anchors write is one `await db.write` transaction — `NarrationService.swift:115-119`, `AVFoundationAudioWriter`), §3.3/§3.4 (Misaki + ModelDownloader deleted — FluidAudio owns G2P + download). See Appendix A.
 

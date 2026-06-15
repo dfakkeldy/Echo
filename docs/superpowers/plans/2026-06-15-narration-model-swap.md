@@ -1,5 +1,30 @@
 # Kokoro Model Swap — A14-Compatible Vocoder
 
+> ## ⛔ RESOLUTION — NOT EXECUTED (gated out by Phase 0, 2026-06-15)
+>
+> This plan was **conditional** on the finish-plan's Phase 0 gate: *"Crashes → proceed to
+> Phase 1A (model swap). Works → skip Phase 1A."* **Phase 0 ran on the iPhone 12 Pro (A14)
+> with stream-to-sink and the narration SURVIVED** a long multi-chapter session (ch 7/8/9 at
+> 2×, past the ~6-chapter jetsam wall, zero crash/jetsam reports). **The A14 crash was caused
+> by per-chapter PCM accumulation, fixed by stream-to-sink — NOT the palettized vocoder.**
+> So this model swap is **not needed for stability** and is **deliberately not executed**, per
+> the plan's own gate and the owner's explicit "Phase 0 first" decision.
+>
+> **Retained as QUALITY-optional.** A separate on-device finding — a high-frequency whine
+> (>9 kHz artifact) in the Kokoro A14 vocoder output — *could* be addressed by this swap, but a
+> cheaper in-renderer low-pass is being evaluated first. **Pre-work spikes done (2026-06-15) so
+> this is ready to execute IF the whine demands it:**
+> - **License gate ✅** — `mattmireles/kokoro-coreml` is **Apache-2.0** (this header's old "MIT"
+>   was wrong), `base_model: hexgrad/Kokoro-82M`. Reuse FluidAudio's Misaki G2P → no GPL espeak.
+> - **RAM gate ⚠️→OK** — the repo is ~1 GB (23 components × five duration buckets 3/7/10/15/30 s
+>   in `.mlpackage`). `NarrationTextChunker` caps utterances at ≤200 chars → only the **small
+>   buckets (3 s/7 s)** are needed; vendored compiled subset ≈ 138 MB, resident RAM fits the A14.
+> - **Integration ✅** — `FixedKokoroEngine: TTSEngine`, vendoring the small-bucket `.mlmodelc`,
+>   one-line swap at the `NarrationService` injection site (as written below).
+>
+> The task list below is therefore a **ready-to-run playbook**, not pending work. Do not execute
+> unless the owner chooses the model swap over the low-pass for the whine.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the FluidAudio-managed palettized Kokoro vocoder with the fixed-shape `mattmireles/kokoro-coreml` model (MIT), eliminating the A14 BNNS SIGTRAP and reducing memory pressure.
