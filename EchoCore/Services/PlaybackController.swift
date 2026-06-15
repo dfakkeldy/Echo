@@ -226,6 +226,9 @@ final class PlaybackController {
         audioEngine.pause()
         state.isPlaying = false
 
+        // Any explicit/system pause cancels a pending narration at-gap auto-resume so the render loop does not fight the user (see nextTrack() gap branch). The gap branch is the ONLY site that re-sets this true, and it does so AFTER calling pause() — do not reorder.
+        state.awaitingNarrationChapter = false
+
         if state.pauseTimestamp == nil {
             state.pauseTimestamp = Date()
         }
@@ -326,8 +329,12 @@ final class PlaybackController {
             // A narration book whose next chapter hasn't finished rendering: wait
             // for it rather than looping back to chapter 1. startNarrationPlayback
             // advances us when the chapter is appended.
-            state.awaitingNarrationChapter = true
+            //
+            // MUST stay pause()-then-set: pause() clears awaitingNarrationChapter, so
+            // setting it BEFORE pause() would be wiped and playback would stall forever
+            // waiting for an auto-advance that never fires.
             pause()
+            state.awaitingNarrationChapter = true
         } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
             assert(
                 coordinator_loadTrack != nil,
