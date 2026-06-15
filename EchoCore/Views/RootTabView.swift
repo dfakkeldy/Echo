@@ -16,6 +16,7 @@ struct RootTabView: View {
     @State private var newBookmarkDraft: BookmarkDraft? = nil
     @State private var editingBookmarkID: UUID? = nil
     @State private var showingFidget = false
+    @State private var showingStats = false
     @State private var showingReview = false
     @State private var reviewViewModel: DailyReviewViewModel?
     @State private var editingIdentifiableUUID: IdentifiableUUID?
@@ -48,8 +49,7 @@ struct RootTabView: View {
                             showHelp: { model.showingHelp = true },
                             showBookSettings: { showingBookSettings = true },
                             showSettings: { showingSettings = true },
-                            onCreateBookmark: { draft in newBookmarkDraft = draft },
-                            onShowFidget: { showingFidget = true }
+                            onCreateBookmark: { draft in newBookmarkDraft = draft }
                         )
                     case .read:
                         if model.hasEPUB {
@@ -73,25 +73,6 @@ struct RootTabView: View {
                             onEditBookmark: { id in editingBookmarkID = id },
                             onCreateBookmark: { draft in newBookmarkDraft = draft }
                         )
-                    case .stats:
-                        NavigationStack {
-                            StatsView()
-                                .navigationTitle("Stats")
-                                .toolbar {
-                                    ToolbarItem(placement: .topBarTrailing) {
-                                        Button("Done") {
-                                            model.selectedTab = .nowPlaying
-                                        }
-                                    }
-                                }
-                                // The outer stack hides its nav bar; the Stats
-                                // stack needs a visible bar so the Done button —
-                                // the only tracks-independent exit — is reachable.
-                                // Without it an audio-less book (tracks empty)
-                                // strands the user: the tab-cycle button is
-                                // .disabled(tracks.isEmpty).
-                                .toolbarVisibility(.visible, for: .navigationBar)
-                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -102,7 +83,9 @@ struct RootTabView: View {
                     onFolderTap: { showingFolderPicker = true },
                     onSettingsTap: { showingSettings = true },
                     onBookSettingsTap: { showingBookSettings = true },
-                    onHelpTap: { model.showingHelp = true }
+                    onHelpTap: { model.showingHelp = true },
+                    onStatsTap: { showingStats = true },
+                    onFidgetTap: { showingFidget = true }
                 )
 
                 // UnifiedBottomDock is only overlaid on non-NowPlaying views.
@@ -111,8 +94,7 @@ struct RootTabView: View {
                     VStack {
                         Spacer()
                         UnifiedBottomDock(
-                            onCreateBookmark: { draft in newBookmarkDraft = draft },
-                            onShowFidget: { showingFidget = true })
+                            onCreateBookmark: { draft in newBookmarkDraft = draft })
                     }
                 }
             }
@@ -162,6 +144,18 @@ struct RootTabView: View {
                     audiobookID: model.folderURL?.lastPathComponent ?? "unknown",
                     frameStream: model.audioEngine.visualizerTap?.frames
                 )
+            }
+            .sheet(isPresented: $showingStats) {
+                NavigationStack {
+                    StatsView()
+                        .navigationTitle("Stats")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { showingStats = false }
+                            }
+                        }
+                }
             }
             .onAppear {
                 model.setSettingsManager(settings)
