@@ -1,3 +1,4 @@
+import AVFoundation
 import FluidAudio
 import Foundation
 import GRDB
@@ -151,6 +152,60 @@ final class NarrationService {
         state.renderedChapterCount += 1
         logger.info("Rendered chapter \(chapterIndex) → \(anchors.count) anchors")
     }
+
+    #if DEBUG
+        /// One-tap on-device smoke test: render the first 3 paragraphs of the
+        /// loaded book's chapter 1 with the real Kokoro engine and play them.
+        /// Returns an `AVAudioPlayer` so the caller can keep a reference alive.
+        @discardableResult
+        static func testRenderAndPlayChapterOne(
+            databaseWriter: DatabaseWriter,
+            audiobookID: String
+        ) async throws -> AVAudioPlayer {
+            let logger = Logger(category: "NarrationTest")
+            var texts: [String] = []
+            texts =
+                (try? EPubBlockDAO(db: databaseWriter)
+                    .blocks(for: audiobookID, chapterIndex: 0)
+                    .compactMap { $0.text }
+                    .filter { !$0.isEmpty }) ?? []
+
+            if texts.isEmpty {
+                logger.info("No EPUB blocks loaded — narrating a sample paragraph instead.")
+                texts = [
+                    "Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do.",
+                    "Once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it.",
+                    "And what is the use of a book, thought Alice, without pictures or conversations?",
+                ]
+            }
+            let snippet = Array(texts.prefix(3))
+
+            logger.info("Preparing Kokoro (first run compiles on the ANE, ~15s)…")
+            let engine = KokoroTTSEngine()
+            var chunks: [TTSChunk] = []
+            for text in snippet {
+                // Chunk before synthesize, mirroring NarrationService.renderChapter:
+                // a whole 400+ char block traps Kokoro's BNNS fallback (uncatchable
+                // SIGTRAP), so bound every synthesize call to <=200 chars.
+                for subText in NarrationTextChunker.split(TextNormalizer.normalize(text)) {
+                    chunks.append(
+                        try await engine.synthesize(subText, voice: VoiceID("af_heart")))
+                }
+            }
+
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("narration-test.m4a")
+            try? FileManager.default.removeItem(at: url)
+            _ = try await AVFoundationAudioWriter().write(chunks, to: url)
+
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+            try AVAudioSession.sharedInstance().setActive(true)
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.play()
+            logger.info("Playing \(chunks.count) blocks.")
+            return player
+        }
+    #endif
 
     /// True for an error that means a single sub-chunk overran the model's input
     /// length cap, so the caller should skip it rather than abort the chapter.
