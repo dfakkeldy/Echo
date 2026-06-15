@@ -63,6 +63,24 @@ extension PlayerModel {
                 // Audio" in the reader are excluded from narration, matching the
                 // alignment/timeline paths.
                 let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
+
+                // Copy the EPUB's first image (typically the cover) into the
+                // narration cache so Now Playing and the lock screen can show
+                // artwork instead of a placeholder icon.
+                if let coverBlock =
+                    blocks
+                    .filter({ $0.blockKind == EPubBlockRecord.Kind.image.rawValue })
+                    .sorted(by: { $0.sequenceIndex < $1.sequenceIndex })
+                    .first,
+                    let imagePath = coverBlock.imagePath
+                {
+                    let coverSource = URL(fileURLWithPath: imagePath)
+                    let coverDest = cacheDirectory.appendingPathComponent("cover")
+                        .appendingPathExtension(
+                            coverSource.pathExtension.isEmpty ? "jpg" : coverSource.pathExtension)
+                    try? FileManager.default.copyItem(at: coverSource, to: coverDest)
+                }
+
                 let plan = NarrationChapterPlanner.plan(from: blocks)
                 guard !plan.isEmpty else {
                     // No narratable text: clear the interim "Preparing narration…"
