@@ -3,7 +3,7 @@ import Observation
 
 /// Manages the sleep timer: countdown, end-of-chapter mode, and fire callback.
 @MainActor @Observable
-final class SleepTimerManager: SleepTimerManagerProtocol {
+final class SleepTimerManager {
     private(set) var mode: SleepTimerMode = .off
     private(set) var remainingSeconds: Int = 0
 
@@ -16,7 +16,15 @@ final class SleepTimerManager: SleepTimerManagerProtocol {
     @ObservationIgnored var onTick: (() -> Void)?
 
     deinit {
-        timer?.invalidate()
+        // SleepTimerManager is @MainActor and the Timer is scheduled on the main
+        // run loop. Match the PlayerModel/AudioEngine teardown pattern so the
+        // invalidation runs on the main actor instead of whatever thread ARC runs
+        // the deinit on — invalidating a run-loop Timer off-thread is the "bad
+        // free" signature (CODE_AUDIT.md §3.3). Not `isolated deinit`: the iOS
+        // 26.2 simulator has an Apple runtime bug there (§3.9).
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+        }
     }
 
     func setTimer(_ mode: SleepTimerMode) {

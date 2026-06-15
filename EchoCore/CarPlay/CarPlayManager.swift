@@ -34,7 +34,7 @@ final class CarPlayManager: NSObject {
             chaptersTemplate!,
             bookmarksTemplate!
         ])
-        interfaceController.setRootTemplate(tabBar, animated: false)
+        interfaceController.setRootTemplate(tabBar, animated: false, completion: nil)
 
         // Populate lists with current data immediately.
         refreshLibrary()

@@ -12,11 +12,11 @@ import os.log
 /// Grades use the four-button scale: 1 = Again, 2 = Hard, 3 = Good, 4 = Easy.
 /// A card's memory state is the pair `(stability, difficulty)`; a card with no
 /// `stability` yet is treated as a first review and seeded from the initial DSR.
-struct FSRSScheduler: SchedulingAlgorithm {
+nonisolated struct FSRSScheduler: SchedulingAlgorithm {
     /// Official FSRS-4.5 default parameters (MIT-licensed, from fsrs-rs).
     let w: [Double] = [
         0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01,
-        1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61
+        1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61,
     ]
 
     /// Forgetting-curve constants. `R(S, S) = 0.9` by construction.
@@ -50,9 +50,13 @@ struct FSRSScheduler: SchedulingAlgorithm {
             let elapsedDays = elapsedDaysSinceLastReview(card.lastReviewedAt, now: now)
             let r = retrievability(elapsedDays: elapsedDays, stability: priorStability)
             newDifficulty = nextDifficulty(priorDifficulty, grade: g)
-            newStability = g >= 2
-                ? stabilityAfterRecall(stability: priorStability, difficulty: priorDifficulty, retrievability: r, grade: g)
-                : stabilityAfterLapse(stability: priorStability, difficulty: priorDifficulty, retrievability: r)
+            newStability =
+                g >= 2
+                ? stabilityAfterRecall(
+                    stability: priorStability, difficulty: priorDifficulty, retrievability: r,
+                    grade: g)
+                : stabilityAfterLapse(
+                    stability: priorStability, difficulty: priorDifficulty, retrievability: r)
         } else {
             // First review: seed the memory state from the initial DSR. No
             // forgetting curve is applied because there is no prior interval.
@@ -76,7 +80,9 @@ struct FSRSScheduler: SchedulingAlgorithm {
         } else {
             // Should be unreachable now that `interval` is clamped, but never
             // silently drop the schedule (audit §5.4).
-            Self.logger.error("Calendar overflow scheduling interval \(interval) days from \(now); leaving nextReviewDate unchanged")
+            Self.logger.error(
+                "Calendar overflow scheduling interval \(interval) days from \(now); leaving nextReviewDate unchanged"
+            )
         }
 
         return updated
@@ -107,26 +113,29 @@ struct FSRSScheduler: SchedulingAlgorithm {
     /// Recall (G ≥ 2):
     /// `S·(1 + e^{w₈}·(11-D)·S^{-w₉}·(e^{w₁₀·(1-R)} - 1)·hardPenalty·easyBonus)`.
     /// `hardPenalty = w₁₅` only when G == 2 (Hard); `easyBonus = w₁₆` only when G == 4 (Easy).
-    private func stabilityAfterRecall(stability: Double, difficulty: Double, retrievability r: Double, grade: Int) -> Double {
+    private func stabilityAfterRecall(
+        stability: Double, difficulty: Double, retrievability r: Double, grade: Int
+    ) -> Double {
         let hardPenalty = grade == 2 ? w[15] : 1.0
         let easyBonus = grade == 4 ? w[16] : 1.0
-        return stability * (
-            1.0
-            + exp(w[8])
-            * (11.0 - difficulty)
-            * pow(stability, -w[9])
-            * (exp(w[10] * (1.0 - r)) - 1.0)
-            * hardPenalty
-            * easyBonus
-        )
+        return stability
+            * (1.0
+                + exp(w[8])
+                * (11.0 - difficulty)
+                * pow(stability, -w[9])
+                * (exp(w[10] * (1.0 - r)) - 1.0)
+                * hardPenalty
+                * easyBonus)
     }
 
     /// Lapse (G = 1): `w₁₁·D^{-w₁₂}·((S+1)^{w₁₃} - 1)·e^{w₁₄·(1-R)}`.
-    private func stabilityAfterLapse(stability: Double, difficulty: Double, retrievability r: Double) -> Double {
+    private func stabilityAfterLapse(
+        stability: Double, difficulty: Double, retrievability r: Double
+    ) -> Double {
         w[11]
-        * pow(difficulty, -w[12])
-        * (pow(stability + 1.0, w[13]) - 1.0)
-        * exp(w[14] * (1.0 - r))
+            * pow(difficulty, -w[12])
+            * (pow(stability + 1.0, w[13]) - 1.0)
+            * exp(w[14] * (1.0 - r))
     }
 
     // MARK: - Forgetting curve & interval

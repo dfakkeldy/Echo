@@ -35,17 +35,21 @@ enum AudioSegmentReader {
                     let actualFrames = min(frameCount, AVAudioFrameCount(totalFrames - startFrame))
                     file.framePosition = startFrame
 
-                    guard let buffer = AVAudioPCMBuffer(
-                        pcmFormat: fileFormat, frameCapacity: actualFrames
-                    ) else {
+                    guard
+                        let buffer = AVAudioPCMBuffer(
+                            pcmFormat: fileFormat, frameCapacity: actualFrames
+                        )
+                    else {
                         continuation.resume(throwing: AutoAlignmentError.captureFailed)
                         return
                     }
                     try file.read(into: buffer)
 
-                    guard let floatData = convertTo16kHzMono(
-                        buffer: buffer, sourceFormat: fileFormat
-                    ) else {
+                    guard
+                        let floatData = convertTo16kHzMono(
+                            buffer: buffer, sourceFormat: fileFormat
+                        )
+                    else {
                         continuation.resume(throwing: AutoAlignmentError.captureFailed)
                         return
                     }
@@ -62,17 +66,20 @@ enum AudioSegmentReader {
         buffer: AVAudioPCMBuffer,
         sourceFormat: AVAudioFormat
     ) -> [Float]? {
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: sampleRate,
-            channels: 1,
-            interleaved: false
-        ) else { return nil }
+        guard
+            let targetFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: sampleRate,
+                channels: 1,
+                interleaved: false
+            )
+        else { return nil }
 
         // If the source already matches, copy directly.
         if sourceFormat.sampleRate == sampleRate,
-           sourceFormat.channelCount == 1,
-           sourceFormat.commonFormat == .pcmFormatFloat32 {
+            sourceFormat.channelCount == 1,
+            sourceFormat.commonFormat == .pcmFormatFloat32
+        {
             guard let channelData = buffer.floatChannelData else { return nil }
             let count = Int(buffer.frameLength)
             return Array(UnsafeBufferPointer(start: channelData[0], count: count))
@@ -86,17 +93,29 @@ enum AudioSegmentReader {
         let outputFrames = AVAudioFrameCount(
             Double(inputFrames) * (sampleRate / sourceFormat.sampleRate)
         )
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: targetFormat, frameCapacity: outputFrames
-        ) else { return nil }
+        guard
+            let outputBuffer = AVAudioPCMBuffer(
+                pcmFormat: targetFormat, frameCapacity: outputFrames
+            )
+        else { return nil }
 
+        var didSupplyInput = false
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            // Supply the source buffer exactly once: AVAudioConverter pulls input
+            // repeatedly for sample-rate conversion, and re-returning the same
+            // (already-consumed) buffer would re-feed stale samples (§5.5).
+            if didSupplyInput {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            didSupplyInput = true
             outStatus.pointee = .haveData
             return buffer
         }
 
         var conversionError: NSError?
-        let status = converter.convert(to: outputBuffer, error: &conversionError, withInputFrom: inputBlock)
+        let status = converter.convert(
+            to: outputBuffer, error: &conversionError, withInputFrom: inputBlock)
         if status == .error || conversionError != nil {
             return nil
         }

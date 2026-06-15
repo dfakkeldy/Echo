@@ -88,6 +88,13 @@ final class PlaybackProgressPresenter {
         let elapsed = audioEngine.currentTime
         let speed = max(0.1, Double(speedProvider?() ?? 1.0))  // Clamp to avoid Inf/NaN in remaining labels
 
+        // §7.3: coarse book-level percent for dashboard cards — set only when the
+        // integer changes, so observers re-render ~1 Hz instead of every tick.
+        if let duration = state.durationSeconds, duration > 0 {
+            let percent = Int(min(1.0, max(0, elapsed / duration)) * 100)
+            if state.bookProgressPercent != percent { state.bookProgressPercent = percent }
+        }
+
         // Multi-M4B: book-level progress (overrides chapter-level fraction below).
         if state.isMultiM4B, state.totalBookDuration > 0 {
             let bookOffset: TimeInterval = {
@@ -108,7 +115,8 @@ final class PlaybackProgressPresenter {
         if state.chapters.count >= 2 {
             if let idx = state.currentChapterIndex {
                 let c = state.chapters[idx]
-                if elapsed.isFinite, elapsed < c.startSeconds - 0.1 || elapsed >= c.endSeconds + 0.1 {
+                if elapsed.isFinite, elapsed < c.startSeconds - 0.1 || elapsed >= c.endSeconds + 0.1
+                {
                     onChapterOutOfBounds?()
                 }
             } else {
@@ -129,7 +137,8 @@ final class PlaybackProgressPresenter {
                     state.progressFraction = frac
                     let remaining = max(0, chapterDuration - chapterElapsed) / speed
                     state.progressText = "-\(NowPlayingController.formatTime(remaining))"
-                    state.elapsedText = NowPlayingController.formatTime(max(0, chapterElapsed) / speed)
+                    state.elapsedText = NowPlayingController.formatTime(
+                        max(0, chapterElapsed) / speed)
                     state.durationText = NowPlayingController.formatTime(chapterDuration / speed)
                     if didChange { onSyncToWatch?() }
                     return

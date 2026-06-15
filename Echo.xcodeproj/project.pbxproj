@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CC00000000006FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -233,6 +234,7 @@
 				CC0000000010GRDB00000010 /* GRDB in Frameworks */,
 				CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */,
 				CC0000000015WHSK00000015 /* WhisperKit in Frameworks */,
+							CC00000000006FLUI0000000 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -240,6 +242,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+							CC00000000006FLUI0000000 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -551,7 +554,8 @@
 				CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 				CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
-			);
+							CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
 			projectDirPath = "";
@@ -1458,6 +1462,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.0;
+			};
+		};
 		CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift.git";
@@ -1485,6 +1497,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		CC00000000005FLUI0000000 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
 		CC0000000002GRDB00000002 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;

@@ -71,18 +71,18 @@ struct ApkgExportService {
 
     /// Exports all decks and their cards into a single .apkg file.
     func exportAll(db: DatabaseWriter) throws -> URL {
-        let decks = try db.read { db in
-            try Deck.fetchAll(db)
-        }
-        var allCards: [Flashcard] = []
-        for deck in decks {
-            let cards = try db.read { db in
+        let (decks, allCards) = try db.read { db -> ([Deck], [Flashcard]) in
+            let decks = try Deck.fetchAll(db)
+            let deckIDs = decks.map(\.id)
+            // One query for all decks' cards instead of one read per deck (§7.6);
+            // group in-memory to preserve the per-deck, created_at order.
+            let cards =
                 try Flashcard
-                    .filter(Column("deck_id") == deck.id)
-                    .order(Column("created_at"))
-                    .fetchAll(db)
-            }
-            allCards.append(contentsOf: cards)
+                .filter(deckIDs.contains(Column("deck_id")))
+                .order(Column("created_at"))
+                .fetchAll(db)
+            let byDeck = Dictionary(grouping: cards, by: \.deckID)
+            return (decks, decks.flatMap { byDeck[$0.id] ?? [] })
         }
 
         if allCards.isEmpty {
@@ -139,7 +139,8 @@ struct ApkgExportService {
         // 4. Write the media mapping file
         let mediaURL = tmpDir.appendingPathComponent("media")
         if let data = try? JSONSerialization.data(withJSONObject: mediaMap),
-           let json = String(data: data, encoding: .utf8) {
+            let json = String(data: data, encoding: .utf8)
+        {
             try json.write(to: mediaURL, atomically: true, encoding: .utf8)
         }
 
@@ -150,7 +151,8 @@ struct ApkgExportService {
 
         do {
             let archive = try Archive(url: apkgURL, accessMode: .create)
-            let items = try FileManager.default.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil)
+            let items = try FileManager.default.contentsOfDirectory(
+                at: tmpDir, includingPropertiesForKeys: nil)
             for item in items {
                 let entryName = item.lastPathComponent
                 // Use add method with the file path
@@ -174,85 +176,101 @@ struct ApkgExportService {
             try queue.write { db in
 
                 // -- Create schema --
-                try db.execute(sql: """
-                    CREATE TABLE col (
-                        id INTEGER PRIMARY KEY,
-                        crt INTEGER NOT NULL, mod INTEGER NOT NULL, scm INTEGER NOT NULL,
-                        ver INTEGER NOT NULL, dty INTEGER NOT NULL, usn INTEGER NOT NULL,
-                        ls INTEGER NOT NULL, conf TEXT NOT NULL, models TEXT NOT NULL,
-                        decks TEXT NOT NULL, dconf TEXT NOT NULL, tags TEXT NOT NULL
-                    )
-                    """)
-                try db.execute(sql: """
-                    CREATE TABLE notes (
-                        id INTEGER PRIMARY KEY, guid TEXT NOT NULL, mid INTEGER NOT NULL,
-                        mod INTEGER NOT NULL, usn INTEGER NOT NULL, tags TEXT NOT NULL,
-                        flds TEXT NOT NULL, sfld TEXT NOT NULL, csum INTEGER NOT NULL,
-                        flags INTEGER NOT NULL, data TEXT NOT NULL
-                    )
-                    """)
-                try db.execute(sql: """
-                    CREATE TABLE cards (
-                        id INTEGER PRIMARY KEY, nid INTEGER NOT NULL REFERENCES notes(id),
-                        did INTEGER NOT NULL, ord INTEGER NOT NULL, mod INTEGER NOT NULL,
-                        usn INTEGER NOT NULL, type INTEGER NOT NULL, queue INTEGER NOT NULL,
-                        due INTEGER NOT NULL, ivl INTEGER NOT NULL, factor INTEGER NOT NULL,
-                        reps INTEGER NOT NULL, lapses INTEGER NOT NULL, left INTEGER NOT NULL,
-                        odue INTEGER NOT NULL, odid INTEGER NOT NULL, flags INTEGER NOT NULL,
-                        data TEXT NOT NULL
-                    )
-                    """)
-                try db.execute(sql: """
-                    CREATE TABLE revlog (
-                        id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, usn INTEGER NOT NULL,
-                        ease INTEGER NOT NULL, ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL,
-                        factor INTEGER NOT NULL, time INTEGER NOT NULL, type INTEGER NOT NULL
-                    )
-                    """)
+                try db.execute(
+                    sql: """
+                        CREATE TABLE col (
+                            id INTEGER PRIMARY KEY,
+                            crt INTEGER NOT NULL, mod INTEGER NOT NULL, scm INTEGER NOT NULL,
+                            ver INTEGER NOT NULL, dty INTEGER NOT NULL, usn INTEGER NOT NULL,
+                            ls INTEGER NOT NULL, conf TEXT NOT NULL, models TEXT NOT NULL,
+                            decks TEXT NOT NULL, dconf TEXT NOT NULL, tags TEXT NOT NULL
+                        )
+                        """)
+                try db.execute(
+                    sql: """
+                        CREATE TABLE notes (
+                            id INTEGER PRIMARY KEY, guid TEXT NOT NULL, mid INTEGER NOT NULL,
+                            mod INTEGER NOT NULL, usn INTEGER NOT NULL, tags TEXT NOT NULL,
+                            flds TEXT NOT NULL, sfld TEXT NOT NULL, csum INTEGER NOT NULL,
+                            flags INTEGER NOT NULL, data TEXT NOT NULL
+                        )
+                        """)
+                try db.execute(
+                    sql: """
+                        CREATE TABLE cards (
+                            id INTEGER PRIMARY KEY, nid INTEGER NOT NULL REFERENCES notes(id),
+                            did INTEGER NOT NULL, ord INTEGER NOT NULL, mod INTEGER NOT NULL,
+                            usn INTEGER NOT NULL, type INTEGER NOT NULL, queue INTEGER NOT NULL,
+                            due INTEGER NOT NULL, ivl INTEGER NOT NULL, factor INTEGER NOT NULL,
+                            reps INTEGER NOT NULL, lapses INTEGER NOT NULL, left INTEGER NOT NULL,
+                            odue INTEGER NOT NULL, odid INTEGER NOT NULL, flags INTEGER NOT NULL,
+                            data TEXT NOT NULL
+                        )
+                        """)
+                try db.execute(
+                    sql: """
+                        CREATE TABLE revlog (
+                            id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, usn INTEGER NOT NULL,
+                            ease INTEGER NOT NULL, ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL,
+                            factor INTEGER NOT NULL, time INTEGER NOT NULL, type INTEGER NOT NULL
+                        )
+                        """)
 
                 // -- Prepare data --
                 let now = Int(Date().timeIntervalSince1970)
-                let ankiDeckID = Int(deck.ankiDeckID ?? Int(Int64(deck.id.hashValue) & 0x7FFFFFFF))
-                let modelID: Int64 = 1547929172779
+                let ankiDeckID = Int(deck.ankiDeckID ?? Int(Int64(deck.id.hashValue) & 0x7FFF_FFFF))
+                let modelID: Int64 = 1_547_929_172_779
 
                 let decksJSON = makeDeckJSON(ankiDeckID: ankiDeckID, name: deck.name)
                 let modelsJSON = makeBasicModelJSON(modelID: modelID)
 
-                try db.execute(sql: """
-                    INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [
-                    1, now, now, now, 21, 0, 0, now,
-                    "{}", modelsJSON, decksJSON, "{}", ""
-                ])
+                try db.execute(
+                    sql: """
+                        INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        1, now, now, now, 21, 0, 0, now,
+                        "{}", modelsJSON, decksJSON, "{}", "",
+                    ])
 
-                // notes + cards
-                for card in cards {
-                    let noteID = Int64(Date().timeIntervalSince1970 * 1000) + Int64(card.id.hashValue % 1000)
-                    let guid = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(32))
+                // Allocate note/card IDs from one base timestamp, strided by 2
+                // (notes = base, base+2…; cards = base+1, base+3…) so the
+                // INTEGER PRIMARY KEYs never collide. The old epoch-ms +
+                // hashValue % 1000 could collide within a millisecond, and
+                // hashValue is randomized per process.
+                let baseID = Int64(Date().timeIntervalSince1970 * 1000)
+                for (index, card) in cards.enumerated() {
+                    let noteID = baseID + Int64(index) * 2
+                    let guid = String(
+                        UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(32))
                     let tags = card.tags ?? ""
                     let flds = "\(card.frontText)\u{1f}\(card.backText)"
                     let sfld = card.frontText
                     let csum = Int(crc32Checksum(sfld))
 
-                    try db.execute(sql: """
-                        INSERT INTO notes (id, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [
-                        noteID, guid, modelID, now, 0,
-                        tags, flds, sfld, csum, 0, ""
-                    ])
+                    try db.execute(
+                        sql: """
+                            INSERT INTO notes (id, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                        arguments: [
+                            noteID, guid, modelID, now, 0,
+                            tags, flds, sfld, csum, 0, "",
+                        ])
 
                     let cardID = noteID + 1
                     let factor = Int(card.easeFactor * 1000)
-                    try db.execute(sql: """
-                        INSERT INTO cards (id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [
-                        cardID, noteID, ankiDeckID, 0, now, 0,
-                        cardType(card), queueType(card), dueValue(card),
-                        card.intervalDays, factor, card.repetitions, 0, 0, 0, 0, 0, ""
-                    ])
+                    try db.execute(
+                        sql: """
+                            INSERT INTO cards (id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                        arguments: [
+                            cardID, noteID, ankiDeckID, 0, now, 0,
+                            cardType(card), queueType(card), dueValue(card),
+                            card.intervalDays, factor, card.repetitions, 0, 0, 0, 0, 0, "",
+                        ])
                 }
             }
         } catch {
@@ -269,8 +287,8 @@ struct ApkgExportService {
 
         for card in cards {
             guard let json = card.mediaJSON,
-                  let data = json.data(using: .utf8),
-                  let entries = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+                let data = json.data(using: .utf8),
+                let entries = try? JSONSerialization.jsonObject(with: data) as? [String: String]
             else { continue }
 
             for (fileName, sourcePath) in entries {
@@ -281,7 +299,8 @@ struct ApkgExportService {
                 do {
                     try FileManager.default.copyItem(at: sourceURL, to: destURL)
                 } catch {
-                    logger.warning("Failed to copy media '\(fileName)': \(error.localizedDescription)")
+                    logger.warning(
+                        "Failed to copy media '\(fileName)': \(error.localizedDescription)")
                     continue
                 }
                 mapping[indexKey] = fileName
@@ -296,15 +315,15 @@ struct ApkgExportService {
     private func makeDeckJSON(ankiDeckID: Int, name: String) -> String {
         let now = Int(Date().timeIntervalSince1970)
         return """
-        {"\(ankiDeckID)":{"id":\(ankiDeckID),"name":"\(escaped(name))","desc":"","collapsed":false,"conf":1,"dyn":0,"extendNew":0,"extendRev":0,"mid":null,"mod":\(now),"usn":0,"lrnToday":[0,0],"revToday":[0,0],"newToday":[0,0],"timeToday":[0,0],"browserCollapsed":false,"previewDelay":null}}
-        """
+            {"\(ankiDeckID)":{"id":\(ankiDeckID),"name":"\(escaped(name))","desc":"","collapsed":false,"conf":1,"dyn":0,"extendNew":0,"extendRev":0,"mid":null,"mod":\(now),"usn":0,"lrnToday":[0,0],"revToday":[0,0],"newToday":[0,0],"timeToday":[0,0],"browserCollapsed":false,"previewDelay":null}}
+            """
     }
 
     private func makeBasicModelJSON(modelID: Int64) -> String {
         let now = Int(Date().timeIntervalSince1970)
         return """
-        {"\(modelID)":{"id":\(modelID),"name":"Basic","type":0,"mod":\(now),"usn":0,"sortf":0,"did":1,"tags":[],"flds":[{"name":"Front","ord":0,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20},{"name":"Back","ord":1,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20}],"css":"","latexPre":"","latexPost":"","latexsvg":false,"req":[[0,"any",[0]]],"tmpls":[{"name":"Card 1","ord":0,"qfmt":"{{Front}}","afmt":"{{FrontSide}}\\n\\n<hr id=\\"answer\\">\\n\\n{{Back}}","did":null,"bfont":"","bsize":0}]}}
-        """
+            {"\(modelID)":{"id":\(modelID),"name":"Basic","type":0,"mod":\(now),"usn":0,"sortf":0,"did":1,"tags":[],"flds":[{"name":"Front","ord":0,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20},{"name":"Back","ord":1,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20}],"css":"","latexPre":"","latexPost":"","latexsvg":false,"req":[[0,"any",[0]]],"tmpls":[{"name":"Card 1","ord":0,"qfmt":"{{Front}}","afmt":"{{FrontSide}}\\n\\n<hr id=\\"answer\\">\\n\\n{{Back}}","did":null,"bfont":"","bsize":0}]}}
+            """
     }
 
     private func escaped(_ s: String) -> String {
@@ -347,7 +366,7 @@ struct ApkgExportService {
             var crc = UInt32(i)
             for _ in 0..<8 {
                 if crc & 1 == 1 {
-                    crc = (crc >> 1) ^ 0xEDB88320
+                    crc = (crc >> 1) ^ 0xEDB8_8320
                 } else {
                     crc >>= 1
                 }

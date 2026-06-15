@@ -81,7 +81,9 @@ struct AlignmentService {
     /// Resets all alignment anchors for this audiobook.
     func resetAlignment() throws {
         try timelineDAO.db.write { db in
-            try db.execute(sql: "DELETE FROM alignment_anchor WHERE audiobook_id = ?", arguments: [audiobookID])
+            try db.execute(
+                sql: "DELETE FROM alignment_anchor WHERE audiobook_id = ?", arguments: [audiobookID]
+            )
         }
         try recalculateTimeline()
     }
@@ -155,7 +157,8 @@ struct AlignmentService {
     }
 
     func hideChapter(chapterIndex: Int, reason: String?) throws {
-        try blockDAO.hideChapter(chapterIndex: chapterIndex, audiobookID: audiobookID, reason: reason)
+        try blockDAO.hideChapter(
+            chapterIndex: chapterIndex, audiobookID: audiobookID, reason: reason)
         try recalculateTimeline()
     }
 
@@ -202,13 +205,18 @@ struct AlignmentService {
         }
 
         let maxEndTime = try? timelineDAO.db.read { db in
-            try Double.fetchOne(db, sql: """
-                SELECT MAX(audio_end_time)
-                FROM timeline_item
-                WHERE audiobook_id = ? AND item_type = 'chapterMarker'
-                """, arguments: [audiobookID])
+            try Double.fetchOne(
+                db,
+                sql: """
+                    SELECT MAX(audio_end_time)
+                    FROM timeline_item
+                    WHERE audiobook_id = ? AND item_type = 'chapterMarker'
+                    """, arguments: [audiobookID])
         }
-        let totalDuration = maxEndTime ?? 1.0
+        // Optional: nil until chapter-marker rows materialize. Do NOT fall back
+        // to 1.0 — that collapses the whole tail of the book into the first
+        // second on an early recalc (§5.7).
+        let totalDuration = maxEndTime
 
         // Single transaction: all alignment writes batched together.
         var healedRowCount = 0
@@ -219,7 +227,7 @@ struct AlignmentService {
                 .sorted { $0.sequenceIndex < $1.sequenceIndex }
 
             var syntheticAnchorTimes = anchorTimeByBlockID
-            
+
             // Calculate dynamic CPS for projections (fallback to 15 CPS = ~155 WPM)
             var averageCPS: Double = 15.0
             if anchoredBlocks.count >= 2 {
@@ -228,7 +236,9 @@ struct AlignmentService {
                 for i in 0..<(anchoredBlocks.count - 1) {
                     let prev = anchoredBlocks[i]
                     let next = anchoredBlocks[i + 1]
-                    let chars = (wordPositionByBlockID[next.id] ?? 0) - (wordPositionByBlockID[prev.id] ?? 0)
+                    let chars =
+                        (wordPositionByBlockID[next.id] ?? 0)
+                        - (wordPositionByBlockID[prev.id] ?? 0)
                     let time = anchorTimeByBlockID[next.id]! - anchorTimeByBlockID[prev.id]!
                     if time > 0 && chars > 0 {
                         totalChars += chars
@@ -242,8 +252,12 @@ struct AlignmentService {
 
             if let first = sortedAllBlocks.first, syntheticAnchorTimes[first.id] == nil {
                 anchoredBlocks.insert(first, at: 0)
-                if let firstAnchored = sortedAllBlocks.first(where: { anchorTimeByBlockID[$0.id] != nil }) {
-                    let distance = (wordPositionByBlockID[firstAnchored.id] ?? 0) - (wordPositionByBlockID[first.id] ?? 0)
+                if let firstAnchored = sortedAllBlocks.first(where: {
+                    anchorTimeByBlockID[$0.id] != nil
+                }) {
+                    let distance =
+                        (wordPositionByBlockID[firstAnchored.id] ?? 0)
+                        - (wordPositionByBlockID[first.id] ?? 0)
                     let projected = anchorTimeByBlockID[firstAnchored.id]! - (distance / averageCPS)
                     syntheticAnchorTimes[first.id] = max(0.0, projected)
                 } else {
@@ -251,13 +265,27 @@ struct AlignmentService {
                 }
             }
             if let last = sortedAllBlocks.last, syntheticAnchorTimes[last.id] == nil {
-                anchoredBlocks.append(last)
-                if let lastAnchored = sortedAllBlocks.last(where: { anchorTimeByBlockID[$0.id] != nil }) {
-                    let distance = (wordPositionByBlockID[last.id] ?? 0) - (wordPositionByBlockID[lastAnchored.id] ?? 0)
+                if let lastAnchored = sortedAllBlocks.last(where: {
+                    anchorTimeByBlockID[$0.id] != nil
+                }) {
+                    anchoredBlocks.append(last)
+                    let distance =
+                        (wordPositionByBlockID[last.id] ?? 0)
+                        - (wordPositionByBlockID[lastAnchored.id] ?? 0)
                     let projected = anchorTimeByBlockID[lastAnchored.id]! + (distance / averageCPS)
-                    let clampMin = sortedAllBlocks.first.flatMap { syntheticAnchorTimes[$0.id] } ?? 0.0
-                    syntheticAnchorTimes[last.id] = min(totalDuration, max(clampMin, projected))
-                } else {
+                    let clampMin =
+                        sortedAllBlocks.first.flatMap { syntheticAnchorTimes[$0.id] } ?? 0.0
+                    let bounded = max(clampMin, projected)
+                    // Clamp to the book's known end only once it's known; before
+                    // then leave the projection unbounded rather than clamping to
+                    // a bogus 1.0s (§5.7).
+                    syntheticAnchorTimes[last.id] =
+                        totalDuration.map { min($0, bounded) } ?? bounded
+                } else if let totalDuration {
+                    // Only synthesize a book-end boundary when the duration is
+                    // actually known; otherwise leave the tail unanchored for a
+                    // later recalc instead of pinning it to 1.0s (§5.7).
+                    anchoredBlocks.append(last)
                     syntheticAnchorTimes[last.id] = totalDuration
                 }
             }
@@ -280,7 +308,9 @@ struct AlignmentService {
                     audioStart = -1
                     timestampSrc = TimestampSource.none.rawValue
                     alignStatus = AlignmentStatus.omitted.rawValue
-                } else if let lockedTime = syntheticAnchorTimes[block.id], anchorTimeByBlockID[block.id] != nil {
+                } else if let lockedTime = syntheticAnchorTimes[block.id],
+                    anchorTimeByBlockID[block.id] != nil
+                {
                     audioStart = lockedTime
                     timestampSrc = TimestampSource.lockedAnchor.rawValue
                     alignStatus = AlignmentStatus.lockedAnchor.rawValue
@@ -289,19 +319,22 @@ struct AlignmentService {
                     timestampSrc = TimestampSource.interpolated.rawValue
                     alignStatus = AlignmentStatus.interpolated.rawValue
                 } else if anchoredBlocks.count >= 2,
-                          let (prev, next) = findBracketingAnchors(
-                              block: block,
-                              anchoredBlocks: anchoredBlocks,
-                              anchorTimes: syntheticAnchorTimes
-                          ) {
+                    let (prev, next) = findBracketingAnchors(
+                        block: block,
+                        anchoredBlocks: anchoredBlocks,
+                        anchorTimes: syntheticAnchorTimes
+                    )
+                {
                     let prevPos = wordPositionByBlockID[prev.id] ?? 0
                     let nextPos = wordPositionByBlockID[next.id] ?? 0
                     let blockPos = wordPositionByBlockID[block.id] ?? 0
                     guard let prevTime = syntheticAnchorTimes[prev.id],
-                          let nextTime = syntheticAnchorTimes[next.id] else {
+                        let nextTime = syntheticAnchorTimes[next.id]
+                    else {
                         continue
                     }
-                    let fraction = (nextPos > prevPos) ? (blockPos - prevPos) / (nextPos - prevPos) : 0
+                    let fraction =
+                        (nextPos > prevPos) ? (blockPos - prevPos) / (nextPos - prevPos) : 0
                     audioStart = prevTime + fraction * (nextTime - prevTime)
                     timestampSrc = TimestampSource.interpolated.rawValue
                     alignStatus = AlignmentStatus.interpolated.rawValue
@@ -326,7 +359,8 @@ struct AlignmentService {
             var audioEndByBlockID: [String: TimeInterval] = [:]
             for (index, block) in enabledBlocks.enumerated() {
                 if enabledBlocks.indices.contains(index + 1),
-                   let nextStart = computedByBlockID[enabledBlocks[index + 1].id]?.audioStart {
+                    let nextStart = computedByBlockID[enabledBlocks[index + 1].id]?.audioStart
+                {
                     audioEndByBlockID[block.id] = nextStart
                 }
             }
@@ -358,9 +392,13 @@ struct AlignmentService {
         }
 
         if healedRowCount > 0 {
-            logger.warning("Materialized \(healedRowCount) missing timeline_item rows for \(self.audiobookID) — timeline was stale or never EPUB-ingested")
+            logger.warning(
+                "Materialized \(healedRowCount) missing timeline_item rows for \(self.audiobookID) — timeline was stale or never EPUB-ingested"
+            )
         }
-        logger.info("Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors")
+        logger.info(
+            "Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors"
+        )
     }
 
     /// Finds the anchored blocks immediately before and after the given block
@@ -455,7 +493,7 @@ extension TimelineDAO {
                 "isEnabled": isEnabled,
                 "now": Date().ISO8601Format(),
                 "epubBlockID": epubBlockID,
-                "audiobookID": audiobookID
+                "audiobookID": audiobookID,
             ]
         )
         return db.changesCount > 0

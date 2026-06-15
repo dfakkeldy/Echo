@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-11 23:28:11
+**Last generated:** 2026-06-13 22:20:36
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -16,6 +16,8 @@ out).
 ## EchoCore (iOS)
 
 ```
+CarPlay/CarPlayManager.swift
+CarPlay/CarPlayNotificationNames.swift
 CarPlay/CarPlaySceneDelegate.swift
 DailyPlanner/PlannedSession.swift
 DailyPlanner/RealTimeProjectionService.swift
@@ -28,8 +30,6 @@ Info.plist
 Localizable.xcstrings
 Models/AggregatedChapter.swift
 Models/Chapter.swift
-Models/ChapterSection.swift
-Models/ContentCard.swift
 Models/EchoPlaylistManifest.swift
 Models/FlashcardDeckImport.swift
 Models/LoopMode.swift
@@ -37,21 +37,23 @@ Models/M4BBook.swift
 Models/Note.swift
 Models/PlayerDeepLink.swift
 Models/ReaderCardItem.swift
-Models/RealTimeEvent.swift
+Models/RealTimeEventType.swift
 Models/SleepTimerMode.swift
 Models/SpeedSuggestion.swift
-Models/TimelineDisplayItem.swift
-Models/TimelineGroup.swift
-Models/TimelineScope.swift
 Models/Track.swift
 PrivacyInfo.xcprivacy
 Protocols/PlayerModelComponentProtocols.swift
 Protocols/SettingsManagerProtocol.swift
 Protocols/StoreManagerProtocol.swift
+Services/AlignmentChunkPlanner.swift
 Services/AlignmentService.swift
+Services/AlignmentTranscript.swift
+Services/AnchorSelector.swift
+Services/ApkgExportService.swift
+Services/ApkgImportService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
-Services/AudioRingBuffer.swift
+Services/AudioSegmentReader.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
@@ -69,17 +71,25 @@ Services/ContinuousAlignmentService.swift
 Services/CoverThemeBuilder.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
+Services/DefaultChimePlayer.swift
+Services/DefaultSoundscapeMixer.swift
+Services/DefaultVisualizerTap.swift
 Services/DominantColorExtractor.swift
 Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
-Services/EPUBHeuristicEngine.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
-Services/HeadingClassifier.swift
 Services/InlineFlashcardTriggerController.swift
+Services/LocationCaptureService.swift
 Services/M4BParser.swift
 Services/MockMediaProvider.swift
 Services/ModelRetainBox.swift
+Services/Narration/AudioFileWriting.swift
+Services/Narration/NarrationService.swift
+Services/Narration/NarrationState.swift
+Services/Narration/TextNormalizer.swift
+Services/Narration/TTSEngine.swift
+Services/Narration/VoiceCatalog.swift
 Services/NowPlayingController.swift
 Services/PDFImportCoordinator.swift
 Services/Persistence.swift
@@ -87,7 +97,6 @@ Services/PlaybackController.swift
 Services/PlaybackEventLogger.swift
 Services/PlaybackProgressPresenter.swift
 Services/PlaybackSessionRecorder.swift
-Services/PlaybackTimelineService.swift
 Services/PlayerLoadingCoordinator.swift
 Services/PlayerTimelinePersistenceService.swift
 Services/PlaylistManager.swift
@@ -99,11 +108,12 @@ Services/SilenceDetectionService.swift
 Services/SleepTimerManager.swift
 Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
+Services/StandaloneTranscriptionService.swift
 Services/StoreManager.swift
+Services/StudyNotesExportService.swift
 Services/TOCTreeBuilder.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
-Services/TimelineService.swift
 Services/TokenDTW.swift
 Services/TranscriptService.swift
 Services/WatchCommandRouter.swift
@@ -115,39 +125,28 @@ State/PlaybackState.swift
 Utilities/ColorMetrics.swift
 Utilities/FolderPicker.swift
 Utilities/OKLCH.swift
-Utilities/SilenceAnalyzer.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
 ViewModels/PlayerModel+Bookmarks.swift
+ViewModels/PlayerModel+MarkedPassages.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
 ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
-ViewModels/TimelineFeedViewModel.swift
 Views/AutoAlignmentProgressView.swift
 Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
 Views/BottomToolbarView.swift
 Views/CardColorPickerSheet.swift
-Views/Cells/AnkiCardCell.swift
-Views/Cells/BookCardCell.swift
-Views/Cells/BookmarkCell.swift
-Views/Cells/CellHelpers.swift
-Views/Cells/ChapterMarkerCell.swift
-Views/Cells/ElasticScrubberCell.swift
+Views/CardInboxView.swift
 Views/Cells/HeadingCardCell.swift
-Views/Cells/ImageAssetCell.swift
 Views/Cells/ImageCardCell.swift
-Views/Cells/NowLineCell.swift
 Views/Cells/ParagraphCardCell.swift
-Views/Cells/StickyReviewHeaderView.swift
-Views/Cells/TextSegmentCell.swift
-Views/Cells/TimelineCellDelegate.swift
 Views/ChapterPickerSheet.swift
-Views/ChapterTimeBlockView.swift
+Views/ChimeSettingsView.swift
 Views/Components/AdaptiveBackground.swift
 Views/Components/AlbumArtHeroView.swift
 Views/Components/BookProgressTrack.swift
@@ -159,14 +158,17 @@ Views/Components/InlineStepperRow.swift
 Views/Components/MarqueeText.swift
 Views/Components/PlayerControlBar.swift
 Views/Components/SleepTimerPill.swift
-Views/Components/TranscriptOverlayView.swift
-Views/Components/TranscriptRowView.swift
 Views/Components/UnifiedBottomDock.swift
 Views/Components/UnifiedTopHeader.swift
 Views/Components/WordCloudView.swift
-Views/ContentCardEditor.swift
 Views/DashboardShelf.swift
 Views/EPUBHeadingPickerSheet.swift
+Views/Fidget/BubblePopView.swift
+Views/Fidget/DoodlePadView.swift
+Views/Fidget/FidgetOverlayView.swift
+Views/Fidget/InfinityScrollView.swift
+Views/Fidget/KineticSandView.swift
+Views/Fidget/TactilePlaygroundView.swift
 Views/FlashcardReviewCard.swift
 Views/FlashcardReviewSession.swift
 Views/HelpContent.swift
@@ -174,14 +176,13 @@ Views/HelpView.swift
 Views/ListeningProgressModuleView.swift
 Views/ManualAlignmentSheet.swift
 Views/NoteEditorView.swift
-Views/NowLineView.swift
 Views/NowPlayingLayout.swift
 Views/NowPlayingTab.swift
+Views/OnboardingView.swift
 Views/PDFDocumentView.swift
 Views/PhonePlayerSettingsView.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
-Views/PlaylistTimelineView.swift
 Views/PlaylistView.swift
 Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
@@ -194,17 +195,25 @@ Views/ScrubberJoystick.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
 Views/SmartRewindSettingsView.swift
+Views/SoundscapePickerView.swift
 Views/SpeedCardView.swift
 Views/SpeedSuggestionBanner.swift
+Views/StandaloneTranscriptView.swift
+Views/Stats/BookStatsView.swift
+Views/Stats/DeckDetailView.swift
+Views/Stats/DeckListView.swift
+Views/Stats/StatCardView.swift
+Views/Stats/StatsView.swift
 Views/StatsModuleView.swift
-Views/TimelineContentCard.swift
-Views/TimelineContentView.swift
-Views/TimelineFeedCollectionView.swift
-Views/TimelineHeaderView.swift
+Views/StreakModuleView.swift
 Views/TimelineTab.swift
 Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
+Views/Visualizer/VisualizerPickerView.swift
+Views/Visualizer/VisualizerShaders.metal
+Views/Visualizer/VisualizerStyle.swift
+Views/Visualizer/VisualizerView.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
 ```
@@ -217,10 +226,17 @@ Echo_macOSApp.swift
 Info.plist
 PrivacyInfo.xcprivacy
 Services/AudioExtractor.swift
-Services/MacEPUBParser.swift
+Services/MacApkgExportService.swift
+Services/MacBulkAlignmentService.swift
 Services/MacGlobalAlignmentService.swift
+Views/MacAnkiExportView.swift
+Views/MacBulkAlignmentProgressView.swift
 Views/MacContentView.swift
+Views/MacNotesPane.swift
 Views/MacPlayerModel.swift
+Views/MacReaderFeedView.swift
+Views/MacTOCTreeView.swift
+Views/MacTriPaneView.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
 Views/TranscriptionManager.swift
@@ -251,9 +267,12 @@ Views/WatchReviewView.swift
 ```
 AnimationDurations.swift
 AppGroupDefaults.swift
+ArchiveExtractionLimits.swift
+ChimeSound.swift
 Database/AlignmentAnchorRecord.swift
 Database/BookmarkRecord.swift
 Database/ChapterRecord.swift
+Database/ClozeParser.swift
 Database/DAOs/AlignmentAnchorDAO.swift
 Database/DAOs/AudiobookDAO.swift
 Database/DAOs/BookmarkDAO.swift
@@ -264,24 +283,29 @@ Database/DAOs/FlashcardDAO.swift
 Database/DAOs/NoteDAO.swift
 Database/DAOs/PlannedSessionDAO.swift
 Database/DAOs/PlaybackEventDAO.swift
-Database/DAOs/PlaybackStateDAO.swift
 Database/DAOs/RealTimeEventDAO.swift
-Database/DAOs/SettingsDAO.swift
 Database/DAOs/TimelineDAO.swift
 Database/DAOs/TrackDAO.swift
 Database/DAOs/TranscriptionDAO.swift
 Database/DatabaseService.swift
+Database/Deck.swift
 Database/EPubBlockRecord.swift
 Database/EPubTOCEntryRecord.swift
+Database/FSRSScheduler.swift
 Database/Flashcard.swift
+Database/MarkedPassageRecord.swift
 Database/MigrationService.swift
 Database/Migrations/Schema_V11.swift
 Database/Migrations/Schema_V12.swift
 Database/Migrations/Schema_V13.swift
 Database/Migrations/Schema_V14.swift
+Database/Migrations/Schema_V15.swift
+Database/Migrations/Schema_V16.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
+Database/SM2Scheduler.swift
+Database/SchedulingAlgorithm.swift
 Database/Schema_V1.swift
 Database/Schema_V2.swift
 Database/Schema_V3.swift
@@ -295,9 +319,12 @@ Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
+EPUBBlockParser.swift
+EPUBHeuristicEngine.swift
 EPUBXMLParsing.swift
 EnhancedTranscriptionSegment.swift
 FileLocations.swift
+HeadingClassifier.swift
 ImageEncoding.swift
 KeychainStore.swift
 LayoutPreset.swift
@@ -307,7 +334,13 @@ Models/PDFViewState.swift
 NotificationNames.swift
 ReaderSettings.swift
 SafeFileName.swift
+Services/ChapterCardDrafter.swift
+SoundscapePreset.swift
+StandaloneTranscriptRecord.swift
 Stats/PlaybackSegmentBuilder.swift
+Stats/StatsAggregator.swift
+Stats/StatsModels.swift
+Stats/StatsRepository.swift
 String+Levenshtein.swift
 SyncMarker.swift
 TabSelection.swift
@@ -315,6 +348,7 @@ TextAlignmentUtilities.swift
 TimeFormatting.swift
 TranscriptionSegment.swift
 URL+SHA256.swift
+VisualizerFrame.swift
 WatchAction.swift
 WatchFlashcard.swift
 WatchMessageKey.swift
@@ -344,7 +378,7 @@ Views/Echo_WidgetControl.swift
 
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
-1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database. Parsing applies three correctness passes:
+1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database. The spine walk, heuristic block classification, and stable block-ID assignment (`epub-<audiobookID>-s<i>-b<j>`) live in the shared `parseEPUBBlocks` driver (`Shared/EPUBBlockParser.swift`), consumed by **both** this importer and the macOS aligner so a Mac-produced alignment anchor's block IDs match the iOS database (CODE_AUDIT.md §5.1). Parsing applies three correctness passes:
    - **Whitespace normalization:** XHTML text accumulates with collapsing whitespace (`collapsedWhitespace()` / entity-split-safe chunk joining in `XHTMLBlockDelegate`), so pretty-printed source line breaks never reach `epub_block.text`, and words split by XML entity references (`it&#8217;s`) stay intact. Structural element boundaries (`<br>`, table cells, divs — anything not an inline formatting tag) inject a collapsible space, so titles split across child elements (`<span>Chapter 1</span><br/><span>A Pragmatic Philosophy</span>`, `<td>Topic 3</td><td>Software Entropy</td>`) read as separate words while mid-word inline markup (`<em>un</em>do`) stays glued. NCX/nav TOC labels and document titles are normalized the same way.
    - **Front-matter classification:** the importer reads the EPUB's structural metadata — spine `linear="no"`, the EPUB 2 `<guide>` (`type="text"` = body start), and EPUB 3 nav landmarks (`epub:type="bodymatter"`) — to flag blocks before body matter as `is_front_matter` (Schema V12). Heading-less spines whose only available title is non-content per `HeadingClassifier` (cover, praise, printed TOC, …) are also flagged when no content heading has appeared yet. Front-matter spines never receive synthesized fallback headings, so cover/praise pages no longer become junk chapters. `HeadingClassifier` is the single source of truth for junk-heading rules shared by import, the reader feed, and the TOC sheet.
    - **TOC hierarchy (Schema V13):** `TOCParserDelegate` preserves the publisher's declared TOC tree — NCX `navPoint` nesting (EPUB 2) or nav `<ol>` nesting (EPUB 3) — as `TOCEntryNode` values instead of flattening to per-file labels. At import, `EPUBImportService.resolveTOCEntries` maps each entry to a concrete block (fragment anchor → first heading → first block; `XHTMLBlockDelegate` records element `id`s per block as `anchorIDs` for the fragment step) and persists the tree as `epub_toc_entry` rows. Fragment-resolved targets that aren't `<h1>`–`<h6>` (e.g. The Pragmatic Programmer's table-marked "Topic N" titles) are promoted to heading blocks when their text essentially matches the TOC label (normalized + Levenshtein ≥ 0.85 gate so body prose is never promoted). `TOCTreeBuilder.build(from:tocEntries:)` renders the TOC sheet from these entries (publisher titles + nesting) and falls back to heading inference only when a book declares no TOC; the reader breadcrumb (`ReaderFeedViewModel`) likewise derives ancestry from the entry path at the block's sequence position, appending deeper in-file headings, with the heading-level cascade as fallback.
@@ -395,12 +429,29 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 - `WhisperSession` — Reference-counted, shared WhisperKit model manager (`@MainActor`). Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active. Uses `acquire(model:)` / `release()` / `forceUnload()` lifecycle.
 - `AudioSnippetPlayer` — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup previously duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
 - `CloudKitSyncService` — Cross-device alignment anchor synchronization via CloudKit. Uses deterministic SHA-256 record names instead of `hashValue` for cross-device record matching. Uses `NSNumber`-based predicates to avoid floating-point precision loss.
-- `MacGlobalAlignmentService` — macOS-specific streaming alignment orchestrator with EPUB picker UI and match threshold slider. Shares `WhisperSession` with iOS services. Precomputes word arrays to avoid per-sliding-window allocations.
+- `MacGlobalAlignmentService` — macOS-specific streaming alignment orchestrator with EPUB picker UI and match threshold slider. Shares `WhisperSession` with iOS services. Precomputes word arrays to avoid per-sliding-window allocations. Parses EPUB blocks via the shared `parseEPUBBlocks` driver (not a Mac-specific parser), so its anchor block IDs match those the iOS importer writes (CODE_AUDIT.md §5.1).
 - `AlignmentAnchorRecord` — A user-created or auto-generated lock point tying an EPUB block to an audio time. Includes `anchorKind` (chapterStart/chapterEnd/correction) and `source` (manual/auto/imported).
 - `EPubBlockRecord` — Database row for a parsed EPUB block (heading, paragraph, or image). Includes `wordCount` (V8) for proportional math.
 - `TimelineItem` — Materialized row linking blocks to audio timestamps with `timestamp_source` and `alignment_status`
 - `TimestampSource` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.none`
 - `AlignmentStatus` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.unaligned`, `.omitted`
+
+### On-Device Narration — Synthesis Engine Core (June 2026)
+
+For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-device and produce the same sentence-synced, study-ready aligned book. This is **additive** — the WhisperKit alignment pipeline above is untouched and still runs whenever a real audiobook exists. The synthesis path is the *inverse* of alignment: because the audio is generated from the EPUB text, every timestamp is known at synthesis time, so the transcribe-and-DTW recovery step is unnecessary — anchors are written directly.
+
+> **Phased rollout.** This documents **Plan 1 — the engine core**: schema, seams, state, text normalization, and the per-chapter render orchestration, all unit-tested behind a mock engine. The real on-device model (Kokoro CoreML/ANE) + grapheme-to-phoneme (MisakiSwift, Apache-licensed, no GPL espeak-ng), the one-time model download, the read-first "Listen" UI + voice picker, render-ahead scheduling, and `.m4b`/per-chapter export land in later plans. **No audible output ships yet.** Design spec: `docs/superpowers/specs/2026-06-13-epub-ai-narration-design.md`.
+
+**Data model (reuses existing tables):** A standalone EPUB is an `AudiobookRecord` with `epub_block` rows and **no tracks** (the natural empty state). Generating narration renders **one AAC file per chapter**, inserted as a `TrackRecord` (`sort_order = chapterIndex`) carrying the voice in the new `narration_voice` column (**Schema V17**; non-null marks a synthesized track). Each text block gets one `AlignmentAnchorRecord` with the new **`source = .synthesized`** written at synthesis time — so read-along highlighting and the study layer work for free, and re-alignment never confuses generated anchors for recovered ones.
+
+**Key types (engine core):**
+
+- `TTSEngine` — the swappable `Sendable` protocol boundary: `synthesize(_ text:voice:) async throws -> TTSChunk`. Mocked in tests; the Kokoro actor implements it later. `TTSChunk` carries mono `[Float]` PCM (not a non-`Sendable` `AVAudioPCMBuffer`) so it crosses the actor→main boundary safely.
+- `AudioFileWriting` — `Sendable` protocol that concatenates `TTSChunk`s into one on-disk AAC file and returns total duration (AVFoundation implementation lands with the real engine).
+- `VoiceCatalog` / `NarrationVoice` — the curated voice set (4 voices keyed by `VoiceID`; default "Ava", US/warm).
+- `TextNormalizer` — pure, deterministic prose→speakable normalization (abbreviations, thousands separators, Roman-numeral chapters, em-dash pauses); the highest naturalness-ROI unit.
+- `NarrationState` — `@MainActor @Observable` progress object mirroring `AutoAlignmentState` (phases: `idle`, `preparingChapter`, `renderingAhead`, `completed`, `failed`).
+- `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:)` normalizes + synthesizes each text block, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
 
 ### EPUB Reader Feed (Current)
 
@@ -455,10 +506,11 @@ User anchors (manual)
 Code organization (June 2026):
   ├─ TokenDTW: new word-level DTW alignment engine replacing Tier 0 silence mapping
   │   └── Uses flat Int32/Int8 arrays for memory-efficient 3000×3000 token grid alignment
-  ├─ TimelineFeedCollectionView: 1,825 → 627 lines — 11 cell subclasses
-  │   extracted to Views/Cells/ (BookCardCell, TextSegmentCell, ChapterMarkerCell,
-  │   BookmarkCell, AnkiCardCell, ImageAssetCell, NowLineCell, ElasticScrubberCell,
-  │   StickyReviewHeaderView, TimelineCellDelegate, CellHelpers)
+  ├─ Timeline Feed prototype: REMOVED 2026-06-13 — TimelineFeedCollectionView /
+  │   TimelineFeedViewModel + its 10 orphaned cell subclasses, the ContentCard /
+  │   TimelineService / RealTimeEvent (struct) models, and TranscriptOverlayView were
+  │   dead (the Reader feed replaced them); ~3.9k LOC deleted. RealTimeEventType
+  │   survives in Models/RealTimeEventType.swift (used by PlaybackEventLogger).
   ├─ ReaderTab: 901 → 576 lines — alignment & context menu operations
   │   extracted to ReaderTab+Alignment.swift
   ├─ PlayerModel: 1,295 → 1,103 lines — Bookmarks API extracted to

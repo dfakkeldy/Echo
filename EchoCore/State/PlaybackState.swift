@@ -31,6 +31,9 @@ final class PlaybackState {
     // MARK: - Progress
 
     var progressFraction: Double = 0.0
+    /// Coarse 0–100 book-level progress, updated only when the integer changes
+    /// so dashboard cards observing it re-render ~1 Hz, not per playback tick (§7.3).
+    var bookProgressPercent: Int = 0
     var progressText: String = "--:--"
     var elapsedText: String = "--:--"
     /// Total duration of the current scope (chapter or book), un-negated.

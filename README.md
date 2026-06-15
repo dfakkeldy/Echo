@@ -94,13 +94,14 @@ The program runs as dependency-ordered workstreams (~14 weeks solo), each landin
 |---|---|---|
 | WS0 | **Listening capture layer** | The playback-event recorder — ships *first* so insights data accumulates from the next beta build onward |
 | WS1 | **Identity & macOS foundation** | The Echo rebrand completed through every identifier, and the Mac target on a solid footing |
-| WS2 | **CI** | GitHub Actions building all schemes + tests on every PR |
+| WS2 | **CI** | GitHub Actions compiles every scheme + the test target on each PR (the unit/integration suites run locally via `make test` while the CI runner's iOS simulator carries an Apple isolated-deinit runtime bug) |
 | WS3–4 | **Insights** | Stats backend (pure, tested aggregation) + the Insights screen with Swift Charts and live dashboard modules |
 | WS5 | **Context Memory** | Opt-in, reduced-accuracy place capture on sessions, bookmarks, and chapter starts — privacy-first, deletable |
 | WS6 | **Anki core** | Decks + tags schema, the mark-later Card Inbox, a full card editor, deck management; inline popups retire |
 | WS6b | **Brain Dump / Book Notes** | Untethered per-book notes, global voice-memo inbox, watch dictation |
 | WS7 | **Import/Export** | Real `.apkg` import (scheduling preserved), JSON deck export, Markdown second-brain bundle export |
 | WS8 | **iCloud study sync** | Flashcards, decks, bookmarks, playback position — private database, sensible conflict rules |
+| WS8b | **Audiobookshelf integration** | Connect a self-hosted Audiobookshelf server; pull books (audio + any bundled EPUB) into the local pipeline so alignment/flashcards/search keep working; browse & search the library by topic/genre/series; two-way playback-progress sync. *Streaming deferred post-1.0 — see [ROADMAP.md](ROADMAP.md) Phase 9.* Lands after the on-device narration (Kokoro) work, before WS9. |
 | WS9 | **Polish & release** | Onboarding (incl. a library-organization step), reader speed controls, alignment celebration, Mac stats/review panes, TestFlight beta → release |
 | WS10 | **Docs & site content** | Study-workflow guides, organization training, context-memory explainer — published as features ship |
 

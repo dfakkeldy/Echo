@@ -16,15 +16,21 @@ actor LocationCaptureService {
         }
     }
 
-    private let manager: CLLocationManager
-    private let geocoder = CLGeocoder()
-    private var cache: [String: Place] = [:]
-
-    init() {
-        manager = CLLocationManager()
+    /// The CoreLocation clients are built lazily on first `capture()` rather than
+    /// in `init`, so merely *owning* a LocationCaptureService (PlayerModel holds one
+    /// eagerly) touches no CoreLocation framework state. This is good privacy hygiene
+    /// and — critically — keeps `PlayerModel()` construction free of process-global
+    /// system singletons, which is what the unit-test suite exercises. (Constructing
+    /// CLLocationManager during PlayerModel init double-freed on the iOS 26.2 CI
+    /// simulator; see task_66ce9a55.)
+    private lazy var manager: CLLocationManager = {
+        let manager = CLLocationManager()
         manager.desiredAccuracy = kCLLocationAccuracyReduced
         manager.distanceFilter = kCLDistanceFilterNone
-    }
+        return manager
+    }()
+    private lazy var geocoder = CLGeocoder()
+    private var cache: [String: Place] = [:]
 
     /// Captures the current coarse location, reverse-geocoded to "Neighborhood, City".
     /// Fires once and returns nil on timeout, denial, or error.

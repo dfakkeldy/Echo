@@ -1,8 +1,8 @@
-import Foundation
 import AVFoundation
+import Foundation
 import GRDB
-import os.log
 @preconcurrency import WhisperKit
+import os.log
 
 /// Opt-in background service that periodically transcribes the audio around
 /// the playback position and inserts correction anchors when the transcript
@@ -56,7 +56,8 @@ final class ContinuousAlignmentService {
         guard !isRunning else { return }
         isRunning = true
 
-        timer = Timer.scheduledTimer(withTimeInterval: Config.interval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: Config.interval, repeats: true) {
+            [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
                 self.processCurrentWindow()
@@ -68,13 +69,21 @@ final class ContinuousAlignmentService {
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
         timer?.invalidate()
         timer = nil
+        let task = transcriptionTask
+        transcriptionTask = nil
+        whisperKit = nil  // sync: a restart re-acquires a fresh handle
+        task?.cancel()
 
-        WhisperSession.shared.release()
-        whisperKit = nil
+        // Wait for the in-flight transcription to unwind before releasing the
+        // shared model: the task acquires the model internally, so releasing
+        // before it finishes could out-release a still-resolving acquire and
+        // leak/over-release the ~40 MB model (CODE_AUDIT.md §3.5).
+        Task {
+            await task?.value
+            WhisperSession.shared.release()
+        }
         logger.info("Continuous alignment stopped")
     }
 
@@ -108,7 +117,8 @@ final class ContinuousAlignmentService {
                 )
                 guard words.count >= Config.minWordsForAnchor else { return }
 
-                await matchAndInsertAnchor(words: words, windowStart: windowStart, windowEnd: windowEnd)
+                await matchAndInsertAnchor(
+                    words: words, windowStart: windowStart, windowEnd: windowEnd)
             } catch {
                 logger.error("Transcription failed: \(error.localizedDescription)")
             }
@@ -120,9 +130,11 @@ final class ContinuousAlignmentService {
         self.whisperKit = try await WhisperSession.shared.acquire(model: Config.modelSize)
     }
 
-    private func matchAndInsertAnchor(words: [TranscribedWord],
-                                      windowStart: TimeInterval,
-                                      windowEnd: TimeInterval) async {
+    private func matchAndInsertAnchor(
+        words: [TranscribedWord],
+        windowStart: TimeInterval,
+        windowEnd: TimeInterval
+    ) async {
         guard let blocks = try? blockDAO.blocks(for: audiobookID) else { return }
         guard let timelineItems = try? timelineDAO.items(for: audiobookID) else { return }
 
@@ -149,13 +161,17 @@ final class ContinuousAlignmentService {
         let candidates = Array(blocks[startIdx..<endIdx])
 
         let text = words.map(\.text).joined(separator: " ")
-        guard let match = AutoAlignmentTextMatcher.findBestMatch(
-            transcribedText: text, candidates: candidates, matchThreshold: Config.matchThreshold
-        ) else { return }
+        guard
+            let match = AutoAlignmentTextMatcher.findBestMatch(
+                transcribedText: text, candidates: candidates, matchThreshold: Config.matchThreshold
+            )
+        else { return }
 
-        guard let projected = AlignmentTranscript.projectBlockStart(
-            words: words, matchedBlockWindowStart: match.bestWindowStart
-        ), projected >= windowStart - 90, projected <= windowEnd else {
+        guard
+            let projected = AlignmentTranscript.projectBlockStart(
+                words: words, matchedBlockWindowStart: match.bestWindowStart
+            ), projected >= windowStart - 90, projected <= windowEnd
+        else {
             logger.info("Continuous match for \(match.block.id) projected out of range — skipped")
             return
         }

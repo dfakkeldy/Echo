@@ -19,20 +19,26 @@ enum KeychainStore {
 
     @discardableResult
     static func set(_ data: Data, for key: Key, service: String = "com.echo.audiobooks") -> Bool {
-        let query: [String: Any] = [
+        let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key.rawValue,
             kSecAttrService as String: service,
-            kSecValueData as String: data,
-            // kSecAttrAccessibleAfterFirstUnlock allows background access
-            // (e.g., background audio playback) after the device has been
-            // unlocked once, without requiring the device to be unlocked
-            // at the exact moment of access.
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
-        SecItemDelete(query as CFDictionary)
-        let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            // ...ThisDeviceOnly: security-scoped bookmark data is specific to this
+            // device/installation and is meaningless (and a stale-data risk) if
+            // synced via iCloud Keychain or restored onto another device (§6.3).
+            // AfterFirstUnlock still allows background audio access once unlocked.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        // Update-or-add instead of delete-then-add: the old path could lose the
+        // data entirely if SecItemAdd failed after a successful delete (§6.3).
+        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+        guard updateStatus == errSecItemNotFound else { return false }
+        let addQuery = baseQuery.merging(attributes) { _, new in new }
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
     }
 
     /// Reads `Data` from the Keychain for the given key.

@@ -3,7 +3,7 @@ import Observation
 
 /// Centralized source of truth for user preference keys.
 @MainActor @Observable
-final class SettingsManager: SettingsManagerProtocol {
+final class SettingsManager {
     nonisolated static let systemFontName = "System"
     nonisolated private static let legacySystemFontName = "Helvetica"
 
