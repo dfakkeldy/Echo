@@ -119,8 +119,8 @@ struct MacReaderFeedView: View {
     private func loadTimelineCache(audiobookID: String) async throws
         -> [ReaderActiveBlockResolver.TimelineRow]
     {
-        let rows = try await dbService.writer.read { db in
-            try Row.fetchAll(
+        let rows: [Row] = try await dbService.writer.read { db in
+            return try Row.fetchAll(
                 db,
                 sql: """
                     SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id, eb.chapter_index
