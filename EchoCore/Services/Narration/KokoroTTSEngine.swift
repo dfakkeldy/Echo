@@ -3,21 +3,7 @@ import FluidAudio
 import Foundation
 
 actor KokoroTTSEngine: TTSEngine {
-    // Route ONLY the vocoder off the ANE. The palettized Kokoro vocoder has a
-    // large-stride palettized conv the ANE rejects ("Palette weight for Large
-    // stride convolution is not supported"); CoreML then silently falls back to
-    // CPU/BNNS, which traps with an uncatchable EXC_BREAKPOINT/SIGTRAP in
-    // BNNSGraphContextExecute_v2 for any input size. Moving the vocoder to
-    // .cpuAndGPU avoids both the ANE rejection and the BNNS trap. Every other
-    // stage stays on .default — critically the prosody RNN MUST stay on the ANE
-    // (the .cpuAndGpu preset routes it to the GPU, hitting the GPURNNOps
-    // MPSGraph JIT crash). GPU vocoder is slower/hotter on A14 but stops the
-    // crash; vocoder: .cpuOnly is the fallback if it proves too slow on-device.
-    private let manager: KokoroAneManager = {
-        var units = KokoroAneComputeUnits.default
-        units.vocoder = .cpuAndGPU
-        return KokoroAneManager(computeUnits: units)
-    }()
+    private let manager = KokoroAneManager()
     private var initializationTask: Task<Void, Error>?
 
     init() {}
