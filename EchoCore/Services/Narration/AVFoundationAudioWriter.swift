@@ -1,9 +1,16 @@
 import AVFoundation
 import Foundation
 
-/// Writes PCM samples into an M4A (AAC) file. The encode runs off the caller's
-/// actor (via a detached task) so a chapter's worth of AAC encoding never blocks
-/// the main thread.
+/// Writes PCM samples into an M4A (Apple Lossless / ALAC) file. The encode runs
+/// off the caller's actor (via a detached task) so a chapter's worth of encoding
+/// never blocks the main thread.
+///
+/// We use ALAC (lossless) rather than 64 kbps AAC: the lossy encoder introduced a
+/// constant high-pitched whine into the rendered narration cache. ALAC lives in
+/// the same MPEG-4 (.m4a) container, so the cache filename/extension is unchanged
+/// — no ripple into resume or read-along parsing. This is also the diagnostic: if
+/// the whine survives a lossless round-trip, it lives in the raw Kokoro vocoder
+/// output, not the encoder.
 struct AVFoundationAudioWriter: AudioFileWriting {
 
     func write(_ chunks: [TTSChunk], to url: URL) async throws -> TimeInterval {
@@ -17,10 +24,10 @@ struct AVFoundationAudioWriter: AudioFileWriting {
         let sampleRate = chunks.first!.sampleRate
 
         let outputFormatSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVFormatIDKey: kAudioFormatAppleLossless,
             AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 64000,
+            AVEncoderAudioQualityKey: AVAudioQuality.max.rawValue,
         ]
 
         let audioFile = try AVAudioFile(
