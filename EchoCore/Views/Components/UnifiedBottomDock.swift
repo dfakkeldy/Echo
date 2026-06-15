@@ -36,7 +36,16 @@ struct UnifiedBottomDock: View {
             // Divider separating controls from utility bar
             if showsControls {
                 Divider()
-                    .background(Color(uiColor: .separator).opacity(0.25))
+                    .background(
+                        // Platform-agnostic separator color
+                        #if canImport(UIKit)
+                        Color(uiColor: .separator).opacity(0.25)
+                        #elseif canImport(AppKit)
+                        Color(nsColor: .separatorColor).opacity(0.25)
+                        #else
+                        Color.primary.opacity(0.15)
+                        #endif
+                    )
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
             }
