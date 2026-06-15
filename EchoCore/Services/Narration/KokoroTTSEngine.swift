@@ -1,8 +1,10 @@
 import CoreML
 import FluidAudio
 import Foundation
+import os.log
 
 actor KokoroTTSEngine: TTSEngine {
+    private let logger = Logger(category: "Kokoro")
     private let manager = KokoroAneManager()
     private var initializationTask: Task<Void, Error>?
 
@@ -31,9 +33,13 @@ actor KokoroTTSEngine: TTSEngine {
         let inferenceTime = result.timings.totalMs / 1000.0
         let duration = result.durationSeconds
 
-        print(
-            "[Kokoro] Synthesized \(text.count) chars in \(String(format: "%.2f", inferenceTime))s. Audio Duration: \(String(format: "%.2f", duration))s. RTF: \(String(format: "%.2f", duration / inferenceTime))x"
-        )
+        // Guard the RTF divide — `inferenceTime` can be 0 for a trivially short
+        // clip, which would log "inf" (§2.1). Route through the logger (debug
+        // level, gated out of release) instead of an unconditional `print`.
+        let rtf = inferenceTime > 0 ? String(format: "%.2f", duration / inferenceTime) : "n/a"
+        let summary =
+            "Synthesized \(text.count) chars in \(String(format: "%.2f", inferenceTime))s. Audio Duration: \(String(format: "%.2f", duration))s. RTF: \(rtf)x"
+        logger.debug("\(summary, privacy: .public)")
 
         return TTSChunk(samples: samples, sampleRate: Double(result.sampleRate), duration: duration)
     }

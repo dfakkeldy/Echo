@@ -18,6 +18,10 @@ enum NarrationError: Error, Equatable {
 @MainActor @Observable
 final class NarrationService {
     private let logger = Logger(category: "Narration")
+    /// Shared, reused across renders — allocating an `ISO8601DateFormatter` per
+    /// `renderChapter` call is wasteful (§7.2). `@MainActor`-isolated via the
+    /// class, so there's no Sendable concern around the non-Sendable formatter.
+    private static let iso8601 = ISO8601DateFormatter()
     private let db: DatabaseWriter
     private let audiobookID: String
     let tts: TTSEngine
@@ -47,7 +51,7 @@ final class NarrationService {
         let spoken = blocks.filter { ($0.text?.isEmpty == false) }
         var anchors: [AlignmentAnchorRecord] = []
         var cursor: TimeInterval = 0
-        let now = ISO8601DateFormatter().string(from: Date())
+        let now = Self.iso8601.string(from: Date())
 
         // Stream-to-sink: open the chapter's audio file up front and encode each
         // synthesized sub-chunk straight to disk, so peak memory is one sub-chunk's

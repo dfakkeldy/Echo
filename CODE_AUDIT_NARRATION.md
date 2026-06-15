@@ -232,10 +232,10 @@ External references to the old §-numbers resolve here. The old detailed audit i
 | §6.1 | model download zip-slip | **MOOT** | now §6.2 (third-party) |
 | §6.2 | synthesized anchors → public CloudKit | **STILL-OPEN** | now §6.1 |
 | §7.1 | whole-chapter PCM buffered | **RESOLVED** | stream-to-sink — `AudioFileStream`/`ALACFileStream` (2026-06-15) |
-| §7.2 | ISO8601 per call | **STILL-OPEN** | now §7.2 |
+| §7.2 | ISO8601 per call | **RESOLVED** | shared `static let iso8601` on `NarrationService` (2026-06-15) |
 | §8.1 | entire narration UI dead | **RESOLVED** | mounted — `NowPlayingTab.swift:39-45,93-97` |
 | §8.3 | Stats-tab dead-end | **RESOLVED** | "Done" button — `RootTabView.swift:80-86` (`f89db91`) |
-| §9.2 | `NarrationRenderPlanner` dead | **STILL-OPEN** | now §9.2 |
+| §9.2 | `NarrationRenderPlanner` dead | **RESOLVED** | deleted — superseded by `NarrationRenderPolicy` (2026-06-15) |
 | §9.3 | ModelDownloader + loadModel dead | **MOOT** | deleted |
 | §9.4 | `BookDetailViewModel` hard-constructs engines | **MOOT** | `BookDetailViewModel` deleted (single pipeline route) |
 | — | read-along write-side gap (live `timeline_item`) | **RESOLVED** | `renderChapter` recalcs `anchoredOnly:true` + posts `.timelineItemsIngested` — `NarrationService.swift:121-149` |
