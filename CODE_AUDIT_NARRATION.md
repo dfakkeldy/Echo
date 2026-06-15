@@ -21,7 +21,7 @@
 7. **[Medium] Synthesized TTS anchors are not excluded from the public CloudKit upload** — `uploadAnchors` fetches all anchors with no source filter; an audio-less narrated book would push pure `.synthesized` (device-specific) anchors to the community payload — §6.1 — `CloudKitSyncService.swift:82-89`.
 8. **[Medium] `.m4b` export still writes no chapter atoms** — `AudioMarkerStub` copies the file only; per-chapter export works, m4b authoring does not — §5.4 — `AudioMarkerStub.swift:10-19`.
 9. **[Medium] Everything except the lossless-audio fix is device-UNVERIFIED** — code-complete + unit-tested but blocked from end-to-end device testing by §3.1; treat read-along-follows-chapter, EPUB-file import, and resume as unproven on device — §11.
-10. **[Medium] Perf unknowns for the A14 target** — a whole chapter's PCM is buffered in memory before writing (§7.1), and there is still no real on-device RTF/thermal measurement to size the streaming cushion (§7.3).
+10. **[Medium] Perf unknowns for the A14 target** — whole-chapter PCM buffering is now ✅ fixed via stream-to-sink (§7.1); the remaining unknown is real on-device RTF/thermal measurement to size the streaming cushion (§7.3).
 
 **Severity distribution:** 1 Critical (the blocker), 2 High, ~12 Medium, ~10 Low. The Critical is upstream/hardware; the two Highs are app-side and fixable.
 
@@ -118,11 +118,11 @@ _No findings._ No deprecated or about-to-be-removed APIs in the current narratio
 
 ## 7. Performance
 
-### 7.1 A whole chapter's PCM is buffered in memory before writing
-- **Location:** `NarrationService.swift:47-101` (collect all `chunks`, then one `audioWriter.write`).
-- **What:** Every sub-chunk's `[Float]` samples for a chapter are retained until the chapter finishes, then written once — unbounded PCM retention for a long chapter on a 4 GB A14.
-- **Action:** Stream each chunk to the `AudioFileWriting` sink as produced. (Interacts with the model-swap: the fixed-shape buckets cap utterance length, bounding per-call memory.)
-- **Severity: Medium** (matters specifically for the 4 GB A14 target — MLX Kokoro is reported to OOM on 30 s clips there).
+### 7.1 A whole chapter's PCM is buffered in memory before writing — ✅ RESOLVED (2026-06-15, stream-to-sink)
+- **Location (was):** `NarrationService.swift` (collect all `chunks`, then one `audioWriter.write`).
+- **What:** Every sub-chunk's `[Float]` samples for a chapter were retained until the chapter finished, then written once — unbounded PCM retention for a long chapter on a 4 GB A14.
+- **Fix:** `AudioFileWriting` gained an incremental `makeStream(to:sampleRate:) -> AudioFileStream` session; `renderChapter` now opens the sink up front and `append`s each synthesized sub-chunk straight to disk, so peak memory is one ~200-char sub-chunk's PCM (~hundreds of KB) instead of a whole chapter's (tens of MB). The session is an `actor` (`ALACFileStream`) confining the non-`Sendable` `AVAudioFile`; ALAC losslessness preserved. Tests: `StreamingAudioWriterTests` (5) + unchanged `NarrationServiceTests`/`AVFoundationAudioWriterTests`. This is the half of the jetsam mitigation that does **not** need the model swap; the model-swap (§3.1) handles the ~300 MB resident-models half.
+- **Severity (was): Medium** (mattered specifically for the 4 GB A14 target).
 
 ### 7.2 `ISO8601DateFormatter` allocated per `renderChapter` call
 - **Location:** `NarrationService.swift:51`.
@@ -231,7 +231,7 @@ External references to the old §-numbers resolve here. The old detailed audit i
 | §5.11 | files in `temporaryDirectory` | **RESOLVED** | Application Support, backup-excluded — `PlayerModel+Narration.swift:153-164` |
 | §6.1 | model download zip-slip | **MOOT** | now §6.2 (third-party) |
 | §6.2 | synthesized anchors → public CloudKit | **STILL-OPEN** | now §6.1 |
-| §7.1 | whole-chapter PCM buffered | **STILL-OPEN** | now §7.1 |
+| §7.1 | whole-chapter PCM buffered | **RESOLVED** | stream-to-sink — `AudioFileStream`/`ALACFileStream` (2026-06-15) |
 | §7.2 | ISO8601 per call | **STILL-OPEN** | now §7.2 |
 | §8.1 | entire narration UI dead | **RESOLVED** | mounted — `NowPlayingTab.swift:39-45,93-97` |
 | §8.3 | Stats-tab dead-end | **RESOLVED** | "Done" button — `RootTabView.swift:80-86` (`f89db91`) |

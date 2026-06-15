@@ -45,10 +45,19 @@ final class NarrationService {
             statusMessage: "Preparing chapter \(chapterIndex + 1)…")
 
         let spoken = blocks.filter { ($0.text?.isEmpty == false) }
-        var chunks: [TTSChunk] = []
         var anchors: [AlignmentAnchorRecord] = []
         var cursor: TimeInterval = 0
         let now = ISO8601DateFormatter().string(from: Date())
+
+        // Stream-to-sink: open the chapter's audio file up front and encode each
+        // synthesized sub-chunk straight to disk, so peak memory is one sub-chunk's
+        // PCM (~hundreds of KB) instead of the whole chapter's accumulated samples
+        // (tens of MB) — the difference that keeps long narration sessions under
+        // the A14 4 GB jetsam ceiling. Kokoro is fixed at 24 kHz.
+        let fileURL = cacheDirectory.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
+        let stream = try audioWriter.makeStream(to: fileURL, sampleRate: 24_000)
 
         for (i, block) in spoken.enumerated() {
             try Task.checkCancellation()
@@ -65,7 +74,7 @@ final class NarrationService {
                 try Task.checkCancellation()
                 do {
                     let chunk = try await tts.synthesize(subText, voice: voice)
-                    chunks.append(chunk)
+                    try await stream.append(chunk)
                     blockDuration += chunk.duration
                 } catch is CancellationError {
                     throw CancellationError()
@@ -95,10 +104,7 @@ final class NarrationService {
         }
 
         try Task.checkCancellation()
-        let fileURL = cacheDirectory.appendingPathComponent(
-            NarrationFileNaming.chapterFileName(
-                audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
-        let duration = try await audioWriter.write(chunks, to: fileURL)
+        let duration = try await stream.finalize()
 
         try Task.checkCancellation()  // last gate before any DB write
 
