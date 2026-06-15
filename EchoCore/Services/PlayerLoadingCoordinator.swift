@@ -121,8 +121,16 @@ final class PlayerLoadingCoordinator {
         playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabledProvider?() ?? false)
 
         // Persist to SQL after tracks are loaded so the DB has accurate track data.
+        // Use the NORMALIZED folderURL (always a directory — see above), not the raw
+        // picked `url`. For a single picked file (EPUB or m4b) `url` is the FILE while
+        // EPUB blocks, anchors, bookmarks, progress, and timeline items are all keyed
+        // off `state.folderURL` (the parent). Keying the audiobook row off `url` left
+        // it as the lone outlier, so a block INSERT (epub_block.audiobook_id has a
+        // NOT NULL cascade FK to audiobook(id)) found no parent row and the FK
+        // rejected the whole import — narration then fell back to a 3-sentence sample.
         timelinePersistence.persistAudiobookToSQL(
-            folderURL: url, tracks: state.tracks, duration: state.durationSeconds)
+            folderURL: state.folderURL ?? url, tracks: state.tracks, duration: state.durationSeconds
+        )
 
         // Ingest chapter metadata (M4B aggregation or multi-track chapter parsing).
         ingestChapterMetadata(
