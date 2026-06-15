@@ -38,9 +38,11 @@ struct OnboardingView: View {
             Text("Your Audiobook Study Player")
                 .font(.title)
                 .fontWeight(.bold)
-            Text("Listen, reflect, and remember — with tools designed for deep focus and distraction-free study.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+            Text(
+                "Listen, reflect, and remember — with tools designed for deep focus and distraction-free study."
+            )
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
         }
         .padding(40)
     }
@@ -54,9 +56,11 @@ struct OnboardingView: View {
             Text("Capture as You Listen")
                 .font(.title2)
                 .fontWeight(.bold)
-            Text("Bookmark moments, record voice memos, and save photos — all without stopping playback.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+            Text(
+                "Bookmark moments, record voice memos, and save photos — all without stopping playback."
+            )
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
         }
         .padding(40)
     }
@@ -70,9 +74,11 @@ struct OnboardingView: View {
             Text("Study with Spaced Repetition")
                 .font(.title2)
                 .fontWeight(.bold)
-            Text("Create flashcards from your bookmarks and review them daily. Import Anki decks to practice on the go.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+            Text(
+                "Create flashcards from your bookmarks and review them daily. Import Anki decks to practice on the go."
+            )
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
         }
         .padding(40)
     }
@@ -86,18 +92,12 @@ struct OnboardingView: View {
             Text("Private by Design")
                 .font(.title2)
                 .fontWeight(.bold)
-            Text("Everything stays on your device. No accounts, no tracking, no analytics. Your study data is yours alone.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+            Text(
+                "Everything stays on your device. No accounts, no tracking, no analytics. Your study data is yours alone."
+            )
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
         }
         .padding(40)
-    }
-}
-
-extension View {
-    func onboardingSheet() -> some View {
-        self.sheet(isPresented: .constant(!UserDefaults.standard.bool(forKey: "hasSeenOnboarding"))) {
-            OnboardingView()
-        }
     }
 }
