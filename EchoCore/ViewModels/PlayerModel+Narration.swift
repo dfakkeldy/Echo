@@ -24,6 +24,10 @@ extension PlayerModel {
         state.narrationRenderInFlight = true
         state.awaitingNarrationChapter = false
 
+        // Stop playback before evicting stale-voice files so the AVPlayer isn't
+        // holding a reference to a file we're about to delete (§5.1).
+        playbackController.stop()
+
         // Show the book + a preparing status on Now Playing / lock screen while
         // the first chapter renders, instead of the audio-less placeholder.
         if let title = folderURL?.deletingPathExtension().lastPathComponent {

@@ -84,7 +84,9 @@ final class CloudKitSyncService {
     {
         // Fetch anchors
         let anchors = try await db.read { db in
-            try AlignmentAnchorRecord.filter(Column("audiobook_id") == audiobookID)
+            try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("source") != "synthesized")
                 .fetchAll(db)
         }
 

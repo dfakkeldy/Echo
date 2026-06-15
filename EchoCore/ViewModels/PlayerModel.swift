@@ -1152,6 +1152,12 @@ final class PlayerModel {
     }
 
     func play() {
+        // For narration-only books (EPUB with no audio tracks), pressing Play
+        // should start narration instead of no-op'ing (§8.1).
+        if state.tracks.isEmpty, hasEPUB, !narrationPlaybackState.isRunning {
+            startNarrationPlayback()
+            return
+        }
         playbackController.play()
     }
 
