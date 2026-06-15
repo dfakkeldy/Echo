@@ -473,8 +473,9 @@ final class PlayerLoadingCoordinator {
         onResetBookmarkCheckSecond?()
         flashcardTriggerController.resetForNewTrack()
 
-        // Load transcript for the new track
-        transcriptService.loadTranscript(for: state.tracks[state.currentIndex].url)
+        // Load transcript for the new track (async but fire-and-forget — data arrives
+        // asynchronously in PlaybackState; the caller is not async).
+        Task { await transcriptService.loadTranscript(for: state.tracks[state.currentIndex].url) }
         if let audiobookID = state.folderURL?.absoluteString {
             timelinePersistence?.persistTranscriptToSQL(
                 audiobookID: audiobookID, transcription: state.transcription)
