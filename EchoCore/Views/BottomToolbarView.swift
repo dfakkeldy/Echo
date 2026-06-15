@@ -4,7 +4,7 @@ struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
-    var onShowFidget: (() -> Void)?
+    // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     var body: some View {
         HStack {
@@ -15,8 +15,6 @@ struct BottomToolbarView: View {
             markPassageButton
             Spacer()
             timelineButton
-            Spacer()
-            fidgetButton
             Spacer()
             addBookmarkButton
         }
@@ -44,12 +42,20 @@ struct BottomToolbarView: View {
 
     /// Audit B2: active state is carried by a filled chip (shape), not color
     /// alone. 44pt target either way.
-    private func utilityChip<Content: View>(isActive: Bool, @ViewBuilder content: () -> Content) -> some View {
+    private func utilityChip<Content: View>(isActive: Bool, @ViewBuilder content: () -> Content)
+        -> some View
+    {
         content()
             .frame(width: 44, height: 44)
-            .background(isActive ? AnyShapeStyle(model.coverTheme.chip) : AnyShapeStyle(.clear), in: Circle())
+            .background(
+                isActive ? AnyShapeStyle(model.coverTheme.chip) : AnyShapeStyle(.clear),
+                in: Circle()
+            )
             .contentShape(Rectangle())
-            .foregroundStyle(isActive ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor) : AnyShapeStyle(.secondary))
+            .foregroundStyle(
+                isActive
+                    ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
+                    : AnyShapeStyle(.secondary))
     }
 
     private func utilityTextChip(isActive: Bool, _ text: String) -> some View {
@@ -57,9 +63,15 @@ struct BottomToolbarView: View {
             .customFont(.headline)
             .padding(.horizontal, 12)
             .frame(minWidth: 44, minHeight: 44)
-            .background(isActive ? AnyShapeStyle(model.coverTheme.chip) : AnyShapeStyle(.clear), in: Capsule())
+            .background(
+                isActive ? AnyShapeStyle(model.coverTheme.chip) : AnyShapeStyle(.clear),
+                in: Capsule()
+            )
             .contentShape(Rectangle())
-            .foregroundStyle(isActive ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor) : AnyShapeStyle(.secondary))
+            .foregroundStyle(
+                isActive
+                    ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
+                    : AnyShapeStyle(.secondary))
     }
 
     // MARK: - Loop Mode
@@ -90,13 +102,15 @@ struct BottomToolbarView: View {
             }
         }
         .accessibilityLabel(Text("Loop mode"))
-        .accessibilityValue(Text({
-            switch model.loopMode {
-            case .off: return String(localized: "Off")
-            case .chapter: return String(localized: "Chapter")
-            case .bookmark: return String(localized: "Bookmark")
-            }
-        }()))
+        .accessibilityValue(
+            Text(
+                {
+                    switch model.loopMode {
+                    case .off: return String(localized: "Off")
+                    case .chapter: return String(localized: "Chapter")
+                    case .bookmark: return String(localized: "Bookmark")
+                    }
+                }()))
     }
 
     // MARK: - Speed
@@ -104,15 +118,14 @@ struct BottomToolbarView: View {
     private var speedLabel: String {
         switch model.speed {
         case 0.75: return String(localized: "0.75×")
-        case 1.0:  return String(localized: "1.0×")
+        case 1.0: return String(localized: "1.0×")
         case 1.25: return String(localized: "1.25×")
-        case 1.5:  return String(localized: "1.5×")
+        case 1.5: return String(localized: "1.5×")
         case 1.75: return String(localized: "1.75×")
-        case 2.0:  return String(localized: "2.0×")
-        default:   return model.speed.formatted(.number.precision(.fractionLength(1))) + "×"
+        case 2.0: return String(localized: "2.0×")
+        default: return model.speed.formatted(.number.precision(.fractionLength(1))) + "×"
         }
     }
-
 
     private var speedButton: some View {
         Button {
@@ -129,10 +142,13 @@ struct BottomToolbarView: View {
         .accessibilityLabel(Text("Playback speed"))
         .accessibilityValue(Text(speedLabel))
         .onChange(of: model.speed) { _, newSpeed in
-            UIAccessibility.post(notification: .announcement, argument: String(localized: "Speed \(newSpeed.formatted(.number.precision(.fractionLength(1))))×"))
+            UIAccessibility.post(
+                notification: .announcement,
+                argument: String(
+                    localized: "Speed \(newSpeed.formatted(.number.precision(.fractionLength(1))))×"
+                ))
         }
     }
-
 
     // MARK: - Timeline / View Toggle
 
@@ -145,8 +161,6 @@ struct BottomToolbarView: View {
                 case .timeline:
                     model.selectedTab = .read
                 case .read:
-                    model.selectedTab = .stats
-                case .stats:
                     model.selectedTab = .timeline
                 }
             }
@@ -158,26 +172,16 @@ struct BottomToolbarView: View {
             }
         }
         .accessibilityLabel(Text("Toggle chapters list"))
-        .accessibilityValue(Text(model.selectedTab == .nowPlaying
-            ? String(localized: "Player")
-            : model.selectedTab == .timeline ? String(localized: "Timeline") : String(localized: "Reader")))
-        .accessibilityAddTraits((model.selectedTab == .timeline || model.selectedTab == .read) ? .isSelected : [])
-        .disabled(model.tracks.isEmpty)
-    }
-
-    // MARK: - Fidget
-
-    private var fidgetButton: some View {
-        Button {
-            onShowFidget?()
-            Haptic.play(.light)
-        } label: {
-            utilityChip(isActive: false) {
-                Image(systemName: "circle.hexagongrid.fill")
-                    .font(.title2)
-            }
-        }
-        .accessibilityLabel(Text("Fidget tools"))
+        .accessibilityValue(
+            Text(
+                model.selectedTab == .nowPlaying
+                    ? String(localized: "Player")
+                    : model.selectedTab == .timeline
+                        ? String(localized: "Timeline") : String(localized: "Reader"))
+        )
+        .accessibilityAddTraits(
+            (model.selectedTab == .timeline || model.selectedTab == .read) ? .isSelected : []
+        )
         .disabled(model.tracks.isEmpty)
     }
 

@@ -4,6 +4,10 @@ import GRDB
 nonisolated struct FlashcardDAO {
     let db: DatabaseWriter
 
+    func count() throws -> Int {
+        try db.read { try Flashcard.fetchCount($0) }
+    }
+
     func flashcards(for audiobookID: String) throws -> [Flashcard] {
         try db.read { db in
             try Flashcard

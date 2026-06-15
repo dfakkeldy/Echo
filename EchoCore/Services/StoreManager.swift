@@ -4,16 +4,22 @@ import StoreKit
 
 @MainActor
 @Observable
-final class StoreManager {
-    static let proUnlockProductID = "com.echo.pro.unlock"
+final class StoreManager: ProEntitlementProviding {
+    static let proUnlockProductID = ProductIDs.lifetime
 
     private(set) var products: [Product] = []
     private(set) var proUnlockProduct: Product?
-    private(set) var hasUnlockedPro = false
+    private(set) var isPro = false
     private(set) var lastStoreError: String?
 
+    @ObservationIgnored private var lifetimeOwned = false
+    @ObservationIgnored private var foundersOwned = false
+    @ObservationIgnored private var subscriptionActive = false
     @ObservationIgnored private var transactionUpdatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+
+    /// Back-compat alias so existing views still compile until they move to `isPro`.
+    var hasUnlockedPro: Bool { isPro }
 
     init() {
         transactionUpdatesTask = Task { [weak self] in
@@ -31,9 +37,9 @@ final class StoreManager {
 
     func requestProducts() async {
         do {
-            let requestedProducts = try await Product.products(for: [Self.proUnlockProductID])
+            let requestedProducts = try await Product.products(for: ProductIDs.all)
             products = requestedProducts
-            proUnlockProduct = requestedProducts.first { $0.id == Self.proUnlockProductID }
+            proUnlockProduct = requestedProducts.first { $0.id == ProductIDs.lifetime }
             lastStoreError = nil
         } catch {
             products = []
@@ -42,6 +48,23 @@ final class StoreManager {
         }
 
         await refreshPurchasedProducts()
+    }
+
+    /// Generic purchase for any product (subscription, non-consumable, etc.).
+    @discardableResult
+    func purchase(_ product: Product) async throws -> Bool {
+        let result = try await product.purchase()
+        switch result {
+        case .success(let verification):
+            let txn = try checkVerified(verification)
+            await updateProUnlockState(from: txn)
+            await txn.finish()
+            return true
+        case .userCancelled, .pending:
+            return false
+        @unknown default:
+            return false
+        }
     }
 
     func purchaseProUnlock() async throws {
@@ -78,6 +101,16 @@ final class StoreManager {
         lastStoreError = error.localizedDescription
     }
 
+    /// True when the user can still get the 7-day free trial on the subscription group.
+    func isEligibleForFreeTrial() async -> Bool {
+        guard
+            let sub = products.first(where: { $0.id == ProductIDs.yearly })?.subscription
+        else { return false }
+        return await sub.isEligibleForIntroOffer
+    }
+
+    // MARK: - Private
+
     private func listenForTransactionUpdates() async {
         for await result in Transaction.updates {
             do {
@@ -91,24 +124,40 @@ final class StoreManager {
     }
 
     private func refreshPurchasedProducts() async {
-        var isUnlocked = false
-
+        var lifetime = false
+        var founders = false
         for await result in Transaction.currentEntitlements {
-            guard let transaction = try? checkVerified(result),
-                  transaction.productID == Self.proUnlockProductID,
-                  transaction.revocationDate == nil
+            guard let txn = try? checkVerified(result), txn.revocationDate == nil
             else { continue }
-
-            isUnlocked = true
-            break
+            if txn.productID == ProductIDs.lifetime { lifetime = true }
+            if txn.productID == ProductIDs.founders { founders = true }
         }
+        lifetimeOwned = lifetime
+        foundersOwned = founders
+        subscriptionActive = await isSubscriptionActive()
+        recomputeIsPro()
+    }
 
-        hasUnlockedPro = isUnlocked
+    private func isSubscriptionActive() async -> Bool {
+        guard
+            let statuses = try? await Product.SubscriptionInfo.status(
+                for: ProductIDs.subscriptionGroupID)
+        else { return false }
+        // Active if ANY status in the group is an access-granting state with a verified transaction.
+        return statuses.contains { status in
+            (try? checkVerified(status.transaction)) != nil
+                && ProEntitlement.isActive(status.state)
+        }
+    }
+
+    private func recomputeIsPro() {
+        isPro = ProEntitlement.isPro(
+            lifetimeOwned: lifetimeOwned, foundersOwned: foundersOwned,
+            subscriptionActive: subscriptionActive)
     }
 
     private func updateProUnlockState(from transaction: Transaction) async {
-        guard transaction.productID == Self.proUnlockProductID else { return }
-        hasUnlockedPro = transaction.revocationDate == nil
+        await refreshPurchasedProducts()
     }
 
     private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {

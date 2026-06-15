@@ -3,12 +3,14 @@ import SwiftUI
 struct UnifiedTopHeader: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
-    
+
     let onFolderTap: () -> Void
     let onSettingsTap: () -> Void
     let onBookSettingsTap: () -> Void
     let onHelpTap: () -> Void
-    
+    let onStatsTap: () -> Void
+    let onFidgetTap: () -> Void
+
     var body: some View {
         VStack(spacing: 0) {
             // Row 1: Global Navigation Frame (Folder, Remaining Time, Menu)
@@ -25,7 +27,7 @@ struct UnifiedTopHeader: View {
                 }
                 .foregroundStyle(Color.accentColor)
                 .accessibilityLabel(Text("Open folder"))
-                
+
                 Spacer()
 
                 // Center: the single timer home (audit B1). Book-remaining time
@@ -33,11 +35,16 @@ struct UnifiedTopHeader: View {
                 SleepTimerPill()
 
                 Spacer()
-                
+
                 // Right: ellipsis menu button
                 Menu {
-                    // Audit E1: one settings destination — book overrides live
-                    // at the top of Settings (and via the player's eyebrow).
+                    Button(action: onStatsTap) {
+                        Label("Stats", systemImage: "chart.bar.fill")
+                    }
+                    Button(action: onFidgetTap) {
+                        Label("Fidget", systemImage: "circle.hexagongrid.fill")
+                    }
+                    .disabled(model.tracks.isEmpty)
                     Button(action: onSettingsTap) {
                         Label("Settings", systemImage: "gearshape")
                     }
@@ -60,13 +67,16 @@ struct UnifiedTopHeader: View {
             // Align the buttons with each tab's content: 32pt on Now Playing so
             // they sit flush with the artwork edge (not "past the edge"), 16pt
             // elsewhere to match the Timeline/Reader secondary rows.
-            .padding(.horizontal, model.selectedTab == .nowPlaying ? NowPlayingLayout.horizontalPadding : 16)
+            .padding(
+                .horizontal,
+                model.selectedTab == .nowPlaying ? NowPlayingLayout.horizontalPadding : 16
+            )
             .padding(.top, 8)
             .padding(.bottom, 8)
         }
         .background(headerBackground)
     }
-    
+
     @ViewBuilder
     private var headerBackground: some View {
         if model.selectedTab == .nowPlaying {
@@ -87,6 +97,5 @@ struct UnifiedTopHeader: View {
             ? AnyShapeStyle(model.coverTheme.chip)
             : AnyShapeStyle(.ultraThinMaterial)
     }
-    
-}
 
+}

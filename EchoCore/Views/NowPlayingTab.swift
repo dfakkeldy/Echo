@@ -7,7 +7,7 @@ struct NowPlayingTab: View {
     let showBookSettings: () -> Void
     let showSettings: () -> Void
     let onCreateBookmark: (BookmarkDraft) -> Void
-    let onShowFidget: (() -> Void)?
+    // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
@@ -58,7 +58,7 @@ struct NowPlayingTab: View {
                 // E. Unified Bottom Dock
                 if !model.isPlayingVoiceMemo {
                     UnifiedBottomDock(
-                        onCreateBookmark: onCreateBookmark, onShowFidget: onShowFidget)
+                        onCreateBookmark: onCreateBookmark)
                 }
             }
             .ignoresSafeArea(.keyboard)

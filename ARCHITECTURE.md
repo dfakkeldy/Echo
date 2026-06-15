@@ -77,10 +77,8 @@ Services/DefaultVisualizerTap.swift
 Services/DominantColorExtractor.swift
 Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
-Services/EPUBHeuristicEngine.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
-Services/HeadingClassifier.swift
 Services/InlineFlashcardTriggerController.swift
 Services/LocationCaptureService.swift
 Services/M4BParser.swift
@@ -230,7 +228,6 @@ PrivacyInfo.xcprivacy
 Services/AudioExtractor.swift
 Services/MacApkgExportService.swift
 Services/MacBulkAlignmentService.swift
-Services/MacEPUBParser.swift
 Services/MacGlobalAlignmentService.swift
 Views/MacAnkiExportView.swift
 Views/MacBulkAlignmentProgressView.swift
@@ -322,9 +319,12 @@ Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
+EPUBBlockParser.swift
+EPUBHeuristicEngine.swift
 EPUBXMLParsing.swift
 EnhancedTranscriptionSegment.swift
 FileLocations.swift
+HeadingClassifier.swift
 ImageEncoding.swift
 KeychainStore.swift
 LayoutPreset.swift
@@ -378,7 +378,7 @@ Views/Echo_WidgetControl.swift
 
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
-1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database. Parsing applies three correctness passes:
+1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database. The spine walk, heuristic block classification, and stable block-ID assignment (`epub-<audiobookID>-s<i>-b<j>`) live in the shared `parseEPUBBlocks` driver (`Shared/EPUBBlockParser.swift`), consumed by **both** this importer and the macOS aligner so a Mac-produced alignment anchor's block IDs match the iOS database (CODE_AUDIT.md §5.1). Parsing applies three correctness passes:
    - **Whitespace normalization:** XHTML text accumulates with collapsing whitespace (`collapsedWhitespace()` / entity-split-safe chunk joining in `XHTMLBlockDelegate`), so pretty-printed source line breaks never reach `epub_block.text`, and words split by XML entity references (`it&#8217;s`) stay intact. Structural element boundaries (`<br>`, table cells, divs — anything not an inline formatting tag) inject a collapsible space, so titles split across child elements (`<span>Chapter 1</span><br/><span>A Pragmatic Philosophy</span>`, `<td>Topic 3</td><td>Software Entropy</td>`) read as separate words while mid-word inline markup (`<em>un</em>do`) stays glued. NCX/nav TOC labels and document titles are normalized the same way.
    - **Front-matter classification:** the importer reads the EPUB's structural metadata — spine `linear="no"`, the EPUB 2 `<guide>` (`type="text"` = body start), and EPUB 3 nav landmarks (`epub:type="bodymatter"`) — to flag blocks before body matter as `is_front_matter` (Schema V12). Heading-less spines whose only available title is non-content per `HeadingClassifier` (cover, praise, printed TOC, …) are also flagged when no content heading has appeared yet. Front-matter spines never receive synthesized fallback headings, so cover/praise pages no longer become junk chapters. `HeadingClassifier` is the single source of truth for junk-heading rules shared by import, the reader feed, and the TOC sheet.
    - **TOC hierarchy (Schema V13):** `TOCParserDelegate` preserves the publisher's declared TOC tree — NCX `navPoint` nesting (EPUB 2) or nav `<ol>` nesting (EPUB 3) — as `TOCEntryNode` values instead of flattening to per-file labels. At import, `EPUBImportService.resolveTOCEntries` maps each entry to a concrete block (fragment anchor → first heading → first block; `XHTMLBlockDelegate` records element `id`s per block as `anchorIDs` for the fragment step) and persists the tree as `epub_toc_entry` rows. Fragment-resolved targets that aren't `<h1>`–`<h6>` (e.g. The Pragmatic Programmer's table-marked "Topic N" titles) are promoted to heading blocks when their text essentially matches the TOC label (normalized + Levenshtein ≥ 0.85 gate so body prose is never promoted). `TOCTreeBuilder.build(from:tocEntries:)` renders the TOC sheet from these entries (publisher titles + nesting) and falls back to heading inference only when a book declares no TOC; the reader breadcrumb (`ReaderFeedViewModel`) likewise derives ancestry from the entry path at the block's sequence position, appending deeper in-file headings, with the heading-level cascade as fallback.
@@ -429,7 +429,7 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 - `WhisperSession` — Reference-counted, shared WhisperKit model manager (`@MainActor`). Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active. Uses `acquire(model:)` / `release()` / `forceUnload()` lifecycle.
 - `AudioSnippetPlayer` — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup previously duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
 - `CloudKitSyncService` — Cross-device alignment anchor synchronization via CloudKit. Uses deterministic SHA-256 record names instead of `hashValue` for cross-device record matching. Uses `NSNumber`-based predicates to avoid floating-point precision loss.
-- `MacGlobalAlignmentService` — macOS-specific streaming alignment orchestrator with EPUB picker UI and match threshold slider. Shares `WhisperSession` with iOS services. Precomputes word arrays to avoid per-sliding-window allocations.
+- `MacGlobalAlignmentService` — macOS-specific streaming alignment orchestrator with EPUB picker UI and match threshold slider. Shares `WhisperSession` with iOS services. Precomputes word arrays to avoid per-sliding-window allocations. Parses EPUB blocks via the shared `parseEPUBBlocks` driver (not a Mac-specific parser), so its anchor block IDs match those the iOS importer writes (CODE_AUDIT.md §5.1).
 - `AlignmentAnchorRecord` — A user-created or auto-generated lock point tying an EPUB block to an audio time. Includes `anchorKind` (chapterStart/chapterEnd/correction) and `source` (manual/auto/imported).
 - `EPubBlockRecord` — Database row for a parsed EPUB block (heading, paragraph, or image). Includes `wordCount` (V8) for proportional math.
 - `TimelineItem` — Materialized row linking blocks to audio timestamps with `timestamp_source` and `alignment_status`
