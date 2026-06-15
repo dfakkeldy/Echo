@@ -25,6 +25,10 @@ struct RootTabView: View {
     @State private var readPath = NavigationPath()
     @State private var timelinePath = NavigationPath()
 
+    @SceneStorage("nowPlayingPathData") private var nowPlayingPathData: Data?
+    @SceneStorage("readPathData") private var readPathData: Data?
+    @SceneStorage("timelinePathData") private var timelinePathData: Data?
+
     init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
         _pendingDeepLink = pendingDeepLink
     }
@@ -182,12 +186,51 @@ struct RootTabView: View {
             model.setDisplayScale(displayScale)
             model.restoreLastSelectionIfPossible()
             applyPendingDeepLinkIfNeeded()
+
+            // Restore navigation paths from SceneStorage
+            if let data = nowPlayingPathData,
+                let representation = try? JSONDecoder().decode(
+                    NavigationPath.CodableRepresentation.self, from: data
+                )
+            {
+                nowPlayingPath = NavigationPath(representation)
+            }
+            if let data = readPathData,
+                let representation = try? JSONDecoder().decode(
+                    NavigationPath.CodableRepresentation.self, from: data
+                )
+            {
+                readPath = NavigationPath(representation)
+            }
+            if let data = timelinePathData,
+                let representation = try? JSONDecoder().decode(
+                    NavigationPath.CodableRepresentation.self, from: data
+                )
+            {
+                timelinePath = NavigationPath(representation)
+            }
         }
         .onChange(of: pendingDeepLink) { _, _ in
             applyPendingDeepLinkIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background || newPhase == .inactive {
+                // Persist navigation paths
+                if let codable = nowPlayingPath.codable,
+                    let data = try? JSONEncoder().encode(codable)
+                {
+                    nowPlayingPathData = data
+                }
+                if let codable = readPath.codable,
+                    let data = try? JSONEncoder().encode(codable)
+                {
+                    readPathData = data
+                }
+                if let codable = timelinePath.codable,
+                    let data = try? JSONEncoder().encode(codable)
+                {
+                    timelinePathData = data
+                }
                 model.persistCurrentState()
             }
         }
