@@ -106,18 +106,22 @@ enum ReaderActiveBlockResolver {
     ///
     /// The caller is responsible for resolving `playingChapterIndex` from whatever
     /// device-specific source it has (e.g. iOS parses the narration track filename).
-    /// Here we only encode the policy:
+    /// Here we only encode the policy (evaluated in this order):
     ///
-    /// - Single track (`trackCount <= 1`): `nil` → no scoping. One continuous axis,
-    ///   so the legacy whole-book search is correct and this is a strict no-op.
-    /// - Multi-M4B: `nil` → no scoping. One .m4b aggregates many chapters whose
-    ///   per-book index does not reliably map onto the EPUB global `chapter_index`;
-    ///   scoping would risk mis-highlighting, so fall back to the whole-book axis.
     /// - `playingChapterIndex` provided (narration): scope to **that chapter**, even
     ///   when it differs from `currentIndex` (resume front-truncates the plan, or a
-    ///   dropped image-only chapter leaves a gap → queue position ≠ chapter index).
-    /// - `playingChapterIndex == nil` (MP3 folder): track position equals the EPUB
-    ///   chapter index 1:1, so fall back to `{currentIndex}`.
+    ///   dropped image-only chapter leaves a gap → queue position ≠ chapter index)
+    ///   and even when only a SINGLE track is queued (forward-only resume injects
+    ///   `tracks == [oneTrack]`, so `trackCount == 1` but the track is still
+    ///   chapter N — a whole-book fallback would mis-highlight).
+    /// - Single track (`trackCount <= 1`) with no known chapter: `nil` → no scoping.
+    ///   One continuous axis, so the legacy whole-book search is correct (no-op).
+    /// - Multi-M4B (always `playingChapterIndex == nil`): `nil` → no scoping. One
+    ///   .m4b aggregates many chapters whose per-book index does not reliably map
+    ///   onto the EPUB global `chapter_index`; scoping would risk mis-highlighting,
+    ///   so fall back to the whole-book axis.
+    /// - `playingChapterIndex == nil` (MP3 folder), multi-track: track position
+    ///   equals the EPUB chapter index 1:1, so fall back to `{currentIndex}`.
     ///
     /// - Parameters:
     ///   - trackCount: Number of tracks in the playback queue.
@@ -132,8 +136,17 @@ enum ReaderActiveBlockResolver {
         currentIndex: Int,
         playingChapterIndex: Int?
     ) -> Set<Int>? {
-        guard trackCount > 1, !isMultiM4B else { return nil }
+        // A known playing chapter (narration parsed the `ch{N}` filename) scopes
+        // to that chapter BEFORE the `trackCount > 1` guard: forward-only resume
+        // injects a SINGLE track (`tracks == [oneTrack]`, trackCount == 1) that is
+        // still chapter N, not the whole book. Returning nil here would fall back
+        // to a whole-book search and mis-highlight. Multi-M4B never reaches this
+        // (it always passes `playingChapterIndex == nil`).
         if let chapter = playingChapterIndex { return [chapter] }
+        // No known playing chapter. Single track / multi-M4B → no scoping
+        // (whole-book legacy axis); MP3 folder (trackCount > 1) → {currentIndex},
+        // since track position equals the EPUB chapter index 1:1.
+        guard trackCount > 1, !isMultiM4B else { return nil }
         return [currentIndex]
     }
 }

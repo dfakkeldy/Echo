@@ -171,21 +171,34 @@ struct ReaderActiveBlockTrackScopingTests {
                 trackCount: 5, isMultiM4B: false, currentIndex: 2, playingChapterIndex: nil) == [2])
     }
 
-    /// Single track → no scoping (whole-book legacy axis), regardless of the other
-    /// inputs.
-    @Test func trackChapterScopeSingleTrackIsNil() {
+    /// Single track with NO known playing chapter → no scoping (whole-book legacy
+    /// axis). `playingChapterIndex` is `nil` here precisely because there is no
+    /// narration filename to parse, so a single continuous axis is correct.
+    @Test func trackChapterScopeSingleTrackUnknownChapterIsNil() {
         #expect(
             ReaderActiveBlockResolver.trackChapterScope(
-                trackCount: 1, isMultiM4B: false, currentIndex: 0, playingChapterIndex: 0) == nil)
+                trackCount: 1, isMultiM4B: false, currentIndex: 0, playingChapterIndex: nil) == nil)
+    }
+
+    /// Forward-only narration resume injects a SINGLE track that is still its real
+    /// chapter (parsed from the `ch{N}` filename). Even though `trackCount == 1`,
+    /// the scope MUST follow the playing chapter (4) — the prior whole-book
+    /// fallback caused the reader to highlight front matter instead of chapter 4.
+    @Test func trackChapterScopeSingleResumedTrackFollowsPlayingChapter() {
+        #expect(
+            ReaderActiveBlockResolver.trackChapterScope(
+                trackCount: 1, isMultiM4B: false, currentIndex: 0, playingChapterIndex: 4) == [4])
     }
 
     /// Multi-M4B → no scoping: an .m4b aggregates many chapters whose per-book index
     /// does not reliably map onto the EPUB global `chapter_index`, so fall back to
-    /// the whole-book axis rather than risk mis-scoping.
+    /// the whole-book axis rather than risk mis-scoping. Multi-M4B always passes
+    /// `playingChapterIndex == nil` (there is no narration filename to parse), so
+    /// that is the canonical input here.
     @Test func trackChapterScopeMultiM4BIsNil() {
         #expect(
             ReaderActiveBlockResolver.trackChapterScope(
-                trackCount: 6, isMultiM4B: true, currentIndex: 2, playingChapterIndex: 4) == nil)
+                trackCount: 6, isMultiM4B: true, currentIndex: 2, playingChapterIndex: nil) == nil)
     }
 
     /// A multi-m4b style scope holding a *range* of chapter indices considers all

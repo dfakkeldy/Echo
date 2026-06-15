@@ -126,7 +126,13 @@ final class NarrationService {
         // failure must not fail the render — the chapter audio is already on
         // disk and the anchors persisted; log and continue.
         do {
-            try AlignmentService(db: db, audiobookID: audiobookID).recalculateTimeline()
+            // `anchoredOnly`: only the rendered chapter(s) are anchored, so the
+            // global synthetic-boundary + interpolation pass must be skipped —
+            // otherwise un-narrated front matter gets a near-zero interpolated
+            // `audio_start_time`, passes the reader's `>= 0` filter, and the
+            // reader highlights front matter instead of the narrated chapter.
+            try AlignmentService(db: db, audiobookID: audiobookID)
+                .recalculateTimeline(anchoredOnly: true)
         } catch {
             logger.error(
                 "Timeline recalc after chapter \(chapterIndex) failed: \(error.localizedDescription)"
