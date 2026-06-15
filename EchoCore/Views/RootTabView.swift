@@ -181,6 +181,9 @@ struct RootTabView: View {
                     }
             }
         }
+        .sheet(isPresented: $model.showPaywall) {
+            PaywallView(context: model.paywallContext)
+        }
         .onAppear {
             model.setSettingsManager(settings)
             model.setDisplayScale(displayScale)

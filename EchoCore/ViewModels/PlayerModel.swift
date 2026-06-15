@@ -70,6 +70,11 @@ final class PlayerModel {
     /// Presentation state of the Help/Focus guide sheet.
     var showingHelp: Bool = false
 
+    /// Presentation state of the Paywall sheet.
+    var showPaywall: Bool = false
+    /// Context describing what Pro feature was denied, shown as subheadline.
+    var paywallContext: PaywallContext = .flashcardCap
+
     // MARK: - Shared Top Header / Reader / Playlist state
     var epubSearchText: String = ""
     var showReaderSettings: Bool = false

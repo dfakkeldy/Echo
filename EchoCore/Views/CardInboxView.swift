@@ -5,6 +5,7 @@ import os.log
 
 struct CardInboxView: View {
     @Environment(PlayerModel.self) private var model
+    @Environment(FreeTierGate.self) private var freeTierGate
     @Environment(\.dismiss) private var dismiss
     @State private var passages: [MarkedPassage] = []
     private let logger = Logger(category: "CardInboxView")
@@ -108,6 +109,15 @@ struct CardInboxView: View {
     }
 
     private func convertToFlashcard(_ passage: MarkedPassage) {
+        if freeTierGate.canCreateFlashcards(adding: 1) {
+            insertFlashcard(passage)
+        } else {
+            model.paywallContext = .flashcardCap
+            model.showPaywall = true
+        }
+    }
+
+    private func insertFlashcard(_ passage: MarkedPassage) {
         guard let db = model.databaseService else { return }
         let cardID = UUID().uuidString
         let frontText =
