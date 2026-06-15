@@ -10,10 +10,13 @@ struct TranscriptService {
     /// The plain transcript is expected at `<audio>.transcript.json` in the same directory.
     /// The enhanced transcript (Whisper + EPUB alignment) is expected at `<audio>.enhanced.json`.
     ///
-    /// File I/O is dispatched off the main actor to avoid blocking the UI during
-    /// track loading, especially for large transcript JSON files (several MB for
-    /// full audiobooks).  State updates are applied back on the main actor.
-    func loadTranscript(for url: URL) {
+    /// File I/O is dispatched off the main actor via `Task.detached` to avoid blocking
+    /// the UI during track loading, especially for large transcript JSON files (several
+    /// MB for full audiobooks). Only file I/O runs in the detached task (returning pure
+    /// `Data`); decoding and state mutations stay on the `@MainActor` — this avoids
+    /// capturing a `@MainActor` type in a detached closure, which would be a formal
+    /// Sendable violation under Swift 6 strict concurrency.
+    func loadTranscript(for url: URL) async {
         guard state.isTranscriptProcessingEnabled else { return }
 
         // 1. Load plain transcript sidecar
@@ -21,15 +24,22 @@ struct TranscriptService {
         let plainURL = url.deletingLastPathComponent().appendingPathComponent(plainFileName)
 
         if FileManager.default.fileExists(atPath: plainURL.path) {
-            Task.detached { [state] in
+            let plainData = await Task.detached {
+                try? Data(contentsOf: plainURL)
+            }.value
+
+            if let data = plainData {
                 do {
-                    let data = try Data(contentsOf: plainURL)
                     let segments = try JSONDecoder().decode([TranscriptionSegment].self, from: data)
-                    await MainActor.run { state.transcription = segments }
+                    state.transcription = segments
                 } catch {
-                    os_log(.error, "Failed to load plain transcript: %{private}@", error.localizedDescription)
-                    await MainActor.run { state.transcription = [] }
+                    os_log(
+                        .error, "Failed to decode plain transcript: %{private}@",
+                        error.localizedDescription)
+                    state.transcription = []
                 }
+            } else {
+                state.transcription = []
             }
         } else {
             state.transcription = []
@@ -40,15 +50,23 @@ struct TranscriptService {
         let enhancedURL = url.deletingLastPathComponent().appendingPathComponent(enhancedFileName)
 
         if FileManager.default.fileExists(atPath: enhancedURL.path) {
-            Task.detached { [state] in
+            let enhancedData = await Task.detached {
+                try? Data(contentsOf: enhancedURL)
+            }.value
+
+            if let data = enhancedData {
                 do {
-                    let data = try Data(contentsOf: enhancedURL)
-                    let segments = try JSONDecoder().decode([EnhancedTranscriptionSegment].self, from: data)
-                    await MainActor.run { state.enhancedTranscription = segments }
+                    let segments = try JSONDecoder().decode(
+                        [EnhancedTranscriptionSegment].self, from: data)
+                    state.enhancedTranscription = segments
                 } catch {
-                    os_log(.error, "Failed to load enhanced transcript: %{private}@", error.localizedDescription)
-                    await MainActor.run { state.enhancedTranscription = [] }
+                    os_log(
+                        .error, "Failed to decode enhanced transcript: %{private}@",
+                        error.localizedDescription)
+                    state.enhancedTranscription = []
                 }
+            } else {
+                state.enhancedTranscription = []
             }
         } else {
             state.enhancedTranscription = []
@@ -76,7 +94,9 @@ struct TranscriptService {
             let data = try Data(contentsOf: enhancedURL)
             return try JSONDecoder().decode([EnhancedTranscriptionSegment].self, from: data)
         } catch {
-            os_log(.error, "Failed to load enhanced transcript: %{private}@", error.localizedDescription)
+            os_log(
+                .error, "Failed to load enhanced transcript: %{private}@",
+                error.localizedDescription)
             return nil
         }
     }

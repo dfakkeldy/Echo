@@ -1,1 +1,1 @@
-anki,flashcards,adhd,dyslexia,epub,m4b,audhd,loop,bookmark,memory,learn,listen,reader,drm-free,pdf
+audiobookshelf,m4b,mp3,epub,pdf,anki,srs,spaced,repetition,offline,loop,ebook,carplay,tts,m4a,reader

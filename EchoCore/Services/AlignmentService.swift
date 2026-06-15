@@ -175,7 +175,19 @@ struct AlignmentService {
     ///    the book may have been loaded before its EPUB import finished, or the
     ///    blocks re-imported under new IDs. Without this, the UPDATE-only write
     ///    would silently discard the computed alignment.
-    func recalculateTimeline() throws {
+    ///
+    /// - Parameter anchoredOnly: When `true`, the global synthetic-boundary
+    ///   projection (a fabricated `t≈0` anchor at the document's first block) and
+    ///   all un-anchored interpolation/bracketing are skipped: only blocks that
+    ///   carry a real `alignment_anchor` get a timestamp; every other block stays
+    ///   `audio_start_time = -1` (the sentinel the reader already excludes via its
+    ///   `audio_start_time >= 0` filter). This is for *synthesized narration*,
+    ///   where only the rendered chapter(s) are anchored and the global pass would
+    ///   otherwise interpolate near-zero timestamps onto un-narrated front matter,
+    ///   making the reader highlight front matter instead of the narrated chapter.
+    ///   The default (`false`) preserves the original behavior byte-for-byte for
+    ///   manual alignment, `AutoAlignmentService.insertAnchors`, and hide/unhide.
+    func recalculateTimeline(anchoredOnly: Bool = false) throws {
         let blocks = try blockDAO.blocks(for: audiobookID)
         let anchors = try anchorDAO.anchors(for: audiobookID)
 
@@ -250,7 +262,13 @@ struct AlignmentService {
                 }
             }
 
-            if let first = sortedAllBlocks.first, syntheticAnchorTimes[first.id] == nil {
+            // Synthetic boundary anchors (first/last block) + un-anchored
+            // interpolation are skipped for synthesized narration (`anchoredOnly`)
+            // so un-narrated blocks keep `audio_start_time = -1` instead of being
+            // pinned to a near-zero projected time. See `recalculateTimeline`'s doc.
+            if !anchoredOnly, let first = sortedAllBlocks.first,
+                syntheticAnchorTimes[first.id] == nil
+            {
                 anchoredBlocks.insert(first, at: 0)
                 if let firstAnchored = sortedAllBlocks.first(where: {
                     anchorTimeByBlockID[$0.id] != nil
@@ -264,7 +282,8 @@ struct AlignmentService {
                     syntheticAnchorTimes[first.id] = 0.0
                 }
             }
-            if let last = sortedAllBlocks.last, syntheticAnchorTimes[last.id] == nil {
+            if !anchoredOnly, let last = sortedAllBlocks.last, syntheticAnchorTimes[last.id] == nil
+            {
                 if let lastAnchored = sortedAllBlocks.last(where: {
                     anchorTimeByBlockID[$0.id] != nil
                 }) {
@@ -318,7 +337,7 @@ struct AlignmentService {
                     audioStart = lockedTime
                     timestampSrc = TimestampSource.interpolated.rawValue
                     alignStatus = AlignmentStatus.interpolated.rawValue
-                } else if anchoredBlocks.count >= 2,
+                } else if !anchoredOnly, anchoredBlocks.count >= 2,
                     let (prev, next) = findBracketingAnchors(
                         block: block,
                         anchoredBlocks: anchoredBlocks,

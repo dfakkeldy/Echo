@@ -1,5 +1,5 @@
-import Foundation
 import AVFoundation
+import Foundation
 
 // MARK: - Bookmarks API
 
@@ -21,13 +21,16 @@ extension PlayerModel {
             artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
             return
         }
-        bookmarkStore.bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted { $0.timestamp < $1.timestamp }
+        bookmarkStore.bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted {
+            $0.timestamp < $1.timestamp
+        }
         artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
     }
 
     /// Bookmarks scoped to the currently playing track, sorted by timestamp.
     var currentTrackBookmarks: [Bookmark] {
-        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
+        let trackId =
+            state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         return bookmarkStore.trackBookmarks(for: trackId)
     }
 
@@ -39,10 +42,13 @@ extension PlayerModel {
         guard audioEngine.isItemLoaded else { return nil }
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
-        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
-        let bookmark = bookmarkStore.addBookmark(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
-        logRealTimeEvent(type: .bookmarkCreated, title: bookmark.title, timestamp: t,
-                         sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
+        let trackId =
+            state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
+        let bookmark = bookmarkStore.addBookmark(
+            at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+        logRealTimeEvent(
+            type: .bookmarkCreated, title: bookmark.title, timestamp: t,
+            sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
         captureLocationForBookmark(bookmark.id)
         return bookmark
     }
@@ -54,10 +60,14 @@ extension PlayerModel {
         guard audioEngine.isItemLoaded else { return nil }
         let t = audioEngine.currentTime
         guard t.isFinite else { return nil }
-        let trackId = state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
-        let draft = bookmarkStore.bookmarkDraft(at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+        let trackId =
+            state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
+        let draft = bookmarkStore.bookmarkDraft(
+            at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
         if let pdfState = currentPDFViewState {
-            return BookmarkDraft(id: draft.id, title: draft.title, folderKey: draft.folderKey, trackId: draft.trackId, timestamp: draft.timestamp, pdfViewState: pdfState)
+            return BookmarkDraft(
+                id: draft.id, title: draft.title, folderKey: draft.folderKey,
+                trackId: draft.trackId, timestamp: draft.timestamp, pdfViewState: pdfState)
         }
         return draft
     }
@@ -76,8 +86,9 @@ extension PlayerModel {
             from: draft, title: title, timestamp: timestamp, note: note,
             voiceMemoFileName: voiceMemoFileName, bookmarkImageFileName: bookmarkImageFileName
         )
-        logRealTimeEvent(type: .bookmarkCreated, title: title, timestamp: timestamp,
-                         sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
+        logRealTimeEvent(
+            type: .bookmarkCreated, title: title, timestamp: timestamp,
+            sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
         captureLocationForBookmark(bookmark.id)
         return bookmark
     }
@@ -85,7 +96,9 @@ extension PlayerModel {
     /// Fire-and-forget location capture for a bookmark that was just created.
     /// Never blocks the user action — location arrives asynchronously and updates the bookmark in-place.
     private func captureLocationForBookmark(_ bookmarkID: UUID) {
-        guard databaseService != nil, settingsManager?.locationCaptureEnabled ?? false else { return }
+        guard databaseService != nil, settingsManager?.locationCaptureEnabled ?? false else {
+            return
+        }
         let capture = locationCapture
         let store = bookmarkStore
         Task {
@@ -175,10 +188,12 @@ extension PlayerModel {
         // Only the currently-loaded book has live security scope, so sidecar
         // I/O is restricted to that case; other books fall back to UserDefaults.
         let targetFolderURL: URL? = isCurrentBook ? folderURL : nil
-        var targetBookmarks = isCurrentBook
+        var targetBookmarks =
+            isCurrentBook
             ? bookmarkStore.bookmarks
             : persistence.loadBookmarks(for: storageKey, folderURL: targetFolderURL)
-        let scopedCount = targetBookmarks.filter { $0.trackId == nil || $0.trackId == trackId }.count
+        let scopedCount = targetBookmarks.filter { $0.trackId == nil || $0.trackId == trackId }
+            .count
 
         let bookmark = Bookmark(
             title: String(localized: "Bookmark \(scopedCount + 1)"),

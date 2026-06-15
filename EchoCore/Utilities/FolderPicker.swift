@@ -1,19 +1,23 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
+import UniformTypeIdentifiers
 
 struct FolderPicker: UIViewControllerRepresentable {
     let onPickFolder: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let m4bType = UTType(filenameExtension: "m4b") ?? .audio
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder, m4bType, .audio], asCopy: false)
+        let epubType = UTType(filenameExtension: "epub")
+        let types: [UTType] = [.folder, m4bType, .audio] + [epubType].compactMap { $0 }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker
     }
 
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(
+        _ uiViewController: UIDocumentPickerViewController, context: Context
+    ) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onPickFolder: onPickFolder)
@@ -26,7 +30,9 @@ struct FolderPicker: UIViewControllerRepresentable {
             self.onPickFolder = onPickFolder
         }
 
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        func documentPicker(
+            _ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]
+        ) {
             guard let url = urls.first else { return }
             onPickFolder(url)
         }

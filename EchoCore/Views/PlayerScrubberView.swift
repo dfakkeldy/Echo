@@ -29,7 +29,7 @@ struct PlayerScrubberView: View {
                     Spacer()
                     trailingTimeButton
                 }
-                .padding(.horizontal, 4) // slight inset so text aligns with the slider thumb visually
+                .padding(.horizontal, 4)  // slight inset so text aligns with the slider thumb visually
 
                 // Audit B5: hairline book track + caption — the "where am I in
                 // the whole book" answer, on the same axis as the scrubber.
@@ -45,11 +45,13 @@ struct PlayerScrubberView: View {
                     .padding(.top, 9)
                     .padding(.horizontal, 4)
 
-                    Text(BookProgressTrackModel.caption(
-                        bookFraction: bookFraction,
-                        chapterTitle: currentLogicalChapter?.title,
-                        chapterCount: model.chapters.count
-                    ))
+                    Text(
+                        BookProgressTrackModel.caption(
+                            bookFraction: bookFraction,
+                            chapterTitle: currentLogicalChapter?.title,
+                            chapterCount: model.chapters.count
+                        )
+                    )
                     .customFont(.caption2, appFont: model.resolvedAppFont)
                     .foregroundStyle(.tertiary)
                     .padding(.top, 5)
@@ -64,7 +66,8 @@ struct PlayerScrubberView: View {
             showsRemaining.toggle()
             Haptic.play(.light)
         } label: {
-            timeLabel(showsRemaining ? model.progressText : model.durationText, alignment: .trailing)
+            timeLabel(
+                showsRemaining ? model.progressText : model.durationText, alignment: .trailing)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(showsRemaining ? "Time remaining" : "Duration"))
@@ -78,15 +81,7 @@ struct PlayerScrubberView: View {
     private var bookFraction: Double {
         let total = bookTotalDuration
         guard total > 0 else { return 0 }
-        let elapsed: Double
-        if model.isMultiM4B {
-            let bookOffset = model.m4bBooks.indices.contains(model.currentIndex)
-                ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
-            elapsed = bookOffset + model.currentPlaybackTime
-        } else {
-            elapsed = model.currentPlaybackTime
-        }
-        return min(1, max(0, elapsed / total))
+        return min(1, max(0, model.cumulativePlaybackTime / total))
     }
 
     private var scrubber: some View {
@@ -112,7 +107,9 @@ struct PlayerScrubberView: View {
                 return
             }
 
-            guard !model.currentChapterSections.isEmpty, let chapter = currentLogicalChapter else { return }
+            guard !model.currentChapterSections.isEmpty, let chapter = currentLogicalChapter else {
+                return
+            }
             let chapterStart = chapter.startSeconds
             let chapterDuration = chapter.endSeconds - chapter.startSeconds
             guard chapterDuration > 0 else { return }
@@ -150,7 +147,8 @@ struct PlayerScrubberView: View {
         // thumb — the Slider's own hit-testing takes priority.
         .overlay(alignment: .center) {
             if !model.currentChapterSections.isEmpty,
-               let chapter = currentLogicalChapter {
+                let chapter = currentLogicalChapter
+            {
                 SectionTickOverlay(
                     sections: model.currentChapterSections,
                     chapterStart: chapter.startSeconds,
@@ -164,7 +162,8 @@ struct PlayerScrubberView: View {
     /// The currently active logical chapter, used to compute section tick fractions.
     private var currentLogicalChapter: Chapter? {
         guard let idx = model.currentChapterIndex,
-              model.chapters.indices.contains(idx) else { return nil }
+            model.chapters.indices.contains(idx)
+        else { return nil }
         return model.chapters[idx]
     }
 

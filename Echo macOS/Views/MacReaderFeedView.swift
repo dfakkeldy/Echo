@@ -12,6 +12,11 @@ struct MacReaderFeedView: View {
     @State private var blocks: [EPubBlockRecord] = []
     @State private var currentBlockID: String?
     @State private var isLoading = true
+    /// Timeline rows (audio range → block, with chapter index) for the loaded
+    /// book. Resolution scopes by chapter to the currently-playing track via the
+    /// shared `ReaderActiveBlockResolver`, so per-track time collisions across
+    /// multiple files no longer pin the highlight to the first track.
+    @State private var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -87,6 +92,7 @@ struct MacReaderFeedView: View {
 
         guard let audiobookID = player.audiobookID else {
             blocks = []
+            timelineCache = []
             return
         }
 
@@ -99,40 +105,83 @@ struct MacReaderFeedView: View {
                     .fetchAll(db)
             }
             blocks = result
+            timelineCache = try await loadTimelineCache(audiobookID: audiobookID)
         } catch {
             blocks = []
+            timelineCache = []
         }
     }
 
-    /// Periodically queries the database for the block at the current playback
-    /// time, so the reader can highlight and auto-scroll to the active block.
+    /// Builds the audio-range → block timeline cache, LEFT JOINing `epub_block`
+    /// for each block's `chapter_index`, so active-block resolution can be scoped
+    /// to the currently-playing track. Ordered by `audio_start_time` to match the
+    /// iOS reader's cache and the resolver's binary-search (unscoped) path.
+    private func loadTimelineCache(audiobookID: String) async throws
+        -> [ReaderActiveBlockResolver.TimelineRow]
+    {
+        let rows: [Row] = try await dbService.writer.read { db in
+            return try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id, eb.chapter_index
+                    FROM timeline_item ti
+                    LEFT JOIN epub_block eb ON eb.id = ti.epub_block_id
+                    WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
+                    ORDER BY ti.audio_start_time
+                    """,
+                arguments: [audiobookID]
+            )
+        }
+
+        var cache: [ReaderActiveBlockResolver.TimelineRow] = []
+        for (i, row) in rows.enumerated() {
+            guard let start: TimeInterval = row["audio_start_time"],
+                let blockID: String = row["epub_block_id"]
+            else { continue }
+            let end: TimeInterval
+            if let explicitEnd: TimeInterval = row["audio_end_time"] {
+                end = explicitEnd
+            } else if i + 1 < rows.count,
+                let nextStart: TimeInterval = rows[i + 1]["audio_start_time"]
+            {
+                end = nextStart
+            } else {
+                end = start + 3600  // Large fallback for the last item
+            }
+            let chapterIndex: Int? = row["chapter_index"]
+            cache.append((start, end, blockID, chapterIndex))
+        }
+        return cache
+    }
+
+    /// EPUB chapter indices in the currently-playing track. macOS has no narration
+    /// and no M4B aggregation, so it routes through the same shared
+    /// `ReaderActiveBlockResolver.trackChapterScope` with `playingChapterIndex: nil`
+    /// and `isMultiM4B: false`: a single track means one continuous axis → `nil`
+    /// (no scoping, strict legacy behavior); multiple tracks (MP3 folder) map 1:1
+    /// track→chapter → `{currentTrackIndex}`. Sharing the one branch table with iOS
+    /// keeps the two readers from drifting.
+    private var currentTrackChapterIndices: Set<Int>? {
+        ReaderActiveBlockResolver.trackChapterScope(
+            trackCount: player.tracks.count,
+            isMultiM4B: false,
+            currentIndex: player.currentTrackIndex,
+            playingChapterIndex: nil)
+    }
+
+    /// Periodically resolves the block at the current playback time so the reader
+    /// can highlight and auto-scroll to the active block. Resolution is delegated
+    /// to the shared `ReaderActiveBlockResolver` (the same helper iOS uses) and is
+    /// scoped to the currently-playing track, so per-track time collisions across
+    /// multiple files no longer pin the highlight to the first track.
     private func trackCurrentBlock() async {
         while !Task.isCancelled {
-            if let audiobookID = player.audiobookID,
-                player.isPlaying,
-                player.currentTime > 0
-            {
-                do {
-                    let blockID = try await dbService.writer.read { db in
-                        try Row.fetchOne(
-                            db,
-                            sql: """
-                                SELECT eb.id
-                                FROM epub_block eb
-                                JOIN timeline_item ti ON ti.epub_block_id = eb.id
-                                WHERE eb.audiobook_id = ?
-                                  AND ti.audio_start_time <= ?
-                                  AND ti.audio_end_time > ?
-                                ORDER BY eb.sequence_index
-                                LIMIT 1
-                                """,
-                            arguments: [audiobookID, player.currentTime, player.currentTime]
-                        )?["id"] as? String
-                    }
-                    currentBlockID = blockID
-                } catch {
-                    // Silently ignore query failures
-                }
+            if player.isPlaying, player.currentTime > 0 {
+                currentBlockID = ReaderActiveBlockResolver.activeBlockID(
+                    in: timelineCache,
+                    time: player.currentTime,
+                    currentTrackChapterIndices: currentTrackChapterIndices
+                )
             } else {
                 currentBlockID = nil
             }

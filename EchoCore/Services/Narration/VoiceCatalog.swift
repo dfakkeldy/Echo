@@ -11,16 +11,16 @@ enum VoiceCatalog {
     /// Curated set (spec §3.2). Kokoro voicepack keys as raw IDs.
     static let all: [NarrationVoice] = [
         NarrationVoice(
-            id: VoiceID("af_warm"), displayName: "Ava", descriptor: "US · warm",
+            id: VoiceID("af_heart"), displayName: "Ava", descriptor: "US · warm",
             sampleClipName: "voice_ava"),
         NarrationVoice(
-            id: VoiceID("am_steady"), displayName: "Michael", descriptor: "US · steady",
+            id: VoiceID("am_michael"), displayName: "Michael", descriptor: "US · steady",
             sampleClipName: "voice_michael"),
         NarrationVoice(
-            id: VoiceID("bf_bright"), displayName: "Emma", descriptor: "UK · bright",
+            id: VoiceID("bf_emma"), displayName: "Emma", descriptor: "UK · bright",
             sampleClipName: "voice_emma"),
         NarrationVoice(
-            id: VoiceID("bm_deep"), displayName: "George", descriptor: "UK · deep",
+            id: VoiceID("bm_george"), displayName: "George", descriptor: "UK · deep",
             sampleClipName: "voice_george"),
     ]
 

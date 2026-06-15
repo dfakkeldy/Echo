@@ -1,5 +1,3 @@
-import SwiftUI
-
 // MARK: - VisualizerStyle
 
 /// Defines the four Metal-based audio visualizer styles available in Echo.

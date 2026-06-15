@@ -1,7 +1,7 @@
 import Foundation
-import UIKit
-import Observation
 import GRDB
+import Observation
+import UIKit
 import os.log
 
 /// View model for the EPUB reader feed. Loads blocks, builds the card array,
@@ -16,12 +16,30 @@ final class ReaderFeedViewModel {
     private let chapterDAO: ChapterDAO
     private let db: DatabaseWriter
 
-    /// Cache mapping time ranges to block IDs for fast O(log N) lookup during playback.
-    private var timelineCache: [(start: TimeInterval, end: TimeInterval, blockID: String)] = []
-    
-    /// Cache of alignment statuses by block ID.
+    /// Cache mapping time ranges to block IDs for fast lookup during playback.
+    /// Carries each row's `chapterIndex` (LEFT JOINed from `epub_block`) so the
+    /// active-block resolution can be scoped to the currently-playing track.
+    private var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
+
+    /// Full, unscoped alignment statuses keyed by block ID (every timestamped
+    /// block in the book). The published `alignmentStatusByBlockID` is derived
+    /// from this, gated to the current track.
+    private var allAlignmentStatusByBlockID: [String: String] = [:]
+    /// Full, unscoped audio start times keyed by block ID.
+    private var allAudioStartTimeByBlockID: [String: TimeInterval] = [:]
+    /// Chapter index of each timestamped block, used to gate the alignment badge
+    /// to the current track.
+    private var chapterIndexByBlockID: [String: Int?] = [:]
+
+    /// The chapter-index scope of the most recent `updateActiveBlock` call. Drives
+    /// which blocks read as "aligned" in the UI. `nil` = whole-book (no scoping).
+    private var currentTrackScope: Set<Int>?
+
+    /// Alignment statuses by block ID, **gated to the current track**. A 5.0s
+    /// anchor in chapter 3 must not read as aligned-same-as a 5.0s anchor in
+    /// chapter 1, so only blocks belonging to the current track are surfaced.
     private(set) var alignmentStatusByBlockID: [String: String] = [:]
-    /// Cache of audio start times by block ID (used for UI display of anchors).
+    /// Audio start times by block ID, gated to the current track (UI anchor badge).
     private(set) var audioStartTimeByBlockID: [String: TimeInterval] = [:]
 
     /// All cards in the feed grouped by sections.
@@ -70,7 +88,11 @@ final class ReaderFeedViewModel {
             let blocks: [EPubBlockRecord]
             if let query = searchQuery, !query.isEmpty {
                 blocks = try blockDAO.searchBlocks(for: audiobookID, query: query)
-                sections = [ReaderCardSection(id: "search", headingStack: ["Search Results"], items: blocks.map { .block($0) })]
+                sections = [
+                    ReaderCardSection(
+                        id: "search", headingStack: ["Search Results"],
+                        items: blocks.map { .block($0) })
+                ]
             } else {
                 let grouped = try blockDAO.blocksByChapter(for: audiobookID)
                 tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
@@ -85,16 +107,19 @@ final class ReaderFeedViewModel {
                 var tocTargetBlockIDs: Set<String> = []
                 var entryPathStack: [String] = []
                 for entry in tocEntries {  // DAO returns preorder
-                    entryPathStack = Array(entryPathStack.prefix(max(0, entry.depth))) + [entry.title]
+                    entryPathStack =
+                        Array(entryPathStack.prefix(max(0, entry.depth))) + [entry.title]
                     guard let blockID = entry.blockID,
-                          let seq = sequenceByBlockID[blockID] else { continue }
+                        let seq = sequenceByBlockID[blockID]
+                    else { continue }
                     tocTargetBlockIDs.insert(blockID)
                     tocPaths.append((seq: seq, path: entryPathStack))
                 }
                 tocPaths.sort { $0.seq < $1.seq }
 
                 func tocPath(at sequenceIndex: Int) -> [String] {
-                    var low = 0, high = tocPaths.count - 1
+                    var low = 0
+                    var high = tocPaths.count - 1
                     var best: [String] = []
                     while low <= high {
                         let mid = (low + high) / 2
@@ -128,7 +153,8 @@ final class ReaderFeedViewModel {
                         chapterTitle = Self.formatChapterTitle(rawTitle)
                     }
 
-                    let groupStartTOCPath = chapterBlocks.first.map { tocPath(at: $0.sequenceIndex) } ?? []
+                    let groupStartTOCPath =
+                        chapterBlocks.first.map { tocPath(at: $0.sequenceIndex) } ?? []
                     if !groupStartTOCPath.isEmpty {
                         currentHeadingStack = groupStartTOCPath
                     } else {
@@ -139,25 +165,31 @@ final class ReaderFeedViewModel {
                             currentHeadingStack = [chapterTitle] + validHeadings
                         }
                     }
-                    
+
                     var currentItems: [ReaderCardItem] = []
                     var sectionIndex = 0
 
                     for block in chapterBlocks {
-                        if block.blockKind == EPubBlockRecord.Kind.heading.rawValue, let text = block.text, !text.isEmpty {
+                        if block.blockKind == EPubBlockRecord.Kind.heading.rawValue,
+                            let text = block.text, !text.isEmpty
+                        {
                             if !HeadingClassifier.isJunk(text) {
                                 if !currentItems.isEmpty {
-                                    parsedSections.append(ReaderCardSection(id: "ch\(key)-s\(sectionIndex)", headingStack: currentHeadingStack, items: currentItems))
+                                    parsedSections.append(
+                                        ReaderCardSection(
+                                            id: "ch\(key)-s\(sectionIndex)",
+                                            headingStack: currentHeadingStack, items: currentItems))
                                     currentItems = []
                                     sectionIndex += 1
                                 }
-                                
+
                                 let tocBase = tocPath(at: block.sequenceIndex)
                                 if !tocBase.isEmpty {
                                     // Publisher-declared ancestry. A TOC target
                                     // heading IS the path's last element; any
                                     // other heading is a subsection beneath it.
-                                    currentHeadingStack = tocTargetBlockIDs.contains(block.id)
+                                    currentHeadingStack =
+                                        tocTargetBlockIDs.contains(block.id)
                                         ? tocBase
                                         : tocBase + [text.collapsedWhitespace()]
                                 } else {
@@ -176,7 +208,10 @@ final class ReaderFeedViewModel {
                         currentItems.append(.block(block))
                     }
                     if !currentItems.isEmpty {
-                        parsedSections.append(ReaderCardSection(id: "ch\(key)-s\(sectionIndex)", headingStack: currentHeadingStack, items: currentItems))
+                        parsedSections.append(
+                            ReaderCardSection(
+                                id: "ch\(key)-s\(sectionIndex)", headingStack: currentHeadingStack,
+                                items: currentItems))
                     }
                 }
                 sections = parsedSections
@@ -191,66 +226,139 @@ final class ReaderFeedViewModel {
                     }
                 }
             }
-            
-            // Rebuild timeline cache for fast active block lookup
+
+            // Rebuild timeline cache for fast active block lookup. LEFT JOIN
+            // epub_block so each row carries the block's chapter_index — the
+            // active-block resolution scopes by chapter to the current track,
+            // and the alignment badge is gated the same way. (No schema change:
+            // the mapping is derived at query time from idx_epub_block_chapter.)
             let rows = try db.read { db in
-                try Row.fetchAll(db, sql: """
-                    SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id, ti.alignment_status
-                    FROM timeline_item ti
-                    WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
-                    ORDER BY ti.audio_start_time
-                    """, arguments: [audiobookID])
+                try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id,
+                               ti.alignment_status, eb.chapter_index
+                        FROM timeline_item ti
+                        LEFT JOIN epub_block eb ON eb.id = ti.epub_block_id
+                        WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
+                        ORDER BY ti.audio_start_time
+                        """, arguments: [audiobookID])
             }
-            
-            var newTimeline: [(start: TimeInterval, end: TimeInterval, blockID: String)] = []
+
+            var newTimeline: [ReaderActiveBlockResolver.TimelineRow] = []
             var newAlignmentStatus: [String: String] = [:]
             var newAudioStartTime: [String: TimeInterval] = [:]
+            var newChapterIndex: [String: Int?] = [:]
             for (i, row) in rows.enumerated() {
                 guard let start: TimeInterval = row["audio_start_time"],
-                      let blockID: String = row["epub_block_id"] else { continue }
-                      
+                    let blockID: String = row["epub_block_id"]
+                else { continue }
+
                 let end: TimeInterval
                 if let explicitEnd: TimeInterval = row["audio_end_time"] {
                     end = explicitEnd
-                } else if i + 1 < rows.count, let nextStart: TimeInterval = rows[i + 1]["audio_start_time"] {
+                } else if i + 1 < rows.count,
+                    let nextStart: TimeInterval = rows[i + 1]["audio_start_time"]
+                {
                     end = nextStart
                 } else {
-                    end = start + 3600 // Large fallback for the last item
+                    end = start + 3600  // Large fallback for the last item
                 }
-                newTimeline.append((start, end, blockID))
+                let chapterIndex: Int? = row["chapter_index"]
+                newTimeline.append((start, end, blockID, chapterIndex))
                 newAudioStartTime[blockID] = start
+                newChapterIndex[blockID] = chapterIndex
                 if let status: String = row["alignment_status"] {
                     newAlignmentStatus[blockID] = status
                 }
             }
             timelineCache = newTimeline
-            alignmentStatusByBlockID = newAlignmentStatus
-            audioStartTimeByBlockID = newAudioStartTime
+            allAlignmentStatusByBlockID = newAlignmentStatus
+            allAudioStartTimeByBlockID = newAudioStartTime
+            chapterIndexByBlockID = newChapterIndex
+            // Re-publish the track-gated badge dictionaries for the existing scope
+            // (whole-book until the first scoped updateActiveBlock call).
+            applyTrackScope(currentTrackScope)
         } catch {
             logger.error("Failed to load reader blocks: \(error.localizedDescription)")
         }
     }
 
-    /// Update the active block based on current playback position using binary search.
-    func updateActiveBlock(time: TimeInterval) {
-        var low = 0
-        var high = timelineCache.count - 1
-        var foundBlockID: String? = nil
+    /// Check if any user-created alignment anchors exist (not auto-generated).
+    func hasUserAlignmentAnchors(audiobookID: String) -> Bool {
+        (try? db.read { database in
+            try Int.fetchOne(
+                database,
+                sql: """
+                        SELECT COUNT(*) FROM alignment_anchor
+                        WHERE audiobook_id = ? AND source != 'auto'
+                    """, arguments: [audiobookID]) ?? 0 > 0
+        }) ?? false
+    }
 
-        while low <= high {
-            let mid = low + (high - low) / 2
-            let item = timelineCache[mid]
-            
-            if time >= item.start && time < item.end {
-                foundBlockID = item.blockID
-                break
-            } else if time < item.start {
-                high = mid - 1
-            } else {
-                low = mid + 1
+    /// Fetch audio start time for a specific EPUB block.
+    func audioStartTime(for epubBlockID: String, audiobookID: String) -> Double? {
+        try? db.read { database in
+            try Double.fetchOne(
+                database,
+                sql: """
+                        SELECT audio_start_time FROM timeline_item
+                        WHERE audiobook_id = ? AND epub_block_id = ?
+                        LIMIT 1
+                    """, arguments: [audiobookID, epubBlockID])
+        }
+    }
+
+    /// Whether a block belongs to the given chapter scope. Mirrors the resolver:
+    /// `nil` scope = whole-book (everything); otherwise a block is in scope when
+    /// its chapter index is in the set, and nil-chapter (front-matter) blocks
+    /// count only when the set contains track 0.
+    private func blockIsInScope(_ chapterIndex: Int?, scope: Set<Int>?) -> Bool {
+        guard let scope else { return true }
+        if let chapterIndex { return scope.contains(chapterIndex) }
+        return scope.contains(0)
+    }
+
+    /// Recomputes the published alignment badge dictionaries so only blocks in the
+    /// current track read as "aligned". The displayed start-time value is still
+    /// the per-track time; scoping only changes *which* blocks are surfaced.
+    private func applyTrackScope(_ scope: Set<Int>?) {
+        currentTrackScope = scope
+        guard scope != nil else {
+            alignmentStatusByBlockID = allAlignmentStatusByBlockID
+            audioStartTimeByBlockID = allAudioStartTimeByBlockID
+            return
+        }
+        var gatedStatus: [String: String] = [:]
+        var gatedStart: [String: TimeInterval] = [:]
+        for (blockID, start) in allAudioStartTimeByBlockID {
+            let chapterIndex = chapterIndexByBlockID[blockID] ?? nil
+            guard blockIsInScope(chapterIndex, scope: scope) else { continue }
+            gatedStart[blockID] = start
+            if let status = allAlignmentStatusByBlockID[blockID] {
+                gatedStatus[blockID] = status
             }
         }
-        
+        alignmentStatusByBlockID = gatedStatus
+        audioStartTimeByBlockID = gatedStart
+    }
+
+    /// Update the active block based on the current playback position, scoped to
+    /// the currently-playing track.
+    ///
+    /// - Parameters:
+    ///   - time: The current **per-track** playback time (`PlayerModel.currentPlaybackTime`).
+    ///   - currentTrackChapterIndices: EPUB chapter indices in the playing track.
+    ///     `nil` = no scoping (single-track books — strict legacy behavior).
+    func updateActiveBlock(time: TimeInterval, currentTrackChapterIndices: Set<Int>?) {
+        if currentTrackScope != currentTrackChapterIndices {
+            applyTrackScope(currentTrackChapterIndices)
+        }
+        let foundBlockID = ReaderActiveBlockResolver.activeBlockID(
+            in: timelineCache,
+            time: time,
+            currentTrackChapterIndices: currentTrackChapterIndices
+        )
         if activeBlockID != foundBlockID {
             activeBlockID = foundBlockID
         }
@@ -276,14 +384,16 @@ final class ReaderFeedViewModel {
         let markers = block.decodedMarkers
         var level: Int? = nil
         if let startMarker = markers.first(where: { $0.type == MarkerType.chapterStart }),
-           let parsedLevel = Int(startMarker.payload) {
+            let parsedLevel = Int(startMarker.payload)
+        {
             level = parsedLevel
         }
 
         // Text-based heuristic override to maintain correct heading hierarchy
         // when structural levels aren't explicitly provided by the EPUB tags.
         let lowerText = text.lowercased().trimmingCharacters(in: .whitespaces)
-        let isExplicitTopLevel = lowerText.range(of: "^(?:part|book|chapter)\\b", options: .regularExpression) != nil
+        let isExplicitTopLevel =
+            lowerText.range(of: "^(?:part|book|chapter)\\b", options: .regularExpression) != nil
 
         if lowerText.range(of: "^(?:part|book)\\b", options: .regularExpression) != nil {
             level = 1
@@ -340,8 +450,11 @@ final class ReaderFeedViewModel {
     nonisolated static func formatChapterTitle(_ title: String) -> String {
         let lower = title.lowercased()
         if lower.contains("part ") && lower.contains("chapter ") {
-            if let range = title.range(of: ":") ?? title.range(of: " - Chapter", options: .caseInsensitive) {
-                let firstPart = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+            if let range = title.range(of: ":")
+                ?? title.range(of: " - Chapter", options: .caseInsensitive)
+            {
+                let firstPart = String(title[..<range.lowerBound]).trimmingCharacters(
+                    in: .whitespaces)
                 if firstPart.lowercased().contains("part") {
                     return firstPart
                 }
@@ -351,8 +464,8 @@ final class ReaderFeedViewModel {
     }
 }
 
-private extension Array {
-    subscript(safe index: Int) -> Element? {
+extension Array {
+    fileprivate subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
 }

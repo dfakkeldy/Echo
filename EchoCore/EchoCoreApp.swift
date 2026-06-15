@@ -5,6 +5,7 @@
 //  Created by Dan Fakkeldy on 2026-04-19.
 //
 
+import GRDB
 import SwiftUI
 
 @main
@@ -12,6 +13,7 @@ struct EchoCoreApp: App {
     @State private var model: PlayerModel
     @State private var settings = SettingsManager()
     @State private var storeManager = StoreManager()
+    @State private var freeTierGate: FreeTierGate!
     @State private var pendingDeepLink: PlayerDeepLink?
     @State private var databaseError: Error?
 
@@ -27,28 +29,47 @@ struct EchoCoreApp: App {
 
     init() {
         #if DEBUG && targetEnvironment(simulator)
-        MockMediaProvider.seedSampleAudiobookIfNeeded()
+            MockMediaProvider.seedSampleAudiobookIfNeeded()
         #endif
-        
+
         let initialModel = PlayerModel()
         var initialError: Error? = nil
-        
+
         do {
             let db = try DatabaseService()
             initialModel.databaseService = db
             #if os(iOS)
-            MigrationService.migrateIfNeeded(database: db)
+                MigrationService.migrateIfNeeded(database: db)
             #endif
         } catch {
             initialError = error
             // Attempt in-memory fallback so the app remains functional.
             // The error is presented to the user in the view hierarchy.
         }
-        
+
         _model = State(wrappedValue: initialModel)
         _databaseError = State(wrappedValue: initialError)
+        _freeTierGate = State(wrappedValue: FreeTierGate(entitlement: storeManager))
         Self.playerModel = initialModel
-        
+
+        // Wire the live DB counts into the free-tier gate so cap enforcement
+        // reflects real user data after database init.
+        if let db = initialModel.databaseService {
+            freeTierGate.wireCounts(
+                flashcardCount: {
+                    (try? FlashcardDAO(db: db.writer).count()) ?? 0
+                },
+                narratedChapters: { audiobookID in
+                    (try? db.writer.read { db in
+                        try TrackRecord.filter(
+                            sql: "id LIKE ?",
+                            arguments: ["syn-\(audiobookID)-ch%"]
+                        ).fetchCount(db)
+                    }) ?? 0
+                }
+            )
+        }
+
         ReviewNotificationService.requestAuthorization()
     }
 
@@ -58,15 +79,19 @@ struct EchoCoreApp: App {
                 .environment(model)
                 .environment(settings)
                 .environment(storeManager)
+                .environment(freeTierGate)
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
                 .tint(resolvedAccentColor)
                 .accentColor(resolvedAccentColor)
-                .alert("Database Error", isPresented: Binding(
-                    get: { databaseError != nil },
-                    set: { if !$0 { databaseError = nil } }
-                )) {
+                .alert(
+                    "Database Error",
+                    isPresented: Binding(
+                        get: { databaseError != nil },
+                        set: { if !$0 { databaseError = nil } }
+                    )
+                ) {
                     Button("Retry") {
                         do {
                             let db = try DatabaseService()
@@ -80,7 +105,9 @@ struct EchoCoreApp: App {
                         databaseError = nil
                     }
                 } message: {
-                    Text(databaseError?.localizedDescription ?? "An unknown database error occurred.")
+                    Text(
+                        databaseError?.localizedDescription ?? "An unknown database error occurred."
+                    )
                 }
         }
     }

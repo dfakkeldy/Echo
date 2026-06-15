@@ -1,0 +1,1 @@
+Runs locally and does not require a login or account. Place your DRM-free audiobook in a folder to play.

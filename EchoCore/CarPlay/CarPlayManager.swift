@@ -32,7 +32,7 @@ final class CarPlayManager: NSObject {
             nowPlaying,
             libraryTemplate!,
             chaptersTemplate!,
-            bookmarksTemplate!
+            bookmarksTemplate!,
         ])
         interfaceController.setRootTemplate(tabBar, animated: false, completion: nil)
 
@@ -87,11 +87,14 @@ final class CarPlayManager: NSObject {
     // MARK: - Library (parked only)
 
     private func makeLibraryTemplate() -> CPListTemplate {
-        let template = CPListTemplate(title: String(localized: "Library"), sections: [CPListSection(items: [])])
+        let template = CPListTemplate(
+            title: String(localized: "Library"), sections: [CPListSection(items: [])])
         template.tabTitle = String(localized: "Library")
         template.tabImage = UIImage(systemName: "books.vertical")
         template.emptyViewTitleVariants = [String(localized: "No Books")]
-        template.emptyViewSubtitleVariants = [String(localized: "Import an audiobook to get started")]
+        template.emptyViewSubtitleVariants = [
+            String(localized: "Import an audiobook to get started")
+        ]
         return template
     }
 
@@ -102,7 +105,9 @@ final class CarPlayManager: NSObject {
         template.tabTitle = String(localized: "Chapters")
         template.tabImage = UIImage(systemName: "list.dash")
         template.emptyViewTitleVariants = [String(localized: "No Chapters")]
-        template.emptyViewSubtitleVariants = [String(localized: "Chapters will appear while playing a book")]
+        template.emptyViewSubtitleVariants = [
+            String(localized: "Chapters will appear while playing a book")
+        ]
         return template
     }
 
@@ -124,7 +129,8 @@ final class CarPlayManager: NSObject {
     /// asynchronously via ArtworkCache and updates the template once done.
     func refreshLibrary() {
         guard let model = EchoCoreApp.playerModel,
-              let db = model.databaseService else {
+            let db = model.databaseService
+        else {
             showEmptyLibrary()
             return
         }
@@ -158,6 +164,12 @@ final class CarPlayManager: NSObject {
                     defer { completion() }
                     guard let model, let url = URL(string: record.id) else { return }
                     model.loadFolder(url, autoplay: true)
+                    // An audio-less study book (a standalone EPUB, no audio
+                    // files) plays its on-device narration through the player
+                    // instead of being a dead, silent row.
+                    if record.fileCount == 0 {
+                        model.startNarrationPlayback()
+                    }
                 }
                 return item
             }
@@ -212,8 +224,10 @@ final class CarPlayManager: NSObject {
 
         if model.isMultiM4B, !model.aggregatedChapters.isEmpty {
             chapterItems = model.aggregatedChapters.map { agg -> CPListItem in
-                let title = agg.chapterTitle.isEmpty ? "Chapter \(agg.chapterIndex + 1)" : agg.chapterTitle
-                let detail = "\(agg.bookTitle) · \(NowPlayingController.formatTime(agg.endSeconds - agg.startSeconds))"
+                let title =
+                    agg.chapterTitle.isEmpty ? "Chapter \(agg.chapterIndex + 1)" : agg.chapterTitle
+                let detail =
+                    "\(agg.bookTitle) · \(NowPlayingController.formatTime(agg.endSeconds - agg.startSeconds))"
                 let item = CPListItem(text: title, detailText: detail)
                 item.handler = { _, completion in
                     model.seekToAggregatedChapterPosition(

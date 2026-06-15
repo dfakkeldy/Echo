@@ -5,6 +5,7 @@ import os.log
 /// Front side is pre-populated with the selected transcript segment.
 struct FlashcardCreationSheet: View {
     @Environment(PlayerModel.self) private var model
+    @Environment(FreeTierGate.self) private var freeTierGate
     @Environment(\.dismiss) private var dismiss
 
     let sourceText: String
@@ -47,7 +48,10 @@ struct FlashcardCreationSheet: View {
             }
             .navigationTitle("New Flashcard")
             .navigationBarTitleDisplayMode(.inline)
-            .alert("Save Failed", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+            .alert(
+                "Save Failed",
+                isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })
+            ) {
                 Button("OK") { saveError = nil }
             } message: {
                 Text(saveError ?? "")
@@ -58,8 +62,14 @@ struct FlashcardCreationSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        saveFlashcard()
-                        dismiss()
+                        if freeTierGate.canCreateFlashcards(adding: 1) {
+                            saveFlashcard()
+                            dismiss()
+                        } else {
+                            dismiss()
+                            model.paywallContext = .flashcardCap
+                            model.showPaywall = true
+                        }
                     }
                     .disabled(frontText.isEmpty || backText.isEmpty)
                 }
@@ -69,7 +79,8 @@ struct FlashcardCreationSheet: View {
 
     private func saveFlashcard() {
         guard let db = model.databaseService,
-              let audiobookID = model.folderURL?.absoluteString else { return }
+            let audiobookID = model.folderURL?.absoluteString
+        else { return }
 
         let card = Flashcard(
             id: UUID().uuidString,

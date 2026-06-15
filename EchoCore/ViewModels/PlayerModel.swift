@@ -62,8 +62,18 @@ final class PlayerModel {
     /// The currently selected tab (Listen, Read, or Timeline).
     var selectedTab: TabSelection = .nowPlaying
 
+    /// Programmatic navigation destination set by deep link handling.
+    /// RootTabView observes this and appends it to the appropriate
+    /// NavigationStack path, then clears it.
+    var pendingNavigationDestination: NavigationDestination?
+
     /// Presentation state of the Help/Focus guide sheet.
     var showingHelp: Bool = false
+
+    /// Presentation state of the Paywall sheet.
+    var showPaywall: Bool = false
+    /// Context describing what Pro feature was denied, shown as subheadline.
+    var paywallContext: PaywallContext = .flashcardCap
 
     // MARK: - Shared Top Header / Reader / Playlist state
     var epubSearchText: String = ""
@@ -218,6 +228,13 @@ final class PlayerModel {
     var durationText: String { state.durationText }
     var durationSeconds: Double? { state.durationSeconds }
     var currentPlaybackTime: TimeInterval { audioEngine.currentTime }
+    /// Total playback position accounting for multi-M4B cumulative track offsets.
+    /// For single-M4B books, returns currentPlaybackTime directly.
+    var cumulativePlaybackTime: TimeInterval {
+        guard isMultiM4B else { return currentPlaybackTime }
+        guard m4bBooks.indices.contains(currentIndex) else { return currentPlaybackTime }
+        return m4bBooks[currentIndex].cumulativeStartOffset + currentPlaybackTime
+    }
     /// Coarse 0–100 book progress that changes ~1 Hz, not per tick (§7.3).
     var bookProgressPercent: Int { state.bookProgressPercent }
     var thumbnailImage: UIImage? { state.thumbnailImage }
@@ -423,6 +440,14 @@ final class PlayerModel {
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
     var continuousAlignmentService: ContinuousAlignmentService?
 
+    // On-device narration playback: an audio-less study EPUB renders its
+    // narration into the main playback pipeline (so CarPlay / lock screen / the
+    // scrubber all work). The TTS engine is reused across books so the one-time
+    // ANE model compile is paid once, not per book.
+    @ObservationIgnored lazy var narrationTTS: any TTSEngine = KokoroTTSEngine()
+    @ObservationIgnored var narrationRenderTask: Task<Void, Never>?
+    let narrationPlaybackState = NarrationState()
+
     private func computeWordClouds() {
         transcriptService.computeWordClouds()
     }
@@ -471,6 +496,14 @@ final class PlayerModel {
     /// Background task claim held during pause to reduce the chance of eviction
     /// from the system Now Playing slot.
     private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    /// Timer driving the joystick scrubbing loop in ManualAlignmentSheet.
+    /// Fires every 0.1 s, relaying the current playback time to the view's
+    /// `onTick` closure so it can compute scrub deltas.
+    @ObservationIgnored private var joystickScrubTimer: Timer?
+    /// Timer that plays brief 0.2 s audio snippets during joystick scrubbing.
+    /// Fires every 0.4 s while the user holds a joystick deflection.
+    @ObservationIgnored private var snippetPlaybackTimer: Timer?
 
     /// Tracks if audio was playing prior to an interruption, to determine if we should resume.
     var wasPlayingBeforeInterruption: Bool = false
@@ -616,6 +649,11 @@ final class PlayerModel {
 
         sleepTimerManager.onFire = { [weak self] in
             guard let self else { return }
+            // Cancel any pending narration auto-resume: during the at-gap wait isPlaying
+            // is already false, so pause() (which clears the flag) won't run — clear it
+            // here so a chapter that finishes rendering after the cutoff doesn't auto-
+            // advance one chapter past the sleep cutoff.
+            self.state.awaitingNarrationChapter = false
             if self.isPlaying { self.pause() }
             self.syncToWatch()
         }
@@ -966,6 +1004,12 @@ final class PlayerModel {
             // after PlayerModel is torn down (CODE_AUDIT.md §3.3).
             continuousAlignmentService?.stop()
             continuousAlignmentService = nil
+
+            // Invalidate scrub / snippet timers so they do not outlive the model.
+            joystickScrubTimer?.invalidate()
+            joystickScrubTimer = nil
+            snippetPlaybackTimer?.invalidate()
+            snippetPlaybackTimer = nil
         }
     }
 
@@ -1002,6 +1046,14 @@ final class PlayerModel {
     ///   - url: The folder or file URL to load.
     ///   - autoplay: Whether to automatically begin playback after loading. Defaults to `true`.
     func loadFolder(_ url: URL, autoplay: Bool = true) {
+        // Stop narrating the previous book before its tracks are replaced, so a
+        // stale render can't append chapters onto the newly loaded book, and
+        // clear its narration playback state so the new book starts fresh.
+        narrationRenderTask?.cancel()
+        narrationRenderTask = nil
+        state.narrationRenderInFlight = false
+        state.awaitingNarrationChapter = false
+        narrationPlaybackState.reset()
         playerLoadingCoordinator.loadFolder(url, autoplay: autoplay)
     }
 
@@ -1078,6 +1130,21 @@ final class PlayerModel {
         case .showFocusGuide:
             selectedTab = .nowPlaying
             showingHelp = true
+        case .navigateToSettings:
+            selectedTab = .nowPlaying
+            pendingNavigationDestination = .settingsAppearance
+        case .navigateToAppearance:
+            selectedTab = .nowPlaying
+            pendingNavigationDestination = .settingsAppearance
+        case .navigateToAudioSettings:
+            selectedTab = .nowPlaying
+            pendingNavigationDestination = .settingsAudio
+        case .navigateToChapter(let index):
+            selectedTab = .read
+            pendingNavigationDestination = .chapter(index)
+        case .navigateToBookmark:
+            selectedTab = .timeline
+        // Bookmarks are visible on the timeline tab by default.
         }
     }
 
@@ -1206,6 +1273,53 @@ final class PlayerModel {
 
     func seek(toFraction fraction: Double) {
         playbackController.seek(toFraction: fraction)
+    }
+
+    // MARK: - Joystick scrubbing & snippet playback (used by ManualAlignmentSheet)
+
+    /// Starts a recurring 0.1 s joystick-scrub timer. The closure is called on
+    /// each tick with the model's current playback time. The view uses this to
+    /// compute scrub deltas from its `joystickValue` State.
+    func startJoystickScrubbing(onTick: @escaping (TimeInterval) -> Void) {
+        stopJoystickScrubbing()
+        joystickScrubTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                onTick(self.currentPlaybackTime)
+            }
+        }
+    }
+
+    /// Invalidates the joystick scrub timer.
+    func stopJoystickScrubbing() {
+        joystickScrubTimer?.invalidate()
+        joystickScrubTimer = nil
+    }
+
+    /// Starts a recurring 0.4 s snippet playback timer that plays brief 0.2 s
+    /// audio clips at the position returned by `timeProvider`. The view supplies
+    /// `timeProvider` to forward the current scrubbed time.
+    func startSnippetPlayback(timeProvider: @escaping () -> TimeInterval) {
+        stopSnippetPlayback()
+        snippetPlaybackTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isPlaying else { return }
+                guard self.tracks.indices.contains(self.currentIndex) else { return }
+                let currentScrubTime = timeProvider()
+                let url = self.tracks[self.currentIndex].url
+                let duration = self.durationSeconds ?? .infinity
+                let start = min(currentScrubTime, max(0, duration - 0.2))
+                self.snippetPlayer.play(url: url, startTime: start, endTime: start + 0.2)
+            }
+        }
+    }
+
+    /// Invalidates the snippet playback timer.
+    func stopSnippetPlayback() {
+        snippetPlaybackTimer?.invalidate()
+        snippetPlaybackTimer = nil
     }
 
     func setSpeed(_ newSpeed: Float) {
