@@ -50,9 +50,13 @@ struct SettingsView: View {
                     let engine = KokoroTTSEngine()
                     var chunks: [TTSChunk] = []
                     for text in snippet {
-                        chunks.append(
-                            try await engine.synthesize(
-                                TextNormalizer.normalize(text), voice: VoiceID("af_heart")))
+                        // Chunk before synthesize, mirroring NarrationService.renderChapter:
+                        // a whole 400+ char block traps Kokoro's BNNS fallback (uncatchable
+                        // SIGTRAP), so bound every synthesize call to <=200 chars.
+                        for subText in NarrationTextChunker.split(TextNormalizer.normalize(text)) {
+                            chunks.append(
+                                try await engine.synthesize(subText, voice: VoiceID("af_heart")))
+                        }
                     }
                     let url = FileManager.default.temporaryDirectory
                         .appendingPathComponent("narration-test.m4a")
