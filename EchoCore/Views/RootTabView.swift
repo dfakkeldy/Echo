@@ -76,6 +76,21 @@ struct RootTabView: View {
                     case .stats:
                         NavigationStack {
                             StatsView()
+                                .navigationTitle("Stats")
+                                .toolbar {
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        Button("Done") {
+                                            model.selectedTab = .nowPlaying
+                                        }
+                                    }
+                                }
+                                // The outer stack hides its nav bar; the Stats
+                                // stack needs a visible bar so the Done button —
+                                // the only tracks-independent exit — is reachable.
+                                // Without it an audio-less book (tracks empty)
+                                // strands the user: the tab-cycle button is
+                                // .disabled(tracks.isEmpty).
+                                .toolbarVisibility(.visible, for: .navigationBar)
                         }
                     }
                 }
