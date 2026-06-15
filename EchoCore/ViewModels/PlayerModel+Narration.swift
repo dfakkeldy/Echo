@@ -93,27 +93,39 @@ extension PlayerModel {
                 let lookAhead = 2
                 for (offset, chapter) in chapters.enumerated() {
                     try Task.checkCancellation()
-                    // Render-ahead backpressure: don't synthesize more than
-                    // `lookAhead` chapters past the one currently playing, and
-                    // don't render while the *user* paused. (offset 0 always
-                    // renders first.) `awaitingNarrationChapter` means playback
-                    // auto-paused at the end of the queue waiting for THIS
-                    // chapter — never block then, or render and playback would
-                    // deadlock waiting on each other.
-                    while offset > 0,
-                        self.folderURL?.absoluteString == audiobookID,
-                        self.state.currentIndex + lookAhead < offset
-                            || (!self.isPlaying && !self.state.awaitingNarrationChapter)
+                    // Render-ahead backpressure via NarrationRenderPolicy
+                    // (extracted for testability — see NarrationRenderPolicyTests).
+                    while NarrationRenderPolicy.shouldPauseRender(
+                        offset: offset,
+                        currentPlaybackIndex: self.state.currentIndex,
+                        lookAhead: lookAhead,
+                        isPlaying: self.isPlaying,
+                        isAwaitingChapter: self.state.awaitingNarrationChapter
+                    ),
+                        NarrationRenderPolicy.bookWasSwitched(
+                            currentFolderURL: self.folderURL?.absoluteString,
+                            audiobookID: audiobookID
+                        ) == false
                     {
                         try await Task.sleep(for: .seconds(1))
                         try Task.checkCancellation()
                     }
-                    guard self.folderURL?.absoluteString == audiobookID else { return }
+                    guard
+                        NarrationRenderPolicy.bookWasSwitched(
+                            currentFolderURL: self.folderURL?.absoluteString,
+                            audiobookID: audiobookID
+                        ) == false
+                    else { return }
                     try await service.renderChapter(
                         chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
                     try Task.checkCancellation()
                     // Bail if the user switched books while this chapter rendered.
-                    guard self.folderURL?.absoluteString == audiobookID else { return }
+                    guard
+                        NarrationRenderPolicy.bookWasSwitched(
+                            currentFolderURL: self.folderURL?.absoluteString,
+                            audiobookID: audiobookID
+                        ) == false
+                    else { return }
 
                     let fileURL = cacheDirectory.appendingPathComponent(
                         NarrationFileNaming.chapterFileName(
@@ -137,14 +149,22 @@ extension PlayerModel {
                     }
                 }
                 // All chapters rendered and queued.
-                guard self.folderURL?.absoluteString == audiobookID else { return }
+                guard
+                    NarrationRenderPolicy.bookWasSwitched(
+                        currentFolderURL: self.folderURL?.absoluteString, audiobookID: audiobookID
+                    ) == false
+                else { return }
                 self.state.narrationRenderInFlight = false
                 self.narrationPlaybackState.complete()
             } catch is CancellationError {
                 // Switched books or stopped — loadFolder resets the flags.
             } catch {
                 // Don't stamp a stale failure onto a book the user switched to.
-                guard self.folderURL?.absoluteString == audiobookID else { return }
+                guard
+                    NarrationRenderPolicy.bookWasSwitched(
+                        currentFolderURL: self.folderURL?.absoluteString, audiobookID: audiobookID
+                    ) == false
+                else { return }
                 self.state.narrationRenderInFlight = false
                 self.narrationPlaybackState.fail(error.localizedDescription)
             }
