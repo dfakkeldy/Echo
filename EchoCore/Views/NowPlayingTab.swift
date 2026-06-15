@@ -105,6 +105,7 @@ struct NowPlayingTab: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+                    .accessibilityLabel(Text("Cover of \(model.currentTitle)"))
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -112,6 +113,7 @@ struct NowPlayingTab: View {
                     Image(systemName: "book.closed.fill")
                         .font(.system(size: 80))
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
                 .aspectRatio(1, contentMode: .fit)
             }
