@@ -1,0 +1,60 @@
+import SwiftUI
+
+/// Programmatic navigation destinations across Echo.
+///
+/// Each case maps to a view that can be pushed onto a tab's `NavigationStack`
+/// via `NavigationStack(path:)` + `.navigationDestination(for:)` in
+/// `RootTabView`.  Use placeholders (simple `Text` views) for sub-views that
+/// are currently `private` inside `SettingsView`; those live in a follow-up
+/// extraction task (see also: `Task 2.2` report).
+enum NavigationDestination: Hashable, Codable {
+    case settingsAppearance
+    case settingsAudio
+    case settingsChimes
+    case settingsSmartRewind
+    case settingsPhonePlayer
+    case settingsWatchApp
+    case settingsProTranscripts
+
+    @ViewBuilder
+    func view(using model: PlayerModel) -> some View {
+        switch self {
+        case .settingsAppearance:
+            // SettingsAppearanceView is private inside SettingsView —
+            // placeholder until extraction.
+            SettingsPlaceholder(title: "Appearance Settings")
+        case .settingsAudio:
+            SettingsPlaceholder(title: "Audio Settings")
+        case .settingsChimes:
+            ChimeSettingsView(engine: nil)
+        case .settingsSmartRewind:
+            SmartRewindSettingsView()
+        case .settingsPhonePlayer:
+            PhonePlayerSettingsView()
+        case .settingsWatchApp:
+            WatchAppSettingsView()
+        case .settingsProTranscripts:
+            // ProTranscriptsSettingsView is private inside SettingsView —
+            // placeholder until extraction.
+            SettingsPlaceholder(title: "Pro Transcripts Settings")
+        }
+    }
+}
+
+// MARK: - Placeholder
+
+/// Temporary stand-in for sub-views that are still `private` inside
+/// `SettingsView` and have not yet been extracted into their own file.
+private struct SettingsPlaceholder: View {
+    let title: String
+
+    var body: some View {
+        Form {
+            Section {
+                Text("\(title) — coming soon")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle(title)
+    }
+}

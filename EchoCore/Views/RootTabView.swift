@@ -21,6 +21,10 @@ struct RootTabView: View {
     @State private var reviewViewModel: DailyReviewViewModel?
     @State private var editingIdentifiableUUID: IdentifiableUUID?
 
+    @State private var nowPlayingPath = NavigationPath()
+    @State private var readPath = NavigationPath()
+    @State private var timelinePath = NavigationPath()
+
     init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
         _pendingDeepLink = pendingDeepLink
     }
@@ -40,7 +44,7 @@ struct RootTabView: View {
             Group {
                 switch model.selectedTab {
                 case .nowPlaying:
-                    NavigationStack {
+                    NavigationStack(path: $nowPlayingPath) {
                         NowPlayingTab(
                             showsBookSettings: model.folderURL != nil,
                             openFolder: { showingFolderPicker = true },
@@ -50,9 +54,12 @@ struct RootTabView: View {
                             onCreateBookmark: { draft in newBookmarkDraft = draft }
                         )
                         .toolbarVisibility(.hidden, for: .navigationBar)
+                        .navigationDestination(for: NavigationDestination.self) { dest in
+                            dest.view(using: model)
+                        }
                     }
                 case .read:
-                    NavigationStack {
+                    NavigationStack(path: $readPath) {
                         Group {
                             if model.hasEPUB {
                                 ReaderTab(folderURL: model.folderURL!)
@@ -71,15 +78,21 @@ struct RootTabView: View {
                             }
                         }
                         .toolbarVisibility(.hidden, for: .navigationBar)
+                        .navigationDestination(for: NavigationDestination.self) { dest in
+                            dest.view(using: model)
+                        }
                     }
                 case .timeline:
-                    NavigationStack {
+                    NavigationStack(path: $timelinePath) {
                         TimelineTab(
                             onReviewTap: { launchReview() },
                             onEditBookmark: { id in editingBookmarkID = id },
                             onCreateBookmark: { draft in newBookmarkDraft = draft }
                         )
                         .toolbarVisibility(.hidden, for: .navigationBar)
+                        .navigationDestination(for: NavigationDestination.self) { dest in
+                            dest.view(using: model)
+                        }
                     }
                 }
             }
