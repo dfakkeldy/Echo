@@ -526,6 +526,7 @@ struct ReaderTab: View {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
                     }
+                    .accessibilityLabel(Text("Clear search"))
                 }
             }
             .padding(.horizontal, 12)
