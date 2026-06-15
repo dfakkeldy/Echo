@@ -408,44 +408,14 @@ struct ReaderTab: View {
 
         // Check if alignment is entirely auto-estimated (no user-created anchors yet).
         // Only show the alignment banner after the one-time context-menu hint has been dismissed.
-        do {
-            let lockedCount = try db.writer.read { db in
-                try Int.fetchOne(
-                    db,
-                    sql: """
-                        SELECT COUNT(*) FROM alignment_anchor
-                        WHERE audiobook_id = ? AND source != 'auto'
-                        """, arguments: [audiobookID]
-                ) ?? 0
-            }
-            if lockedCount == 0 {
-                showAlignmentBanner = true
-            }
-        } catch {
-            // Best-effort — hide banner if we can't query
-            showAlignmentBanner = false
-        }
+        showAlignmentBanner = !vm.hasUserAlignmentAnchors(audiobookID: audiobookID)
     }
 
     private func seekToBlock(_ blockID: String) {
-        guard let db = model.databaseService else { return }
+        guard let vm = viewModel else { return }
         let audiobookID = folderURL.absoluteString
-        do {
-            let startTime: Double? = try db.writer.read { db in
-                try Row.fetchOne(
-                    db,
-                    sql: """
-                        SELECT audio_start_time FROM timeline_item
-                        WHERE epub_block_id = ? AND audiobook_id = ?
-                        LIMIT 1
-                        """, arguments: [blockID, audiobookID]
-                )?["audio_start_time"]
-            }
-            if let time = startTime, time >= 0 {
-                model.playbackController.seek(to: time)
-            }
-        } catch {
-            // Seek is best-effort
+        if let time = vm.audioStartTime(for: blockID, audiobookID: audiobookID), time >= 0 {
+            model.playbackController.seek(to: time)
         }
     }
 

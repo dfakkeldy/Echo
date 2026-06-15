@@ -284,6 +284,31 @@ final class ReaderFeedViewModel {
         }
     }
 
+    /// Check if any user-created alignment anchors exist (not auto-generated).
+    func hasUserAlignmentAnchors(audiobookID: String) -> Bool {
+        (try? db.read { database in
+            try Int.fetchOne(
+                database,
+                sql: """
+                        SELECT COUNT(*) FROM alignment_anchor
+                        WHERE audiobook_id = ? AND source != 'auto'
+                    """, arguments: [audiobookID]) ?? 0 > 0
+        }) ?? false
+    }
+
+    /// Fetch audio start time for a specific EPUB block.
+    func audioStartTime(for epubBlockID: String, audiobookID: String) -> Double? {
+        try? db.read { database in
+            try Double.fetchOne(
+                database,
+                sql: """
+                        SELECT audio_start_time FROM timeline_item
+                        WHERE audiobook_id = ? AND epub_block_id = ?
+                        LIMIT 1
+                    """, arguments: [audiobookID, epubBlockID])
+        }
+    }
+
     /// Whether a block belongs to the given chapter scope. Mirrors the resolver:
     /// `nil` scope = whole-book (everything); otherwise a block is in scope when
     /// its chapter index is in the set, and nil-chapter (front-matter) blocks
