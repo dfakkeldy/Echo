@@ -25,7 +25,9 @@ final class SettingsManager {
         static let crownScrubSensitivity = 0.5
         static let defaultPlaybackSpeed = 1.25
         static let speedPresets: [Float] = [1.0, 1.25, 1.5, 2.0, 3.0]
-        static let watchPage1: [WatchAction] = [.empty, .empty, .skipBackward, .playPause, .skipForward]
+        static let watchPage1: [WatchAction] = [
+            .empty, .empty, .skipBackward, .playPause, .skipForward,
+        ]
         static let watchPage2: [WatchAction] = [.loopMode, .empty, .speed, .sleepTimer, .bookmark]
         static let watchPage3: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let watchPage4: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
@@ -44,7 +46,9 @@ final class SettingsManager {
         static let watchDateFormat = "auto"
         static let truncateChapterNamesEnabled = false
         static let silenceDetectionLookbackSeconds = 10.0
-        static let phonePage: [WatchAction] = [.previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack]
+        static let phonePage: [WatchAction] = [
+            .previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack,
+        ]
         static let phoneLongPressPage: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let miniPlayerPage: [WatchAction] = [.skipBackward, .playPause, .skipForward]
         static let volumeBoostGain: Float = 9.0
@@ -112,6 +116,7 @@ final class SettingsManager {
         static let watchPresets = "watchPresets"
         static let phonePresets = "phonePresets"
         static let playerLayoutStyle = "playerLayoutStyle"
+        static let narrationVoiceID = "narrationVoiceID"
         static let readerFontSize = "readerFontSize"
         static let readerLineSpacing = "readerLineSpacing"
         static let readerCardTint = "readerCardTint"
@@ -144,60 +149,153 @@ final class SettingsManager {
     var appAppearance: String { didSet { defaults.set(appAppearance, forKey: Keys.appAppearance) } }
     var appFont: String { didSet { defaults.set(appFont, forKey: Keys.appFont) } }
     var themeColor: String { didSet { defaults.set(themeColor, forKey: Keys.themeColor) } }
-    var playerLayoutStyle: String { didSet { defaults.set(playerLayoutStyle, forKey: Keys.playerLayoutStyle) } }
+    var playerLayoutStyle: String {
+        didSet { defaults.set(playerLayoutStyle, forKey: Keys.playerLayoutStyle) }
+    }
+    var narrationVoiceID: String {
+        didSet { defaults.set(narrationVoiceID, forKey: Keys.narrationVoiceID) }
+    }
 
     // MARK: - Smart Rewind
 
-    var isRewindEnabled: Bool { didSet { defaults.set(isRewindEnabled, forKey: Keys.isRewindEnabled) } }
-    var rewindPauseSecondsThreshold: Int { didSet { defaults.set(rewindPauseSecondsThreshold, forKey: Keys.rewindPauseSecondsThreshold) } }
-    var rewindAmountAfterSeconds: Int { didSet { defaults.set(rewindAmountAfterSeconds, forKey: Keys.rewindAmountAfterSeconds) } }
-    var rewindPauseMinutesThreshold: Int { didSet { defaults.set(rewindPauseMinutesThreshold, forKey: Keys.rewindPauseMinutesThreshold) } }
-    var rewindAmountAfterMinutes: Int { didSet { defaults.set(rewindAmountAfterMinutes, forKey: Keys.rewindAmountAfterMinutes) } }
-    var rewindPauseHoursThreshold: Int { didSet { defaults.set(rewindPauseHoursThreshold, forKey: Keys.rewindPauseHoursThreshold) } }
-    var rewindAmountAfterHours: Int { didSet { defaults.set(rewindAmountAfterHours, forKey: Keys.rewindAmountAfterHours) } }
-    var rewindHoursToChapterStart: Bool { didSet { defaults.set(rewindHoursToChapterStart, forKey: Keys.rewindHoursToChapterStart) } }
+    var isRewindEnabled: Bool {
+        didSet { defaults.set(isRewindEnabled, forKey: Keys.isRewindEnabled) }
+    }
+    var rewindPauseSecondsThreshold: Int {
+        didSet {
+            defaults.set(rewindPauseSecondsThreshold, forKey: Keys.rewindPauseSecondsThreshold)
+        }
+    }
+    var rewindAmountAfterSeconds: Int {
+        didSet { defaults.set(rewindAmountAfterSeconds, forKey: Keys.rewindAmountAfterSeconds) }
+    }
+    var rewindPauseMinutesThreshold: Int {
+        didSet {
+            defaults.set(rewindPauseMinutesThreshold, forKey: Keys.rewindPauseMinutesThreshold)
+        }
+    }
+    var rewindAmountAfterMinutes: Int {
+        didSet { defaults.set(rewindAmountAfterMinutes, forKey: Keys.rewindAmountAfterMinutes) }
+    }
+    var rewindPauseHoursThreshold: Int {
+        didSet { defaults.set(rewindPauseHoursThreshold, forKey: Keys.rewindPauseHoursThreshold) }
+    }
+    var rewindAmountAfterHours: Int {
+        didSet { defaults.set(rewindAmountAfterHours, forKey: Keys.rewindAmountAfterHours) }
+    }
+    var rewindHoursToChapterStart: Bool {
+        didSet { defaults.set(rewindHoursToChapterStart, forKey: Keys.rewindHoursToChapterStart) }
+    }
 
     // MARK: - Playback
 
-    var defaultPlaybackSpeed: Double { didSet { defaults.set(defaultPlaybackSpeed, forKey: Keys.defaultPlaybackSpeed) } }
-    var playBookmarksInline: Bool { didSet { defaults.set(playBookmarksInline, forKey: Keys.playBookmarksInline) } }
+    var defaultPlaybackSpeed: Double {
+        didSet { defaults.set(defaultPlaybackSpeed, forKey: Keys.defaultPlaybackSpeed) }
+    }
+    var playBookmarksInline: Bool {
+        didSet { defaults.set(playBookmarksInline, forKey: Keys.playBookmarksInline) }
+    }
 
     // MARK: - Silence Detection
 
-    var silenceDetectionLookbackSeconds: Double { didSet { defaults.set(silenceDetectionLookbackSeconds, forKey: Keys.silenceDetectionLookbackSeconds) } }
+    var silenceDetectionLookbackSeconds: Double {
+        didSet {
+            defaults.set(
+                silenceDetectionLookbackSeconds, forKey: Keys.silenceDetectionLookbackSeconds)
+        }
+    }
 
     // MARK: - Customizable Phone Controls & Presets
-    var phonePage: [WatchAction] { didSet { defaults.set(try? JSONEncoder().encode(phonePage), forKey: Keys.phonePage) } }
-    var phoneLongPressPage: [WatchAction] { didSet { defaults.set(try? JSONEncoder().encode(phoneLongPressPage), forKey: Keys.phoneLongPressPage) } }
-    var miniPlayerPage: [WatchAction] { didSet { defaults.set(try? JSONEncoder().encode(miniPlayerPage), forKey: Keys.miniPlayerPage) } }
-    var seekBackwardDuration: Int { didSet { defaults.set(seekBackwardDuration, forKey: Keys.seekBackwardDuration) } }
-    var seekForwardDuration: Int { didSet { defaults.set(seekForwardDuration, forKey: Keys.seekForwardDuration) } }
-    var watchPresets: [WatchPreset] { didSet { defaults.set(try? JSONEncoder().encode(watchPresets), forKey: Keys.watchPresets) } }
-    var phonePresets: [PhonePreset] { didSet { defaults.set(try? JSONEncoder().encode(phonePresets), forKey: Keys.phonePresets) } }
+    var phonePage: [WatchAction] {
+        didSet { defaults.set(try? JSONEncoder().encode(phonePage), forKey: Keys.phonePage) }
+    }
+    var phoneLongPressPage: [WatchAction] {
+        didSet {
+            defaults.set(
+                try? JSONEncoder().encode(phoneLongPressPage), forKey: Keys.phoneLongPressPage)
+        }
+    }
+    var miniPlayerPage: [WatchAction] {
+        didSet {
+            defaults.set(try? JSONEncoder().encode(miniPlayerPage), forKey: Keys.miniPlayerPage)
+        }
+    }
+    var seekBackwardDuration: Int {
+        didSet { defaults.set(seekBackwardDuration, forKey: Keys.seekBackwardDuration) }
+    }
+    var seekForwardDuration: Int {
+        didSet { defaults.set(seekForwardDuration, forKey: Keys.seekForwardDuration) }
+    }
+    var watchPresets: [WatchPreset] {
+        didSet { defaults.set(try? JSONEncoder().encode(watchPresets), forKey: Keys.watchPresets) }
+    }
+    var phonePresets: [PhonePreset] {
+        didSet { defaults.set(try? JSONEncoder().encode(phonePresets), forKey: Keys.phonePresets) }
+    }
 
     // MARK: - Watch
 
     var crownAction: String { didSet { appGroupSet(crownAction, forKey: Keys.crownAction) } }
-    var crownVolumeSensitivity: Double { didSet { defaults.set(crownVolumeSensitivity, forKey: Keys.crownVolumeSensitivity) } }
-    var crownScrubSensitivity: Double { didSet { defaults.set(crownScrubSensitivity, forKey: Keys.crownScrubSensitivity) } }
-    var watchPage1: [WatchAction] { didSet { appGroupSet(try? JSONEncoder().encode(watchPage1), forKey: Keys.watchPage1) } }
-    var watchPage2: [WatchAction] { didSet { appGroupSet(try? JSONEncoder().encode(watchPage2), forKey: Keys.watchPage2) } }
-    var watchPage3: [WatchAction] { didSet { appGroupSet(try? JSONEncoder().encode(watchPage3), forKey: Keys.watchPage3) } }
-    var watchPage4: [WatchAction] { didSet { appGroupSet(try? JSONEncoder().encode(watchPage4), forKey: Keys.watchPage4) } }
-    var watchPage5: [WatchAction] { didSet { appGroupSet(try? JSONEncoder().encode(watchPage5), forKey: Keys.watchPage5) } }
+    var crownVolumeSensitivity: Double {
+        didSet { defaults.set(crownVolumeSensitivity, forKey: Keys.crownVolumeSensitivity) }
+    }
+    var crownScrubSensitivity: Double {
+        didSet { defaults.set(crownScrubSensitivity, forKey: Keys.crownScrubSensitivity) }
+    }
+    var watchPage1: [WatchAction] {
+        didSet { appGroupSet(try? JSONEncoder().encode(watchPage1), forKey: Keys.watchPage1) }
+    }
+    var watchPage2: [WatchAction] {
+        didSet { appGroupSet(try? JSONEncoder().encode(watchPage2), forKey: Keys.watchPage2) }
+    }
+    var watchPage3: [WatchAction] {
+        didSet { appGroupSet(try? JSONEncoder().encode(watchPage3), forKey: Keys.watchPage3) }
+    }
+    var watchPage4: [WatchAction] {
+        didSet { appGroupSet(try? JSONEncoder().encode(watchPage4), forKey: Keys.watchPage4) }
+    }
+    var watchPage5: [WatchAction] {
+        didSet { appGroupSet(try? JSONEncoder().encode(watchPage5), forKey: Keys.watchPage5) }
+    }
     var linearBarMode: String { didSet { appGroupSet(linearBarMode, forKey: Keys.linearBarMode) } }
-    var linearBarHidden: Bool { didSet { appGroupSet(linearBarHidden, forKey: Keys.linearBarHidden) } }
-    var circularRingMode: String { didSet { appGroupSet(circularRingMode, forKey: Keys.circularRingMode) } }
-    var circularRingHidden: Bool { didSet { appGroupSet(circularRingHidden, forKey: Keys.circularRingHidden) } }
-    var watchArtworkLayout: String { didSet { appGroupSet(watchArtworkLayout, forKey: Keys.watchArtworkLayout) } }
-    var watchBackgroundStyle: String { didSet { appGroupSet(watchBackgroundStyle, forKey: Keys.watchBackgroundStyle) } }
-    var watchTitleScrollEnabled: Bool { didSet { appGroupSet(watchTitleScrollEnabled, forKey: Keys.watchTitleScrollEnabled) } }
-    var watchTitleScrollSpeed: Double { didSet { appGroupSet(watchTitleScrollSpeed, forKey: Keys.watchTitleScrollSpeed) } }
-    var isHapticFeedbackEnabled: Bool { didSet { appGroupSet(isHapticFeedbackEnabled, forKey: Keys.isHapticFeedbackEnabled) } }
-    var truncateChapterNamesEnabled: Bool { didSet { appGroupSet(truncateChapterNamesEnabled, forKey: Keys.truncateChapterNamesEnabled) } }
-    var volumeBoostGain: Float { didSet { defaults.set(volumeBoostGain, forKey: Keys.volumeBoostGain) } }
-    var watchDateEnabled: Bool { didSet { appGroupSet(watchDateEnabled, forKey: Keys.watchDateEnabled) } }
-    var watchDateFormat: String { didSet { appGroupSet(watchDateFormat, forKey: Keys.watchDateFormat) } }
+    var linearBarHidden: Bool {
+        didSet { appGroupSet(linearBarHidden, forKey: Keys.linearBarHidden) }
+    }
+    var circularRingMode: String {
+        didSet { appGroupSet(circularRingMode, forKey: Keys.circularRingMode) }
+    }
+    var circularRingHidden: Bool {
+        didSet { appGroupSet(circularRingHidden, forKey: Keys.circularRingHidden) }
+    }
+    var watchArtworkLayout: String {
+        didSet { appGroupSet(watchArtworkLayout, forKey: Keys.watchArtworkLayout) }
+    }
+    var watchBackgroundStyle: String {
+        didSet { appGroupSet(watchBackgroundStyle, forKey: Keys.watchBackgroundStyle) }
+    }
+    var watchTitleScrollEnabled: Bool {
+        didSet { appGroupSet(watchTitleScrollEnabled, forKey: Keys.watchTitleScrollEnabled) }
+    }
+    var watchTitleScrollSpeed: Double {
+        didSet { appGroupSet(watchTitleScrollSpeed, forKey: Keys.watchTitleScrollSpeed) }
+    }
+    var isHapticFeedbackEnabled: Bool {
+        didSet { appGroupSet(isHapticFeedbackEnabled, forKey: Keys.isHapticFeedbackEnabled) }
+    }
+    var truncateChapterNamesEnabled: Bool {
+        didSet {
+            appGroupSet(truncateChapterNamesEnabled, forKey: Keys.truncateChapterNamesEnabled)
+        }
+    }
+    var volumeBoostGain: Float {
+        didSet { defaults.set(volumeBoostGain, forKey: Keys.volumeBoostGain) }
+    }
+    var watchDateEnabled: Bool {
+        didSet { appGroupSet(watchDateEnabled, forKey: Keys.watchDateEnabled) }
+    }
+    var watchDateFormat: String {
+        didSet { appGroupSet(watchDateFormat, forKey: Keys.watchDateFormat) }
+    }
 
     // MARK: - Reader
 
@@ -207,7 +305,9 @@ final class SettingsManager {
     }
 
     var readerLineSpacing: Double {
-        get { defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing }
+        get {
+            defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing
+        }
         set { defaults.set(newValue, forKey: Keys.readerLineSpacing) }
     }
 
@@ -218,20 +318,50 @@ final class SettingsManager {
 
     // MARK: - Auto-Alignment
 
-    var autoAlignmentEnabled: Bool { didSet { defaults.set(autoAlignmentEnabled, forKey: Keys.autoAlignmentEnabled) } }
-    var locationCaptureEnabled: Bool { didSet { defaults.set(locationCaptureEnabled, forKey: Keys.locationCaptureEnabled) } }
-    var autoAlignmentModelSize: String { didSet { defaults.set(autoAlignmentModelSize, forKey: Keys.autoAlignmentModelSize) } }
-    var autoAlignmentChapterSnapEnabled: Bool { didSet { defaults.set(autoAlignmentChapterSnapEnabled, forKey: Keys.autoAlignmentChapterSnapEnabled) } }
-    var autoAlignmentDriftDetectionEnabled: Bool { didSet { defaults.set(autoAlignmentDriftDetectionEnabled, forKey: Keys.autoAlignmentDriftDetectionEnabled) } }
-    var autoAlignmentDriftRepairEnabled: Bool { didSet { defaults.set(autoAlignmentDriftRepairEnabled, forKey: Keys.autoAlignmentDriftRepairEnabled) } }
-    var continuousAutoAlignmentEnabled: Bool { didSet { defaults.set(continuousAutoAlignmentEnabled, forKey: Keys.continuousAutoAlignmentEnabled) } }
+    var autoAlignmentEnabled: Bool {
+        didSet { defaults.set(autoAlignmentEnabled, forKey: Keys.autoAlignmentEnabled) }
+    }
+    var locationCaptureEnabled: Bool {
+        didSet { defaults.set(locationCaptureEnabled, forKey: Keys.locationCaptureEnabled) }
+    }
+    var autoAlignmentModelSize: String {
+        didSet { defaults.set(autoAlignmentModelSize, forKey: Keys.autoAlignmentModelSize) }
+    }
+    var autoAlignmentChapterSnapEnabled: Bool {
+        didSet {
+            defaults.set(
+                autoAlignmentChapterSnapEnabled, forKey: Keys.autoAlignmentChapterSnapEnabled)
+        }
+    }
+    var autoAlignmentDriftDetectionEnabled: Bool {
+        didSet {
+            defaults.set(
+                autoAlignmentDriftDetectionEnabled, forKey: Keys.autoAlignmentDriftDetectionEnabled)
+        }
+    }
+    var autoAlignmentDriftRepairEnabled: Bool {
+        didSet {
+            defaults.set(
+                autoAlignmentDriftRepairEnabled, forKey: Keys.autoAlignmentDriftRepairEnabled)
+        }
+    }
+    var continuousAutoAlignmentEnabled: Bool {
+        didSet {
+            defaults.set(
+                continuousAutoAlignmentEnabled, forKey: Keys.continuousAutoAlignmentEnabled)
+        }
+    }
 
     // MARK: - Focus (Soundscapes & Chimes)
 
-    var chimeInterval: TimeInterval { didSet { defaults.set(chimeInterval, forKey: Keys.chimeInterval) } }
+    var chimeInterval: TimeInterval {
+        didSet { defaults.set(chimeInterval, forKey: Keys.chimeInterval) }
+    }
     var chimeSound: String { didSet { defaults.set(chimeSound, forKey: Keys.chimeSound) } }
     var chimeVolume: Double { didSet { defaults.set(chimeVolume, forKey: Keys.chimeVolume) } }
-    var soundscapeVolume: Float { didSet { defaults.set(soundscapeVolume, forKey: Keys.soundscapeVolume) } }
+    var soundscapeVolume: Float {
+        didSet { defaults.set(soundscapeVolume, forKey: Keys.soundscapeVolume) }
+    }
 
     var watchQuickBookmarkTimeoutSeconds: Int {
         didSet {
@@ -247,7 +377,8 @@ final class SettingsManager {
         defaults: UserDefaults = .standard,
         appGroupDefaults: UserDefaults = {
             guard let d = UserDefaults(suiteName: "group.com.echo.audiobooks") else {
-                assertionFailure("Unable to open app-group UserDefaults suite: group.com.echo.audiobooks")
+                assertionFailure(
+                    "Unable to open app-group UserDefaults suite: group.com.echo.audiobooks")
                 // Use a distinct fallback suite so watch-facing settings don't
                 // leak into .standard where the Watch cannot read them.
                 return UserDefaults(suiteName: "group.com.echo.audiobooks.fallback") ?? .standard
@@ -264,7 +395,8 @@ final class SettingsManager {
         // One-time migration: copy watch-facing settings from standard defaults
         // to the App Group suite so the Watch and Widget can read them directly.
         if isAppGroupAvailable,
-           !appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2") {
+            !appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2")
+        {
             let watchKeys: [(String, () -> Any?)] = [
                 (Keys.crownAction, { defaults.object(forKey: Keys.crownAction) }),
                 (Keys.watchPage1, { defaults.object(forKey: Keys.watchPage1) }),
@@ -278,11 +410,26 @@ final class SettingsManager {
                 (Keys.circularRingHidden, { defaults.object(forKey: Keys.circularRingHidden) }),
                 (Keys.watchArtworkLayout, { defaults.object(forKey: Keys.watchArtworkLayout) }),
                 (Keys.watchBackgroundStyle, { defaults.object(forKey: Keys.watchBackgroundStyle) }),
-                (Keys.watchTitleScrollEnabled, { defaults.object(forKey: Keys.watchTitleScrollEnabled) }),
-                (Keys.watchTitleScrollSpeed, { defaults.object(forKey: Keys.watchTitleScrollSpeed) }),
-                (Keys.isHapticFeedbackEnabled, { defaults.object(forKey: Keys.isHapticFeedbackEnabled) }),
-                (Keys.truncateChapterNamesEnabled, { defaults.object(forKey: Keys.truncateChapterNamesEnabled) }),
-                (Keys.watchQuickBookmarkTimeoutSeconds, { defaults.object(forKey: Keys.watchQuickBookmarkTimeoutSeconds) }),
+                (
+                    Keys.watchTitleScrollEnabled,
+                    { defaults.object(forKey: Keys.watchTitleScrollEnabled) }
+                ),
+                (
+                    Keys.watchTitleScrollSpeed,
+                    { defaults.object(forKey: Keys.watchTitleScrollSpeed) }
+                ),
+                (
+                    Keys.isHapticFeedbackEnabled,
+                    { defaults.object(forKey: Keys.isHapticFeedbackEnabled) }
+                ),
+                (
+                    Keys.truncateChapterNamesEnabled,
+                    { defaults.object(forKey: Keys.truncateChapterNamesEnabled) }
+                ),
+                (
+                    Keys.watchQuickBookmarkTimeoutSeconds,
+                    { defaults.object(forKey: Keys.watchQuickBookmarkTimeoutSeconds) }
+                ),
             ]
             for (key, read) in watchKeys {
                 if appGroupDefaults.object(forKey: key) == nil, let value = read() {
@@ -299,13 +446,14 @@ final class SettingsManager {
                 appAppearance = migrated
                 defaults.set(migrated, forKey: Keys.appAppearance)
             } else {
-                appAppearance = defaults.string(forKey: Keys.appAppearance) ?? Defaults.appAppearance
+                appAppearance =
+                    defaults.string(forKey: Keys.appAppearance) ?? Defaults.appAppearance
             }
             defaults.removeObject(forKey: "isDarkMode")
         } else {
             appAppearance = defaults.string(forKey: Keys.appAppearance) ?? Defaults.appAppearance
         }
-        
+
         let storedAppFont = defaults.string(forKey: Keys.appFont) ?? Defaults.appFont
         let normalizedAppFont = Self.normalizedAppFont(storedAppFont)
         appFont = normalizedAppFont
@@ -313,7 +461,10 @@ final class SettingsManager {
             defaults.set(normalizedAppFont, forKey: Keys.appFont)
         }
         themeColor = defaults.string(forKey: Keys.themeColor) ?? Defaults.themeColor
-        playerLayoutStyle = defaults.string(forKey: Keys.playerLayoutStyle) ?? Defaults.playerLayoutStyle
+        playerLayoutStyle =
+            defaults.string(forKey: Keys.playerLayoutStyle) ?? Defaults.playerLayoutStyle
+        narrationVoiceID =
+            defaults.string(forKey: Keys.narrationVoiceID) ?? ""
         isRewindEnabled = defaults.bool(forKey: Keys.isRewindEnabled)
         rewindPauseSecondsThreshold = defaults.integer(forKey: Keys.rewindPauseSecondsThreshold)
         rewindAmountAfterSeconds = defaults.integer(forKey: Keys.rewindAmountAfterSeconds)
@@ -322,81 +473,123 @@ final class SettingsManager {
         rewindPauseHoursThreshold = defaults.integer(forKey: Keys.rewindPauseHoursThreshold)
         rewindAmountAfterHours = defaults.integer(forKey: Keys.rewindAmountAfterHours)
         rewindHoursToChapterStart = defaults.bool(forKey: Keys.rewindHoursToChapterStart)
-        defaultPlaybackSpeed = defaults.object(forKey: Keys.defaultPlaybackSpeed) as? Double ?? Defaults.defaultPlaybackSpeed
+        defaultPlaybackSpeed =
+            defaults.object(forKey: Keys.defaultPlaybackSpeed) as? Double
+            ?? Defaults.defaultPlaybackSpeed
         playBookmarksInline = defaults.bool(forKey: Keys.playBookmarksInline)
-        silenceDetectionLookbackSeconds = defaults.double(forKey: Keys.silenceDetectionLookbackSeconds)
+        silenceDetectionLookbackSeconds = defaults.double(
+            forKey: Keys.silenceDetectionLookbackSeconds)
         crownAction = appGroupDefaults.string(forKey: Keys.crownAction) ?? Defaults.crownAction
         crownVolumeSensitivity = defaults.double(forKey: Keys.crownVolumeSensitivity)
         crownScrubSensitivity = defaults.double(forKey: Keys.crownScrubSensitivity)
-        watchPage1 = Self.decodeWatchPage(key: Keys.watchPage1, from: appGroupDefaults, fallback: Defaults.watchPage1)
-        watchPage2 = Self.decodeWatchPage(key: Keys.watchPage2, from: appGroupDefaults, fallback: Defaults.watchPage2)
-        watchPage3 = Self.decodeWatchPage(key: Keys.watchPage3, from: appGroupDefaults, fallback: Defaults.watchPage3)
-        watchPage4 = Self.decodeWatchPage(key: Keys.watchPage4, from: appGroupDefaults, fallback: Defaults.watchPage4)
-        watchPage5 = Self.decodeWatchPage(key: Keys.watchPage5, from: appGroupDefaults, fallback: Defaults.watchPage5)
-        linearBarMode = appGroupDefaults.string(forKey: Keys.linearBarMode) ?? Defaults.linearBarMode
+        watchPage1 = Self.decodeWatchPage(
+            key: Keys.watchPage1, from: appGroupDefaults, fallback: Defaults.watchPage1)
+        watchPage2 = Self.decodeWatchPage(
+            key: Keys.watchPage2, from: appGroupDefaults, fallback: Defaults.watchPage2)
+        watchPage3 = Self.decodeWatchPage(
+            key: Keys.watchPage3, from: appGroupDefaults, fallback: Defaults.watchPage3)
+        watchPage4 = Self.decodeWatchPage(
+            key: Keys.watchPage4, from: appGroupDefaults, fallback: Defaults.watchPage4)
+        watchPage5 = Self.decodeWatchPage(
+            key: Keys.watchPage5, from: appGroupDefaults, fallback: Defaults.watchPage5)
+        linearBarMode =
+            appGroupDefaults.string(forKey: Keys.linearBarMode) ?? Defaults.linearBarMode
         linearBarHidden = appGroupDefaults.bool(forKey: Keys.linearBarHidden)
-        circularRingMode = appGroupDefaults.string(forKey: Keys.circularRingMode) ?? Defaults.circularRingMode
+        circularRingMode =
+            appGroupDefaults.string(forKey: Keys.circularRingMode) ?? Defaults.circularRingMode
         circularRingHidden = appGroupDefaults.bool(forKey: Keys.circularRingHidden)
-        watchArtworkLayout = appGroupDefaults.string(forKey: Keys.watchArtworkLayout) ?? Defaults.watchArtworkLayout
-        watchBackgroundStyle = appGroupDefaults.string(forKey: Keys.watchBackgroundStyle) ?? Defaults.watchBackgroundStyle
+        watchArtworkLayout =
+            appGroupDefaults.string(forKey: Keys.watchArtworkLayout) ?? Defaults.watchArtworkLayout
+        watchBackgroundStyle =
+            appGroupDefaults.string(forKey: Keys.watchBackgroundStyle)
+            ?? Defaults.watchBackgroundStyle
         watchTitleScrollEnabled = appGroupDefaults.bool(forKey: Keys.watchTitleScrollEnabled)
-        if let storedSpeed = appGroupDefaults.object(forKey: Keys.watchTitleScrollSpeed) as? Double {
+        if let storedSpeed = appGroupDefaults.object(forKey: Keys.watchTitleScrollSpeed) as? Double
+        {
             watchTitleScrollSpeed = storedSpeed
         } else {
             watchTitleScrollSpeed = Defaults.watchTitleScrollSpeed
         }
         isHapticFeedbackEnabled = appGroupDefaults.bool(forKey: Keys.isHapticFeedbackEnabled)
-        truncateChapterNamesEnabled = appGroupDefaults.bool(forKey: Keys.truncateChapterNamesEnabled)
-        volumeBoostGain = defaults.object(forKey: Keys.volumeBoostGain) as? Float ?? Defaults.volumeBoostGain
+        truncateChapterNamesEnabled = appGroupDefaults.bool(
+            forKey: Keys.truncateChapterNamesEnabled)
+        volumeBoostGain =
+            defaults.object(forKey: Keys.volumeBoostGain) as? Float ?? Defaults.volumeBoostGain
         watchQuickBookmarkTimeoutSeconds = max(
             1,
             appGroupDefaults.integer(forKey: Keys.watchQuickBookmarkTimeoutSeconds)
         )
-        watchDateEnabled = appGroupDefaults.object(forKey: Keys.watchDateEnabled) as? Bool ?? Defaults.watchDateEnabled
-        watchDateFormat = appGroupDefaults.string(forKey: Keys.watchDateFormat) ?? Defaults.watchDateFormat
-        phonePage = Self.decodeWatchPage(key: Keys.phonePage, from: defaults, fallback: Defaults.phonePage)
-        phoneLongPressPage = Self.decodeWatchPage(key: Keys.phoneLongPressPage, from: defaults, fallback: Defaults.phoneLongPressPage)
-        miniPlayerPage = Self.decodeWatchPage(key: Keys.miniPlayerPage, from: defaults, fallback: Defaults.miniPlayerPage)
-        
+        watchDateEnabled =
+            appGroupDefaults.object(forKey: Keys.watchDateEnabled) as? Bool
+            ?? Defaults.watchDateEnabled
+        watchDateFormat =
+            appGroupDefaults.string(forKey: Keys.watchDateFormat) ?? Defaults.watchDateFormat
+        phonePage = Self.decodeWatchPage(
+            key: Keys.phonePage, from: defaults, fallback: Defaults.phonePage)
+        phoneLongPressPage = Self.decodeWatchPage(
+            key: Keys.phoneLongPressPage, from: defaults, fallback: Defaults.phoneLongPressPage)
+        miniPlayerPage = Self.decodeWatchPage(
+            key: Keys.miniPlayerPage, from: defaults, fallback: Defaults.miniPlayerPage)
+
         let storedSeekBackward = defaults.integer(forKey: Keys.seekBackwardDuration)
-        seekBackwardDuration = storedSeekBackward == 0 ? Defaults.seekBackwardDuration : storedSeekBackward
-        
+        seekBackwardDuration =
+            storedSeekBackward == 0 ? Defaults.seekBackwardDuration : storedSeekBackward
+
         let storedSeekForward = defaults.integer(forKey: Keys.seekForwardDuration)
-        seekForwardDuration = storedSeekForward == 0 ? Defaults.seekForwardDuration : storedSeekForward
-        
+        seekForwardDuration =
+            storedSeekForward == 0 ? Defaults.seekForwardDuration : storedSeekForward
+
         if let presetsData = defaults.data(forKey: Keys.watchPresets),
-           let decoded = try? JSONDecoder().decode([WatchPreset].self, from: presetsData) {
+            let decoded = try? JSONDecoder().decode([WatchPreset].self, from: presetsData)
+        {
             watchPresets = decoded
         } else {
             watchPresets = []
         }
-        
+
         if let presetsData = defaults.data(forKey: Keys.phonePresets),
-           let decoded = try? JSONDecoder().decode([PhonePreset].self, from: presetsData) {
+            let decoded = try? JSONDecoder().decode([PhonePreset].self, from: presetsData)
+        {
             phonePresets = decoded
         } else {
             phonePresets = []
         }
 
-        autoAlignmentEnabled = defaults.object(forKey: Keys.autoAlignmentEnabled) as? Bool ?? Defaults.autoAlignmentEnabled
-        locationCaptureEnabled = defaults.object(forKey: Keys.locationCaptureEnabled) as? Bool ?? Defaults.locationCaptureEnabled
-        autoAlignmentModelSize = defaults.string(forKey: Keys.autoAlignmentModelSize) ?? Defaults.autoAlignmentModelSize
-        autoAlignmentChapterSnapEnabled = defaults.object(forKey: Keys.autoAlignmentChapterSnapEnabled) as? Bool ?? Defaults.autoAlignmentChapterSnapEnabled
-        autoAlignmentDriftDetectionEnabled = defaults.object(forKey: Keys.autoAlignmentDriftDetectionEnabled) as? Bool ?? Defaults.autoAlignmentDriftDetectionEnabled
-        autoAlignmentDriftRepairEnabled = defaults.object(forKey: Keys.autoAlignmentDriftRepairEnabled) as? Bool ?? Defaults.autoAlignmentDriftRepairEnabled
-        continuousAutoAlignmentEnabled = defaults.object(forKey: Keys.continuousAutoAlignmentEnabled) as? Bool ?? Defaults.continuousAutoAlignmentEnabled
+        autoAlignmentEnabled =
+            defaults.object(forKey: Keys.autoAlignmentEnabled) as? Bool
+            ?? Defaults.autoAlignmentEnabled
+        locationCaptureEnabled =
+            defaults.object(forKey: Keys.locationCaptureEnabled) as? Bool
+            ?? Defaults.locationCaptureEnabled
+        autoAlignmentModelSize =
+            defaults.string(forKey: Keys.autoAlignmentModelSize) ?? Defaults.autoAlignmentModelSize
+        autoAlignmentChapterSnapEnabled =
+            defaults.object(forKey: Keys.autoAlignmentChapterSnapEnabled) as? Bool
+            ?? Defaults.autoAlignmentChapterSnapEnabled
+        autoAlignmentDriftDetectionEnabled =
+            defaults.object(forKey: Keys.autoAlignmentDriftDetectionEnabled) as? Bool
+            ?? Defaults.autoAlignmentDriftDetectionEnabled
+        autoAlignmentDriftRepairEnabled =
+            defaults.object(forKey: Keys.autoAlignmentDriftRepairEnabled) as? Bool
+            ?? Defaults.autoAlignmentDriftRepairEnabled
+        continuousAutoAlignmentEnabled =
+            defaults.object(forKey: Keys.continuousAutoAlignmentEnabled) as? Bool
+            ?? Defaults.continuousAutoAlignmentEnabled
 
-        chimeInterval = defaults.object(forKey: Keys.chimeInterval) as? TimeInterval ?? Defaults.chimeInterval
+        chimeInterval =
+            defaults.object(forKey: Keys.chimeInterval) as? TimeInterval ?? Defaults.chimeInterval
         chimeSound = defaults.string(forKey: Keys.chimeSound) ?? Defaults.chimeSound
         chimeVolume = defaults.object(forKey: Keys.chimeVolume) as? Double ?? Defaults.chimeVolume
-        soundscapeVolume = defaults.object(forKey: Keys.soundscapeVolume) as? Float ?? Defaults.soundscapeVolume
+        soundscapeVolume =
+            defaults.object(forKey: Keys.soundscapeVolume) as? Float ?? Defaults.soundscapeVolume
     }
 
     static func registerDefaults(
         defaults: UserDefaults = .standard,
         appGroupDefaults: UserDefaults = {
             guard let d = UserDefaults(suiteName: "group.com.echo.audiobooks") else {
-                assertionFailure("Unable to open app-group UserDefaults suite: group.com.echo.audiobooks")
+                assertionFailure(
+                    "Unable to open app-group UserDefaults suite: group.com.echo.audiobooks")
                 return UserDefaults(suiteName: "group.com.echo.audiobooks.fallback") ?? .standard
             }
             return d
@@ -420,7 +613,8 @@ final class SettingsManager {
             Keys.crownVolumeSensitivity: Defaults.crownVolumeSensitivity,
             Keys.crownScrubSensitivity: Defaults.crownScrubSensitivity,
             Keys.phonePage: (try? JSONEncoder().encode(Defaults.phonePage)) ?? Data(),
-            Keys.phoneLongPressPage: (try? JSONEncoder().encode(Defaults.phoneLongPressPage)) ?? Data(),
+            Keys.phoneLongPressPage: (try? JSONEncoder().encode(Defaults.phoneLongPressPage))
+                ?? Data(),
             Keys.miniPlayerPage: (try? JSONEncoder().encode(Defaults.miniPlayerPage)) ?? Data(),
             Keys.seekBackwardDuration: Defaults.seekBackwardDuration,
             Keys.seekForwardDuration: Defaults.seekForwardDuration,
@@ -435,6 +629,7 @@ final class SettingsManager {
             Keys.autoAlignmentDriftDetectionEnabled: Defaults.autoAlignmentDriftDetectionEnabled,
             Keys.autoAlignmentDriftRepairEnabled: Defaults.autoAlignmentDriftRepairEnabled,
             Keys.continuousAutoAlignmentEnabled: Defaults.continuousAutoAlignmentEnabled,
+            Keys.narrationVoiceID: "",
         ])
         appGroupDefaults.register(defaults: [
             Keys.crownAction: Defaults.crownAction,
@@ -456,20 +651,25 @@ final class SettingsManager {
             Keys.volumeBoostGain: Defaults.volumeBoostGain,
             Keys.watchQuickBookmarkTimeoutSeconds: Defaults.watchQuickBookmarkTimeoutSeconds,
             Keys.watchDateEnabled: Defaults.watchDateEnabled,
-            Keys.watchDateFormat: Defaults.watchDateFormat
+            Keys.watchDateFormat: Defaults.watchDateFormat,
         ])
     }
 
     /// Decodes `[WatchAction]` from JSON. Falls back to the old comma-separated
     /// string format for transparent one-time migration.
-    private static func decodeWatchPage(key: String, from defaults: UserDefaults, fallback: [WatchAction]) -> [WatchAction] {
+    private static func decodeWatchPage(
+        key: String, from defaults: UserDefaults, fallback: [WatchAction]
+    ) -> [WatchAction] {
         if let data = defaults.data(forKey: key),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             return decoded
         }
         // Migration from old comma-separated string format
         if let oldString = defaults.string(forKey: key) {
-            let parsed = oldString.split(separator: ",").compactMap { WatchAction(rawValue: String($0)) }
+            let parsed = oldString.split(separator: ",").compactMap {
+                WatchAction(rawValue: String($0))
+            }
             var padded = Array(parsed.prefix(5))
             while padded.count < 5 { padded.append(.empty) }
             if let encoded = try? JSONEncoder().encode(padded) {
@@ -485,6 +685,6 @@ final class SettingsManager {
     }
 }
 
-private extension Double {
-    var nonZero: Double? { self == 0 ? nil : self }
+extension Double {
+    fileprivate var nonZero: Double? { self == 0 ? nil : self }
 }

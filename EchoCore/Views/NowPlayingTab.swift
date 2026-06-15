@@ -15,6 +15,13 @@ struct NowPlayingTab: View {
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
 
+    /// The saved voice preference, or the system default on first launch.
+    private var preferredVoice: NarrationVoice {
+        let savedID = settings.narrationVoiceID
+        guard !savedID.isEmpty else { return VoiceCatalog.default }
+        return VoiceCatalog.voice(for: VoiceID(savedID)) ?? VoiceCatalog.default
+    }
+
     var body: some View {
         ZStack {
             // 1. ADAPTIVE GRADIENT BACKGROUND (Rendered globally at RootTabView)
@@ -38,7 +45,12 @@ struct NowPlayingTab: View {
                     VStack(spacing: 8) {
                         NarrationStatusView(state: model.narrationPlaybackState)
                         if !model.narrationPlaybackState.isRunning {
-                            NarrationNudgeView(onListen: { showingVoicePicker = true })
+                            NarrationNudgeView {
+                                // Save the voice preference and start narration
+                                // directly — no voice picker on the primary path.
+                                settings.narrationVoiceID = preferredVoice.id.rawValue
+                                model.startNarrationPlayback(voice: preferredVoice)
+                            }
                         }
                     }
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
@@ -92,6 +104,7 @@ struct NowPlayingTab: View {
         }
         .sheet(isPresented: $showingVoicePicker) {
             VoicePickerView(selectedVoice: $selectedVoice) {
+                settings.narrationVoiceID = selectedVoice.id.rawValue
                 model.startNarrationPlayback(voice: selectedVoice)
             }
         }
