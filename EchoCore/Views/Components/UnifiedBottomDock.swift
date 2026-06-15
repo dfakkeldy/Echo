@@ -3,7 +3,7 @@ import SwiftUI
 struct UnifiedBottomDock: View {
     @Environment(PlayerModel.self) private var model
     var onCreateBookmark: (BookmarkDraft) -> Void
-    var onShowFidget: (() -> Void)?
+    // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     private var showsControls: Bool {
         model.selectedTab == .nowPlaying || (model.folderURL != nil && !model.tracks.isEmpty)
@@ -18,17 +18,19 @@ struct UnifiedBottomDock: View {
             if model.selectedTab == .nowPlaying {
                 TransportControlsView()
                     .padding(.horizontal, 16)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.95).combined(with: .opacity),
-                        removal: .scale(scale: 0.95).combined(with: .opacity)
-                    ))
+                    .transition(
+                        .asymmetric(
+                            insertion: .scale(scale: 0.95).combined(with: .opacity),
+                            removal: .scale(scale: 0.95).combined(with: .opacity)
+                        ))
             } else if model.folderURL != nil && !model.tracks.isEmpty {
                 PlayerControlBar()
                     .padding(.horizontal, 16)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.95).combined(with: .opacity),
-                        removal: .scale(scale: 0.95).combined(with: .opacity)
-                    ))
+                    .transition(
+                        .asymmetric(
+                            insertion: .scale(scale: 0.95).combined(with: .opacity),
+                            removal: .scale(scale: 0.95).combined(with: .opacity)
+                        ))
             }
 
             // Divider separating controls from utility bar
@@ -40,7 +42,7 @@ struct UnifiedBottomDock: View {
             }
 
             // Lower layer: Static 5-Button Utility Bar
-            BottomToolbarView(onCreateBookmark: onCreateBookmark, onShowFidget: onShowFidget)
+            BottomToolbarView(onCreateBookmark: onCreateBookmark)
                 .padding(.horizontal, 16)
         }
         // Uniform vertical breathing room so the circular play-button progress
