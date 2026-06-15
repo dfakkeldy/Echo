@@ -16,12 +16,16 @@ final class StandaloneTranscriptionService {
     var progress = StandaloneProgressState()
 
     private weak var db: DatabaseWriter?
-    private var currentTask: Task<Void, Never>?
+    private nonisolated(unsafe) var currentTask: Task<Void, Never>?
     private let logger = Logger(category: "StandaloneTranscription")
     private static let isoFormatter = ISO8601DateFormatter()
 
     init(db: DatabaseWriter) {
         self.db = db
+    }
+
+    nonisolated deinit {
+        currentTask?.cancel()
     }
 
     /// Begins the transcription pipeline.
