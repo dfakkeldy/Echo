@@ -299,7 +299,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 snapshot.appendItems(section.items.map(\.id), toSection: section.id)
             }
             dataSource?.apply(snapshot, animatingDifferences: animated)
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.updateTopChapterTitle(collectionView)
             }
         }
@@ -333,7 +333,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
 
             if autoScrollEnabled.wrappedValue, lastScrolledBlockID != blockID {
                 lastScrolledBlockID = blockID
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     collectionView.scrollToItem(
                         at: indexPath, at: .centeredVertically, animated: true)
                 }
@@ -462,18 +462,18 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 }
 
                 if topPartTitle.wrappedValue != partTitle {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         self.topPartTitle.wrappedValue = partTitle
                     }
                 }
 
                 if topChapterTitle.wrappedValue != chapterTitle {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         self.topChapterTitle.wrappedValue = chapterTitle
                     }
                 }
                 if topSectionTitle.wrappedValue != sectionTitle {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         self.topSectionTitle.wrappedValue = sectionTitle
                     }
                 }
@@ -483,7 +483,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 {
                     let themeColor = block.chapterThemeColor
                     if topChapterThemeColor.wrappedValue != themeColor {
-                        DispatchQueue.main.async {
+                        Task { @MainActor in
                             self.topChapterThemeColor.wrappedValue = themeColor
                         }
                     }
@@ -493,7 +493,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 }).first {
                     let themeColor = firstBlock.chapterThemeColor
                     if topChapterThemeColor.wrappedValue != themeColor {
-                        DispatchQueue.main.async {
+                        Task { @MainActor in
                             self.topChapterThemeColor.wrappedValue = themeColor
                         }
                     }
