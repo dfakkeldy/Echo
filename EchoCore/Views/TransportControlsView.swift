@@ -44,16 +44,7 @@ struct TransportControlsView: View {
         case .playPause:
             let totalDuration =
                 model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
-            let elapsedSeconds: Double = {
-                if model.isMultiM4B {
-                    let bookOffset =
-                        model.m4bBooks.indices.contains(model.currentIndex)
-                        ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
-                    return bookOffset + model.currentPlaybackTime
-                } else {
-                    return model.currentPlaybackTime
-                }
-            }()
+            let elapsedSeconds = model.cumulativePlaybackTime
             let totalFraction = totalDuration > 0 ? (elapsedSeconds / totalDuration) : 0.0
 
             CircularProgressPlayButton(
