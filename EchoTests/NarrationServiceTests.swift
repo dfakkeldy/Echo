@@ -86,6 +86,43 @@ import Testing
         #expect(abs(anchors[1].audioTime - 0.4) < 0.0001)
     }
 
+    /// Read-along write-side: rendering a chapter must propagate its synthesized
+    /// anchors into `timeline_item` (via AlignmentService.recalculateTimeline),
+    /// because that table — not `alignment_anchor` — is what the reader queries
+    /// (`WHERE audio_start_time >= 0`). Without the recalc the reader shows no
+    /// timestamps and never highlights. Asserts the exact read-side predicate.
+    @Test func renderChapterPopulatesTimelineItemForReadAlong() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["abcd", "ef"])
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+        try await svc.renderChapter(
+            chapterIndex: 0, blocks: blocks,
+            voice: VoiceID("af_warm"))
+
+        // Mirror ReaderFeedViewModel.reload()'s exact predicate.
+        let rows = try db.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT epub_block_id, audio_start_time FROM timeline_item
+                    WHERE audiobook_id = 'b1'
+                      AND epub_block_id IS NOT NULL
+                      AND audio_start_time >= 0
+                    ORDER BY audio_start_time
+                    """)
+        }
+        // One timeline_item per rendered block, each with a non-negative start.
+        #expect(rows.count == 2)
+        let blockIDs = rows.compactMap { $0["epub_block_id"] as String? }
+        #expect(blockIDs == ["blk0", "blk1"])
+        let starts = rows.compactMap { $0["audio_start_time"] as Double? }
+        #expect(starts.allSatisfy { $0 >= 0 })
+        // Per-chapter 0-based: the first block starts at 0, matching its anchor.
+        #expect(abs((starts.first ?? -1) - 0.0) < 0.0001)
+    }
+
     @Test func skipsBlocksWithNoText() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["hi", nil, ""])

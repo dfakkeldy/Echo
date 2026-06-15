@@ -118,6 +118,30 @@ final class NarrationService {
             for var anchor in anchors { try anchor.save(db) }
         }
 
+        // Propagate the just-saved `.synthesized` anchors into `timeline_item`:
+        // that table — not `alignment_anchor` — is what the reader reads
+        // (`WHERE audio_start_time >= 0`), so without this the reader shows no
+        // timestamps and never highlights. Runs AFTER the anchor transaction
+        // (recalc opens its own `db.write`, so it must not be nested). A recalc
+        // failure must not fail the render — the chapter audio is already on
+        // disk and the anchors persisted; log and continue.
+        do {
+            try AlignmentService(db: db, audiobookID: audiobookID).recalculateTimeline()
+        } catch {
+            logger.error(
+                "Timeline recalc after chapter \(chapterIndex) failed: \(error.localizedDescription)"
+            )
+        }
+
+        // Tell the reader to reload so the newly-materialized timeline rows
+        // light up read-along incrementally as each chapter renders. Mirrors
+        // EPUBAutoImportScanner's post; the reader gates on the audiobookID.
+        NotificationCenter.default.post(
+            name: .timelineItemsIngested,
+            object: nil,
+            userInfo: ["audiobookID": audiobookID]
+        )
+
         state.renderedChapterCount += 1
         logger.info("Rendered chapter \(chapterIndex) → \(anchors.count) anchors")
     }
