@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import GRDB
+import OSLog
 
 // MARK: - On-device narration playback
 
@@ -23,6 +24,10 @@ extension PlayerModel {
         narrationPlaybackState.reset()
         state.narrationRenderInFlight = true
         state.awaitingNarrationChapter = false
+
+        // Stop playback before evicting stale-voice files so the AVPlayer isn't
+        // holding a reference to a file we're about to delete (§5.1).
+        playbackController.stop()
 
         // Show the book + a preparing status on Now Playing / lock screen while
         // the first chapter renders, instead of the audio-less placeholder.
@@ -59,6 +64,49 @@ extension PlayerModel {
                 // Audio" in the reader are excluded from narration, matching the
                 // alignment/timeline paths.
                 let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
+
+                // Copy the EPUB's first image (typically the cover) into the
+                // narration cache so Now Playing and the lock screen can show
+                // artwork instead of a placeholder icon. Query ALL image blocks
+                // (not just visibleBlocks) because the cover is front-matter
+                // and marked is_hidden during import.
+                let coverLogger = Logger(category: "NarrationCover")
+                let allBlocks = (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID)) ?? []
+                // Prefer front-matter images (the cover is always front-matter),
+                // fall back to any image if the EPUB doesn't separate front/body.
+                let imageBlocks = allBlocks.filter {
+                    $0.blockKind == EPubBlockRecord.Kind.image.rawValue
+                }
+                let frontMatterImages = imageBlocks.filter(\.isFrontMatter)
+                let candidates = frontMatterImages.isEmpty ? imageBlocks : frontMatterImages
+                coverLogger.debug(
+                    "Searching for cover: \(allBlocks.count) total, \(imageBlocks.count) image, \(frontMatterImages.count) front-matter"
+                )
+                if let coverBlock =
+                    candidates
+                    .sorted(by: { $0.sequenceIndex < $1.sequenceIndex })
+                    .first,
+                    let imagePath = coverBlock.imagePath,
+                    FileManager.default.fileExists(atPath: imagePath)
+                {
+                    let coverSource = URL(fileURLWithPath: imagePath)
+                    let ext =
+                        coverSource.pathExtension.isEmpty ? "jpg" : coverSource.pathExtension
+                    let coverDest = cacheDirectory.appendingPathComponent("cover")
+                        .appendingPathExtension(ext)
+                    // Remove any stale cover from a previous voice/render run.
+                    try? FileManager.default.removeItem(at: coverDest)
+                    do {
+                        try FileManager.default.copyItem(at: coverSource, to: coverDest)
+                        coverLogger.info("Copied EPUB cover to \(coverDest.path)")
+                    } catch {
+                        coverLogger.warning(
+                            "Failed to copy EPUB cover: \(error.localizedDescription)")
+                    }
+                } else {
+                    coverLogger.debug("No cover image found in EPUB blocks")
+                }
+
                 let plan = NarrationChapterPlanner.plan(from: blocks)
                 guard !plan.isEmpty else {
                     // No narratable text: clear the interim "Preparing narration…"
@@ -89,27 +137,39 @@ extension PlayerModel {
                 let lookAhead = 2
                 for (offset, chapter) in chapters.enumerated() {
                     try Task.checkCancellation()
-                    // Render-ahead backpressure: don't synthesize more than
-                    // `lookAhead` chapters past the one currently playing, and
-                    // don't render while the *user* paused. (offset 0 always
-                    // renders first.) `awaitingNarrationChapter` means playback
-                    // auto-paused at the end of the queue waiting for THIS
-                    // chapter — never block then, or render and playback would
-                    // deadlock waiting on each other.
-                    while offset > 0,
-                        self.folderURL?.absoluteString == audiobookID,
-                        self.state.currentIndex + lookAhead < offset
-                            || (!self.isPlaying && !self.state.awaitingNarrationChapter)
+                    // Render-ahead backpressure via NarrationRenderPolicy
+                    // (extracted for testability — see NarrationRenderPolicyTests).
+                    while NarrationRenderPolicy.shouldPauseRender(
+                        offset: offset,
+                        currentPlaybackIndex: self.state.currentIndex,
+                        lookAhead: lookAhead,
+                        isPlaying: self.isPlaying,
+                        isAwaitingChapter: self.state.awaitingNarrationChapter
+                    ),
+                        NarrationRenderPolicy.bookWasSwitched(
+                            currentFolderURL: self.folderURL?.absoluteString,
+                            audiobookID: audiobookID
+                        ) == false
                     {
                         try await Task.sleep(for: .seconds(1))
                         try Task.checkCancellation()
                     }
-                    guard self.folderURL?.absoluteString == audiobookID else { return }
+                    guard
+                        NarrationRenderPolicy.bookWasSwitched(
+                            currentFolderURL: self.folderURL?.absoluteString,
+                            audiobookID: audiobookID
+                        ) == false
+                    else { return }
                     try await service.renderChapter(
                         chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
                     try Task.checkCancellation()
                     // Bail if the user switched books while this chapter rendered.
-                    guard self.folderURL?.absoluteString == audiobookID else { return }
+                    guard
+                        NarrationRenderPolicy.bookWasSwitched(
+                            currentFolderURL: self.folderURL?.absoluteString,
+                            audiobookID: audiobookID
+                        ) == false
+                    else { return }
 
                     let fileURL = cacheDirectory.appendingPathComponent(
                         NarrationFileNaming.chapterFileName(
@@ -133,14 +193,22 @@ extension PlayerModel {
                     }
                 }
                 // All chapters rendered and queued.
-                guard self.folderURL?.absoluteString == audiobookID else { return }
+                guard
+                    NarrationRenderPolicy.bookWasSwitched(
+                        currentFolderURL: self.folderURL?.absoluteString, audiobookID: audiobookID
+                    ) == false
+                else { return }
                 self.state.narrationRenderInFlight = false
                 self.narrationPlaybackState.complete()
             } catch is CancellationError {
                 // Switched books or stopped — loadFolder resets the flags.
             } catch {
                 // Don't stamp a stale failure onto a book the user switched to.
-                guard self.folderURL?.absoluteString == audiobookID else { return }
+                guard
+                    NarrationRenderPolicy.bookWasSwitched(
+                        currentFolderURL: self.folderURL?.absoluteString, audiobookID: audiobookID
+                    ) == false
+                else { return }
                 self.state.narrationRenderInFlight = false
                 self.narrationPlaybackState.fail(error.localizedDescription)
             }

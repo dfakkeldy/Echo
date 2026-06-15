@@ -421,13 +421,22 @@ struct AlignmentService {
     }
 
     /// Finds the anchored blocks immediately before and after the given block
-    /// by sequence index, for linear interpolation.
+    /// by sequence index, for linear interpolation. Scoped to the block's own
+    /// chapter so multi-track books don't mix time axes (§5.2).
     private func findBracketingAnchors(
         block: EPubBlockRecord,
         anchoredBlocks: [EPubBlockRecord],
         anchorTimes: [String: TimeInterval]
     ) -> (prev: EPubBlockRecord, next: EPubBlockRecord)? {
-        let sorted = anchoredBlocks.sorted { $0.sequenceIndex < $1.sequenceIndex }
+        // Scope to the block's chapter: for multi-file books each track
+        // reports per-track 0-based time, so crossing a track boundary
+        // interpolates between incompatible time axes.
+        let sameChapter = anchoredBlocks.filter { anchored in
+            anchored.chapterIndex == block.chapterIndex
+        }
+        guard sameChapter.count >= 2 else { return nil }
+
+        let sorted = sameChapter.sorted { $0.sequenceIndex < $1.sequenceIndex }
         let blockSeq = block.sequenceIndex
 
         var prev: EPubBlockRecord?

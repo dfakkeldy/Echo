@@ -69,4 +69,33 @@ import Testing
             .split(whereSeparator: { $0.isWhitespace }).map(String.init)
         #expect(pieceWords == originalWords)
     }
+
+    @Test func decorativeSeparatorsYieldNoChunks() {
+        // EPUB section breaks like "* * *" or "---" have no speakable
+        // content — they should produce zero chunks instead of being
+        // sent to the TTS engine as 5-char "sentences."
+        #expect(NarrationTextChunker.split("* * *", maxChars: 200).isEmpty)
+        #expect(NarrationTextChunker.split("---", maxChars: 200).isEmpty)
+        #expect(NarrationTextChunker.split("~~~", maxChars: 200).isEmpty)
+        #expect(NarrationTextChunker.split("  *   *   *  ", maxChars: 200).isEmpty)
+    }
+
+    @Test func decorativeSeparatorDroppedButTextOnEitherSideSurvives() {
+        // "Down the rabbit hole. *  *  *  The rabbit hurried on."
+        // The "* * *" section break becomes a 5-char chunk with no letters
+        // after whitespace normalisation → it's dropped. The surrounding
+        // real sentences survive (possibly merged since maxChars is large).
+        let text = "Down the rabbit hole.  *  *  *  The rabbit hurried on."
+        let pieces = NarrationTextChunker.split(text, maxChars: 200)
+        #expect(!pieces.isEmpty)
+        // The real content survives: "rabbit hole" and "rabbit hurried".
+        let joined = pieces.joined(separator: " ")
+        #expect(joined.contains("rabbit hole"))
+        #expect(joined.contains("rabbit hurried"))
+        // No piece should be purely decorative.
+        for piece in pieces {
+            let hasContent = piece.contains { $0.isLetter || $0.isNumber }
+            #expect(hasContent)
+        }
+    }
 }

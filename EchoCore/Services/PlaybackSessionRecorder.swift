@@ -149,10 +149,20 @@ actor PlaybackSessionRecorder {
         do {
             return try await insertOpenRow(segment, trackID: segment.trackID)
         } catch {
-            // track_id FK can fail if ingestion hasn't written track rows yet;
-            // the segment is still valid analytics data without it.
+            // track_id FK can fail if ingestion hasn't written track rows yet
+            // (or for narration-only books where no audiobook/track row exists).
             logger.warning("insertOpen retrying without track_id: \(error.localizedDescription)")
-            return try await insertOpenRow(segment, trackID: nil)
+            do {
+                return try await insertOpenRow(segment, trackID: nil)
+            } catch {
+                // Both attempts failed — e.g., narration-only EPUB where no
+                // audiobook row exists at all. The segment is valid analytics
+                // data but can't be persisted without the FK target. Log and
+                // move on rather than spamming retries.
+                logger.warning(
+                    "insertOpen failed (no audiobook row?): \(error.localizedDescription)")
+                return 0
+            }
         }
     }
 

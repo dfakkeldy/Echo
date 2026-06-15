@@ -38,6 +38,14 @@ enum NarrationTextChunker {
                 pieces.append(contentsOf: wrapByWords(sentence, maxChars: maxChars))
             }
         }
+        // Drop chunks that are purely decorative — punctuation, separators,
+        // or character sequences with no speakable content. Synthesizing
+        // "* * *" produces a stutter or silent audio gap, wasting ANE time
+        // and producing audible artifacts in the narration stream.
+        pieces = pieces.filter { chunk in
+            let speakable = chunk.filter { $0.isLetter || $0.isNumber }
+            return !speakable.isEmpty
+        }
         return pieces
     }
 
