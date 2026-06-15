@@ -37,13 +37,18 @@ struct TransportControlsView: View {
     }
 
     @ViewBuilder
-    private func buttonForAction(_ action: WatchAction, longPressAction: WatchAction, isCompact: Bool) -> some View {
+    private func buttonForAction(
+        _ action: WatchAction, longPressAction: WatchAction, isCompact: Bool
+    ) -> some View {
         switch action {
         case .playPause:
-            let totalDuration = model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
+            let totalDuration =
+                model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
             let elapsedSeconds: Double = {
                 if model.isMultiM4B {
-                    let bookOffset = model.m4bBooks.indices.contains(model.currentIndex) ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
+                    let bookOffset =
+                        model.m4bBooks.indices.contains(model.currentIndex)
+                        ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
                     return bookOffset + model.currentPlaybackTime
                 } else {
                     return model.currentPlaybackTime
@@ -73,12 +78,15 @@ struct TransportControlsView: View {
                 longPressAction: longPressAction,
                 model: model
             ) {
-                Image(systemName: WatchAction.skipBackward.dynamicIconName(forDuration: settings.seekBackwardDuration))
-                    .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
-                    .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
-                    .background(Circle().fill(model.coverTheme.chip))
-                    .contentShape(Rectangle())
+                Image(
+                    systemName: WatchAction.skipBackward.dynamicIconName(
+                        forDuration: settings.seekBackwardDuration)
+                )
+                .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
+                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
+                .background(Circle().fill(model.coverTheme.chip))
+                .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip back \(settings.seekBackwardDuration) seconds"))
 
@@ -91,12 +99,15 @@ struct TransportControlsView: View {
                 longPressAction: longPressAction,
                 model: model
             ) {
-                Image(systemName: WatchAction.skipForward.dynamicIconName(forDuration: settings.seekForwardDuration))
-                    .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                    .foregroundStyle(model.artworkAccentColor ?? .accentColor)
-                    .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
-                    .background(Circle().fill(model.coverTheme.chip))
-                    .contentShape(Rectangle())
+                Image(
+                    systemName: WatchAction.skipForward.dynamicIconName(
+                        forDuration: settings.seekForwardDuration)
+                )
+                .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
+                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
+                .background(Circle().fill(model.coverTheme.chip))
+                .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Skip forward \(settings.seekForwardDuration) seconds"))
 
@@ -112,10 +123,11 @@ struct TransportControlsView: View {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
+                    .frame(width: isCompact ? 44 : 44, height: isCompact ? 44 : 44)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel(model.chapters.count >= 2 ? Text("Previous chapter") : Text("Previous track"))
+            .accessibilityLabel(
+                model.chapters.count >= 2 ? Text("Previous chapter") : Text("Previous track"))
 
         case .nextTrack:
             TransportButton(
@@ -129,10 +141,11 @@ struct TransportControlsView: View {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
+                    .frame(width: isCompact ? 44 : 44, height: isCompact ? 44 : 44)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel(model.chapters.count >= 2 ? Text("Next chapter") : Text("Next track"))
+            .accessibilityLabel(
+                model.chapters.count >= 2 ? Text("Next chapter") : Text("Next track"))
 
         case .previousSection:
             TransportButton(
@@ -146,7 +159,7 @@ struct TransportControlsView: View {
                 Image(systemName: "backward.fill")
                     .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
+                    .frame(width: isCompact ? 44 : 44, height: isCompact ? 44 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Previous section"))
@@ -163,7 +176,7 @@ struct TransportControlsView: View {
                 Image(systemName: "forward.fill")
                     .font(.system(size: isCompact ? 18 : 20, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: isCompact ? 40 : 44, height: isCompact ? 40 : 44)
+                    .frame(width: isCompact ? 44 : 44, height: isCompact ? 44 : 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Next section"))
@@ -201,13 +214,15 @@ struct TransportControlsView: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(Text("Loop mode"))
-            .accessibilityValue(Text({
-                switch model.loopMode {
-                case .off: return String(localized: "Off")
-                case .chapter: return String(localized: "Chapter")
-                case .bookmark: return String(localized: "Bookmark")
-                }
-            }()))
+            .accessibilityValue(
+                Text(
+                    {
+                        switch model.loopMode {
+                        case .off: return String(localized: "Off")
+                        case .chapter: return String(localized: "Chapter")
+                        case .bookmark: return String(localized: "Bookmark")
+                        }
+                    }()))
 
         case .speed:
             TransportButton(
@@ -235,7 +250,7 @@ struct TransportControlsView: View {
 
         case .sleepTimer:
             sleepTimerMenu
-                .phoneLongPressGesture(action: longPressAction, model: model) // Fallback for Menu
+                .phoneLongPressGesture(action: longPressAction, model: model)  // Fallback for Menu
 
         case .bookmark:
             TransportButton(
@@ -270,12 +285,12 @@ struct TransportControlsView: View {
     private var speedLabel: String {
         switch model.speed {
         case 0.75: return String(localized: "0.75×")
-        case 1.0:  return String(localized: "1.0×")
+        case 1.0: return String(localized: "1.0×")
         case 1.25: return String(localized: "1.25×")
-        case 1.5:  return String(localized: "1.5×")
+        case 1.5: return String(localized: "1.5×")
         case 1.75: return String(localized: "1.75×")
-        case 2.0:  return String(localized: "2.0×")
-        default:   return String(format: "%g×", model.speed)
+        case 2.0: return String(localized: "2.0×")
+        default: return String(format: "%g×", model.speed)
         }
     }
 
@@ -284,30 +299,42 @@ struct TransportControlsView: View {
             Button {
                 model.setSleepTimer(.minutes(15))
                 Haptic.play(.light)
-            } label: { Label("15 Minutes", systemImage: "15.circle") }
+            } label: {
+                Label("15 Minutes", systemImage: "15.circle")
+            }
             Button {
                 model.setSleepTimer(.minutes(30))
                 Haptic.play(.light)
-            } label: { Label("30 Minutes", systemImage: "30.circle") }
+            } label: {
+                Label("30 Minutes", systemImage: "30.circle")
+            }
             Button {
                 model.setSleepTimer(.minutes(45))
                 Haptic.play(.light)
-            } label: { Label("45 Minutes", systemImage: "45.circle") }
+            } label: {
+                Label("45 Minutes", systemImage: "45.circle")
+            }
             Button {
                 model.setSleepTimer(.minutes(60))
                 Haptic.play(.light)
-            } label: { Label("1 Hour", systemImage: "1.circle") }
+            } label: {
+                Label("1 Hour", systemImage: "1.circle")
+            }
             Divider()
             Button {
                 model.setSleepTimer(.endOfChapter)
                 Haptic.play(.light)
-            } label: { Label("End of Chapter", systemImage: "book.closed") }
+            } label: {
+                Label("End of Chapter", systemImage: "book.closed")
+            }
             if model.sleepTimerMode.isActive {
                 Divider()
                 Button(role: .destructive) {
                     model.cancelSleepTimer()
                     Haptic.play(.light)
-                } label: { Label("Off", systemImage: "xmark.circle") }
+                } label: {
+                    Label("Off", systemImage: "xmark.circle")
+                }
             }
         } label: {
             VStack(spacing: 2) {
@@ -315,23 +342,31 @@ struct TransportControlsView: View {
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.primary)
                 if model.sleepTimerMode.isActive {
-                    Text(model.sleepTimerMode == .endOfChapter ? "EOC" : sleepTimerCountdownText(model.sleepTimerRemainingSeconds))
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
-                        .monospacedDigit()
+                    Text(
+                        model.sleepTimerMode == .endOfChapter
+                            ? "EOC" : sleepTimerCountdownText(model.sleepTimerRemainingSeconds)
+                    )
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+                    .monospacedDigit()
                 }
             }
             .frame(width: 64, height: 64)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(Text("Sleep Timer"))
-        .accessibilityValue(Text({
-            switch model.sleepTimerMode {
-            case .off: return String(localized: "Off")
-            case .minutes(let m):
-                return String(localized: "\(m) minutes, \(model.sleepTimerRemainingSeconds) seconds remaining")
-            case .endOfChapter: return String(localized: "End of Chapter")
-            }
-        }()))
+        .accessibilityValue(
+            Text(
+                {
+                    switch model.sleepTimerMode {
+                    case .off: return String(localized: "Off")
+                    case .minutes(let m):
+                        return String(
+                            localized:
+                                "\(m) minutes, \(model.sleepTimerRemainingSeconds) seconds remaining"
+                        )
+                    case .endOfChapter: return String(localized: "End of Chapter")
+                    }
+                }()))
     }
 }
