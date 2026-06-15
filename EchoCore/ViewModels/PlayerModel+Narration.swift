@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import GRDB
+import OSLog
 
 // MARK: - On-device narration playback
 
@@ -67,18 +68,31 @@ extension PlayerModel {
                 // Copy the EPUB's first image (typically the cover) into the
                 // narration cache so Now Playing and the lock screen can show
                 // artwork instead of a placeholder icon.
+                let coverLogger = Logger(category: "NarrationCover")
                 if let coverBlock =
                     blocks
                     .filter({ $0.blockKind == EPubBlockRecord.Kind.image.rawValue })
                     .sorted(by: { $0.sequenceIndex < $1.sequenceIndex })
                     .first,
-                    let imagePath = coverBlock.imagePath
+                    let imagePath = coverBlock.imagePath,
+                    FileManager.default.fileExists(atPath: imagePath)
                 {
                     let coverSource = URL(fileURLWithPath: imagePath)
+                    let ext =
+                        coverSource.pathExtension.isEmpty ? "jpg" : coverSource.pathExtension
                     let coverDest = cacheDirectory.appendingPathComponent("cover")
-                        .appendingPathExtension(
-                            coverSource.pathExtension.isEmpty ? "jpg" : coverSource.pathExtension)
-                    try? FileManager.default.copyItem(at: coverSource, to: coverDest)
+                        .appendingPathExtension(ext)
+                    // Remove any stale cover from a previous voice/render run.
+                    try? FileManager.default.removeItem(at: coverDest)
+                    do {
+                        try FileManager.default.copyItem(at: coverSource, to: coverDest)
+                        coverLogger.info("Copied EPUB cover to \(coverDest.path)")
+                    } catch {
+                        coverLogger.warning(
+                            "Failed to copy EPUB cover: \(error.localizedDescription)")
+                    }
+                } else {
+                    coverLogger.debug("No cover image found in EPUB blocks")
                 }
 
                 let plan = NarrationChapterPlanner.plan(from: blocks)
