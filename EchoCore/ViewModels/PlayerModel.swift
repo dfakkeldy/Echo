@@ -624,6 +624,11 @@ final class PlayerModel {
 
         sleepTimerManager.onFire = { [weak self] in
             guard let self else { return }
+            // Cancel any pending narration auto-resume: during the at-gap wait isPlaying
+            // is already false, so pause() (which clears the flag) won't run — clear it
+            // here so a chapter that finishes rendering after the cutoff doesn't auto-
+            // advance one chapter past the sleep cutoff.
+            self.state.awaitingNarrationChapter = false
             if self.isPlaying { self.pause() }
             self.syncToWatch()
         }
