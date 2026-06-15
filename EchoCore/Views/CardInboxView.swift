@@ -1,6 +1,5 @@
-import SwiftUI
 import GRDB
-
+import SwiftUI
 /// Mark-later inbox: passages flagged for flashcard conversion, grouped by book.
 import os.log
 
@@ -8,7 +7,6 @@ struct CardInboxView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var passages: [MarkedPassage] = []
-    @State private var inboxCount: Int = 0
     private let logger = Logger(category: "CardInboxView")
 
     var body: some View {
@@ -18,7 +16,8 @@ struct CardInboxView: View {
                     ContentUnavailableView(
                         "Card Inbox Empty",
                         systemImage: "tray",
-                        description: Text("Mark passages during playback to convert them into flashcards later.")
+                        description: Text(
+                            "Mark passages during playback to convert them into flashcards later.")
                     )
                 } else {
                     List {
@@ -78,29 +77,31 @@ struct CardInboxView: View {
         guard let db = model.databaseService else { return }
         do {
             let dao = MarkedPassageDAO(db: db.writer)
-            inboxCount = (try? dao.inboxCount()) ?? 0
             let records = (try? dao.fetchAllInbox()) ?? []
 
             // Build display models with book titles
             var result: [MarkedPassage] = []
             for r in records {
                 let title = try? await db.writer.read { db in
-                    try String.fetchOne(db, sql: "SELECT title FROM audiobook WHERE id = ?", arguments: [r.audiobookID])
+                    try String.fetchOne(
+                        db, sql: "SELECT title FROM audiobook WHERE id = ?",
+                        arguments: [r.audiobookID])
                 }
                 let formatter = ISO8601DateFormatter()
                 let created = formatter.date(from: r.createdAt) ?? Date()
-                result.append(MarkedPassage(
-                    id: r.id,
-                    audiobookID: r.audiobookID,
-                    bookTitle: title ?? "Unknown Book",
-                    mediaTimestamp: r.mediaTimestamp,
-                    endTimestamp: r.endTimestamp,
-                    transcriptSnippet: r.transcriptSnippet,
-                    status: .inbox,
-                    convertedCardID: r.convertedCardID,
-                    note: r.note,
-                    createdAt: created
-                ))
+                result.append(
+                    MarkedPassage(
+                        id: r.id,
+                        audiobookID: r.audiobookID,
+                        bookTitle: title ?? "Unknown Book",
+                        mediaTimestamp: r.mediaTimestamp,
+                        endTimestamp: r.endTimestamp,
+                        transcriptSnippet: r.transcriptSnippet,
+                        status: .inbox,
+                        convertedCardID: r.convertedCardID,
+                        note: r.note,
+                        createdAt: created
+                    ))
             }
             passages = result
         }
@@ -109,7 +110,8 @@ struct CardInboxView: View {
     private func convertToFlashcard(_ passage: MarkedPassage) {
         guard let db = model.databaseService else { return }
         let cardID = UUID().uuidString
-        let frontText = passage.transcriptSnippet ?? "Marked at \(formatTimestamp(passage.mediaTimestamp))"
+        let frontText =
+            passage.transcriptSnippet ?? "Marked at \(formatTimestamp(passage.mediaTimestamp))"
         var card = Flashcard(
             id: cardID,
             audiobookID: passage.audiobookID,
