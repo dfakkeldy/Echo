@@ -71,8 +71,19 @@ extension PlayerModel {
                 // (not just visibleBlocks) because the cover is front-matter
                 // and marked is_hidden during import.
                 let coverLogger = Logger(category: "NarrationCover")
-                if let coverBlock = (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID))?
-                    .filter({ $0.blockKind == EPubBlockRecord.Kind.image.rawValue })
+                let allBlocks = (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID)) ?? []
+                // Prefer front-matter images (the cover is always front-matter),
+                // fall back to any image if the EPUB doesn't separate front/body.
+                let imageBlocks = allBlocks.filter {
+                    $0.blockKind == EPubBlockRecord.Kind.image.rawValue
+                }
+                let frontMatterImages = imageBlocks.filter(\.isFrontMatter)
+                let candidates = frontMatterImages.isEmpty ? imageBlocks : frontMatterImages
+                coverLogger.debug(
+                    "Searching for cover: \(allBlocks.count) total, \(imageBlocks.count) image, \(frontMatterImages.count) front-matter"
+                )
+                if let coverBlock =
+                    candidates
                     .sorted(by: { $0.sequenceIndex < $1.sequenceIndex })
                     .first,
                     let imagePath = coverBlock.imagePath,
