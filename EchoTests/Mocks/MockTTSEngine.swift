@@ -11,11 +11,15 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     let secondsPerChar: Double
     private(set) var calls: [(text: String, voice: VoiceID)] = []
     var throwOnText: String?
+    /// Sub-chunk text that should raise the skippable length-cap error, so tests
+    /// can verify a single over-long sub-chunk is skipped without aborting.
+    var lengthCapOnText: String?
 
     init(secondsPerChar: Double = 0.1) { self.secondsPerChar = secondsPerChar }
 
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
         calls.append((text, voice))
+        if let cap = lengthCapOnText, text == cap { throw NarrationError.lengthCapExceeded }
         if let bad = throwOnText, text == bad { throw NarrationError.synthesisFailed }
         let duration = Double(text.count) * secondsPerChar
         return TTSChunk(

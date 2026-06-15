@@ -116,6 +116,84 @@ import Testing
         #expect(trackCount == 0)
     }
 
+    /// A long multi-sentence block whose sentences are all DISTINCT, so the
+    /// chunker's merged sub-chunks are unique strings (a duplicate would let a
+    /// single `lengthCapOnText` match — and skip — more than one sub-chunk).
+    private func longDistinctBlockText() -> String {
+        (1...8).map { i in
+            "Sentence number \(i) describes the quick brown fox jumping over a lazy dog."
+        }.joined(separator: " ")
+    }
+
+    @Test func multiSubChunkBlockStillYieldsOneAnchorSpanningSummedDuration() async throws {
+        let db = try DatabaseService(inMemory: ())
+        // A long multi-sentence block that the chunker splits into several
+        // sub-chunks (> 200 chars). It must still produce exactly ONE anchor,
+        // spanning the sum of every sub-chunk's duration.
+        let long = longDistinctBlockText()
+        let blocks = try seed(db, [long])
+
+        let subChunks = NarrationTextChunker.split(TextNormalizer.normalize(long))
+        #expect(subChunks.count > 1)  // guard: the block really does fan out
+
+        let secondsPerChar = 0.1
+        let mock = MockTTSEngine(secondsPerChar: secondsPerChar)
+        let writer = MockAudioWriter()
+        let svc = makeService(db, tts: mock, writer: writer)
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_warm"))
+
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchAll(db)
+        }
+        #expect(anchors.count == 1)  // ONE anchor per original block, not per sub-chunk
+        #expect(anchors[0].epubBlockID == "blk0")
+
+        // The single anchor spans the SUM of every sub-chunk's duration.
+        let expectedDuration = subChunks.reduce(0.0) { $0 + Double($1.count) * secondsPerChar }
+        let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
+        #expect(abs(span - expectedDuration) < 0.0001)
+
+        // Every sub-chunk was synthesized and handed to the writer.
+        #expect(mock.calls.count == subChunks.count)
+        #expect(writer.chunkCounts == [subChunks.count])
+    }
+
+    @Test func lengthCapSubChunkIsSkippedWithoutAbortingTheChapter() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let long = longDistinctBlockText()
+        let blocks = try seed(db, [long])
+
+        let subChunks = NarrationTextChunker.split(TextNormalizer.normalize(long))
+        #expect(subChunks.count > 1)
+
+        let secondsPerChar = 0.1
+        let mock = MockTTSEngine(secondsPerChar: secondsPerChar)
+        // Make the FIRST sub-chunk raise the length-cap error. The chapter must
+        // still complete with the remaining sub-chunks.
+        mock.lengthCapOnText = subChunks[0]
+        let writer = MockAudioWriter()
+        let svc = makeService(db, tts: mock, writer: writer)
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_warm"))
+
+        // Track + anchor still written (chapter not aborted).
+        let trackCount = try db.read { db in try TrackRecord.fetchCount(db) }
+        #expect(trackCount == 1)
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchAll(db)
+        }
+        #expect(anchors.count == 1)
+
+        // The skipped sub-chunk's duration is excluded from the span; only the
+        // surviving sub-chunks were written.
+        let survivors = Array(subChunks.dropFirst())
+        let expectedDuration = survivors.reduce(0.0) { $0 + Double($1.count) * secondsPerChar }
+        let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
+        #expect(abs(span - expectedDuration) < 0.0001)
+        #expect(writer.chunkCounts == [survivors.count])
+    }
+
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["abcd", "ef"])
