@@ -69,10 +69,21 @@ struct EPubBlockDAO {
         }
     }
 
+    /// All blocks including hidden/front-matter (e.g. cover images).
+    func allBlocks(for audiobookID: String) throws -> [EPubBlockRecord] {
+        try db.read { db in
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .order(Column("sequence_index"))
+                .fetchAll(db)
+        }
+    }
+
     /// Search block text for matching terms. Escapes SQL LIKE wildcards
     /// in user input to prevent accidental or malicious pattern injection.
     func searchBlocks(for audiobookID: String, query: String) throws -> [EPubBlockRecord] {
-        let escaped = query
+        let escaped =
+            query
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "%", with: "\\%")
             .replacingOccurrences(of: "_", with: "\\_")
@@ -95,7 +106,9 @@ struct EPubBlockDAO {
                     SET is_hidden = 1, hidden_reason = :reason, modified_at = :now
                     WHERE id = :id
                     """,
-                arguments: ["reason": reason, "now": Self.isoFormatter.string(from: Date()), "id": id]
+                arguments: [
+                    "reason": reason, "now": Self.isoFormatter.string(from: Date()), "id": id,
+                ]
             )
         }
     }
@@ -125,7 +138,7 @@ struct EPubBlockDAO {
                     "reason": reason,
                     "now": Self.isoFormatter.string(from: Date()),
                     "chapterIndex": chapterIndex,
-                    "audiobookID": audiobookID
+                    "audiobookID": audiobookID,
                 ]
             )
         }
@@ -150,16 +163,18 @@ struct EPubBlockDAO {
     /// on epub_block_id. Returns nil if no block covers this time.
     func blockID(at time: TimeInterval, audiobookID: String) throws -> String? {
         try db.read { db in
-            try Row.fetchOne(db, sql: """
-                SELECT eb.id
-                FROM epub_block eb
-                JOIN timeline_item ti ON ti.epub_block_id = eb.id
-                WHERE eb.audiobook_id = ?
-                  AND ti.audio_start_time <= ?
-                  AND ti.audio_end_time > ?
-                ORDER BY eb.sequence_index
-                LIMIT 1
-                """, arguments: [audiobookID, time, time]
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT eb.id
+                    FROM epub_block eb
+                    JOIN timeline_item ti ON ti.epub_block_id = eb.id
+                    WHERE eb.audiobook_id = ?
+                      AND ti.audio_start_time <= ?
+                      AND ti.audio_end_time > ?
+                    ORDER BY eb.sequence_index
+                    LIMIT 1
+                    """, arguments: [audiobookID, time, time]
             )?["id"]
         }
     }
@@ -178,7 +193,7 @@ struct EPubBlockDAO {
                 arguments: [
                     "color": color,
                     "now": Self.isoFormatter.string(from: Date()),
-                    "id": blockID
+                    "id": blockID,
                 ]
             )
         }
@@ -197,19 +212,19 @@ struct EPubBlockDAO {
                     "color": color,
                     "now": Self.isoFormatter.string(from: Date()),
                     "chapterIndex": chapterIndex,
-                    "audiobookID": audiobookID
+                    "audiobookID": audiobookID,
                 ]
             )
         }
     }
-    
+
     func setChapterThemeColor(_ color: String?, blockIDs: [String]) throws {
         guard !blockIDs.isEmpty else { return }
         try db.write { db in
             let placeholders = blockIDs.map { _ in "?" }.joined(separator: ",")
             var arguments: StatementArguments = [color, Self.isoFormatter.string(from: Date())]
             arguments += StatementArguments(blockIDs)
-            
+
             try db.execute(
                 sql: """
                     UPDATE epub_block

@@ -67,10 +67,11 @@ extension PlayerModel {
 
                 // Copy the EPUB's first image (typically the cover) into the
                 // narration cache so Now Playing and the lock screen can show
-                // artwork instead of a placeholder icon.
+                // artwork instead of a placeholder icon. Query ALL image blocks
+                // (not just visibleBlocks) because the cover is front-matter
+                // and marked is_hidden during import.
                 let coverLogger = Logger(category: "NarrationCover")
-                if let coverBlock =
-                    blocks
+                if let coverBlock = (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID))?
                     .filter({ $0.blockKind == EPubBlockRecord.Kind.image.rawValue })
                     .sorted(by: { $0.sequenceIndex < $1.sequenceIndex })
                     .first,
