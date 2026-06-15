@@ -226,7 +226,7 @@ final class StandaloneTranscriptionService {
 }
 
 /// Tracks progress of the standalone transcription pipeline across all chapters.
-@Observable
+@MainActor @Observable
 final class StandaloneProgressState {
     var chaptersTotal = 0
     var chaptersComplete = 0

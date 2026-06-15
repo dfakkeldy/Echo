@@ -6,7 +6,7 @@ import SwiftUI
 /// playlist reset, and track enumeration from a folder URL.
 ///
 /// Owned by PlayerModel; injected with shared PlaybackState and Persistence.
-@Observable
+@MainActor @Observable
 final class PlaylistManager {
     let state: PlaybackState
     let persistence: Persistence
