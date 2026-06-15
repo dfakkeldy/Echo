@@ -1,0 +1,47 @@
+# ── Echo: fastlane snapshot configuration ──────────────────────────────────────
+# Captures App Store screenshots by running the EchoScreenshots UI test on each
+# device below. Invoke via `bundle exec fastlane screenshots` (see Fastfile).
+# Docs: https://docs.fastlane.tools/actions/snapshot/
+
+# Apple now requires only the 6.9" iPhone and the 13" iPad for new submissions;
+# every smaller size is derived from those. Add more lines if you want native
+# captures at other sizes — but keep the list short on a 16 GB machine.
+#
+# Device names MUST match `xcrun simctl list devices` exactly (they change with
+# each Xcode release). If a run errors with "device not found", update these.
+devices([
+  "iPhone 16 Pro Max",       # 6.9" — 1320 × 2868 (required)
+  "iPad Pro 13-inch (M4)"    # 13"  — 2064 × 2752 (required)
+  # "iPhone 16 Pro",         # 6.3" — 1206 × 2622 (optional)
+])
+
+languages([
+  "en-US"
+])
+
+# The dedicated scheme whose Test action runs EchoUITests (the default Echo
+# scheme intentionally excludes UI tests).
+scheme("Echo Screenshots")
+
+# Run ONLY the screenshot test, not the boilerplate EchoCoreUITests.
+only_testing(["EchoUITests/EchoScreenshots"])
+
+# Where the PNGs land (picked up as-is by deliver / upload_to_app_store).
+output_directory("./fastlane/screenshots")
+
+# Wipe previous captures so renamed/removed shots don't linger.
+clear_previous_screenshots(true)
+
+# Clean status bar in every shot: 9:41, full bars, 100% battery, no carrier text.
+override_status_bar(true)
+
+# RAM-friendly on a 16 GB machine: never boot simulators in parallel.
+# (CLAUDE.md: never run xcodebuild with parallel testing enabled.)
+concurrent_simulators(false)
+
+# Build once, reuse the product across devices/languages.
+reinstall_app(true)
+erase_simulator(false)
+
+# Open the HTML summary when finished (set to false on CI).
+# skip_open_summary(true)
