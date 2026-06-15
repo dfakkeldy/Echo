@@ -226,7 +226,7 @@ External references to the old §-numbers resolve here. The old detailed audit i
 | §5.1 | re-render non-idempotent | **RESOLVED** | `save`/upsert in one transaction — `NarrationService.swift:115-119` |
 | §5.2 | export filename mismatch | **RESOLVED** | shared `NarrationFileNaming` helper |
 | §5.3 | `synthesize` is a stub | **RESOLVED** | real FluidAudio inference — `KokoroTTSEngine.swift:28` |
-| §5.5 | AudioMarkerStub writes no chapters | **STILL-OPEN** | now §5.4 |
+| §5.5 | AudioMarkerStub writes no chapters | **LABELED (Phase 7 Option B)** | 1.0 = per-chapter files + marker-less m4b; honest stub + docs (2026-06-15); real `chpl` atoms (Option A, swift-audio-marker) deferred post-1.0 — owner scope call |
 | §5.6 | benchmark measures nothing | **CHANGED** | now §7.3/§9.3 (runs real synth, still sim-only) |
 | §5.11 | files in `temporaryDirectory` | **RESOLVED** | Application Support, backup-excluded — `PlayerModel+Narration.swift:153-164` |
 | §6.1 | model download zip-slip | **MOOT** | now §6.2 (third-party) |
