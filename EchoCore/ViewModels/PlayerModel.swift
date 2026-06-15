@@ -492,6 +492,14 @@ final class PlayerModel {
     /// from the system Now Playing slot.
     private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
 
+    /// Timer driving the joystick scrubbing loop in ManualAlignmentSheet.
+    /// Fires every 0.1 s, relaying the current playback time to the view's
+    /// `onTick` closure so it can compute scrub deltas.
+    @ObservationIgnored private var joystickScrubTimer: Timer?
+    /// Timer that plays brief 0.2 s audio snippets during joystick scrubbing.
+    /// Fires every 0.4 s while the user holds a joystick deflection.
+    @ObservationIgnored private var snippetPlaybackTimer: Timer?
+
     /// Tracks if audio was playing prior to an interruption, to determine if we should resume.
     var wasPlayingBeforeInterruption: Bool = false
 
@@ -991,6 +999,12 @@ final class PlayerModel {
             // after PlayerModel is torn down (CODE_AUDIT.md §3.3).
             continuousAlignmentService?.stop()
             continuousAlignmentService = nil
+
+            // Invalidate scrub / snippet timers so they do not outlive the model.
+            joystickScrubTimer?.invalidate()
+            joystickScrubTimer = nil
+            snippetPlaybackTimer?.invalidate()
+            snippetPlaybackTimer = nil
         }
     }
 
@@ -1254,6 +1268,53 @@ final class PlayerModel {
 
     func seek(toFraction fraction: Double) {
         playbackController.seek(toFraction: fraction)
+    }
+
+    // MARK: - Joystick scrubbing & snippet playback (used by ManualAlignmentSheet)
+
+    /// Starts a recurring 0.1 s joystick-scrub timer. The closure is called on
+    /// each tick with the model's current playback time. The view uses this to
+    /// compute scrub deltas from its `joystickValue` State.
+    func startJoystickScrubbing(onTick: @escaping (TimeInterval) -> Void) {
+        stopJoystickScrubbing()
+        joystickScrubTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                onTick(self.currentPlaybackTime)
+            }
+        }
+    }
+
+    /// Invalidates the joystick scrub timer.
+    func stopJoystickScrubbing() {
+        joystickScrubTimer?.invalidate()
+        joystickScrubTimer = nil
+    }
+
+    /// Starts a recurring 0.4 s snippet playback timer that plays brief 0.2 s
+    /// audio clips at the position returned by `timeProvider`. The view supplies
+    /// `timeProvider` to forward the current scrubbed time.
+    func startSnippetPlayback(timeProvider: @escaping () -> TimeInterval) {
+        stopSnippetPlayback()
+        snippetPlaybackTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isPlaying else { return }
+                guard self.tracks.indices.contains(self.currentIndex) else { return }
+                let currentScrubTime = timeProvider()
+                let url = self.tracks[self.currentIndex].url
+                let duration = self.durationSeconds ?? .infinity
+                let start = min(currentScrubTime, max(0, duration - 0.2))
+                self.snippetPlayer.play(url: url, startTime: start, endTime: start + 0.2)
+            }
+        }
+    }
+
+    /// Invalidates the snippet playback timer.
+    func stopSnippetPlayback() {
+        snippetPlaybackTimer?.invalidate()
+        snippetPlaybackTimer = nil
     }
 
     func setSpeed(_ newSpeed: Float) {

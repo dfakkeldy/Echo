@@ -8,8 +8,6 @@ struct ManualAlignmentSheet: View {
 
     @State private var scrubbedTime: TimeInterval = 0
     @State private var joystickValue: Double = 0
-    @State private var joystickTimer: Timer?
-    @State private var snippetTimer: Timer?
 
     var body: some View {
         NavigationStack {
@@ -88,9 +86,9 @@ struct ManualAlignmentSheet: View {
                 if newPhase == .background { stopScrubbing() }
             }
             .onChange(of: joystickValue) { _, newValue in
-                if newValue != 0 && joystickTimer == nil {
+                if newValue != 0 {
                     startScrubbing()
-                } else if newValue == 0 {
+                } else {
                     stopScrubbing()
                 }
             }
@@ -103,38 +101,16 @@ struct ManualAlignmentSheet: View {
     }
 
     private func startScrubbing() {
-        joystickTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            Task { @MainActor in
-                let speed = joystickValue * 10.0  // up to 10 seconds per 0.1s tick
-                scrubbedTime = max(0, min(model.durationSeconds ?? .infinity, scrubbedTime + speed))
-                model.seek(toSeconds: scrubbedTime)
-            }
+        model.startJoystickScrubbing { [self] _ in
+            let speed = joystickValue * 10.0  // up to 10 seconds per 0.1s tick
+            scrubbedTime = max(0, min(model.durationSeconds ?? .infinity, scrubbedTime + speed))
+            model.seek(toSeconds: scrubbedTime)
         }
-
-        snippetTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            Task { @MainActor in
-                playScrubSnippet()
-            }
-        }
+        model.startSnippetPlayback { [self] in scrubbedTime }
     }
 
     private func stopScrubbing() {
-        joystickTimer?.invalidate()
-        joystickTimer = nil
-        snippetTimer?.invalidate()
-        snippetTimer = nil
-    }
-
-    private func playScrubSnippet() {
-        guard !model.isPlaying else { return }
-        let tracks = model.state.tracks
-        let currentIndex = model.currentIndex
-        guard tracks.indices.contains(currentIndex) else { return }
-
-        let url = tracks[currentIndex].url
-        let duration = model.durationSeconds ?? .infinity
-        let start = min(scrubbedTime, max(0, duration - 0.2))
-
-        model.snippetPlayer.play(url: url, startTime: start, endTime: start + 0.2)
+        model.stopJoystickScrubbing()
+        model.stopSnippetPlayback()
     }
 }
