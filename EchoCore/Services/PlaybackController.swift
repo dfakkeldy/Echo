@@ -843,7 +843,7 @@ final class PlaybackController {
                         }
                     }
                 } else {
-                    DispatchQueue.main.async { [weak self] in
+                    Task { @MainActor [weak self] in
                         self?.state.isSeekingForChapterBoundary = false
                         self?.nextTrack()
                     }
