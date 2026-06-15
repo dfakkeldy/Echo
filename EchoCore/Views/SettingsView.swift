@@ -1,5 +1,6 @@
-import SwiftUI
+import AVFoundation
 import StoreKit
+import SwiftUI
 import UniformTypeIdentifiers
 import os.log
 
@@ -13,6 +14,66 @@ struct SettingsView: View {
     @State private var isRetryingProducts = false
     @State private var showingDeckImporter = false
     @State private var importAlert: (title: String, message: String)?
+
+    #if DEBUG
+        @State private var debugNarrationPlayer: AVAudioPlayer?
+
+        /// One-tap on-device smoke test: render the first 3 paragraphs of the
+        /// loaded book's chapter 1 with the real Kokoro engine and play them.
+        private func testNarrateChapterOne() {
+            Task {
+                let logger = Logger(category: "NarrationTest")
+                do {
+                    // Prefer the loaded book's chapter-1 text; fall back to a sample
+                    // paragraph when no EPUB blocks are present (nothing imported).
+                    var texts: [String] = []
+                    if let writer = model.databaseService?.writer,
+                        let audiobookID = model.folderURL?.absoluteString
+                    {
+                        texts =
+                            (try? EPubBlockDAO(db: writer)
+                                .blocks(for: audiobookID, chapterIndex: 0)
+                                .compactMap { $0.text }
+                                .filter { !$0.isEmpty }) ?? []
+                    }
+                    if texts.isEmpty {
+                        logger.info("No EPUB blocks loaded — narrating a sample paragraph instead.")
+                        texts = [
+                            "Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do.",
+                            "Once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it.",
+                            "And what is the use of a book, thought Alice, without pictures or conversations?",
+                        ]
+                    }
+                    let snippet = Array(texts.prefix(3))
+
+                    logger.info("Preparing Kokoro (first run compiles on the ANE, ~15s)…")
+                    let engine = KokoroTTSEngine()
+                    var chunks: [TTSChunk] = []
+                    for text in snippet {
+                        // Chunk before synthesize, mirroring NarrationService.renderChapter:
+                        // a whole 400+ char block traps Kokoro's BNNS fallback (uncatchable
+                        // SIGTRAP), so bound every synthesize call to <=200 chars.
+                        for subText in NarrationTextChunker.split(TextNormalizer.normalize(text)) {
+                            chunks.append(
+                                try await engine.synthesize(subText, voice: VoiceID("af_heart")))
+                        }
+                    }
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("narration-test.m4a")
+                    try? FileManager.default.removeItem(at: url)
+                    _ = try await AVFoundationAudioWriter().write(chunks, to: url)
+                    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+                    try? AVAudioSession.sharedInstance().setActive(true)
+                    let player = try AVAudioPlayer(contentsOf: url)
+                    debugNarrationPlayer = player
+                    player.play()
+                    logger.info("Playing \(chunks.count) blocks.")
+                } catch {
+                    logger.error("Narration test failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    #endif
 
     var body: some View {
         @Bindable var settings = settings
@@ -64,7 +125,9 @@ struct SettingsView: View {
                         Text("3.0×").tag(3.0)
                     }
                     Picker("Seek Backward", selection: $settings.seekBackwardDuration) {
-                        ForEach([5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { duration in
+                        ForEach(
+                            [5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self
+                        ) { duration in
                             Text("\(duration)s").tag(duration)
                         }
                     }
@@ -72,7 +135,9 @@ struct SettingsView: View {
                         model.syncToWatch()
                     }
                     Picker("Seek Forward", selection: $settings.seekForwardDuration) {
-                        ForEach([5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { duration in
+                        ForEach(
+                            [5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self
+                        ) { duration in
                             Text("\(duration)s").tag(duration)
                         }
                     }
@@ -87,7 +152,7 @@ struct SettingsView: View {
                 // Audit E4: the "for testing" lookback slider is debug tooling
                 // and must not ship in release builds.
                 #if DEBUG
-                SettingsSilenceDetectionSection()
+                    SettingsSilenceDetectionSection()
                 #endif
 
                 SettingsAutoAlignmentSection()
@@ -103,16 +168,19 @@ struct SettingsView: View {
                 }
 
                 #if DEBUG
-                Section {
-                    Button("Load Development Assets") {
-                        model.loadFolder(Bundle.main.bundleURL)
-                        dismiss()
+                    Section {
+                        Button("Load Development Assets") {
+                            model.loadFolder(Bundle.main.bundleURL)
+                            dismiss()
+                        }
+                        Button("🔊 Narrate Ch. 1 (Kokoro test)") {
+                            testNarrateChapterOne()
+                        }
+                    } header: {
+                        Text("Debug Menu")
+                    } footer: {
+                        Text("Loads audio files from Development Assets into the player.")
                     }
-                } header: {
-                    Text("Debug Menu")
-                } footer: {
-                    Text("Loads audio files from Development Assets into the player.")
-                }
                 #endif
 
                 Section {
@@ -129,7 +197,11 @@ struct SettingsView: View {
                 }
             }
         }
-        .environment(\.font, settings.appFont == SettingsManager.systemFontName ? .body : .custom(settings.appFont, size: 17, relativeTo: .body))
+        .environment(
+            \.font,
+            settings.appFont == SettingsManager.systemFontName
+                ? .body : .custom(settings.appFont, size: 17, relativeTo: .body)
+        )
         .fileImporter(
             isPresented: $showingDeckImporter,
             allowedContentTypes: [.json],
@@ -209,18 +281,18 @@ private struct SettingsAppearanceView: View {
                 }
             }
             #if os(iOS)
-            Section("App Icon") {
-                NavigationLink {
-                    AppIconSelectionView()
-                } label: {
-                    HStack {
-                        Text("App Icon")
-                        Spacer()
-                        Text(currentAppIconName)
-                            .foregroundStyle(.secondary)
+                Section("App Icon") {
+                    NavigationLink {
+                        AppIconSelectionView()
+                    } label: {
+                        HStack {
+                            Text("App Icon")
+                            Spacer()
+                            Text(currentAppIconName)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-            }
             #endif
             Section("Theme") {
                 NavigationLink {
@@ -246,102 +318,112 @@ private struct SettingsAppearanceView: View {
                     HStack {
                         Text("Font")
                         Spacer()
-                        Text(settings.appFont == SettingsManager.systemFontName ? "System" : settings.appFont)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            settings.appFont == SettingsManager.systemFontName
+                                ? "System" : settings.appFont
+                        )
+                        .foregroundStyle(.secondary)
                     }
                 }
             }
             Section {
-                Toggle("Truncate Chapter to Ch.", isOn: Binding(
-                    get: { settings.truncateChapterNamesEnabled },
-                    set: {
-                        settings.truncateChapterNamesEnabled = $0
-                        model.syncToWatch()
-                    }
-                ))
+                Toggle(
+                    "Truncate Chapter to Ch.",
+                    isOn: Binding(
+                        get: { settings.truncateChapterNamesEnabled },
+                        set: {
+                            settings.truncateChapterNamesEnabled = $0
+                            model.syncToWatch()
+                        }
+                    ))
             } header: {
                 Text("Display Options")
             } footer: {
-                Text("Shortens \u{201C}Chapter 12\u{201D} to \u{201C}Ch. 12\u{201D} in tight spaces, like the watch and mini-player.")
+                Text(
+                    "Shortens \u{201C}Chapter 12\u{201D} to \u{201C}Ch. 12\u{201D} in tight spaces, like the watch and mini-player."
+                )
             }
         }
         .navigationTitle("Appearance")
     }
 
     #if os(iOS)
-    private var currentAppIconName: String {
-        guard let name = UIApplication.shared.alternateIconName else {
-            return "Default"
+        private var currentAppIconName: String {
+            guard let name = UIApplication.shared.alternateIconName else {
+                return "Default"
+            }
+            switch name {
+            case "AppIcon-ComplexWaves": return "Complex Waves"
+            case "AppIcon-GoldSilver": return "Gold & Silver"
+            case "AppIcon-SilverGold": return "Silver & Gold"
+            case "AppIcon-WhiteBolder": return "White Bolder"
+            default: return name
+            }
         }
-        switch name {
-        case "AppIcon-ComplexWaves": return "Complex Waves"
-        case "AppIcon-GoldSilver": return "Gold & Silver"
-        case "AppIcon-SilverGold": return "Silver & Gold"
-        case "AppIcon-WhiteBolder": return "White Bolder"
-        default: return name
-        }
-    }
     #endif
 }
 
 #if os(iOS)
-private struct AppIconSelectionView: View {
-    let icons: [(name: String, id: String?)] = [
-        ("Default (Original)", nil),
-        ("Complex Waves", "AppIcon-ComplexWaves"),
-        ("Gold & Silver", "AppIcon-GoldSilver"),
-        ("Silver & Gold", "AppIcon-SilverGold"),
-        ("White Bolder", "AppIcon-WhiteBolder")
-    ]
-    
-    @State private var currentIcon = UIApplication.shared.alternateIconName
-    
-    var body: some View {
-        Form {
-            ForEach(icons, id: \.name) { icon in
-                Button {
-                    setAppIcon(to: icon.id)
-                } label: {
-                    HStack {
-                        // We use the image from the bundle if we want to preview it,
-                        // but since they are app icons, we can't easily load them into an Image directly.
-                        // So we just show the name.
-                        Text(icon.name)
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        if currentIcon == icon.id {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color.accentColor)
+    private struct AppIconSelectionView: View {
+        let icons: [(name: String, id: String?)] = [
+            ("Default (Original)", nil),
+            ("Complex Waves", "AppIcon-ComplexWaves"),
+            ("Gold & Silver", "AppIcon-GoldSilver"),
+            ("Silver & Gold", "AppIcon-SilverGold"),
+            ("White Bolder", "AppIcon-WhiteBolder"),
+        ]
+
+        @State private var currentIcon = UIApplication.shared.alternateIconName
+
+        var body: some View {
+            Form {
+                ForEach(icons, id: \.name) { icon in
+                    Button {
+                        setAppIcon(to: icon.id)
+                    } label: {
+                        HStack {
+                            // We use the image from the bundle if we want to preview it,
+                            // but since they are app icons, we can't easily load them into an Image directly.
+                            // So we just show the name.
+                            Text(icon.name)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if currentIcon == icon.id {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color.accentColor)
+                            }
                         }
                     }
                 }
             }
+            .navigationTitle("App Icon")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .navigationTitle("App Icon")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-    
-    private func setAppIcon(to iconName: String?) {
-        guard UIApplication.shared.supportsAlternateIcons else { return }
-        UIApplication.shared.setAlternateIconName(iconName) { error in
-            if let error = error {
-                Logger(category: "Settings").error("Failed to change app icon: \(error.localizedDescription)")
-            } else {
-                Task { @MainActor in
-                    self.currentIcon = iconName
+
+        private func setAppIcon(to iconName: String?) {
+            guard UIApplication.shared.supportsAlternateIcons else { return }
+            UIApplication.shared.setAlternateIconName(iconName) { error in
+                if let error = error {
+                    Logger(category: "Settings").error(
+                        "Failed to change app icon: \(error.localizedDescription)")
+                } else {
+                    Task { @MainActor in
+                        self.currentIcon = iconName
+                    }
                 }
             }
         }
     }
-}
 #endif
 
 private struct FontSelectionView: View {
     @Environment(SettingsManager.self) private var settings
-    
+
     var body: some View {
         Form {
-            Button { settings.appFont = "Lexend" } label: {
+            Button {
+                settings.appFont = "Lexend"
+            } label: {
                 HStack {
                     Text("Lexend (Default)")
                         .foregroundStyle(.primary)
@@ -352,7 +434,9 @@ private struct FontSelectionView: View {
                     }
                 }
             }
-            Button { settings.appFont = "OpenDyslexic" } label: {
+            Button {
+                settings.appFont = "OpenDyslexic"
+            } label: {
                 HStack {
                     Text("OpenDyslexic")
                         .foregroundStyle(.primary)
@@ -363,7 +447,9 @@ private struct FontSelectionView: View {
                     }
                 }
             }
-            Button { settings.appFont = SettingsManager.systemFontName } label: {
+            Button {
+                settings.appFont = SettingsManager.systemFontName
+            } label: {
                 HStack {
                     Text("System")
                         .foregroundStyle(.primary)
@@ -399,7 +485,9 @@ private struct SettingsSilenceDetectionSection: View {
         } header: {
             Text("Silence Detection")
         } footer: {
-            Text("How far back to scan for silence when locating playback position during reverse playback. For testing.")
+            Text(
+                "How far back to scan for silence when locating playback position during reverse playback. For testing."
+            )
         }
     }
 }
@@ -411,17 +499,21 @@ private struct SettingsAutoAlignmentSection: View {
     var body: some View {
         @Bindable var settings = settings
         Section {
-            Toggle("Continuous Auto-Alignment", isOn: Binding(
-                get: { settings.continuousAutoAlignmentEnabled },
-                set: {
-                    settings.continuousAutoAlignmentEnabled = $0
-                    model.configureContinuousAlignment()
-                }
-            ))
+            Toggle(
+                "Continuous Auto-Alignment",
+                isOn: Binding(
+                    get: { settings.continuousAutoAlignmentEnabled },
+                    set: {
+                        settings.continuousAutoAlignmentEnabled = $0
+                        model.configureContinuousAlignment()
+                    }
+                ))
         } header: {
             Text("Auto-Alignment")
         } footer: {
-            Text("When enabled, the app will continuously transcribe audio in the background while playing and attempt to align it with the text.")
+            Text(
+                "When enabled, the app will continuously transcribe audio in the background while playing and attempt to align it with the text."
+            )
         }
     }
 }
@@ -434,7 +526,9 @@ private struct SettingsBookmarksInlineSection: View {
         Section {
             Toggle("Play Bookmarks Inline", isOn: $settings.playBookmarksInline)
         } footer: {
-            Text("When enabled, voice memos attached to bookmarks are played automatically when the audiobook reaches that timestamp.")
+            Text(
+                "When enabled, voice memos attached to bookmarks are played automatically when the audiobook reaches that timestamp."
+            )
         }
     }
 }
@@ -451,8 +545,11 @@ private struct ProTranscriptsSettingsView: View {
         Form {
             Section {
                 LabeledContent("Status") {
-                    Text(storeManager.hasUnlockedPro ? String(localized: "Unlocked") : String(localized: "Locked"))
-                        .foregroundStyle(storeManager.hasUnlockedPro ? .green : .secondary)
+                    Text(
+                        storeManager.hasUnlockedPro
+                            ? String(localized: "Unlocked") : String(localized: "Locked")
+                    )
+                    .foregroundStyle(storeManager.hasUnlockedPro ? .green : .secondary)
                 }
 
                 if let product = storeManager.proUnlockProduct, !storeManager.hasUnlockedPro {
@@ -576,8 +673,9 @@ private struct ThemeSelectionView: View {
                 }
             } footer: {
                 if settings.themeColor == ThemeColor.artwork.rawValue,
-                   playerModel.artworkAccentColor == nil,
-                   playerModel.currentDisplayArtwork == nil {
+                    playerModel.artworkAccentColor == nil,
+                    playerModel.currentDisplayArtwork == nil
+                {
                     Text("Load an audiobook to see the extracted accent colour.")
                 }
             }

@@ -73,4 +73,15 @@ final class PlaybackState {
 
     /// A trigger used to force UI re-evaluations when documents (EPUB/PDF) are imported or replaced.
     var documentIngestionTrigger: Int = 0
+
+    // MARK: - On-device narration playback
+
+    /// `true` while narration chapters are still being rendered and appended as
+    /// tracks. Lets `nextTrack()` wait at the end of the rendered queue instead
+    /// of looping back to chapter 1 when the next chapter isn't ready yet.
+    var narrationRenderInFlight: Bool = false
+    /// Set when playback reached the end of the rendered narration queue and is
+    /// paused waiting for the next chapter; `startNarrationPlayback` resumes once
+    /// that chapter is appended.
+    var awaitingNarrationChapter: Bool = false
 }

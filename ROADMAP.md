@@ -1,6 +1,6 @@
 # Echo: Audiobook Study Player — Roadmap
 
-<!-- Last updated: 2026-06-09 (Phases 1-3 complete, Phase 4 90%, Phase 5 complete, Phase 6 core complete, Phase 7 not started, Phase 8 partially started — rebrand docs done, Accent Contrast Safety done, Watch Connectivity hardened, Now Playing redesign done) -->
+<!-- Last updated: 2026-06-14 (added Phase 9: Audiobookshelf Integration — sequenced after narration/Kokoro, before WS9 release; download-to-local approach. Prior: Phases 1-3 complete, Phase 4 90%, Phase 5 complete, Phase 6 core complete, Phase 7 not started, Phase 8 partially started) -->
 
 ---
 
@@ -255,6 +255,51 @@ Priority items for the Echo rebrand and study-player positioning, plus stretch g
 
 ---
 
+## Phase 9: Audiobookshelf Integration
+
+Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class library source so a self-hosted collection flows into Echo's study pipeline.
+
+**Sequencing:** lands **after the on-device narration (Kokoro) workstream**, **before WS9 "Polish & release"** (README → *The Road to v1.0*; this is WS8b). Targeted for 1.0. Full design rationale + verified source citations: the 2026-06-14 assessment.
+
+**Central decision — download, don't stream.** Echo's audio engine reads bytes via `AVAudioFile(forReading:)` (local-only; `AudioEngine.swift:333`) and a book's identity *is* its folder URL. Once ABS bytes land in a folder the book is indistinguishable from a local import and **every differentiator keeps working** (alignment, phrase search, EPUB sync, flashcards). Streaming would fork the audio engine (XL) and disable those features — it is **deferred post-1.0** (§9.5).
+
+### 9.1 — Foundation: connect & browse (size: M)
+
+- [ ] **`AudiobookshelfService`** — concrete service, sibling to `CloudKitSyncService`; the app's first networked-account code. Minimal async/await `URLSession` client in the `MacAnkiExportView` house style. No new protocol (matches the concrete-type DI style — see §10.1 history).
+- [ ] **Auth** — JWT login + refresh-with-rotation (persist the rotated refresh token *every time*; serialize refreshes to avoid self-invalidation). Tolerate self-signed certs, LAN `http`, and non-standard ports (homelab reality).
+- [ ] **Credential storage** — per-server token in `KeychainStore` (new key; owner runs multiple servers). New `abs_server` table (`id, baseURL, username, defaultLibraryId`); the token never goes in SQLite.
+- [ ] **Settings UI** — a "Connections" section in `SettingsView` following the existing `NavigationLink` sub-screen pattern. One server is enough for v1; multi-server is a fast-follow.
+- [ ] **Browse** — list libraries → items → item detail; covers via `/api/items/{id}/cover?token=`.
+
+### 9.2 — Download-to-local — the core (size: L)
+
+- [ ] **"Add from Audiobookshelf"** action beside the existing `.fileImporter` in `PlaylistView`.
+- [ ] **Background, resumable downloads** — `URLSessionConfiguration.background` (net-new; only `audio`/`fetch` background modes today, `Info.plist:46`). De-risk by shipping a foreground download first, then add background once the happy path works.
+- [ ] **Managed library folder** — land audio into app-owned `Application Support/ABSLibrary/{remoteItemID}/`; the security-scoped `start/stopAccessingSecurityScopedResource` calls become no-ops for this folder (it's already ours).
+- [ ] **Pull the bundled EPUB** — if `media.ebookFile` exists, download it into the *same* folder so `EPUBAutoImportScanner` auto-discovers the sibling `.epub` (`EPUBAutoImportScanner.swift:55`) — alignment/flashcards/search then fire with zero pipeline changes. The single cleanest synergy in the project.
+- [ ] **Hand off to the existing pipeline** — call `PlayerLoadingCoordinator.loadFolder` unchanged; `M4BParser` parses chapters locally; anchors seed.
+- [ ] **Identity (option B)** — keep `id = folderURL.absoluteString` for downloaded books; merely stamp `sourceType`/`serverID`/`remoteItemID` onto `AudiobookRecord` (migration v18). Because a downloaded book has a real folder, almost no `file://`-assuming call site breaks.
+- [ ] **Anchor-reuse win** — `CloudKitSyncService.downloadAnchors` keys shared anchors on `title+author+duration` and *ignores* `audiobookID`, so a downloaded copy inherits WhisperKit anchors another device already computed (skips transcription on device 2). Verify end-to-end.
+
+### 9.3 — Library discovery: search by topic (size: S–M)
+
+- [ ] **Browse & search the connected ABS library by topic** — filter/search items by genre, tag, series, narrator, and author (ABS exposes all of these per item). This is *library-level* discovery — distinct from Echo's existing *within-book* phrase search (`EPubBlockDAO.search`).
+- [ ] **Carry topic metadata onto import** — persist ABS genres/tags on the imported book so the local library is filterable by topic too (complements Echo's embedded topic tags).
+
+### 9.4 — Two-way progress sync — Tier 3-lite (size: M, fast-follow)
+
+- [ ] **Push/pull playback position** — wire ABS media-progress into the existing closures (`PlayerModel.coordinator_saveProgress` / `coordinator_persistAndSync` and the restore-on-load path, `PlayerModel.swift:711`); throttle pushes to ~15–30 s while playing. (CloudKit syncs only alignment anchors, **not** progress — so the only conflict is Echo-local vs ABS.)
+- [ ] **Conflict policy** — add `updatedAt(ms)` to `Persistence` / `ManifestPlaybackState`; compare against ABS `lastUpdate` on open; ABS is authoritative for ABS-backed books; local sidecar is offline cache. Reuse WS8's conflict-rules thinking.
+- [ ] **Offline reconciliation** — accumulate offline, reconcile via `POST /api/session/local-all` on reconnect. (Deferrable within the phase.)
+
+### 9.5 — Deferred (post-1.0)
+
+- [ ] **Tier 1 streaming (XL)** — a parallel `AVPlayer` backend that re-implements pitch-corrected speed / EQ / soundscape / visualizer / progress-tick and re-validates CarPlay + Watch. Revisit only if no-download casual listening becomes a hard, user-validated requirement. On a streamed book the study differentiators are disabled — gate them behind the existing "Coming"-style CTA so the tradeoff is legible.
+- [ ] **ABS bookmark / finished-state round-trip** — best-effort and lossy (ABS bookmarks are title+time only, no voice memo).
+- [ ] **Multi-server** beyond the v1 single connection.
+
+---
+
 ## Summary by Phase
 
 | Phase | Focus | Status |
@@ -267,8 +312,9 @@ Priority items for the Echo rebrand and study-player positioning, plus stretch g
 | 6 | EPUB Manual Alignment | ✅ Core complete (6/8 items); 2 deferred (anchor import/export, word-count alignment hints) |
 | 7 | Testing & CI | ~7 items remaining |
 | 8 | Study Workflow & Polish | ~17 items remaining (6 P0, 11 stretch); Accent Contrast Safety ✅, Now Playing redesign ✅, Watch Connectivity hardened ✅, Pomodoro timer ✅, CloudKit sync infrastructure in place |
+| 9 | Audiobookshelf Integration | 🔜 Planned — after narration (Kokoro), before WS9 release (download-to-local + topic search + progress sync; streaming deferred post-1.0) |
 
-**Completed: 5/8 phases (+ Phase 6 core, substantial Phase 8 foundations) | Remaining: ~26 items**
+**Completed: 5/9 phases (+ Phase 6 core, substantial Phase 8 foundations) | Remaining: ~26 items + Phase 9 (Audiobookshelf) planned**
 
 ### June 2026 Highlights (since last update)
 

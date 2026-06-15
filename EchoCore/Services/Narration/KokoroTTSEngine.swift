@@ -1,41 +1,40 @@
-import Foundation
 import CoreML
 import FluidAudio
+import Foundation
 
 actor KokoroTTSEngine: TTSEngine {
     private let manager = KokoroAneManager()
-    private var isInitialized = false
-    
+    private var initializationTask: Task<Void, Error>?
+
     init() {}
-    
+
     func prepare() async throws {
-        if !isInitialized {
+        if let task = initializationTask {
+            try await task.value
+            return
+        }
+        let task = Task {
             try await manager.initialize()
-            isInitialized = true
         }
+        initializationTask = task
+        try await task.value
     }
-    
+
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
-        // Ensure initialized before synthesis
-        if !isInitialized {
-            try await prepare()
-        }
-        
-        let startTime = CFAbsoluteTimeGetCurrent()
-        
-        // FluidAudio's KokoroAneManager returns an array of Float32
-        // NOTE: voice selection might be supported by setting properties on manager or passing to synthesize.
-        // If not directly supported in the signature, we'll use the default voice.
-        // We will pass the text.
-        let data = try await manager.synthesize(text: text)
-        let samples = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-        
-        let endTime = CFAbsoluteTimeGetCurrent()
-        let inferenceTime = endTime - startTime
-        let duration = Double(samples.count) / 24000.0
-        
-        print("[Kokoro] Synthesized \(text.count) chars in \(String(format: "%.2f", inferenceTime))s. Audio Duration: \(String(format: "%.2f", duration))s. RTF: \(String(format: "%.2f", duration / inferenceTime))x")
-        
-        return TTSChunk(samples: samples, sampleRate: 24000, duration: duration)
+        // Always await preparation: cheap if already prepared, and (unlike a nil
+        // check) it correctly waits for an in-flight init instead of synthesizing early.
+        try await prepare()
+
+        let result = try await manager.synthesizeDetailed(text: text, voice: voice.rawValue)
+        let samples = result.samples
+
+        let inferenceTime = result.timings.totalMs / 1000.0
+        let duration = result.durationSeconds
+
+        print(
+            "[Kokoro] Synthesized \(text.count) chars in \(String(format: "%.2f", inferenceTime))s. Audio Duration: \(String(format: "%.2f", duration))s. RTF: \(String(format: "%.2f", duration / inferenceTime))x"
+        )
+
+        return TTSChunk(samples: samples, sampleRate: Double(result.sampleRate), duration: duration)
     }
 }

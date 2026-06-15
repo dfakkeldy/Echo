@@ -12,6 +12,9 @@ struct NowPlayingTab: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
 
+    @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
+    @State private var showingVoicePicker = false
+
     var body: some View {
         ZStack {
             // 1. ADAPTIVE GRADIENT BACKGROUND (Rendered globally at RootTabView)
@@ -30,6 +33,18 @@ struct NowPlayingTab: View {
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                     .padding(.top, 16)
 
+                // C2. On-device narration — shown when the book has EPUB text.
+                if model.hasEPUB {
+                    VStack(spacing: 8) {
+                        NarrationStatusView(state: model.narrationPlaybackState)
+                        if !model.narrationPlaybackState.isRunning {
+                            NarrationNudgeView(onListen: { showingVoicePicker = true })
+                        }
+                    }
+                    .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                    .padding(.top, 12)
+                }
+
                 // D. Main Scrubber (completely exposed, floating over background)
                 PlayerScrubberView()
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
@@ -42,7 +57,8 @@ struct NowPlayingTab: View {
 
                 // E. Unified Bottom Dock
                 if !model.isPlayingVoiceMemo {
-                    UnifiedBottomDock(onCreateBookmark: onCreateBookmark, onShowFidget: onShowFidget)
+                    UnifiedBottomDock(
+                        onCreateBookmark: onCreateBookmark, onShowFidget: onShowFidget)
                 }
             }
             .ignoresSafeArea(.keyboard)
@@ -52,7 +68,11 @@ struct NowPlayingTab: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 Color.clear.frame(height: 50)
             }
-            .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+            .environment(
+                \.font,
+                model.resolvedAppFont == SettingsManager.systemFontName
+                    ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body)
+            )
             .grayscale(model.isPlayingVoiceMemo ? 1.0 : 0.0)
             .opacity(model.isPlayingVoiceMemo ? 0.5 : 1.0)
             .allowsHitTesting(!model.isPlayingVoiceMemo)
@@ -66,13 +86,18 @@ struct NowPlayingTab: View {
         .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .task(id: model.folderURL) {
+            // Pre-warm the ANE model compile so the first Listen tap isn't a long stall.
+            if model.hasEPUB { try? await model.narrationTTS.prepare() }
+        }
+        .sheet(isPresented: $showingVoicePicker) {
+            VoicePickerView(selectedVoice: $selectedVoice) {
+                model.startNarrationPlayback(voice: selectedVoice)
+            }
+        }
     }
 
     // MARK: - Subviews
-
-
-
-
 
     private var artworkView: some View {
         Group {
@@ -129,7 +154,9 @@ struct NowPlayingTab: View {
 
     private var titleText: String {
         model.chapters.count >= 2
-            ? (model.currentSubtitle.isEmpty ? String(localized: "Ch \((model.currentChapterIndex ?? 0) + 1)") : model.currentSubtitle)
+            ? (model.currentSubtitle.isEmpty
+                ? String(localized: "Ch \((model.currentChapterIndex ?? 0) + 1)")
+                : model.currentSubtitle)
             : model.currentTitle
     }
 
@@ -167,10 +194,13 @@ struct NowPlayingTab: View {
     private func bookProgressParts() -> (elapsed: String, remaining: String) {
         let speed = model.speed > 0 ? Double(model.speed) : 1.0
         let currentSeconds = model.currentPlaybackTime
-        let totalBookDuration = model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
+        let totalBookDuration =
+            model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
         let elapsedSeconds: Double
         if model.isMultiM4B {
-            let bookOffset = model.m4bBooks.indices.contains(model.currentIndex) ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
+            let bookOffset =
+                model.m4bBooks.indices.contains(model.currentIndex)
+                ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
             elapsedSeconds = bookOffset + currentSeconds
         } else {
             elapsedSeconds = currentSeconds
@@ -185,14 +215,20 @@ struct NowPlayingTab: View {
         let chapterIndex = (model.currentChapterIndex ?? 0) + 1
         let chapterCount = model.chapters.count
         let parts = bookProgressParts()
-        return String(localized: "Ch \(chapterIndex) of \(chapterCount), \(parts.elapsed) elapsed, \(parts.remaining) remaining")
+        return String(
+            localized:
+                "Ch \(chapterIndex) of \(chapterCount), \(parts.elapsed) elapsed, \(parts.remaining) remaining"
+        )
     }
 
     private func trackProgressText() -> String {
         let trackIndex = model.currentIndex + 1
         let trackCount = model.tracks.count
         let parts = bookProgressParts()
-        return String(localized: "Track \(trackIndex) of \(trackCount), \(parts.elapsed) elapsed, \(parts.remaining) remaining")
+        return String(
+            localized:
+                "Track \(trackIndex) of \(trackCount), \(parts.elapsed) elapsed, \(parts.remaining) remaining"
+        )
     }
 }
 
@@ -205,8 +241,8 @@ private struct PlayerDeckSurface: ViewModifier {
     }
 }
 
-private extension View {
-    func playerDeckSurface() -> some View {
+extension View {
+    fileprivate func playerDeckSurface() -> some View {
         modifier(PlayerDeckSurface())
     }
 }

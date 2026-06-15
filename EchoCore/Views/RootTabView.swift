@@ -57,8 +57,9 @@ struct RootTabView: View {
                         } else if model.hasPDF {
                             PDFDocumentView(folderURL: model.folderURL!)
                         } else if model.hasStandaloneTranscript,
-                                  let folder = model.folderURL,
-                                  let db = model.databaseService {
+                            let folder = model.folderURL,
+                            let db = model.databaseService
+                        {
                             StandaloneTranscriptView(
                                 audiobookID: folder.absoluteString,
                                 db: db.writer
@@ -75,6 +76,21 @@ struct RootTabView: View {
                     case .stats:
                         NavigationStack {
                             StatsView()
+                                .navigationTitle("Stats")
+                                .toolbar {
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        Button("Done") {
+                                            model.selectedTab = .nowPlaying
+                                        }
+                                    }
+                                }
+                                // The outer stack hides its nav bar; the Stats
+                                // stack needs a visible bar so the Done button —
+                                // the only tracks-independent exit — is reachable.
+                                // Without it an audio-less book (tracks empty)
+                                // strands the user: the tab-cycle button is
+                                // .disabled(tracks.isEmpty).
+                                .toolbarVisibility(.visible, for: .navigationBar)
                         }
                     }
                 }
@@ -94,7 +110,9 @@ struct RootTabView: View {
                 if model.selectedTab != .nowPlaying && !model.isPlayingVoiceMemo {
                     VStack {
                         Spacer()
-                        UnifiedBottomDock(onCreateBookmark: { draft in newBookmarkDraft = draft }, onShowFidget: { showingFidget = true })
+                        UnifiedBottomDock(
+                            onCreateBookmark: { draft in newBookmarkDraft = draft },
+                            onShowFidget: { showingFidget = true })
                     }
                 }
             }
@@ -103,6 +121,8 @@ struct RootTabView: View {
             .sheet(isPresented: $showingFolderPicker) {
                 FolderPicker { url in
                     showingFolderPicker = false
+                    // A picked folder, audio file, or lone study EPUB all flow
+                    // through the same loader; an EPUB opens as an audio-less book.
                     model.loadFolder(url)
                 }
             }
@@ -173,8 +193,6 @@ struct RootTabView: View {
         }
     }
 
-
-
     private func colorScheme(for appearance: String) -> ColorScheme? {
         switch appearance {
         case "Light": return .light
@@ -185,7 +203,8 @@ struct RootTabView: View {
 
     private func launchReview() {
         guard let db = model.databaseService else { return }
-        let vm = DailyReviewViewModel(db: db.writer, folderURL: model.folderURL, snippetPlayer: model.snippetPlayer)
+        let vm = DailyReviewViewModel(
+            db: db.writer, folderURL: model.folderURL, snippetPlayer: model.snippetPlayer)
         vm.onRequestSnippetPlay = { [weak model] url, start, end in
             model?.snippetPlayer.play(url: url, startTime: start, endTime: end)
         }

@@ -1,5 +1,5 @@
-import SwiftUI
 import GRDB
+import SwiftUI
 import UIKit
 import os.log
 
@@ -82,7 +82,7 @@ struct ReaderTab: View {
         if let vm = viewModel {
             let query: String? = model.epubSearchText.isEmpty ? nil : model.epubSearchText
             let bindableVM = Bindable(vm)
-            
+
             ReaderFeedCollectionView(
                 sections: vm.sections,
                 activeBlockID: bindableVM.activeBlockID,
@@ -128,14 +128,16 @@ struct ReaderTab: View {
             if !hasSeenContextMenuHint {
                 hintBanner(
                     icon: "hand.point.up.left",
-                    message: "Long-press any card to align it with the audio, change its color, bookmark it, or copy text.",
+                    message:
+                        "Long-press any card to align it with the audio, change its color, bookmark it, or copy text.",
                     dismissible: true,
                     onDismiss: { withAnimation { hasSeenContextMenuHint = true } }
                 )
             } else if showAlignmentBanner && !hasDismissedAlignmentBanner {
                 hintBanner(
                     icon: "align.horizontal.center",
-                    message: "The alignment was estimated automatically. Long-press any paragraph and choose \"Align to Now\" to make it exact — this makes the book fully searchable.",
+                    message:
+                        "The alignment was estimated automatically. Long-press any paragraph and choose \"Align to Now\" to make it exact — this makes the book fully searchable.",
                     dismissible: true,
                     onDismiss: { withAnimation { hasDismissedAlignmentBanner = true } }
                 )
@@ -190,11 +192,18 @@ struct ReaderTab: View {
         }
         .onChange(of: settingsManager.appFont) { _, newFont in
             let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
-            readerSettings.appFont = BookPreferencesService.resolveAppFont(override: overrides.font, globalFont: newFont)
+            readerSettings.appFont = BookPreferencesService.resolveAppFont(
+                override: overrides.font, globalFont: newFont)
         }
-        .onChange(of: readerSettings.fontSize) { _, newSize in settingsManager.readerFontSize = newSize }
-        .onChange(of: readerSettings.lineSpacing) { _, newLineSpacing in settingsManager.readerLineSpacing = newLineSpacing }
-        .onChange(of: readerSettings.cardTintHex) { _, newHex in settingsManager.readerCardTint = newHex }
+        .onChange(of: readerSettings.fontSize) { _, newSize in
+            settingsManager.readerFontSize = newSize
+        }
+        .onChange(of: readerSettings.lineSpacing) { _, newLineSpacing in
+            settingsManager.readerLineSpacing = newLineSpacing
+        }
+        .onChange(of: readerSettings.cardTintHex) { _, newHex in
+            settingsManager.readerCardTint = newHex
+        }
         .onChange(of: model.epubSearchText) { _, newValue in
             viewModel?.searchQuery = newValue.isEmpty ? nil : newValue
         }
@@ -206,7 +215,28 @@ struct ReaderTab: View {
             }
         }
         .onChange(of: model.currentPlaybackTime) { _, newPos in
-            viewModel?.updateActiveBlock(time: newPos)
+            viewModel?.updateActiveBlock(
+                time: newPos, currentTrackChapterIndices: currentTrackChapterIndices)
+        }
+        // Re-scope + re-resolve at a track boundary: the per-track playback time
+        // can be identical across tracks, so without re-scoping the highlight
+        // would stay stuck in the previous track's chapter.
+        .onChange(of: model.currentIndex) { _, _ in
+            viewModel?.updateActiveBlock(
+                time: model.currentPlaybackTime,
+                currentTrackChapterIndices: currentTrackChapterIndices
+            )
+        }
+        // Narration renders chapter-by-chapter, posting this after each chapter's
+        // timeline_item rows are materialized. Reload so read-along lights up
+        // incrementally. Gate on the audiobookID so a just-switched book doesn't
+        // trigger a spurious reload. Mirrors PlaylistView / PDFDocumentView.
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
+            notification in
+            guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
+                ingestedID == folderURL.absoluteString
+            else { return }
+            viewModel?.reload()
         }
         .sheet(isPresented: $model.showReaderSettings) {
             ReaderSettingsSheet(settings: $readerSettings)
@@ -259,14 +289,19 @@ struct ReaderTab: View {
                     let blockDAO = EPubBlockDAO(db: db.writer)
                     do {
                         // Find the chapterIndex of the selected block
-                        let allBlocks = viewModel?.sections.flatMap(\.items).compactMap { item -> EPubBlockRecord? in
-                            if case .block(let b) = item { return b }
-                            return nil
-                        } ?? []
-                        
+                        let allBlocks =
+                            viewModel?.sections.flatMap(\.items).compactMap {
+                                item -> EPubBlockRecord? in
+                                if case .block(let b) = item { return b }
+                                return nil
+                            } ?? []
+
                         if let block = allBlocks.first(where: { $0.id == blockID }),
-                           let chapterIndex = block.chapterIndex {
-                            try blockDAO.setChapterThemeColor(colorHex, chapterIndex: chapterIndex, audiobookID: block.audiobookID)
+                            let chapterIndex = block.chapterIndex
+                        {
+                            try blockDAO.setChapterThemeColor(
+                                colorHex, chapterIndex: chapterIndex, audiobookID: block.audiobookID
+                            )
                             viewModel?.reload()
                             // Immediately update the top theme color so the screen background changes without scrolling
                             topChapterThemeColor = colorHex
@@ -278,10 +313,12 @@ struct ReaderTab: View {
                 showChapterThemePickerForBlockID = nil
             }
         }
-        .sheet(isPresented: Binding(
-            get: { viewModel?.showAutoAlignmentProgress ?? false },
-            set: { viewModel?.showAutoAlignmentProgress = $0 }
-        )) {
+        .sheet(
+            isPresented: Binding(
+                get: { viewModel?.showAutoAlignmentProgress ?? false },
+                set: { viewModel?.showAutoAlignmentProgress = $0 }
+            )
+        ) {
             if let vm = viewModel {
                 AutoAlignmentProgressView(
                     sharedState: vm.autoAlignmentState,
@@ -289,10 +326,13 @@ struct ReaderTab: View {
                 )
             }
         }
-        .alert("Auto-Alignment Failed", isPresented: Binding(
-            get: { viewModel?.showAutoAlignmentFailedAlert ?? false },
-            set: { viewModel?.showAutoAlignmentFailedAlert = $0 }
-        )) {
+        .alert(
+            "Auto-Alignment Failed",
+            isPresented: Binding(
+                get: { viewModel?.showAutoAlignmentFailedAlert ?? false },
+                set: { viewModel?.showAutoAlignmentFailedAlert = $0 }
+            )
+        ) {
             Button("OK") {}
         } message: {
             Text(viewModel?.autoAlignmentErrorMessage ?? "An unknown error occurred.")
@@ -305,6 +345,35 @@ struct ReaderTab: View {
 
     // MARK: - Helpers
 
+    /// The set of EPUB chapter indices belonging to the currently-playing track,
+    /// used to scope read-along resolution (Layer 1 of the multi-file fix).
+    ///
+    /// The scope must follow the **playing chapter**, not the queue position. For
+    /// narration those diverge: a dropped image-only chapter leaves a gap in the
+    /// plan, and C3 resume front-truncates the plan so `currentIndex == 0` while
+    /// the playing chapter is `resumeIndex`. The absolute chapter is encoded in the
+    /// narration track filename (`<safeID>-ch<N>-<voice>.m4a`), so we recover it via
+    /// `NarrationFileNaming.chapterIndex(fromFileName:)`. For MP3-folder books there
+    /// is no such filename and track position equals `chapter_index` 1:1, so the
+    /// parse returns `nil` and the shared helper falls back to `{currentIndex}`.
+    ///
+    /// Single-track and multi-M4B fallbacks (→ `nil`, no scoping) live in the shared
+    /// `ReaderActiveBlockResolver.trackChapterScope` so iOS and macOS share one path.
+    private var currentTrackChapterIndices: Set<Int>? {
+        let tracks = model.tracks
+        let currentIndex = model.currentIndex
+        var playingChapterIndex: Int?
+        if tracks.indices.contains(currentIndex) {
+            playingChapterIndex = NarrationFileNaming.chapterIndex(
+                fromFileName: tracks[currentIndex].url.lastPathComponent)
+        }
+        return ReaderActiveBlockResolver.trackChapterScope(
+            trackCount: tracks.count,
+            isMultiM4B: model.isMultiM4B,
+            currentIndex: currentIndex,
+            playingChapterIndex: playingChapterIndex)
+    }
+
     private struct IdentifiableBlockID: Identifiable {
         let id: String
     }
@@ -315,7 +384,6 @@ struct ReaderTab: View {
             set: { showChapterPickerForBlockID = $0?.id }
         )
     }
-
 
     private var cardColorPickerBinding: Binding<IdentifiableBlockID?> {
         Binding<IdentifiableBlockID?>(
@@ -342,10 +410,12 @@ struct ReaderTab: View {
         // Only show the alignment banner after the one-time context-menu hint has been dismissed.
         do {
             let lockedCount = try db.writer.read { db in
-                try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*) FROM alignment_anchor
-                    WHERE audiobook_id = ? AND source != 'auto'
-                    """, arguments: [audiobookID]
+                try Int.fetchOne(
+                    db,
+                    sql: """
+                        SELECT COUNT(*) FROM alignment_anchor
+                        WHERE audiobook_id = ? AND source != 'auto'
+                        """, arguments: [audiobookID]
                 ) ?? 0
             }
             if lockedCount == 0 {
@@ -362,11 +432,13 @@ struct ReaderTab: View {
         let audiobookID = folderURL.absoluteString
         do {
             let startTime: Double? = try db.writer.read { db in
-                try Row.fetchOne(db, sql: """
-                    SELECT audio_start_time FROM timeline_item
-                    WHERE epub_block_id = ? AND audiobook_id = ?
-                    LIMIT 1
-                    """, arguments: [blockID, audiobookID]
+                try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT audio_start_time FROM timeline_item
+                        WHERE epub_block_id = ? AND audiobook_id = ?
+                        LIMIT 1
+                        """, arguments: [blockID, audiobookID]
                 )?["audio_start_time"]
             }
             if let time = startTime, time >= 0 {
@@ -380,16 +452,17 @@ struct ReaderTab: View {
     private func seekToBlockAndScroll(_ blockID: String) {
         // Attempt to seek audio if the block has a timestamp
         seekToBlock(blockID)
-        
+
         // Immediately set the active block ID so the UI scrolls to it
         // even if the block doesn't have an audio timestamp yet.
         viewModel?.activeBlockID = blockID
     }
 
-
     /// Renders a compact instructional banner.
     @ViewBuilder
-    private func hintBanner(icon: String, message: String, dismissible: Bool, onDismiss: @escaping () -> Void) -> some View {
+    private func hintBanner(
+        icon: String, message: String, dismissible: Bool, onDismiss: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 15))
@@ -428,7 +501,8 @@ struct ReaderTab: View {
             let filename = url.lastPathComponent
             let dirName = url.deletingLastPathComponent().lastPathComponent
             let appSupport = FileLocations.applicationSupportDirectory
-            url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName).appendingPathComponent(filename)
+            url = appSupport.appendingPathComponent("EPUBAssets").appendingPathComponent(dirName)
+                .appendingPathComponent(filename)
         }
         if let image = UIImage(contentsOfFile: url.path) {
             UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
@@ -458,7 +532,7 @@ struct ReaderTab: View {
             .padding(.vertical, 8)
             .background(Color(.secondarySystemBackground))
             .clipShape(.rect(cornerRadius: 10))
-            
+
             Button {
                 model.epubScrollToActiveTrigger += 1
             } label: {
@@ -469,7 +543,7 @@ struct ReaderTab: View {
             .frame(width: 36, height: 36)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Scroll to current playback position"))
-            
+
             Button {
                 model.showReaderTOC = true
             } label: {
@@ -479,7 +553,7 @@ struct ReaderTab: View {
             .frame(width: 36, height: 36)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Table of Contents"))
-            
+
             Button {
                 model.showReaderSettings = true
             } label: {
@@ -546,7 +620,9 @@ struct EPUBTOCSheet: View {
                     func expandPath(for nodes: [TOCNode], path: [String]) -> Bool {
                         for node in nodes {
                             let newPath = path + [node.id]
-                            if node.blockID == activeID || expandPath(for: node.children, path: newPath) {
+                            if node.blockID == activeID
+                                || expandPath(for: node.children, path: newPath)
+                            {
                                 expandedChapters.formUnion(newPath)
                                 return true
                             }
@@ -576,8 +652,11 @@ struct TOCNodeView: View {
                 isExpanded: Binding(
                     get: { expandedNodes.contains(node.id) },
                     set: { isExp in
-                        if isExp { expandedNodes.insert(node.id) }
-                        else { expandedNodes.remove(node.id) }
+                        if isExp {
+                            expandedNodes.insert(node.id)
+                        } else {
+                            expandedNodes.remove(node.id)
+                        }
                     }
                 )
             ) {
@@ -607,7 +686,9 @@ struct TOCRow: View {
         Button(action: action) {
             HStack {
                 Text(title)
-                    .foregroundStyle(isActive ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
+                    .foregroundStyle(
+                        isActive ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary)
+                    )
                     .lineLimit(2)
                 Spacer()
                 if isActive {

@@ -138,6 +138,27 @@ struct EPUBImportService {
                     }
                 }
             }
+        } else if chapters.isEmpty, bookDuration == nil, !allBlocks.isEmpty {
+            // Standalone EPUB (no audiobook): there are no audio chapters to map
+            // blocks to, so the book's own spine items are its chapters. The
+            // reader and on-device narration read blocks by chapter index —
+            // otherwise every block stays at chapterIndex nil and "chapter 0" is
+            // empty. Map BODY-matter spine items to 0-based chapter indices and
+            // leave front matter (cover/title/copyright) unassigned, so the first
+            // narrated chapter is the book's real chapter 1, not the copyright
+            // page. Front-matter blocks still appear in the reader (ordered by
+            // sequence); they simply aren't a narration chapter.
+            var chapterForSpine: [Int: Int] = [:]
+            let bodySpines = Set(allBlocks.filter { !$0.isFrontMatter }.map(\.spineIndex))
+            // Degenerate book that is entirely front matter: fall back to all
+            // spines so there is still a chapter 0 to read.
+            let spinesToNumber = bodySpines.isEmpty ? Set(allBlocks.map(\.spineIndex)) : bodySpines
+            for spine in spinesToNumber.sorted() {
+                chapterForSpine[spine] = chapterForSpine.count
+            }
+            for i in 0..<allBlocks.count {
+                allBlocks[i].chapterIndex = chapterForSpine[allBlocks[i].spineIndex]
+            }
         }
 
         // 8. Write blocks to database.
