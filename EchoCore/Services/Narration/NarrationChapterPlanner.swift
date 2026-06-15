@@ -27,9 +27,10 @@ enum NarrationChapterPlanner {
         }
     }
 
-    /// Reorders a plan to begin at `resumeIndex` (forward-only). Earlier chapters
-    /// are dropped from the queue — going back before the resume point re-narrates
-    /// from scratch, which is acceptable for v1. Unknown index → unchanged plan.
+    /// The chapters at or after `resumeIndex`, ascending — the part that renders
+    /// and plays first on resume. Unknown index → the unchanged plan (play from
+    /// the start). This is the *forward* set; `beforeResume` returns the rest so
+    /// the full book stays in the queue.
     static func resume(_ chapters: [PlannedChapter], startingAtChapterIndex resumeIndex: Int)
         -> [PlannedChapter]
     {
@@ -37,5 +38,21 @@ enum NarrationChapterPlanner {
             return chapters
         }
         return Array(chapters[pos...])
+    }
+
+    /// The chapters *before* `resumeIndex`, in **descending** order — rendered
+    /// after the forward set and prepended to the queue so reopening a book keeps
+    /// the FULL chapter list, not just the resume point onward (§5.3 / finish-plan
+    /// Phase 4B), without a cold re-render of the whole book before playback can
+    /// start. Empty when resuming at the first chapter or when `resumeIndex` is
+    /// unknown. Descending so each rendered chapter can be cheaply prepended at
+    /// index 0 and still land the queue in ascending chapter order.
+    static func beforeResume(_ chapters: [PlannedChapter], startingAtChapterIndex resumeIndex: Int)
+        -> [PlannedChapter]
+    {
+        guard let pos = chapters.firstIndex(where: { $0.index == resumeIndex }) else {
+            return []
+        }
+        return Array(chapters[..<pos].reversed())
     }
 }
