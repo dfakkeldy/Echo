@@ -213,6 +213,10 @@ struct RootTabView: View {
         .onChange(of: pendingDeepLink) { _, _ in
             applyPendingDeepLinkIfNeeded()
         }
+        .onChange(of: model.pendingNavigationDestination) { _, destination in
+            guard let destination else { return }
+            pushNavigationDestination(destination)
+        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background || newPhase == .inactive {
                 // Persist navigation paths
@@ -273,5 +277,23 @@ struct RootTabView: View {
         guard let pendingDeepLink else { return }
         model.handleDeepLink(pendingDeepLink)
         self.pendingDeepLink = nil
+        // Process any navigation destination set by handleDeepLink.
+        if let destination = model.pendingNavigationDestination {
+            pushNavigationDestination(destination)
+        }
+    }
+
+    /// Pushes a navigation destination onto the appropriate tab's NavigationStack
+    /// and clears the pending property on PlayerModel.
+    private func pushNavigationDestination(_ destination: NavigationDestination) {
+        model.pendingNavigationDestination = nil
+        switch destination {
+        case .settingsAppearance, .settingsAudio, .settingsChimes,
+            .settingsSmartRewind, .settingsPhonePlayer, .settingsWatchApp,
+            .settingsProTranscripts:
+            nowPlayingPath.append(destination)
+        case .chapter:
+            readPath.append(destination)
+        }
     }
 }

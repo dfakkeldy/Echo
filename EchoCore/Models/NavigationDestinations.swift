@@ -15,6 +15,8 @@ enum NavigationDestination: Hashable, Codable {
     case settingsPhonePlayer
     case settingsWatchApp
     case settingsProTranscripts
+    /// Navigate to a specific chapter by index.
+    case chapter(Int)
 
     @ViewBuilder
     func view(using model: PlayerModel) -> some View {
@@ -37,6 +39,8 @@ enum NavigationDestination: Hashable, Codable {
             // ProTranscriptsSettingsView is private inside SettingsView —
             // placeholder until extraction.
             SettingsPlaceholder(title: "Pro Transcripts Settings")
+        case .chapter(let index):
+            ChapterDestinationPlaceholder(chapterIndex: index)
         }
     }
 }
@@ -45,6 +49,22 @@ enum NavigationDestination: Hashable, Codable {
 
 /// Temporary stand-in for sub-views that are still `private` inside
 /// `SettingsView` and have not yet been extracted into their own file.
+/// Temporary stand-in for chapter navigation — shows which chapter index
+/// was requested until the full chapter-detail view is extracted.
+private struct ChapterDestinationPlaceholder: View {
+    let chapterIndex: Int
+
+    var body: some View {
+        Form {
+            Section {
+                Text("Chapter \(chapterIndex + 1)")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Chapter \(chapterIndex + 1)")
+    }
+}
+
 private struct SettingsPlaceholder: View {
     let title: String
 

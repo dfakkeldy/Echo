@@ -62,6 +62,11 @@ final class PlayerModel {
     /// The currently selected tab (Listen, Read, or Timeline).
     var selectedTab: TabSelection = .nowPlaying
 
+    /// Programmatic navigation destination set by deep link handling.
+    /// RootTabView observes this and appends it to the appropriate
+    /// NavigationStack path, then clears it.
+    var pendingNavigationDestination: NavigationDestination?
+
     /// Presentation state of the Help/Focus guide sheet.
     var showingHelp: Bool = false
 
@@ -1099,6 +1104,21 @@ final class PlayerModel {
         case .showFocusGuide:
             selectedTab = .nowPlaying
             showingHelp = true
+        case .navigateToSettings:
+            selectedTab = .nowPlaying
+            pendingNavigationDestination = .settingsAppearance
+        case .navigateToAppearance:
+            selectedTab = .nowPlaying
+            pendingNavigationDestination = .settingsAppearance
+        case .navigateToAudioSettings:
+            selectedTab = .nowPlaying
+            pendingNavigationDestination = .settingsAudio
+        case .navigateToChapter(let index):
+            selectedTab = .read
+            pendingNavigationDestination = .chapter(index)
+        case .navigateToBookmark:
+            selectedTab = .timeline
+        // Bookmarks are visible on the timeline tab by default.
         }
     }
 
