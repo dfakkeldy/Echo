@@ -337,19 +337,30 @@ struct ReaderTab: View {
     /// The set of EPUB chapter indices belonging to the currently-playing track,
     /// used to scope read-along resolution (Layer 1 of the multi-file fix).
     ///
-    /// - Single track (`tracks.count <= 1`): `nil` → no scoping. The book has one
-    ///   continuous time axis, so the legacy whole-book search is correct and this
-    ///   is a strict no-op.
-    /// - Narration / MP3-folder: each track is one chapter (`sortOrder == chapter_index`,
-    ///   1:1), so the scope is `{currentIndex}`.
-    /// - Multi-M4B: one .m4b aggregates many chapters whose per-book `chapterIndex`
-    ///   does not reliably map onto the EPUB's global `chapter_index`. Rather than
-    ///   risk mis-scoping, fall back to `nil` (no scoping) — multi-M4B is already
-    ///   broken at Layer 1 and must not be made worse.
+    /// The scope must follow the **playing chapter**, not the queue position. For
+    /// narration those diverge: a dropped image-only chapter leaves a gap in the
+    /// plan, and C3 resume front-truncates the plan so `currentIndex == 0` while
+    /// the playing chapter is `resumeIndex`. The absolute chapter is encoded in the
+    /// narration track filename (`<safeID>-ch<N>-<voice>.m4a`), so we recover it via
+    /// `NarrationFileNaming.chapterIndex(fromFileName:)`. For MP3-folder books there
+    /// is no such filename and track position equals `chapter_index` 1:1, so the
+    /// parse returns `nil` and the shared helper falls back to `{currentIndex}`.
+    ///
+    /// Single-track and multi-M4B fallbacks (→ `nil`, no scoping) live in the shared
+    /// `ReaderActiveBlockResolver.trackChapterScope` so iOS and macOS share one path.
     private var currentTrackChapterIndices: Set<Int>? {
-        guard model.tracks.count > 1 else { return nil }
-        if model.isMultiM4B { return nil }
-        return [model.currentIndex]
+        let tracks = model.tracks
+        let currentIndex = model.currentIndex
+        var playingChapterIndex: Int?
+        if tracks.indices.contains(currentIndex) {
+            playingChapterIndex = NarrationFileNaming.chapterIndex(
+                fromFileName: tracks[currentIndex].url.lastPathComponent)
+        }
+        return ReaderActiveBlockResolver.trackChapterScope(
+            trackCount: tracks.count,
+            isMultiM4B: model.isMultiM4B,
+            currentIndex: currentIndex,
+            playingChapterIndex: playingChapterIndex)
     }
 
     private struct IdentifiableBlockID: Identifiable {

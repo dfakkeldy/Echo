@@ -154,13 +154,19 @@ struct MacReaderFeedView: View {
         return cache
     }
 
-    /// EPUB chapter indices in the currently-playing track. macOS has no M4B
-    /// aggregation: a single track means one continuous axis → `nil` (no scoping,
-    /// strict legacy behavior); multiple tracks (MP3 folder) map 1:1 track→chapter
-    /// → `{currentTrackIndex}`.
+    /// EPUB chapter indices in the currently-playing track. macOS has no narration
+    /// and no M4B aggregation, so it routes through the same shared
+    /// `ReaderActiveBlockResolver.trackChapterScope` with `playingChapterIndex: nil`
+    /// and `isMultiM4B: false`: a single track means one continuous axis → `nil`
+    /// (no scoping, strict legacy behavior); multiple tracks (MP3 folder) map 1:1
+    /// track→chapter → `{currentTrackIndex}`. Sharing the one branch table with iOS
+    /// keeps the two readers from drifting.
     private var currentTrackChapterIndices: Set<Int>? {
-        guard player.tracks.count > 1 else { return nil }
-        return [player.currentTrackIndex]
+        ReaderActiveBlockResolver.trackChapterScope(
+            trackCount: player.tracks.count,
+            isMultiM4B: false,
+            currentIndex: player.currentTrackIndex,
+            playingChapterIndex: nil)
     }
 
     /// Periodically resolves the block at the current playback time so the reader

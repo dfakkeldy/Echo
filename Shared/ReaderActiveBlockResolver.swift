@@ -94,4 +94,46 @@ enum ReaderActiveBlockResolver {
         }
         return nil
     }
+
+    /// Computes the track-scoping set for read-along given an **already-resolved**
+    /// playing chapter index.
+    ///
+    /// This is the bridge between "which track is the queue on" and the scoping set
+    /// `activeBlockID(in:time:currentTrackChapterIndices:)` consumes. It lives here
+    /// (not in the call sites) so iOS and macOS share one branch table and cannot
+    /// drift, and it stays free of EchoCore deps so the macOS target — which does
+    /// **not** import EchoCore and has no `NarrationFileNaming` — still compiles.
+    ///
+    /// The caller is responsible for resolving `playingChapterIndex` from whatever
+    /// device-specific source it has (e.g. iOS parses the narration track filename).
+    /// Here we only encode the policy:
+    ///
+    /// - Single track (`trackCount <= 1`): `nil` → no scoping. One continuous axis,
+    ///   so the legacy whole-book search is correct and this is a strict no-op.
+    /// - Multi-M4B: `nil` → no scoping. One .m4b aggregates many chapters whose
+    ///   per-book index does not reliably map onto the EPUB global `chapter_index`;
+    ///   scoping would risk mis-highlighting, so fall back to the whole-book axis.
+    /// - `playingChapterIndex` provided (narration): scope to **that chapter**, even
+    ///   when it differs from `currentIndex` (resume front-truncates the plan, or a
+    ///   dropped image-only chapter leaves a gap → queue position ≠ chapter index).
+    /// - `playingChapterIndex == nil` (MP3 folder): track position equals the EPUB
+    ///   chapter index 1:1, so fall back to `{currentIndex}`.
+    ///
+    /// - Parameters:
+    ///   - trackCount: Number of tracks in the playback queue.
+    ///   - isMultiM4B: Whether the book is a multi-M4B aggregate.
+    ///   - currentIndex: The current track **position** in the queue.
+    ///   - playingChapterIndex: The EPUB chapter index of the currently-playing
+    ///     track, when it is known (narration); `nil` otherwise (MP3 folder).
+    /// - Returns: The scoping set for `activeBlockID`, or `nil` for no scoping.
+    static func trackChapterScope(
+        trackCount: Int,
+        isMultiM4B: Bool,
+        currentIndex: Int,
+        playingChapterIndex: Int?
+    ) -> Set<Int>? {
+        guard trackCount > 1, !isMultiM4B else { return nil }
+        if let chapter = playingChapterIndex { return [chapter] }
+        return [currentIndex]
+    }
 }
