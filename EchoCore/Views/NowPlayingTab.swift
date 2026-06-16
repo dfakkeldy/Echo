@@ -51,6 +51,23 @@ struct NowPlayingTab: View {
                                 settings.narrationVoiceID = preferredVoice.id.rawValue
                                 model.startNarrationPlayback(voice: preferredVoice)
                             }
+                            // Secondary path: choose a different narrator voice.
+                            // (The picker's "Start Narration" saves the choice and
+                            // re-renders with it.) Without this the picker sheet was
+                            // unreachable — narration was locked to the default voice.
+                            Button {
+                                selectedVoice = preferredVoice
+                                showingVoicePicker = true
+                            } label: {
+                                Label(
+                                    "Voice: \(preferredVoice.displayName)",
+                                    systemImage: "person.wave.2"
+                                )
+                                .font(.subheadline)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHint("Choose the narrator voice")
                         }
                     }
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
