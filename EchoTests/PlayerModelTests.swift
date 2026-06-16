@@ -93,4 +93,38 @@ struct PlayerModelTests {
         // Verify source EPUB at original location is NOT deleted
         #expect(FileManager.default.fileExists(atPath: sourceEpubURL.path))
     }
+
+    @Test("hasPreviousChapter / hasNextChapter reflect chapter bounds")
+    func chapterNavBoundsHelpers() {
+        let model = PlayerModel()
+
+        // No chapters → both false (single-chapter / marker-less book).
+        #expect(model.hasPreviousChapter == false)
+        #expect(model.hasNextChapter == false)
+
+        // Three chapters, positioned at the first chapter.
+        model.state.chapters = [
+            Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+            Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+            Chapter(index: 2, title: "Three", startSeconds: 20, endSeconds: 30),
+        ]
+        model.state.currentChapterIndex = 0
+        #expect(model.hasPreviousChapter == false)
+        #expect(model.hasNextChapter == true)
+
+        // Middle chapter → both directions available.
+        model.state.currentChapterIndex = 1
+        #expect(model.hasPreviousChapter == true)
+        #expect(model.hasNextChapter == true)
+
+        // Last chapter → only previous.
+        model.state.currentChapterIndex = 2
+        #expect(model.hasPreviousChapter == true)
+        #expect(model.hasNextChapter == false)
+
+        // chapters present but index unresolved (nil) → treated as index 0.
+        model.state.currentChapterIndex = nil
+        #expect(model.hasPreviousChapter == false)
+        #expect(model.hasNextChapter == true)
+    }
 }
