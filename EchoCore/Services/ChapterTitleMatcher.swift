@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Matches audiobook chapter titles (from M4B metadata) to EPUB heading blocks

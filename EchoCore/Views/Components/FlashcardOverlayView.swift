@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// Full-screen overlay shown when an inline flashcard trigger fires during playback.

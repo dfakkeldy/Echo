@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Local stand-in for the `swift-audio-marker` package's chapter-writing surface.

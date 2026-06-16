@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V15 migration — WS6 Anki core: deck table, flashcard deck/tags/media columns,

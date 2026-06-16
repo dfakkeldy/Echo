@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 struct NowPlayingTab: View {
@@ -151,6 +152,7 @@ struct NowPlayingTab: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+                    .accessibilityLabel(Text("Cover of \(model.currentTitle)"))
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -158,6 +160,7 @@ struct NowPlayingTab: View {
                     Image(systemName: "book.closed.fill")
                         .font(.system(size: 80))
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
                 .aspectRatio(1, contentMode: .fit)
             }
@@ -239,18 +242,9 @@ struct NowPlayingTab: View {
 
     private func bookProgressParts() -> (elapsed: String, remaining: String) {
         let speed = model.speed > 0 ? Double(model.speed) : 1.0
-        let currentSeconds = model.currentPlaybackTime
+        let elapsedSeconds = model.cumulativePlaybackTime
         let totalBookDuration =
             model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
-        let elapsedSeconds: Double
-        if model.isMultiM4B {
-            let bookOffset =
-                model.m4bBooks.indices.contains(model.currentIndex)
-                ? model.m4bBooks[model.currentIndex].cumulativeStartOffset : 0
-            elapsedSeconds = bookOffset + currentSeconds
-        } else {
-            elapsedSeconds = currentSeconds
-        }
         let scaledElapsed = elapsedSeconds / speed
         let scaledDuration = totalBookDuration / speed
         let scaledRemaining = max(0, scaledDuration - scaledElapsed)

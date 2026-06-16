@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Foundation
 import Observation
@@ -843,7 +844,7 @@ final class PlaybackController {
                         }
                     }
                 } else {
-                    DispatchQueue.main.async { [weak self] in
+                    Task { @MainActor [weak self] in
                         self?.state.isSeekingForChapterBoundary = false
                         self?.nextTrack()
                     }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Encapsulates per-book UserDefaults persistence and override-resolution logic

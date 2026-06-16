@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import UIKit
 
 /// Card cell for EPUB image blocks. Loads image from local asset storage.

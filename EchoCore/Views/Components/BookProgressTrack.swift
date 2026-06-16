@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// Pure math for the book-progress hairline (audit B5): chapter-boundary tick

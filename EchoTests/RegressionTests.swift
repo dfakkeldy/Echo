@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
 import Testing
@@ -47,7 +48,7 @@ struct RegressionTests {
         state.isTranscriptProcessingEnabled = true
         let service = TranscriptService(state: state)
 
-        service.loadTranscript(for: audioFile)
+        await service.loadTranscript(for: audioFile)
 
         var enhanced = state.enhancedTranscription
         let start = Date()

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 // NOTE: File-based ambient presets (rain, cafe, forest, ocean, fireplace) require

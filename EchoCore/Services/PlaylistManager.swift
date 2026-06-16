@@ -1,12 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Observation
-import SwiftUI
 
 /// Manages playlist operations: track/chapter ordering, enabled-state toggling,
 /// playlist reset, and track enumeration from a folder URL.
 ///
 /// Owned by PlayerModel; injected with shared PlaybackState and Persistence.
-@Observable
+@MainActor @Observable
 final class PlaylistManager {
     let state: PlaybackState
     let persistence: Persistence
@@ -96,7 +96,7 @@ final class PlaylistManager {
         let currentURL =
             state.tracks.indices.contains(state.currentIndex)
             ? state.tracks[state.currentIndex].url : nil
-        state.tracks.move(fromOffsets: source, toOffset: destination)
+        applyMove(&state.tracks, from: source, to: destination)
         if let currentURL, let newIdx = state.tracks.firstIndex(where: { $0.url == currentURL }) {
             state.currentIndex = newIdx
         }
@@ -114,7 +114,7 @@ final class PlaylistManager {
             }
             return state.chapters[idx].id
         }()
-        state.chapters.move(fromOffsets: source, toOffset: destination)
+        applyMove(&state.chapters, from: source, to: destination)
         if let currentID, let newIdx = state.chapters.firstIndex(where: { $0.id == currentID }) {
             state.currentChapterIndex = newIdx
         }
@@ -124,6 +124,18 @@ final class PlaylistManager {
             persistence.saveOrder(
                 for: currentTrackURL.absoluteString, ids: state.chapters.map { $0.id })
         }
+    }
+
+    /// Manual replacement for SwiftUI's `RangeReplaceableCollection.move(fromOffsets:toOffset:)`,
+    /// which is unavailable without importing SwiftUI. Removes the elements at `source` offsets
+    /// (preserving relative order) and re-inserts them at `destination`.
+    private func applyMove<T>(_ array: inout [T], from source: IndexSet, to destination: Int) {
+        let moving = source.sorted().map { array[$0] }
+        for offset in source.sorted(by: >) {
+            array.remove(at: offset)
+        }
+        let adjusted = destination - source.filter { $0 < destination }.count
+        array.insert(contentsOf: moving, at: min(adjusted, array.count))
     }
 
     // MARK: - Toggle Enabled

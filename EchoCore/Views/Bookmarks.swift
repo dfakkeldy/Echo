@@ -1,12 +1,14 @@
-import SwiftUI
+// SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Observation
+import SwiftUI
 import os.log
+
 #if canImport(PhotosUI)
-import PhotosUI
+    import PhotosUI
 #endif
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 // MARK: - Voice Memo Gain Normalization
@@ -18,7 +20,9 @@ func peakAmplitude(of url: URL) -> Float? {
     guard totalFrames > 0 else { return nil }
 
     let chunkSize: AVAudioFrameCount = 8192
-    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkSize) else { return nil }
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkSize) else {
+        return nil
+    }
 
     var peak: Float = 0
     var framesRemaining = totalFrames
@@ -118,7 +122,8 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
 
     /// Backward-compat decoder so older Bookmarks (without `title`) still load.
     enum CodingKeys: String, CodingKey {
-        case id, title, folderKey, trackId, timestamp, note, voiceMemoFileName, bookmarkImageFileName, pdfViewState, isEnabled, latitude, longitude, placeName
+        case id, title, folderKey, trackId, timestamp, note, voiceMemoFileName,
+            bookmarkImageFileName, pdfViewState, isEnabled, latitude, longitude, placeName
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -133,7 +138,6 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         pdfViewState = try? c.decode(PDFViewState.self, forKey: .pdfViewState)
         isEnabled = (try? c.decode(Bool.self, forKey: .isEnabled)) ?? true
     }
-
 
     /// Resolves the on-disk URL for the attached voice memo, preferring the
     /// audiobook's folder, falling back to the legacy Documents/VoiceMemos.
@@ -215,7 +219,7 @@ struct Bookmark: Identifiable, Codable, Equatable, Hashable {
             let mins = (timestamp % 3600) / 60
             let secs = timestamp % 60
             let timeString = String(format: "%02d:%02d", mins, secs)
-            
+
             output += "## \(timeString)\n"
             if let note = bookmark.note {
                 output += "\(note)\n\n"
@@ -275,7 +279,7 @@ struct BookmarkDraft: Identifiable, Hashable {
 
 // MARK: - Voice Memo Recorder
 
-@Observable
+@MainActor @Observable
 final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
     private(set) var isRecording: Bool = false
     private(set) var lastFileName: String?
@@ -293,19 +297,20 @@ final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
         // Use playAndRecord so microphone + speaker routing are configured for memo capture.
         var options: AVAudioSession.CategoryOptions = []
         #if !os(watchOS)
-        options = [.defaultToSpeaker, .allowBluetoothHFP]
+            options = [.defaultToSpeaker, .allowBluetoothHFP]
         #endif
         try session.setCategory(.playAndRecord, mode: .default, options: options)
         try session.setActive(true)
 
         let fileName = "memo-\(UUID().uuidString).m4a"
-        let url = Self.recordingURL(forFileName: fileName, in: folderURL, scopedURLOut: &scopedFolderURL)
+        let url = Self.recordingURL(
+            forFileName: fileName, in: folderURL, scopedURLOut: &scopedFolderURL)
 
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: 44_100.0,
             AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
         ]
 
         let r = try AVAudioRecorder(url: url, settings: settings)
@@ -348,7 +353,8 @@ final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
                 let baseDir = isDir.boolValue ? folderURL : folderURL.deletingLastPathComponent()
                 try? FileManager.default.removeItem(at: baseDir.appendingPathComponent(name))
             }
-            try? FileManager.default.removeItem(at: Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(name))
+            try? FileManager.default.removeItem(
+                at: Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(name))
         }
         lastFileName = nil
         elapsed = 0
@@ -386,404 +392,423 @@ final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
 // MARK: - Edit Bookmark Sheet
 
 #if !os(watchOS)
-struct EditBookmarkView: View {
-    @Environment(PlayerModel.self) private var model
-    /// The id of the bookmark being edited.
-    let bookmarkID: UUID?
-    let draft: BookmarkDraft?
-    @Environment(\.dismiss) private var dismiss
+    struct EditBookmarkView: View {
+        @Environment(PlayerModel.self) private var model
+        /// The id of the bookmark being edited.
+        let bookmarkID: UUID?
+        let draft: BookmarkDraft?
+        @Environment(\.dismiss) private var dismiss
 
-    @State private var title: String = ""
-    @State private var note: String = ""
-    @State private var timestamp: TimeInterval = 0
-    @State private var voiceMemoFileName: String?
-    @State private var bookmarkImageFileName: String?
-    #if canImport(PhotosUI)
-    @State private var selectedImageItem: PhotosPickerItem?
-    #endif
+        @State private var title: String = ""
+        @State private var note: String = ""
+        @State private var timestamp: TimeInterval = 0
+        @State private var voiceMemoFileName: String?
+        @State private var bookmarkImageFileName: String?
+        #if canImport(PhotosUI)
+            @State private var selectedImageItem: PhotosPickerItem?
+        #endif
 
-    @State private var recorder = VoiceMemoRecorder()
-    @State private var previewPlayer: SnippetPlayer? = nil
-    @State private var isPreviewPlaying: Bool = false
-    /// Tracks whether the main audiobook player was playing when we started
-    /// the voice memo preview, so we can optionally resume it afterwards.
-    @State private var didPauseMainPlayerForPreview: Bool = false
-    @State private var alertMessage: String = ""
-    @State private var isShowingAlert: Bool = false
-    private let logger = Logger(category: "EditBookmark")
+        @State private var recorder = VoiceMemoRecorder()
+        @State private var previewPlayer: SnippetPlayer? = nil
+        @State private var isPreviewPlaying: Bool = false
+        /// Tracks whether the main audiobook player was playing when we started
+        /// the voice memo preview, so we can optionally resume it afterwards.
+        @State private var didPauseMainPlayerForPreview: Bool = false
+        @State private var alertMessage: String = ""
+        @State private var isShowingAlert: Bool = false
+        private let logger = Logger(category: "EditBookmark")
 
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Title") {
-                    TextField("Bookmark title", text: $title)
-                        .textInputAutocapitalization(.sentences)
-                }
-                Section("Time") {
-                    HStack {
-                        Button {
-                            timestamp = max(0, timestamp - 1)
-                        } label: {
-                            Label("-1s", systemImage: "minus.circle.fill")
-                                .labelStyle(.iconOnly)
-                                .font(.title2)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(.isButton)
-
-                        Spacer()
-
-                        Text(NowPlayingController.formatTime(timestamp))
-                            .font(.system(.title3, design: .monospaced))
-                            .frame(maxWidth: .infinity)
-
-                        Spacer()
-
-                        Button {
-                            timestamp += 1
-                        } label: {
-                            Label("+1s", systemImage: "plus.circle.fill")
-                                .labelStyle(.iconOnly)
-                                .font(.title2)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(.isButton)
+        var body: some View {
+            NavigationStack {
+                Form {
+                    Section("Title") {
+                        TextField("Bookmark title", text: $title)
+                            .textInputAutocapitalization(.sentences)
                     }
-                }
-
-                Section("Note") {
-                    TextField("Add a note…", text: $note, axis: .vertical)
-                        .lineLimit(3...8)
-                }
-
-                Section("Picture Bookmark") {
-                    if let name = bookmarkImageFileName {
+                    Section("Time") {
                         HStack {
-                            Image(systemName: "photo")
-                            Text(name)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button(role: .destructive) {
-                                removeBookmarkImage(named: name)
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Delete image")
-                        .accessibilityAddTraits(.isButton)
-                            .accessibilityLabel(Text("Remove picture bookmark image"))
-                        }
-                    }
-
-                    #if canImport(PhotosUI)
-                    PhotosPicker(selection: $selectedImageItem, matching: .images) {
-                        Label(bookmarkImageFileName == nil ? String(localized: "Attach Image") : String(localized: "Replace Image"), systemImage: "photo.badge.plus")
-                    }
-                    #else
-                    Text("Image selection is unavailable on this platform.")
-                        .foregroundStyle(.secondary)
-                    #endif
-                }
-
-                Section("Voice Memo") {
-                    if let name = voiceMemoFileName {
-                        HStack {
-                            Image(systemName: "waveform")
-                            Text(name)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                            Spacer()
                             Button {
-                                togglePreview(fileName: name)
+                                timestamp = max(0, timestamp - 1)
                             } label: {
-                                Image(systemName: isPreviewPlaying ? "stop.circle.fill" : "play.circle.fill")
+                                Label("-1s", systemImage: "minus.circle.fill")
+                                    .labelStyle(.iconOnly)
                                     .font(.title2)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(isPreviewPlaying ? "Stop preview" : "Preview voice memo")
-                            Button(role: .destructive) {
-                                stopPreview()
-                                let probe = Bookmark(timestamp: 0, voiceMemoFileName: name)
-                                if let url = probe.voiceMemoURL(in: model.folderURL) {
-                                    try? FileManager.default.removeItem(at: url)
-                                }
-                                voiceMemoFileName = nil
+                            .accessibilityAddTraits(.isButton)
+
+                            Spacer()
+
+                            Text(NowPlayingController.formatTime(timestamp))
+                                .font(.system(.title3, design: .monospaced))
+                                .frame(maxWidth: .infinity)
+
+                            Spacer()
+
+                            Button {
+                                timestamp += 1
                             } label: {
-                                Image(systemName: "trash")
+                                Label("+1s", systemImage: "plus.circle.fill")
+                                    .labelStyle(.iconOnly)
+                                    .font(.title2)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Delete voice memo")
+                            .accessibilityAddTraits(.isButton)
                         }
-                    } else {
-                        if recorder.isRecording {
+                    }
+
+                    Section("Note") {
+                        TextField("Add a note…", text: $note, axis: .vertical)
+                            .lineLimit(3...8)
+                    }
+
+                    Section("Picture Bookmark") {
+                        if let name = bookmarkImageFileName {
                             HStack {
-                                Image(systemName: "record.circle.fill")
-                                    .foregroundStyle(.red)
-                                Text("Recording… \(String(format: "%.1fs", recorder.elapsed))")
+                                Image(systemName: "photo")
+                                Text(name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                                 Spacer()
-                                Button("Stop") {
-                                    saveVoiceMemo()
+                                Button(role: .destructive) {
+                                    removeBookmarkImage(named: name)
+                                } label: {
+                                    Image(systemName: "trash")
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Delete image")
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityLabel(Text("Remove picture bookmark image"))
+                            }
+                        }
+
+                        #if canImport(PhotosUI)
+                            PhotosPicker(selection: $selectedImageItem, matching: .images) {
+                                Label(
+                                    bookmarkImageFileName == nil
+                                        ? String(localized: "Attach Image")
+                                        : String(localized: "Replace Image"),
+                                    systemImage: "photo.badge.plus")
+                            }
+                        #else
+                            Text("Image selection is unavailable on this platform.")
+                                .foregroundStyle(.secondary)
+                        #endif
+                    }
+
+                    Section("Voice Memo") {
+                        if let name = voiceMemoFileName {
+                            HStack {
+                                Image(systemName: "waveform")
+                                Text(name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button {
+                                    togglePreview(fileName: name)
+                                } label: {
+                                    Image(
+                                        systemName: isPreviewPlaying
+                                            ? "stop.circle.fill" : "play.circle.fill"
+                                    )
+                                    .font(.title2)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    isPreviewPlaying ? "Stop preview" : "Preview voice memo")
+                                Button(role: .destructive) {
+                                    stopPreview()
+                                    let probe = Bookmark(timestamp: 0, voiceMemoFileName: name)
+                                    if let url = probe.voiceMemoURL(in: model.folderURL) {
+                                        try? FileManager.default.removeItem(at: url)
+                                    }
+                                    voiceMemoFileName = nil
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Delete voice memo")
                             }
                         } else {
-                            Button {
-                                startVoiceMemoRecording()
-                            } label: {
-                                Label("Record Voice Memo", systemImage: "mic.fill")
+                            if recorder.isRecording {
+                                HStack {
+                                    Image(systemName: "record.circle.fill")
+                                        .foregroundStyle(.red)
+                                    Text("Recording… \(String(format: "%.1fs", recorder.elapsed))")
+                                    Spacer()
+                                    Button("Stop") {
+                                        saveVoiceMemo()
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            } else {
+                                Button {
+                                    startVoiceMemoRecording()
+                                } label: {
+                                    Label("Record Voice Memo", systemImage: "mic.fill")
+                                }
                             }
                         }
                     }
                 }
-            }
-            .navigationTitle("Edit Bookmark")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel", role: .cancel) {
-                        if recorder.isRecording { _ = recorder.stopRecording() }
-                        stopPreview()
-                        dismiss()
+                .navigationTitle("Edit Bookmark")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Cancel", role: .cancel) {
+                            if recorder.isRecording { _ = recorder.stopRecording() }
+                            stopPreview()
+                            dismiss()
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Save") {
+                            saveBookmark()
+                        }
+                        .bold()
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") {
-                        saveBookmark()
+                .alert("Bookmark Not Saved", isPresented: $isShowingAlert) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(alertMessage)
+                }
+                .onAppear(perform: loadFromModel)
+                #if canImport(PhotosUI)
+                    .onChange(of: selectedImageItem) { _, newItem in
+                        guard let newItem else { return }
+                        Task { await importBookmarkImage(from: newItem) }
                     }
-                    .bold()
+                #endif
+                .onDisappear {
+                    if recorder.isRecording { _ = recorder.stopRecording() }
+                    stopPreview()
                 }
             }
-            .alert("Bookmark Not Saved", isPresented: $isShowingAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(alertMessage)
-            }
-            .onAppear(perform: loadFromModel)
-            #if canImport(PhotosUI)
-            .onChange(of: selectedImageItem) { _, newItem in
-                guard let newItem else { return }
-                Task { await importBookmarkImage(from: newItem) }
-            }
-            #endif
-            .onDisappear {
-                if recorder.isRecording { _ = recorder.stopRecording() }
-                stopPreview()
-            }
-        }
-    }
-
-    private func loadFromModel() {
-        if let bookmarkID,
-           let bm = model.bookmarks.first(where: { $0.id == bookmarkID }) {
-            title = bm.title
-            note = bm.note ?? ""
-            timestamp = bm.timestamp
-            voiceMemoFileName = bm.voiceMemoFileName
-            bookmarkImageFileName = bm.bookmarkImageFileName
-            return
         }
 
-        guard let draft else { return }
-        title = draft.title
-        note = ""
-        timestamp = draft.timestamp
-        voiceMemoFileName = nil
-        bookmarkImageFileName = nil
-    }
-
-    private func startVoiceMemoRecording() {
-        switch AVAudioApplication.shared.recordPermission {
-        case .granted:
-            beginRecording()
-        case .denied:
-            showAlert("Microphone access is denied. Enable microphone access for Echo in Settings.")
-        case .undetermined:
-            Task {
-                let isGranted = await AVAudioApplication.requestRecordPermission()
-                isGranted ? beginRecording() : showAlert("Microphone access is required to record a voice memo.")
-            }
-        @unknown default:
-            showAlert("Microphone access is unavailable.")
-        }
-    }
-
-    private func beginRecording() {
-        // Pause the main audiobook before we hijack the audio session.
-        model.pause()
-        do {
-            try recorder.startRecording(in: model.folderURL)
-        } catch {
-            showAlert(error.localizedDescription)
-        }
-    }
-
-    private func saveVoiceMemo() {
-        guard let name = recorder.stopRecording() else {
-            showAlert("No recording was captured.")
-            return
-        }
-
-        let probe = Bookmark(timestamp: timestamp, voiceMemoFileName: name)
-        guard probe.voiceMemoURL(in: model.folderURL) != nil else {
-            showAlert("The voice memo could not be saved.")
-            return
-        }
-
-        voiceMemoFileName = name
-        saveBookmark()
-    }
-
-    private func saveBookmark() {
-        if recorder.isRecording {
-            saveVoiceMemo()
-            return
-        }
-
-        stopPreview()
-        let savedTitle = title.isEmpty ? "Bookmark" : title
-        let savedNote = note.isEmpty ? nil : note
-
-        if let bookmarkID {
-            model.updateBookmark(
-                id: bookmarkID,
-                title: savedTitle,
-                timestamp: timestamp,
-                note: savedNote,
-                voiceMemoFileName: voiceMemoFileName,
-                bookmarkImageFileName: bookmarkImageFileName
-            )
-        } else if let draft {
-            model.appendBookmark(
-                from: draft,
-                title: savedTitle,
-                timestamp: timestamp,
-                note: savedNote,
-                voiceMemoFileName: voiceMemoFileName,
-                bookmarkImageFileName: bookmarkImageFileName
-            )
-        } else {
-            showAlert("The bookmark could not be saved.")
-            return
-        }
-        dismiss()
-    }
-
-    private func showAlert(_ message: String) {
-        alertMessage = message
-        isShowingAlert = true
-    }
-
-    #if canImport(PhotosUI) && canImport(UIKit)
-    private func importBookmarkImage(from item: PhotosPickerItem) async {
-        do {
-            guard let data = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data)
-            else {
-                await MainActor.run { showAlert("The selected image could not be loaded.") }
+        private func loadFromModel() {
+            if let bookmarkID,
+                let bm = model.bookmarks.first(where: { $0.id == bookmarkID })
+            {
+                title = bm.title
+                note = bm.note ?? ""
+                timestamp = bm.timestamp
+                voiceMemoFileName = bm.voiceMemoFileName
+                bookmarkImageFileName = bm.bookmarkImageFileName
                 return
             }
 
-            let fileName = "bookmark-\(imageBookmarkID.uuidString).jpg"
-            let probe = Bookmark(timestamp: timestamp, bookmarkImageFileName: fileName)
-            guard let url = probe.bookmarkImageURL(in: model.folderURL) else {
-                await MainActor.run { showAlert("The image could not be saved.") }
-                return
-            }
+            guard let draft else { return }
+            title = draft.title
+            note = ""
+            timestamp = draft.timestamp
+            voiceMemoFileName = nil
+            bookmarkImageFileName = nil
+        }
 
-            let didStart = url.deletingLastPathComponent().startAccessingSecurityScopedResource()
-            defer {
-                if didStart {
-                    url.deletingLastPathComponent().stopAccessingSecurityScopedResource()
+        private func startVoiceMemoRecording() {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted:
+                beginRecording()
+            case .denied:
+                showAlert(
+                    "Microphone access is denied. Enable microphone access for Echo in Settings.")
+            case .undetermined:
+                Task {
+                    let isGranted = await AVAudioApplication.requestRecordPermission()
+                    isGranted
+                        ? beginRecording()
+                        : showAlert("Microphone access is required to record a voice memo.")
                 }
+            @unknown default:
+                showAlert("Microphone access is unavailable.")
             }
+        }
 
-            let jpegData = resizedJPEGData(from: image, maxDimension: ImageEncoding.bookmarkMaxDimension, compressionQuality: ImageEncoding.bookmarkJPEGQuality)
-            try jpegData.write(to: url, options: .atomic)
-            await MainActor.run {
-                bookmarkImageFileName = fileName
-            }
-        } catch {
-            await MainActor.run {
+        private func beginRecording() {
+            // Pause the main audiobook before we hijack the audio session.
+            model.pause()
+            do {
+                try recorder.startRecording(in: model.folderURL)
+            } catch {
                 showAlert(error.localizedDescription)
             }
         }
-    }
 
-    private var imageBookmarkID: UUID {
-        bookmarkID ?? draft?.id ?? UUID()
-    }
+        private func saveVoiceMemo() {
+            guard let name = recorder.stopRecording() else {
+                showAlert("No recording was captured.")
+                return
+            }
 
-    private func resizedJPEGData(from image: UIImage, maxDimension: CGFloat, compressionQuality: CGFloat) -> Data {
-        let longestSide = max(image.size.width, image.size.height)
-        guard longestSide > maxDimension else {
-            return image.jpegData(compressionQuality: compressionQuality) ?? Data()
+            let probe = Bookmark(timestamp: timestamp, voiceMemoFileName: name)
+            guard probe.voiceMemoURL(in: model.folderURL) != nil else {
+                showAlert("The voice memo could not be saved.")
+                return
+            }
+
+            voiceMemoFileName = name
+            saveBookmark()
         }
 
-        let scale = maxDimension / longestSide
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let resized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
-        }
-        return resized.jpegData(compressionQuality: compressionQuality) ?? Data()
-    }
-    #endif
+        private func saveBookmark() {
+            if recorder.isRecording {
+                saveVoiceMemo()
+                return
+            }
 
-    private func removeBookmarkImage(named name: String) {
-        let probe = Bookmark(timestamp: timestamp, bookmarkImageFileName: name)
-        if let url = probe.bookmarkImageURL(in: model.folderURL) {
-            try? FileManager.default.removeItem(at: url)
-        }
-        bookmarkImageFileName = nil
-    }
-
-    private func togglePreview(fileName: String) {
-        if isPreviewPlaying {
             stopPreview()
-            return
-        }
-        let probe = Bookmark(timestamp: 0, voiceMemoFileName: fileName)
-        guard let url = probe.voiceMemoURL(in: model.folderURL) else { return }
+            let savedTitle = title.isEmpty ? "Bookmark" : title
+            let savedNote = note.isEmpty ? nil : note
 
-        // Enforce mutually-exclusive audio streams: pause the main audiobook
-        // before starting the voice-memo preview so we never have two
-        // concurrent streams playing through the output.
-        if model.isPlaying {
-            model.pause()
-            didPauseMainPlayerForPreview = true
-        } else {
-            didPauseMainPlayerForPreview = false
+            if let bookmarkID {
+                model.updateBookmark(
+                    id: bookmarkID,
+                    title: savedTitle,
+                    timestamp: timestamp,
+                    note: savedNote,
+                    voiceMemoFileName: voiceMemoFileName,
+                    bookmarkImageFileName: bookmarkImageFileName
+                )
+            } else if let draft {
+                model.appendBookmark(
+                    from: draft,
+                    title: savedTitle,
+                    timestamp: timestamp,
+                    note: savedNote,
+                    voiceMemoFileName: voiceMemoFileName,
+                    bookmarkImageFileName: bookmarkImageFileName
+                )
+            } else {
+                showAlert("The bookmark could not be saved.")
+                return
+            }
+            dismiss()
         }
 
-        previewPlayer = SnippetPlayer()
-        previewPlayer?.play(url: url, volume: voiceMemoGain(for: url)) {
-            stopPreview()
+        private func showAlert(_ message: String) {
+            alertMessage = message
+            isShowingAlert = true
         }
-        isPreviewPlaying = true
+
+        #if canImport(PhotosUI) && canImport(UIKit)
+            private func importBookmarkImage(from item: PhotosPickerItem) async {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self),
+                        let image = UIImage(data: data)
+                    else {
+                        await MainActor.run { showAlert("The selected image could not be loaded.") }
+                        return
+                    }
+
+                    let fileName = "bookmark-\(imageBookmarkID.uuidString).jpg"
+                    let probe = Bookmark(timestamp: timestamp, bookmarkImageFileName: fileName)
+                    guard let url = probe.bookmarkImageURL(in: model.folderURL) else {
+                        await MainActor.run { showAlert("The image could not be saved.") }
+                        return
+                    }
+
+                    let didStart = url.deletingLastPathComponent()
+                        .startAccessingSecurityScopedResource()
+                    defer {
+                        if didStart {
+                            url.deletingLastPathComponent().stopAccessingSecurityScopedResource()
+                        }
+                    }
+
+                    let jpegData = resizedJPEGData(
+                        from: image, maxDimension: ImageEncoding.bookmarkMaxDimension,
+                        compressionQuality: ImageEncoding.bookmarkJPEGQuality)
+                    try jpegData.write(to: url, options: .atomic)
+                    await MainActor.run {
+                        bookmarkImageFileName = fileName
+                    }
+                } catch {
+                    await MainActor.run {
+                        showAlert(error.localizedDescription)
+                    }
+                }
+            }
+
+            private var imageBookmarkID: UUID {
+                bookmarkID ?? draft?.id ?? UUID()
+            }
+
+            private func resizedJPEGData(
+                from image: UIImage, maxDimension: CGFloat, compressionQuality: CGFloat
+            ) -> Data {
+                let longestSide = max(image.size.width, image.size.height)
+                guard longestSide > maxDimension else {
+                    return image.jpegData(compressionQuality: compressionQuality) ?? Data()
+                }
+
+                let scale = maxDimension / longestSide
+                let size = CGSize(
+                    width: image.size.width * scale, height: image.size.height * scale)
+                let renderer = UIGraphicsImageRenderer(size: size)
+                let resized = renderer.image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: size))
+                }
+                return resized.jpegData(compressionQuality: compressionQuality) ?? Data()
+            }
+        #endif
+
+        private func removeBookmarkImage(named name: String) {
+            let probe = Bookmark(timestamp: timestamp, bookmarkImageFileName: name)
+            if let url = probe.bookmarkImageURL(in: model.folderURL) {
+                try? FileManager.default.removeItem(at: url)
+            }
+            bookmarkImageFileName = nil
+        }
+
+        private func togglePreview(fileName: String) {
+            if isPreviewPlaying {
+                stopPreview()
+                return
+            }
+            let probe = Bookmark(timestamp: 0, voiceMemoFileName: fileName)
+            guard let url = probe.voiceMemoURL(in: model.folderURL) else { return }
+
+            // Enforce mutually-exclusive audio streams: pause the main audiobook
+            // before starting the voice-memo preview so we never have two
+            // concurrent streams playing through the output.
+            if model.isPlaying {
+                model.pause()
+                didPauseMainPlayerForPreview = true
+            } else {
+                didPauseMainPlayerForPreview = false
+            }
+
+            previewPlayer = SnippetPlayer()
+            previewPlayer?.play(url: url, volume: voiceMemoGain(for: url)) {
+                stopPreview()
+            }
+            isPreviewPlaying = true
+        }
+
+        private func stopPreview() {
+            previewPlayer?.stop()
+            previewPlayer = nil
+            isPreviewPlaying = false
+
+            // Restore the shared audio session category for spoken audiobook
+            // playback (the preview engine may have nudged the category) without
+            // deactivating the session — that would be the hack we want to avoid.
+            try? AVAudioSession.sharedInstance().setCategory(
+                .playback, mode: .spokenAudio, options: [])
+
+            // Optionally resume the main audiobook if we were the ones who paused
+            // it when starting the preview.
+            if didPauseMainPlayerForPreview {
+                didPauseMainPlayerForPreview = false
+                model.play()
+            }
+        }
+
     }
-
-    private func stopPreview() {
-        previewPlayer?.stop()
-        previewPlayer = nil
-        isPreviewPlaying = false
-
-        // Restore the shared audio session category for spoken audiobook
-        // playback (the preview engine may have nudged the category) without
-        // deactivating the session — that would be the hack we want to avoid.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [])
-
-        // Optionally resume the main audiobook if we were the ones who paused
-        // it when starting the preview.
-        if didPauseMainPlayerForPreview {
-            didPauseMainPlayerForPreview = false
-            model.play()
-        }
-    }
-
-}
 #endif

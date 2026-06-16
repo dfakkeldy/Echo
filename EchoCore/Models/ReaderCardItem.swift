@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// A section of the EPUB reader feed, containing a heading hierarchy and a list of cards.

@@ -151,9 +151,31 @@ v1.0 plays **complete per-chapter AAC files** through the existing file-based `A
 
 ## 5. TTS stack & licensing
 
-- **Model**: **Kokoro-82M**, weights **Apache-2.0** (MIT-app-compatible). CoreML/ANE backend preferred for battery; final backend (MLX vs CoreML) confirmed after the device benchmark (§6.3).
-- **G2P**: **MisakiSwift** (Apache, pure-Swift, uses Apple `NaturalLanguage`). **espeak-ng must never enter the dependency graph** — it is GPL and would infect the MIT app. **Consequence: v1 narration is English-only** (multilingual is a future door). → ship-blocking checklist item: audit transitive deps for espeak.
+- **Model**: **Kokoro-82M**, weights **Apache-2.0** (one-way GPLv3-compatible, so fine under Echo's GPL-3.0). CoreML/ANE backend preferred for battery; final backend (MLX vs CoreML) confirmed after the device benchmark (§6.3).
+- **G2P**: **MisakiSwift** (Apache-2.0, pure-Swift — dictionary + MLX neural OOV fallback + Apple `NaturalLanguage`) for **English** — the best-supported Kokoro language and fully on-device with no espeak dependency. ~~**espeak-ng must never enter the dependency graph** — it is GPL and would infect the MIT app~~ — **this no longer holds (see §5.1).** Echo is now GPL-3.0, so GPLv3 espeak-ng is license-compatible and links cleanly. **v1 narration stays English-only by choice** (scope + weak non-English Kokoro quality), with espeak-ng held as the future multilingual G2P backend behind a seam. The old "audit transitive deps for espeak" ship-blocker is **retired**.
 - **Text normalization** (`TextNormalizer`): numbers, dates, currency, abbreviations ("Dr.", "St.", "e.g."), Roman-numeral chapter titles, footnote markers, em-dashes. **This is where naturalness lives or dies** and where MisakiSwift's edge-case coverage is unverified — highest testing priority.
+
+### 5.1 Multilingual narration — post-GPL assessment (2026-06-15)
+
+**Context.** Echo relicensed MIT → GPL-3.0 (PR #73), which voids the original rule *"espeak-ng must never enter the dependency graph — it is GPL and would infect the MIT app."* A GPL-3.0 app may link GPLv3 espeak-ng freely. (App Store distribution is fine: Echo's sole copyright holder grants Apple the needed permission — the same exception VLC and BookPlayer rely on.) **The relicense also removes the *architectural* tax:** an MIT app would have had to quarantine espeak-ng inside an XPC-isolated Audio Unit extension to keep copyleft off the main binary (the pattern the official `espeak-ng-ios-app` uses). Echo no longer needs that — it can link espeak-ng directly.
+
+**But the payoff is narrower than it first looks**, because Kokoro + misaki split G2P per language:
+
+| Language(s) | misaki G2P backend | Kokoro voice quality | Swift today |
+|---|---|---|---|
+| **English** (`a`/`b`) | `misaki.en` — dict + neural fallback (espeak **optional**) | **Production-grade** (the only A-grade voices) | ✅ **MisakiSwift** (pure-Swift, on-device) |
+| **Spanish, French, Italian, Portuguese, Hindi** | **espeak-ng** (no native misaki path) | Weak (C/D grade, sparse data; French = 1 voice) | ❌ needs espeak-ng |
+| **Japanese, Chinese, Korean, Vietnamese** | native (pyopenjtalk / jieba+pypinyin / g2pkc / Viphoneme) — **no espeak** | Experimental (C/D) | ❌ no Swift port exists |
+
+The languages espeak-ng unlocks (es/fr/it/pt/hi) are exactly Kokoro's **weakest** voices; the better non-English option (Japanese) doesn't use espeak but has **no Swift G2P port**. So "GPL unlocks multilingual" is true, but today's quality ceiling for non-English is low.
+
+**espeak-ng iOS integration cost: MODERATE.** Flat C API (`espeak_Initialize` once → `espeak_TextToPhonemes` in IPA mode; **no audio synthesis**), trivial Swift interop, negligible CPU/latency, ~1 MB library + a prunable `espeak-ng-data` folder (full ≈ 5–12 MB; per-language ≈ a couple MB). No SwiftPM package — build the C sources into an `ESpeakNG.xcframework` (arm64 device + sim). Two Kokoro-on-iOS projects already do exactly this: **`mattmireles/kokoro-swift-mlx`** (uses espeak-ng as its phonemizer) and **`mlalma/kokoro-ios`** (espeak path present, commented out in favor of MisakiSwift). **Key gotcha:** espeak-ng is **not thread-safe** (global state) — serialize all calls behind one actor/serial queue; bundle `espeak-ng-data` as a folder reference and point the runtime path at it.
+
+**Recommendation.**
+1. **Keep MisakiSwift for English.** Best-quality language, already pure-Swift and on-device — never route English through espeak.
+2. **Ship v1 English-only as planned.** The relicense changes *what's possible*, not the v1 *scope*; Kokoro's non-English quality doesn't yet justify the work.
+3. **Put G2P behind a seam now.** A `G2PBackend` protocol selected by language (mirroring misaki's own `KPipeline` backend map) lets espeak-ng slot in per-language later with zero rework — the `TTSEngine` seam already sets this precedent.
+4. **Add espeak-ng later, demand-driven.** When a specific supported language has real user demand (Spanish/Italian are the most phonetically tractable first targets) or when Kokoro's non-English voices improve. Integration is moderate and well-precedented; the license is no longer a blocker.
 
 ---
 

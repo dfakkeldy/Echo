@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// Compact color picker for a single card. Reuses the same swatches as ReaderSettingsSheet.

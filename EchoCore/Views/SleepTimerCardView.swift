@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 struct SleepTimerCardView: View {
     @Environment(PlayerModel.self) private var model
+    @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 120
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -19,7 +21,7 @@ struct SleepTimerCardView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(12)
-        .frame(width: 120)
+        .frame(width: cardWidth)
         .background(.orange.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }

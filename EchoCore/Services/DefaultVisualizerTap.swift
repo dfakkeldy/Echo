@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Accelerate
 import os.log
@@ -31,6 +32,12 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
     var frames: AsyncStream<VisualizerFrame> {
         AsyncStream { [weak self] continuation in
             self?.continuation = continuation
+            // Install the tap lazily — only once a consumer actually subscribes
+            // (the Fidget overlay sheet) — so the 30 Hz FFT does not run on the
+            // real-time audio thread during ordinary playback when no visualizer
+            // is on screen. `frames` is read on the main actor, matching the
+            // main-actor `removeTap()` below (energy audit: always-on tap).
+            self?.installTap()
             continuation.onTermination = { [weak self] _ in
                 // onTermination is a @Sendable closure; removeTap() is @MainActor,
                 // so hop to the main actor (CODE_AUDIT.md §3.1).
@@ -48,7 +55,9 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
         self.frameInterval = AVAudioFrameCount(sampleRate / Double(frameRate))
         self.fftLog2n = vDSP_Length(log2(Float(fftSize)))
         self.fftSetup = vDSP_create_fftsetup(fftLog2n, FFTRadix(kFFTRadix2))
-        installTap()
+        // The tap is installed lazily on first subscription to `frames`, not
+        // here at engine-configuration time, so it only runs while a visualizer
+        // is actually on screen (energy audit).
     }
 
     // MARK: - Tap Management

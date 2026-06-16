@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Analyzes EPUB XHTML blocks to infer structural semantics (e.g. what is a heading

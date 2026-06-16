@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import UIKit
 
 /// Gated haptic feedback utility — respects the user's haptic preference.

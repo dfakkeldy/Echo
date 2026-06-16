@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V12 migration — adds is_front_matter to epub_block. Front-matter blocks

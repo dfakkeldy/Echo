@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V18 — Audiobookshelf: the single connected server's non-secret identity.

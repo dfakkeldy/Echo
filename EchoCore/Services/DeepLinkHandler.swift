@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Action produced by processing a deep link URL. PlayerModel executes these.
@@ -12,6 +13,17 @@ enum DeepLinkAction: Equatable {
     case navigate(TabSelection)
     /// Show the Help/Focus guide sheet.
     case showFocusGuide
+    // MARK: Navigation destinations
+    /// Navigate to settings (default page).
+    case navigateToSettings
+    /// Navigate to appearance settings.
+    case navigateToAppearance
+    /// Navigate to audio settings.
+    case navigateToAudioSettings
+    /// Navigate to a specific chapter by index.
+    case navigateToChapter(Int)
+    /// Navigate to a specific bookmark by UUID.
+    case navigateToBookmark(UUID)
 }
 
 /// Parses and processes `echoaudio://` deep link URLs, managing a pending
@@ -29,7 +41,9 @@ struct DeepLinkHandler {
     ///   - deepLink: The parsed deep link model.
     ///   - isItemLoaded: Whether an audiobook track is currently loaded.
     ///   - isPlaying: Whether playback is currently active.
-    mutating func handle(_ deepLink: PlayerDeepLink, isItemLoaded: Bool, isPlaying: Bool) -> DeepLinkAction? {
+    mutating func handle(_ deepLink: PlayerDeepLink, isItemLoaded: Bool, isPlaying: Bool)
+        -> DeepLinkAction?
+    {
         switch deepLink.action {
         case .play(let time):
             var action: DeepLinkAction?
@@ -60,6 +74,21 @@ struct DeepLinkHandler {
 
         case .study:
             return .navigate(.timeline)
+
+        case .navigateToSettings:
+            return .navigateToSettings
+
+        case .navigateToAppearance:
+            return .navigateToAppearance
+
+        case .navigateToAudioSettings:
+            return .navigateToAudioSettings
+
+        case .navigateToChapter(let index):
+            return .navigateToChapter(index)
+
+        case .navigateToBookmark(let id):
+            return .navigateToBookmark(id)
         }
     }
 

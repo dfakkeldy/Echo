@@ -24,14 +24,32 @@ platform :ios do
   before_all do
     # Load the App Store Connect API key from your local git-ignored JSON file.
     # On CI, ensure these variables are mapped via env vars.
+    #
+    # Guarded so key-free lanes (screenshots, frame_screenshots) still run when
+    # fastlane/api_key.json is absent. Lanes that talk to App Store Connect
+    # (beta, upload_screenshots) check `@api_key` and fail with a clear message.
     require 'json'
-    key_data = JSON.parse(File.read("api_key.json"))
-    @api_key = app_store_connect_api_key(
-      key_id: key_data["key_id"],
-      issuer_id: key_data["issuer_id"],
-      key_content: key_data["key"],
-      in_house: key_data["in_house"]
-    )
+    key_path = "api_key.json"
+    if File.exist?(key_path)
+      key_data = JSON.parse(File.read(key_path))
+      @api_key = app_store_connect_api_key(
+        key_id: key_data["key_id"],
+        issuer_id: key_data["issuer_id"],
+        key_content: key_data["key"],
+        in_house: key_data["in_house"]
+      )
+    else
+      @api_key = nil
+      UI.important("No fastlane/api_key.json found — App Store Connect lanes are unavailable. Screenshot capture lanes work without it.")
+    end
+  end
+
+  # Fails fast on lanes that require App Store Connect when no key is configured.
+  def require_api_key!
+    UI.user_error!(
+      "This lane needs App Store Connect access. Create fastlane/api_key.json " \
+      "(see fastlane/README.md / Appfile) and re-run."
+    ) if @api_key.nil?
   end
 
   desc <<~DESC
@@ -48,6 +66,7 @@ platform :ios do
     - App Store Connect API key JSON at fastlane/api_key.json
   DESC
   lane :beta do
+    require_api_key!
 
     # ── iOS Code Signing ─────────────────────────────
     # Syncs certificates and profiles for main app, watch app, and widget extension
@@ -113,7 +132,53 @@ platform :ios do
   end
 
   lane :test_auth do
+    require_api_key!
     # API key is already loaded in before_all, but we can verify it
     UI.success("API Key loaded successfully!")
+  end
+
+  desc <<~DESC
+    Capture App Store screenshots on the simulator.
+
+    Runs the EchoScreenshots UI test (EchoUITests target) via the
+    "Echo Screenshots" scheme across the devices/languages in fastlane/Snapfile,
+    writing PNGs to fastlane/screenshots/<locale>/.
+
+    No App Store Connect key required.
+
+    Prerequisites:
+    - The app auto-seeds a sample audiobook in DEBUG simulator builds, but ONLY
+      if `BIFF.m4b` is bundled into the Echo app target. Without it the library
+      is empty and content-gated screens (Reader/Timeline) show empty states.
+      See fastlane/screenshots/en-US/README_SCREENSHOTS.md.
+    - Device names in Snapfile must match `xcrun simctl list devices`.
+
+    Tip: stage the trickier shots by hand with Scripts/capture_screenshots.sh.
+  DESC
+  lane :screenshots do
+    capture_screenshots
+    UI.success("Screenshots written to fastlane/screenshots/. Review them, then run `fastlane upload_screenshots`.")
+  end
+
+  desc "Wrap the captured screenshots in device frames (requires `brew install imagemagick`)."
+  lane :frame_screenshots do
+    frameit(path: "./fastlane/screenshots")
+  end
+
+  desc <<~DESC
+    Upload screenshots + metadata to App Store Connect (no binary).
+
+    Pushes fastlane/screenshots/ and fastlane/metadata/ to the app's current
+    editable version. Requires fastlane/api_key.json.
+  DESC
+  lane :upload_screenshots do
+    require_api_key!
+    upload_to_app_store(
+      api_key: @api_key,
+      skip_binary_upload: true,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      force: true # skip the HTML preview/confirmation prompt
+    )
   end
 end

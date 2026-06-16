@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 @preconcurrency import AVFoundation
 import os.log
 

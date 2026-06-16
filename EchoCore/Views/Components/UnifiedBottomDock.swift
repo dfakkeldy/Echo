@@ -1,9 +1,21 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 struct UnifiedBottomDock: View {
     @Environment(PlayerModel.self) private var model
     var onCreateBookmark: (BookmarkDraft) -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
+
+    /// Platform-agnostic separator color.
+    @MainActor private var separatorColor: Color {
+        #if canImport(UIKit)
+            Color(uiColor: .separator)
+        #elseif canImport(AppKit)
+            Color(nsColor: .separatorColor)
+        #else
+            Color.primary.opacity(0.15)
+        #endif
+    }
 
     private var showsControls: Bool {
         model.selectedTab == .nowPlaying || (model.folderURL != nil && !model.tracks.isEmpty)
@@ -36,7 +48,7 @@ struct UnifiedBottomDock: View {
             // Divider separating controls from utility bar
             if showsControls {
                 Divider()
-                    .background(Color(uiColor: .separator).opacity(0.25))
+                    .background(separatorColor.opacity(0.25))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
             }

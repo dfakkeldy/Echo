@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/iOS-19+-blue.svg)](#)
 [![Platform](https://img.shields.io/badge/macOS-16+-blue.svg)](#)
 [![Platform](https://img.shields.io/badge/watchOS-12+-blue.svg)](#)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 **Echo** turns audiobooks into a serious study medium. Search across spoken content, jump to any passage, create flashcards from what you hear, and review with spaced repetition — all without leaving the audio.
 
@@ -262,4 +262,4 @@ When extending or modifying the project with autonomous tooling, future agents M
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU General Public License v3.0](LICENSE).

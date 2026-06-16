@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import StoreKit
 
 /// Pure, dependency-free entitlement rules — unit-testable without StoreKit.

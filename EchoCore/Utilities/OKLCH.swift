@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Conversions between sRGB and the OKLCH cylindrical form of OKLab.
