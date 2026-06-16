@@ -268,6 +268,8 @@ final class MacPlayerModel {
                 if let dur = self.player?.currentItem?.duration.seconds, dur.isFinite, dur > 0 {
                     self.duration = dur
                 }
+                // Keep the active chapter + title aligned with the playhead.
+                self.refreshCurrentChapter()
             }
         }
 
@@ -318,7 +320,10 @@ final class MacPlayerModel {
     private func refreshCurrentChapter() {
         guard hasChapters else {
             currentChapterIndex = 0
-            if currentTitle != fileTitle { currentTitle = fileTitle }
+            if currentTitle != fileTitle {
+                currentTitle = fileTitle
+                updateNowPlaying()
+            }
             return
         }
         let idx =

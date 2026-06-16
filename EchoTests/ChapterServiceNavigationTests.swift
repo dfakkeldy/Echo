@@ -37,4 +37,20 @@ struct ChapterServiceNavigationTests {
         let one = [Chapter(index: 0, title: "Solo", startSeconds: 0, endSeconds: 30)]
         #expect(ChapterService.chapterIndex(forTime: 5, in: one) == nil)
     }
+
+    @Test func chapterIndexTracksPlayheadAcrossBoundaries() {
+        let chapters = makeChapters()
+        // Simulate the observer sampling currentTime as playback advances.
+        let samples: [(time: Double, expected: Int?)] = [
+            (0.0, 0), (9.99, 0), (10.0, 1), (19.5, 1), (20.0, 2), (29.99, 2),
+        ]
+        for sample in samples {
+            #expect(
+                ChapterService.chapterIndex(forTime: sample.time, in: chapters) == sample.expected,
+                "time \(sample.time) should map to chapter \(String(describing: sample.expected))"
+            )
+        }
+        // Seeking backward re-derives a lower index (no monotonic-only assumption).
+        #expect(ChapterService.chapterIndex(forTime: 5.0, in: chapters) == 0)
+    }
 }
