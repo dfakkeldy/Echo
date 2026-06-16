@@ -105,6 +105,7 @@ struct NowPlayingTab: View {
                         onCreateBookmark: onCreateBookmark,
                         onShowPlaybackOptions: { showingPlaybackOptions = true }
                     )
+                    .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
             }
             .ignoresSafeArea(.keyboard)

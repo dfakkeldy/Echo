@@ -4,6 +4,7 @@ import SwiftUI
 struct TransportControlsView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
+    @Environment(\.showPlaybackOptions) private var showPlaybackOptions
 
     private var isCompact: Bool { settings.playerLayoutStyle == "compact" }
 
@@ -219,14 +220,8 @@ struct TransportControlsView: View {
         case .speed:
             TransportButton(
                 tapAction: {
-                    let speeds = SettingsManager.Defaults.speedPresets
-                    if let index = speeds.firstIndex(of: model.speed) {
-                        let nextIndex = (index + 1) % speeds.count
-                        model.setSpeed(speeds[nextIndex])
-                    } else {
-                        model.setSpeed(1.0)
-                    }
-                    Haptic.play(.medium)
+                    showPlaybackOptions()
+                    Haptic.play(.light)
                 },
                 longPressAction: longPressAction,
                 model: model
@@ -237,8 +232,9 @@ struct TransportControlsView: View {
                     .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel(Text("Playback speed"))
+            .accessibilityLabel(Text("Playback options"))
             .accessibilityValue(Text(speedLabel))
+            .accessibilityHint(Text("Opens speed, loop, and skip settings"))
 
         case .sleepTimer:
             sleepTimerMenu

@@ -138,3 +138,19 @@ struct PlaybackOptionsSheet: View {
         return String(localized: "Raises quiet recordings. Applies to all books unless overridden.")
     }
 }
+
+// MARK: - Presenter environment seam
+
+/// Lets deeply-nested transport controls (e.g. the configurable `.speed` slot)
+/// request the Playback Options sheet without threading a closure through every
+/// intermediate view. `NowPlayingTab` installs the real presenter.
+private struct ShowPlaybackOptionsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+extension EnvironmentValues {
+    var showPlaybackOptions: () -> Void {
+        get { self[ShowPlaybackOptionsKey.self] }
+        set { self[ShowPlaybackOptionsKey.self] = newValue }
+    }
+}
