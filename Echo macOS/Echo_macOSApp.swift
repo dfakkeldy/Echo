@@ -93,14 +93,14 @@ struct Echo_macOSApp: App {
 
                 Divider()
 
-                Button("Skip Back 15s") {
-                    player.skip(by: -15)
+                Button("Skip Back") {
+                    player.skip(by: -Double(player.skipInterval))
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [])
                 .disabled(!player.hasMedia)
 
-                Button("Skip Forward 15s") {
-                    player.skip(by: 15)
+                Button("Skip Forward") {
+                    player.skip(by: Double(player.skipInterval))
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [])
                 .disabled(!player.hasMedia)

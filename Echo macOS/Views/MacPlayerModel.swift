@@ -65,6 +65,10 @@ final class MacPlayerModel {
     /// `.bookmark` looping is not yet wired on macOS; the Playback Options sheet
     /// demotes it to `.off` when no bookmarks exist. `.off` is the default.
     var loopMode: LoopMode = .off
+    /// Seconds for the back/forward skip transport buttons and the Playback-menu
+    /// skip commands. User-configurable via the macOS Playback Options sheet
+    /// (default 15). The fixed ±30s "long skip" menu commands ignore this.
+    var skipInterval: Int = 15
     /// Shared bookmark store backed by the database.
     private(set) var bookmarkStore = BookmarkStore()
     /// Database service for bookmark persistence. Set by the app entry point.

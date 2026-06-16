@@ -92,12 +92,12 @@ struct MacTriPaneView: View {
 
                 // Transport
                 Button {
-                    player.skip(by: -15)
+                    player.skip(by: -Double(player.skipInterval))
                 } label: {
                     Image(systemName: "gobackward.15")
                 }
                 .buttonStyle(.borderless)
-                .help("Skip back 15 seconds")
+                .help("Skip back")
 
                 Button {
                     player.togglePlayPause()
@@ -109,12 +109,12 @@ struct MacTriPaneView: View {
                 .help(player.isPlaying ? "Pause" : "Play")
 
                 Button {
-                    player.skip(by: 15)
+                    player.skip(by: Double(player.skipInterval))
                 } label: {
                     Image(systemName: "goforward.15")
                 }
                 .buttonStyle(.borderless)
-                .help("Skip forward 15 seconds")
+                .help("Skip forward")
 
                 // Sleep timer
                 Menu {
