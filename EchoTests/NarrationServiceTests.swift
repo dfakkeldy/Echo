@@ -58,7 +58,9 @@ import Testing
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(db)
         }
         #expect(track?.sortOrder == 0)
-        #expect(track.map { abs($0.duration - 0.6) < 0.0001 } == true)  // (4+2)×0.1
+        // (4+2)×0.1 spoken + the lead-out pad appended once at the chapter end.
+        let expectedDuration = 0.6 + NarrationService.leadOutPadSeconds
+        #expect(track.map { abs($0.duration - expectedDuration) < 0.0001 } == true)
         // Direct column check — proves narration_voice mapping:
         let voiceCol = try db.read { db in
             try String.fetchOne(
@@ -191,9 +193,11 @@ import Testing
         let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
         #expect(abs(span - expectedDuration) < 0.0001)
 
-        // Every sub-chunk was synthesized and handed to the writer.
+        // Every sub-chunk was synthesized and handed to the writer; the writer
+        // also receives the trailing lead-out silence (one extra append, no TTS
+        // call), so the chunk count is sub-chunks + 1.
         #expect(mock.calls.count == subChunks.count)
-        #expect(writer.chunkCounts == [subChunks.count])
+        #expect(writer.chunkCounts == [subChunks.count + 1])
     }
 
     @Test func lengthCapSubChunkIsSkippedWithoutAbortingTheChapter() async throws {
@@ -228,7 +232,8 @@ import Testing
         let expectedDuration = survivors.reduce(0.0) { $0 + Double($1.count) * secondsPerChar }
         let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
         #expect(abs(span - expectedDuration) < 0.0001)
-        #expect(writer.chunkCounts == [survivors.count])
+        // Surviving sub-chunks + the trailing lead-out silence.
+        #expect(writer.chunkCounts == [survivors.count + 1])
     }
 
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {

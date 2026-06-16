@@ -18,6 +18,13 @@ enum NarrationError: Error, Equatable {
 @MainActor @Observable
 final class NarrationService {
     private let logger = Logger(category: "Narration")
+    /// Trailing silence appended to every rendered chapter so the final word
+    /// isn't clipped when the player advances to the next chapter. Kokoro ends a
+    /// chunk right on the last phoneme (no ring-out) and the gapless engine
+    /// schedules the next track a hair before `duration` elapses; padding the
+    /// file closes both gaps. Exposed `static` so the render-duration test can
+    /// assert the exact padded length. ~0.75 s ≈ 0.4 s of dead air even at 2×.
+    static let leadOutPadSeconds: TimeInterval = 0.75
     /// Shared, reused across renders — allocating an `ISO8601DateFormatter` per
     /// `renderChapter` call is wasteful (§7.2). `@MainActor`-isolated via the
     /// class, so there's no Sendable concern around the non-Sendable formatter.
@@ -105,6 +112,17 @@ final class NarrationService {
                 phase: .preparingChapter,
                 progress: Double(i + 1) / Double(spoken.count),
                 statusMessage: "Preparing chapter \(chapterIndex + 1)…")
+        }
+
+        // Lead-out pad: append trailing silence so the last word has room to ring
+        // out and the player can't advance to the next chapter mid-word. Added
+        // AFTER the anchor loop, so the silence is unanchored dead air — read-along
+        // stops highlighting at the last spoken word. Guarded on `cursor > 0` so a
+        // chapter with nothing speakable (or all sub-chunks length-capped) creates
+        // no file and no spurious silence-only track.
+        if cursor > 0 {
+            try await stream.append(
+                .silence(seconds: Self.leadOutPadSeconds, sampleRate: 24_000))
         }
 
         try Task.checkCancellation()

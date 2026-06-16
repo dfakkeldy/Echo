@@ -10,8 +10,10 @@ enum NarrationFileNaming {
     /// once, while everything else stays persisted. v1 = the original un-versioned
     /// render (no `-v` suffix); v2 = 8.5 kHz low-pass (reverted — it dulled the
     /// already-clean render without fixing the whine, which was a playback-side
-    /// time-pitch artifact); v3 = low-pass removed, raw vocoder output again.
-    static let renderVersion = 3
+    /// time-pitch artifact); v3 = low-pass removed, raw vocoder output again;
+    /// v4 = 0.75 s lead-out silence so the final word isn't clipped on chapter
+    /// advance (NarrationService.leadOutPadSeconds).
+    static let renderVersion = 4
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {
