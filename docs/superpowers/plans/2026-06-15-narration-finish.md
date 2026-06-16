@@ -8,6 +8,21 @@
 
 ---
 
+## Status (live, branch `feat/narration-stream-to-sink`)
+
+**Done + unit-tested on this branch (device-confirmed where noted):**
+- **Stream-to-sink** (`ALACFileStream` actor) — bounds peak RAM to one sub-chunk; the jetsam half of §3.1.
+- **Persistence** — a chapter renders once per voice+version, then is reused (export/Anki-friendly). Device-confirmed ("isn't re-rendering the chapters").
+- **Whine fix** — the ring/whine was the playback `AVAudioUnitTimePitch` running at 1× (`pitch=0.01` workaround); now bypassed at 1× (`shouldBypassEffect`). The low-pass attempt was wrong-layer and reverted. Device-confirmed ("definitely better").
+- **Voice picker reachable** + voice preference saved; voice list trimmed to Ava (others 404).
+- **A15+ gate (Phase 1B, interim)** — `NarrationCapability`; A14 BNNS vocoder trap *recurs*, so synthesis is gated off ≤A14 while the reader stays usable. **Implication: narration is now disabled on the owner's A14, so the items below are sim/unit-verified, not device-re-tested.**
+- **Lead-out pad** — 0.75 s trailing silence per chapter so the final word isn't clipped on advance (renderVersion 4). Fixes device report "cuts off the last word."
+- **Chapter numbering** — narrated chapters titled by 1-based plan position (`PlannedChapter.displayNumber`), front matter excluded. Fixes device report "chapter 4 is actually chapter 1."
+
+**Deferred by explicit owner decision:** Phase 1A model swap (the only path to working narration *on the A14*) — twice chosen "interim gate" instead. Do NOT build without a fresh ask.
+
+---
+
 ## Phase 0 — Decisive on-device datapoint (GATE, no code) ⛔ do first
 
 The crash logs predate the `613c577` revert, so **current HEAD (`KokoroAneManager()` = `.default` = `ane-tail-gpu`) has never been tested on-device since the revert.** Git says `.default` was the crashing config, so this is expected to still crash — but it's a 10-minute, zero-cost confirmation that decides Phase 1's branch.
