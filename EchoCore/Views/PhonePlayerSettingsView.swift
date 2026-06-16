@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
+import UniformTypeIdentifiers
 
 struct PhonePlayerSettingsView: View {
     @Environment(PlayerModel.self) private var model
@@ -18,16 +18,16 @@ struct PhonePlayerSettingsView: View {
     @State private var showingChimeSettings = false
 
     private let palette: [WatchAction] = [
-        .playPause, .skipForward, .skipBackward, .nextTrack,
-        .previousTrack, .nextSection, .previousSection,
-        .loopMode, .speed, .sleepTimer, .bookmark
+        .playPause, .skipForward, .skipBackward,
+        .nextSection, .previousSection,
+        .speed, .sleepTimer, .bookmark,
     ]
 
     /// Actions the mini-player slots can perform (no sleep timer — that lives
     /// in the top pill; no pomodoro yet).
     private let miniPlayerChoices: [WatchAction] = [
-        .playPause, .skipBackward, .skipForward, .previousTrack, .nextTrack,
-        .previousSection, .nextSection, .loopMode, .speed, .bookmark, .empty
+        .playPause, .skipBackward, .skipForward,
+        .previousSection, .nextSection, .speed, .bookmark, .empty,
     ]
 
     private func miniPlayerChoiceName(_ action: WatchAction) -> String {
@@ -59,16 +59,18 @@ struct PhonePlayerSettingsView: View {
                     Text("Player Layout Style")
                         .customFont(.title3, weight: .semibold, appFont: settings.appFont)
                         .foregroundStyle(.secondary)
-                    
+
                     Picker("Layout Style", selection: $settings.playerLayoutStyle) {
                         Text("Default").tag("default")
                         Text("Compact").tag("compact")
                     }
                     .pickerStyle(.segmented)
-                    
-                    Text("The Compact layout uses a smaller scrubber and reorganizes transport controls for a more minimalist look.")
-                        .customFont(.subheadline, appFont: settings.appFont)
-                        .foregroundStyle(.tertiary)
+
+                    Text(
+                        "The Compact layout uses a smaller scrubber and reorganizes transport controls for a more minimalist look."
+                    )
+                    .customFont(.subheadline, appFont: settings.appFont)
+                    .foregroundStyle(.tertiary)
                 }
                 .padding(16)
                 .background(
@@ -83,25 +85,34 @@ struct PhonePlayerSettingsView: View {
                         .foregroundStyle(.secondary)
 
                     ForEach(0..<3, id: \.self) { slot in
-                        Picker(String(localized: "Slot \(slot + 1)"), selection: Binding(
-                            get: { settings.miniPlayerPage.indices.contains(slot) ? settings.miniPlayerPage[slot] : .empty },
-                            set: { newAction in
-                                var page = settings.miniPlayerPage
-                                while page.count < 3 { page.append(.empty) }
-                                page[slot] = newAction
-                                settings.miniPlayerPage = page
-                            }
-                        )) {
+                        Picker(
+                            String(localized: "Slot \(slot + 1)"),
+                            selection: Binding(
+                                get: {
+                                    settings.miniPlayerPage.indices.contains(slot)
+                                        ? settings.miniPlayerPage[slot] : .empty
+                                },
+                                set: { newAction in
+                                    var page = settings.miniPlayerPage
+                                    while page.count < 3 { page.append(.empty) }
+                                    page[slot] = newAction
+                                    settings.miniPlayerPage = page
+                                }
+                            )
+                        ) {
                             ForEach(miniPlayerChoices) { action in
-                                Label(miniPlayerChoiceName(action), systemImage: action.iconName).tag(action)
+                                Label(miniPlayerChoiceName(action), systemImage: action.iconName)
+                                    .tag(action)
                             }
                         }
                         .pickerStyle(.menu)
                     }
 
-                    Text("The three buttons shown in the mini-player on the Timeline and Reader tabs.")
-                        .customFont(.subheadline, appFont: settings.appFont)
-                        .foregroundStyle(.tertiary)
+                    Text(
+                        "The three buttons shown in the mini-player on the Timeline and Reader tabs."
+                    )
+                    .customFont(.subheadline, appFont: settings.appFont)
+                    .foregroundStyle(.tertiary)
                 }
                 .padding(16)
                 .background(
@@ -111,9 +122,11 @@ struct PhonePlayerSettingsView: View {
 
                 // MARK: Phone App Designer Info
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Customize your playback control layout by dragging actions into the slots on the phone preview below.")
-                        .customFont(.subheadline, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "Customize your playback control layout by dragging actions into the slots on the phone preview below."
+                    )
+                    .customFont(.subheadline, appFont: settings.appFont)
+                    .foregroundStyle(.secondary)
                 }
                 .padding()
                 .background(
@@ -225,14 +238,17 @@ struct PhonePlayerSettingsView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(preset.name)
-                                        .customFont(.headline, weight: .bold, appFont: settings.appFont)
-                                    Text("Slots: \(preset.slots.map { $0 == .empty ? "➕" : $0.rawValue }.joined(separator: ", "))")
-                                        .customFont(.caption2, appFont: settings.appFont)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                        .customFont(
+                                            .headline, weight: .bold, appFont: settings.appFont)
+                                    Text(
+                                        "Slots: \(preset.slots.map { $0 == .empty ? "➕" : $0.rawValue }.joined(separator: ", "))"
+                                    )
+                                    .customFont(.caption2, appFont: settings.appFont)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                                 }
                                 Spacer()
-                                
+
                                 Button {
                                     slots = padded(preset.slots)
                                     if let lps = preset.longPressSlots {
@@ -244,12 +260,13 @@ struct PhonePlayerSettingsView: View {
                                     Haptic.play(.medium)
                                 } label: {
                                     Text("Load")
-                                        .customFont(.caption, weight: .bold, appFont: settings.appFont)
+                                        .customFont(
+                                            .caption, weight: .bold, appFont: settings.appFont)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .buttonBorderShape(.capsule)
                                 .controlSize(.small)
-                                
+
                                 Button(role: .destructive) {
                                     settings.phonePresets.removeAll(where: { $0.id == preset.id })
                                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -283,7 +300,7 @@ struct PhonePlayerSettingsView: View {
                 }
 
                 Button {
-                    slots = [.previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack]
+                    slots = [.skipBackward, .empty, .playPause, .empty, .skipForward]
                     longPressSlots = Array(repeating: .empty, count: 5)
                     saveSlots()
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -346,7 +363,9 @@ private struct PaletteItem: View {
                 Circle()
                     .fill(Color.accentColor.opacity(0.18))
                     .frame(width: 56, height: 56)
-                let duration = action == .skipBackward ? settings.seekBackwardDuration : settings.seekForwardDuration
+                let duration =
+                    action == .skipBackward
+                    ? settings.seekBackwardDuration : settings.seekForwardDuration
                 Image(systemName: action.dynamicIconName(forDuration: duration))
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.tint)
@@ -377,15 +396,17 @@ private struct PhonePreviewCanvas: View {
                     RoundedRectangle(cornerRadius: 32, style: .continuous)
                         .fill(Color.black)
                 )
-            
+
             VStack(spacing: 16) {
                 // Mock Artwork using AppIconThumbnail equivalent or simple styled headphones icon
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(LinearGradient(
-                        colors: [.accentColor.opacity(0.3), .accentColor.opacity(0.05)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ))
+                    .fill(
+                        LinearGradient(
+                            colors: [.accentColor.opacity(0.3), .accentColor.opacity(0.05)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .frame(width: 100, height: 100)
                     .overlay(
                         Image(systemName: "headphones")
@@ -466,7 +487,8 @@ private struct DropSlot: View {
             guard let provider = providers.first else { return false }
             provider.loadObject(ofClass: NSString.self) { string, _ in
                 if let raw = string as? String,
-                   let action = WatchAction(rawValue: raw) {
+                    let action = WatchAction(rawValue: raw)
+                {
                     DispatchQueue.main.async {
                         slot = action
                         onChange()
@@ -488,7 +510,7 @@ private struct DropSlot: View {
     private var width: CGFloat {
         switch shape {
         case .squircle: return 40
-        case .circle:   return 38
+        case .circle: return 38
         }
     }
     private var height: CGFloat { width }
@@ -505,7 +527,8 @@ private struct DropSlot: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(dashColor, style: dashed)
             } else {
-                DesignerControlBackground(shape: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                DesignerControlBackground(
+                    shape: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         case .circle:
             if isEmpty {
@@ -524,7 +547,8 @@ private struct DropSlot: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white.opacity(0.35))
         } else {
-            let duration = slot == .skipBackward ? settings.seekBackwardDuration : settings.seekForwardDuration
+            let duration =
+                slot == .skipBackward ? settings.seekBackwardDuration : settings.seekForwardDuration
             Image(systemName: slot.dynamicIconName(forDuration: duration))
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
