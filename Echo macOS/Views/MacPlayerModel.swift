@@ -60,6 +60,11 @@ final class MacPlayerModel {
             if isPlaying { player?.rate = playbackRate }
         }
     }
+    /// Active loop behavior. `.chapter` repeats the current chapter via a
+    /// boundary check in the periodic time observer (see `handleChapterBoundary`).
+    /// `.bookmark` looping is not yet wired on macOS; the Playback Options sheet
+    /// demotes it to `.off` when no bookmarks exist. `.off` is the default.
+    var loopMode: LoopMode = .off
     /// Shared bookmark store backed by the database.
     private(set) var bookmarkStore = BookmarkStore()
     /// Database service for bookmark persistence. Set by the app entry point.
@@ -268,7 +273,9 @@ final class MacPlayerModel {
                 if let dur = self.player?.currentItem?.duration.seconds, dur.isFinite, dur > 0 {
                     self.duration = dur
                 }
-                // Keep the active chapter + title aligned with the playhead.
+                // Detect chapter boundary with the pre-advancement index, THEN
+                // refresh the active chapter/title for the (possibly looped) position.
+                self.handleChapterBoundary()
                 self.refreshCurrentChapter()
             }
         }
@@ -520,6 +527,30 @@ final class MacPlayerModel {
             Task { @MainActor [weak self] in
                 self?.currentTime = seconds
             }
+        }
+    }
+
+    /// Evaluates chapter-loop and end-of-chapter-sleep at the current instant.
+    /// Called on every periodic time-observer tick BEFORE refreshCurrentChapter()
+    /// so the boundary is detected with the pre-advancement chapter index.
+    /// Pure decision is delegated to `MacChapterLoopDecision`; this only applies
+    /// the side effect.
+    private func handleChapterBoundary() {
+        let decision = MacChapterLoopDecision.evaluate(
+            currentTime: currentTime,
+            chapters: chapters,
+            currentChapterIndex: currentChapterIndex,
+            loopMode: loopMode,
+            isEndOfChapterSleep: sleepTimer.mode == .endOfChapter
+        )
+        switch decision {
+        case .none:
+            break
+        case .seek(let target):
+            seek(to: target)
+            currentTime = target
+        case .fireSleep:
+            sleepTimer.evaluateAtChapterEnd()
         }
     }
 
