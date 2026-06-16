@@ -138,6 +138,111 @@
 			);
 			target = CC00BC4C2FA6B66400323F38 /* Echo WidgetExtension */;
 		};
+		718DD03F18BB433E7AD362E2 /* Exceptions for "EchoCore" folder in "Echo macOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CarPlay/CarPlayManager.swift,
+				CarPlay/CarPlayNotificationNames.swift,
+				CarPlay/CarPlaySceneDelegate.swift,
+				DailyPlanner/SchedulingSheet.swift,
+				EchoCoreApp.swift,
+				Models/NavigationDestinations.swift,
+				Services/ArtworkCache.swift,
+				Services/BookmarkArtworkCoordinator.swift,
+				Services/CoverThemeBuilder.swift,
+				Services/DominantColorExtractor.swift,
+				Services/PlaybackProgressPresenter.swift,
+				Services/PlayerLoadingCoordinator.swift,
+				Services/WatchCommandRouter.swift,
+				Services/WatchConnectivityCoordinator.swift,
+				Services/WatchStateContextBuilder.swift,
+				Services/WatchSyncManager.swift,
+				Utilities/ColorMetrics.swift,
+				Utilities/FolderPicker.swift,
+				Utilities/OKLCH.swift,
+				ViewModels/PlayerModel.swift,
+				ViewModels/ReaderFeedViewModel.swift,
+				Views/AutoAlignmentProgressView.swift,
+				Views/BookSettingsView.swift,
+				Views/BookmarkCardView.swift,
+				Views/BottomToolbarView.swift,
+				Views/CardInboxView.swift,
+				Views/Cells/HeadingCardCell.swift,
+				Views/Cells/ImageCardCell.swift,
+				Views/Cells/ParagraphCardCell.swift,
+				Views/ChapterPickerSheet.swift,
+				Views/ChimeSettingsView.swift,
+				Views/Components/AdaptiveBackground.swift,
+				Views/Components/AlbumArtHeroView.swift,
+				Views/Components/BookProgressTrack.swift,
+				Views/Components/CircularProgressPlayButton.swift,
+				Views/Components/FlashcardCreationSheet.swift,
+				Views/Components/FlashcardOverlayView.swift,
+				Views/Components/Haptic.swift,
+				Views/Components/InlineStepperRow.swift,
+				Views/Components/MarqueeText.swift,
+				Views/Components/PlayerControlBar.swift,
+				Views/Components/SleepTimerPill.swift,
+				Views/Components/UnifiedBottomDock.swift,
+				Views/Components/UnifiedTopHeader.swift,
+				Views/Components/WordCloudView.swift,
+				Views/DashboardShelf.swift,
+				Views/EPUBHeadingPickerSheet.swift,
+				Views/Fidget/BubblePopView.swift,
+				Views/Fidget/DoodlePadView.swift,
+				Views/Fidget/FidgetOverlayView.swift,
+				Views/Fidget/InfinityScrollView.swift,
+				Views/Fidget/KineticSandView.swift,
+				Views/Fidget/TactilePlaygroundView.swift,
+				Views/FlashcardReviewCard.swift,
+				Views/FlashcardReviewSession.swift,
+				Views/HelpContent.swift,
+				Views/HelpView.swift,
+				Views/ListeningProgressModuleView.swift,
+				Views/ManualAlignmentSheet.swift,
+				Views/Narration/NarrationNudgeView.swift,
+				Views/Narration/NarrationStatusView.swift,
+				Views/Narration/VoicePickerView.swift,
+				Views/NoteEditorView.swift,
+				Views/NowPlayingLayout.swift,
+				Views/NowPlayingTab.swift,
+				Views/OnboardingView.swift,
+				Views/PDFDocumentView.swift,
+				Views/PhonePlayerSettingsView.swift,
+				Views/PlayerScrubberView.swift,
+				Views/PlayheadLineView.swift,
+				Views/PlaylistView.swift,
+				Views/ReaderEmptyState.swift,
+				Views/ReaderFeedCollectionView.swift,
+				Views/ReaderHeaderView.swift,
+				Views/ReaderTab.swift,
+				Views/RootTabView.swift,
+				Views/SettingsView.swift,
+				Views/SleepTimerCardView.swift,
+				Views/SmartRewindSettingsView.swift,
+				Views/SoundscapePickerView.swift,
+				Views/SpeedCardView.swift,
+				Views/SpeedSuggestionBanner.swift,
+				Views/StandaloneTranscriptView.swift,
+				Views/Stats/BookStatsView.swift,
+				Views/Stats/DeckDetailView.swift,
+				Views/Stats/DeckListView.swift,
+				Views/Stats/StatCardView.swift,
+				Views/Stats/StatsView.swift,
+				Views/StatsModuleView.swift,
+				Views/StreakModuleView.swift,
+				Views/TimelineTab.swift,
+				Views/TransportControlsView.swift,
+				Views/UpcomingReviewsModuleView.swift,
+				Views/Visualizer/VisualizerPickerView.swift,
+				Views/Visualizer/VisualizerStyle.swift,
+				Views/Visualizer/VisualizerView.swift,
+				Views/VoiceMemoOverlayView.swift,
+				Views/WatchAppSettingsView.swift,
+			);
+			target = AA0100000000000000000020 /* Echo macOS */;
+		};
+
 		CCA11E012FA6C00100323F38 /* Exceptions for "Echo Watch App" folder in "Echo Watch App" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -169,6 +274,7 @@
 			exceptions = (
 				CC08EC842F95256B00206D2F /* Exceptions for "EchoCore" folder in "Echo" target */,
 				CC33EBB42FB41C610035179D /* Exceptions for "EchoCore" folder in "Echo WidgetExtension" target */,
+				718DD03F18BB433E7AD362E2 /* Exceptions for "EchoCore" folder in "Echo macOS" target */,
 			);
 			path = EchoCore;
 			sourceTree = "<group>";
@@ -345,8 +451,14 @@
 			);
 			dependencies = (
 			);
+			packageProductDependencies = (
+				CC0000000002GRDB00000002 /* GRDB */,
+				CC0000000004WHSK00000004 /* WhisperKit */,
+				CC0000000003ZIPF00000003 /* ZIPFoundation */,
+			);
 			fileSystemSynchronizedGroups = (
 				AA0100000000000000000010 /* Echo macOS */,
+				CC08EC5B2F9522F600206D2F /* EchoCore */,
 				DD0100000000000000000001 /* Shared */,
 			);
 			name = "Echo macOS";

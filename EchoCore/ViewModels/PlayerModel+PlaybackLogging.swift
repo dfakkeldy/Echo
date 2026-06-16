@@ -1,3 +1,4 @@
+#if os(iOS)
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
@@ -43,3 +44,5 @@ extension PlayerModel {
         )
     }
 }
+
+#endif

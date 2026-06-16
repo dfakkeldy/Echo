@@ -47,51 +47,52 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
 
 // MARK: - Conversion from app-level Bookmark model (iOS only)
 
-#if os(iOS)
-extension BookmarkRecord {
-    init(from model: Bookmark) {
-        self.id = model.id.uuidString
-        self.audiobookID = model.folderKey ?? ""
-        self.trackID = model.trackId
-        self.title = model.title
-        self.mediaTimestamp = model.timestamp
-        self.note = model.note
-        self.voiceMemoPath = model.voiceMemoFileName
-        self.imagePath = model.bookmarkImageFileName
-        self.isEnabled = model.isEnabled
-        self.playlistPosition = nil
-        self.latitude = model.latitude
-        self.longitude = model.longitude
-        self.placeName = model.placeName
-        self.pdfViewStateJSON = {
-            if let state = model.pdfViewState {
-                return String(data: (try? JSONEncoder().encode(state)) ?? Data(), encoding: .utf8)
-            }
-            return nil
-        }()
-        self.createdAt = Date().ISO8601Format()
-        self.modifiedAt = Date().ISO8601Format()
-    }
+#if os(iOS) || os(macOS)
+    extension BookmarkRecord {
+        init(from model: Bookmark) {
+            self.id = model.id.uuidString
+            self.audiobookID = model.folderKey ?? ""
+            self.trackID = model.trackId
+            self.title = model.title
+            self.mediaTimestamp = model.timestamp
+            self.note = model.note
+            self.voiceMemoPath = model.voiceMemoFileName
+            self.imagePath = model.bookmarkImageFileName
+            self.isEnabled = model.isEnabled
+            self.playlistPosition = nil
+            self.latitude = model.latitude
+            self.longitude = model.longitude
+            self.placeName = model.placeName
+            self.pdfViewStateJSON = {
+                if let state = model.pdfViewState {
+                    return String(
+                        data: (try? JSONEncoder().encode(state)) ?? Data(), encoding: .utf8)
+                }
+                return nil
+            }()
+            self.createdAt = Date().ISO8601Format()
+            self.modifiedAt = Date().ISO8601Format()
+        }
 
-    /// Convert to the app-level Bookmark domain model.
-    func toModel() -> Bookmark {
-        Bookmark(
-            id: UUID(uuidString: id) ?? UUID(),
-            title: title,
-            folderKey: audiobookID,
-            trackId: trackID,
-            timestamp: mediaTimestamp,
-            note: note,
-            voiceMemoFileName: voiceMemoPath,
-            bookmarkImageFileName: imagePath,
-            pdfViewState: pdfViewStateJSON.flatMap { json in
-                try? JSONDecoder().decode(PDFViewState.self, from: Data(json.utf8))
-            },
-            isEnabled: isEnabled,
-            latitude: latitude,
-            longitude: longitude,
-            placeName: placeName
-        )
+        /// Convert to the app-level Bookmark domain model.
+        func toModel() -> Bookmark {
+            Bookmark(
+                id: UUID(uuidString: id) ?? UUID(),
+                title: title,
+                folderKey: audiobookID,
+                trackId: trackID,
+                timestamp: mediaTimestamp,
+                note: note,
+                voiceMemoFileName: voiceMemoPath,
+                bookmarkImageFileName: imagePath,
+                pdfViewState: pdfViewStateJSON.flatMap { json in
+                    try? JSONDecoder().decode(PDFViewState.self, from: Data(json.utf8))
+                },
+                isEnabled: isEnabled,
+                latitude: latitude,
+                longitude: longitude,
+                placeName: placeName
+            )
+        }
     }
-}
 #endif

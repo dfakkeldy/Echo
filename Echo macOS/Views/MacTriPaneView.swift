@@ -10,7 +10,9 @@ import SwiftUI
 /// A thin player bar at the bottom of the center pane shows playback controls.
 struct MacTriPaneView: View {
     @Environment(MacPlayerModel.self) private var player
+    @Environment(DatabaseService.self) private var dbService
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var dbServiceWired = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -34,9 +36,18 @@ struct MacTriPaneView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
         }
         .navigationSplitViewStyle(.balanced)
+        .task {
+            if !dbServiceWired {
+                player.dbService = dbService
+                player.loadBookmarksFromDB()
+                player.migrateLegacyBookmarksIfNeeded()
+                dbServiceWired = true
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
             withAnimation {
-                columnVisibility = columnVisibility == .detailOnly
+                columnVisibility =
+                    columnVisibility == .detailOnly
                     ? .all
                     : (columnVisibility == .all ? .detailOnly : .all)
             }
@@ -105,11 +116,36 @@ struct MacTriPaneView: View {
                 .buttonStyle(.borderless)
                 .help("Skip forward 15 seconds")
 
+                // Sleep timer
+                Menu {
+                    Button("Off") { player.sleepTimerMode = .off }
+                    Divider()
+                    Button("5 min") { player.sleepTimerMode = .minutes(5) }
+                    Button("10 min") { player.sleepTimerMode = .minutes(10) }
+                    Button("15 min") { player.sleepTimerMode = .minutes(15) }
+                    Button("30 min") { player.sleepTimerMode = .minutes(30) }
+                    Button("45 min") { player.sleepTimerMode = .minutes(45) }
+                    Button("60 min") { player.sleepTimerMode = .minutes(60) }
+                    Divider()
+                    Button("End of Chapter") { player.sleepTimerMode = .endOfChapter }
+                } label: {
+                    Image(
+                        systemName: player.sleepTimer.mode == .off
+                            ? "moon.zzz" : "moon.zzz.fill"
+                    )
+                }
+                .buttonStyle(.borderless)
+                .help("Sleep timer")
+                .frame(width: 28)
+
                 // Speed
-                Picker("Speed", selection: Binding(
-                    get: { player.playbackRate },
-                    set: { player.playbackRate = $0 }
-                )) {
+                Picker(
+                    "Speed",
+                    selection: Binding(
+                        get: { player.playbackRate },
+                        set: { player.playbackRate = $0 }
+                    )
+                ) {
                     Text("1×").tag(Float(1.0))
                     Text("1.25×").tag(Float(1.25))
                     Text("1.5×").tag(Float(1.5))

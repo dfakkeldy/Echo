@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import MediaPlayer
+#if os(iOS)
+import UIKit
+#endif
 
 /// Manages MPNowPlayingInfoCenter metadata updates and MPRemoteCommandCenter
 /// handler registration. Does not decide *when* to update — PlayerModel drives
@@ -98,7 +101,9 @@ final class NowPlayingController {
         var chapterIndex: Int?
         var chapterElapsed: TimeInterval?
         var chapterDuration: TimeInterval?
+#if os(iOS)
         var artworkImage: UIImage?
+#endif
         var isPaused: Bool = false
         var playbackRate: Float = 1.0
     }
@@ -131,11 +136,13 @@ final class NowPlayingController {
             }
         }
 
+#if os(iOS)
         if let image = params.artworkImage {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
                 image
             }
         }
+#endif
 
         info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
         // The system uses DefaultPlaybackRate to know what "1×" means for this item.

@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
-import FluidAudio
 import Foundation
 import GRDB
 import os.log
+
+#if os(iOS)
+    import FluidAudio
+#endif
 
 enum NarrationError: Error, Equatable {
     case synthesisFailed
@@ -193,7 +196,7 @@ final class NarrationService {
         logger.info("Rendered chapter \(chapterIndex) → \(anchors.count) anchors")
     }
 
-    #if DEBUG
+    #if DEBUG && os(iOS)
         /// One-tap on-device smoke test: render the first 3 paragraphs of the
         /// loaded book's chapter 1 with the real Kokoro engine and play them.
         /// Returns an `AVAudioPlayer` so the caller can keep a reference alive.
@@ -252,14 +255,16 @@ final class NarrationService {
     /// Covers FluidAudio's two length cases plus our own test marker.
     private static func isLengthCapError(_ error: Error) -> Bool {
         if case NarrationError.lengthCapExceeded = error { return true }
-        if let k = error as? KokoroAneError {
-            switch k {
-            case .phonemeSequenceTooLong, .acousticFramesExceedCap:
-                return true
-            default:
-                return false
+        #if os(iOS)
+            if let k = error as? KokoroAneError {
+                switch k {
+                case .phonemeSequenceTooLong, .acousticFramesExceedCap:
+                    return true
+                default:
+                    return false
+                }
             }
-        }
+        #endif
         return false
     }
 }

@@ -5,7 +5,9 @@
 //
 //  WS-12: Bulk folder alignment for overnight alignment of entire libraries.
 //  Scans a folder recursively for audio files, finds matching EPUB/PDF
-//  companions, and runs MacGlobalAlignmentService on each pair.
+//  companions, and runs MacAlignmentService (shared TokenDTW pipeline) on
+//  each pair. Anchors are written to the shared database so timeline
+//  recalculation + auto-scroll work immediately.
 //
 
 import Foundation
@@ -31,12 +33,12 @@ final class MacBulkAlignmentService {
         var sleepWhenDone = false
     }
 
-    private let alignmentService = MacGlobalAlignmentService()
+    private let alignmentService = MacAlignmentService()
 
     // MARK: - Public API
 
     /// Begins bulk alignment of all audiobooks found under `folderURL`.
-    func start(folderURL: URL) async {
+    func start(folderURL: URL, dbService: DatabaseService) async {
         progress.isRunning = true
         currentTask = Task { [weak self] in
             guard let self else { return }
@@ -77,16 +79,18 @@ final class MacBulkAlignmentService {
                         logger.debug(
                             "Aligning \(audioURL.lastPathComponent) with EPUB \(epub.lastPathComponent)"
                         )
-                        try await alignmentService.alignStreaming(
-                            audiobookID: audiobookID, audioURL: audioURL, epubURL: epub)
+                        try await alignmentService.align(
+                            audiobookID: audiobookID, audioURL: audioURL, epubURL: epub,
+                            dbService: dbService)
                     } else if let pdf {
                         // PDF text extraction is not implemented; this call fails the
                         // container.xml check and is skipped (logged below).
                         logger.debug(
                             "Aligning \(audioURL.lastPathComponent) with PDF \(pdf.lastPathComponent)"
                         )
-                        try await alignmentService.alignStreaming(
-                            audiobookID: audiobookID, audioURL: audioURL, epubURL: pdf)
+                        try await alignmentService.align(
+                            audiobookID: audiobookID, audioURL: audioURL, epubURL: pdf,
+                            dbService: dbService)
                     } else {
                         logger.debug(
                             "Skipping \(audioURL.lastPathComponent): no EPUB or PDF found in directory"

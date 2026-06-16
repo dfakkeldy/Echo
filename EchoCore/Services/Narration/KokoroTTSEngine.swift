@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CoreML
+#if os(iOS)
 import FluidAudio
+#endif
 import Foundation
 import os.log
 
+#if os(iOS)
 actor KokoroTTSEngine: TTSEngine {
     private let logger = Logger(category: "Kokoro")
     private let manager = KokoroAneManager()
@@ -45,3 +48,4 @@ actor KokoroTTSEngine: TTSEngine {
         return TTSChunk(samples: samples, sampleRate: Double(result.sampleRate), duration: duration)
     }
 }
+#endif

@@ -75,7 +75,7 @@ struct ReaderSettingsSheet: View {
             }
             .navigationTitle("Reader Settings")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .automatic) {
                     Button("Done") { dismiss() }
                 }
             }

@@ -3,33 +3,41 @@
 //  MacPlayerModel.swift
 //  Echo macOS
 //
-//  Minimal macOS-native audiobook playback model. Wraps AVPlayer for playback
-//  and persists a simple list of bookmarks to UserDefaults.
+//  macOS-native audiobook playback model. Wraps AVPlayer for playback and
+//  delegates bookmark persistence to the shared BookmarkStore + DatabaseService.
 //
+//  The legacy MacBookmark type is retained for migration from the old JSON
+//  sidecar format. Once migrated, bookmarks live in the shared database and
+//  are visible to iOS/watchOS.
 
-import Foundation
-import SwiftUI
 import AVFoundation
 import AppKit
+import Foundation
+import SwiftUI
 import UniformTypeIdentifiers
 import os.log
 
+// MARK: - Legacy (migration source only)
+
+/// Legacy bookmark format persisted as JSON sidecars + UserDefaults.
+/// Retained ONLY for migration to the shared `Bookmark` + database store.
+/// Do NOT add new functionality here — use `BookmarkStore` instead.
 struct MacBookmark: Identifiable, Codable, Equatable, Hashable {
     var id: UUID = UUID()
     var title: String
-    var fileBookmark: Data?     // security-scoped bookmark for the audiobook file
+    var fileBookmark: Data?
     var fileDisplayName: String
     var timestamp: TimeInterval
     var note: String?
     var createdAt: Date = Date()
 
-    /// Resolves the on-disk URL for the `[BookName].json` bookmark sidecar
-    /// that lives alongside the audiobook file.
     static func sidecarURL(for fileURL: URL) -> URL {
         let baseName = fileURL.deletingPathExtension().lastPathComponent
         return fileURL.deletingLastPathComponent().appendingPathComponent("\(baseName).json")
     }
 }
+
+// MARK: - MacPlayerModel
 
 @MainActor
 @Observable
@@ -52,8 +60,38 @@ final class MacPlayerModel {
             if isPlaying { player?.rate = playbackRate }
         }
     }
-    private(set) var bookmarks: [MacBookmark] = []
-    var openFileRequestToken: UUID = UUID() // bumped to ask UI to show opener
+    /// Shared bookmark store backed by the database.
+    private(set) var bookmarkStore = BookmarkStore()
+    /// Database service for bookmark persistence. Set by the app entry point.
+    var dbService: DatabaseService?
+
+    // MARK: - Shared Services (Phase 3)
+
+    /// Sleep timer with phase-based triggers (end-of-chapter, custom duration).
+    let sleepTimer = SleepTimerManager()
+    /// Smart rewind policy — rewinds a few seconds on resume.
+    let smartRewind = SmartRewindPolicy(
+        secondsThreshold: 30, secondsAmount: 3,
+        minutesThreshold: 300, minutesAmount: 10,
+        hoursThreshold: 3600, hoursAmount: 30
+    )
+    /// When playback was last paused (for smart-rewind calculation).
+    private var pausedAt: Date?
+    /// macOS Media Center / Now Playing metadata bridge.
+    private let nowPlayingController = NowPlayingController()
+    /// Whether sleep timer is active (set via UI).
+    var sleepTimerMode: SleepTimerMode = .off {
+        didSet {
+            if sleepTimerMode != .off {
+                sleepTimer.setTimer(sleepTimerMode)
+            } else {
+                sleepTimer.cancel()
+            }
+        }
+    }
+    /// Legacy bookmarks from the old JSON sidecar format (pre-migration).
+    private(set) var legacyBookmarks: [MacBookmark] = []
+    var openFileRequestToken: UUID = UUID()
     private(set) var tracks: [URL] = []
     private(set) var currentTrackIndex: Int = 0
 
@@ -79,6 +117,24 @@ final class MacPlayerModel {
     init() {
         migrateFromStandardUserDefaults()
         restoreLastFile()
+        configureBookmarkStore()
+        configureSleepTimer()
+    }
+
+    private func configureSleepTimer() {
+        sleepTimer.onFire = { [weak self] in
+            self?.pause()
+        }
+    }
+
+    /// Wires the BookmarkStore closures for DB-backed persistence.
+    private func configureBookmarkStore() {
+        bookmarkStore.onPersist = { [weak self] bookmarks in
+            self?.persistBookmarks(bookmarks)
+        }
+        bookmarkStore.onBookmarksChanged = { [weak self] in
+            self?.loadBookmarksFromDB()
+        }
     }
 
     /// One-time migration from `UserDefaults.standard` to the shared App Group
@@ -133,7 +189,9 @@ final class MacPlayerModel {
                 continuation.resume()
             }
             observer = item.observe(\.status, options: [.new]) { observedItem, _ in
-                guard observedItem.status == .readyToPlay || observedItem.status == .failed else { return }
+                guard observedItem.status == .readyToPlay || observedItem.status == .failed else {
+                    return
+                }
                 DispatchQueue.main.async { finish() }
             }
             // Safety timeout — resume after 10 s if status never settles.
@@ -174,7 +232,8 @@ final class MacPlayerModel {
 
         // Time observer for UI progress.
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) {
+            [weak self] time in
             guard let self = self else { return }
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
@@ -206,7 +265,8 @@ final class MacPlayerModel {
             defaults.set(bookmark, forKey: lastFileKey)
         }
 
-        loadBookmarks(for: url)
+        loadBookmarksFromDB()
+        migrateLegacyBookmarksIfNeeded()
     }
 
     func loadFolder(url folderURL: URL) {
@@ -214,13 +274,20 @@ final class MacPlayerModel {
         defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
 
         let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil) else {
+        guard
+            let contents = try? fm.contentsOfDirectory(
+                at: folderURL, includingPropertiesForKeys: nil)
+        else {
             return
         }
 
-        let audioFiles = contents
+        let audioFiles =
+            contents
             .filter { Self.audioExtensions.contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
 
         guard !audioFiles.isEmpty else { return }
 
@@ -249,12 +316,14 @@ final class MacPlayerModel {
     private func restoreLastFile() {
         guard let data = defaults.data(forKey: lastFileKey) else { return }
         var stale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: data,
-            options: [.withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &stale
-        ) else { return }
+        guard
+            let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+        else { return }
 
         if url.startAccessingSecurityScopedResource() {
             currentScopedURL?.stopAccessingSecurityScopedResource()
@@ -271,14 +340,29 @@ final class MacPlayerModel {
 
     func play() {
         guard let player else { return }
+
+        // Smart rewind: on resume, rewind a few seconds.
+        if let pausedAt, currentTime > 0 {
+            let pauseDuration = Date().timeIntervalSince(pausedAt)
+            let rewind = Double(smartRewind.rewindAmount(forPausedDuration: pauseDuration))
+            if rewind > 0 {
+                let target = max(0, currentTime - rewind)
+                seek(to: target)
+            }
+        }
+        pausedAt = nil
+
         player.rate = playbackRate
         player.play()
         isPlaying = true
+        updateNowPlaying()
     }
 
     func pause() {
+        if isPlaying { pausedAt = Date() }
         player?.pause()
         isPlaying = false
+        updateNowPlaying()
     }
 
     func stop() {
@@ -295,6 +379,21 @@ final class MacPlayerModel {
         isPlaying = false
         currentTime = 0
         duration = 0
+        sleepTimer.cancel()
+        updateNowPlaying()
+    }
+
+    /// Updates the macOS Media Center (Now Playing) with current playback info.
+    private func updateNowPlaying() {
+        nowPlayingController.updateNowPlayingInfo(
+            .init(
+                title: currentTitle,
+                subtitle: "",
+                elapsed: currentTime,
+                duration: duration,
+                isPaused: !isPlaying,
+                playbackRate: playbackRate
+            ))
     }
 
     func skip(by seconds: Double) {
@@ -313,154 +412,149 @@ final class MacPlayerModel {
         }
     }
 
-    // MARK: Bookmarks
+    // MARK: Bookmarks (shared BookmarkStore)
 
     @discardableResult
-    func addBookmarkAtCurrentTime(note: String? = nil) -> MacBookmark? {
-        guard let url = currentURL else { return nil }
-        let scopedBookmark = try? url.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
+    func addBookmarkAtCurrentTime(note: String? = nil) -> Bookmark? {
+        guard currentURL != nil else { return nil }
+        let trackId =
+            tracks.indices.contains(currentTrackIndex)
+            ? tracks[currentTrackIndex].absoluteString : nil
+        let bm = bookmarkStore.addBookmark(
+            at: currentTime,
+            trackId: trackId,
+            folderKey: audiobookID
         )
-        let bm = MacBookmark(
-            title: "Bookmark \(bookmarks.count + 1)",
-            fileBookmark: scopedBookmark,
-            fileDisplayName: url.lastPathComponent,
-            timestamp: currentTime,
-            note: note
-        )
-        bookmarks.append(bm)
-        saveBookmarks()
+        if let note {
+            bookmarkStore.updateBookmark(
+                id: bm.id, title: bm.title,
+                timestamp: bm.timestamp, note: note,
+                voiceMemoFileName: bm.voiceMemoFileName)
+        }
         return bm
     }
 
     func deleteBookmarks(at offsets: IndexSet) {
-        bookmarks.remove(atOffsets: offsets)
-        saveBookmarks()
+        let toDelete = offsets.compactMap { idx in
+            bookmarkStore.bookmarks.indices.contains(idx) ? bookmarkStore.bookmarks[idx] : nil
+        }
+        for bm in toDelete {
+            bookmarkStore.deleteBookmark(id: bm.id)
+        }
     }
 
-    func deleteBookmark(_ bookmark: MacBookmark) {
-        bookmarks.removeAll { $0.id == bookmark.id }
-        saveBookmarks()
+    func deleteBookmark(_ bookmark: Bookmark) {
+        bookmarkStore.deleteBookmark(id: bookmark.id)
     }
 
-    func updateBookmark(_ bookmark: MacBookmark) {
-        guard let idx = bookmarks.firstIndex(where: { $0.id == bookmark.id }) else { return }
-        bookmarks[idx] = bookmark
-        saveBookmarks()
+    func updateBookmark(_ bookmark: Bookmark) {
+        bookmarkStore.updateBookmark(
+            id: bookmark.id, title: bookmark.title,
+            timestamp: bookmark.timestamp, note: bookmark.note,
+            voiceMemoFileName: bookmark.voiceMemoFileName)
     }
 
-    /// Resolves bookmark file (using its security-scoped data) and seeks to it,
-    /// loading the file if necessary.
-    func jumpTo(_ bookmark: MacBookmark) {
-        let proceed: (URL) -> Void = { [weak self] resolvedURL in
-            guard let self else { return }
-            if self.currentURL != resolvedURL {
-                self.open(url: resolvedURL)
-                // Await the player item becoming ready before seeking,
-                // instead of a fragile hardcoded 300ms sleep.
-                Task { @MainActor in
-                    await self.waitForReadyToPlay()
-                    self.seek(to: bookmark.timestamp)
-                }
-            } else {
-                self.seek(to: bookmark.timestamp)
+    /// Seeks playback to the given bookmark's timestamp. If the bookmark
+    /// belongs to a different file, loads that file first.
+    func jumpTo(_ bookmark: Bookmark) {
+        // BookmarkStore bookmarks are scoped to the current audiobook;
+        // seek directly to the timestamp.
+        if currentURL != nil {
+            seek(to: bookmark.timestamp)
+        }
+    }
+
+    // MARK: - Bookmark Persistence (DB-backed)
+
+    private func persistBookmarks(_ bookmarks: [Bookmark]) {
+        guard let audiobookID, let db = dbService else { return }
+        let dao = BookmarkDAO(db: db.writer)
+        do {
+            try dao.deleteAll(for: audiobookID)
+            for bm in bookmarks {
+                try dao.insert(BookmarkRecord(from: bm))
             }
-        }
-
-        if let data = bookmark.fileBookmark {
-            var stale = false
-            if let url = try? URL(
-                resolvingBookmarkData: data,
-                options: [.withSecurityScope],
-                relativeTo: nil,
-                bookmarkDataIsStale: &stale
-            ) {
-                if url.startAccessingSecurityScopedResource() {
-                    currentScopedURL?.stopAccessingSecurityScopedResource()
-                    currentScopedURL = url
-                }
-                proceed(url)
-                return
-            }
-        }
-        // Fallback: seek in current file if names match.
-        if let current = currentURL, current.lastPathComponent == bookmark.fileDisplayName {
-            proceed(current)
+        } catch {
+            Logger(category: "MacPlayerModel").error(
+                "Failed to persist bookmarks: \(error.localizedDescription)")
         }
     }
 
-    /// Writes the current `bookmarks` array to the `[BookName].json` sidecar
-    /// alongside the audiobook file (primary store), and mirrors them into
-    /// `mac.bookmarks.v1` UserDefaults as a backup (merged with bookmarks
-    /// belonging to other audiobooks so we don't clobber them).
-    private func saveBookmarks() {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
-        if let url = currentURL {
-            let sidecar = MacBookmark.sidecarURL(for: url)
-            let didStart = url.startAccessingSecurityScopedResource()
-            defer { if didStart { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let data = try encoder.encode(bookmarks)
-                try data.write(to: sidecar, options: .atomic)
-            } catch {
-#if DEBUG
-                let logger = Logger(category: "MacPlayerModel")
-                logger.error("Bookmark sidecar write failed at \(sidecar.lastPathComponent): \(error.localizedDescription)")
-#endif
-            }
-        }
-
-        // Backup: rewrite the global UserDefaults list by replacing all
-        // entries that belong to the current file with the in-memory list.
-        let currentName = currentURL?.lastPathComponent
-        var allBookmarks: [MacBookmark] = []
-        if let data = defaults.data(forKey: bookmarksKey),
-           let decoded = try? JSONDecoder().decode([MacBookmark].self, from: data) {
-            allBookmarks = decoded.filter { $0.fileDisplayName != currentName }
-        }
-        allBookmarks.append(contentsOf: bookmarks)
-        if let data = try? encoder.encode(allBookmarks) {
-            defaults.set(data, forKey: bookmarksKey)
+    func loadBookmarksFromDB() {
+        guard let audiobookID, let db = dbService else { return }
+        do {
+            let dao = BookmarkDAO(db: db.writer)
+            let records = try dao.bookmarks(for: audiobookID)
+            bookmarkStore.bookmarks = records.map { $0.toModel() }
+        } catch {
+            Logger(category: "MacPlayerModel").error(
+                "Failed to load bookmarks: \(error.localizedDescription)")
         }
     }
 
-    /// Loads bookmarks for the given audiobook URL. Prefers the
-    /// `[BookName].json` sidecar; falls back to filtering the legacy
-    /// `mac.bookmarks.v1` UserDefaults entry by display name. If a sidecar
-    /// is missing but legacy data exists for the file, the sidecar is
-    /// created so future loads are sidecar-driven.
-    private func loadBookmarks(for url: URL) {
+    // MARK: - Legacy Migration
+
+    /// One-time migration: reads old JSON sidecar / UserDefaults bookmarks
+    /// and inserts them into the shared database. Sets a flag so it only
+    /// runs once.
+    func migrateLegacyBookmarksIfNeeded() {
+        let migrationFlag = "mac.bookmarks.migratedToDB.v1"
+        guard !defaults.bool(forKey: migrationFlag),
+            let url = currentURL,
+            let audiobookID
+        else { return }
+
         let sidecar = MacBookmark.sidecarURL(for: url)
         let didStart = url.startAccessingSecurityScopedResource()
         defer { if didStart { url.stopAccessingSecurityScopedResource() } }
 
+        var legacy: [MacBookmark] = []
+
+        // Try sidecar first
         if FileManager.default.fileExists(atPath: sidecar.path),
-           let data = try? Data(contentsOf: sidecar),
-           let decoded = try? JSONDecoder().decode([MacBookmark].self, from: data) {
-            bookmarks = decoded
+            let data = try? Data(contentsOf: sidecar),
+            let decoded = try? JSONDecoder().decode([MacBookmark].self, from: data)
+        {
+            legacy = decoded
+        }
+
+        // Fall back to UserDefaults bucket
+        if legacy.isEmpty, let data = defaults.data(forKey: bookmarksKey),
+            let all = try? JSONDecoder().decode([MacBookmark].self, from: data)
+        {
+            legacy = all.filter { $0.fileDisplayName == url.lastPathComponent }
+        }
+
+        guard !legacy.isEmpty else {
+            defaults.set(true, forKey: migrationFlag)
             return
         }
 
-        // Migrate from legacy global UserDefaults bucket.
-        let displayName = url.lastPathComponent
-        guard let data = defaults.data(forKey: bookmarksKey),
-              let all = try? JSONDecoder().decode([MacBookmark].self, from: data) else {
-            bookmarks = []
-            return
-        }
-        let migrated = all.filter { $0.fileDisplayName == displayName }
-        bookmarks = migrated
-
-        if !migrated.isEmpty {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let migratedData = try? encoder.encode(migrated) {
-                try? migratedData.write(to: sidecar, options: .atomic)
+        // Insert into shared DB
+        guard let db = dbService else { return }
+        let dao = BookmarkDAO(db: db.writer)
+        for old in legacy {
+            let bm = Bookmark(
+                title: old.title,
+                folderKey: audiobookID,
+                trackId: nil,
+                timestamp: old.timestamp,
+                note: old.note
+            )
+            do {
+                try dao.insert(BookmarkRecord(from: bm))
+            } catch {
+                Logger(category: "MacPlayerModel").error(
+                    "Legacy bookmark migration failed for \(old.title): \(error.localizedDescription)"
+                )
             }
         }
+
+        // Mark migration complete
+        defaults.set(true, forKey: migrationFlag)
+        // Reload from DB so bookmarkStore reflects migrated data
+        loadBookmarksFromDB()
+        Logger(category: "MacPlayerModel").info(
+            "Migrated \(legacy.count) legacy bookmarks to shared database")
     }
 }
