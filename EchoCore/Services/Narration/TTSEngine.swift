@@ -15,6 +15,18 @@ struct TTSChunk: Sendable, Equatable {
     let samples: [Float]
     let sampleRate: Double
     let duration: TimeInterval
+
+    /// A run of digital silence `seconds` long at `sampleRate`. Used for the
+    /// chapter lead-out pad so the final word isn't clipped when the player
+    /// advances to the next chapter. Frame count is rounded to the nearest
+    /// sample so the reported `duration` matches the samples actually written.
+    static func silence(seconds: TimeInterval, sampleRate: Double) -> TTSChunk {
+        let frameCount = max(0, Int((seconds * sampleRate).rounded()))
+        return TTSChunk(
+            samples: [Float](repeating: 0, count: frameCount),
+            sampleRate: sampleRate,
+            duration: Double(frameCount) / sampleRate)
+    }
 }
 
 /// The swappable narration engine boundary. Mocked in tests; Kokoro in Plan 3.

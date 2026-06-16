@@ -1,5 +1,33 @@
 # Kokoro Model Swap — A14-Compatible Vocoder
 
+> ## ⚠️ STATUS — NOT YET EXECUTED, but GENUINELY NEEDED for A14 (2026-06-15, corrected)
+>
+> **Correction:** an earlier version of this banner said Phase 0 "survived" so the swap was
+> "not needed for stability." **That was wrong — the survival was luck.** A second device round
+> showed the A14 **BNNS vocoder trap RECURS** (crashed 3× in one session; `EXC_BREAKPOINT` in
+> `libBNNS`/`BNNSGraphContextExecute_v2`), intermittently on synthesis shape — a full re-render
+> reliably triggers it, and with chapter persistence a trap chapter would stick the book.
+> stream-to-sink fixed only the jetsam half. So this model swap (**1A**) is the **proper A14 fix**
+> and is genuinely needed, not optional.
+>
+> **Interim shipped instead (owner's decision):** narration is **gated to A15+**
+> (`NarrationCapability`, finish-plan **1B**), keeping Echo crash-free on A14 while 1A is the real
+> answer. **A cheaper alternative to vendoring this external model:** swap to a different
+> **FluidAudio backend** (PocketTTS / StyleTTS2 — already in the package, no 1 GB download; a
+> different voice than Ava). Whichever path, it needs an on-device re-verification.
+>
+> **Pre-work spikes done (2026-06-15) so the mattmireles path is ready to execute:**
+> - **License gate ✅** — `mattmireles/kokoro-coreml` is **Apache-2.0** (this header's old "MIT"
+>   was wrong), `base_model: hexgrad/Kokoro-82M`. Reuse FluidAudio's Misaki G2P → no GPL espeak.
+> - **RAM gate ⚠️→OK** — the repo is ~1 GB (23 components × five duration buckets 3/7/10/15/30 s
+>   in `.mlpackage`). `NarrationTextChunker` caps utterances at ≤200 chars → only the **small
+>   buckets (3 s/7 s)** are needed; vendored compiled subset ≈ 138 MB, resident RAM fits the A14.
+> - **Integration ✅** — `FixedKokoroEngine: TTSEngine`, vendoring the small-bucket `.mlmodelc`,
+>   one-line swap at the `NarrationService` injection site (as written below).
+>
+> The task list below is therefore a **ready-to-run playbook**, not pending work. Do not execute
+> unless the owner chooses the model swap over the low-pass for the whine.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the FluidAudio-managed palettized Kokoro vocoder with the fixed-shape `mattmireles/kokoro-coreml` model (MIT), eliminating the A14 BNNS SIGTRAP and reducing memory pressure.

@@ -12,7 +12,7 @@
 
 ## 1. Executive summary
 
-1. **[Critical] Kokoro vocoder traps on A14 for real-book-length input — the P0 blocker** — uncatchable `EXC_BREAKPOINT`/SIGTRAP in `libBNNS` `BNNSGraphContextExecute_v2`; A14-ANE-specific, **not** a routing bug, **not** fixable by any FluidAudio compute-unit config — §3.1 — `KokoroTTSEngine.swift:6,28`.
+1. **[Critical — mitigated by A15+ gate, NOT resolved] A14 narration crash — the P0 blocker** — stream-to-sink (§7.1) fixed only the **jetsam** half; the **BNNS vocoder trap still RECURS** (device-confirmed 2026-06-15: `EXC_BREAKPOINT` in `libBNNS` three times in one session, intermittent on synthesis shape — a full re-render triggers it, and persistence would stick the book). Phase 0's 9-chapter survival was luck. **Interim fix shipped: narration gated to A15+** (`NarrationCapability`, 1B); the proper A14 fix is the **vocoder model swap** (1A), now genuinely needed — §3.1 — `KokoroTTSEngine.swift:6,28`.
 2. **[High] T5 voice-switch deletes the currently-playing file before stopping playback** — `startNarrationPlayback` evicts stale-voice files synchronously at the top, before the AVPlayer pointed at one of them is stopped — §5.1 — `PlayerModel+Narration.swift:38-46`.
 3. **[High] Read-along "Layer 2": `recalculateTimeline` interpolates across track boundaries** — corrupts `audio_start_time` for MP3-folder / multi-m4b books; narration is shielded by `anchoredOnly`, the general case is not — §5.2 — `AlignmentService.swift:340-359,425-446`.
 4. **[Medium] Resume is forward-only → only the resumed chapter is queued** (owner design ask B) — `NarrationChapterPlanner.resume` slices the plan and the render loop only ever queues that slice — §5.3 — `PlayerModel+Narration.swift:75-134`, `NarrationChapterPlanner.swift:33-40`.
@@ -21,7 +21,7 @@
 7. **[Medium] Synthesized TTS anchors are not excluded from the public CloudKit upload** — `uploadAnchors` fetches all anchors with no source filter; an audio-less narrated book would push pure `.synthesized` (device-specific) anchors to the community payload — §6.1 — `CloudKitSyncService.swift:82-89`.
 8. **[Medium] `.m4b` export still writes no chapter atoms** — `AudioMarkerStub` copies the file only; per-chapter export works, m4b authoring does not — §5.4 — `AudioMarkerStub.swift:10-19`.
 9. **[Medium] Everything except the lossless-audio fix is device-UNVERIFIED** — code-complete + unit-tested but blocked from end-to-end device testing by §3.1; treat read-along-follows-chapter, EPUB-file import, and resume as unproven on device — §11.
-10. **[Medium] Perf unknowns for the A14 target** — a whole chapter's PCM is buffered in memory before writing (§7.1), and there is still no real on-device RTF/thermal measurement to size the streaming cushion (§7.3).
+10. **[Medium] Perf unknowns for the A14 target** — whole-chapter PCM buffering is now ✅ fixed via stream-to-sink (§7.1); the remaining unknown is real on-device RTF/thermal measurement to size the streaming cushion (§7.3).
 
 **Severity distribution:** 1 Critical (the blocker), 2 High, ~12 Medium, ~10 Low. The Critical is upstream/hardware; the two Highs are app-side and fixable.
 
@@ -39,13 +39,32 @@
 
 ## 3. Concurrency & runtime stability
 
-### 3.1 Kokoro vocoder traps on A14 for real-book-length input (THE P0 BLOCKER)
+### 3.1 Kokoro vocoder traps on A14 for real-book-length input — ⚠️ PARTIALLY mitigated, NOT resolved; gated to A15+ (interim)
+
+> **CORRECTION (2026-06-15, second device round).** An earlier note here claimed this was RESOLVED
+> by stream-to-sink after Phase 0 narrated 9 chapters cleanly. **That was wrong — the survival was
+> luck.** Stream-to-sink fixed the **jetsam** half (memory), but the **BNNS vocoder trap still
+> RECURS**: it crashed **three times in one session** (`Echo-2026-06-15-21:27/21:54/22:10.ips`, all
+> `EXC_BREAKPOINT` in `libBNNS`/`BNNSGraphContextExecute_v2`), intermittently on certain synthesis
+> shapes — a full re-render (a render-version bump regenerating the whole book) reliably triggered
+> it. With chapter persistence, a trap-triggering chapter would crash on every render attempt and
+> **stick the book**. So the trap is a real, recurring A14 stability failure, NOT held off by
+> char-chunking (the bad shape is driven by acoustic-frame count `T_a`, not char count — as the
+> forensics below correctly state).
+>
+> **Interim fix SHIPPED (owner's decision):** narration is **gated to A15+** (`NarrationCapability`,
+> finish-plan **1B**) — synthesis is disabled on A14/older, the audio-less reader stays functional,
+> and Now Playing shows "Narration needs an A15 or newer device." **Proper A14 fix = swap the
+> palettized Kokoro vocoder for a non-trapping model (1A)** — either `mattmireles/kokoro-coreml`
+> (keeps the Ava voice, heavy) or a different FluidAudio backend (PocketTTS/StyleTTS2, different
+> voice, cheaper). See the model-swap plan.
+
 - **Location:** `KokoroTTSEngine.swift:6,28` (`KokoroAneManager()` → `manager.synthesizeDetailed`); crash is entirely inside `libBNNS.dylib`.
 - **What:** Synthesizing a real book paragraph on the iPhone 12 Pro (A14, iOS 26.5) traps with an uncatchable `EXC_BREAKPOINT`/SIGTRAP. `xcsym` shows the triggered thread (`com.apple.e5rt.concurrentExecutionQueue`) is 100% inside `BNNSGraphContextExecute_v2` ← `E5RT::Ops::BnnsCpuInferenceOperation::ExecuteSync()` — zero Echo frames. Short content synthesizes fine; long input crashes.
 - **Root cause (verified):** On A14 the ANE compiler rejects the Kokoro vocoder's palettized large-stride convolution (load warning: *"Palette weight for Large stride convolution is not supported"*). CoreML falls that op back to CPU/BNNS, and BNNS traps on the large dynamic tensor shape that long input (high acoustic-frame count `T_a`) produces. It is a **trap, not a Swift throw** — uncatchable, only preventable. **It is NOT a compute-unit routing bug:** FluidAudio 0.15.3 already ships the per-stage `ane-tail-gpu` split as `KokoroAneComputeUnits.default`, and the no-arg `KokoroAneManager()` resolves to exactly that (`KokoroAneManager.swift:47`). Git proves `.default` was the crashing config: commits `69c4a71`→`c0e6e98`→`153d3c4` all ran `KokoroAneManager()`, and **both crash logs were captured while that build was live**; the subsequent vocoder→GPU experiment (`d3a4a99`) failed differently (*"Invalid shape for output feature 'anchor'"* — the vocoder's `anchor` output is a deliberate ANE graph-anchor, invalid off-ANE) and was reverted (`613c577`). Char-chunking (`NarrationTextChunker`, ≤200 chars) cannot help because the bad shape is driven by `T_a`, not character count.
 - **Why:** This is the gate on the entire feature. Until it's resolved, no real book can be narrated on the A14 target, and nothing downstream can be device-verified.
 - **Action:** **Change the model asset, not the routing** (see the plan's Phase 1). The only Kokoro path with a confirmed iPhone 12 Pro run is the fixed-shape, non-palettized `mattmireles/kokoro-coreml` (static fp16 duration buckets, no dynamic ops, no palettized large-stride conv). FluidAudio exposes no model-revision override, so adopt it by vendoring the fixed-shape `.mlmodelc` behind the existing `TTSEngine` seam (thin CoreML runner) or forking FluidAudio's resource resolver. Run one decisive on-device test of current HEAD first (predicted: still crashes). Fallback: gate narration on A15+ (excludes the A14 target — interim only).
-- **Severity: Critical** (confirmed; upstream/hardware).
+- **Severity: Critical — mitigated by the A15+ gate (1B), not resolved.** The trap is device-confirmed recurring on A14; the "Action" above (1A model swap) is the proper fix and is now genuinely needed for A14, not optional.
 
 > **Resolved since the prior audit:** §3.1-cancel (render task is now stored + cancelled in `startNarrationPlayback` and on book-switch — `PlayerModel+Narration.swift:22,52`), §3.2-main-actor (AAC encode is now off-main and the track+anchors write is one `await db.write` transaction — `NarrationService.swift:115-119`, `AVFoundationAudioWriter`), §3.3/§3.4 (Misaki + ModelDownloader deleted — FluidAudio owns G2P + download). See Appendix A.
 
@@ -118,11 +137,11 @@ _No findings._ No deprecated or about-to-be-removed APIs in the current narratio
 
 ## 7. Performance
 
-### 7.1 A whole chapter's PCM is buffered in memory before writing
-- **Location:** `NarrationService.swift:47-101` (collect all `chunks`, then one `audioWriter.write`).
-- **What:** Every sub-chunk's `[Float]` samples for a chapter are retained until the chapter finishes, then written once — unbounded PCM retention for a long chapter on a 4 GB A14.
-- **Action:** Stream each chunk to the `AudioFileWriting` sink as produced. (Interacts with the model-swap: the fixed-shape buckets cap utterance length, bounding per-call memory.)
-- **Severity: Medium** (matters specifically for the 4 GB A14 target — MLX Kokoro is reported to OOM on 30 s clips there).
+### 7.1 A whole chapter's PCM is buffered in memory before writing — ✅ RESOLVED (2026-06-15, stream-to-sink)
+- **Location (was):** `NarrationService.swift` (collect all `chunks`, then one `audioWriter.write`).
+- **What:** Every sub-chunk's `[Float]` samples for a chapter were retained until the chapter finished, then written once — unbounded PCM retention for a long chapter on a 4 GB A14.
+- **Fix:** `AudioFileWriting` gained an incremental `makeStream(to:sampleRate:) -> AudioFileStream` session; `renderChapter` now opens the sink up front and `append`s each synthesized sub-chunk straight to disk, so peak memory is one ~200-char sub-chunk's PCM (~hundreds of KB) instead of a whole chapter's (tens of MB). The session is an `actor` (`ALACFileStream`) confining the non-`Sendable` `AVAudioFile`; ALAC losslessness preserved. Tests: `StreamingAudioWriterTests` (5) + unchanged `NarrationServiceTests`/`AVFoundationAudioWriterTests`. This is the half of the jetsam mitigation that does **not** need the model swap; the model-swap (§3.1) handles the ~300 MB resident-models half.
+- **Severity (was): Medium** (mattered specifically for the 4 GB A14 target).
 
 ### 7.2 `ISO8601DateFormatter` allocated per `renderChapter` call
 - **Location:** `NarrationService.swift:51`.
@@ -226,16 +245,16 @@ External references to the old §-numbers resolve here. The old detailed audit i
 | §5.1 | re-render non-idempotent | **RESOLVED** | `save`/upsert in one transaction — `NarrationService.swift:115-119` |
 | §5.2 | export filename mismatch | **RESOLVED** | shared `NarrationFileNaming` helper |
 | §5.3 | `synthesize` is a stub | **RESOLVED** | real FluidAudio inference — `KokoroTTSEngine.swift:28` |
-| §5.5 | AudioMarkerStub writes no chapters | **STILL-OPEN** | now §5.4 |
+| §5.5 | AudioMarkerStub writes no chapters | **LABELED (Phase 7 Option B)** | 1.0 = per-chapter files + marker-less m4b; honest stub + docs (2026-06-15); real `chpl` atoms (Option A, swift-audio-marker) deferred post-1.0 — owner scope call |
 | §5.6 | benchmark measures nothing | **CHANGED** | now §7.3/§9.3 (runs real synth, still sim-only) |
 | §5.11 | files in `temporaryDirectory` | **RESOLVED** | Application Support, backup-excluded — `PlayerModel+Narration.swift:153-164` |
 | §6.1 | model download zip-slip | **MOOT** | now §6.2 (third-party) |
 | §6.2 | synthesized anchors → public CloudKit | **STILL-OPEN** | now §6.1 |
-| §7.1 | whole-chapter PCM buffered | **STILL-OPEN** | now §7.1 |
-| §7.2 | ISO8601 per call | **STILL-OPEN** | now §7.2 |
+| §7.1 | whole-chapter PCM buffered | **RESOLVED** | stream-to-sink — `AudioFileStream`/`ALACFileStream` (2026-06-15) |
+| §7.2 | ISO8601 per call | **RESOLVED** | shared `static let iso8601` on `NarrationService` (2026-06-15) |
 | §8.1 | entire narration UI dead | **RESOLVED** | mounted — `NowPlayingTab.swift:39-45,93-97` |
 | §8.3 | Stats-tab dead-end | **RESOLVED** | "Done" button — `RootTabView.swift:80-86` (`f89db91`) |
-| §9.2 | `NarrationRenderPlanner` dead | **STILL-OPEN** | now §9.2 |
+| §9.2 | `NarrationRenderPlanner` dead | **RESOLVED** | deleted — superseded by `NarrationRenderPolicy` (2026-06-15) |
 | §9.3 | ModelDownloader + loadModel dead | **MOOT** | deleted |
 | §9.4 | `BookDetailViewModel` hard-constructs engines | **MOOT** | `BookDetailViewModel` deleted (single pipeline route) |
 | — | read-along write-side gap (live `timeline_item`) | **RESOLVED** | `renderChapter` recalcs `anchoredOnly:true` + posts `.timelineItemsIngested` — `NarrationService.swift:121-149` |

@@ -30,8 +30,13 @@ actor NarrationExportService {
         return bookFiles
     }
 
-    /// Joins the chapter files into a single gapless `.m4b` file with `chpl` atoms.
-    /// This requires an AVAssetExportSession full re-encode (7b).
+    /// Joins the chapter files into a single gapless `.m4b` (full
+    /// `AVAssetExportSession` re-encode). The audio is correct and continuous, but
+    /// **the 1.0 build does not embed chapter-navigation markers** — `chpl`/`chap`
+    /// atoms require the `swift-audio-marker` package, deferred post-1.0 (finish-plan
+    /// Phase 7, Option A; `AudioMarker` is a copy-only stub). For 1.0 the chaptered
+    /// export is `exportChapterFiles` (the default); this combined `.m4b` is the
+    /// marker-less convenience path.
     func exportM4B(for bookID: String, bookTitle: String, cacheDirectory: URL, outputURL: URL)
         async throws
     {
