@@ -53,4 +53,21 @@ struct ChapterServiceNavigationTests {
         // Seeking backward re-derives a lower index (no monotonic-only assumption).
         #expect(ChapterService.chapterIndex(forTime: 5.0, in: chapters) == 0)
     }
+
+    @Test func nextAndPrevEnabledIndexRespectBoundaries() {
+        let chapters = makeChapters()
+        #expect(ChapterService.nextEnabledIndex(after: 0, in: chapters) == 1)
+        #expect(ChapterService.nextEnabledIndex(after: 1, in: chapters) == 2)
+        #expect(ChapterService.nextEnabledIndex(after: 2, in: chapters) == nil)
+        #expect(ChapterService.prevEnabledIndex(before: 2, in: chapters) == 1)
+        #expect(ChapterService.prevEnabledIndex(before: 1, in: chapters) == 0)
+        #expect(ChapterService.prevEnabledIndex(before: 0, in: chapters) == nil)
+    }
+
+    @Test func seekTargetIsChapterStartSecond() {
+        let chapters = makeChapters()
+        #expect(chapters[0].startSeconds == 0)
+        #expect(chapters[1].startSeconds == 10)
+        #expect(chapters[2].startSeconds == 20)
+    }
 }

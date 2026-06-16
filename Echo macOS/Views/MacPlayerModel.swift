@@ -383,6 +383,47 @@ final class MacPlayerModel {
         open(url: tracks[prevIndex])
     }
 
+    // MARK: Chapter navigation
+    //
+    // Axis-reconciliation rule: when the current file exposes M4B chapters
+    // (`hasChapters`), chapter nav seeks WITHIN the file. Otherwise these
+    // methods fall back to across-file track navigation so the same UI
+    // buttons keep working for folder books without markers.
+
+    /// Advances to the next chapter (in-file) or the next track (no chapters).
+    func nextChapter() {
+        guard hasChapters else {
+            nextTrack()
+            return
+        }
+        if let nextIdx = ChapterService.nextEnabledIndex(after: currentChapterIndex, in: chapters) {
+            seekToChapter(nextIdx)
+        }
+    }
+
+    /// Goes to the previous chapter (in-file) or the previous track (no chapters).
+    func previousChapter() {
+        guard hasChapters else {
+            previousTrack()
+            return
+        }
+        if let prevIdx = ChapterService.prevEnabledIndex(before: currentChapterIndex, in: chapters)
+        {
+            seekToChapter(prevIdx)
+        }
+    }
+
+    /// Seeks playback to the start of the chapter at `index`. No-op when the
+    /// current file has no chapters or `index` is out of range.
+    func seekToChapter(_ index: Int) {
+        guard hasChapters, chapters.indices.contains(index) else { return }
+        currentChapterIndex = index
+        let chapter = chapters[index]
+        seek(to: chapter.startSeconds)
+        currentTime = chapter.startSeconds
+        refreshCurrentChapter()
+    }
+
     private func restoreLastFile() {
         guard let data = defaults.data(forKey: lastFileKey) else { return }
         var stale = false
