@@ -108,16 +108,18 @@ struct Echo_macOSApp: App {
                 Divider()
 
                 Button("Previous Chapter") {
-                    player.previousTrack()
+                    player.previousChapter()
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
-                .disabled(!player.hasMultipleTracks)
+                .disabled(player.chapters.count < 2 || player.currentChapterIndex <= 0)
 
                 Button("Next Chapter") {
-                    player.nextTrack()
+                    player.nextChapter()
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [.command])
-                .disabled(!player.hasMultipleTracks)
+                .disabled(
+                    player.chapters.count < 2
+                        || player.currentChapterIndex >= player.chapters.count - 1)
 
                 Divider()
 
