@@ -525,7 +525,7 @@ Optional — the iOS app's built-in alignment needs none of this. Set up with `p
 - Books, bookmarks, photos, voice memos, notes, flashcards, and listening history stay on your devices (and your personal iCloud, where you enable sync).
 - Speech recognition runs **entirely on-device**.
 - Location (Context Memory 🚧) is **opt-in, approximate, deletable** — and session location history never leaves the device.
-- Open source (MIT): [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
+- Open source (GPL-3.0): [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
 
 ---
 
@@ -595,4 +595,4 @@ Audio stays where you put it (read in place, never modified). Echo's data lives 
 
 ---
 
-*Echo is open source under the MIT license. Found a bug, or want a feature? [Open an issue](https://github.com/dfakkeldy/Echo/issues) — the developer reads every one.*
+*Echo is open source under the GPL-3.0 license. Found a bug, or want a feature? [Open an issue](https://github.com/dfakkeldy/Echo/issues) — the developer reads every one.*

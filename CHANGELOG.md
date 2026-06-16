@@ -14,6 +14,9 @@ All notable changes to Echo: Audiobook Study Player.
 - **Playback segment capture:** Added async listening-segment recording to the `playback_event` table for detailed analytics. Consumed via `PlaybackSessionRecorder` (actor) from an event stream and built using `PlaybackSegmentBuilder` (pure state machine) with 5-second noise discarding and 30-second heartbeats for crash safety.
 - **Schema V14 database migration:** Added `idx_playback_event_started_at` index, `session_location` table (WS5 context), bookmark location columns, note global/voice-memo columns, and event-integrity backfills.
 
+### Changed
+- **Relicensed from MIT to GPL-3.0.** Echo's `LICENSE` is now the GNU General Public License v3.0, and every source file carries an `SPDX-License-Identifier: GPL-3.0-or-later` header; the README, website (`docs/`), and App Store copy are updated to match. Echo began under GPL-3.0, briefly moved to MIT, and now returns to strong copyleft so that derivative apps must stay open source.
+
 ### Fixed
 - **Glued titles at element boundaries:** text split across structural child elements — `<span>Chapter 1</span><br/><span>A Pragmatic Philosophy</span>`, `<td>Topic 3</td><td>Software Entropy</td>` — no longer concatenates without a space ("Chapter 1A Pragmatic Philosophy", "Topic 3Software Entropy"). Inline formatting tags (`<em>un</em>do`) and entity-split words (`it&#8217;s`) still join with no separator.
 - **Reader breadcrumb ancestry:** the pinned header now follows the publisher's TOC path for the current position (e.g. "1. A Pragmatic Philosophy › Topic 2. The Cat Ate My Source Code › Challenges") instead of the heading-level cascade that could pin an early `<h1>` ("Foreword") as a permanent top-level ancestor. The cascade remains as fallback for books without a declared TOC.

@@ -27,6 +27,6 @@ WORKS WHERE YOU DO
 - iPhone, Mac, and Apple Watch, sharing the same library and progress.
 
 OPEN, PRIVATE, FREE
-Alignment runs entirely on your device. Nothing is uploaded, nothing is sold, no account required. Echo is free and open-source under the MIT license, with no ads and no subscription.
+Alignment runs entirely on your device. Nothing is uploaded, nothing is sold, no account required. Echo is free and open-source under the GPL-3.0 license, with no ads and no subscription.
 
 Bring your own audiobook and book file, press play, and start turning listening into learning.
