@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// A local stub mimicking the atelier-socle/swift-audio-marker package interface.

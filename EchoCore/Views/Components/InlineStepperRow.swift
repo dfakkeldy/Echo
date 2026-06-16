@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// A reusable inline stepper with minus/plus buttons, suitable for settings forms.

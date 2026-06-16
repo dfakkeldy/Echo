@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Manages security-scoped resource access grants for folder and file URLs.

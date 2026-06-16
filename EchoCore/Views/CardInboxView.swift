@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 import SwiftUI
 /// Mark-later inbox: passages flagged for flashcard conversion, grouped by book.

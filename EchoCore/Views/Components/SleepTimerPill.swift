@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// Pure label logic for the top-of-player timer pill, kept separate from the

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Result of the shared EPUB block parse — the canonical block set (with stable,

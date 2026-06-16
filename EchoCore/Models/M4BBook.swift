@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// A single M4B file within a multi-M4B folder, with its parsed metadata and chapters.

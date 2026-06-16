@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import UIKit
 
 /// Card cell for EPUB heading blocks (h1-h6). Larger font, more prominent background.

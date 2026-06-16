@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Generate .transcript.json sidecar files from audio using faster-whisper.
 
 The output JSON matches the TranscriptionSegment Codable schema consumed by

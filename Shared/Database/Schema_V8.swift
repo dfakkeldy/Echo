@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V8 migration — adds word_count column to epub_block for proportional alignment.

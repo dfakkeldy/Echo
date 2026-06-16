@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V6 migration — performance indexes, transcription_word primary key, and data integrity fixes.

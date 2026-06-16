@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 //  Echo_Watch_AppUITests.swift
 //  Echo Watch AppUITests

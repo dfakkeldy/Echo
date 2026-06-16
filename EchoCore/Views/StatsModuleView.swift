@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// Today's total listening time, queried from playback_event via StatsRepository.

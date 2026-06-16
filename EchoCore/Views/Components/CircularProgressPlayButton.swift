@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// A custom Play/Pause button capsule wrapped in a circular progress ring.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Turns a book's EPUB blocks into the ordered list of chapters that on-device

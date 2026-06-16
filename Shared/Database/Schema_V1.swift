@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V1 schema — creates all tables, views, and FTS5 indexes for the unified timeline.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import UIKit
 
 /// What a cover IS — its identity hues — with no opinion about how the UI

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// Controls when playback should automatically pause.
 enum SleepTimerMode: Equatable {
     /// No sleep timer is active.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // MARK: - VisualizerStyle
 
 /// Defines the four Metal-based audio visualizer styles available in Echo.

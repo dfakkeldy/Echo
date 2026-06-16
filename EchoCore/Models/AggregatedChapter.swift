@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// A chapter whose timestamps are cumulative across all M4B books in a multi-file folder.

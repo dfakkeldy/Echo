@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #if !os(watchOS)
 import AppIntents
 import SwiftUI

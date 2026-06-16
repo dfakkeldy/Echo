@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Identifier for a narration voice (e.g. a Kokoro voicepack key).

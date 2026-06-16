@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V13 migration — adds the `epub_toc_entry` table persisting the publisher's

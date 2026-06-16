@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// What triggered the paywall — for the contextual subheadline.
 enum PaywallContext {
     case flashcardCap

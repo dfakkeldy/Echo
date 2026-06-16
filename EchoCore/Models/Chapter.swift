@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// A chapter within an audiobook track, typically parsed from M4B chapter markers.

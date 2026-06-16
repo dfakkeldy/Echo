@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V5 migration — adds epub_block and alignment_anchor tables for the
