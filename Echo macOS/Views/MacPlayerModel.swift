@@ -69,6 +69,23 @@ final class MacPlayerModel {
     /// skip commands. User-configurable via the macOS Playback Options sheet
     /// (default 15). The fixed ±30s "long skip" menu commands ignore this.
     var skipInterval: Int = 15
+    /// Whether the +N dB output boost is applied to the AVPlayer audio path.
+    /// Read/written on `UserDefaults.standard` under the same `global_volumeBoostEnabled`
+    /// key the iOS `PlayerModel.isVolumeBoostEnabled` and the J2 Settings toggle use, so all
+    /// three share one store (device-local; not iCloud-synced).
+    var isVolumeBoostEnabled: Bool = UserDefaults.standard.bool(forKey: "global_volumeBoostEnabled")
+    {
+        didSet {
+            UserDefaults.standard.set(isVolumeBoostEnabled, forKey: "global_volumeBoostEnabled")
+            applyVolumeBoost()
+        }
+    }
+    /// Boost amount in dB. Default +9 dB mirrors the iOS `setVolumeBoost` default.
+    var volumeBoostGain: Float = 9.0 {
+        didSet { if isVolumeBoostEnabled { applyVolumeBoost() } }
+    }
+    /// Shared linear-gain box read by the C process callback of the audio tap.
+    private let boostGainBox = MacVolumeBoostGainBox()
     /// Shared bookmark store backed by the database.
     private(set) var bookmarkStore = BookmarkStore()
     /// Database service for bookmark persistence. Set by the app entry point.
@@ -265,6 +282,9 @@ final class MacPlayerModel {
         let player = AVPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = false
         self.player = player
+
+        // Apply the persisted boost to this newly-loaded item.
+        applyVolumeBoost()
 
         // Time observer for UI progress.
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
@@ -555,6 +575,25 @@ final class MacPlayerModel {
             currentTime = target
         case .fireSleep:
             sleepTimer.evaluateAtChapterEnd()
+        }
+    }
+
+    /// Pushes the current boost setting into the shared gain box (read live by
+    /// the audio tap) and ensures the current item has the boost audio mix.
+    private func applyVolumeBoost() {
+        boostGainBox.gain = MacVolumeBoost.linearGain(
+            enabled: isVolumeBoostEnabled, gainDB: volumeBoostGain)
+        installAudioMixIfNeeded()
+    }
+
+    /// Installs the MTAudioProcessingTap audio mix on the current AVPlayerItem.
+    /// Safe to call repeatedly; only attaches when an item exists and no mix is
+    /// set yet. The live gain is read from `boostGainBox`, so toggling boost on
+    /// an already-mixed item does not require re-installing.
+    private func installAudioMixIfNeeded() {
+        guard let item = player?.currentItem else { return }
+        if item.audioMix == nil {
+            item.audioMix = MacAudioBoostTap.makeAudioMix(for: item, gainBox: boostGainBox)
         }
     }
 
