@@ -209,6 +209,7 @@
 				Views/OnboardingView.swift,
 				Views/PDFDocumentView.swift,
 				Views/PhonePlayerSettingsView.swift,
+				Views/PlaybackOptionsSheet.swift,
 				Views/PlayerScrubberView.swift,
 				Views/PlayheadLineView.swift,
 				Views/PlaylistView.swift,
