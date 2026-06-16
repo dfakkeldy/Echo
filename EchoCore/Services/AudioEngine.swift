@@ -130,6 +130,12 @@ final class AudioEngine {
         // back to unity (e.g. 3x → 1x stuck at 3x). 0.01 cents is ~100x below
         // the ~5-cent just-noticeable pitch difference.
         timePitchNode.pitch = 0.01
+        // Max out the phase-vocoder overlap (default 8.0, range 3–32). At high
+        // playback rates (2x+) the default smears transients into audible
+        // reverb/ringing — most noticeable on Kokoro narration, whose vocoder
+        // already has a hot high end. 32 minimises that smearing; the extra CPU
+        // is negligible for a single mono stream.
+        timePitchNode.overlap = 32.0
 
         engine.attach(playerNode)
         engine.attach(eqNode)
