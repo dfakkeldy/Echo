@@ -146,43 +146,53 @@ extension PlayerModel {
                 let lookAhead = 2
                 for (offset, chapter) in chapters.enumerated() {
                     try Task.checkCancellation()
-                    // Render-ahead backpressure via NarrationRenderPolicy
-                    // (extracted for testability — see NarrationRenderPolicyTests).
-                    while NarrationRenderPolicy.shouldPauseRender(
-                        offset: offset,
-                        currentPlaybackIndex: self.state.currentIndex,
-                        lookAhead: lookAhead,
-                        isPlaying: self.isPlaying,
-                        isAwaitingChapter: self.state.awaitingNarrationChapter
-                    ),
-                        NarrationRenderPolicy.bookWasSwitched(
-                            currentFolderURL: self.folderURL?.absoluteString,
-                            audiobookID: audiobookID
-                        ) == false
-                    {
-                        try await Task.sleep(for: .seconds(1))
-                        try Task.checkCancellation()
-                    }
-                    guard
-                        NarrationRenderPolicy.bookWasSwitched(
-                            currentFolderURL: self.folderURL?.absoluteString,
-                            audiobookID: audiobookID
-                        ) == false
-                    else { return }
-                    try await service.renderChapter(
-                        chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
-                    try Task.checkCancellation()
-                    // Bail if the user switched books while this chapter rendered.
-                    guard
-                        NarrationRenderPolicy.bookWasSwitched(
-                            currentFolderURL: self.folderURL?.absoluteString,
-                            audiobookID: audiobookID
-                        ) == false
-                    else { return }
 
                     let fileURL = cacheDirectory.appendingPathComponent(
                         NarrationFileNaming.chapterFileName(
                             audiobookID: audiobookID, chapterIndex: chapter.index, voice: voice.id))
+
+                    // Persistence: a chapter already rendered for this voice is
+                    // reused as-is. Re-synthesising it would burn seconds of ANE
+                    // time + battery + heat per chapter and defeat the durable
+                    // cache (and make export / per-item narration pointlessly
+                    // expensive). So we only render — and only apply look-ahead
+                    // backpressure — when the file is actually missing.
+                    if !FileManager.default.fileExists(atPath: fileURL.path) {
+                        // Render-ahead backpressure via NarrationRenderPolicy
+                        // (extracted for testability — see NarrationRenderPolicyTests).
+                        while NarrationRenderPolicy.shouldPauseRender(
+                            offset: offset,
+                            currentPlaybackIndex: self.state.currentIndex,
+                            lookAhead: lookAhead,
+                            isPlaying: self.isPlaying,
+                            isAwaitingChapter: self.state.awaitingNarrationChapter
+                        ),
+                            NarrationRenderPolicy.bookWasSwitched(
+                                currentFolderURL: self.folderURL?.absoluteString,
+                                audiobookID: audiobookID
+                            ) == false
+                        {
+                            try await Task.sleep(for: .seconds(1))
+                            try Task.checkCancellation()
+                        }
+                        guard
+                            NarrationRenderPolicy.bookWasSwitched(
+                                currentFolderURL: self.folderURL?.absoluteString,
+                                audiobookID: audiobookID
+                            ) == false
+                        else { return }
+                        try await service.renderChapter(
+                            chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
+                        try Task.checkCancellation()
+                        // Bail if the user switched books while this chapter rendered.
+                        guard
+                            NarrationRenderPolicy.bookWasSwitched(
+                                currentFolderURL: self.folderURL?.absoluteString,
+                                audiobookID: audiobookID
+                            ) == false
+                        else { return }
+                    }
+
                     let track = Track(
                         url: fileURL, title: String(localized: "Chapter \(chapter.index + 1)"))
 
@@ -213,25 +223,29 @@ extension PlayerModel {
                 // doesn't apply; the book-switch + cancellation guards still do.
                 for chapter in earlierChapters {
                     try Task.checkCancellation()
-                    guard
-                        NarrationRenderPolicy.bookWasSwitched(
-                            currentFolderURL: self.folderURL?.absoluteString,
-                            audiobookID: audiobookID
-                        ) == false
-                    else { return }
-                    try await service.renderChapter(
-                        chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
-                    try Task.checkCancellation()
-                    guard
-                        NarrationRenderPolicy.bookWasSwitched(
-                            currentFolderURL: self.folderURL?.absoluteString,
-                            audiobookID: audiobookID
-                        ) == false
-                    else { return }
-
                     let fileURL = cacheDirectory.appendingPathComponent(
                         NarrationFileNaming.chapterFileName(
                             audiobookID: audiobookID, chapterIndex: chapter.index, voice: voice.id))
+                    // Reuse an already-rendered chapter (persistence) — only
+                    // synthesise the ones missing from the cache.
+                    if !FileManager.default.fileExists(atPath: fileURL.path) {
+                        guard
+                            NarrationRenderPolicy.bookWasSwitched(
+                                currentFolderURL: self.folderURL?.absoluteString,
+                                audiobookID: audiobookID
+                            ) == false
+                        else { return }
+                        try await service.renderChapter(
+                            chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
+                        try Task.checkCancellation()
+                        guard
+                            NarrationRenderPolicy.bookWasSwitched(
+                                currentFolderURL: self.folderURL?.absoluteString,
+                                audiobookID: audiobookID
+                            ) == false
+                        else { return }
+                    }
+
                     let track = Track(
                         url: fileURL, title: String(localized: "Chapter \(chapter.index + 1)"))
                     self.tracks.insert(track, at: 0)
