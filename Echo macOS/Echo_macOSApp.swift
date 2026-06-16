@@ -12,6 +12,10 @@ import UniformTypeIdentifiers
 @main
 struct Echo_macOSApp: App {
     @State private var player = MacPlayerModel()
+    /// Shared user-preferences store. macOS had no SettingsManager instance
+    /// before the Settings scene existed; this is the single source of truth
+    /// injected into both the main window and the Settings scene.
+    @State private var settings = SettingsManager()
     @State private var transcriptionManager = TranscriptionManager()
     @State private var transcriptStore = TranscriptStore()
     /// Shared database — falls back to in-memory if the App Group DB is unavailable.
@@ -32,6 +36,8 @@ struct Echo_macOSApp: App {
                 .environment(transcriptionManager)
                 .environment(transcriptStore)
                 .environment(dbService)
+                .environment(settings)
+                .preferredColorScheme(Self.colorScheme(for: settings.appAppearance))
                 .frame(minWidth: 900, minHeight: 560)
                 .onChange(of: player.openFileRequestToken) { _, newValue in
                     if newValue != lastOpenToken {
@@ -163,6 +169,14 @@ struct Echo_macOSApp: App {
                 .keyboardShortcut("e", modifiers: [.command, .option])
             }
         }
+
+        Settings {
+            MacSettingsView()
+                .environment(settings)
+                .environment(player)
+                .environment(dbService)
+                .frame(minWidth: 480, minHeight: 360)
+        }
     }
 
     // MARK: - Actions
@@ -234,6 +248,17 @@ struct Echo_macOSApp: App {
     }
 
     // MARK: - Helpers
+
+    /// Maps the stored `appAppearance` string ("System"/"Light"/"Dark") to a
+    /// SwiftUI `ColorScheme?` — `nil` means follow the OS. Mirrors the iOS
+    /// helper in `SettingsView.colorScheme(for:)` so both platforms agree.
+    static func colorScheme(for appearance: String) -> ColorScheme? {
+        switch appearance {
+        case "Light": return .light
+        case "Dark": return .dark
+        default: return nil
+        }
+    }
 
     /// In-memory database used as a safe fallback when the shared App Group
     /// database cannot be initialised (first launch, no entitlements, etc.).
