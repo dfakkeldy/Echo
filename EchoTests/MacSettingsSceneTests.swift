@@ -53,4 +53,11 @@ struct MacSettingsSceneTests {
         let src = try MacSource.read("Views/MacSettingsView.swift")
         #expect(src.contains("global_volumeBoostEnabled"))
     }
+
+    @Test("Mac More-menu opens the Settings scene via SettingsLink")
+    func moreMenuOpensSettings() throws {
+        let src = try MacSource.read("Views/MacPlayerMoreMenu.swift")
+        #expect(src.contains("SettingsLink"))
+        #expect(src.contains("Settings"))
+    }
 }
