@@ -10,8 +10,6 @@ struct BottomToolbarView: View {
 
     var body: some View {
         HStack {
-            loopModeButton
-            Spacer()
             speedButton
             Spacer()
             markPassageButton
@@ -74,45 +72,6 @@ struct BottomToolbarView: View {
                 isActive
                     ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
                     : AnyShapeStyle(.secondary))
-    }
-
-    // MARK: - Loop Mode
-
-    private var loopModeButton: some View {
-        Button {
-            model.cycleLoopMode()
-            Haptic.play(.medium)
-        } label: {
-            utilityChip(isActive: model.loopMode != .off) {
-                ZStack {
-                    switch model.loopMode {
-                    case .off:
-                        Image(systemName: "infinity.circle")
-                            .font(.title2)
-                    case .chapter:
-                        Image(systemName: "infinity.circle.fill")
-                            .font(.title2)
-                    case .bookmark:
-                        Image(systemName: "arrow.trianglehead.clockwise")
-                            .font(.title2)
-                            .overlay(
-                                Image(systemName: "bookmark.fill")
-                                    .font(.system(size: 9, weight: .bold))
-                            )
-                    }
-                }
-            }
-        }
-        .accessibilityLabel(Text("Loop mode"))
-        .accessibilityValue(
-            Text(
-                {
-                    switch model.loopMode {
-                    case .off: return String(localized: "Off")
-                    case .chapter: return String(localized: "Chapter")
-                    case .bookmark: return String(localized: "Bookmark")
-                    }
-                }()))
     }
 
     // MARK: - Speed
