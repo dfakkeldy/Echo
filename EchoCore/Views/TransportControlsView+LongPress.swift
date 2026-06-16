@@ -1,3 +1,4 @@
+#if os(iOS)
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
@@ -130,3 +131,5 @@ struct TransportPrimitiveButtonStyle: PrimitiveButtonStyle {
             )
     }
 }
+
+#endif

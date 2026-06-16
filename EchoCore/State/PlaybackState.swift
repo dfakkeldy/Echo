@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Observation
+#if os(iOS)
 import UIKit
+#endif
 
 /// Shared mutable playback state, owned by PlaybackController and observed by
 /// both PlayerModel (via pass-through computed properties) and SwiftUI views.
@@ -59,8 +61,10 @@ final class PlaybackState {
 
     // MARK: - Artwork
 
+#if os(iOS)
     var thumbnailImage: UIImage? = nil
     var currentDisplayArtwork: UIImage? = nil
+#endif
     var currentDisplayArtworkVersion: Int = 0
     var watchThumbnailData: Data? = nil
 

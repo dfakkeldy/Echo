@@ -383,7 +383,7 @@ enum EPUBAutoImportScanner {
 
 // MARK: - Sidecar Models
 
-private struct AlignmentAnchorExport: Codable {
+struct AlignmentAnchorExport: Codable {
     let blockId: String
     let timestamp: TimeInterval
     let confidence: Double

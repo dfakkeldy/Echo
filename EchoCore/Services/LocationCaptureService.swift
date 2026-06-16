@@ -1,3 +1,4 @@
+#if os(iOS)
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CoreLocation
 
@@ -122,3 +123,5 @@ private func withTaskTimeout<T: Sendable>(
         return result ?? nil
     }
 }
+
+#endif

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 @preconcurrency import AVFoundation
-import UIKit
 import os.log
 
 // MARK: - BookmarkStore

@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import GRDB
 
-/// A TOC tree node for the macOS sidebar.
-private struct TOCNode: Identifiable {
-    let id: String
-    var title: String
-    let blockID: String
-    var children: [TOCNode]?
+extension TOCNode {
+    var childrenAsOptional: [TOCNode]? { children.isEmpty ? nil : children }
 }
+import GRDB
 
 /// Sidebar view showing the publisher TOC tree from the shared database.
 ///
@@ -42,7 +38,7 @@ struct MacTOCTreeView: View {
                 )
                 Spacer()
             } else {
-                List(filteredNodes, id: \.id, children: \.children) { node in
+                List(filteredNodes, id: \.id, children: \.childrenAsOptional) { node in
                     TOCRowView(node: node)
                         .id(node.id)
                         .onTapGesture {
@@ -93,7 +89,7 @@ struct MacTOCTreeView: View {
                 id: node.id,
                 title: node.title,
                 blockID: node.blockID,
-                children: matchingChildren.isEmpty ? nil : matchingChildren
+                children: matchingChildren
             )
         }
         return nil
@@ -142,7 +138,7 @@ struct MacTOCTreeView: View {
                 id: entry.id,
                 title: entry.title,
                 blockID: entry.blockID ?? grandChildren.first?.blockID ?? "",
-                children: grandChildren.isEmpty ? nil : grandChildren
+                children: grandChildren
             )
         }
     }
@@ -177,7 +173,7 @@ private struct TOCRowView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if node.children == nil || node.children!.isEmpty {
+            if node.children.isEmpty {
                 Image(systemName: "book.pages")
                     .font(.caption)
                     .foregroundStyle(.secondary)

@@ -105,17 +105,21 @@ final class AudioEngine {
 
     func configureAudioSession() {
         guard !audioSessionConfigured else { return }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .spokenAudio, options: [])
-            try session.setActive(true)
+        #if os(iOS)
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [])
+                try session.setActive(true)
+                audioSessionConfigured = true
+            } catch {
+                os_log(.error, "AudioSession error: %{private}@", error.localizedDescription)
+            }
+            setupInterruptionObserver()
+            setupRouteChangeObserver()
+            setupMediaServicesObservers()
+        #else
             audioSessionConfigured = true
-        } catch {
-            os_log(.error, "AudioSession error: %{private}@", error.localizedDescription)
-        }
-        setupInterruptionObserver()
-        setupRouteChangeObserver()
-        setupMediaServicesObservers()
+        #endif
         configureEngineGraph()
     }
 
@@ -413,9 +417,11 @@ final class AudioEngine {
         fadeTimer?.invalidate()
         fadeTimer = nil
         stopTimeTimer()
-        removeInterruptionObserver()
-        removeRouteChangeObserver()
-        removeMediaServicesObservers()
+        #if os(iOS)
+            removeInterruptionObserver()
+            removeRouteChangeObserver()
+            removeMediaServicesObservers()
+        #endif
         audioFile = nil
         audioSessionConfigured = false
     }
@@ -516,108 +522,112 @@ final class AudioEngine {
 
     // MARK: - Interruption Observers
 
-    private func setupInterruptionObserver() {
-        guard interruptionObserver == nil else { return }
-        interruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] notification in
-            guard let self,
-                let userInfo = notification.userInfo,
-                let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-                let type = AVAudioSession.InterruptionType(rawValue: typeValue)
-            else { return }
+    #if os(iOS)
+        private func setupInterruptionObserver() {
+            guard interruptionObserver == nil else { return }
+            interruptionObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                    let userInfo = notification.userInfo,
+                    let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+                    let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+                else { return }
 
-            switch type {
-            case .began:
+                switch type {
+                case .began:
+                    MainActor.assumeIsolated {
+                        self.audioSessionConfigured = false
+                        self.isPlaying = false
+                        self.stopTimeTimer()
+                        self.delegate?.audioEngineInterruptionBegan(self)
+                    }
+                case .ended:
+                    let optionsValue = (userInfo[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
+                    let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                    let shouldResume = options.contains(.shouldResume)
+                    MainActor.assumeIsolated {
+                        self.delegate?.audioEngineInterruptionEnded(
+                            self, shouldResume: shouldResume)
+                    }
+                @unknown default:
+                    break
+                }
+            }
+        }
+
+        private func removeInterruptionObserver() {
+            if let obs = interruptionObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            interruptionObserver = nil
+        }
+
+        private func setupRouteChangeObserver() {
+            guard routeChangeObserver == nil else { return }
+            routeChangeObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                    let userInfo = notification.userInfo,
+                    let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                    let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
+                else { return }
+
+                // `.oldDeviceUnavailable` fires when the previous output device (wired
+                // headphones, aux / line-out, or Bluetooth) is removed. AVAudioEngine,
+                // unlike AVPlayer, does NOT auto-pause on this — left unhandled it falls
+                // back to the built-in speaker and keeps rendering, so the book suddenly
+                // plays out loud when you pull the cable. Pause to match expected behaviour.
+                guard reason == .oldDeviceUnavailable else { return }
                 MainActor.assumeIsolated {
-                    self.audioSessionConfigured = false
+                    guard self.isPlaying else { return }
+                    self.delegate?.audioEngineOutputDeviceDisconnected(self)
+                }
+            }
+        }
+
+        private func removeRouteChangeObserver() {
+            if let obs = routeChangeObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            routeChangeObserver = nil
+        }
+
+        private func setupMediaServicesObservers() {
+            guard mediaServicesLostObserver == nil else { return }
+
+            mediaServicesLostObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.mediaServicesWereLostNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] _ in
+                guard let self else { return }
+                MainActor.assumeIsolated {
                     self.isPlaying = false
                     self.stopTimeTimer()
                     self.delegate?.audioEngineInterruptionBegan(self)
                 }
-            case .ended:
-                let optionsValue = (userInfo[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
-                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                let shouldResume = options.contains(.shouldResume)
+            }
+
+            mediaServicesResetObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.mediaServicesWereResetNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] _ in
+                guard let self else { return }
                 MainActor.assumeIsolated {
-                    self.delegate?.audioEngineInterruptionEnded(self, shouldResume: shouldResume)
+                    self.audioSessionConfigured = false
+                    self.configureAudioSession()
                 }
-            @unknown default:
-                break
-            }
-        }
-    }
-
-    private func removeInterruptionObserver() {
-        if let obs = interruptionObserver {
-            NotificationCenter.default.removeObserver(obs)
-        }
-        interruptionObserver = nil
-    }
-
-    private func setupRouteChangeObserver() {
-        guard routeChangeObserver == nil else { return }
-        routeChangeObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.routeChangeNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] notification in
-            guard let self,
-                let userInfo = notification.userInfo,
-                let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
-                let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
-            else { return }
-
-            // `.oldDeviceUnavailable` fires when the previous output device (wired
-            // headphones, aux / line-out, or Bluetooth) is removed. AVAudioEngine,
-            // unlike AVPlayer, does NOT auto-pause on this — left unhandled it falls
-            // back to the built-in speaker and keeps rendering, so the book suddenly
-            // plays out loud when you pull the cable. Pause to match expected behaviour.
-            guard reason == .oldDeviceUnavailable else { return }
-            MainActor.assumeIsolated {
-                guard self.isPlaying else { return }
-                self.delegate?.audioEngineOutputDeviceDisconnected(self)
-            }
-        }
-    }
-
-    private func removeRouteChangeObserver() {
-        if let obs = routeChangeObserver {
-            NotificationCenter.default.removeObserver(obs)
-        }
-        routeChangeObserver = nil
-    }
-
-    private func setupMediaServicesObservers() {
-        guard mediaServicesLostObserver == nil else { return }
-
-        mediaServicesLostObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.mediaServicesWereLostNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                self.isPlaying = false
-                self.stopTimeTimer()
-                self.delegate?.audioEngineInterruptionBegan(self)
             }
         }
 
-        mediaServicesResetObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.mediaServicesWereResetNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                self.audioSessionConfigured = false
-                self.configureAudioSession()
-            }
-        }
-    }
+    #endif
 
     private func removeMediaServicesObservers() {
         if let obs = mediaServicesLostObserver {

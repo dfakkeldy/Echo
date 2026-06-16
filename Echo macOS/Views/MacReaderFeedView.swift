@@ -43,9 +43,13 @@ struct MacReaderFeedView: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(blocks, id: \.id) { block in
-                                MacBlockCardView(block: block, isActive: block.id == currentBlockID)
-                                    .equatable()
-                                    .id(block.id)
+                                MacBlockCardView(
+                                    block: block,
+                                    isActive: block.id == currentBlockID,
+                                    onTap: { seekToBlock(block.id) }
+                                )
+                                .equatable()
+                                .id(block.id)
                             }
                         }
                     }
@@ -170,6 +174,13 @@ struct MacReaderFeedView: View {
             playingChapterIndex: nil)
     }
 
+    /// Seeks playback to the first timeline row matching the given block ID.
+    /// Uses the shared `timelineCache` built during load.
+    private func seekToBlock(_ blockID: String) {
+        guard let row = timelineCache.first(where: { $0.blockID == blockID }) else { return }
+        player.seek(to: row.start)
+    }
+
     /// Periodically resolves the block at the current playback time so the reader
     /// can highlight and auto-scroll to the active block. Resolution is delegated
     /// to the shared `ReaderActiveBlockResolver` (the same helper iOS uses) and is
@@ -197,6 +208,7 @@ private struct MacBlockCardView: View, Equatable {
     @Environment(MacPlayerModel.self) private var player
     let block: EPubBlockRecord
     let isActive: Bool
+    var onTap: (() -> Void)?
 
     // Equatable so the polled reader feed re-evaluates only the cards that
     // actually changed (§8.2). Rendering depends solely on block + isActive.
@@ -224,6 +236,10 @@ private struct MacBlockCardView: View, Equatable {
                     .fill(Color.accentColor)
                     .frame(width: 3)
             }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?()
         }
     }
 
@@ -298,18 +314,4 @@ private struct MacBlockCardView: View, Equatable {
     }
 }
 
-// MARK: - Color from hex string
-
-extension Color {
-    fileprivate init?(hex: String) {
-        let sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "#", with: "")
-        guard sanitized.count == 6,
-            let value = UInt64(sanitized, radix: 16)
-        else { return nil }
-        let r = Double((value >> 16) & 0xFF) / 255.0
-        let g = Double((value >> 8) & 0xFF) / 255.0
-        let b = Double(value & 0xFF) / 255.0
-        self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
-    }
-}
+// Color(hex:) is now provided by EchoCore/Views/ReaderSettingsSheet.swift

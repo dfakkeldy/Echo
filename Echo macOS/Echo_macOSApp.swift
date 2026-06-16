@@ -189,12 +189,15 @@ struct Echo_macOSApp: App {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.message = String(localized: "Choose a folder containing audiobooks (M4B/MP3/M4A) with companion EPUB/PDF files.")
+        panel.message = String(
+            localized:
+                "Choose a folder containing audiobooks (M4B/MP3/M4A) with companion EPUB/PDF files."
+        )
 
         if panel.runModal() == .OK, let url = panel.url {
             showBulkAlignment = true
             Task {
-                await bulkAlignmentService.start(folderURL: url)
+                await bulkAlignmentService.start(folderURL: url, dbService: dbService)
             }
         }
     }
@@ -205,7 +208,8 @@ struct Echo_macOSApp: App {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.message = String(localized: "Select an audiobook file or folder containing audio files.")
+        panel.message = String(
+            localized: "Select an audiobook file or folder containing audio files.")
         let audioTypes: [UTType] = [
             .audio, .mp3, .mpeg4Audio,
             UTType(filenameExtension: "aiff") ?? .audio,
@@ -217,7 +221,8 @@ struct Echo_macOSApp: App {
         ]
         panel.allowedContentTypes = audioTypes
         if panel.runModal() == .OK, let url = panel.url {
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let isDirectory =
+                (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             if isDirectory {
                 player.loadFolder(url: url)
             } else {

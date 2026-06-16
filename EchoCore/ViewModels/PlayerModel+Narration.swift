@@ -1,3 +1,4 @@
+#if os(iOS)
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Foundation
@@ -300,3 +301,5 @@ extension PlayerModel {
         return base
     }
 }
+
+#endif

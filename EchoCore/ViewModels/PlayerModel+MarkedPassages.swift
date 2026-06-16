@@ -1,3 +1,4 @@
+#if os(iOS)
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
@@ -51,3 +52,5 @@ extension PlayerModel {
         return String(format: "%d:%02d", m, s)
     }
 }
+
+#endif
