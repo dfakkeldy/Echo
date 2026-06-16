@@ -222,6 +222,7 @@
 				Views/ReaderHeaderView.swift,
 				Views/ReaderTab.swift,
 				Views/RootTabView.swift,
+				Views/SettingsAdvancedView.swift,
 				Views/SettingsAppearanceView.swift,
 				Views/SettingsView.swift,
 				Views/SleepTimerCardView.swift,

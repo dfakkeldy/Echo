@@ -46,6 +46,25 @@ struct SettingsExtractionTests {
         #expect(!source.contains("private struct AppIconSelectionView"))
     }
 
+    /// The per-listen Playback section is owned by the Playback Options sheet
+    /// (WS-B) now — SettingsView must not render it.
+    @Test func settingsViewDropsPlaybackSection() throws {
+        let source = try Self.source(named: "SettingsView.swift")
+        #expect(!source.contains("Section(\"Playback\")"))
+        #expect(!source.contains("Default Speed"))
+        #expect(!source.contains("Seek Backward"))
+        #expect(!source.contains("Seek Forward"))
+    }
+
+    /// Auto-alignment + bookmarks-inline preferences moved into the Advanced
+    /// subscreen, which preserves the configureContinuousAlignment side-effect.
+    @Test func advancedSubViewOwnsAutoAlignmentAndBookmarks() throws {
+        let source = try Self.source(named: "SettingsAdvancedView.swift")
+        #expect(source.contains("struct SettingsAdvancedView"))
+        #expect(source.contains("configureContinuousAlignment()"))
+        #expect(source.contains("playBookmarksInline"))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

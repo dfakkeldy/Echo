@@ -53,49 +53,11 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Playback") {
-                    Toggle("Volume Boost", isOn: $model.isVolumeBoostEnabled)
-                    Picker("Default Speed", selection: $settings.defaultPlaybackSpeed) {
-                        Text("1.0×").tag(1.0)
-                        Text("1.25×").tag(1.25)
-                        Text("1.5×").tag(1.5)
-                        Text("2.0×").tag(2.0)
-                        Text("3.0×").tag(3.0)
-                    }
-                    Picker("Seek Backward", selection: $settings.seekBackwardDuration) {
-                        ForEach(
-                            [5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self
-                        ) { duration in
-                            Text("\(duration)s").tag(duration)
-                        }
-                    }
-                    .onChange(of: settings.seekBackwardDuration) { _, _ in
-                        model.syncToWatch()
-                    }
-                    Picker("Seek Forward", selection: $settings.seekForwardDuration) {
-                        ForEach(
-                            [5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self
-                        ) { duration in
-                            Text("\(duration)s").tag(duration)
-                        }
-                    }
-                    .onChange(of: settings.seekForwardDuration) { _, _ in
-                        model.syncToWatch()
-                    }
-                    NavigationLink("Smart Rewind") {
-                        SmartRewindSettingsView()
-                    }
-                }
-
                 // Audit E4: the "for testing" lookback slider is debug tooling
                 // and must not ship in release builds.
                 #if DEBUG
                     SettingsSilenceDetectionSection()
                 #endif
-
-                SettingsAutoAlignmentSection()
-
-                SettingsBookmarksInlineSection()
 
                 Section("Flashcards") {
                     Button {
@@ -235,47 +197,6 @@ private struct SettingsSilenceDetectionSection: View {
         } footer: {
             Text(
                 "How far back to scan for silence when locating playback position during reverse playback. For testing."
-            )
-        }
-    }
-}
-
-private struct SettingsAutoAlignmentSection: View {
-    @Environment(SettingsManager.self) private var settings
-    @Environment(PlayerModel.self) private var model
-
-    var body: some View {
-        @Bindable var settings = settings
-        Section {
-            Toggle(
-                "Continuous Auto-Alignment",
-                isOn: Binding(
-                    get: { settings.continuousAutoAlignmentEnabled },
-                    set: {
-                        settings.continuousAutoAlignmentEnabled = $0
-                        model.configureContinuousAlignment()
-                    }
-                ))
-        } header: {
-            Text("Auto-Alignment")
-        } footer: {
-            Text(
-                "When enabled, the app will continuously transcribe audio in the background while playing and attempt to align it with the text."
-            )
-        }
-    }
-}
-
-private struct SettingsBookmarksInlineSection: View {
-    @Environment(SettingsManager.self) private var settings
-
-    var body: some View {
-        @Bindable var settings = settings
-        Section {
-            Toggle("Play Bookmarks Inline", isOn: $settings.playBookmarksInline)
-        } footer: {
-            Text(
-                "When enabled, voice memos attached to bookmarks are played automatically when the audiobook reaches that timestamp."
             )
         }
     }
