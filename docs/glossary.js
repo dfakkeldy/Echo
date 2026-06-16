@@ -111,6 +111,16 @@
       long: "Playing audio above 1× normally raises the pitch; pitch correction speeds the tempo while keeping the voice at its natural pitch, so 1.5× still sounds human." }
   ];
 
-  // Expose for later steps (engine + renderer are added in Tasks 2–4).
-  window.__ECHO_GLOSSARY__ = GLOSSARY;
+  var CATEGORIES = ["Technical", "Learning science", "Formats & domain"];
+
+  function catId(cat) {
+    return "cat-" + cat.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  }
+
+  var bySlug = {};
+  GLOSSARY.forEach(function (e) { bySlug[e.slug] = e; });
+
+  // (renderer added in Task 3, engine in Task 4)
+
+  window.__ECHO_GLOSSARY__ = { entries: GLOSSARY, bySlug: bySlug, catId: catId, categories: CATEGORIES };
 })();
