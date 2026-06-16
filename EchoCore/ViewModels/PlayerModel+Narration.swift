@@ -16,6 +16,11 @@ extension PlayerModel {
     /// Safe to call right after `loadFolder` for a book that has no audio: it
     /// renders nothing and returns if the book has no narratable EPUB text.
     func startNarrationPlayback(voice: NarrationVoice = VoiceCatalog.default) {
+        // The A14 (and older) ANE traps on the Kokoro vocoder for real-book input
+        // (§3.1, device-confirmed) — an uncatchable BNNS SIGTRAP that recurs on
+        // certain shapes. Gate synthesis to A15+ here so every entry point (Listen,
+        // the Play button, CarPlay) is covered; the reader stays fully functional.
+        guard NarrationCapability.supportsOnDeviceNarration else { return }
         guard let audiobookID = folderURL?.absoluteString,
             let db = databaseService?.writer
         else { return }

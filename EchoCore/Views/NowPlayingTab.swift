@@ -40,8 +40,11 @@ struct NowPlayingTab: View {
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                     .padding(.top, 16)
 
-                // C2. On-device narration — shown when the book has EPUB text.
-                if model.hasEPUB {
+                // C2. On-device narration — shown when the book has EPUB text AND
+                // the chip can run it. The A14 (and older) ANE traps on the Kokoro
+                // vocoder (§3.1, device-confirmed), so synthesis is gated to A15+;
+                // the reader stays fully functional either way.
+                if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration {
                     VStack(spacing: 8) {
                         NarrationStatusView(state: model.narrationPlaybackState)
                         if !model.narrationPlaybackState.isRunning {
@@ -72,6 +75,16 @@ struct NowPlayingTab: View {
                     }
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                     .padding(.top, 12)
+                } else if model.hasEPUB {
+                    // Narration synthesis is gated off on this chip (A14/older);
+                    // the reader stays usable.
+                    Text("Narration needs an A15 or newer device.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                        .padding(.top, 12)
                 }
 
                 // D. Main Scrubber (completely exposed, floating over background)
@@ -116,8 +129,11 @@ struct NowPlayingTab: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task(id: model.folderURL) {
-            // Pre-warm the ANE model compile so the first Listen tap isn't a long stall.
-            if model.hasEPUB { try? await model.narrationTTS.prepare() }
+            // Pre-warm the ANE model compile so the first Listen tap isn't a long
+            // stall — only where narration is actually supported (A15+).
+            if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration {
+                try? await model.narrationTTS.prepare()
+            }
         }
         .sheet(isPresented: $showingVoicePicker) {
             VoicePickerView(selectedVoice: $selectedVoice) {
