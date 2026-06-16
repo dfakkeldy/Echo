@@ -5,11 +5,22 @@ struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
+    /// Player-More menu closures (WS-C). The actual sheet/tab-switch state lives
+    /// on NowPlayingTab; these just forward the user's intent upward.
+    var onShowChapters: () -> Void
+    var onShowBookmarks: () -> Void
+    var onShowSettings: () -> Void
     var onShowPlaybackOptions: () -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     var body: some View {
         HStack {
+            PlayerMoreMenu(
+                onShowChapters: onShowChapters,
+                onShowBookmarks: onShowBookmarks,
+                onShowSettings: onShowSettings
+            )
+            Spacer()
             speedButton
             Spacer()
             markPassageButton

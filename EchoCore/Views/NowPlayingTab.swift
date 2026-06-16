@@ -16,6 +16,9 @@ struct NowPlayingTab: View {
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
     @State private var showingPlaybackOptions = false
+    /// Owns the player-More chapter-navigation sheet binding (WS-C). Kept here,
+    /// not on RootTabView, so it cannot collide with the global header sheets.
+    @State private var showingChapterPicker = false
 
     /// The saved voice preference, or the system default on first launch.
     private var preferredVoice: NarrationVoice {
@@ -103,7 +106,10 @@ struct NowPlayingTab: View {
                 if !model.isPlayingVoiceMemo {
                     UnifiedBottomDock(
                         onCreateBookmark: onCreateBookmark,
-                        onShowPlaybackOptions: { showingPlaybackOptions = true }
+                        onShowPlaybackOptions: { showingPlaybackOptions = true },
+                        onShowChapters: { showingChapterPicker = true },
+                        onShowBookmarks: { model.selectedTab = .timeline },
+                        onShowSettings: showSettings
                     )
                     .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
@@ -148,6 +154,14 @@ struct NowPlayingTab: View {
         }
         .sheet(isPresented: $showingPlaybackOptions) {
             PlaybackOptionsSheet()
+        }
+        // Player-More "Chapters" → jump-to-chapter. Reuses the existing
+        // ChapterPickerSheet, supplying a seek closure (matches PlaylistView's
+        // chapter-row tap: seek to startSeconds + 0.05 to land inside the chapter).
+        .sheet(isPresented: $showingChapterPicker) {
+            ChapterPickerSheet(chapters: model.chapters) { chapter in
+                model.seek(toSeconds: chapter.startSeconds + 0.05)
+            }
         }
     }
 

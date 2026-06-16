@@ -122,7 +122,13 @@ struct RootTabView: View {
                     Spacer()
                     UnifiedBottomDock(
                         onCreateBookmark: { draft in newBookmarkDraft = draft },
-                        onShowPlaybackOptions: { showingPlaybackOptions = true }
+                        onShowPlaybackOptions: { showingPlaybackOptions = true },
+                        // WS-C C2: the player-More closures are required on the dock.
+                        // Full wiring on this non-NowPlaying overlay (chapter sheet
+                        // binding) is task C3; Bookmarks/Settings reuse existing state.
+                        onShowChapters: {},
+                        onShowBookmarks: { model.selectedTab = .timeline },
+                        onShowSettings: { showingSettings = true }
                     )
                 }
             }

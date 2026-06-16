@@ -5,6 +5,10 @@ struct UnifiedBottomDock: View {
     @Environment(PlayerModel.self) private var model
     var onCreateBookmark: (BookmarkDraft) -> Void
     var onShowPlaybackOptions: () -> Void
+    /// Player-More menu closures (WS-C), forwarded to BottomToolbarView.
+    var onShowChapters: () -> Void
+    var onShowBookmarks: () -> Void
+    var onShowSettings: () -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     /// Platform-agnostic separator color.
@@ -22,7 +26,12 @@ struct UnifiedBottomDock: View {
         model.selectedTab == .nowPlaying || (model.folderURL != nil && !model.tracks.isEmpty)
     }
 
-    var body: some View {
+    /// The stacked rows (controls/mini-player → divider → utility toolbar),
+    /// extracted from `body` so the heavily-modified outer capsule chain and
+    /// this inner stack type-check as separate expressions. Threading the WS-C
+    /// More-menu closures through `BottomToolbarView` pushed the combined
+    /// single-expression `body` past the Swift type-checker's time budget.
+    @ViewBuilder private var stackedContent: some View {
         // A clean VStack of: controls (or mini-player) → divider → utility toolbar.
         // The capsule gets uniform `.padding(.vertical, 16)` (below) so each row
         // takes its natural, uncompressed height.
@@ -57,28 +66,35 @@ struct UnifiedBottomDock: View {
             // Lower layer: Static 5-Button Utility Bar
             BottomToolbarView(
                 onCreateBookmark: onCreateBookmark,
+                onShowChapters: onShowChapters,
+                onShowBookmarks: onShowBookmarks,
+                onShowSettings: onShowSettings,
                 onShowPlaybackOptions: onShowPlaybackOptions
             )
             .padding(.horizontal, 16)
         }
-        // Uniform vertical breathing room so the circular play-button progress
-        // ring is never clipped by the capsule's rounded corners.
-        .padding(.vertical, 16)
-        .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.15), lineWidth: 1)
-        )
-        // Tint the system material backdrop with dynamic artwork theme
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(model.artworkAccentColor ?? .accentColor)
-                .opacity(0.08)
-        )
-        .shadow(color: Color.black.opacity(0.25), radius: 15, x: 0, y: 5)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+    }
+
+    var body: some View {
+        stackedContent
+            // Uniform vertical breathing room so the circular play-button progress
+            // ring is never clipped by the capsule's rounded corners.
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
+            // Tint the system material backdrop with dynamic artwork theme
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(model.artworkAccentColor ?? .accentColor)
+                    .opacity(0.08)
+            )
+            .shadow(color: Color.black.opacity(0.25), radius: 15, x: 0, y: 5)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
     }
 }
