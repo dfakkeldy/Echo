@@ -111,7 +111,13 @@
       long: "Playing audio above 1× normally raises the pitch; pitch correction speeds the tempo while keeping the voice at its natural pitch, so 1.5× still sounds human." }
   ];
 
-  var CATEGORIES = ["Technical", "Learning science", "Formats & domain"];
+  var CATEGORIES = (function () {
+    var seen = {}, out = [];
+    GLOSSARY.forEach(function (e) {
+      if (!seen[e.category]) { seen[e.category] = true; out.push(e.category); }
+    });
+    return out;
+  })();
 
   function catId(cat) {
     return "cat-" + cat.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -147,11 +153,7 @@
     });
   }
 
-  document.addEventListener("DOMContentLoaded", function () {
-    var root = document.getElementById("glossary-root");
-    if (root) renderGlossary(root);
-  });
-
+  var POPOVER_GAP = 8;
   var pop = null, def = null, more = null;   // reusable popover + its parts
   var current = null;                         // the <a.gloss> currently shown
   var hideTimer = null;
@@ -172,6 +174,8 @@
     pop.appendChild(more);
     pop.addEventListener("mouseenter", cancelHide);
     pop.addEventListener("mouseleave", scheduleHide);
+    pop.addEventListener("focusin", cancelHide);
+    pop.addEventListener("focusout", scheduleHide);
     document.body.appendChild(pop);
   }
 
@@ -182,13 +186,13 @@
     var r = term.getBoundingClientRect();
     var sx = window.pageXOffset, sy = window.pageYOffset;
     pop.hidden = false;                         // measure with layout
-    var pw = pop.offsetWidth, ph = pop.offsetHeight, gap = 8;
+    var pw = pop.offsetWidth, ph = pop.offsetHeight;
     var left = sx + r.left;
-    left = Math.max(sx + gap, Math.min(left, sx + window.innerWidth - pw - gap));
-    var top = sy + r.bottom + gap;
-    if (r.bottom + gap + ph > window.innerHeight) top = sy + r.top - ph - gap; // flip up
+    left = Math.max(sx + POPOVER_GAP, Math.min(left, sx + window.innerWidth - pw - POPOVER_GAP));
+    var top = sy + r.bottom + POPOVER_GAP;
+    if (r.bottom + POPOVER_GAP + ph > window.innerHeight) top = sy + r.top - ph - POPOVER_GAP; // flip up
     pop.style.left = left + "px";
-    pop.style.top = Math.max(sy + gap, top) + "px";
+    pop.style.top = Math.max(sy + POPOVER_GAP, top) + "px";
   }
 
   function show(term, entry) {
@@ -215,6 +219,9 @@
       console.warn('[glossary] no entry for data-term="' + slug + '" — left as a plain link:', term);
       return;
     }
+    if (!term.getAttribute("href")) {
+      console.warn('[glossary] <a class="gloss"> has no href — "Read full entry" will not work:', term);
+    }
     term.addEventListener("mouseenter", function () { if (hoverCapable) show(term, entry); });
     term.addEventListener("mouseleave", function () { if (hoverCapable) scheduleHide(); });
     term.addEventListener("focus", function () { show(term, entry); });
@@ -228,6 +235,8 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    var root = document.getElementById("glossary-root");
+    if (root) renderGlossary(root);
     var terms = document.querySelectorAll("a.gloss[data-term]");
     for (var i = 0; i < terms.length; i++) enhance(terms[i]);
   });
