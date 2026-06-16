@@ -15,6 +15,7 @@ struct NowPlayingTab: View {
 
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
+    @State private var showingPlaybackOptions = false
 
     /// The saved voice preference, or the system default on first launch.
     private var preferredVoice: NarrationVoice {
@@ -101,7 +102,9 @@ struct NowPlayingTab: View {
                 // E. Unified Bottom Dock
                 if !model.isPlayingVoiceMemo {
                     UnifiedBottomDock(
-                        onCreateBookmark: onCreateBookmark)
+                        onCreateBookmark: onCreateBookmark,
+                        onShowPlaybackOptions: { showingPlaybackOptions = true }
+                    )
                 }
             }
             .ignoresSafeArea(.keyboard)
@@ -141,6 +144,9 @@ struct NowPlayingTab: View {
                 settings.narrationVoiceID = selectedVoice.id.rawValue
                 model.startNarrationPlayback(voice: selectedVoice)
             }
+        }
+        .sheet(isPresented: $showingPlaybackOptions) {
+            PlaybackOptionsSheet()
         }
     }
 

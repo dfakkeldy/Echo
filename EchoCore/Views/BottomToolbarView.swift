@@ -5,6 +5,7 @@ struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
+    var onShowPlaybackOptions: () -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     var body: some View {
@@ -130,18 +131,14 @@ struct BottomToolbarView: View {
 
     private var speedButton: some View {
         Button {
-            let speeds = SettingsManager.Defaults.speedPresets
-            if let index = speeds.firstIndex(of: model.speed) {
-                let nextIndex = (index + 1) % speeds.count
-                model.setSpeed(speeds[nextIndex])
-            } else {
-                model.setSpeed(1.0)
-            }
+            onShowPlaybackOptions()
+            Haptic.play(.light)
         } label: {
             utilityTextChip(isActive: model.speed != 1.0, speedLabel)
         }
-        .accessibilityLabel(Text("Playback speed"))
+        .accessibilityLabel(Text("Playback options"))
         .accessibilityValue(Text(speedLabel))
+        .accessibilityHint(Text("Opens speed, loop, and skip settings"))
         .onChange(of: model.speed) { _, newSpeed in
             UIAccessibility.post(
                 notification: .announcement,

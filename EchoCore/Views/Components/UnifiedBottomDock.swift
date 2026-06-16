@@ -4,6 +4,7 @@ import SwiftUI
 struct UnifiedBottomDock: View {
     @Environment(PlayerModel.self) private var model
     var onCreateBookmark: (BookmarkDraft) -> Void
+    var onShowPlaybackOptions: () -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     /// Platform-agnostic separator color.
@@ -54,8 +55,11 @@ struct UnifiedBottomDock: View {
             }
 
             // Lower layer: Static 5-Button Utility Bar
-            BottomToolbarView(onCreateBookmark: onCreateBookmark)
-                .padding(.horizontal, 16)
+            BottomToolbarView(
+                onCreateBookmark: onCreateBookmark,
+                onShowPlaybackOptions: onShowPlaybackOptions
+            )
+            .padding(.horizontal, 16)
         }
         // Uniform vertical breathing room so the circular play-button progress
         // ring is never clipped by the capsule's rounded corners.

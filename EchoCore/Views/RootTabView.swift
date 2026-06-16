@@ -12,6 +12,7 @@ struct RootTabView: View {
 
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
+    @State private var showingPlaybackOptions = false
     @State private var showingBookSettings = false
     // showingHelp presentation state resides on PlayerModel
     @State private var newBookmarkDraft: BookmarkDraft? = nil
@@ -120,7 +121,9 @@ struct RootTabView: View {
                 VStack {
                     Spacer()
                     UnifiedBottomDock(
-                        onCreateBookmark: { draft in newBookmarkDraft = draft })
+                        onCreateBookmark: { draft in newBookmarkDraft = draft },
+                        onShowPlaybackOptions: { showingPlaybackOptions = true }
+                    )
                 }
             }
         }
@@ -135,6 +138,9 @@ struct RootTabView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showingPlaybackOptions) {
+            PlaybackOptionsSheet()
         }
         .sheet(isPresented: $showingBookSettings) {
             BookSettingsView(model: model)
