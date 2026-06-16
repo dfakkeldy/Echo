@@ -152,7 +152,92 @@
     if (root) renderGlossary(root);
   });
 
-  // (engine added in Task 4)
+  var pop = null, def = null, more = null;   // reusable popover + its parts
+  var current = null;                         // the <a.gloss> currently shown
+  var hideTimer = null;
+  var hoverCapable = window.matchMedia ? window.matchMedia("(hover: hover)").matches : true;
+  var touchPrimary = window.matchMedia ? window.matchMedia("(hover: none)").matches : false;
+
+  function buildPopover() {
+    pop = document.createElement("div");
+    pop.className = "gloss-popover";
+    pop.hidden = true;
+    def = document.createElement("span");
+    def.className = "gloss-popover-def";
+    def.id = "gloss-pop-def";
+    more = document.createElement("a");
+    more.className = "gloss-popover-more";
+    more.textContent = "Read full entry →";
+    pop.appendChild(def);
+    pop.appendChild(more);
+    pop.addEventListener("mouseenter", cancelHide);
+    pop.addEventListener("mouseleave", scheduleHide);
+    document.body.appendChild(pop);
+  }
+
+  function cancelHide() { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } }
+  function scheduleHide() { cancelHide(); hideTimer = setTimeout(hide, 180); }
+
+  function position(term) {
+    var r = term.getBoundingClientRect();
+    var sx = window.pageXOffset, sy = window.pageYOffset;
+    pop.hidden = false;                         // measure with layout
+    var pw = pop.offsetWidth, ph = pop.offsetHeight, gap = 8;
+    var left = sx + r.left;
+    left = Math.max(sx + gap, Math.min(left, sx + window.innerWidth - pw - gap));
+    var top = sy + r.bottom + gap;
+    if (r.bottom + gap + ph > window.innerHeight) top = sy + r.top - ph - gap; // flip up
+    pop.style.left = left + "px";
+    pop.style.top = Math.max(sy + gap, top) + "px";
+  }
+
+  function show(term, entry) {
+    cancelHide();
+    if (!pop) buildPopover();
+    def.textContent = entry.short;
+    more.href = term.href;                       // same target as the term itself
+    if (current && current !== term) current.removeAttribute("aria-describedby");
+    current = term;
+    term.setAttribute("aria-describedby", "gloss-pop-def");
+    position(term);
+  }
+
+  function hide() {
+    cancelHide();
+    if (pop) pop.hidden = true;
+    if (current) { current.removeAttribute("aria-describedby"); current = null; }
+  }
+
+  function enhance(term) {
+    var slug = term.getAttribute("data-term");
+    var entry = bySlug[slug];
+    if (!entry) {
+      console.warn('[glossary] no entry for data-term="' + slug + '" — left as a plain link:', term);
+      return;
+    }
+    term.addEventListener("mouseenter", function () { if (hoverCapable) show(term, entry); });
+    term.addEventListener("mouseleave", function () { if (hoverCapable) scheduleHide(); });
+    term.addEventListener("focus", function () { show(term, entry); });
+    term.addEventListener("blur", scheduleHide);
+    term.addEventListener("click", function (ev) {
+      if (touchPrimary) {                         // tap: peek instead of navigating away
+        ev.preventDefault();
+        if (current === term && pop && !pop.hidden) { hide(); } else { show(term, entry); }
+      }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var terms = document.querySelectorAll("a.gloss[data-term]");
+    for (var i = 0; i < terms.length; i++) enhance(terms[i]);
+  });
+
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") hide(); });
+  document.addEventListener("click", function (e) {
+    if (!pop || pop.hidden) return;
+    if (e.target.closest && (e.target.closest(".gloss-popover") || e.target.closest("a.gloss"))) return;
+    hide();
+  });
 
   window.__ECHO_GLOSSARY__ = { entries: GLOSSARY, bySlug: bySlug, catId: catId, categories: CATEGORIES };
 })();
