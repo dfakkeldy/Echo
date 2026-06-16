@@ -1,19 +1,22 @@
 # Kokoro Model Swap — A14-Compatible Vocoder
 
-> ## ⛔ RESOLUTION — NOT EXECUTED (gated out by Phase 0, 2026-06-15)
+> ## ⚠️ STATUS — NOT YET EXECUTED, but GENUINELY NEEDED for A14 (2026-06-15, corrected)
 >
-> This plan was **conditional** on the finish-plan's Phase 0 gate: *"Crashes → proceed to
-> Phase 1A (model swap). Works → skip Phase 1A."* **Phase 0 ran on the iPhone 12 Pro (A14)
-> with stream-to-sink and the narration SURVIVED** a long multi-chapter session (ch 7/8/9 at
-> 2×, past the ~6-chapter jetsam wall, zero crash/jetsam reports). **The A14 crash was caused
-> by per-chapter PCM accumulation, fixed by stream-to-sink — NOT the palettized vocoder.**
-> So this model swap is **not needed for stability** and is **deliberately not executed**, per
-> the plan's own gate and the owner's explicit "Phase 0 first" decision.
+> **Correction:** an earlier version of this banner said Phase 0 "survived" so the swap was
+> "not needed for stability." **That was wrong — the survival was luck.** A second device round
+> showed the A14 **BNNS vocoder trap RECURS** (crashed 3× in one session; `EXC_BREAKPOINT` in
+> `libBNNS`/`BNNSGraphContextExecute_v2`), intermittently on synthesis shape — a full re-render
+> reliably triggers it, and with chapter persistence a trap chapter would stick the book.
+> stream-to-sink fixed only the jetsam half. So this model swap (**1A**) is the **proper A14 fix**
+> and is genuinely needed, not optional.
 >
-> **Retained as QUALITY-optional.** A separate on-device finding — a high-frequency whine
-> (>9 kHz artifact) in the Kokoro A14 vocoder output — *could* be addressed by this swap, but a
-> cheaper in-renderer low-pass is being evaluated first. **Pre-work spikes done (2026-06-15) so
-> this is ready to execute IF the whine demands it:**
+> **Interim shipped instead (owner's decision):** narration is **gated to A15+**
+> (`NarrationCapability`, finish-plan **1B**), keeping Echo crash-free on A14 while 1A is the real
+> answer. **A cheaper alternative to vendoring this external model:** swap to a different
+> **FluidAudio backend** (PocketTTS / StyleTTS2 — already in the package, no 1 GB download; a
+> different voice than Ava). Whichever path, it needs an on-device re-verification.
+>
+> **Pre-work spikes done (2026-06-15) so the mattmireles path is ready to execute:**
 > - **License gate ✅** — `mattmireles/kokoro-coreml` is **Apache-2.0** (this header's old "MIT"
 >   was wrong), `base_model: hexgrad/Kokoro-82M`. Reuse FluidAudio's Misaki G2P → no GPL espeak.
 > - **RAM gate ⚠️→OK** — the repo is ~1 GB (23 components × five duration buckets 3/7/10/15/30 s
