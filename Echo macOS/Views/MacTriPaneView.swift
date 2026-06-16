@@ -11,6 +11,7 @@ import SwiftUI
 struct MacTriPaneView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
+    @Environment(SettingsManager.self) private var settings
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var dbServiceWired = false
 
@@ -39,6 +40,7 @@ struct MacTriPaneView: View {
         .task {
             if !dbServiceWired {
                 player.dbService = dbService
+                player.settings = settings
                 player.loadBookmarksFromDB()
                 player.migrateLegacyBookmarksIfNeeded()
                 dbServiceWired = true

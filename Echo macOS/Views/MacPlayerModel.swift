@@ -69,6 +69,22 @@ final class MacPlayerModel {
     /// skip commands. User-configurable via the macOS Playback Options sheet
     /// (default 15). The fixed ±30s "long skip" menu commands ignore this.
     var skipInterval: Int = 15
+    /// Injected once by `MacTriPaneView.task` (same pattern as `dbService`).
+    /// On assignment we adopt the user's persisted skip interval and default
+    /// speed so the macOS Settings → Playback pane (WS-J) actually drives playback.
+    var settings: SettingsManager? {
+        didSet { applySettings() }
+    }
+
+    private func applySettings() {
+        guard let seek = settings?.seekForwardDuration else { return }
+        skipInterval = seek
+        // playbackRate's setter only touches `player.rate` while playing, so it is
+        // safe to seed before play(); play() re-applies `playbackRate` on start.
+        if !isPlaying, let speed = settings?.defaultPlaybackSpeed {
+            playbackRate = Float(speed)
+        }
+    }
     /// Whether the +N dB output boost is applied to the AVPlayer audio path.
     /// Read/written on `UserDefaults.standard` under the same `global_volumeBoostEnabled`
     /// key the iOS `PlayerModel.isVolumeBoostEnabled` and the J2 Settings toggle use, so all
