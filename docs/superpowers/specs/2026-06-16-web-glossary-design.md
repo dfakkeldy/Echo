@@ -27,6 +27,15 @@ no build step**) is plain HTML we fully control. The README links *out* to the w
 | Implementation | **Approach A** — tiny JS engine with a single source of truth |
 | Seed size | Full set (~30 terms) in the first pass |
 | Markup reach | Glossary page + README out-links + inline markup on `learn.html` and `manual.html` |
+| "Runs no scripts" footer vow | Keep A; **reword the footer fineprint honestly** on every page (script is first-party, no cookies, no network) |
+
+### The footer promise
+
+Every page footer currently reads *"…hosts its own fonts, runs no scripts, and sets no cookies."*
+Approach A adds a first-party `glossary.js`, so that clause must change to stay true. New wording
+(applied to all `docs/*.html`): *"…hosts its own fonts, runs one small first-party script (the
+glossary), sets no cookies, and makes no network calls."* This preserves the promise's real meaning —
+no tracking, no third parties, no cookies — while being literally accurate.
 
 Rejected alternatives: **B** (native Popover API) — tap-only, uneven Safari anchor-positioning,
 definitions duplicated inline per page; **C** (pure-CSS `:hover`) — weak on touch, edge-clipping,
