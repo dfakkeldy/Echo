@@ -14,6 +14,7 @@ struct MacTriPaneView: View {
     @Environment(SettingsManager.self) private var settings
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var dbServiceWired = false
+    @State private var showingPlaybackOptions = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -185,22 +186,20 @@ struct MacTriPaneView: View {
                 .help("Sleep timer")
                 .frame(width: 28)
 
-                // Speed
-                Picker(
-                    "Speed",
-                    selection: Binding(
-                        get: { player.playbackRate },
-                        set: { player.playbackRate = $0 }
-                    )
-                ) {
-                    Text("1×").tag(Float(1.0))
-                    Text("1.25×").tag(Float(1.25))
-                    Text("1.5×").tag(Float(1.5))
-                    Text("2×").tag(Float(2.0))
+                // Playback options (speed / loop / skip / boost)
+                Button {
+                    showingPlaybackOptions.toggle()
+                } label: {
+                    Text(MacPlaybackOptionsSheet.speedLabel(player.playbackRate))
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 44)
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .frame(width: 60)
+                .buttonStyle(.borderless)
+                .help("Playback options")
+                .popover(isPresented: $showingPlaybackOptions, arrowEdge: .bottom) {
+                    MacPlaybackOptionsSheet()
+                        .environment(player)
+                }
             }
             .frame(maxWidth: .infinity)
         } else {
