@@ -23,9 +23,7 @@ enum NavigationDestination: Hashable, Codable {
     func view(using model: PlayerModel) -> some View {
         switch self {
         case .settingsAppearance:
-            // SettingsAppearanceView is private inside SettingsView —
-            // placeholder until extraction.
-            SettingsPlaceholder(title: "Appearance Settings")
+            SettingsAppearanceView()
         case .settingsAudio:
             SettingsPlaceholder(title: "Audio Settings")
         case .settingsChimes:
@@ -37,9 +35,7 @@ enum NavigationDestination: Hashable, Codable {
         case .settingsWatchApp:
             WatchAppSettingsView()
         case .settingsProTranscripts:
-            // ProTranscriptsSettingsView is private inside SettingsView —
-            // placeholder until extraction.
-            SettingsPlaceholder(title: "Pro Transcripts Settings")
+            ProTranscriptsSettingsView()
         case .chapter(let index):
             ChapterDestinationPlaceholder(chapterIndex: index)
         }
