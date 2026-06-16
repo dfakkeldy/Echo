@@ -6,7 +6,7 @@ import Testing
 
 /// Unit tests for the pure chapter-loop / end-of-chapter boundary decision
 /// used by the macOS raw-AVPlayer model (MacPlayerModel). The decision logic
-/// lives in Shared/ so it is reachable from this test target; MacPlayerModel
+/// lives in `EchoCore/Services/` so it is reachable from this test target; MacPlayerModel
 /// itself is in the `Echo macOS` target and is exercised structurally (G4).
 struct MacChapterLoopDecisionTests {
 

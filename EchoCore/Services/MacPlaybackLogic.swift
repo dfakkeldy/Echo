@@ -51,3 +51,14 @@ enum MacChapterLoopDecision: Equatable {
         return .none
     }
 }
+
+/// Pure dB→linear conversion for the macOS volume boost. Kept in
+/// `EchoCore/Services/` so it is unit-testable from EchoTests; the audio-tap
+/// plumbing lives in the macOS target. Returns a linear amplitude multiplier
+/// (1.0 == unity / no change).
+enum MacVolumeBoost {
+    static func linearGain(enabled: Bool, gainDB: Float) -> Float {
+        guard enabled else { return 1.0 }
+        return powf(10.0, gainDB / 20.0)
+    }
+}
