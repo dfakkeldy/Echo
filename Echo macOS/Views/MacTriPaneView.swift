@@ -164,27 +164,8 @@ struct MacTriPaneView: View {
                 .buttonStyle(.borderless)
                 .help("Skip forward")
 
-                // Sleep timer
-                Menu {
-                    Button("Off") { player.sleepTimerMode = .off }
-                    Divider()
-                    Button("5 min") { player.sleepTimerMode = .minutes(5) }
-                    Button("10 min") { player.sleepTimerMode = .minutes(10) }
-                    Button("15 min") { player.sleepTimerMode = .minutes(15) }
-                    Button("30 min") { player.sleepTimerMode = .minutes(30) }
-                    Button("45 min") { player.sleepTimerMode = .minutes(45) }
-                    Button("60 min") { player.sleepTimerMode = .minutes(60) }
-                    Divider()
-                    Button("End of Chapter") { player.sleepTimerMode = .endOfChapter }
-                } label: {
-                    Image(
-                        systemName: player.sleepTimer.mode == .off
-                            ? "moon.zzz" : "moon.zzz.fill"
-                    )
-                }
-                .buttonStyle(.borderless)
-                .help("Sleep timer")
-                .frame(width: 28)
+                // More (chapters / bookmarks / mark passage / sleep / settings)
+                MacPlayerMoreMenu(onMarkPassage: onMarkPassage)
 
                 // Playback options (speed / loop / skip / boost)
                 Button {
@@ -209,6 +190,25 @@ struct MacTriPaneView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
             }
+        }
+    }
+
+    // MARK: - Mark Passage
+
+    /// Inserts a marked passage at the current playback time via the shared
+    /// DatabaseService. Mirrors Echo_macOSApp.markPassage so the More menu can
+    /// mark without routing through a menu-command notification.
+    private var onMarkPassage: () -> Void {
+        {
+            guard let audiobookID = player.audiobookID, player.hasMedia else { return }
+            let dao = MarkedPassageDAO(db: dbService.writer)
+            try? dao.insert(
+                audiobookID: audiobookID,
+                mediaTimestamp: player.currentTime,
+                endTimestamp: nil,
+                transcriptSnippet: nil,
+                note: nil
+            )
         }
     }
 }
