@@ -63,6 +63,11 @@ final class NarrationService {
                 audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
         let stream = try audioWriter.makeStream(to: fileURL, sampleRate: 24_000)
 
+        // Low-pass each sub-chunk before writing to tame the Kokoro A14 vocoder's
+        // >9 kHz "whine" (device-confirmed artifact). One filter per chapter so its
+        // state carries across sub-chunks — no discontinuity at the joins.
+        var lowPass = NarrationLowPass()
+
         for (i, block) in spoken.enumerated() {
             try Task.checkCancellation()
             let text = TextNormalizer.normalize(block.text ?? "")
@@ -77,7 +82,10 @@ final class NarrationService {
             for subText in NarrationTextChunker.split(text) {
                 try Task.checkCancellation()
                 do {
-                    let chunk = try await tts.synthesize(subText, voice: voice)
+                    let raw = try await tts.synthesize(subText, voice: voice)
+                    let chunk = TTSChunk(
+                        samples: lowPass.process(raw.samples),
+                        sampleRate: raw.sampleRate, duration: raw.duration)
                     try await stream.append(chunk)
                     blockDuration += chunk.duration
                 } catch is CancellationError {
