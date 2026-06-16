@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// A portable manifest stored as `.echoplaylist.json` in a playlist folder,

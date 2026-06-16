@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// A horizontal auto-scrolling marquee text component that handles text that

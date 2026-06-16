@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V4 migration — materialized timeline_item table replacing the timeline VIEW

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Generates an Obsidian-compatible Markdown study-notes bundle per book.

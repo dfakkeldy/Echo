@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// The three-tier smart-rewind rules as a pure value, shared by playback

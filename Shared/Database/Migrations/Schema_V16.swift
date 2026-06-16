@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V16 — SRS 2.0 (FSRS columns, cloze support, anki_deck_id)

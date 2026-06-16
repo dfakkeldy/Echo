@@ -81,7 +81,7 @@ The website carries everything that needs room to breathe:
 | **Tech press** | MacStories, 9to5Mac, Daring Fireball, The Verge "Installer" | Pitch the human story + 60-second demo video; MacStories loves indie + accessibility + open source |
 | **YouTube/Shorts** | 30–60s demos: photo bookmark → artwork switch; auto-align an EPUB; watch-only workflow | Screen recordings are cheap to make and demo features words can't |
 | **Anki/SRS community** | Blog post: "What Anki gets right, and what audio changes" | Position as *complement*, not replacement — deck import exists |
-| **Open-source community** | GitHub README as landing page, good-first-issues, MIT license | Stars are social proof; contributors are evangelists |
+| **Open-source community** | GitHub README as landing page, good-first-issues, GPL-3.0 license | Stars are social proof; contributors are evangelists |
 | **Podcasts** | Indie dev shows (Under the Radar audience), ADHD podcasts | The origin story carries a 30-minute conversation easily |
 
 ### Launch sequence

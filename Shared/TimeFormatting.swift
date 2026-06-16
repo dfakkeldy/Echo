@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Shared time formatting utility. Formats a TimeInterval as [H:]MM:SS.

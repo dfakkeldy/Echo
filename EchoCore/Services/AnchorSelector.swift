@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Filters `TokenDTW.AnchorCandidate`s down to the set worth persisting as

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Per-server token storage: the access token lives in memory (cleared on restart),

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Size ceilings that guard archive extraction (`.apkg`, `.epub`) against

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
 /// V2 migration — adds timeline support tables (note, planned_session, real_time_event)

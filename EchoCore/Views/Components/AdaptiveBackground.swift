@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// Full-screen tonal ramp from the current cover's theme: a pale wash in

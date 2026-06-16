@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Splits a block of prose into small sub-chunks the TTS model can synthesize

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Parses Anki-style cloze deletions (`{{cN::answer}}`) from flashcard text.

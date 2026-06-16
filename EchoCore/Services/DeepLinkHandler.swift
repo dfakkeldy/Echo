@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Action produced by processing a deep link URL. PlayerModel executes these.

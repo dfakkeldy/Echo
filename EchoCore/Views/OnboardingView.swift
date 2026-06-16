@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
 /// Simple first-launch welcome sheet explaining Echo's three core loops.

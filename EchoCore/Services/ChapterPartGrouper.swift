@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Audit C2: "Part Two – Design in Practice:" repeated on every row is

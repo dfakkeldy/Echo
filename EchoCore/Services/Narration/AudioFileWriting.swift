@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Writes rendered PCM chunks to a single on-disk audio file (AAC).

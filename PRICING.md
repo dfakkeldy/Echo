@@ -1,7 +1,7 @@
 # PRICING.md — Echo Monetization & Paywall Spec
 
 > **Status:** Draft for implementation. Numbers tagged `recommend — confirm` are recommended price points pending final confirmation (see §9).
-> **App:** Echo — *Audiobook Study Player*. App Store ID `6779836394`. Open-source (MIT), privacy-first, neurodivergent-first, solo-dev, pre-1.0 in TestFlight.
+> **App:** Echo — *Audiobook Study Player*. App Store ID `6779836394`. Open-source (GPL-3.0), privacy-first, neurodivergent-first, solo-dev, pre-1.0 in TestFlight.
 > **Audience for this doc:** the solo developer implementing against StoreKit 2.
 
 ---

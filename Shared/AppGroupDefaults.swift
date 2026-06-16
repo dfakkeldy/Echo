@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// Shared app-group UserDefaults accessor for iOS, watchOS, macOS, and Widget targets.

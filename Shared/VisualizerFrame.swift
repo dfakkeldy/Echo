@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
 /// An audio analysis frame produced by `VisualizerDataProviding` at ~30 fps.
