@@ -48,7 +48,7 @@ final class SettingsManager {
         static let truncateChapterNamesEnabled = false
         static let silenceDetectionLookbackSeconds = 10.0
         static let phonePage: [WatchAction] = [
-            .previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack,
+            .skipBackward, .empty, .playPause, .empty, .skipForward,
         ]
         static let phoneLongPressPage: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let miniPlayerPage: [WatchAction] = [.skipBackward, .playPause, .skipForward]
