@@ -187,19 +187,72 @@ struct NowPlayingTab: View {
             .accessibilityLabel(Text("Book info"))
             .accessibilityValue(Text(secondaryLineText))
 
-            // Hero line: chapter title marquee — almost never truncates now
-            MarqueeText(
-                text: titleText,
-                fontStyle: .title3,
-                fontWeight: .bold,
-                appFont: model.resolvedAppFont,
-                foregroundStyle: .primary
-            )
-            .frame(maxWidth: .infinity, alignment: .center)
+            // Hero line: chapter-nav chevrons flank the chapter-title marquee.
+            // Chevrons reuse skip*Navigation (chapter-aware; falls back to track)
+            // so this in-app bar matches the lock screen byte-for-byte. The whole
+            // bar is gated on chapters.count >= 2 to mirror `titleText`; a
+            // single-chapter / marker-less book renders the bare marquee as before.
+            if model.chapters.count >= 2 {
+                HStack(spacing: 8) {
+                    Button {
+                        model.skipBackwardNavigation()
+                        Haptic.play(.light)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: chevronWidth, height: 32)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!model.hasPreviousChapter)
+                    .accessibilityLabel(Text("Previous chapter"))
+                    .accessibilityHint(Text("Jumps to the previous chapter"))
+
+                    MarqueeText(
+                        text: titleText,
+                        fontStyle: .title3,
+                        fontWeight: .bold,
+                        appFont: model.resolvedAppFont,
+                        foregroundStyle: .primary
+                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    Button {
+                        model.skipForwardNavigation()
+                        Haptic.play(.light)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: chevronWidth, height: 32)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!model.hasNextChapter)
+                    .accessibilityLabel(Text("Next chapter"))
+                    .accessibilityHint(Text("Jumps to the next chapter"))
+                }
+            } else {
+                MarqueeText(
+                    text: titleText,
+                    fontStyle: .title3,
+                    fontWeight: .bold,
+                    appFont: model.resolvedAppFont,
+                    foregroundStyle: .primary
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
     }
 
     // MARK: - Helpers
+
+    /// Fixed hit-target width for each chapter-nav chevron. Reserving a constant
+    /// width (rather than letting the chevrons share flexible space) keeps the
+    /// MarqueeText container-width measurement stable as the bar's disabled
+    /// state changes, so a short title is never shifted by a stale width.
+    private let chevronWidth: CGFloat = 44
 
     private var titleText: String {
         model.chapters.count >= 2
