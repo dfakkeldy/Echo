@@ -65,6 +65,19 @@ struct SettingsExtractionTests {
         #expect(source.contains("playBookmarksInline"))
     }
 
+    /// The Settings shell links out to its subscreens and keeps only app-level
+    /// rows — no inline per-listen controls remain.
+    @Test func settingsShellExposesSubscreenLinksOnly() throws {
+        let source = try Self.source(named: "SettingsView.swift")
+        #expect(source.contains("SettingsAppearanceView()"))
+        #expect(source.contains("ProTranscriptsSettingsView()"))
+        #expect(source.contains("PhonePlayerSettingsView()"))
+        #expect(source.contains("WatchAppSettingsView()"))
+        #expect(source.contains("SettingsAdvancedView()"))
+        // The Volume Boost toggle moved to the Playback Options sheet (WS-B).
+        #expect(!source.contains("Toggle(\"Volume Boost\""))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

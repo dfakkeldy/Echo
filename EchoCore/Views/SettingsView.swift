@@ -51,6 +51,9 @@ struct SettingsView: View {
                     NavigationLink("Watch App Settings") {
                         WatchAppSettingsView()
                     }
+                    NavigationLink("Advanced") {
+                        SettingsAdvancedView()
+                    }
                 }
 
                 // Audit E4: the "for testing" lookback slider is debug tooling
