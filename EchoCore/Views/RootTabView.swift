@@ -13,6 +13,10 @@ struct RootTabView: View {
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
     @State private var showingPlaybackOptions = false
+    /// Player-More chapter-navigation sheet for the non-Now-Playing dock overlay
+    /// (WS-C). Distinct binding from NowPlayingTab's, but both present the same
+    /// ChapterPickerSheet — they are never on screen at the same time.
+    @State private var showingChapterPicker = false
     @State private var showingBookSettings = false
     // showingHelp presentation state resides on PlayerModel
     @State private var newBookmarkDraft: BookmarkDraft? = nil
@@ -126,7 +130,7 @@ struct RootTabView: View {
                         // WS-C C2: the player-More closures are required on the dock.
                         // Full wiring on this non-NowPlaying overlay (chapter sheet
                         // binding) is task C3; Bookmarks/Settings reuse existing state.
-                        onShowChapters: {},
+                        onShowChapters: { showingChapterPicker = true },
                         onShowBookmarks: { model.selectedTab = .timeline },
                         onShowSettings: { showingSettings = true }
                     )
@@ -144,6 +148,12 @@ struct RootTabView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        // Player-More "Chapters" from the overlaid dock (Read/Study tabs).
+        .sheet(isPresented: $showingChapterPicker) {
+            ChapterPickerSheet(chapters: model.chapters) { chapter in
+                model.seek(toSeconds: chapter.startSeconds + 0.05)
+            }
         }
         .sheet(isPresented: $showingPlaybackOptions) {
             PlaybackOptionsSheet()
