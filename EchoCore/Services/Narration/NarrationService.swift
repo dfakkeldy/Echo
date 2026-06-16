@@ -50,10 +50,21 @@ final class NarrationService {
 
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
     /// Idempotent: re-rendering the same chapter (e.g. a voice change) upserts in place.
-    func renderChapter(chapterIndex: Int, blocks: [EPubBlockRecord], voice: VoiceID) async throws {
+    ///
+    /// `chapterIndex` is the raw EPUB index — it keys the cache file, the track id,
+    /// and sort order, and must stay stable. `chapterNumber` is the human-facing
+    /// 1-based position among *narratable* chapters (front matter excluded), used
+    /// only for the title and status text so the first real chapter reads
+    /// "Chapter 1". Defaults to `chapterIndex + 1` when omitted (tests that don't
+    /// exercise numbering).
+    func renderChapter(
+        chapterIndex: Int, chapterNumber: Int? = nil,
+        blocks: [EPubBlockRecord], voice: VoiceID
+    ) async throws {
+        let displayNumber = chapterNumber ?? (chapterIndex + 1)
         state.update(
             phase: .preparingChapter, progress: 0,
-            statusMessage: "Preparing chapter \(chapterIndex + 1)…")
+            statusMessage: "Preparing chapter \(displayNumber)…")
 
         let spoken = blocks.filter { ($0.text?.isEmpty == false) }
         var anchors: [AlignmentAnchorRecord] = []
@@ -111,7 +122,7 @@ final class NarrationService {
             state.update(
                 phase: .preparingChapter,
                 progress: Double(i + 1) / Double(spoken.count),
-                statusMessage: "Preparing chapter \(chapterIndex + 1)…")
+                statusMessage: "Preparing chapter \(displayNumber)…")
         }
 
         // Lead-out pad: append trailing silence so the last word has room to ring
@@ -132,7 +143,7 @@ final class NarrationService {
 
         let track = TrackRecord(
             id: "syn-\(audiobookID)-ch\(chapterIndex)", audiobookID: audiobookID,
-            title: "Chapter \(chapterIndex + 1)", duration: duration,
+            title: "Chapter \(displayNumber)", duration: duration,
             filePath: fileURL.path, isEnabled: true, sortOrder: chapterIndex,
             playlistPosition: nil, narrationVoice: voice.rawValue)
 

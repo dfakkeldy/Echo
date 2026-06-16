@@ -187,7 +187,8 @@ extension PlayerModel {
                             ) == false
                         else { return }
                         try await service.renderChapter(
-                            chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
+                            chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
+                            blocks: chapter.blocks, voice: voice.id)
                         try Task.checkCancellation()
                         // Bail if the user switched books while this chapter rendered.
                         guard
@@ -199,7 +200,7 @@ extension PlayerModel {
                     }
 
                     let track = Track(
-                        url: fileURL, title: String(localized: "Chapter \(chapter.index + 1)"))
+                        url: fileURL, title: String(localized: "Chapter \(chapter.displayNumber)"))
 
                     if offset == 0 {
                         // First chapter: start playing through the pipeline.
@@ -241,7 +242,8 @@ extension PlayerModel {
                             ) == false
                         else { return }
                         try await service.renderChapter(
-                            chapterIndex: chapter.index, blocks: chapter.blocks, voice: voice.id)
+                            chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
+                            blocks: chapter.blocks, voice: voice.id)
                         try Task.checkCancellation()
                         guard
                             NarrationRenderPolicy.bookWasSwitched(
@@ -252,7 +254,7 @@ extension PlayerModel {
                     }
 
                     let track = Track(
-                        url: fileURL, title: String(localized: "Chapter \(chapter.index + 1)"))
+                        url: fileURL, title: String(localized: "Chapter \(chapter.displayNumber)"))
                     self.tracks.insert(track, at: 0)
                     // The playing track shifted one slot right; keep currentIndex on it.
                     self.state.currentIndex += 1

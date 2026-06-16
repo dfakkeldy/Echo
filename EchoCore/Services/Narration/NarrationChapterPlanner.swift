@@ -5,10 +5,14 @@ import Foundation
 /// chapter. Pure logic so it can be unit-tested without the TTS engine.
 enum NarrationChapterPlanner {
 
-    /// One narratable chapter: its chapter index plus the blocks to synthesize,
-    /// in reading (sequence) order.
+    /// One narratable chapter: its raw EPUB chapter index (stable identity — keys
+    /// the cache filename, track id, and resume lookup), a 1-based `displayNumber`
+    /// for the human-facing title (position among *narratable* chapters, so the
+    /// first real chapter reads "Chapter 1" even when front matter occupies EPUB
+    /// indices 0…2), and the blocks to synthesize in reading (sequence) order.
     struct PlannedChapter: Equatable {
         let index: Int
+        let displayNumber: Int
         let blocks: [EPubBlockRecord]
     }
 
@@ -16,14 +20,21 @@ enum NarrationChapterPlanner {
     /// (front matter that wasn't mapped) are dropped, as are chapters with no
     /// spoken text (image-only or empty), so narration never renders silent
     /// chapters. Within a chapter, blocks are returned in sequence order.
+    ///
+    /// `displayNumber` is assigned AFTER the empty-chapter filter, so dropped
+    /// front matter / image-only sections don't leave gaps in the visible
+    /// numbering — the surviving chapters are numbered 1, 2, 3… in order.
     static func plan(from blocks: [EPubBlockRecord]) -> [PlannedChapter] {
         let grouped = Dictionary(grouping: blocks.filter { $0.chapterIndex != nil }) {
             $0.chapterIndex!
         }
-        return grouped.keys.sorted().compactMap { index in
+        let narratable = grouped.keys.sorted().compactMap { index -> (Int, [EPubBlockRecord])? in
             let chapterBlocks = grouped[index]!.sorted { $0.sequenceIndex < $1.sequenceIndex }
             guard chapterBlocks.contains(where: { ($0.text?.isEmpty == false) }) else { return nil }
-            return PlannedChapter(index: index, blocks: chapterBlocks)
+            return (index, chapterBlocks)
+        }
+        return narratable.enumerated().map { offset, entry in
+            PlannedChapter(index: entry.0, displayNumber: offset + 1, blocks: entry.1)
         }
     }
 
