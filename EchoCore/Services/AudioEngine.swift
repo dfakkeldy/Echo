@@ -167,7 +167,7 @@ final class AudioEngine {
         // headphones or an interruption still pauses playback (§5.9).
         if !audioSessionConfigured { configureAudioSession() }
         startEngineIfNeeded()
-        timePitchNode?.rate = speed
+        applyPlaybackRate(speed)
         playerNode.play()
         isPlaying = true
         startTimeTimer()
@@ -178,7 +178,7 @@ final class AudioEngine {
         guard let playerNode, engine != nil, isItemLoaded else { return }
         if !audioSessionConfigured { configureAudioSession() }  // re-arm after stop() (§5.9)
         startEngineIfNeeded()
-        timePitchNode?.rate = rate
+        applyPlaybackRate(rate)
         playerNode.play()
         isPlaying = true
         startTimeTimer()
@@ -260,7 +260,25 @@ final class AudioEngine {
 
     func setSpeed(_ newSpeed: Float) {
         speed = newSpeed
-        timePitchNode?.rate = newSpeed
+        applyPlaybackRate(newSpeed)
+    }
+
+    /// Apply a playback rate to the time-pitch unit. At unity (1.0×) the unit is
+    /// **bypassed** — a clean passthrough — so the phase-vocoder never processes
+    /// audio it isn't actually time-stretching. That unconditional 1× processing
+    /// (kept engaged by the old `pitch = 0.01` workaround) added a metallic
+    /// "whine"/reverb audible on-device versus the raw 1× file — the render itself
+    /// is clean. Above/below unity the unit is engaged and the rate applied; the
+    /// explicit bypass also cleanly handles the 3×→1× transition the workaround
+    /// was guarding against (no "stuck at 3×").
+    private func applyPlaybackRate(_ rate: Float) {
+        guard let timePitchNode else { return }
+        if abs(rate - 1.0) < 0.0001 {
+            timePitchNode.auAudioUnit.shouldBypassEffect = true
+        } else {
+            timePitchNode.auAudioUnit.shouldBypassEffect = false
+            timePitchNode.rate = rate
+        }
     }
 
     // MARK: - Gain Control
@@ -362,7 +380,7 @@ final class AudioEngine {
 
             if wasPlaying {
                 startEngineIfNeeded()
-                timePitchNode?.rate = speed
+                applyPlaybackRate(speed)
                 playerNode.play()
                 isPlaying = true
                 startTimeTimer()

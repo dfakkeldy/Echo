@@ -8,8 +8,10 @@ enum NarrationFileNaming {
     /// Bump whenever the *rendered audio* changes (DSP, sample rate, lead-out…),
     /// so a cached chapter from an older render misses the cache and regenerates
     /// once, while everything else stays persisted. v1 = the original un-versioned
-    /// render (filenames had no `-v` suffix); v2 = with the 8.5 kHz low-pass.
-    static let renderVersion = 2
+    /// render (no `-v` suffix); v2 = 8.5 kHz low-pass (reverted — it dulled the
+    /// already-clean render without fixing the whine, which was a playback-side
+    /// time-pitch artifact); v3 = low-pass removed, raw vocoder output again.
+    static let renderVersion = 3
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {
