@@ -199,7 +199,7 @@ struct EchoCoreTests {
         // Defaults
         #expect(settings.seekBackwardDuration == 30)
         #expect(settings.seekForwardDuration == 30)
-        #expect(settings.phonePage == [.previousTrack, .skipBackward, .playPause, .skipForward, .nextTrack])
+        #expect(settings.phonePage == [.skipBackward, .empty, .playPause, .empty, .skipForward])
         #expect(settings.phonePresets.isEmpty)
         #expect(settings.watchPresets.isEmpty)
 
