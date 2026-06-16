@@ -56,22 +56,67 @@ struct MacTriPaneView: View {
 
     // MARK: - Player Bar
 
+    /// The title shown in the chapter-nav bar: the current chapter's title
+    /// when available, otherwise the book/track title. `Chapter.title` is
+    /// optional, so an untitled chapter also falls back to `currentTitle`.
+    private var macChapterTitle: String {
+        if player.chapters.indices.contains(player.currentChapterIndex),
+            let title = player.chapters[player.currentChapterIndex].title,
+            !title.isEmpty
+        {
+            return title
+        }
+        return player.currentTitle
+    }
+
     @ViewBuilder
     private var playerBar: some View {
         if player.hasMedia {
             HStack(spacing: 12) {
-                // Track info
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(player.currentTitle)
-                        .font(.caption)
-                        .lineLimit(1)
-                    if player.hasMultipleTracks {
-                        Text("Track \(player.currentTrackIndex + 1) of \(player.tracks.count)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                // Chapter navigation (falls back to track label when the
+                // audiobook has no chapter markers — ChapterService floors at
+                // 2 chapters, so chapters.count < 2 means "no chapters").
+                if player.chapters.count >= 2 {
+                    HStack(spacing: 4) {
+                        Button {
+                            player.previousChapter()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Previous chapter")
+                        .accessibilityLabel(Text("Previous chapter"))
+                        .disabled(player.currentChapterIndex <= 0)
+
+                        Text(macChapterTitle)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .center)
+
+                        Button {
+                            player.nextChapter()
+                        } label: {
+                            Image(systemName: "chevron.right")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Next chapter")
+                        .accessibilityLabel(Text("Next chapter"))
+                        .disabled(player.currentChapterIndex >= player.chapters.count - 1)
                     }
+                    .frame(maxWidth: 160)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(player.currentTitle)
+                            .font(.caption)
+                            .lineLimit(1)
+                        if player.hasMultipleTracks {
+                            Text("Track \(player.currentTrackIndex + 1) of \(player.tracks.count)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: 120, alignment: .leading)
                 }
-                .frame(maxWidth: 120, alignment: .leading)
 
                 // Progress
                 Slider(
