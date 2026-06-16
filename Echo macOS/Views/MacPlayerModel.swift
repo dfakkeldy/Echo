@@ -95,6 +95,27 @@ final class MacPlayerModel {
     private(set) var tracks: [URL] = []
     private(set) var currentTrackIndex: Int = 0
 
+    // MARK: Chapters (M4B markers within the current file)
+
+    /// Chapters parsed from the currently-open file's M4B/M4A markers.
+    /// Empty when the file has no markers (or only one) — see `ChapterService`.
+    private(set) var chapters: [Chapter] = []
+    /// Index of the chapter containing `currentTime`. 0 when `chapters` is empty.
+    private(set) var currentChapterIndex: Int = 0
+    /// Token guarding async chapter loads against a file swapped mid-load.
+    private var chapterLoadToken = UUID()
+    /// Title of the open file, captured before chapters override `currentTitle`.
+    /// Restored when chapters are absent so the UI never shows a stale chapter name.
+    private var fileTitle: String = "No audiobook loaded"
+
+    /// True when the open file exposes navigable M4B chapters.
+    /// When false, callers fall back to across-file track navigation.
+    var hasChapters: Bool { chapters.count >= 2 }
+    /// True when a previous chapter exists for in-file navigation.
+    var hasPreviousChapter: Bool { hasChapters && currentChapterIndex > 0 }
+    /// True when a next chapter exists for in-file navigation.
+    var hasNextChapter: Bool { hasChapters && currentChapterIndex < chapters.count - 1 }
+
     private static let audioExtensions: Set<String> = ["mp3", "m4b", "m4a", "wav", "flac"]
 
     var hasMedia: Bool { currentURL != nil }
@@ -214,7 +235,13 @@ final class MacPlayerModel {
         stop()
 
         currentURL = url
-        currentTitle = url.deletingPathExtension().lastPathComponent
+        let baseTitle = url.deletingPathExtension().lastPathComponent
+        fileTitle = baseTitle
+        currentTitle = baseTitle
+        // Clear the previous file's chapter axis synchronously; the new file's
+        // chapters are loaded asynchronously just below.
+        chapters = []
+        currentChapterIndex = 0
         // Infer folder from the file's parent directory if not already set.
         if folderURL == nil {
             folderURL = url.deletingLastPathComponent()
@@ -267,6 +294,44 @@ final class MacPlayerModel {
 
         loadBookmarksFromDB()
         migrateLegacyBookmarksIfNeeded()
+        loadChapters(for: url)
+    }
+
+    /// Asynchronously parses M4B chapter markers for `url` and installs them.
+    /// Guarded by `chapterLoadToken` so a file swapped mid-load is ignored.
+    private func loadChapters(for url: URL) {
+        let token = UUID()
+        chapterLoadToken = token
+        Task { @MainActor [weak self] in
+            let asset = AVURLAsset(url: url)
+            let parsed = await ChapterService.parseChapters(from: asset)
+            guard let self = self, self.chapterLoadToken == token else { return }
+            self.chapters = parsed
+            // Re-derive the active chapter for the current playhead.
+            self.refreshCurrentChapter()
+        }
+    }
+
+    /// Recomputes `currentChapterIndex` from `currentTime` and keeps
+    /// `currentTitle` in sync with the active chapter when chapters exist.
+    /// When chapters are absent, restores the plain file title.
+    private func refreshCurrentChapter() {
+        guard hasChapters else {
+            currentChapterIndex = 0
+            if currentTitle != fileTitle { currentTitle = fileTitle }
+            return
+        }
+        let idx =
+            ChapterService.chapterIndex(forTime: currentTime, in: chapters)
+            ?? currentChapterIndex
+        if idx != currentChapterIndex {
+            currentChapterIndex = idx
+        }
+        let chapterTitle = chapters[idx].title ?? fileTitle
+        if currentTitle != chapterTitle {
+            currentTitle = chapterTitle
+            updateNowPlaying()
+        }
     }
 
     func loadFolder(url folderURL: URL) {
