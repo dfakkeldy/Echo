@@ -120,7 +120,39 @@
   var bySlug = {};
   GLOSSARY.forEach(function (e) { bySlug[e.slug] = e; });
 
-  // (renderer added in Task 3, engine in Task 4)
+  function renderGlossary(mount) {
+    if (!mount) return;
+    mount.innerHTML = "";
+    CATEGORIES.forEach(function (cat) {
+      var entries = GLOSSARY.filter(function (e) { return e.category === cat; })
+        .sort(function (a, b) { return a.term.localeCompare(b.term); });
+      if (!entries.length) return;
+      var section = document.createElement("section");
+      section.className = "gloss-cat";
+      var h2 = document.createElement("h2");
+      h2.id = catId(cat);
+      h2.textContent = cat;
+      section.appendChild(h2);
+      entries.forEach(function (e) {
+        var h3 = document.createElement("h3");
+        h3.id = e.slug;
+        h3.className = "gloss-term-heading";
+        h3.textContent = e.term;
+        var p = document.createElement("p");
+        p.textContent = e.long;
+        section.appendChild(h3);
+        section.appendChild(p);
+      });
+      mount.appendChild(section);
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var root = document.getElementById("glossary-root");
+    if (root) renderGlossary(root);
+  });
+
+  // (engine added in Task 4)
 
   window.__ECHO_GLOSSARY__ = { entries: GLOSSARY, bySlug: bySlug, catId: catId, categories: CATEGORIES };
 })();
