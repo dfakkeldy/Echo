@@ -1147,6 +1147,21 @@ a.gloss { cursor: help; }
   text-decoration: none;
 }
 .gloss-popover-more:hover { text-decoration: underline; }
+.gloss-popover-close {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.45rem;
+  background: none;
+  border: 0;
+  padding: 0.15rem 0.35rem;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.gloss-popover-close:hover,
+.gloss-popover-close:focus-visible { color: var(--accent-gold); }
+.gloss-popover-def { padding-right: 1.1rem; }
 
 .gloss-cat { margin-bottom: 2.4rem; }
 .gloss-cat h2 {

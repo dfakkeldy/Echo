@@ -23,7 +23,7 @@
       long: "The number of insertions, deletions, or substitutions needed to change one string into another. Echo uses it to forgive small transcription errors when matching heard words to the book's text." },
     { slug: "jaccard", term: "Jaccard similarity", category: "Technical",
       short: "A 0–1 score for how much two sets of words overlap.",
-      long: "A measure of overlap between two sets — shared items divided by total items. Echo compares the words in a heard passage against a paragraph's words to judge whether they're the same passage." },
+      long: "A measure of overlap between two sets — shared items divided by the items in either set. Echo compares the words in a heard passage against a paragraph's words to judge whether they're the same passage." },
     { slug: "grdb", term: "GRDB", category: "Technical",
       short: "The Swift library Echo uses to store your data in a local SQLite database on the device.",
       long: "A well-regarded Swift wrapper around SQLite. It's where Echo keeps bookmarks, flashcards, notes, and alignment data — all on your device, no server involved." },
@@ -172,6 +172,13 @@
     more.textContent = "Read full entry →";
     pop.appendChild(def);
     pop.appendChild(more);
+    var closeBtn = document.createElement("button");
+    closeBtn.className = "gloss-popover-close";
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Close definition");
+    closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", hide);
+    pop.appendChild(closeBtn);
     pop.addEventListener("mouseenter", cancelHide);
     pop.addEventListener("mouseleave", scheduleHide);
     pop.addEventListener("focusin", cancelHide);
