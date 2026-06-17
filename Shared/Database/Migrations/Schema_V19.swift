@@ -7,6 +7,7 @@ enum Schema_V19 {
         try db.create(table: "word_timing") { t in
             t.autoIncrementedPrimaryKey("id")
             t.column("audiobook_id", .text).notNull().indexed()
+                .references("audiobook", onDelete: .cascade)
             t.column("epub_block_id", .text).notNull()
             t.column("word_index", .integer).notNull()
             t.column("word", .text).notNull()
