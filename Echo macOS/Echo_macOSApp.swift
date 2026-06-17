@@ -22,8 +22,7 @@ struct Echo_macOSApp: App {
     @State private var dbService: DatabaseService
     @State private var lastOpenToken: UUID = UUID()
 
-    // WS-12: Bulk alignment and Anki export state
-    @State private var bulkAlignmentService = MacBulkAlignmentService()
+    // WS-12: Anki export state
     @State private var showAnkiExport = false
 
     /// Persistent batch pipeline (import → transcribe → align → word timings).
@@ -106,7 +105,7 @@ struct Echo_macOSApp: App {
 
                 Button("Add Folder to Queue…") {
                     if let folder = chooseBatchFolder() {
-                        try? bulkAlignmentService.enqueueFolder(folder, into: batchService)
+                        try? FolderAudioScanner.enqueueFolder(folder, into: batchService)
                     }
                 }
                 .keyboardShortcut("b", modifiers: [.command, .option])

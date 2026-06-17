@@ -52,7 +52,7 @@ Each phase is independently shippable and can be merged on its own branch.
 | `Shared/Database/Migrations/Schema_V20.swift` | C | Create | `batch_queue` table |
 | `Shared/BatchQueueRunner.swift` | C | Create | Testable sequential queue engine (injected stages) |
 | `Echo macOS/Services/MacBatchProcessingService.swift` | C | Create | macOS `@Observable` wrapper supplying real stages |
-| `Echo macOS/Services/MacBulkAlignmentService.swift` | C | Modify | Folder scan → enqueue items |
+| `Echo macOS/Services/FolderAudioScanner.swift` | C | Create | Folder scan → enqueue items (extracted post-impl from the now-deleted `MacBulkAlignmentService`) |
 | `Echo macOS/Views/MacBatchQueueView.swift` | C | Create | Queue management UI + row |
 | `Echo macOS/Echo_macOSApp.swift` | C | Modify | Wire service, menu, restart recovery |
 | `Echo.xcodeproj/project.pbxproj` | D | Modify | Add `swift-audio-marker` SPM dep (Echo iOS target) |
@@ -1801,7 +1801,7 @@ private struct MacBatchQueueRow: View {
 
 Add a sheet for `MacBatchQueueView()` bound to `showBatchQueue`, injecting `batchService` into its environment.
 
-> Keep the existing single-book open flow (`showOpenPanel`) untouched — batch is additive. The old "Bulk Align Folder…" (`⌘⌥B`) command is superseded by "Add Folder to Queue…"; remove the old command and its `MacBulkAlignmentProgressView` sheet only after the queue UI is verified working.
+> Keep the existing single-book open flow (`showOpenPanel`) untouched — batch is additive. The old "Bulk Align Folder…" (`⌘⌥B`) command is superseded by "Add Folder to Queue…"; remove the old command and its `MacBulkAlignmentProgressView` sheet only after the queue UI is verified working. **(Done — 2026-06-17: the old command + sheet and the now-dead `MacBulkAlignmentService` were deleted; the surviving recursive scan + companion-EPUB enqueue moved to `FolderAudioScanner`.)**
 
 - [ ] **Step 3: Build macOS + manual verification**
 

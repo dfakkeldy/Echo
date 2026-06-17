@@ -68,7 +68,7 @@ final class MacBatchProcessingService {
     ///
     /// `companionEPUB`, when supplied, is bookmarked **now** while the
     /// user-selected folder's security scope is still active (see
-    /// `MacBulkAlignmentService.enqueueFolder`). The companion lives at a
+    /// `FolderAudioScanner.enqueueFolder`). The companion lives at a
     /// sibling path that the audio file's own bookmark does NOT cover, so under
     /// the sandbox the EPUB read would fail at processing time without its own
     /// scope. We persist a separate bookmark and resolve it in `makeStages()`.

@@ -236,14 +236,13 @@ Echo_macOSApp.swift
 Info.plist
 PrivacyInfo.xcprivacy
 Services/AudioExtractor.swift
+Services/FolderAudioScanner.swift
 Services/MacAlignmentService.swift
 Services/MacApkgExportService.swift
 Services/MacAudioBoostTap.swift
 Services/MacBatchProcessingService.swift
-Services/MacBulkAlignmentService.swift
 Views/MacAnkiExportView.swift
 Views/MacBatchQueueView.swift
-Views/MacBulkAlignmentProgressView.swift
 Views/MacNotesPane.swift
 Views/MacPlaybackOptionsSheet.swift
 Views/MacPlayerModel.swift
@@ -268,7 +267,7 @@ The macOS app is rooted in `MacTriPaneView` (a `NavigationSplitView`/tri-pane la
 
 ### macOS Batch Processing Queue (June 2026)
 
-The Mac app can process an entire folder of audiobooks unattended. `MacBulkAlignmentService` (formerly an in-memory, align-only bulk pass) now scans a user-picked folder and **enqueues** each audio file (with its companion EPUB) into a persistent queue; `MacBatchProcessingService` drains it one book at a time through the real **import → transcribe → align** pipeline.
+The Mac app can process an entire folder of audiobooks unattended. A small `FolderAudioScanner` recursively scans a user-picked folder and **enqueues** each audio file (with its companion EPUB) into a persistent queue; `MacBatchProcessingService` drains it one book at a time through the real **import → transcribe → align** pipeline. (This replaced the earlier inline, in-memory "Bulk Align Folder…" flow — the dead `MacBulkAlignmentService` and its progress sheet `MacBulkAlignmentProgressView` were removed once the queue UI shipped.)
 
 - **Durable queue (`batch_queue`, Schema V20).** `BatchQueueRecord` / `BatchQueueDAO` persist queue position, status, and (nullable) security-scoped bookmarks. `batch_queue.audiobook_id` deliberately has **no** FK — entries legitimately reference not-yet-imported books. The pure, testable `BatchQueueRunner` (`Shared/`) drains the queue FIFO, isolates per-book failures (a throw marks that item `.failed` and processing continues), and on relaunch `recoverInFlight()` resets any `importing`/`transcribing`/`aligning` item back to `queued` so the queue resumes cleanly.
 - **Sandbox-correct file access.** The Mac app is sandboxed (`app-sandbox` + `files.user-selected.read-write` + `files.bookmarks.app-scope`), so each audio file's security-scoped bookmark is captured at enqueue, and a **separate bookmark for the sibling companion EPUB** is captured at the same moment — while the user-picked folder's scope is still live. Both are resolved and `startAccessingSecurityScopedResource()`-balanced (with `defer` stops) during processing. A book whose import produces **no** EPUB blocks is marked `.failed` rather than silently completing empty.
