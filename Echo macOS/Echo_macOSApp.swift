@@ -280,8 +280,20 @@ struct Echo_macOSApp: App {
 
     /// In-memory database used as a safe fallback when the shared App Group
     /// database cannot be initialised (first launch, no entitlements, etc.).
+    ///
+    /// A single attempt — the previous `(try? …) ?? (try! …)` form repeated the
+    /// identical initializer, so the `try!` could only ever crash with the same
+    /// failure the `try?` had just swallowed: a redundant trap with a useless
+    /// diagnostic (CODE_AUDIT §5.3). If even an in-memory SQLite store cannot
+    /// open, the process has no database to run on at all, so fail loudly with a
+    /// clear message rather than a bare `try!` re-trap.
     private static func makeInMemoryDB() -> DatabaseService {
-        (try? DatabaseService(inMemory: ())) ?? (try! DatabaseService(inMemory: ()))
+        do {
+            return try DatabaseService(inMemory: ())
+        } catch {
+            fatalError(
+                "Echo could not open even an in-memory database — SQLite is unavailable: \(error)")
+        }
     }
 }
 
