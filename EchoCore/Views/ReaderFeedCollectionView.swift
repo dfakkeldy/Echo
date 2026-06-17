@@ -6,6 +6,11 @@ import UIKit
 struct ReaderFeedCollectionView: UIViewRepresentable {
     var sections: [ReaderCardSection]
     @Binding var activeBlockID: String?
+    /// The currently spoken word (for karaoke), sourced read-only from the view
+    /// model. Plain value (not a `@Binding`): data flows one way (VM → cell) and
+    /// the collection never writes it back, so a binding would only loosen the
+    /// view model's `private(set)` for nothing.
+    var activeWord: (blockID: String, index: Int)? = nil
     @Binding var isHeaderVisible: Bool
     @Binding var autoScrollEnabled: Bool
     @Binding var topPartTitle: String?
@@ -146,6 +151,21 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         context.coordinator.updateActiveBlock(activeBlockID, in: collectionView)
+
+        // Karaoke: keep the coordinator's word in sync so freshly-dequeued cells
+        // render the right word, then retint the on-screen active cell — throttled
+        // to ~12 Hz so word-rate updates don't thrash the visible cell.
+        let wordChanged =
+            activeWord?.blockID != context.coordinator.activeWord?.blockID
+            || activeWord?.index != context.coordinator.activeWord?.index
+        context.coordinator.activeWord = activeWord
+        if wordChanged {
+            let now = CACurrentMediaTime()
+            if now - context.coordinator.lastWordTick >= 0.08 {
+                context.coordinator.lastWordTick = now
+                context.coordinator.updateActiveWord(activeWord, in: collectionView)
+            }
+        }
     }
 
     private func makeDataSource(for collectionView: UICollectionView)
@@ -182,6 +202,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var dataSource: UICollectionViewDiffableDataSource<String, String>?
         var sections: [ReaderCardSection] = []
         var activeBlockID: String?
+        var activeWord: (blockID: String, index: Int)?
+        /// Throttles karaoke word retints to ~12 Hz so word-rate updates don't
+        /// thrash the active cell. `updateUIView` fires far more often than the
+        /// human eye needs the highlight to move.
+        var lastWordTick: TimeInterval = 0
         var lastScrolledBlockID: String?
         var lastForceScrolledID: String?
         var lastForceScrollTrigger: Int = 0
@@ -239,10 +264,13 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         UIColor(
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
                         ?? UIColor.systemBackground
+                    let headingWordIdx =
+                        (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     headingCell.configure(
                         with: block, font: font, tint: cardTint,
                         isExplicitHighlight: block.cardColor != nil
-                            || block.chapterThemeColor != nil, searchQuery: searchQuery)
+                            || block.chapterThemeColor != nil, searchQuery: searchQuery,
+                        highlightedWordIndex: headingWordIdx)
                     headingCell.isActiveBlock = (block.id == activeBlockID)
                     let timeString =
                         audioStartTimeByBlockID[block.id].map {
@@ -276,10 +304,13 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         UIColor(
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
                         ?? UIColor.systemBackground
+                    let paraWordIdx =
+                        (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     paraCell.configure(
                         with: block, font: font, tint: cardTint, lineSpacing: settings.lineSpacing,
                         isExplicitHighlight: block.cardColor != nil
-                            || block.chapterThemeColor != nil, searchQuery: searchQuery)
+                            || block.chapterThemeColor != nil, searchQuery: searchQuery,
+                        highlightedWordIndex: paraWordIdx)
                     paraCell.isActiveBlock = (block.id == activeBlockID)
                     let timeString =
                         audioStartTimeByBlockID[block.id].map {
@@ -338,6 +369,31 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     collectionView.scrollToItem(
                         at: indexPath, at: .centeredVertically, animated: true)
                 }
+            }
+        }
+
+        /// Retints the *visible* active cell to the spoken word without a diffable
+        /// reload (reloading at word rate flickers). Newly-dequeued cells already
+        /// get the right word via `cell(for:)`, so this only touches a cell that is
+        /// already on screen. The block→IndexPath lookup reuses the same
+        /// `dataSource.indexPath(for: "b-…")` map `updateActiveBlock` uses.
+        func updateActiveWord(
+            _ word: (blockID: String, index: Int)?, in collectionView: UICollectionView
+        ) {
+            guard let word,
+                let dataSource = dataSource,
+                let indexPath = dataSource.indexPath(for: "b-\(word.blockID)"),
+                let cell = collectionView.cellForItem(at: indexPath)
+            else { return }
+            // Fonts mirror those `cell(for:)` builds for each cell kind so the
+            // highlighted word keeps the same metrics as the surrounding text.
+            if let para = cell as? ParagraphCardCell {
+                para.applyWordHighlight(
+                    word.index, baseFont: settings.uiFont(forTextStyle: .body, weight: .regular))
+            } else if let heading = cell as? HeadingCardCell {
+                heading.applyWordHighlight(
+                    word.index,
+                    baseFont: settings.uiFont(forTextStyle: .title3, weight: .semibold))
             }
         }
 

@@ -87,6 +87,7 @@ struct ReaderTab: View {
             ReaderFeedCollectionView(
                 sections: vm.sections,
                 activeBlockID: bindableVM.activeBlockID,
+                activeWord: vm.activeWord,
                 isHeaderVisible: $isHeaderVisible,
                 autoScrollEnabled: $autoScrollEnabled,
                 topPartTitle: $topPartTitle,
