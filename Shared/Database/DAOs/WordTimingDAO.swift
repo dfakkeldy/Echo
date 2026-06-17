@@ -16,6 +16,17 @@ struct WordTimingDAO {
         }
     }
 
+    /// Updates existing rows in place (matched by primary key). Used by the
+    /// DTW refinement pass to retime already-materialized interpolated words.
+    func update(_ records: [WordTimingRecord]) throws {
+        guard !records.isEmpty else { return }
+        try db.write { db in
+            for record in records {
+                try record.update(db)
+            }
+        }
+    }
+
     /// All words for a book, ordered by audio time (reader cache order).
     func words(forAudiobook audiobookID: String) throws -> [WordTimingRecord] {
         try db.read { db in

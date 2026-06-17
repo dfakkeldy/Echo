@@ -105,6 +105,73 @@ struct TokenDTW {
         let m = audio.count
         guard n > 0, m > 0 else { return [] }
 
+        let matches = backtrackPath(epub: epub, audio: audio)
+        let (runIDs, runs) = strongRuns(matches, audio: audio)
+        let tokenIndexInBlock = tokenIndicesWithinBlocks(epub)
+
+        // ── Emit one candidate per block: its first strong match ──
+        var candidateByBlock: [String: AnchorCandidate] = [:]
+        var blockOrder: [String] = []
+        for k in matches.indices where matches[k].strong {
+            let match = matches[k]
+            let blockID = epub[match.epubIndex].blockID
+            guard candidateByBlock[blockID] == nil else { continue }
+
+            let stats = runs[runIDs[k]]
+            let tokenIndex = tokenIndexInBlock[match.epubIndex]
+            let matchTime = audio[match.audioIndex].time
+
+            // Local speech rate from this run's own word times; clamped to
+            // plausible narration bounds so a pause inside the run can't
+            // catapult the projection.
+            let rate: TimeInterval
+            if stats.count >= 2 {
+                // WhisperKit word times aren't guaranteed monotonic across
+                // concatenated chunks, so guard against a negative span that
+                // would otherwise produce a bogus rate (§5.11).
+                let span = max(0, stats.lastTime - stats.firstTime)
+                rate = min(1.0, max(0.15, span / Double(stats.count - 1)))
+            } else {
+                rate = 0.4
+            }
+            let time = max(0, matchTime - Double(tokenIndex) * rate)
+
+            candidateByBlock[blockID] = AnchorCandidate(
+                blockID: blockID,
+                time: time,
+                exactRunLength: stats.count,
+                firstMatchTokenIndex: tokenIndex
+            )
+            blockOrder.append(blockID)
+        }
+        return blockOrder.compactMap { candidateByBlock[$0] }
+    }
+
+    // MARK: - Shared Alignment-Path Helpers
+
+    /// One step of the alignment path: an EPUB token aligned diagonally with an
+    /// audio token, flagged `strong` when it is an exact or prefix match.
+    private struct PathMatch {
+        let epubIndex: Int
+        let audioIndex: Int
+        let strong: Bool
+    }
+
+    /// A maximal run of path-adjacent strong matches and its time span.
+    private struct RunStats {
+        var count: Int
+        var firstTime: TimeInterval
+        var lastTime: TimeInterval
+    }
+
+    /// Runs the DP forward pass and backtracks into forward path order.
+    /// Extracted verbatim from `alignCandidates` so candidate emission is
+    /// byte-for-byte unchanged; `wordMatches` reuses the same path.
+    private static func backtrackPath(epub: [EPubToken], audio: [AudioToken]) -> [PathMatch] {
+        let n = epub.count
+        let m = audio.count
+        guard n > 0, m > 0 else { return [] }
+
         // ── DP forward pass (two rolling cost rows, full direction matrix) ──
         var cost0 = [Int32](repeating: .max / 2, count: m + 1)
         var cost1 = [Int32](repeating: .max / 2, count: m + 1)
@@ -147,11 +214,6 @@ struct TokenDTW {
         }
 
         // ── Backtrack into forward path order ──
-        struct PathMatch {
-            let epubIndex: Int
-            let audioIndex: Int
-            let strong: Bool
-        }
         var matches: [PathMatch] = []
         var i = n
         var j = m
@@ -174,16 +236,16 @@ struct TokenDTW {
             }
         }
         matches.reverse()
+        return matches
+    }
 
-        // ── Strong-run bookkeeping ──
-        // A run is a maximal sequence of path-adjacent strong matches:
-        // consecutive in the path AND diagonal in both indices, so any gap
-        // or substitution step breaks it.
-        struct RunStats {
-            var count: Int
-            var firstTime: TimeInterval
-            var lastTime: TimeInterval
-        }
+    /// Assigns each strong match to a run ID and tallies per-run stats.
+    /// A run is a maximal sequence of path-adjacent strong matches: consecutive
+    /// in the path AND diagonal in both indices, so any gap or substitution
+    /// step breaks it. Extracted verbatim from `alignCandidates`.
+    private static func strongRuns(
+        _ matches: [PathMatch], audio: [AudioToken]
+    ) -> (runIDs: [Int], runs: [RunStats]) {
         var runIDs = [Int](repeating: -1, count: matches.count)
         var runs: [RunStats] = []
         for k in matches.indices where matches[k].strong {
@@ -201,13 +263,17 @@ struct TokenDTW {
                 runIDs[k] = runs.count - 1
             }
         }
+        return (runIDs, runs)
+    }
 
-        // Token position of each EPUB token within its block, for
-        // back-projecting mid-block matches to the block start.
-        var tokenIndexInBlock = [Int](repeating: 0, count: n)
+    /// Token position of each EPUB token within its block, for back-projecting
+    /// mid-block matches to the block start. Extracted verbatim from
+    /// `alignCandidates`.
+    private static func tokenIndicesWithinBlocks(_ epub: [EPubToken]) -> [Int] {
+        var tokenIndexInBlock = [Int](repeating: 0, count: epub.count)
         var blockCursor: String?
         var withinBlock = 0
-        for k in 0..<n {
+        for k in 0..<epub.count {
             if epub[k].blockID != blockCursor {
                 blockCursor = epub[k].blockID
                 withinBlock = 0
@@ -215,43 +281,40 @@ struct TokenDTW {
             tokenIndexInBlock[k] = withinBlock
             withinBlock += 1
         }
+        return tokenIndexInBlock
+    }
 
-        // ── Emit one candidate per block: its first strong match ──
-        var candidateByBlock: [String: AnchorCandidate] = [:]
-        var blockOrder: [String] = []
+    // MARK: - Per-Word Match Emission (read-along refinement)
+
+    /// One strong DTW token match mapped to its position within a block and to
+    /// the audio time WhisperKit reported for the matching word.
+    struct WordMatch: Equatable {
+        let blockID: String
+        let wordIndexInBlock: Int
+        let token: String
+        let audioTime: TimeInterval
+        let runLength: Int
+    }
+
+    /// Per-strong-token matches from the alignment path, for word-time refinement.
+    /// Token granularity (normalized): callers map these onto rendered words.
+    static func wordMatches(epub: [EPubToken], audio: [AudioToken]) -> [WordMatch] {
+        guard !epub.isEmpty, !audio.isEmpty else { return [] }
+        let matches = backtrackPath(epub: epub, audio: audio)
+        let (runIDs, runs) = strongRuns(matches, audio: audio)
+        let tokenIndexInBlock = tokenIndicesWithinBlocks(epub)
+        var result: [WordMatch] = []
         for k in matches.indices where matches[k].strong {
-            let match = matches[k]
-            let blockID = epub[match.epubIndex].blockID
-            guard candidateByBlock[blockID] == nil else { continue }
-
-            let stats = runs[runIDs[k]]
-            let tokenIndex = tokenIndexInBlock[match.epubIndex]
-            let matchTime = audio[match.audioIndex].time
-
-            // Local speech rate from this run's own word times; clamped to
-            // plausible narration bounds so a pause inside the run can't
-            // catapult the projection.
-            let rate: TimeInterval
-            if stats.count >= 2 {
-                // WhisperKit word times aren't guaranteed monotonic across
-                // concatenated chunks, so guard against a negative span that
-                // would otherwise produce a bogus rate (§5.11).
-                let span = max(0, stats.lastTime - stats.firstTime)
-                rate = min(1.0, max(0.15, span / Double(stats.count - 1)))
-            } else {
-                rate = 0.4
-            }
-            let time = max(0, matchTime - Double(tokenIndex) * rate)
-
-            candidateByBlock[blockID] = AnchorCandidate(
-                blockID: blockID,
-                time: time,
-                exactRunLength: stats.count,
-                firstMatchTokenIndex: tokenIndex
-            )
-            blockOrder.append(blockID)
+            let m = matches[k]
+            result.append(
+                WordMatch(
+                    blockID: epub[m.epubIndex].blockID,
+                    wordIndexInBlock: tokenIndexInBlock[m.epubIndex],
+                    token: epub[m.epubIndex].text,
+                    audioTime: audio[m.audioIndex].time,
+                    runLength: runs[runIDs[k]].count))
         }
-        return blockOrder.compactMap { candidateByBlock[$0] }
+        return result
     }
 
     /// Memory-guarded wrapper around `alignCandidates`.

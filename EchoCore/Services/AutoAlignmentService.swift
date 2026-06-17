@@ -203,7 +203,7 @@ final class AutoAlignmentService {
         guard !Task.isCancelled else { return }
 
         // ── Content alignment ──
-        try await runDTWPipeline(
+        let dtwMatchesByBlock = try await runDTWPipeline(
             chapters: chapters,
             blocks: blocks,
             tier0AnchorIDByBlockID: tier0AnchorIDByBlockID
@@ -217,6 +217,14 @@ final class AutoAlignmentService {
         // full-book rebuilds.
         try WordTimingMaterializer.materialize(
             audiobookID: audiobookID, writer: timelineDAO.db)
+
+        // Refine the interpolated word times with real DTW audio times where a
+        // normalized token maps onto a rendered word (A4). Additive: blocks
+        // without confident matches keep their interpolated timings.
+        try WordTimingMaterializer.refine(
+            audiobookID: audiobookID,
+            dtwMatchesByBlock: dtwMatchesByBlock,
+            writer: timelineDAO.db)
 
         state.log(
             "═══ Pipeline complete: \(state.anchoredChapterCount) chapters anchored (\(state.titleMatchedChapterCount) title-matched) ═══"
@@ -300,11 +308,12 @@ final class AutoAlignmentService {
 
     // MARK: - Content Alignment
 
+    /// - Returns: per-block strong DTW token matches, for word-timing refinement.
     private func runDTWPipeline(
         chapters: [Chapter],
         blocks: [EPubBlockRecord],
         tier0AnchorIDByBlockID: [String: String]
-    ) async throws {
+    ) async throws -> [String: [TokenDTW.WordMatch]] {
         // Blocks anchored by a human are off-limits. Tier 0 anchors are
         // machine bootstraps and may be superseded by a strong content match.
         let existingAnchors = try anchorDAO.anchors(for: audiobookID)
@@ -349,7 +358,7 @@ final class AutoAlignmentService {
 
         let blocksByChapter = Dictionary(grouping: workingBlocks, by: { $0.chapterIndex })
 
-        guard let audioURL = audioEngine.audioFileURL else { return }
+        guard let audioURL = audioEngine.audioFileURL else { return [:] }
         state.update(
             phase: .mappingSilences, progress: 0.0, statusMessage: "Scanning audio for silences...")
 
@@ -360,6 +369,11 @@ final class AutoAlignmentService {
         var lastGlobalAnchorTime: TimeInterval = 0
         var chapterAnchoredCount = 0
         var totalInserted = 0
+
+        // Per-block strong DTW token matches, accumulated across chapters, for
+        // the word-timing refinement pass (A4). When a block surfaces in two
+        // chapters' passes (boundary slack), the set with the stronger run wins.
+        var dtwMatchesByBlock: [String: [TokenDTW.WordMatch]] = [:]
 
         for (idx, chapter) in chapters.enumerated() {
             try Task.checkCancellation()
@@ -447,6 +461,19 @@ final class AutoAlignmentService {
                 statusMessage: "Aligning chapter \(idx + 1)…")
 
             let candidates = TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens)
+
+            // Per-word DTW matches for read-along refinement (A4). Accumulate by
+            // block; when a block surfaces in two chapters' passes (boundary
+            // slack), keep the set whose strongest run is longer.
+            let chapterWordMatches = TokenDTW.wordMatches(epub: epubTokens, audio: audioTokens)
+            for (blockID, matches) in Dictionary(grouping: chapterWordMatches, by: \.blockID) {
+                let incomingMax = matches.map(\.runLength).max() ?? 0
+                let existingMax = dtwMatchesByBlock[blockID]?.map(\.runLength).max() ?? -1
+                if incomingMax > existingMax {
+                    dtwMatchesByBlock[blockID] = matches
+                }
+            }
+
             let windowStart = chapter.startSeconds - Config.chapterWindowSlack
             let windowEnd = chapter.endSeconds + Config.chapterWindowSlack
             let eligible = candidates.filter { candidate in
@@ -504,6 +531,7 @@ final class AutoAlignmentService {
 
         state.log("Inserted \(totalInserted) anchors total")
         state.anchoredChapterCount = chapterAnchoredCount
+        return dtwMatchesByBlock
     }
 
     // MARK: - Audio Capture + Transcription

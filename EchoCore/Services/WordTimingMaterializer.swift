@@ -77,4 +77,50 @@ enum WordTimingMaterializer {
         }
         try dao.insert(records)
     }
+
+    /// Confidence stamped on a word whose time came from a real DTW audio match.
+    private static let dtwConfidence: Double = 0.85
+
+    /// Overrides already-materialized interpolated word times with DTW-derived
+    /// audio times, per block, where a normalized DTW token maps onto a rendered
+    /// word. Call AFTER `materialize` with the per-block matches accumulated
+    /// during the alignment pipeline.
+    ///
+    /// Additive: blocks with no matches keep their interpolated rows untouched,
+    /// and the refiner only retimes matched words — it never adds or deletes any.
+    static func refine(
+        audiobookID: String,
+        dtwMatchesByBlock: [String: [TokenDTW.WordMatch]],
+        writer: DatabaseWriter,
+        minRunLength: Int = 3
+    ) throws {
+        guard !dtwMatchesByBlock.isEmpty else { return }
+        let dao = WordTimingDAO(db: writer)
+
+        var updates: [WordTimingRecord] = []
+        for (blockID, matches) in dtwMatchesByBlock {
+            let rows = try dao.words(forAudiobook: audiobookID, blockID: blockID)
+            guard !rows.isEmpty else { continue }
+
+            let words = rows.map {
+                WordTimingInterpolator.Word(
+                    index: $0.wordIndex, word: $0.word,
+                    start: $0.audioStartTime, end: $0.audioEndTime)
+            }
+            let refined = WordTimingRefiner.refine(
+                words: words, dtwMatches: matches, minRunLength: minRunLength)
+
+            // Pair each refined word back to its stored row by position (same
+            // order, same count), updating only the ones DTW retimed.
+            for (row, ref) in zip(rows, refined) where ref.source == "dtw" {
+                var updated = row
+                updated.audioStartTime = ref.start
+                updated.audioEndTime = ref.end
+                updated.confidence = dtwConfidence
+                updated.source = "dtw"
+                updates.append(updated)
+            }
+        }
+        try dao.update(updates)
+    }
 }
