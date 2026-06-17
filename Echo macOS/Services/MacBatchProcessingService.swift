@@ -75,16 +75,29 @@ final class MacBatchProcessingService {
     }
 
     /// Starts draining the queue if not already running.
+    ///
+    /// Guards against a lost-wakeup race: `await runner.drain()` is a suspension
+    /// point, so an `enqueue()` (also on the main actor) can insert a new
+    /// `.queued` row *after* the drain loop observed an empty queue but *before*
+    /// the continuation here clears `runner`. That just-enqueued item would
+    /// otherwise sit orphaned with no running drain. After clearing `runner` we
+    /// re-check `dao.nextQueued()`; if work appeared during the gap we restart.
     func start() {
         guard runner == nil else { return }
         let runner = BatchQueueRunner(dao: dao, stages: makeStages())
         self.runner = runner
         Task { [weak self] in
-            self?.isProcessing = true
+            guard let self else { return }
+            self.isProcessing = true
             await runner.drain()
-            self?.isProcessing = false
-            self?.runner = nil
-            self?.refresh()
+            self.runner = nil
+            self.refresh()
+            // Re-check for work enqueued during the drain→clear gap.
+            if (try? self.dao.nextQueued()) != nil {
+                self.start()
+            } else {
+                self.isProcessing = false
+            }
         }
     }
 
@@ -100,7 +113,20 @@ final class MacBatchProcessingService {
         let dbService = self.dbService
         let alignmentService = self.alignmentService
         let logger = self.logger
-        return .init(run: { [weak self] record, progress in
+        return .init(run: { [weak self] record, rawProgress in
+            // Wrap the runner's DAO-writing progress callback so each stage
+            // transition ALSO refreshes the in-memory `items` snapshot. Without
+            // this, the runner persists importing→transcribing→aligning to the
+            // DB but `MacBatchQueueView` (bound to `items`) never re-reads it
+            // while a book is processing, so the icon/ProgressView never advance.
+            // A nested func (vs a closure-typed `let`) stays non-escaping so it
+            // can legally call the non-escaping `rawProgress` parameter.
+            @MainActor func progress(
+                _ status: BatchItemStatus, _ value: Double, _ message: String?
+            ) {
+                rawProgress(status, value, message)
+                self?.refresh()
+            }
             // Resolve the security-scoped bookmark for restart-safe file access.
             // A resolved bookmark does NOT auto-start access — we must start it,
             // check the Bool, and always balance the stop via defer.

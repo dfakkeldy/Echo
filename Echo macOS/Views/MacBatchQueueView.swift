@@ -12,26 +12,47 @@ import SwiftUI
 
 struct MacBatchQueueView: View {
     @Environment(MacBatchProcessingService.self) private var service
+    // A macOS sheet has no titlebar toolbar, so the `.toolbar` modifier's
+    // controls would never render — the user could be stranded in the modal
+    // (opened via ⌘⇧B). Drive an explicit Done button from `dismiss` instead.
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
-            if service.items.isEmpty {
-                ContentUnavailableView(
-                    "No Books Queued",
-                    systemImage: "square.stack.3d.up",
-                    description: Text("Add a folder to process books overnight."))
-            } else {
-                List(service.items) { item in MacBatchQueueRow(item: item) }
+            header
+
+            Divider()
+
+            Group {
+                if service.items.isEmpty {
+                    ContentUnavailableView(
+                        "No Books Queued",
+                        systemImage: "square.stack.3d.up",
+                        description: Text("Add a folder to process books overnight."))
+                } else {
+                    List(service.items) { item in MacBatchQueueRow(item: item) }
+                }
             }
-        }
-        .toolbar {
-            ToolbarItem {
-                Button("Clear Completed") { service.clearCompleted() }
-                    .disabled(!service.items.contains { $0.status == .completed })
-            }
+            .frame(maxHeight: .infinity)
         }
         .frame(minWidth: 380, minHeight: 320)
         .onAppear { service.refresh() }
+    }
+
+    /// Inline header bar standing in for the absent sheet titlebar: title,
+    /// "Clear Completed", and a cancel-role "Done" (also fired by Escape).
+    private var header: some View {
+        HStack {
+            Text("Batch Queue")
+                .font(.headline)
+            Spacer()
+            Button("Clear Completed") { service.clearCompleted() }
+                .disabled(!service.items.contains { $0.status == .completed })
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
 
