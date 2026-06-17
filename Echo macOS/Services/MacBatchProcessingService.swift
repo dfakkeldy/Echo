@@ -40,8 +40,20 @@ final class MacBatchProcessingService {
         self.dao = BatchQueueDAO(db: dbService.writer)
     }
 
-    /// Call once at launch: reset interrupted items, then resume.
+    /// Resets items interrupted by a previous quit, then resumes draining.
+    ///
+    /// Attached to the WindowGroup root via `.task`, which fires once per *view*
+    /// appearance — NOT once per app launch. On macOS the window can be closed
+    /// while this App-level service keeps draining, then reopened (Dock / Window
+    /// menu), re-firing `.task`. Guard against that: `recoverInFlight()` rewrites
+    /// every importing/transcribing/aligning row back to `.queued` (progress 0,
+    /// `started_at` NULL), which would clobber the row the live runner is
+    /// mid-processing and, if the drain has just finished (`runner == nil` again),
+    /// silently re-run a finished book from scratch. A relaunch-style recovery is
+    /// only ever correct when nothing is draining, so bail out if a runner is
+    /// live: the existing drain already owns the in-flight rows.
     func resumeOnLaunch() {
+        guard runner == nil else { return }
         try? dao.recoverInFlight()
         refresh()
         start()
