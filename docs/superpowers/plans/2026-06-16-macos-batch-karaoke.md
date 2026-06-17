@@ -83,7 +83,7 @@ Each phase is independently shippable and can be merged on its own branch.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
-@testable import EchoCore
+@testable import Echo
 
 struct WordTimingDAOTests {
     @Test func insertAndFetchByBlockOrdersByWordIndex() throws {
@@ -299,7 +299,7 @@ git commit -m "feat(db): add word_timing table, record, and DAO (Schema V19)"
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
-@testable import EchoCore  // WordTimingInterpolator lives in Shared, visible via EchoCore
+@testable import Echo  // Shared/EchoCore sources compile into the Echo app module
 
 struct WordTimingInterpolatorTests {
     @Test func splitsWordsProportionallyByCharacterLength() {
@@ -418,7 +418,7 @@ git commit -m "feat(align): add pure WordTimingInterpolator for read-along word 
 import Foundation
 import GRDB
 import Testing
-@testable import EchoCore
+@testable import Echo
 
 struct WordTimingMaterializerTests {
     /// Seeds two aligned blocks in timeline_item and expects word rows spanning
@@ -620,7 +620,7 @@ git commit -m "feat(align): materialize word_timing rows after each (re)alignmen
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
-@testable import EchoCore
+@testable import Echo
 
 struct TokenDTWWordMatchTests {
     @Test func emitsPerTokenMatchesWithAudioTimes() {
@@ -708,7 +708,7 @@ Expected: both PASS. If `TokenDTWTests` changed behavior, the refactor altered c
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
-@testable import EchoCore
+@testable import Echo
 
 struct WordTimingRefinerTests {
     @Test func overridesMatchedWordsWithAudioTimesKeepsRestInterpolated() {
@@ -835,7 +835,7 @@ git commit -m "feat(align): refine word timings with DTW audio times where token
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
-@testable import EchoCore
+@testable import Echo
 
 struct ReaderActiveWordTests {
     private let rows: [ReaderActiveBlockResolver.WordRow] = [
@@ -1242,7 +1242,7 @@ git commit -m "feat(reader-macos): word-by-word karaoke highlighting"
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
-@testable import EchoCore
+@testable import Echo
 
 struct BatchQueueDAOTests {
     @Test func enqueueAssignsIncreasingPositionsAndClaimNextIsFIFO() throws {
@@ -1467,7 +1467,7 @@ git commit -m "feat(db): add batch_queue table, record, and DAO (Schema V20)"
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
-@testable import EchoCore
+@testable import Echo
 
 @MainActor
 struct BatchQueueRunnerTests {
@@ -1951,7 +1951,7 @@ import AVFoundation
 import Foundation
 import Testing
 import AudioMarker
-@testable import EchoCore
+@testable import Echo
 
 struct ChapterMarkerWriterTests {
     /// Writes two chapters into a generated silent m4a and reads them back via
