@@ -11,7 +11,7 @@ Findings cite `path/to/file.swift:LINE` for Xcode navigation. Each item has a re
 1. **[Critical] Force-unwrapped URL construction from user input** — §5.1 — `EchoCore/Services/Audiobookshelf/ABSEndpoints.swift:20,26,36-43,48`. User-provided server URL with illegal characters crashes the app on every endpoint call.
 2. **[Critical] @MainActor state mutated from background Task** — §3.1 — `EchoCore/Services/PlayerLoadingCoordinator.swift:266,290`. `PlaybackState` properties written from unisolated `Task {}` — data race in core loading path.
 3. **[Critical] WhisperKit model retain-count race** — §5.2 — `EchoCore/Services/ContinuousAlignmentService.swift:75-131`. Stop/start cycles leak the ~40 MB model via mismatched acquire/release.
-4. **[Critical] In-memory database fallback force-try crash** — §5.3 — `Echo macOS/Echo_macOSApp.swift:239`. Double `try?`/`try!` fallback crashes when primary init already failed.
+4. **[Critical] In-memory database fallback force-try crash** — §5.3 — `Echo macOS/Echo_macOSApp.swift:239`. Double `try?`/`try!` fallback crashes when primary init already failed. **✅ RESOLVED — PR #80 (2026-06-17).**
 5. **[Critical/Security] CloudKit missing accountStatus + `try?` swallow** — §6.1 — `EchoCore/Services/CloudKitSyncService.swift:84,146` + `EPUBAutoImportScanner.swift:176`. Signed-out users get zero community anchors with zero feedback.
 6. **[High] NarrationExportService actor/@MainActor conflict** — §3.2 — `EchoCore/Services/Narration/NarrationExportService.swift:20,96,98`. Four latent Swift 6 errors; actor executor conflicts with @MainActor-inferred APIs.
 7. **[High] EPUB assets never cleaned up** — §7.1 — `EchoCore/Services/EPUBAssetStorage.swift:87-92`. Orphan asset directories accumulate indefinitely; `removeAll(for:)` defined but never called.
@@ -24,14 +24,14 @@ Findings cite `path/to/file.swift:LINE` for Xcode navigation. Each item has a re
 ## 2. Quick wins (≤30 min each)
 
 - **Add `[weak self]` + `@MainActor` to PlayerLoadingCoordinator Tasks** — `EchoCore/Services/PlayerLoadingCoordinator.swift:266,290`. Two `Task {}` blocks capture `self` strongly and mutate `@MainActor` state from background.
-- **Remove `try!` from in-memory DB fallback** — `Echo macOS/Echo_macOSApp.swift:239`. Replace with `try?` + graceful fallback.
+- **Remove `try!` from in-memory DB fallback** — `Echo macOS/Echo_macOSApp.swift:239`. Replace with `try?` + graceful fallback. **✅ DONE (PR #80) — collapsed to a single attempt with a clear `fatalError` on the genuinely-unrecoverable case.**
 - **Add `accountStatus()` check before CloudKit ops** — `EchoCore/Services/CloudKitSyncService.swift:84,146`. Two-line guard at each entry point.
 - **Replace `try?` with `do/catch`+log in CloudKit caller** — `EchoCore/Services/EPUBAutoImportScanner.swift:176`.
 - **Delete unused `AnimationDurations.swift`** — `Shared/AnimationDurations.swift`. Zero usages; all animations use inline literals.
 - **Cache `NSRegularExpression` in TextNormalizer** — `EchoCore/Services/Narration/TextNormalizer.swift:28-44`. Four `try!` pattern compilations per block.
 - **Remove redundant double sort in AlignmentTranscript.words()** — `EchoCore/Services/AlignmentTranscript.swift:74`. One-line fix.
 - **Add `deinit` to TranscriptStore** — `Echo macOS/Views/TranscriptStore.swift:27`. NotificationCenter observer never removed.
-- **Remove `import SwiftUI` from non-view files** — `PlayerModel+PlaybackControllerDelegate.swift`, `MacPlayerModel.swift`, `CarPlayManager.swift`.
+- **Remove `import SwiftUI` from non-view files** — `PlayerModel+PlaybackControllerDelegate.swift`, `MacPlayerModel.swift`, `CarPlayManager.swift`. **◑ PARTIAL (PR #80): `MacPlayerModel.swift` now imports `Observation` instead of `SwiftUI`; the other two remain.**
 - **Add `@MainActor` annotation to ReaderTab+Alignment Tasks** — `EchoCore/Views/ReaderTab+Alignment.swift:34,106`.
 
 ---
@@ -151,6 +151,7 @@ Findings cite `path/to/file.swift:LINE` for Xcode navigation. Each item has a re
 - **What:** `(try? DatabaseService(inMemory: ())) ?? (try! DatabaseService(inMemory: ()))` — first `try?` failed, second `try!` repeats same failure and crashes.
 - **Why:** First failure already indicates systemic init problem. Force-try fallback crashes with no user error.
 - **Action:** Replace `try!` with `try?` + graceful fallback. Use `fatalError` only under `#if DEBUG`.
+- **Resolution:** ✅ **RESOLVED — PR #80 (2026-06-17).** `makeInMemoryDB()` collapsed to a single `try DatabaseService(inMemory:)` attempt; the redundant second initializer is gone, and the only-truly-unrecoverable path (even in-memory SQLite unavailable) now fails with a clear diagnostic instead of a bare `try!` re-trap.
 - **Severity:** Critical
 
 ### 5.4 Per-book UserDefaults keys accumulate indefinitely
@@ -165,6 +166,7 @@ Findings cite `path/to/file.swift:LINE` for Xcode navigation. Each item has a re
 - **What:** Five `String: Codable` enums decoded from database rows. Future app version adding new case → current build crashes with `DecodingError.dataCorrupted` on any read.
 - **Why:** Users toggling between versions lose data access. Backward-compatility break.
 - **Action:** Add `case unknown(String)` with custom `init(from:)` capturing unknown raw values.
+- **Resolution:** ◑ **NOT resolved for the six listed enums.** PR #80 (2026-06-17) introduced a *new* DB-decoded String enum — `BatchItemKind` (Schema V21, `batch_queue.kind`) — written with the recommended forward-compatible `init(from:)` (unknown → `.align`), so no seventh instance was added; the six pre-existing enums above still need the same treatment.
 - **Severity:** High
 
 ### 5.6 StatsRepository retention curve always empty
@@ -413,7 +415,7 @@ Findings cite `path/to/file.swift:LINE` for Xcode navigation. Each item has a re
 
 ### 9.2 `"group.com.echo.audiobooks"` hardcoded (6 sites)
 - **Locations:** `Haptic.swift:9`, `DoodlePadView.swift:65`, `SettingsManager.swift:380,385,591,594`, `FileLocations.swift:21`, `DatabaseService.swift:28`
-- **Action:** Replace with `AppGroupDefaults.suiteName`. **Severity:** Medium.
+- **Action:** Replace with `AppGroupDefaults.suiteName`. **Severity:** Medium. **◑ PARTIAL (PR #80, 2026-06-17): `DatabaseService.swift` now uses `AppGroupDefaults.suiteName`; the other five sites (`Haptic.swift:9`, `DoodlePadView.swift:65`, `SettingsManager.swift:380,385,591,594`, `FileLocations.swift:21`) remain.**
 
 ### 9.3 Widget thumbnail downsampling duplicates ArtworkCache
 - **Locations:** `Echo_Widget.swift:17-27`, `ArtworkCache.swift:21-28,73-82`
