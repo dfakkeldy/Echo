@@ -50,6 +50,43 @@ struct WordTokenizerTests {
         #expect(WordTokenizer.wordRanges(in: "   \t\n ").isEmpty)
     }
 
+    // MARK: - Unicode whitespace (collapse-invariance across readers)
+
+    @Test func nonBreakingSpaceSplitsWords() {
+        // NBSP (U+00A0) is a separator under Character.isWhitespace; the materializer
+        // and cells normalize it away, so the tokenizer must split on it too or the
+        // karaoke highlight goes off-by-one from this scalar onward.
+        let words = WordTokenizer.words(in: "foo\u{00A0}bar").map(String.init)
+        #expect(words == ["foo", "bar"])
+    }
+
+    @Test func lineSeparatorSplitsWords() {
+        // U+2028 LINE SEPARATOR is Unicode whitespace; it must split like a newline.
+        let words = WordTokenizer.words(in: "foo\u{2028}bar").map(String.init)
+        #expect(words == ["foo", "bar"])
+    }
+
+    @Test func tokenizationIsInvariantUnderNewlineCollapse() {
+        // The whole point: feeding raw text (macOS MacReaderFeedView) and the
+        // newline-collapsed form (materializer / cells) must yield the SAME word
+        // count and order, so word index N means the same token on every reader.
+        let raw = "a\u{00A0}b  c"
+        let collapsed = raw.collapsedWhitespace()  // "a b c"
+        let rawWords = WordTokenizer.words(in: raw).map(String.init)
+        let collapsedWords = WordTokenizer.words(in: collapsed).map(String.init)
+        #expect(rawWords == collapsedWords)
+        #expect(rawWords == ["a", "b", "c"])
+    }
+
+    @Test func trailingExoticWhitespaceExcludedFromFinalRange() {
+        // A trailing NBSP must not be folded into the last word's range, or the
+        // highlight box would extend past the visible glyphs.
+        let s = "word\u{00A0}"
+        let ranges = WordTokenizer.wordRanges(in: s)
+        #expect(ranges.count == 1)
+        #expect(String(s[ranges[0]]) == "word")
+    }
+
     /// The load-bearing invariant: `words` and `wordRanges` must agree exactly,
     /// element-for-element, so word index N highlights the same token N that was
     /// timed. Uses a punctuation-heavy string to stress the boundaries.

@@ -342,9 +342,11 @@ private struct MacBlockCardView: View, Equatable {
     /// search. A substring search would mis-fire for short, common words that
     /// also appear *inside* earlier words — e.g. "is" matching the "is" inside
     /// "This" — which is pervasive in prose. Word boundaries come from
-    /// `WordTokenizer` (whitespace-delimited, `" "`/`"\n"`/`"\t"`), the same
-    /// definition the `WordTimingInterpolator` uses to assign `wordIndex`, so
-    /// index N maps to exactly the rendered word it timed.
+    /// `WordTokenizer` (split on any Unicode whitespace, `Character.isWhitespace`),
+    /// the same definition the `WordTimingInterpolator` uses to assign `wordIndex`.
+    /// Because that matches `collapsedWhitespace()`, feeding raw `block.text` here
+    /// yields the same indices the materializer assigned, so index N maps to
+    /// exactly the rendered word it timed.
     private func highlightedText(_ text: String, activeWordIndex: Int?) -> AttributedString {
         let attributed = AttributedString(text)
         guard let activeWordIndex, activeWordIndex >= 0 else { return attributed }
