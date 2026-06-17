@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Foundation
+import GRDB
 
 /// Handles the export of generated narration (Phase 2).
 /// Supports exporting raw AAC files per chapter, or combining into a single `.m4b` file.
@@ -31,17 +32,35 @@ actor NarrationExportService {
     }
 
     /// Joins the chapter files into a single gapless `.m4b` (full
-    /// `AVAssetExportSession` re-encode). The audio is correct and continuous, but
-    /// **the 1.0 build does not embed chapter-navigation markers** — `chpl`/`chap`
-    /// atoms require the `swift-audio-marker` package, deferred post-1.0 (finish-plan
-    /// Phase 7, Option A; `AudioMarker` is a copy-only stub). For 1.0 the chaptered
-    /// export is `exportChapterFiles` (the default); this combined `.m4b` is the
-    /// marker-less convenience path.
-    func exportM4B(for bookID: String, bookTitle: String, cacheDirectory: URL, outputURL: URL)
+    /// `AVAssetExportSession` re-encode) and embeds real Nero (`chpl`) +
+    /// QuickTime (`chap`) chapter-navigation markers via the `swift-audio-marker`
+    /// package (see `ChapterMarkerWriter`). The audio is continuous and the
+    /// chapter markers let a chapter-aware player jump between chapters.
+    ///
+    /// When `databaseWriter` is supplied, chapter titles are taken from the
+    /// book's `TrackRecord`s (ordered by `sortOrder`); otherwise they fall back
+    /// to `"Chapter N"`.
+    func exportM4B(
+        for bookID: String,
+        bookTitle: String,
+        cacheDirectory: URL,
+        outputURL: URL,
+        databaseWriter: DatabaseWriter? = nil
+    )
         async throws
     {
         let chapterFiles = try await exportChapterFiles(for: bookID, cacheDirectory: cacheDirectory)
         guard !chapterFiles.isEmpty else { throw ExportError.missingAudiobook }
+
+        // Real per-chapter titles, ordered to match the chapter-file order
+        // (both are `sortOrder`-ascending). Index `i` → title for the i-th file.
+        var trackTitles: [Int: String] = [:]
+        if let databaseWriter {
+            let tracks = try TrackDAO(db: databaseWriter).tracks(for: bookID)
+            for (index, track) in tracks.enumerated() {
+                trackTitles[index] = track.title
+            }
+        }
 
         let composition = AVMutableComposition()
         guard
@@ -58,8 +77,8 @@ actor NarrationExportService {
             let asset = AVURLAsset(url: fileURL)
             let duration = try await asset.load(.duration)
 
-            // Add chapter metadata
-            let chapterName = "Chapter \(index + 1)"  // In a real app we'd fetch actual title
+            // Add chapter metadata — use the rendered track's real title when available.
+            let chapterName = trackTitles[index] ?? "Chapter \(index + 1)"
             chapters.append(ChapterAtom(startTime: currentPosition.seconds, title: chapterName))
 
             guard let assetTrack = try await asset.loadTracks(withMediaType: .audio).first else {
@@ -93,9 +112,9 @@ actor NarrationExportService {
         }
 
         // Inject chapters to make it an M4B
-        let marker = AudioMarker()
+        let writer = ChapterMarkerWriter()
         do {
-            try marker.writeChapters(chapters, to: tempM4A, outputURL: outputURL)
+            try await writer.writeChapters(chapters, to: tempM4A, outputURL: outputURL)
             // Cleanup temp
             try? FileManager.default.removeItem(at: tempM4A)
         } catch {
