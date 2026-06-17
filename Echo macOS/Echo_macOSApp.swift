@@ -109,6 +109,13 @@ struct Echo_macOSApp: App {
                     }
                 }
                 .keyboardShortcut("b", modifiers: [.command, .option])
+
+                Button("Narrate EPUB(s)…") {
+                    for url in chooseEPUBsToNarrate() {
+                        narrateSelection(url)
+                    }
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
             }
 
             CommandMenu("Playback") {
@@ -234,6 +241,35 @@ struct Echo_macOSApp: App {
 
         guard panel.runModal() == .OK else { return nil }
         return panel.url
+    }
+
+    /// Presents an NSOpenPanel to select EPUB files and/or folders of EPUBs to
+    /// narrate on-device. Returns the chosen URLs (empty if cancelled). Folders
+    /// are scanned for EPUBs; individual `.epub` files are enqueued directly.
+    private func chooseEPUBsToNarrate() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Narrate EPUB(s)")
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [UTType(filenameExtension: "epub") ?? .data]
+        panel.message = String(
+            localized: "Choose EPUB files (or a folder of them) to narrate on-device overnight.")
+
+        guard panel.runModal() == .OK else { return [] }
+        return panel.urls
+    }
+
+    /// Enqueues a selected URL for narration: a folder is scanned for EPUBs, an
+    /// `.epub` file is enqueued directly. Anything else is ignored.
+    private func narrateSelection(_ url: URL) {
+        let isDirectory =
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        if isDirectory {
+            try? FolderAudioScanner.enqueueEPUBsForNarration(url, into: batchService)
+        } else if url.pathExtension.lowercased() == "epub" {
+            try? batchService.enqueueNarration(epubURL: url)
+        }
     }
 
     func showOpenPanel() {
