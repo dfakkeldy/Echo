@@ -88,10 +88,14 @@ private struct MacAppearanceSettingsPane: View {
 
 private struct MacPlaybackSettingsPane: View {
     @Environment(SettingsManager.self) private var settings
-    /// Global volume-boost flag — the SAME UserDefaults key the iOS PlayerModel
-    /// reads (`PlayerModel.isVolumeBoostEnabled`). MacPlayerModel (WS-G) reads
-    /// this key too, so toggling here drives Mac playback.
-    @AppStorage("global_volumeBoostEnabled") private var volumeBoostEnabled = false
+    /// The live player model (the SAME instance injected into the main window —
+    /// see `Echo_macOSApp`). Binding Volume Boost directly to it means toggling
+    /// here re-applies the audio mix immediately while a book is playing, and
+    /// its `didSet` still persists to the shared `global_volumeBoostEnabled`
+    /// key (the one the iOS `PlayerModel` reads). Using `@AppStorage` instead
+    /// only wrote UserDefaults — the running model reads that key once at init,
+    /// so a mid-playback toggle never reached the audio path.
+    @Environment(MacPlayerModel.self) private var player
 
     /// Single source of truth for skip-interval options (mirrors the iOS
     /// hardcoded array in SettingsView's Seek pickers).
@@ -99,6 +103,7 @@ private struct MacPlaybackSettingsPane: View {
 
     var body: some View {
         @Bindable var settings = settings
+        @Bindable var player = player
         Form {
             Section {
                 Picker("Default Speed", selection: $settings.defaultPlaybackSpeed) {
@@ -119,7 +124,7 @@ private struct MacPlaybackSettingsPane: View {
                     }
                 }
 
-                Toggle("Volume Boost", isOn: $volumeBoostEnabled)
+                Toggle("Volume Boost", isOn: $player.isVolumeBoostEnabled)
             } header: {
                 Text("Playback")
             } footer: {
@@ -144,4 +149,5 @@ private struct MacPlaybackSettingsPane: View {
 #Preview {
     MacSettingsView()
         .environment(SettingsManager())
+        .environment(MacPlayerModel())
 }
