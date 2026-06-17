@@ -333,35 +333,62 @@ private struct MacBlockCardView: View, Equatable {
     // MARK: Helpers
 
     /// Returns the block text with the active karaoke word bolded and tinted.
-    /// Words are split on the same separators (`" "`, `"\n"`, `"\t"`) the
-    /// `WordTimingInterpolator` uses to assign `wordIndex`, so the highlighted
-    /// run matches the spoken word's stored index. Repeated words are handled by
-    /// advancing to the n-th occurrence.
+    ///
+    /// Highlighting is *positional*, not substring-based: the word at
+    /// `activeWordIndex` is located by its character range in the text rather
+    /// than by searching for its string value. This mirrors the iOS sibling
+    /// (`ParagraphCardCell`, which uses `enumerateSubstrings(.byWords)` ranges
+    /// so repeated words don't break a naive substring search). A substring
+    /// search would mis-fire for short, common words that also appear *inside*
+    /// earlier words — e.g. "is" matching the "is" inside "This" — which is
+    /// pervasive in prose. Word boundaries here use the same whitespace split
+    /// (`" "`, `"\n"`, `"\t"`) the `WordTimingInterpolator` uses to assign
+    /// `wordIndex`, so index N maps to exactly the rendered word it timed.
     private func highlightedText(_ text: String, activeWordIndex: Int?) -> AttributedString {
-        var attributed = AttributedString(text)
-        guard let activeWordIndex else { return attributed }
-        let words = text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
-        guard activeWordIndex >= 0, activeWordIndex < words.count else { return attributed }
-        let target = words[activeWordIndex]
-        // Find the n-th occurrence to handle repeats.
-        var searchStart = attributed.startIndex
-        var seen = 0
-        let occurrence = indexOfWordOccurrence(words, activeWordIndex)
-        while let r = attributed[searchStart...].range(of: String(target)) {
-            if seen == occurrence {
-                attributed[r].backgroundColor = .accentColor.opacity(0.25)
-                attributed[r].font = .body.weight(.semibold)
-                break
-            }
-            seen += 1
-            searchStart = r.upperBound
-        }
-        return attributed
+        let attributed = AttributedString(text)
+        guard let activeWordIndex, activeWordIndex >= 0 else { return attributed }
+        let ranges = Self.wordRanges(in: text)
+        guard activeWordIndex < ranges.count else { return attributed }
+        // Map the word's character range in `text` onto the AttributedString.
+        guard
+            let lower = AttributedString.Index(
+                ranges[activeWordIndex].lowerBound, within: attributed),
+            let upper = AttributedString.Index(
+                ranges[activeWordIndex].upperBound, within: attributed)
+        else { return attributed }
+        var result = attributed
+        result[lower..<upper].backgroundColor = .accentColor.opacity(0.25)
+        result[lower..<upper].font = .body.weight(.semibold)
+        return result
     }
 
-    /// How many earlier words equal `words[index]` (to pick the right occurrence).
-    private func indexOfWordOccurrence(_ words: [Substring], _ index: Int) -> Int {
-        words[..<index].filter { $0 == words[index] }.count
+    /// Character ranges of each whitespace-delimited word in `text`, in order.
+    ///
+    /// Splits on the same separators (`" "`, `"\n"`, `"\t"`) as
+    /// `WordTimingInterpolator`, so the N-th range corresponds to the rendered
+    /// word that carries `wordIndex == N`. Returning positional ranges (instead
+    /// of searching for the word's string) is what makes short/common repeated
+    /// words highlight at the correct location.
+    static func wordRanges(in text: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var wordStart: String.Index?
+        var i = text.startIndex
+        while i < text.endIndex {
+            let isSeparator = text[i] == " " || text[i] == "\n" || text[i] == "\t"
+            if isSeparator {
+                if let start = wordStart {
+                    ranges.append(start..<i)
+                    wordStart = nil
+                }
+            } else if wordStart == nil {
+                wordStart = i
+            }
+            i = text.index(after: i)
+        }
+        if let start = wordStart {
+            ranges.append(start..<text.endIndex)
+        }
+        return ranges
     }
 
     private var resolvedColor: Color? {
