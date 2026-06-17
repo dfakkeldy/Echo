@@ -108,6 +108,7 @@ final class DatabaseService {
         migrator.registerMigration("v16_fsrs_cloze_transcript") { db in try Schema_V16.migrate(db) }
         migrator.registerMigration("v17_track_narration_voice") { db in try Schema_V17.migrate(db) }
         migrator.registerMigration("v18_abs_server") { db in try Schema_V18.migrate(db) }
+        migrator.registerMigration("v19_word_timing") { db in try Schema_V19.migrate(db) }
         try migrator.migrate(writer)
     }
 
