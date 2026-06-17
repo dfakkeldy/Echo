@@ -109,6 +109,21 @@ struct Echo_macOSApp: App {
                     }
                 }
                 .keyboardShortcut("b", modifiers: [.command, .option])
+
+                #if DEBUG
+                    // TEMPORARY P0 narration spike — removed in P1. Drives one
+                    // chapter of the open book through the real Kokoro engine to
+                    // prove on-device synthesis works on this Mac.
+                    Divider()
+                    Button("Spike: Narrate Chapter 1 (DEBUG)") {
+                        if let id = player.audiobookID {
+                            Task {
+                                await MacNarrationSpike.run(audiobookID: id, dbService: dbService)
+                            }
+                        }
+                    }
+                    .disabled(player.audiobookID == nil)
+                #endif
             }
 
             CommandMenu("Playback") {
