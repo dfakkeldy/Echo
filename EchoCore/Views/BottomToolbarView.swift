@@ -5,11 +5,21 @@ struct BottomToolbarView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     var onCreateBookmark: ((BookmarkDraft) -> Void)?
+    /// Player-More menu closures (WS-C). The actual sheet/tab-switch state lives
+    /// on NowPlayingTab; these just forward the user's intent upward.
+    var onShowChapters: () -> Void
+    var onShowBookmarks: () -> Void
+    var onShowSettings: () -> Void
+    var onShowPlaybackOptions: () -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     var body: some View {
         HStack {
-            loopModeButton
+            PlayerMoreMenu(
+                onShowChapters: onShowChapters,
+                onShowBookmarks: onShowBookmarks,
+                onShowSettings: onShowSettings
+            )
             Spacer()
             speedButton
             Spacer()
@@ -75,45 +85,6 @@ struct BottomToolbarView: View {
                     : AnyShapeStyle(.secondary))
     }
 
-    // MARK: - Loop Mode
-
-    private var loopModeButton: some View {
-        Button {
-            model.cycleLoopMode()
-            Haptic.play(.medium)
-        } label: {
-            utilityChip(isActive: model.loopMode != .off) {
-                ZStack {
-                    switch model.loopMode {
-                    case .off:
-                        Image(systemName: "infinity.circle")
-                            .font(.title2)
-                    case .chapter:
-                        Image(systemName: "infinity.circle.fill")
-                            .font(.title2)
-                    case .bookmark:
-                        Image(systemName: "arrow.trianglehead.clockwise")
-                            .font(.title2)
-                            .overlay(
-                                Image(systemName: "bookmark.fill")
-                                    .font(.system(size: 9, weight: .bold))
-                            )
-                    }
-                }
-            }
-        }
-        .accessibilityLabel(Text("Loop mode"))
-        .accessibilityValue(
-            Text(
-                {
-                    switch model.loopMode {
-                    case .off: return String(localized: "Off")
-                    case .chapter: return String(localized: "Chapter")
-                    case .bookmark: return String(localized: "Bookmark")
-                    }
-                }()))
-    }
-
     // MARK: - Speed
 
     private var speedLabel: String {
@@ -130,25 +101,20 @@ struct BottomToolbarView: View {
 
     private var speedButton: some View {
         Button {
-            let speeds = SettingsManager.Defaults.speedPresets
-            if let index = speeds.firstIndex(of: model.speed) {
-                let nextIndex = (index + 1) % speeds.count
-                model.setSpeed(speeds[nextIndex])
-            } else {
-                model.setSpeed(1.0)
-            }
+            onShowPlaybackOptions()
+            Haptic.play(.light)
         } label: {
             utilityTextChip(isActive: model.speed != 1.0, speedLabel)
         }
-        .accessibilityLabel(Text("Playback speed"))
+        .accessibilityLabel(Text("Playback options"))
         .accessibilityValue(Text(speedLabel))
-        .onChange(of: model.speed) { _, newSpeed in
-            UIAccessibility.post(
-                notification: .announcement,
-                argument: String(
-                    localized: "Speed \(newSpeed.formatted(.number.precision(.fractionLength(1))))×"
-                ))
-        }
+        .accessibilityHint(Text("Opens speed, loop, and skip settings"))
+        // No manual speed announcement here: this button now opens the Playback
+        // Options sheet rather than cycling speed inline, and the sheet's own
+        // segmented speed Picker announces the change. `accessibilityValue`
+        // above already voices the current speed when the chip is focused.
+        // A `UIAccessibility.post(.announcement)` on `model.speed` would
+        // double-announce (and fire while the chip is hidden behind the sheet).
     }
 
     // MARK: - Timeline / View Toggle

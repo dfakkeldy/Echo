@@ -60,6 +60,50 @@ final class MacPlayerModel {
             if isPlaying { player?.rate = playbackRate }
         }
     }
+    /// Active loop behavior, both enforced by polling in the periodic time
+    /// observer (macOS has no `AVAudioEngine` callbacks). `.chapter` repeats the
+    /// current chapter (see `handleChapterBoundary`); `.bookmark` repeats the
+    /// segment between consecutive bookmarks — A→B repeat — (see
+    /// `handleBookmarkLoop`). The Playback Options popover demotes `.bookmark`
+    /// to `.off` when the book has no bookmarks. `.off` is the default.
+    var loopMode: LoopMode = .off
+    /// Seconds for the back/forward skip transport buttons and the Playback-menu
+    /// skip commands. User-configurable via the macOS Playback Options sheet
+    /// (default 15). The fixed ±30s "long skip" menu commands ignore this.
+    var skipInterval: Int = 15
+    /// Injected once by `MacTriPaneView.task` (same pattern as `dbService`).
+    /// On assignment we adopt the user's persisted skip interval and default
+    /// speed so the macOS Settings → Playback pane (WS-J) actually drives playback.
+    var settings: SettingsManager? {
+        didSet { applySettings() }
+    }
+
+    private func applySettings() {
+        guard let seek = settings?.seekForwardDuration else { return }
+        skipInterval = seek
+        // playbackRate's setter only touches `player.rate` while playing, so it is
+        // safe to seed before play(); play() re-applies `playbackRate` on start.
+        if !isPlaying, let speed = settings?.defaultPlaybackSpeed {
+            playbackRate = Float(speed)
+        }
+    }
+    /// Whether the +N dB output boost is applied to the AVPlayer audio path.
+    /// Read/written on `UserDefaults.standard` under the same `global_volumeBoostEnabled`
+    /// key the iOS `PlayerModel.isVolumeBoostEnabled` and the J2 Settings toggle use, so all
+    /// three share one store (device-local; not iCloud-synced).
+    var isVolumeBoostEnabled: Bool = UserDefaults.standard.bool(forKey: "global_volumeBoostEnabled")
+    {
+        didSet {
+            UserDefaults.standard.set(isVolumeBoostEnabled, forKey: "global_volumeBoostEnabled")
+            applyVolumeBoost()
+        }
+    }
+    /// Boost amount in dB. Default +9 dB mirrors the iOS `setVolumeBoost` default.
+    var volumeBoostGain: Float = 9.0 {
+        didSet { if isVolumeBoostEnabled { applyVolumeBoost() } }
+    }
+    /// Shared linear-gain box read by the C process callback of the audio tap.
+    private let boostGainBox = MacVolumeBoostGainBox()
     /// Shared bookmark store backed by the database.
     private(set) var bookmarkStore = BookmarkStore()
     /// Database service for bookmark persistence. Set by the app entry point.
@@ -94,6 +138,27 @@ final class MacPlayerModel {
     var openFileRequestToken: UUID = UUID()
     private(set) var tracks: [URL] = []
     private(set) var currentTrackIndex: Int = 0
+
+    // MARK: Chapters (M4B markers within the current file)
+
+    /// Chapters parsed from the currently-open file's M4B/M4A markers.
+    /// Empty when the file has no markers (or only one) — see `ChapterService`.
+    private(set) var chapters: [Chapter] = []
+    /// Index of the chapter containing `currentTime`. 0 when `chapters` is empty.
+    private(set) var currentChapterIndex: Int = 0
+    /// Token guarding async chapter loads against a file swapped mid-load.
+    private var chapterLoadToken = UUID()
+    /// Title of the open file, captured before chapters override `currentTitle`.
+    /// Restored when chapters are absent so the UI never shows a stale chapter name.
+    private var fileTitle: String = "No audiobook loaded"
+
+    /// True when the open file exposes navigable M4B chapters.
+    /// When false, callers fall back to across-file track navigation.
+    var hasChapters: Bool { chapters.count >= 2 }
+    /// True when a previous chapter exists for in-file navigation.
+    var hasPreviousChapter: Bool { hasChapters && currentChapterIndex > 0 }
+    /// True when a next chapter exists for in-file navigation.
+    var hasNextChapter: Bool { hasChapters && currentChapterIndex < chapters.count - 1 }
 
     private static let audioExtensions: Set<String> = ["mp3", "m4b", "m4a", "wav", "flac"]
 
@@ -214,7 +279,13 @@ final class MacPlayerModel {
         stop()
 
         currentURL = url
-        currentTitle = url.deletingPathExtension().lastPathComponent
+        let baseTitle = url.deletingPathExtension().lastPathComponent
+        fileTitle = baseTitle
+        currentTitle = baseTitle
+        // Clear the previous file's chapter axis synchronously; the new file's
+        // chapters are loaded asynchronously just below.
+        chapters = []
+        currentChapterIndex = 0
         // Infer folder from the file's parent directory if not already set.
         if folderURL == nil {
             folderURL = url.deletingLastPathComponent()
@@ -230,6 +301,9 @@ final class MacPlayerModel {
         player.automaticallyWaitsToMinimizeStalling = false
         self.player = player
 
+        // Apply the persisted boost to this newly-loaded item.
+        applyVolumeBoost()
+
         // Time observer for UI progress.
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) {
@@ -241,6 +315,11 @@ final class MacPlayerModel {
                 if let dur = self.player?.currentItem?.duration.seconds, dur.isFinite, dur > 0 {
                     self.duration = dur
                 }
+                // Detect chapter boundary with the pre-advancement index, THEN
+                // refresh the active chapter/title for the (possibly looped) position.
+                self.handleChapterBoundary()
+                self.handleBookmarkLoop()
+                self.refreshCurrentChapter()
             }
         }
 
@@ -267,6 +346,47 @@ final class MacPlayerModel {
 
         loadBookmarksFromDB()
         migrateLegacyBookmarksIfNeeded()
+        loadChapters(for: url)
+    }
+
+    /// Asynchronously parses M4B chapter markers for `url` and installs them.
+    /// Guarded by `chapterLoadToken` so a file swapped mid-load is ignored.
+    private func loadChapters(for url: URL) {
+        let token = UUID()
+        chapterLoadToken = token
+        Task { @MainActor [weak self] in
+            let asset = AVURLAsset(url: url)
+            let parsed = await ChapterService.parseChapters(from: asset)
+            guard let self = self, self.chapterLoadToken == token else { return }
+            self.chapters = parsed
+            // Re-derive the active chapter for the current playhead.
+            self.refreshCurrentChapter()
+        }
+    }
+
+    /// Recomputes `currentChapterIndex` from `currentTime` and keeps
+    /// `currentTitle` in sync with the active chapter when chapters exist.
+    /// When chapters are absent, restores the plain file title.
+    private func refreshCurrentChapter() {
+        guard hasChapters else {
+            currentChapterIndex = 0
+            if currentTitle != fileTitle {
+                currentTitle = fileTitle
+                updateNowPlaying()
+            }
+            return
+        }
+        let idx =
+            ChapterService.chapterIndex(forTime: currentTime, in: chapters)
+            ?? currentChapterIndex
+        if idx != currentChapterIndex {
+            currentChapterIndex = idx
+        }
+        let chapterTitle = chapters[idx].title ?? fileTitle
+        if currentTitle != chapterTitle {
+            currentTitle = chapterTitle
+            updateNowPlaying()
+        }
     }
 
     func loadFolder(url folderURL: URL) {
@@ -311,6 +431,47 @@ final class MacPlayerModel {
         guard prevIndex >= 0 else { return }
         currentTrackIndex = prevIndex
         open(url: tracks[prevIndex])
+    }
+
+    // MARK: Chapter navigation
+    //
+    // Axis-reconciliation rule: when the current file exposes M4B chapters
+    // (`hasChapters`), chapter nav seeks WITHIN the file. Otherwise these
+    // methods fall back to across-file track navigation so the same UI
+    // buttons keep working for folder books without markers.
+
+    /// Advances to the next chapter (in-file) or the next track (no chapters).
+    func nextChapter() {
+        guard hasChapters else {
+            nextTrack()
+            return
+        }
+        if let nextIdx = ChapterService.nextEnabledIndex(after: currentChapterIndex, in: chapters) {
+            seekToChapter(nextIdx)
+        }
+    }
+
+    /// Goes to the previous chapter (in-file) or the previous track (no chapters).
+    func previousChapter() {
+        guard hasChapters else {
+            previousTrack()
+            return
+        }
+        if let prevIdx = ChapterService.prevEnabledIndex(before: currentChapterIndex, in: chapters)
+        {
+            seekToChapter(prevIdx)
+        }
+    }
+
+    /// Seeks playback to the start of the chapter at `index`. No-op when the
+    /// current file has no chapters or `index` is out of range.
+    func seekToChapter(_ index: Int) {
+        guard hasChapters, chapters.indices.contains(index) else { return }
+        currentChapterIndex = index
+        let chapter = chapters[index]
+        seek(to: chapter.startSeconds)
+        currentTime = chapter.startSeconds
+        refreshCurrentChapter()
     }
 
     private func restoreLastFile() {
@@ -409,6 +570,68 @@ final class MacPlayerModel {
             Task { @MainActor [weak self] in
                 self?.currentTime = seconds
             }
+        }
+    }
+
+    /// Evaluates chapter-loop and end-of-chapter-sleep at the current instant.
+    /// Called on every periodic time-observer tick BEFORE refreshCurrentChapter()
+    /// so the boundary is detected with the pre-advancement chapter index.
+    /// Pure decision is delegated to `MacChapterLoopDecision`; this only applies
+    /// the side effect.
+    private func handleChapterBoundary() {
+        let decision = MacChapterLoopDecision.evaluate(
+            currentTime: currentTime,
+            chapters: chapters,
+            currentChapterIndex: currentChapterIndex,
+            loopMode: loopMode,
+            isEndOfChapterSleep: sleepTimer.mode == .endOfChapter
+        )
+        switch decision {
+        case .none:
+            break
+        case .seek(let target):
+            seek(to: target)
+            currentTime = target
+        case .fireSleep:
+            sleepTimer.evaluateAtChapterEnd()
+        }
+    }
+
+    /// Enforces the `.bookmark` (A→B) loop on each time-observer tick. Pulls the
+    /// enabled bookmark timestamps (ascending), delegates the seek-back decision
+    /// to the pure `MacBookmarkLoopDecision`, and applies it. A no-op unless
+    /// `loopMode == .bookmark` and at least two bookmarks exist.
+    private func handleBookmarkLoop() {
+        guard loopMode == .bookmark else { return }
+        let times =
+            bookmarkStore.bookmarks
+            .filter { $0.isEnabled }
+            .map(\.timestamp)
+            .sorted()
+        if let target = MacBookmarkLoopDecision.seekBackTarget(
+            currentTime: currentTime, bookmarkTimes: times, speed: playbackRate)
+        {
+            seek(to: target)
+            currentTime = target
+        }
+    }
+
+    /// Pushes the current boost setting into the shared gain box (read live by
+    /// the audio tap) and ensures the current item has the boost audio mix.
+    private func applyVolumeBoost() {
+        boostGainBox.gain = MacVolumeBoost.linearGain(
+            enabled: isVolumeBoostEnabled, gainDB: volumeBoostGain)
+        installAudioMixIfNeeded()
+    }
+
+    /// Installs the MTAudioProcessingTap audio mix on the current AVPlayerItem.
+    /// Safe to call repeatedly; only attaches when an item exists and no mix is
+    /// set yet. The live gain is read from `boostGainBox`, so toggling boost on
+    /// an already-mixed item does not require re-installing.
+    private func installAudioMixIfNeeded() {
+        guard let item = player?.currentItem else { return }
+        if item.audioMix == nil {
+            item.audioMix = MacAudioBoostTap.makeAudioMix(for: item, gainBox: boostGainBox)
         }
     }
 

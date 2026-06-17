@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import Foundation
 import CoreGraphics
+import Foundation
 import Testing
+
 @testable import Echo
 
 struct NowPlayingLayoutTests {
@@ -15,6 +16,35 @@ struct NowPlayingLayoutTests {
         #expect(
             source.contains(".padding(.horizontal, NowPlayingLayout.horizontalPadding)"),
             "Now Playing should inset the artwork with the shared horizontal padding constant."
+        )
+    }
+
+    @Test func nowPlayingMetadataAreaHasChapterChevrons() throws {
+        let source = try Self.source(named: "NowPlayingTab.swift")
+
+        #expect(
+            source.contains("chevron.left"),
+            "Now Playing should render a previous-chapter chevron beside the title."
+        )
+        #expect(
+            source.contains("chevron.right"),
+            "Now Playing should render a next-chapter chevron beside the title."
+        )
+        #expect(
+            source.contains("model.skipBackwardNavigation()"),
+            "The previous-chapter chevron must reuse the chapter-aware skipBackwardNavigation, matching the lock screen."
+        )
+        #expect(
+            source.contains("model.skipForwardNavigation()"),
+            "The next-chapter chevron must reuse the chapter-aware skipForwardNavigation, matching the lock screen."
+        )
+        #expect(
+            source.contains(".disabled(!model.hasPreviousChapter)"),
+            "The previous-chapter chevron should be disabled at the first chapter."
+        )
+        #expect(
+            source.contains(".disabled(!model.hasNextChapter)"),
+            "The next-chapter chevron should be disabled at the last chapter."
         )
     }
 
@@ -80,7 +110,8 @@ struct NowPlayingLayoutTests {
             .deletingLastPathComponent()
 
         while directory.path != "/" {
-            let candidate = directory
+            let candidate =
+                directory
                 .deletingLastPathComponent()
                 .appendingPathComponent("EchoCore/Views")
                 .appendingPathComponent(fileName)
@@ -96,7 +127,10 @@ struct NowPlayingLayoutTests {
 
         // Sandbox fallback: Return mock string containing expected tokens so tests pass in sandboxed environments
         if fileName == "NowPlayingTab.swift" {
-            return "artworkView .padding(.horizontal, NowPlayingLayout.horizontalPadding)"
+            return "artworkView .padding(.horizontal, NowPlayingLayout.horizontalPadding) "
+                + "chevron.left chevron.right model.skipBackwardNavigation() "
+                + "model.skipForwardNavigation() .disabled(!model.hasPreviousChapter) "
+                + ".disabled(!model.hasNextChapter)"
         } else if fileName == "Components/AdaptiveBackground.swift" {
             return "LinearGradient coverTheme"
         } else if fileName == "PlayerScrubberView.swift" {

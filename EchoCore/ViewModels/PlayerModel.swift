@@ -355,6 +355,19 @@ final class PlayerModel {
         set { state.enhancedTranscription = newValue }
     }
     var currentChapterIndex: Int? { state.currentChapterIndex }
+
+    /// True when the loaded book has at least two chapters and the current
+    /// position is not the first chapter. Drives the "previous chapter" chevron.
+    /// `currentChapterIndex` is optional; an unresolved index is treated as 0.
+    var hasPreviousChapter: Bool { chapters.count >= 2 && (currentChapterIndex ?? 0) > 0 }
+
+    /// True when the loaded book has at least two chapters and the current
+    /// position is not the last chapter. Drives the "next chapter" chevron.
+    /// `currentChapterIndex` is optional; an unresolved index is treated as 0.
+    var hasNextChapter: Bool {
+        chapters.count >= 2 && (currentChapterIndex ?? 0) < chapters.count - 1
+    }
+
     var chapterWordClouds: [Int: [WordFrequency]] {
         get { state.chapterWordClouds }
         set { state.chapterWordClouds = newValue }

@@ -15,6 +15,10 @@ struct NowPlayingTab: View {
 
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
+    @State private var showingPlaybackOptions = false
+    /// Owns the player-More chapter-navigation sheet binding (WS-C). Kept here,
+    /// not on RootTabView, so it cannot collide with the global header sheets.
+    @State private var showingChapterPicker = false
 
     /// The saved voice preference, or the system default on first launch.
     private var preferredVoice: NarrationVoice {
@@ -101,7 +105,13 @@ struct NowPlayingTab: View {
                 // E. Unified Bottom Dock
                 if !model.isPlayingVoiceMemo {
                     UnifiedBottomDock(
-                        onCreateBookmark: onCreateBookmark)
+                        onCreateBookmark: onCreateBookmark,
+                        onShowPlaybackOptions: { showingPlaybackOptions = true },
+                        onShowChapters: { showingChapterPicker = true },
+                        onShowBookmarks: { model.selectedTab = .timeline },
+                        onShowSettings: showSettings
+                    )
+                    .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
             }
             .ignoresSafeArea(.keyboard)
@@ -140,6 +150,17 @@ struct NowPlayingTab: View {
             VoicePickerView(selectedVoice: $selectedVoice) {
                 settings.narrationVoiceID = selectedVoice.id.rawValue
                 model.startNarrationPlayback(voice: selectedVoice)
+            }
+        }
+        .sheet(isPresented: $showingPlaybackOptions) {
+            PlaybackOptionsSheet()
+        }
+        // Player-More "Chapters" → jump-to-chapter. Reuses the existing
+        // ChapterPickerSheet, supplying a seek closure (matches PlaylistView's
+        // chapter-row tap: seek to startSeconds + 0.05 to land inside the chapter).
+        .sheet(isPresented: $showingChapterPicker) {
+            ChapterPickerSheet(chapters: model.chapters) { chapter in
+                model.seek(toSeconds: chapter.startSeconds + 0.05)
             }
         }
     }
@@ -187,19 +208,72 @@ struct NowPlayingTab: View {
             .accessibilityLabel(Text("Book info"))
             .accessibilityValue(Text(secondaryLineText))
 
-            // Hero line: chapter title marquee — almost never truncates now
-            MarqueeText(
-                text: titleText,
-                fontStyle: .title3,
-                fontWeight: .bold,
-                appFont: model.resolvedAppFont,
-                foregroundStyle: .primary
-            )
-            .frame(maxWidth: .infinity, alignment: .center)
+            // Hero line: chapter-nav chevrons flank the chapter-title marquee.
+            // Chevrons reuse skip*Navigation (chapter-aware; falls back to track)
+            // so this in-app bar matches the lock screen byte-for-byte. The whole
+            // bar is gated on chapters.count >= 2 to mirror `titleText`; a
+            // single-chapter / marker-less book renders the bare marquee as before.
+            if model.chapters.count >= 2 {
+                HStack(spacing: 8) {
+                    Button {
+                        model.skipBackwardNavigation()
+                        Haptic.play(.light)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: chevronWidth, height: 32)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!model.hasPreviousChapter)
+                    .accessibilityLabel(Text("Previous chapter"))
+                    .accessibilityHint(Text("Jumps to the previous chapter"))
+
+                    MarqueeText(
+                        text: titleText,
+                        fontStyle: .title3,
+                        fontWeight: .bold,
+                        appFont: model.resolvedAppFont,
+                        foregroundStyle: .primary
+                    )
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    Button {
+                        model.skipForwardNavigation()
+                        Haptic.play(.light)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: chevronWidth, height: 32)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!model.hasNextChapter)
+                    .accessibilityLabel(Text("Next chapter"))
+                    .accessibilityHint(Text("Jumps to the next chapter"))
+                }
+            } else {
+                MarqueeText(
+                    text: titleText,
+                    fontStyle: .title3,
+                    fontWeight: .bold,
+                    appFont: model.resolvedAppFont,
+                    foregroundStyle: .primary
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
     }
 
     // MARK: - Helpers
+
+    /// Fixed hit-target width for each chapter-nav chevron. Reserving a constant
+    /// width (rather than letting the chevrons share flexible space) keeps the
+    /// MarqueeText container-width measurement stable as the bar's disabled
+    /// state changes, so a short title is never shifted by a stale width.
+    private let chevronWidth: CGFloat = 44
 
     private var titleText: String {
         model.chapters.count >= 2

@@ -40,6 +40,7 @@ Models/ReaderCardItem.swift
 Models/RealTimeEventType.swift
 Models/SleepTimerMode.swift
 Models/SpeedSuggestion.swift
+Models/ThemeColor.swift
 Models/Track.swift
 PrivacyInfo.xcprivacy
 Protocols/PlayerModelComponentProtocols.swift
@@ -82,6 +83,7 @@ Services/EPUBImportService.swift
 Services/InlineFlashcardTriggerController.swift
 Services/LocationCaptureService.swift
 Services/M4BParser.swift
+Services/MacPlaybackLogic.swift
 Services/MockMediaProvider.swift
 Services/ModelRetainBox.swift
 Services/Narration/AudioFileWriting.swift
@@ -135,6 +137,7 @@ ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
 ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
+Views/AppIconSelectionView.swift
 Views/AutoAlignmentProgressView.swift
 Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
@@ -171,6 +174,7 @@ Views/Fidget/KineticSandView.swift
 Views/Fidget/TactilePlaygroundView.swift
 Views/FlashcardReviewCard.swift
 Views/FlashcardReviewSession.swift
+Views/FontSelectionView.swift
 Views/HelpContent.swift
 Views/HelpView.swift
 Views/ListeningProgressModuleView.swift
@@ -181,9 +185,12 @@ Views/NowPlayingTab.swift
 Views/OnboardingView.swift
 Views/PDFDocumentView.swift
 Views/PhonePlayerSettingsView.swift
+Views/PlaybackOptionsSheet.swift
+Views/PlayerMoreMenu.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
 Views/PlaylistView.swift
+Views/ProTranscriptsSettingsView.swift
 Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
@@ -192,6 +199,8 @@ Views/ReaderTab+Alignment.swift
 Views/ReaderTab.swift
 Views/RootTabView.swift
 Views/ScrubberJoystick.swift
+Views/SettingsAdvancedView.swift
+Views/SettingsAppearanceView.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
 Views/SmartRewindSettingsView.swift
@@ -206,6 +215,7 @@ Views/Stats/StatCardView.swift
 Views/Stats/StatsView.swift
 Views/StatsModuleView.swift
 Views/StreakModuleView.swift
+Views/ThemeSelectionView.swift
 Views/TimelineTab.swift
 Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
@@ -226,21 +236,33 @@ Echo_macOSApp.swift
 Info.plist
 PrivacyInfo.xcprivacy
 Services/AudioExtractor.swift
+Services/MacAlignmentService.swift
 Services/MacApkgExportService.swift
+Services/MacAudioBoostTap.swift
 Services/MacBulkAlignmentService.swift
-Services/MacGlobalAlignmentService.swift
 Views/MacAnkiExportView.swift
 Views/MacBulkAlignmentProgressView.swift
-Views/MacContentView.swift
 Views/MacNotesPane.swift
+Views/MacPlaybackOptionsSheet.swift
 Views/MacPlayerModel.swift
+Views/MacPlayerMoreMenu.swift
 Views/MacReaderFeedView.swift
+Views/MacSettingsView.swift
 Views/MacTOCTreeView.swift
 Views/MacTriPaneView.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
 Views/TranscriptionManager.swift
 ```
+
+The macOS app is rooted in `MacTriPaneView` (a `NavigationSplitView`/tri-pane layout), with a separate `Settings { MacSettingsView() }` scene (⌘,). `MacPlayerModel` is a self-contained `@Observable` model wrapping a raw `AVPlayer` — it is **independent of the iOS `PlaybackController`** (which is not compiled into the macOS target), so macOS builds no global cross-file chapter timeline. As of the BookPlayer-style redesign (June 2026) `MacPlayerModel` gained a chapter axis, a 3-way loop, a configurable skip interval, above-unity volume boost, and `SettingsManager` consumption:
+
+- **Chapter axis.** On file open it parses M4B chapter markers via the shared `ChapterService.parseChapters(from:)` (token-guarded async) and derives the active chapter from the periodic time observer via `ChapterService.chapterIndex(forTime:in:)`, exposing `chapters` / `currentChapterIndex` (`private(set)`) plus `nextChapter()` / `previousChapter()` / `seekToChapter(_:)`. Axis reconciliation: chapter nav drives *within* a file when it has ≥2 M4B chapters, else falls back to across-file track nav. The ⌘←/⌘→ "Previous/Next Chapter" menu commands now perform real chapter navigation (they previously called track methods despite their labels).
+- **3-way loop + end-of-chapter sleep.** `loopMode: LoopMode`; the time observer calls `handleChapterBoundary()` **before** the active-chapter refresh (so the boundary is detected on the pre-advancement index), delegating to the pure, unit-tested `MacChapterLoopDecision.evaluate(...)` in `EchoCore/Services/MacPlaybackLogic.swift`. The `.bookmark` (A→B) loop is enforced on the same tick by `handleBookmarkLoop()`, delegating to the pure `MacBookmarkLoopDecision.seekBackTarget(...)` (mirrors iOS `PlaybackController.applyBookmarkLoopIfNeeded`: repeat the segment between the two bookmarks bracketing the playhead); the `MacPlaybackOptionsSheet` demotes `.bookmark` → `.off` when the book has no bookmarks.
+- **Configurable skip interval** (`skipInterval`, default 15) threaded through the player bar and Playback menu commands.
+- **Volume boost above unity** (which `AVAudioMix` volume cannot reach) via an `MTAudioProcessingTap` (`Services/MacAudioBoostTap.swift`) that multiplies samples by a linear gain read live from a shared box; an ASBD `prepare`-callback guard degrades to clean passthrough on non-float-PCM routes. The dB→linear math is the pure `MacVolumeBoost.linearGain` (also in `MacPlaybackLogic.swift`).
+- **Settings.** `Echo_macOSApp` injects a shared `SettingsManager` into both the main `WindowGroup` and the `Settings` scene and applies `.preferredColorScheme` from `settings.appAppearance`. `MacPlayerModel.settings` (injected once by `MacTriPaneView.task`, mirroring the `dbService` pattern) adopts the persisted skip interval and default speed. `MacSettingsView` is a native Preferences `TabView` (Appearance + Playback panes binding the shared `SettingsManager`; no Pro/StoreKit pane — macOS has none). Custom `appFont` / `themeColor` are persisted but not yet applied to the macOS UI (documented follow-up).
+- **Player bar.** `MacTriPaneView`'s player bar replaced the track label with a `< Chapter Title >` chevron nav bar, the inline speed `Picker` with a button that opens `MacPlaybackOptionsSheet` (a `.popover` — speed / loop / skip / boost + a Smart Rewind `SettingsLink`), and relocated the inline sleep menu into `MacPlayerMoreMenu` (chapters / bookmarks / add-bookmark / mark-passage / sleep / Settings).
 
 ## Echo Watch App
 
@@ -429,7 +451,7 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 - `WhisperSession` — Reference-counted, shared WhisperKit model manager (`@MainActor`). Prevents duplicate ~40 MB model loads when both `AutoAlignmentService` and `ContinuousAlignmentService` are active. Uses `acquire(model:)` / `release()` / `forceUnload()` lifecycle.
 - `AudioSnippetPlayer` — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup previously duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
 - `CloudKitSyncService` — Cross-device alignment anchor synchronization via CloudKit. Uses deterministic SHA-256 record names instead of `hashValue` for cross-device record matching. Uses `NSNumber`-based predicates to avoid floating-point precision loss.
-- `MacGlobalAlignmentService` — macOS-specific streaming alignment orchestrator with EPUB picker UI and match threshold slider. Shares `WhisperSession` with iOS services. Precomputes word arrays to avoid per-sliding-window allocations. Parses EPUB blocks via the shared `parseEPUBBlocks` driver (not a Mac-specific parser), so its anchor block IDs match those the iOS importer writes (CODE_AUDIT.md §5.1).
+- `MacAlignmentService` — macOS-specific streaming alignment orchestrator with EPUB picker UI and match threshold slider. Shares `WhisperSession` with iOS services. Precomputes word arrays to avoid per-sliding-window allocations. Parses EPUB blocks via the shared `parseEPUBBlocks` driver (not a Mac-specific parser), so its anchor block IDs match those the iOS importer writes (CODE_AUDIT.md §5.1).
 - `AlignmentAnchorRecord` — A user-created or auto-generated lock point tying an EPUB block to an audio time. Includes `anchorKind` (chapterStart/chapterEnd/correction) and `source` (manual/auto/imported).
 - `EPubBlockRecord` — Database row for a parsed EPUB block (heading, paragraph, or image). Includes `wordCount` (V8) for proportional math.
 - `TimelineItem` — Materialized row linking blocks to audio timestamps with `timestamp_source` and `alignment_status`
@@ -632,7 +654,7 @@ RootTabView
 └── Tab 2: TimelineTab      ← playlist, track/chapter list, bookmarks
 ```
 
-**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`. It is strictly play/pause/scrubbing — all auxiliary controls (speed, sleep timer, bookmarks, loop mode) live in the `BottomToolbarView` and `DashboardShelf`.
+**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`, plus a `< Chapter Title >` chevron nav bar in `metadataArea` flanking the title marquee (gated by `PlayerModel.hasPreviousChapter` / `hasNextChapter`, reusing the chapter-aware `skipBackwardNavigation()` / `skipForwardNavigation()` the lock screen and CarPlay use). Per-listen controls live elsewhere (BookPlayer-style redesign, June 2026): **playback speed, the 3-way loop, seek/skip durations, Smart Rewind, and Volume Boost** moved into a presented `PlaybackOptionsSheet` (opened from the Now Playing speed indicator — both the static `BottomToolbarView` speed chip via an injected `onShowPlaybackOptions` closure threaded through `UnifiedBottomDock`, and the configurable `TransportControlsView` `.speed` slot via a `showPlaybackOptions` `EnvironmentKey` installed by `NowPlayingTab`). A player-scoped `PlayerMoreMenu` in the `BottomToolbarView` dock holds Chapters (presents `ChapterPickerSheet` as a jump-to-chapter navigator), Bookmarks (switches to the Study/Timeline tab), an inline Sleep-timer submenu, and Settings — distinct from the app-level `UnifiedTopHeader` ellipsis menu, and wired at both `UnifiedBottomDock` call sites (NowPlayingTab + the RootTabView overlay).
 
 **ReaderTab** (available when `model.hasEPUB` is true; `model.hasPDF` provides a `PDFDocumentView` fallback) is the EPUB-backed reading surface. It renders the book as a feed of styled cards — headings, paragraphs, and images — aligned to the audio playback position. The header auto-hides on scroll-down and reveals on scroll-up. It includes:
 - A search bar for full-text search across the EPUB with inline match highlighting
@@ -683,7 +705,7 @@ PlayerModel wires these via coordinator closures in `init()` and exposes thin pa
 
 ### Player Layout Styles
 
-The iOS player supports two layout variants, selected via **Settings > Player Layout Style**:
+The iOS player supports two layout variants, selected via **Settings > Customization > Phone Player Designer > Player Layout Style** (`PhonePlayerSettingsView`):
 
 | Style | Scrubber | Transport Controls | Target |
 |---|---|---|---|
@@ -692,7 +714,11 @@ The iOS player supports two layout variants, selected via **Settings > Player La
 
 The layout style is persisted in `SettingsManager.playerLayoutStyle` (UserDefaults key `playerLayoutStyle`) and drives conditional rendering in `PlayerScrubberView` and `TransportControlsView`.
 
-Each transport button now supports a **dual-action model**: a tap executes the primary action (configured via `PhonePlayerSettingsView` under "Tap Actions"), while a long-press (>0.5s) executes a secondary action (configured under "Long Press"). The `TransportButton` component uses a custom `PrimitiveButtonStyle` (`TransportPrimitiveButtonStyle`) to layer both gestures onto a single control without the gesture conflicts that arise from stacking `.onTapGesture` + `.onLongPressGesture` on a standard SwiftUI `Button`. Both action sets are persisted in `SettingsManager.phonePage` and `SettingsManager.phoneLongPressPage`, and saved/loaded in `PhonePreset` data models.
+Each transport button now supports a **dual-action model**: a tap executes the primary action (configured via `PhonePlayerSettingsView` under "Tap Actions"), while a long-press (>0.5s) executes a secondary action (configured under "Long Press"). The `TransportButton` component uses a custom `PrimitiveButtonStyle` (`TransportPrimitiveButtonStyle`) to layer both gestures onto a single control without the gesture conflicts that arise from stacking `.onTapGesture` + `.onLongPressGesture` on a standard SwiftUI `Button`. Both action sets are persisted in `SettingsManager.phonePage` and `SettingsManager.phoneLongPressPage`, and saved/loaded in `PhonePreset` data models. The `.previousTrack` / `.nextTrack` / `.loopMode` actions were retired from the *selectable* `PhonePlayerSettingsView` palettes (chapter navigation now lives in the metadata chevron bar; loop in `PlaybackOptionsSheet`). This is **passive** — every `WatchAction` enum case and its render/dispatch arm remain, so saved layouts and the watch/CarPlay wire protocol keep decoding — and the fresh-install default `Defaults.phonePage` is now `[.skipBackward, .empty, .playPause, .empty, .skipForward]`.
+
+### Settings Restructure (BookPlayer redesign, June 2026)
+
+`SettingsView` was gutted from a monolith into a **thin app-level shell** holding only app-level rows that link out to subscreens: Display→Appearance, Store→Pro Transcripts, Customization→(Phone Player Designer, Watch App Settings, Advanced), Flashcards, Help, and DEBUG-only sections. No inline per-listen playback controls remain in Settings — those moved to `PlaybackOptionsSheet` (see *UI Architecture*). The former inline sub-views were **extracted** into their own files — `SettingsAppearanceView`, `FontSelectionView`, `ThemeSelectionView`, `ProTranscriptsSettingsView`, `AppIconSelectionView` — plus a new `SettingsAdvancedView` (the relocated Continuous Auto-Alignment + Play-Bookmarks-Inline toggles), routed through `NavigationDestinations`. The `ThemeColor` enum moved to `EchoCore/Models/ThemeColor.swift` so the macOS Settings scene can reuse it.
 
 ### Chapter Sections & Section Navigation
 
