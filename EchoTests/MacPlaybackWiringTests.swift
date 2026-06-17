@@ -45,6 +45,29 @@ struct MacPlaybackWiringTests {
             "macOS boost must persist under the same key as iOS.")
     }
 
+    @Test func timeObserverEnforcesBookmarkLoop() throws {
+        let src = try MacSource.read("Views/MacPlayerModel.swift")
+        #expect(
+            src.contains("self.handleBookmarkLoop()"),
+            "The periodic time observer must call handleBookmarkLoop().")
+        #expect(
+            src.contains("MacBookmarkLoopDecision.seekBackTarget("),
+            "handleBookmarkLoop must delegate to the pure A–B decision helper.")
+        #expect(
+            src.contains("guard loopMode == .bookmark else { return }"),
+            "handleBookmarkLoop must no-op unless the bookmark loop is active.")
+    }
+
+    @Test func popoverDemotesBookmarkLoopWhenNoBookmarks() throws {
+        let src = try MacSource.read("Views/MacPlaybackOptionsSheet.swift")
+        #expect(
+            src.contains("player.bookmarkStore.bookmarks.isEmpty"),
+            "The loop picker must demote .bookmark to .off when the book has no bookmarks.")
+        #expect(
+            src.contains("selection: loopSelection"),
+            "The loop picker must route through the demotion binding, not bind loopMode directly.")
+    }
+
     @Test func tapInstallerExists() throws {
         let src = try MacSource.read("Services/MacAudioBoostTap.swift")
         #expect(

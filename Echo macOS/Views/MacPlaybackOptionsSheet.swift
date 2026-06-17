@@ -32,7 +32,7 @@ struct MacPlaybackOptionsSheet: View {
             }
 
             Section("Loop") {
-                Picker("Loop Mode", selection: $player.loopMode) {
+                Picker("Loop Mode", selection: loopSelection) {
                     Text("Off").tag(LoopMode.off)
                     Text("Chapter").tag(LoopMode.chapter)
                     Text("Bookmark").tag(LoopMode.bookmark)
@@ -68,6 +68,24 @@ struct MacPlaybackOptionsSheet: View {
         .formStyle(.grouped)
         .frame(width: 280)
         .padding(.vertical, 4)
+    }
+
+    /// Routes loop selection through a demotion guard: choosing `.bookmark` on a
+    /// book with no bookmarks falls back to `.off`, mirroring the iOS
+    /// `PlaybackOptionsSheet` so the offered option never silently does nothing.
+    /// (The A→B loop itself needs ≥2 bookmarks; this just avoids arming it on an
+    /// empty book.)
+    private var loopSelection: Binding<LoopMode> {
+        Binding(
+            get: { player.loopMode },
+            set: { newMode in
+                if newMode == .bookmark && player.bookmarkStore.bookmarks.isEmpty {
+                    player.loopMode = .off
+                } else {
+                    player.loopMode = newMode
+                }
+            }
+        )
     }
 
     /// Speed label formatter — "1×", "1.25×", "1.5×".

@@ -60,10 +60,12 @@ final class MacPlayerModel {
             if isPlaying { player?.rate = playbackRate }
         }
     }
-    /// Active loop behavior. `.chapter` repeats the current chapter via a
-    /// boundary check in the periodic time observer (see `handleChapterBoundary`).
-    /// `.bookmark` looping is not yet wired on macOS; the Playback Options sheet
-    /// demotes it to `.off` when no bookmarks exist. `.off` is the default.
+    /// Active loop behavior, both enforced by polling in the periodic time
+    /// observer (macOS has no `AVAudioEngine` callbacks). `.chapter` repeats the
+    /// current chapter (see `handleChapterBoundary`); `.bookmark` repeats the
+    /// segment between consecutive bookmarks — A→B repeat — (see
+    /// `handleBookmarkLoop`). The Playback Options popover demotes `.bookmark`
+    /// to `.off` when the book has no bookmarks. `.off` is the default.
     var loopMode: LoopMode = .off
     /// Seconds for the back/forward skip transport buttons and the Playback-menu
     /// skip commands. User-configurable via the macOS Playback Options sheet
@@ -316,6 +318,7 @@ final class MacPlayerModel {
                 // Detect chapter boundary with the pre-advancement index, THEN
                 // refresh the active chapter/title for the (possibly looped) position.
                 self.handleChapterBoundary()
+                self.handleBookmarkLoop()
                 self.refreshCurrentChapter()
             }
         }
@@ -591,6 +594,25 @@ final class MacPlayerModel {
             currentTime = target
         case .fireSleep:
             sleepTimer.evaluateAtChapterEnd()
+        }
+    }
+
+    /// Enforces the `.bookmark` (A→B) loop on each time-observer tick. Pulls the
+    /// enabled bookmark timestamps (ascending), delegates the seek-back decision
+    /// to the pure `MacBookmarkLoopDecision`, and applies it. A no-op unless
+    /// `loopMode == .bookmark` and at least two bookmarks exist.
+    private func handleBookmarkLoop() {
+        guard loopMode == .bookmark else { return }
+        let times =
+            bookmarkStore.bookmarks
+            .filter { $0.isEnabled }
+            .map(\.timestamp)
+            .sorted()
+        if let target = MacBookmarkLoopDecision.seekBackTarget(
+            currentTime: currentTime, bookmarkTimes: times, speed: playbackRate)
+        {
+            seek(to: target)
+            currentTime = target
         }
     }
 
