@@ -109,13 +109,12 @@ struct BottomToolbarView: View {
         .accessibilityLabel(Text("Playback options"))
         .accessibilityValue(Text(speedLabel))
         .accessibilityHint(Text("Opens speed, loop, and skip settings"))
-        .onChange(of: model.speed) { _, newSpeed in
-            UIAccessibility.post(
-                notification: .announcement,
-                argument: String(
-                    localized: "Speed \(newSpeed.formatted(.number.precision(.fractionLength(1))))×"
-                ))
-        }
+        // No manual speed announcement here: this button now opens the Playback
+        // Options sheet rather than cycling speed inline, and the sheet's own
+        // segmented speed Picker announces the change. `accessibilityValue`
+        // above already voices the current speed when the chip is focused.
+        // A `UIAccessibility.post(.announcement)` on `model.speed` would
+        // double-announce (and fire while the chip is hidden behind the sheet).
     }
 
     // MARK: - Timeline / View Toggle
