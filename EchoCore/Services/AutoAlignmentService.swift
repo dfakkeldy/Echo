@@ -138,7 +138,10 @@ final class AutoAlignmentService {
         // re-run could never correct a bad earlier result.
         let clearedCount = try anchorDAO.deleteAutoPipelineAnchors(for: audiobookID)
         if clearedCount > 0 {
-            try alignmentService.recalculateTimeline()
+            // Skip word-timing materialization on intermediate recalcs; the whole
+            // table is rebuilt once at the end of the pipeline (after the final
+            // anchors land), not for every chapter.
+            try alignmentService.recalculateTimeline(materializeWordTimings: false)
             state.log("Cleared \(clearedCount) anchors from previous automatic runs")
         }
 
@@ -169,7 +172,7 @@ final class AutoAlignmentService {
         var tier0AnchorIDByBlockID: [String: String] = [:]
         if !titleMatches.isEmpty {
             let titleAnchors = createTitleMatchAnchors(matches: titleMatches)
-            try alignmentService.insertAnchors(titleAnchors)
+            try alignmentService.insertAnchors(titleAnchors, materializeWordTimings: false)
             tier0AnchorIDByBlockID = Dictionary(
                 uniqueKeysWithValues: titleAnchors.map { ($0.epubBlockID, $0.id) }
             )
@@ -207,6 +210,13 @@ final class AutoAlignmentService {
         )
 
         guard !Task.isCancelled else { return }
+
+        // Rebuild per-word read-along timings once, now that every chapter's
+        // anchors have landed and the timeline reflects the final block times.
+        // The intermediate recalcs above skipped this to avoid O(chapters)
+        // full-book rebuilds.
+        try WordTimingMaterializer.materialize(
+            audiobookID: audiobookID, writer: timelineDAO.db)
 
         state.log(
             "═══ Pipeline complete: \(state.anchoredChapterCount) chapters anchored (\(state.titleMatchedChapterCount) title-matched) ═══"
@@ -485,7 +495,7 @@ final class AutoAlignmentService {
                     ))
                 anchoredBlockIDs.insert(candidate.blockID)
             }
-            try alignmentService.insertAnchors(chapterAnchors)
+            try alignmentService.insertAnchors(chapterAnchors, materializeWordTimings: false)
             totalInserted += chapterAnchors.count
             chapterAnchoredCount += 1
             lastGlobalAnchorTime = max(

@@ -135,14 +135,21 @@ struct AlignmentService {
 
     /// Inserts multiple anchors in a single transaction, then recalculates
     /// the timeline. Used by `AutoAlignmentService` for bulk anchor creation.
-    func insertAnchors(_ anchors: [AlignmentAnchorRecord]) throws {
+    ///
+    /// - Parameter materializeWordTimings: forwarded to `recalculateTimeline`.
+    ///   `AutoAlignmentService` passes `false` so per-chapter inserts don't each
+    ///   rebuild the whole `word_timing` table; it materializes once at the end.
+    func insertAnchors(
+        _ anchors: [AlignmentAnchorRecord],
+        materializeWordTimings: Bool = true
+    ) throws {
         guard !anchors.isEmpty else { return }
         try anchorDAO.db.write { db in
             for var anchor in anchors {
                 try anchor.upsert(db)
             }
         }
-        try recalculateTimeline()
+        try recalculateTimeline(materializeWordTimings: materializeWordTimings)
     }
 
     // MARK: - Block Visibility
@@ -188,7 +195,17 @@ struct AlignmentService {
     ///   making the reader highlight front matter instead of the narrated chapter.
     ///   The default (`false`) preserves the original behavior byte-for-byte for
     ///   manual alignment, `AutoAlignmentService.insertAnchors`, and hide/unhide.
-    func recalculateTimeline(anchoredOnly: Bool = false) throws {
+    /// - Parameter materializeWordTimings: When `true` (the default), the
+    ///   `word_timing` table is rebuilt for this audiobook once the timeline
+    ///   upsert completes, so per-word read-along ranges track the final block
+    ///   times. Each manual alignment op triggers exactly one recalculation, so
+    ///   the default re-materializes once per user action. `AutoAlignmentService`
+    ///   passes `false` on its many intermediate recalcs and materializes once at
+    ///   the end of its pipeline, avoiding O(chapters) full-book rebuilds.
+    func recalculateTimeline(
+        anchoredOnly: Bool = false,
+        materializeWordTimings: Bool = true
+    ) throws {
         let blocks = try blockDAO.blocks(for: audiobookID)
         let anchors = try anchorDAO.anchors(for: audiobookID)
 
@@ -419,6 +436,15 @@ struct AlignmentService {
         logger.info(
             "Recalculated timeline for \(audiobookID): \(blocks.count) blocks, \(anchors.count) anchors"
         )
+
+        // Rebuild per-word read-along timings from the freshly-written block
+        // times. Runs once at the end of a successful recalculation (not per
+        // block); auto-alignment opts out here and materializes once after its
+        // whole pipeline to avoid re-running this for every chapter.
+        if materializeWordTimings {
+            try WordTimingMaterializer.materialize(
+                audiobookID: audiobookID, writer: timelineDAO.db)
+        }
     }
 
     /// Finds the anchored blocks immediately before and after the given block
