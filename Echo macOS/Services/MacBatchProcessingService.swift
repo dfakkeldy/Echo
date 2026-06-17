@@ -65,11 +65,38 @@ final class MacBatchProcessingService {
     /// re-open it after an app relaunch. Creating a `.withSecurityScope`
     /// bookmark requires the `com.apple.security.files.bookmarks.app-scope`
     /// entitlement, which the sandboxed macOS target already declares.
-    func enqueue(fileURL: URL) throws {
+    ///
+    /// `companionEPUB`, when supplied, is bookmarked **now** while the
+    /// user-selected folder's security scope is still active (see
+    /// `MacBulkAlignmentService.enqueueFolder`). The companion lives at a
+    /// sibling path that the audio file's own bookmark does NOT cover, so under
+    /// the sandbox the EPUB read would fail at processing time without its own
+    /// scope. We persist a separate bookmark and resolve it in `makeStages()`.
+    func enqueue(fileURL: URL, companionEPUB: URL? = nil) throws {
         let bookmark = try fileURL.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil)
+        // Capture the companion EPUB's scope while the folder scope is live.
+        // A failure here must not silently drop the companion: log and proceed
+        // with a nil bookmark so the item still enqueues (import will then fail
+        // with a clear error rather than completing an empty book).
+        let companionBookmark: Data?
+        if let companionEPUB {
+            do {
+                companionBookmark = try companionEPUB.bookmarkData(
+                    options: .withSecurityScope,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil)
+            } catch {
+                logger.error(
+                    "Failed to bookmark companion EPUB \(companionEPUB.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                companionBookmark = nil
+            }
+        } else {
+            companionBookmark = nil
+        }
         // Key off the source directory so blocks/anchors/word-timings written
         // during processing match the importer's `folderURL.absoluteString`.
         let audiobookID = fileURL.deletingLastPathComponent().absoluteString
@@ -77,6 +104,7 @@ final class MacBatchProcessingService {
             BatchQueueRecord(
                 audiobookID: audiobookID,
                 sourceBookmark: bookmark,
+                companionBookmark: companionBookmark,
                 displayName: fileURL.deletingPathExtension().lastPathComponent,
                 queuePosition: 0,
                 status: .queued,
@@ -161,18 +189,62 @@ final class MacBatchProcessingService {
             }
             defer { url.stopAccessingSecurityScopedResource() }
 
-            // Fail fast if there is no EPUB companion to align against.
-            guard let epubURL = self?.companionEPUB(for: url) else {
+            // Resolve the companion EPUB. When a companion bookmark was captured
+            // at enqueue time (folder scope was live), resolve it and start its
+            // OWN security scope — the audio file's bookmark does not cover the
+            // sibling EPUB, so under the sandbox the import's EPUB read fails
+            // without this. Old queue rows (pre-companion-bookmark) and same-run
+            // re-enqueues fall back to the directory scan, which works when the
+            // audio file's scope already grants the parent directory.
+            let epubURL: URL
+            var companionAccessToStop: URL?
+            if let companionBookmark = record.companionBookmark {
+                var companionStale = false
+                let resolved = try URL(
+                    resolvingBookmarkData: companionBookmark,
+                    options: .withSecurityScope,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &companionStale)
+                guard resolved.startAccessingSecurityScopedResource() else {
+                    throw BatchProcessingError.cannotAccessFile(resolved.lastPathComponent)
+                }
+                companionAccessToStop = resolved
+                epubURL = resolved
+                if companionStale {
+                    // Recreate the bookmark for future runs while access is live
+                    // (a stale bookmark still resolves to a valid URL for this
+                    // run). Recreation while access is active is what lets the new
+                    // bookmark carry scope; failure is non-fatal — we just warn.
+                    if let fresh = try? resolved.bookmarkData(
+                        options: .withSecurityScope,
+                        includingResourceValuesForKeys: nil,
+                        relativeTo: nil), let id = record.id
+                    {
+                        try? self?.dao.updateCompanionBookmark(id: id, bookmark: fresh)
+                    }
+                    logger.warning(
+                        "Companion bookmark stale for \(record.displayName, privacy: .public); continuing this run"
+                    )
+                }
+            } else if let scanned = self?.companionEPUB(for: url) {
+                epubURL = scanned
+            } else {
+                // Fail fast if there is no EPUB companion to align against.
                 throw BatchProcessingError.noCompanion(url.lastPathComponent)
             }
+            defer { companionAccessToStop?.stopAccessingSecurityScopedResource() }
+
             let audiobookID = url.deletingLastPathComponent().absoluteString
 
             // 1) Import: persist EPUB blocks for the book so the reader can show
             //    it. Reuses the existing import path (chapters + duration parsed
-            //    from the audio file).
+            //    from the audio file). `importBook` throws if zero blocks were
+            //    persisted (a swallowed copy/extract failure), so the runner
+            //    marks the item .failed instead of completing an empty book.
             progress(.importing, 0.05, "Importing…")
-            await self?.importBook(
-                audioURL: url, epubURL: epubURL, dbService: dbService)
+            try await self?.importBook(
+                audioURL: url, epubURL: epubURL, audiobookID: audiobookID,
+                dbService: dbService)
 
             // 2) Transcribe + 3) Align + 4) word timings. `MacAlignmentService`
             //    transcribes with WhisperKit, runs TokenDTW, writes anchors, then
@@ -195,9 +267,16 @@ final class MacBatchProcessingService {
     /// Thin adapter around `EPUBImportCoordinator`: parses chapters + duration
     /// from the audio file, then persists the companion EPUB's blocks into the
     /// shared database under the directory-derived audiobook ID.
+    ///
+    /// `EPUBImportCoordinator.importEPUB` is non-throwing `Void`: it logs and
+    /// returns on a copy/block-clear/extract failure rather than propagating it.
+    /// A fire-and-forget import that failed would leave zero EPUB blocks, yet the
+    /// runner would still mark the book `.completed`. So after awaiting the
+    /// import we verify blocks were actually persisted and throw when none were,
+    /// letting `BatchQueueRunner.drain` record the item as `.failed`.
     private func importBook(
-        audioURL: URL, epubURL: URL, dbService: DatabaseService
-    ) async {
+        audioURL: URL, epubURL: URL, audiobookID: String, dbService: DatabaseService
+    ) async throws {
         let folderURL = audioURL.deletingLastPathComponent()
         let asset = AVURLAsset(url: audioURL)
         let chapters = await ChapterService.parseChapters(from: asset)
@@ -209,6 +288,13 @@ final class MacBatchProcessingService {
             databaseService: dbService,
             chapters: chapters,
             duration: duration.flatMap { $0.isFinite ? $0 : nil })
+
+        // Verify the import actually produced blocks. `importEPUB` keys off
+        // `folderURL.absoluteString`, which equals `audiobookID` here.
+        let blockCount = (try? EPubBlockDAO(db: dbService.writer).count(for: audiobookID)) ?? 0
+        guard blockCount > 0 else {
+            throw BatchProcessingError.emptyImport(audioURL.lastPathComponent)
+        }
     }
 
     /// Finds the EPUB companion living alongside `audioURL` (same directory).
@@ -225,6 +311,7 @@ final class MacBatchProcessingService {
     enum BatchProcessingError: LocalizedError {
         case cannotAccessFile(String)
         case noCompanion(String)
+        case emptyImport(String)
 
         var errorDescription: String? {
             switch self {
@@ -232,6 +319,8 @@ final class MacBatchProcessingService {
                 return "Cannot access \(name) — security-scoped access denied."
             case .noCompanion(let name):
                 return "No EPUB companion found alongside \(name)."
+            case .emptyImport(let name):
+                return "EPUB import produced no blocks for \(name) — the import failed."
             }
         }
     }

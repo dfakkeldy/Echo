@@ -38,6 +38,18 @@ struct EPubBlockDAO {
 
     // MARK: - Queries
 
+    /// Number of EPUB blocks persisted for an audiobook. Used by the macOS
+    /// batch importer to verify an import actually produced blocks before the
+    /// pipeline proceeds to alignment (a fire-and-forget import that failed
+    /// would otherwise leave zero rows and silently complete an empty book).
+    func count(for audiobookID: String) throws -> Int {
+        try db.read { db in
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .fetchCount(db)
+        }
+    }
+
     /// All blocks for an audiobook, ordered by reading sequence.
     func blocks(for audiobookID: String) throws -> [EPubBlockRecord] {
         try db.read { db in

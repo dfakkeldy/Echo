@@ -111,11 +111,13 @@ final class MacAlignmentService {
                     note: "Mac DTW alignment (TokenDTW + AnchorSelector)",
                     createdAt: now, modifiedAt: nil))
         }
-        try alignmentService.insertAnchors(records)
-
+        // `insertAnchors` already recalculates the timeline AND materializes
+        // word timings (it forwards `materializeWordTimings: true` by default),
+        // so a follow-up `recalculateTimeline()` would redo that whole pass.
+        // Do it once here.
         alignmentStatus = "Recalculating timeline…"
         alignmentProgress = 0.95
-        try alignmentService.recalculateTimeline()
+        try alignmentService.insertAnchors(records)
 
         alignmentStatus =
             "Alignment complete — \(selected.count) anchors across \(epubTokens.count) blocks."

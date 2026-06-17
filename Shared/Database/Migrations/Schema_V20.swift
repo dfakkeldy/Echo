@@ -6,8 +6,15 @@ enum Schema_V20 {
     nonisolated static func migrate(_ db: Database) throws {
         try db.create(table: "batch_queue") { t in
             t.autoIncrementedPrimaryKey("id")
+            // No FK/index on audiobook_id is DELIBERATE: a queue entry legitimately
+            // references a not-yet-imported book, so the audiobook row may not exist
+            // (and may never, if the import fails) at enqueue time.
             t.column("audiobook_id", .text).notNull()
             t.column("source_bookmark", .blob).notNull()
+            // Nullable security-scoped bookmark for the companion EPUB, captured at
+            // enqueue time while the user-selected folder's scope is still active.
+            // Nil when the audio file has no companion EPUB.
+            t.column("companion_bookmark", .blob)
             t.column("display_name", .text).notNull()
             t.column("queue_position", .integer).notNull()
             t.column("status", .text).notNull().defaults(to: BatchItemStatus.queued.rawValue)

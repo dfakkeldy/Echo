@@ -13,6 +13,10 @@ struct BatchQueueRecord: Identifiable, Equatable, Codable, FetchableRecord, Muta
     var id: Int64?
     var audiobookID: String
     var sourceBookmark: Data
+    /// Security-scoped bookmark for the companion EPUB, captured at enqueue time
+    /// while the user-selected folder's scope is still active. Nil when the
+    /// audio file has no companion EPUB (behaves as before).
+    var companionBookmark: Data?
     var displayName: String
     var queuePosition: Int
     var status: BatchItemStatus
@@ -29,6 +33,7 @@ struct BatchQueueRecord: Identifiable, Equatable, Codable, FetchableRecord, Muta
         case id
         case audiobookID = "audiobook_id"
         case sourceBookmark = "source_bookmark"
+        case companionBookmark = "companion_bookmark"
         case displayName = "display_name"
         case queuePosition = "queue_position"
         case status

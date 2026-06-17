@@ -139,10 +139,29 @@ final class MacBulkAlignmentService {
     /// only behavioral change is "enqueue" instead of "align inline". Files with
     /// no EPUB companion are still enqueued and surface as failed during
     /// processing (with a clear error) rather than being silently dropped.
+    ///
+    /// The companion EPUB (if any) is located **here**, while `folderURL`'s
+    /// security scope from the NSOpenPanel is still active, so `enqueue` can
+    /// bookmark it. The sandboxed app cannot read the sibling EPUB at processing
+    /// time otherwise: the audio file's own bookmark does not cover it.
     func enqueueFolder(_ folderURL: URL, into service: MacBatchProcessingService) throws {
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
         for audioURL in scanForAudioFiles(in: folderURL) {
-            try service.enqueue(fileURL: audioURL)
+            try service.enqueue(
+                fileURL: audioURL, companionEPUB: companionEPUB(for: audioURL))
         }
+    }
+
+    /// Finds the EPUB companion living alongside `audioURL` (same directory).
+    private func companionEPUB(for audioURL: URL) -> URL? {
+        let dir = audioURL.deletingLastPathComponent()
+        let siblings =
+            (try? FileManager.default.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles)) ?? []
+        return siblings.first { $0.pathExtension.lowercased() == "epub" }
     }
 
     // MARK: - Scanning

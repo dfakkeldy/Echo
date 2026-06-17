@@ -51,6 +51,17 @@ struct BatchQueueDAO {
         }
     }
 
+    /// Replaces the persisted companion-EPUB bookmark for one item. Called when
+    /// a resolved companion bookmark came back stale, so future runs resolve a
+    /// fresh one instead of re-warning every pass.
+    func updateCompanionBookmark(id: Int64, bookmark: Data) throws {
+        try db.write { db in
+            guard var item = try BatchQueueRecord.fetchOne(db, key: id) else { return }
+            item.companionBookmark = bookmark
+            try item.update(db)
+        }
+    }
+
     /// On relaunch, any item left mid-flight (importing/transcribing/aligning)
     /// is reset to queued so the queue resumes cleanly.
     func recoverInFlight() throws {
