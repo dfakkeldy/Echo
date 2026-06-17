@@ -13,7 +13,7 @@
 import AVFoundation
 import AppKit
 import Foundation
-import SwiftUI
+import Observation
 import UniformTypeIdentifiers
 import os.log
 
