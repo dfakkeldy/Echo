@@ -18,6 +18,12 @@ struct MacReaderFeedView: View {
     /// shared `ReaderActiveBlockResolver`, so per-track time collisions across
     /// multiple files no longer pin the highlight to the first track.
     @State private var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
+    /// Per-word audio ranges for the loaded book, ordered by audio start time
+    /// (the reader-cache order). Fed to `ReaderActiveBlockResolver.activeWord`
+    /// for karaoke word highlighting within the active block.
+    @State private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+    /// (blockID, wordIndex) of the currently spoken word, for karaoke highlight.
+    @State private var activeWord: (blockID: String, index: Int)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,6 +52,8 @@ struct MacReaderFeedView: View {
                                 MacBlockCardView(
                                     block: block,
                                     isActive: block.id == currentBlockID,
+                                    activeWordIndex: block.id == currentBlockID
+                                        ? activeWord?.index : nil,
                                     onTap: { seekToBlock(block.id) }
                                 )
                                 .equatable()
@@ -98,6 +106,7 @@ struct MacReaderFeedView: View {
         guard let audiobookID = player.audiobookID else {
             blocks = []
             timelineCache = []
+            wordCache = []
             return
         }
 
@@ -111,9 +120,18 @@ struct MacReaderFeedView: View {
             }
             blocks = result
             timelineCache = try await loadTimelineCache(audiobookID: audiobookID)
+            // Per-word timings (Phase A) for karaoke; absent on unaligned books → [].
+            let words = try WordTimingDAO(db: dbService.writer).words(forAudiobook: audiobookID)
+            wordCache = words.map {
+                (
+                    start: $0.audioStartTime, end: $0.audioEndTime,
+                    blockID: $0.epubBlockID, wordIndex: $0.wordIndex
+                )
+            }
         } catch {
             blocks = []
             timelineCache = []
+            wordCache = []
         }
     }
 
@@ -194,10 +212,22 @@ struct MacReaderFeedView: View {
                     time: player.currentTime,
                     currentTrackChapterIndices: currentTrackChapterIndices
                 )
+                if let idx = ReaderActiveBlockResolver.activeWord(
+                    in: wordCache,
+                    time: player.currentTime,
+                    activeBlockID: currentBlockID
+                ) {
+                    activeWord = (blockID: currentBlockID ?? "", index: idx)
+                } else {
+                    activeWord = nil
+                }
             } else {
                 currentBlockID = nil
+                activeWord = nil
             }
-            try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s
+            // ~12 Hz while playing for smooth karaoke, 0.5 s when paused so the
+            // block poll stays cheap when nothing is moving.
+            try? await Task.sleep(nanoseconds: player.isPlaying ? 80_000_000 : 500_000_000)
         }
     }
 }
@@ -208,12 +238,19 @@ private struct MacBlockCardView: View, Equatable {
     @Environment(MacPlayerModel.self) private var player
     let block: EPubBlockRecord
     let isActive: Bool
+    /// Word index to karaoke-highlight, or nil when this card isn't the active
+    /// block (the parent passes nil for inactive cards, so only the active card
+    /// re-renders as the spoken word advances).
+    var activeWordIndex: Int?
     var onTap: (() -> Void)?
 
     // Equatable so the polled reader feed re-evaluates only the cards that
-    // actually changed (§8.2). Rendering depends solely on block + isActive.
+    // actually changed (§8.2). Rendering depends on block + isActive + the
+    // highlighted word index, so a moving karaoke highlight updates only the
+    // active card.
     nonisolated static func == (lhs: MacBlockCardView, rhs: MacBlockCardView) -> Bool {
         lhs.block.id == rhs.block.id && lhs.isActive == rhs.isActive
+            && lhs.activeWordIndex == rhs.activeWordIndex
     }
 
     var body: some View {
@@ -246,7 +283,7 @@ private struct MacBlockCardView: View, Equatable {
     // MARK: Heading Card
 
     private var headingCard: some View {
-        Text(block.text ?? "")
+        Text(highlightedText(block.text ?? "", activeWordIndex: activeWordIndex))
             .font(.title3)
             .fontWeight(.semibold)
             .foregroundColor(resolvedColor)
@@ -258,7 +295,7 @@ private struct MacBlockCardView: View, Equatable {
     // MARK: Paragraph Card
 
     private var paragraphCard: some View {
-        Text(block.text ?? "")
+        Text(highlightedText(block.text ?? "", activeWordIndex: activeWordIndex))
             .font(.body)
             .foregroundColor(resolvedColor)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -294,6 +331,38 @@ private struct MacBlockCardView: View, Equatable {
     }
 
     // MARK: Helpers
+
+    /// Returns the block text with the active karaoke word bolded and tinted.
+    /// Words are split on the same separators (`" "`, `"\n"`, `"\t"`) the
+    /// `WordTimingInterpolator` uses to assign `wordIndex`, so the highlighted
+    /// run matches the spoken word's stored index. Repeated words are handled by
+    /// advancing to the n-th occurrence.
+    private func highlightedText(_ text: String, activeWordIndex: Int?) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard let activeWordIndex else { return attributed }
+        let words = text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+        guard activeWordIndex >= 0, activeWordIndex < words.count else { return attributed }
+        let target = words[activeWordIndex]
+        // Find the n-th occurrence to handle repeats.
+        var searchStart = attributed.startIndex
+        var seen = 0
+        let occurrence = indexOfWordOccurrence(words, activeWordIndex)
+        while let r = attributed[searchStart...].range(of: String(target)) {
+            if seen == occurrence {
+                attributed[r].backgroundColor = .accentColor.opacity(0.25)
+                attributed[r].font = .body.weight(.semibold)
+                break
+            }
+            seen += 1
+            searchStart = r.upperBound
+        }
+        return attributed
+    }
+
+    /// How many earlier words equal `words[index]` (to pick the right occurrence).
+    private func indexOfWordOccurrence(_ words: [Substring], _ index: Int) -> Int {
+        words[..<index].filter { $0 == words[index] }.count
+    }
 
     private var resolvedColor: Color? {
         guard let hex = block.chapterThemeColor ?? block.cardColor else { return nil }
