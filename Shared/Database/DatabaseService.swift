@@ -25,7 +25,7 @@ final class DatabaseService {
     @ObservationIgnored private let migrationFlag = "sql_migration_done"
     @ObservationIgnored private let appGroupIdentifier: String
 
-    init(appGroupIdentifier: String = "group.com.echo.audiobooks") throws {
+    init(appGroupIdentifier: String = AppGroupDefaults.suiteName) throws {
         self.appGroupIdentifier = appGroupIdentifier
         guard
             let containerURL = FileManager.default.containerURL(
