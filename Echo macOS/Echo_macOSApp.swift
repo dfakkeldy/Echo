@@ -63,6 +63,11 @@ struct Echo_macOSApp: App {
                         showOpenPanel()
                     }
                 }
+                // The reader's idle-state "Narrate an EPUB" nudge routes here so
+                // it reuses the same picker as the Batch ▸ "Narrate EPUB(s)…" command.
+                .onReceive(NotificationCenter.default.publisher(for: .requestNarrateEPUBs)) { _ in
+                    for url in chooseEPUBsToNarrate() { narrateSelection(url) }
+                }
                 // WS-12 sheets
                 .sheet(isPresented: $showBatchQueue) {
                     MacBatchQueueView()
@@ -350,4 +355,6 @@ extension Notification.Name {
     static let requestToggleDetailPane = Notification.Name("com.echo.requestToggleDetailPane")
     /// Posted when the user presses "Export Transcript".
     static let requestExportTranscript = Notification.Name("com.echo.requestExportTranscript")
+    /// Posted by the reader's idle "Narrate an EPUB" nudge to open the picker.
+    static let requestNarrateEPUBs = Notification.Name("com.echo.requestNarrateEPUBs")
 }

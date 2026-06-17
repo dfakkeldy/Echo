@@ -38,11 +38,30 @@ struct MacReaderFeedView: View {
                 Spacer()
             } else if blocks.isEmpty {
                 Spacer()
-                ContentUnavailableView(
-                    "No EPUB Content",
-                    systemImage: "book",
-                    description: Text("Import an EPUB to see the reader here.")
-                )
+                if player.audiobookID == nil {
+                    // Idle (no book open): nudge toward on-device narration —
+                    // the primary way the Mac gets spoken audio for a text-only
+                    // EPUB. The button routes to the same "Narrate EPUB(s)…"
+                    // picker as the Batch menu (handled in Echo_macOSApp).
+                    NarrationNudgeView(
+                        title: "Narrate an EPUB",
+                        message:
+                            "Got a book with no audiobook? Echo can speak it on-device so you can study hands-free.",
+                        buttonTitle: "Choose EPUB to Narrate\u{2026}",
+                        onListen: {
+                            NotificationCenter.default.post(
+                                name: .requestNarrateEPUBs, object: nil)
+                        }
+                    )
+                    .frame(maxWidth: 420)
+                    .padding()
+                } else {
+                    ContentUnavailableView(
+                        "No EPUB Content",
+                        systemImage: "book",
+                        description: Text("Import an EPUB to see the reader here.")
+                    )
+                }
                 Spacer()
             } else {
                 ScrollViewReader { proxy in
