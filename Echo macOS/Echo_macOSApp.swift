@@ -62,6 +62,7 @@ struct Echo_macOSApp: App {
                 .sheet(isPresented: $showBatchQueue) {
                     MacBatchQueueView()
                         .environment(batchService)
+                        .environment(player)
                 }
                 .sheet(isPresented: $showAnkiExport) {
                     MacAnkiExportView()
