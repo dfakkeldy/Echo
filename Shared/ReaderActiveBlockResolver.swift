@@ -33,6 +33,27 @@ enum ReaderActiveBlockResolver {
         start: TimeInterval, end: TimeInterval, blockID: String, chapterIndex: Int?
     )
 
+    /// One word's audio `[start, end)` within a block, for karaoke highlighting.
+    typealias WordRow = (
+        start: TimeInterval, end: TimeInterval, blockID: String, wordIndex: Int
+    )
+
+    /// Resolves the active word index *within the already-resolved active block*.
+    /// Block resolution is track-scoped upstream (`activeBlockID`), so word lookup
+    /// only needs to scan the words of `activeBlockID`.
+    /// - Returns: the word index whose `[start, end)` contains `time`, else `nil`.
+    static func activeWord(
+        in words: [WordRow],
+        time: TimeInterval,
+        activeBlockID: String?
+    ) -> Int? {
+        guard let activeBlockID else { return nil }
+        for row in words where row.blockID == activeBlockID {
+            if time >= row.start && time < row.end { return row.wordIndex }
+        }
+        return nil
+    }
+
     /// Resolves the block whose audio range contains `time`, considering only the
     /// rows that belong to the current track.
     ///
