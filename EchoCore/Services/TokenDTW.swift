@@ -298,6 +298,12 @@ struct TokenDTW {
 
     /// Per-strong-token matches from the alignment path, for word-time refinement.
     /// Token granularity (normalized): callers map these onto rendered words.
+    ///
+    /// This is the unguarded leaf: it allocates the full `(n+1)×(m+1)` direction
+    /// matrix via `backtrackPath`. Callers aligning whole chapters MUST route
+    /// through `wordMatchesWithBisection` so large inputs respect the same memory
+    /// budget the candidate path enforces — for a 10k×10k token chapter the bare
+    /// matrix alone is 100M+ bytes, a real jetsam risk on device.
     static func wordMatches(epub: [EPubToken], audio: [AudioToken]) -> [WordMatch] {
         guard !epub.isEmpty, !audio.isEmpty else { return [] }
         let matches = backtrackPath(epub: epub, audio: audio)
@@ -315,6 +321,94 @@ struct TokenDTW {
                     runLength: runs[runIDs[k]].count))
         }
         return result
+    }
+
+    /// Memory-guarded wrapper around `wordMatches`, mirroring
+    /// `alignWithBisection`.
+    ///
+    /// `wordMatches` allocates the full `(n+1)×(m+1)` direction matrix. When
+    /// `epub.count × audio.count` exceeds `maxCells`, this bisects the audio at
+    /// the largest inter-token time gap in its middle third, splits the EPUB
+    /// tokens at the proportional block boundary with `slackBlocks` blocks of
+    /// overlap per side, and recurses — so a long chapter never allocates the
+    /// full matrix at once. The split is computed identically to
+    /// `alignWithBisection` so both passes see the same seams. Where the overlap
+    /// produces a duplicate `(blockID, wordIndexInBlock)`, the match from the
+    /// longer run wins, matching the candidate merge's tie-break.
+    static func wordMatchesWithBisection(
+        epub: [EPubToken],
+        audio: [AudioToken],
+        maxCells: Int = 48_000_000,
+        slackBlocks: Int = 12
+    ) -> [WordMatch] {
+        guard !epub.isEmpty, !audio.isEmpty else { return [] }
+        guard epub.count * audio.count > maxCells, audio.count >= 8 else {
+            return wordMatches(epub: epub, audio: audio)
+        }
+
+        let lower = audio.count / 3
+        let upper = (audio.count * 2) / 3
+        var splitIndex = audio.count / 2
+        var widestGap = -1.0
+        for k in lower..<max(lower + 1, upper) where k + 1 < audio.count {
+            let gap = audio[k + 1].time - audio[k].time
+            if gap > widestGap {
+                widestGap = gap
+                splitIndex = k + 1
+            }
+        }
+
+        let audioFirst = Array(audio[..<splitIndex])
+        let audioSecond = Array(audio[splitIndex...])
+
+        var blockStartIndices: [Int] = []
+        var lastBlockID: String?
+        for (index, token) in epub.enumerated() where token.blockID != lastBlockID {
+            blockStartIndices.append(index)
+            lastBlockID = token.blockID
+        }
+
+        let pivot = Int(Double(splitIndex) / Double(audio.count) * Double(epub.count))
+        let pivotOrdinal = blockStartIndices.lastIndex { $0 <= pivot } ?? 0
+        let firstCutOrdinal = pivotOrdinal + slackBlocks + 1
+        let epubFirstEnd =
+            firstCutOrdinal < blockStartIndices.count
+            ? blockStartIndices[firstCutOrdinal] : epub.count
+        let epubSecondStart = blockStartIndices[max(0, pivotOrdinal - slackBlocks)]
+
+        let first = wordMatchesWithBisection(
+            epub: Array(epub[..<epubFirstEnd]), audio: audioFirst,
+            maxCells: maxCells, slackBlocks: slackBlocks
+        )
+        let second = wordMatchesWithBisection(
+            epub: Array(epub[epubSecondStart...]), audio: audioSecond,
+            maxCells: maxCells, slackBlocks: slackBlocks
+        )
+
+        // Merge overlapping word matches: same (block, word position) keeps the
+        // longer run. Preserve first-seen order so block grouping downstream is
+        // stable.
+        var merged: [WordMatchKey: WordMatch] = [:]
+        var order: [WordMatchKey] = []
+        for match in first + second {
+            let key = WordMatchKey(blockID: match.blockID, wordIndex: match.wordIndexInBlock)
+            if let existing = merged[key] {
+                if match.runLength > existing.runLength {
+                    merged[key] = match
+                }
+            } else {
+                merged[key] = match
+                order.append(key)
+            }
+        }
+        return order.compactMap { merged[$0] }
+    }
+
+    /// Identity of a word match within a block, for de-duplicating the bisection
+    /// overlap region.
+    private struct WordMatchKey: Hashable {
+        let blockID: String
+        let wordIndex: Int
     }
 
     /// Memory-guarded wrapper around `alignCandidates`.

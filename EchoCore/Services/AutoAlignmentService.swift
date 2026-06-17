@@ -462,10 +462,14 @@ final class AutoAlignmentService {
 
             let candidates = TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens)
 
-            // Per-word DTW matches for read-along refinement (A4). Accumulate by
-            // block; when a block surfaces in two chapters' passes (boundary
-            // slack), keep the set whose strongest run is longer.
-            let chapterWordMatches = TokenDTW.wordMatches(epub: epubTokens, audio: audioTokens)
+            // Per-word DTW matches for read-along refinement (A4). Use the
+            // bisection-aware path so a long chapter never allocates the full
+            // (n+1)×(m+1) direction matrix the bare `wordMatches` would — it
+            // respects the same memory budget as the candidate alignment above.
+            // Accumulate by block; when a block surfaces in two chapters' passes
+            // (boundary slack), keep the set whose strongest run is longer.
+            let chapterWordMatches = TokenDTW.wordMatchesWithBisection(
+                epub: epubTokens, audio: audioTokens)
             for (blockID, matches) in Dictionary(grouping: chapterWordMatches, by: \.blockID) {
                 let incomingMax = matches.map(\.runLength).max() ?? 0
                 let existingMax = dtwMatchesByBlock[blockID]?.map(\.runLength).max() ?? -1
