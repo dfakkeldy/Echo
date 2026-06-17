@@ -6,6 +6,25 @@ enum BatchItemStatus: String, Codable {
     case queued, importing, transcribing, aligning, completed, failed
 }
 
+/// Discriminates audiobook-alignment queue items (`.align`: import → transcribe →
+/// align a narrated audiobook against its EPUB) from text-only EPUB narration
+/// items (`.narrate`: synthesize on-device audio for an EPUB that has no audio).
+/// Stored in `batch_queue.kind`.
+enum BatchItemKind: String, Codable {
+    case align
+    case narrate
+
+    /// Forward-compatible decode (CODE_AUDIT §5.5): a `kind` written by a future
+    /// build decodes to `.align` (the safe default — re-process as a normal queue
+    /// item) instead of throwing `DecodingError.dataCorrupted`, so an older build
+    /// can still read a queue a newer build wrote. A bare `String`-backed enum's
+    /// synthesized decoder crashes on any unrecognised value.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = BatchItemKind(rawValue: raw) ?? .align
+    }
+}
+
 /// A persistent batch-processing queue entry. Survives app restart; `sourceBookmark`
 /// is a macOS security-scoped bookmark so the file stays reachable after relaunch.
 struct BatchQueueRecord: Identifiable, Equatable, Codable, FetchableRecord, MutablePersistableRecord
@@ -21,6 +40,10 @@ struct BatchQueueRecord: Identifiable, Equatable, Codable, FetchableRecord, Muta
     var queuePosition: Int
     var status: BatchItemStatus
     var progress: Double
+    /// Whether this item is a narrated-audiobook alignment (`.align`, default) or
+    /// a text-only EPUB narration synthesis (`.narrate`). Added in Schema V21;
+    /// defaults to `.align` so pre-V21 rows and existing call sites are unchanged.
+    var kind: BatchItemKind = .align
     var statusMessage: String?
     var errorMessage: String?
     var enqueuedAt: String
@@ -38,6 +61,7 @@ struct BatchQueueRecord: Identifiable, Equatable, Codable, FetchableRecord, Muta
         case queuePosition = "queue_position"
         case status
         case progress
+        case kind
         case statusMessage = "status_message"
         case errorMessage = "error_message"
         case enqueuedAt = "enqueued_at"
