@@ -134,6 +134,32 @@ private struct MacPlaybackSettingsPane: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             }
+
+            Section {
+                // Empty `narrationVoiceID` means "use the catalog default"; map it
+                // to the default's raw id so the Picker shows a concrete selection.
+                Picker(
+                    "Narration Voice",
+                    selection: Binding(
+                        get: {
+                            settings.narrationVoiceID.isEmpty
+                                ? VoiceCatalog.default.id.rawValue : settings.narrationVoiceID
+                        },
+                        set: { settings.narrationVoiceID = $0 })
+                ) {
+                    ForEach(VoiceCatalog.all) { voice in
+                        Text(voice.displayName).tag(voice.id.rawValue)
+                    }
+                }
+            } header: {
+                Text("Narration")
+            } footer: {
+                Text(
+                    "Echo synthesizes EPUBs that have no audiobook on-device, using the voice above. Queue them with Batch ▸ “Narrate EPUB(s)…” (⌘⌥N); progress appears in the Batch Queue."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }

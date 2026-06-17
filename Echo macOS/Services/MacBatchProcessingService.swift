@@ -27,6 +27,7 @@ import os.log
 @Observable
 final class MacBatchProcessingService {
     private let dbService: DatabaseService
+    private let settings: SettingsManager
     private let dao: BatchQueueDAO
     private let alignmentService = MacAlignmentService()
     private let logger = Logger(category: "MacBatchProcessing")
@@ -35,8 +36,9 @@ final class MacBatchProcessingService {
     private(set) var isProcessing = false
     private var runner: BatchQueueRunner?
 
-    init(dbService: DatabaseService) {
+    init(dbService: DatabaseService, settings: SettingsManager) {
         self.dbService = dbService
+        self.settings = settings
         self.dao = BatchQueueDAO(db: dbService.writer)
     }
 
@@ -181,6 +183,7 @@ final class MacBatchProcessingService {
 
     private func makeStages() -> BatchQueueRunner.Stages {
         let dbService = self.dbService
+        let settings = self.settings
         let alignmentService = self.alignmentService
         let logger = self.logger
         return .init(run: { [weak self] record, rawProgress in
@@ -241,6 +244,12 @@ final class MacBatchProcessingService {
                 //    isolation, so the @MainActor NarrationService is constructed
                 //    and driven inline. A thrown synthesis error is isolated to
                 //    this book by the runner (marked `.failed`).
+                // Honor the user's shared narration-voice preference (the same
+                // `narrationVoiceID` the iOS player reads), falling back to the
+                // catalog default when unset or unknown.
+                let voice =
+                    VoiceCatalog.voice(for: VoiceID(settings.narrationVoiceID))?.id
+                    ?? VoiceCatalog.default.id
                 let service = NarrationService(
                     db: dbService.writer, audiobookID: audiobookID,
                     tts: NarrationEngineFactory.make(),
@@ -253,7 +262,7 @@ final class MacBatchProcessingService {
                         "Narrating chapter \(n + 1) of \(chapters.count)…")
                     try await service.renderChapter(
                         chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                        blocks: chapter.blocks, voice: VoiceCatalog.default.id)
+                        blocks: chapter.blocks, voice: voice)
                 }
                 self?.refresh()
                 return

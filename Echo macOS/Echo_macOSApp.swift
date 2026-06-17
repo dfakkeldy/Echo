@@ -14,8 +14,10 @@ struct Echo_macOSApp: App {
     @State private var player = MacPlayerModel()
     /// Shared user-preferences store. macOS had no SettingsManager instance
     /// before the Settings scene existed; this is the single source of truth
-    /// injected into both the main window and the Settings scene.
-    @State private var settings = SettingsManager()
+    /// injected into the main window, the Settings scene, and the batch service
+    /// (which reads the narration-voice preference). Created in `init` so the
+    /// same instance can be handed to `MacBatchProcessingService`.
+    @State private var settings: SettingsManager
     @State private var transcriptionManager = TranscriptionManager()
     @State private var transcriptStore = TranscriptStore()
     /// Shared database — falls back to in-memory if the App Group DB is unavailable.
@@ -35,8 +37,11 @@ struct Echo_macOSApp: App {
         // batch service so both the queue and the rest of the app write through
         // a single `DatabaseService`/writer.
         let db = (try? DatabaseService()) ?? Self.makeInMemoryDB()
+        let settings = SettingsManager()
         _dbService = State(initialValue: db)
-        _batchService = State(initialValue: MacBatchProcessingService(dbService: db))
+        _settings = State(initialValue: settings)
+        _batchService = State(
+            initialValue: MacBatchProcessingService(dbService: db, settings: settings))
     }
 
     var body: some Scene {
