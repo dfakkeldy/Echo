@@ -239,8 +239,10 @@ Services/AudioExtractor.swift
 Services/MacAlignmentService.swift
 Services/MacApkgExportService.swift
 Services/MacAudioBoostTap.swift
+Services/MacBatchProcessingService.swift
 Services/MacBulkAlignmentService.swift
 Views/MacAnkiExportView.swift
+Views/MacBatchQueueView.swift
 Views/MacBulkAlignmentProgressView.swift
 Views/MacNotesPane.swift
 Views/MacPlaybackOptionsSheet.swift
@@ -263,6 +265,14 @@ The macOS app is rooted in `MacTriPaneView` (a `NavigationSplitView`/tri-pane la
 - **Volume boost above unity** (which `AVAudioMix` volume cannot reach) via an `MTAudioProcessingTap` (`Services/MacAudioBoostTap.swift`) that multiplies samples by a linear gain read live from a shared box; an ASBD `prepare`-callback guard degrades to clean passthrough on non-float-PCM routes. The dB→linear math is the pure `MacVolumeBoost.linearGain` (also in `MacPlaybackLogic.swift`).
 - **Settings.** `Echo_macOSApp` injects a shared `SettingsManager` into both the main `WindowGroup` and the `Settings` scene and applies `.preferredColorScheme` from `settings.appAppearance`. `MacPlayerModel.settings` (injected once by `MacTriPaneView.task`, mirroring the `dbService` pattern) adopts the persisted skip interval and default speed. `MacSettingsView` is a native Preferences `TabView` (Appearance + Playback panes binding the shared `SettingsManager`; no Pro/StoreKit pane — macOS has none). Custom `appFont` / `themeColor` are persisted but not yet applied to the macOS UI (documented follow-up).
 - **Player bar.** `MacTriPaneView`'s player bar replaced the track label with a `< Chapter Title >` chevron nav bar, the inline speed `Picker` with a button that opens `MacPlaybackOptionsSheet` (a `.popover` — speed / loop / skip / boost + a Smart Rewind `SettingsLink`), and relocated the inline sleep menu into `MacPlayerMoreMenu` (chapters / bookmarks / add-bookmark / mark-passage / sleep / Settings).
+
+### macOS Batch Processing Queue (June 2026)
+
+The Mac app can process an entire folder of audiobooks unattended. `MacBulkAlignmentService` (formerly an in-memory, align-only bulk pass) now scans a user-picked folder and **enqueues** each audio file (with its companion EPUB) into a persistent queue; `MacBatchProcessingService` drains it one book at a time through the real **import → transcribe → align** pipeline.
+
+- **Durable queue (`batch_queue`, Schema V20).** `BatchQueueRecord` / `BatchQueueDAO` persist queue position, status, and (nullable) security-scoped bookmarks. `batch_queue.audiobook_id` deliberately has **no** FK — entries legitimately reference not-yet-imported books. The pure, testable `BatchQueueRunner` (`Shared/`) drains the queue FIFO, isolates per-book failures (a throw marks that item `.failed` and processing continues), and on relaunch `recoverInFlight()` resets any `importing`/`transcribing`/`aligning` item back to `queued` so the queue resumes cleanly.
+- **Sandbox-correct file access.** The Mac app is sandboxed (`app-sandbox` + `files.user-selected.read-write` + `files.bookmarks.app-scope`), so each audio file's security-scoped bookmark is captured at enqueue, and a **separate bookmark for the sibling companion EPUB** is captured at the same moment — while the user-picked folder's scope is still live. Both are resolved and `startAccessingSecurityScopedResource()`-balanced (with `defer` stops) during processing. A book whose import produces **no** EPUB blocks is marked `.failed` rather than silently completing empty.
+- **UI.** `MacBatchQueueView` shows per-item status/progress; `Echo_macOSApp` adds a **Batch** command menu (Open Batch Queue / Add Folder to Queue) and calls `resumeOnLaunch()` from the main window's `.task`.
 
 ## Echo Watch App
 
@@ -323,6 +333,10 @@ Database/Migrations/Schema_V13.swift
 Database/Migrations/Schema_V14.swift
 Database/Migrations/Schema_V15.swift
 Database/Migrations/Schema_V16.swift
+Database/Migrations/Schema_V17.swift
+Database/Migrations/Schema_V18.swift
+Database/Migrations/Schema_V19.swift
+Database/Migrations/Schema_V20.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -458,6 +472,14 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 - `TimestampSource` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.none`
 - `AlignmentStatus` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.unaligned`, `.omitted`
 
+### Word-Level Read-Along & Karaoke (June 2026)
+
+Block-level read-along (the active paragraph) is refined to **word level** so the current word highlights as the narration speaks it, on both the iOS and macOS readers.
+
+- **One word definition, by construction.** `WordTokenizer` (`Shared/`) is the single source of truth for read-along word boundaries: it splits on **all** Unicode whitespace (`Character.isWhitespace` — NBSP, line/paragraph separators, vertical tab, and form feed all count) and keeps attached punctuation with the word. The non-whitespace token *sequence* is invariant under any whitespace normalization, so the timing pipeline and both readers index the same words even when each renders a differently-normalized string — the highlighted-word index cannot drift.
+- **Per-word timings (`word_timing`, Schema V19).** `WordTimingMaterializer` rebuilds the `word_timing` table for a book whenever the timeline is (re)built (from `AlignmentService.recalculateTimeline` and the auto-alignment pipeline). For each aligned block it distributes the block's words across its `[start, next-block-start)` span by character weight (`WordTimingInterpolator`, pure), then **refines** individual word times to real WhisperKit word timestamps wherever a DTW token maps cleanly to a rendered word (`TokenDTW.wordMatches` / `wordMatchesWithBisection` feeding `WordTimingRefiner`, pure); interpolation is the fallback so every word always has a monotonic time. Rows carry `confidence` + `source` (`interpolated`/`dtw`) and cascade-delete with their audiobook. **The migration is additive — existing books light up only after a one-time per-book alignment re-run populates the table.**
+- **Active-word resolution + rendering.** `ReaderActiveBlockResolver.activeWord(in:time:activeBlockID:)` (pure, in `Shared/`, unit-tested) resolves the spoken word within the already-resolved active block. iOS: `ReaderFeedViewModel` caches the book's word rows and publishes the active word; the collection-view coordinator retints the active `ParagraphCardCell`/`HeadingCardCell` in place (via `WordTokenizer` ranges → `NSAttributedString`), throttled to ~12 Hz with no full reload. macOS: `MacReaderFeedView` polls the active word faster (~80 ms) while playing, and `MacBlockCardView` highlights it positionally in an `AttributedString`.
+
 ### On-Device Narration — Synthesis Engine Core (June 2026)
 
 For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-device and produce the same sentence-synced, study-ready aligned book. This is **additive** — the WhisperKit alignment pipeline above is untouched and still runs whenever a real audiobook exists. The synthesis path is the *inverse* of alignment: because the audio is generated from the EPUB text, every timestamp is known at synthesis time, so the transcribe-and-DTW recovery step is unnecessary — anchors are written directly.
@@ -467,6 +489,8 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 > **Update (June 2026 — engine real + upstream chunking).** The real engine has since shipped: Kokoro-82M runs on-device via **FluidAudio (CoreML/ANE)** behind the `TTSEngine` seam, narration plays through the main playback pipeline (iPhone + CarPlay), and the rendered cache is **lossless ALAC** in `.m4a`. **Upstream input chunking (required):** FluidAudio does no internal chunking and caps IPA input at ~510 phonemes ("chunk longer prompts upstream"). A whole 400+ char block drove the palettized vocoder's BNNS fallback into a dynamic tensor shape that **traps** (uncatchable `EXC_BREAKPOINT` in `libBNNS`), so `NarrationService.renderChapter` splits each EPUB block into ~200-char sentence sub-chunks (`NarrationTextChunker`, pure/testable) and synthesizes each separately before concatenation — keeping inference shapes bounded and yielding finer audio, while still writing **one `.synthesized` anchor per original block** (spanning the summed sub-chunk durations) so the data model below is unchanged.
 
 > **Update (2026-06-15 — on-device hardening + A14 gate).** **A14 status (corrected):** stream-to-sink fixed the A14 **jetsam**, but the **BNNS vocoder trap (§3.1) still RECURS** (device-confirmed — crashed 3× in one session; a full re-render triggers it). So on-device narration is now **gated to A15+** (`NarrationCapability`, gate by chip generation via the device model, not OS version) as the interim — the audio-less reader stays functional; the proper A14 fix is the vocoder model swap (1A). **Persistence:** chapters render **once and persist** — the render loops (`PlayerModel+Narration.swift`) skip synthesis when the chapter file already exists, so reopen/export/per-item narration don't re-burn the ANE. Cache validity is keyed by `NarrationFileNaming.renderVersion` in the filename — bump it when the rendered audio changes and stale files regenerate once; `staleVoiceFiles` sweeps stale voices **and** orphaned versions. **Audio quality:** the perceived "whine/reverb" was a **playback artifact**, not the render — `AVAudioUnitTimePitch` ran its phase-vocoder even at 1× (a `pitch=0.01` workaround); `AudioEngine.applyPlaybackRate` now **bypasses the unit at 1×** (clean passthrough) and maxes `overlap` (32) for the 2× stretch. (A render-side low-pass was tried and reverted — wrong layer.) **Voice picker:** `VoicePickerView` reachable from Now Playing (was dead UI); catalog trimmed to **Ava only** because FluidAudio's ANE Kokoro ships only `af_heart` (others 404 until their `[510,256]` fp32 `.bin` packs are bundled).
+
+> **Update (2026-06-17 — m4b chapter markers).** Combined-`.m4b` export now writes real Nero `chpl` + QuickTime `chap` chapter atoms via the `swift-audio-marker` package (iOS target only); `ChapterMarkerWriter` replaces the copy-only `AudioMarker` stub, and `NarrationExportService` labels chapters with their real `TrackRecord` titles. AVFoundation's `loadChapterMetadataGroups` does **not** surface these atoms, so markers are verified in a chapter-aware player (Books.app) — the test suite asserts byte-level atom presence + playability instead.
 
 **Data model (reuses existing tables):** A standalone EPUB is an `AudiobookRecord` with `epub_block` rows and **no tracks** (the natural empty state). Generating narration renders **one lossless ALAC `.m4a` file per chapter** (each block split into ~200-char sub-chunks before synthesis, then concatenated — see the upstream-chunking note above), inserted as a `TrackRecord` (`sort_order = chapterIndex`) carrying the voice in the new `narration_voice` column (**Schema V17**; non-null marks a synthesized track). Each text block gets one `AlignmentAnchorRecord` with the new **`source = .synthesized`** written at synthesis time — so read-along highlighting and the study layer work for free, and re-alignment never confuses generated anchors for recovered ones.
 
