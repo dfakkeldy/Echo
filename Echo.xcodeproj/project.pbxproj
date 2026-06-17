@@ -10,6 +10,7 @@
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC00000000006FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
+		CC00000000007FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -331,6 +332,7 @@
 			files = (
 				CC0000000011GRDB00000011 /* GRDB in Frameworks */,
 				CC0000000016WHSK00000016 /* WhisperKit in Frameworks */,
+				CC00000000007FLUI0000000 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,6 +468,7 @@
 				CC0000000002GRDB00000002 /* GRDB */,
 				CC0000000004WHSK00000004 /* WhisperKit */,
 				CC0000000003ZIPF00000003 /* ZIPFoundation */,
+				CC00000000005FLUI0000000 /* FluidAudio */,
 			);
 			fileSystemSynchronizedGroups = (
 				AA0100000000000000000010 /* Echo macOS */,
