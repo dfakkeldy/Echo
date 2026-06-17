@@ -458,7 +458,7 @@ final class PlayerModel {
     // narration into the main playback pipeline (so CarPlay / lock screen / the
     // scrubber all work). The TTS engine is reused across books so the one-time
     // ANE model compile is paid once, not per book.
-    @ObservationIgnored lazy var narrationTTS: any TTSEngine = KokoroTTSEngine()
+    @ObservationIgnored lazy var narrationTTS: any TTSEngine = NarrationEngineFactory.make()
     @ObservationIgnored var narrationRenderTask: Task<Void, Never>?
     let narrationPlaybackState = NarrationState()
 
