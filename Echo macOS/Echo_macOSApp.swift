@@ -66,7 +66,7 @@ struct Echo_macOSApp: App {
                 // The reader's idle-state "Narrate an EPUB" nudge routes here so
                 // it reuses the same picker as the Batch ▸ "Narrate EPUB(s)…" command.
                 .onReceive(NotificationCenter.default.publisher(for: .requestNarrateEPUBs)) { _ in
-                    for url in chooseEPUBsToNarrate() { narrateSelection(url) }
+                    narrateEPUBs()
                 }
                 // WS-12 sheets
                 .sheet(isPresented: $showBatchQueue) {
@@ -122,9 +122,7 @@ struct Echo_macOSApp: App {
                 .keyboardShortcut("b", modifiers: [.command, .option])
 
                 Button("Narrate EPUB(s)…") {
-                    for url in chooseEPUBsToNarrate() {
-                        narrateSelection(url)
-                    }
+                    narrateEPUBs()
                 }
                 .keyboardShortcut("n", modifiers: [.command, .option])
             }
@@ -269,6 +267,16 @@ struct Echo_macOSApp: App {
 
         guard panel.runModal() == .OK else { return [] }
         return panel.urls
+    }
+
+    /// Prompts for EPUB(s) to narrate, enqueues them, and — if anything was
+    /// enqueued — opens the Batch Queue so the user gets immediate feedback
+    /// (synthesis runs in the background, so without this there was no visible
+    /// sign anything happened, success or failure).
+    private func narrateEPUBs() {
+        let urls = chooseEPUBsToNarrate()
+        for url in urls { narrateSelection(url) }
+        if !urls.isEmpty { showBatchQueue = true }
     }
 
     /// Enqueues a selected URL for narration: a folder is scanned for EPUBs, an
