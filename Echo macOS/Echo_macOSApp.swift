@@ -19,15 +19,26 @@ struct Echo_macOSApp: App {
     @State private var transcriptionManager = TranscriptionManager()
     @State private var transcriptStore = TranscriptStore()
     /// Shared database — falls back to in-memory if the App Group DB is unavailable.
-    @State private var dbService: DatabaseService = {
-        (try? DatabaseService()) ?? Self.makeInMemoryDB()
-    }()
+    @State private var dbService: DatabaseService
     @State private var lastOpenToken: UUID = UUID()
 
     // WS-12: Bulk alignment and Anki export state
     @State private var bulkAlignmentService = MacBulkAlignmentService()
-    @State private var showBulkAlignment = false
     @State private var showAnkiExport = false
+
+    /// Persistent batch pipeline (import → transcribe → align → word timings).
+    /// Survives app restart; the queue lives in the shared database.
+    @State private var batchService: MacBatchProcessingService
+    @State private var showBatchQueue = false
+
+    init() {
+        // Resolve the shared database once, then hand the same instance to the
+        // batch service so both the queue and the rest of the app write through
+        // a single `DatabaseService`/writer.
+        let db = (try? DatabaseService()) ?? Self.makeInMemoryDB()
+        _dbService = State(initialValue: db)
+        _batchService = State(initialValue: MacBatchProcessingService(dbService: db))
+    }
 
     var body: some Scene {
         WindowGroup("Echo AudioBooks") {
@@ -37,8 +48,11 @@ struct Echo_macOSApp: App {
                 .environment(transcriptStore)
                 .environment(dbService)
                 .environment(settings)
+                .environment(batchService)
                 .preferredColorScheme(Self.colorScheme(for: settings.appAppearance))
                 .frame(minWidth: 900, minHeight: 560)
+                // Reset any items interrupted by a previous quit, then resume.
+                .task { batchService.resumeOnLaunch() }
                 .onChange(of: player.openFileRequestToken) { _, newValue in
                     if newValue != lastOpenToken {
                         lastOpenToken = newValue
@@ -46,8 +60,9 @@ struct Echo_macOSApp: App {
                     }
                 }
                 // WS-12 sheets
-                .sheet(isPresented: $showBulkAlignment) {
-                    MacBulkAlignmentProgressView(service: bulkAlignmentService)
+                .sheet(isPresented: $showBatchQueue) {
+                    MacBatchQueueView()
+                        .environment(batchService)
                 }
                 .sheet(isPresented: $showAnkiExport) {
                     MacAnkiExportView()
@@ -59,13 +74,6 @@ struct Echo_macOSApp: App {
                     player.requestOpenFile()
                 }
                 .keyboardShortcut("o", modifiers: [.command])
-
-                Divider()
-
-                Button("Bulk Align Folder…") {
-                    showBulkAlignmentFolderPicker()
-                }
-                .keyboardShortcut("b", modifiers: [.command, .option])
 
                 Divider()
 
@@ -88,6 +96,20 @@ struct Echo_macOSApp: App {
                     NotificationCenter.default.post(name: .requestToggleDetailPane, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command])
+            }
+
+            CommandMenu("Batch") {
+                Button("Open Batch Queue") {
+                    showBatchQueue = true
+                }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+
+                Button("Add Folder to Queue…") {
+                    if let folder = chooseBatchFolder() {
+                        try? bulkAlignmentService.enqueueFolder(folder, into: batchService)
+                    }
+                }
+                .keyboardShortcut("b", modifiers: [.command, .option])
             }
 
             CommandMenu("Playback") {
@@ -197,25 +219,22 @@ struct Echo_macOSApp: App {
 
     // MARK: - Open Panel
 
-    /// Presents an NSOpenPanel to select a folder for bulk alignment,
-    /// then kicks off the MacBulkAlignmentService.
-    private func showBulkAlignmentFolderPicker() {
+    /// Presents an NSOpenPanel to select a folder of audiobooks to add to the
+    /// persistent batch queue. Returns the chosen folder, or `nil` if cancelled.
+    /// Enqueuing (and processing) is handled by `MacBatchProcessingService`.
+    private func chooseBatchFolder() -> URL? {
         let panel = NSOpenPanel()
-        panel.title = String(localized: "Select Audiobook Folder for Bulk Alignment")
+        panel.title = String(localized: "Add Audiobook Folder to Batch Queue")
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.message = String(
             localized:
-                "Choose a folder containing audiobooks (M4B/MP3/M4A) with companion EPUB/PDF files."
+                "Choose a folder containing audiobooks (M4B/MP3/M4A) with companion EPUB files."
         )
 
-        if panel.runModal() == .OK, let url = panel.url {
-            showBulkAlignment = true
-            Task {
-                await bulkAlignmentService.start(folderURL: url, dbService: dbService)
-            }
-        }
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
     }
 
     func showOpenPanel() {
