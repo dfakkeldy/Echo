@@ -134,6 +134,17 @@ final class MacBulkAlignmentService {
         progress.estimatedTimeRemaining = nil
     }
 
+    /// Scans `folderURL` and enqueues every discovered audio file into the
+    /// persistent batch queue. Reuses the existing recursive scan logic so the
+    /// only behavioral change is "enqueue" instead of "align inline". Files with
+    /// no EPUB companion are still enqueued and surface as failed during
+    /// processing (with a clear error) rather than being silently dropped.
+    func enqueueFolder(_ folderURL: URL, into service: MacBatchProcessingService) throws {
+        for audioURL in scanForAudioFiles(in: folderURL) {
+            try service.enqueue(fileURL: audioURL)
+        }
+    }
+
     // MARK: - Scanning
 
     /// Recursively enumerates audio files in `folder`, respecting standard
