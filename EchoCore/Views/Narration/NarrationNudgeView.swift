@@ -2,6 +2,12 @@
 import SwiftUI
 
 struct NarrationNudgeView: View {
+    /// Headline. Defaults to the per-book phrasing (a book with no audiobook);
+    /// callers in an idle/empty context pass a more general invitation.
+    var title: LocalizedStringKey = "No audiobook for this one"
+    var message: LocalizedStringKey =
+        "Echo can narrate it on-device so you can study hands-free."
+    var buttonTitle: LocalizedStringKey = "Listen \u{25B8}"
     let onListen: () -> Void
 
     var body: some View {
@@ -11,9 +17,9 @@ struct NarrationNudgeView: View {
                     .font(.title2)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("No audiobook for this one")
+                    Text(title)
                         .font(.headline)
-                    Text("Echo can narrate it on-device so you can study hands-free.")
+                    Text(message)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -23,7 +29,7 @@ struct NarrationNudgeView: View {
             Button {
                 onListen()
             } label: {
-                Text("Listen \u{25B8}")
+                Text(buttonTitle)
                     .bold()
                     .frame(maxWidth: .infinity)
             }
@@ -31,7 +37,11 @@ struct NarrationNudgeView: View {
             .clipShape(.rect(cornerRadius: 12))
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        #if os(macOS)
+            .background(Color(nsColor: .windowBackgroundColor))
+        #else
+            .background(Color(.secondarySystemBackground))
+        #endif
         .clipShape(.rect(cornerRadius: 16))
     }
 }

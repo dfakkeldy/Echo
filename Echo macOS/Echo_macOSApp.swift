@@ -14,8 +14,10 @@ struct Echo_macOSApp: App {
     @State private var player = MacPlayerModel()
     /// Shared user-preferences store. macOS had no SettingsManager instance
     /// before the Settings scene existed; this is the single source of truth
-    /// injected into both the main window and the Settings scene.
-    @State private var settings = SettingsManager()
+    /// injected into the main window, the Settings scene, and the batch service
+    /// (which reads the narration-voice preference). Created in `init` so the
+    /// same instance can be handed to `MacBatchProcessingService`.
+    @State private var settings: SettingsManager
     @State private var transcriptionManager = TranscriptionManager()
     @State private var transcriptStore = TranscriptStore()
     /// Shared database — falls back to in-memory if the App Group DB is unavailable.
@@ -35,8 +37,11 @@ struct Echo_macOSApp: App {
         // batch service so both the queue and the rest of the app write through
         // a single `DatabaseService`/writer.
         let db = (try? DatabaseService()) ?? Self.makeInMemoryDB()
+        let settings = SettingsManager()
         _dbService = State(initialValue: db)
-        _batchService = State(initialValue: MacBatchProcessingService(dbService: db))
+        _settings = State(initialValue: settings)
+        _batchService = State(
+            initialValue: MacBatchProcessingService(dbService: db, settings: settings))
     }
 
     var body: some Scene {
@@ -58,10 +63,16 @@ struct Echo_macOSApp: App {
                         showOpenPanel()
                     }
                 }
+                // The reader's idle-state "Narrate an EPUB" nudge routes here so
+                // it reuses the same picker as the Batch ▸ "Narrate EPUB(s)…" command.
+                .onReceive(NotificationCenter.default.publisher(for: .requestNarrateEPUBs)) { _ in
+                    for url in chooseEPUBsToNarrate() { narrateSelection(url) }
+                }
                 // WS-12 sheets
                 .sheet(isPresented: $showBatchQueue) {
                     MacBatchQueueView()
                         .environment(batchService)
+                        .environment(player)
                 }
                 .sheet(isPresented: $showAnkiExport) {
                     MacAnkiExportView()
@@ -109,6 +120,13 @@ struct Echo_macOSApp: App {
                     }
                 }
                 .keyboardShortcut("b", modifiers: [.command, .option])
+
+                Button("Narrate EPUB(s)…") {
+                    for url in chooseEPUBsToNarrate() {
+                        narrateSelection(url)
+                    }
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
             }
 
             CommandMenu("Playback") {
@@ -236,6 +254,35 @@ struct Echo_macOSApp: App {
         return panel.url
     }
 
+    /// Presents an NSOpenPanel to select EPUB files and/or folders of EPUBs to
+    /// narrate on-device. Returns the chosen URLs (empty if cancelled). Folders
+    /// are scanned for EPUBs; individual `.epub` files are enqueued directly.
+    private func chooseEPUBsToNarrate() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Narrate EPUB(s)")
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [UTType(filenameExtension: "epub") ?? .data]
+        panel.message = String(
+            localized: "Choose EPUB files (or a folder of them) to narrate on-device overnight.")
+
+        guard panel.runModal() == .OK else { return [] }
+        return panel.urls
+    }
+
+    /// Enqueues a selected URL for narration: a folder is scanned for EPUBs, an
+    /// `.epub` file is enqueued directly. Anything else is ignored.
+    private func narrateSelection(_ url: URL) {
+        let isDirectory =
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        if isDirectory {
+            try? FolderAudioScanner.enqueueEPUBsForNarration(url, into: batchService)
+        } else if url.pathExtension.lowercased() == "epub" {
+            try? batchService.enqueueNarration(epubURL: url)
+        }
+    }
+
     func showOpenPanel() {
         let panel = NSOpenPanel()
         panel.title = String(localized: "Open Audiobook…")
@@ -280,8 +327,20 @@ struct Echo_macOSApp: App {
 
     /// In-memory database used as a safe fallback when the shared App Group
     /// database cannot be initialised (first launch, no entitlements, etc.).
+    ///
+    /// A single attempt — the previous `(try? …) ?? (try! …)` form repeated the
+    /// identical initializer, so the `try!` could only ever crash with the same
+    /// failure the `try?` had just swallowed: a redundant trap with a useless
+    /// diagnostic (CODE_AUDIT §5.3). If even an in-memory SQLite store cannot
+    /// open, the process has no database to run on at all, so fail loudly with a
+    /// clear message rather than a bare `try!` re-trap.
     private static func makeInMemoryDB() -> DatabaseService {
-        (try? DatabaseService(inMemory: ())) ?? (try! DatabaseService(inMemory: ()))
+        do {
+            return try DatabaseService(inMemory: ())
+        } catch {
+            fatalError(
+                "Echo could not open even an in-memory database — SQLite is unavailable: \(error)")
+        }
     }
 }
 
@@ -296,4 +355,6 @@ extension Notification.Name {
     static let requestToggleDetailPane = Notification.Name("com.echo.requestToggleDetailPane")
     /// Posted when the user presses "Export Transcript".
     static let requestExportTranscript = Notification.Name("com.echo.requestExportTranscript")
+    /// Posted by the reader's idle "Narrate an EPUB" nudge to open the picker.
+    static let requestNarrateEPUBs = Notification.Name("com.echo.requestNarrateEPUBs")
 }

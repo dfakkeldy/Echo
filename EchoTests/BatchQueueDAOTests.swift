@@ -23,6 +23,32 @@ struct BatchQueueDAOTests {
         #expect(try dao.nextQueued()?.status == .queued)
     }
 
+    @Test func defaultsToAlignKind() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = BatchQueueDAO(db: db.writer)
+        let item = try dao.enqueue(makeItem(name: "A"))  // no kind → defaults to .align
+        #expect(try dao.allItems().first(where: { $0.id == item.id })?.kind == .align)
+    }
+
+    @Test func roundTripsNarrateKind() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = BatchQueueDAO(db: db.writer)
+        let item = try dao.enqueue(
+            BatchQueueRecord(
+                audiobookID: "bk", sourceBookmark: Data(),
+                displayName: "B", queuePosition: 0, status: .queued,
+                progress: 0, kind: .narrate, enqueuedAt: "2026-06-17T00:00:00Z"))
+        #expect(try dao.allItems().first(where: { $0.id == item.id })?.kind == .narrate)
+    }
+
+    /// CODE_AUDIT §5.5: a `kind` written by a future build must decode to the
+    /// safe default rather than crashing an older build that reads the queue.
+    @Test func unknownKindDecodesToAlignForwardCompat() throws {
+        let decoded = try JSONDecoder().decode(
+            BatchItemKind.self, from: Data("\"summary\"".utf8))
+        #expect(decoded == .align)
+    }
+
     private func makeItem(name: String) -> BatchQueueRecord {
         BatchQueueRecord(
             audiobookID: "bk-\(name)", sourceBookmark: Data(),

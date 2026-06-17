@@ -27,6 +27,7 @@ import os.log
 @Observable
 final class MacBatchProcessingService {
     private let dbService: DatabaseService
+    private let settings: SettingsManager
     private let dao: BatchQueueDAO
     private let alignmentService = MacAlignmentService()
     private let logger = Logger(category: "MacBatchProcessing")
@@ -35,8 +36,9 @@ final class MacBatchProcessingService {
     private(set) var isProcessing = false
     private var runner: BatchQueueRunner?
 
-    init(dbService: DatabaseService) {
+    init(dbService: DatabaseService, settings: SettingsManager) {
         self.dbService = dbService
+        self.settings = settings
         self.dao = BatchQueueDAO(db: dbService.writer)
     }
 
@@ -114,6 +116,36 @@ final class MacBatchProcessingService {
         start()
     }
 
+    /// Adds a standalone EPUB to the persistent queue as a **text-only narration**
+    /// item (`kind: .narrate`) and (re)starts processing.
+    ///
+    /// Unlike `enqueue(fileURL:companionEPUB:)`, the EPUB itself is the bookmarked
+    /// primary source — there is no companion audio. `audiobookID` derives from
+    /// the EPUB's parent directory `absoluteString`, matching the importer's
+    /// `folderURL.absoluteString` scheme so synthesized tracks, EPUB blocks, and
+    /// `.synthesized` anchors all key off the same identifier. (Device-local id
+    /// portability is tracked separately, consistent with the align path.)
+    func enqueueNarration(epubURL: URL) throws {
+        let bookmark = try epubURL.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil)
+        let audiobookID = epubURL.deletingLastPathComponent().absoluteString
+        _ = try dao.enqueue(
+            BatchQueueRecord(
+                audiobookID: audiobookID,
+                sourceBookmark: bookmark,
+                companionBookmark: nil,
+                displayName: epubURL.deletingPathExtension().lastPathComponent,
+                queuePosition: 0,
+                status: .queued,
+                progress: 0,
+                kind: .narrate,
+                enqueuedAt: ISO8601DateFormatter().string(from: Date())))
+        refresh()
+        start()
+    }
+
     /// Starts draining the queue if not already running.
     ///
     /// Guards against a lost-wakeup race: `await runner.drain()` is a suspension
@@ -151,6 +183,7 @@ final class MacBatchProcessingService {
 
     private func makeStages() -> BatchQueueRunner.Stages {
         let dbService = self.dbService
+        let settings = self.settings
         let alignmentService = self.alignmentService
         let logger = self.logger
         return .init(run: { [weak self] record, rawProgress in
@@ -167,6 +200,74 @@ final class MacBatchProcessingService {
                 rawProgress(status, value, message)
                 self?.refresh()
             }
+
+            // Text-only EPUB narration: synthesize on-device audio for an EPUB
+            // with no companion audiobook, instead of the align pipeline. The
+            // EPUB itself is the bookmarked source, so this branch resolves its
+            // own bookmark and returns early, leaving the audio-oriented align
+            // body below untouched.
+            if record.kind == .narrate {
+                var narrateStale = false
+                let epubURL = try URL(
+                    resolvingBookmarkData: record.sourceBookmark,
+                    options: .withSecurityScope,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &narrateStale)
+                if narrateStale {
+                    logger.warning(
+                        "Bookmark stale for \(record.displayName, privacy: .public); continuing this run"
+                    )
+                }
+                guard epubURL.startAccessingSecurityScopedResource() else {
+                    throw BatchProcessingError.cannotAccessFile(epubURL.lastPathComponent)
+                }
+                defer { epubURL.stopAccessingSecurityScopedResource() }
+
+                let audiobookID = epubURL.deletingLastPathComponent().absoluteString
+
+                // 1) Import the EPUB's blocks (no audio). `chapterIndex` comes from
+                //    the EPUB's own structure, so empty audio `chapters` is fine —
+                //    the same path the iOS study-book reader uses.
+                progress(.importing, 0.05, "Importing EPUB…")
+                try await self?.importEPUBOnly(
+                    epubURL: epubURL, audiobookID: audiobookID, dbService: dbService)
+
+                let blocks =
+                    (try? EPubBlockDAO(db: dbService.writer).blocks(for: audiobookID)) ?? []
+                let chapters = NarrationChapterPlanner.plan(from: blocks)
+                guard !chapters.isEmpty else {
+                    throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
+                }
+
+                // 2) Synthesize each chapter on-device into the shared narration
+                //    cache. The stage closure inherits the runner's @MainActor
+                //    isolation, so the @MainActor NarrationService is constructed
+                //    and driven inline. A thrown synthesis error is isolated to
+                //    this book by the runner (marked `.failed`).
+                // Honor the user's shared narration-voice preference (the same
+                // `narrationVoiceID` the iOS player reads), falling back to the
+                // catalog default when unset or unknown.
+                let voice =
+                    VoiceCatalog.voice(for: VoiceID(settings.narrationVoiceID))?.id
+                    ?? VoiceCatalog.default.id
+                let service = NarrationService(
+                    db: dbService.writer, audiobookID: audiobookID,
+                    tts: NarrationEngineFactory.make(),
+                    audioWriter: AVFoundationAudioWriter(),
+                    cacheDirectory: NarrationCache.directory(), state: NarrationState())
+                for (n, chapter) in chapters.enumerated() {
+                    progress(
+                        .transcribing,
+                        0.1 + 0.85 * Double(n) / Double(chapters.count),
+                        "Narrating chapter \(n + 1) of \(chapters.count)…")
+                    try await service.renderChapter(
+                        chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
+                        blocks: chapter.blocks, voice: voice)
+                }
+                self?.refresh()
+                return
+            }
+
             // Resolve the security-scoped bookmark for restart-safe file access.
             // A resolved bookmark does NOT auto-start access — we must start it,
             // check the Bool, and always balance the stop via defer.
@@ -294,6 +395,27 @@ final class MacBatchProcessingService {
         let blockCount = (try? EPubBlockDAO(db: dbService.writer).count(for: audiobookID)) ?? 0
         guard blockCount > 0 else {
             throw BatchProcessingError.emptyImport(audioURL.lastPathComponent)
+        }
+    }
+
+    /// Imports a standalone EPUB's blocks (no audio) under `audiobookID`, reusing
+    /// the same `EPUBImportCoordinator.importEPUB` path as the align flow but with
+    /// no audio chapters/duration. The EPUB is imported in place (source == dest),
+    /// so the same-folder copy is skipped. Throws if zero blocks were persisted (a
+    /// swallowed extract/parse failure), so the runner marks the item `.failed`
+    /// rather than completing an empty book.
+    private func importEPUBOnly(
+        epubURL: URL, audiobookID: String, dbService: DatabaseService
+    ) async throws {
+        await EPUBImportCoordinator.importEPUB(
+            from: epubURL,
+            to: epubURL.deletingLastPathComponent(),
+            databaseService: dbService,
+            chapters: [],
+            duration: nil)
+        let blockCount = (try? EPubBlockDAO(db: dbService.writer).count(for: audiobookID)) ?? 0
+        guard blockCount > 0 else {
+            throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
         }
     }
 

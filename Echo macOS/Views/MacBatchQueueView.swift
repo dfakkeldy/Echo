@@ -12,6 +12,7 @@ import SwiftUI
 
 struct MacBatchQueueView: View {
     @Environment(MacBatchProcessingService.self) private var service
+    @Environment(MacPlayerModel.self) private var player
     // A macOS sheet has no titlebar toolbar, so the `.toolbar` modifier's
     // controls would never render — the user could be stranded in the modal
     // (opened via ⌘⇧B). Drive an explicit Done button from `dismiss` instead.
@@ -30,7 +31,19 @@ struct MacBatchQueueView: View {
                         systemImage: "square.stack.3d.up",
                         description: Text("Add a folder to process books overnight."))
                 } else {
-                    List(service.items) { item in MacBatchQueueRow(item: item) }
+                    List(service.items) { item in
+                        MacBatchQueueRow(
+                            item: item,
+                            // Completed narration items can be opened straight into
+                            // the player, whose tracks come from the DB (the rendered
+                            // files live outside any scanned folder).
+                            onOpen: (item.status == .completed && item.kind == .narrate)
+                                ? {
+                                    player.loadNarratedBook(audiobookID: item.audiobookID)
+                                    dismiss()
+                                }
+                                : nil)
+                    }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -58,6 +71,8 @@ struct MacBatchQueueView: View {
 
 private struct MacBatchQueueRow: View {
     let item: BatchQueueRecord
+    /// Non-nil for a completed narrated book: opens it in the player.
+    var onOpen: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -72,6 +87,11 @@ private struct MacBatchQueueRow: View {
                 {
                     ProgressView(value: item.progress)
                 }
+            }
+            if let onOpen {
+                Spacer()
+                Button("Open", action: onOpen)
+                    .buttonStyle(.borderless)
             }
         }
         .padding(.vertical, 4)

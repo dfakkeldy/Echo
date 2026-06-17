@@ -33,6 +33,45 @@ enum FolderAudioScanner {
         }
     }
 
+    /// Scans `folderURL` and enqueues every discovered **standalone EPUB** as a
+    /// text-only narration item (`kind: .narrate`) — for EPUBs that have no
+    /// companion audio and should be synthesized on-device overnight. Distinct
+    /// from `enqueueFolder`, which aligns narrated audiobooks against their EPUB.
+    ///
+    /// Like `enqueueFolder`, the EPUB is bookmarked **here** while `folderURL`'s
+    /// NSOpenPanel security scope is still active, so the sandboxed app can read
+    /// it back at processing time after a relaunch.
+    @MainActor
+    static func enqueueEPUBsForNarration(
+        _ folderURL: URL, into service: MacBatchProcessingService
+    ) throws {
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+        for epubURL in scanForEPUBs(in: folderURL) {
+            try service.enqueueNarration(epubURL: epubURL)
+        }
+    }
+
+    /// Recursively enumerates EPUB files in `folder`, respecting standard
+    /// hidden-file and package exclusions. Mirrors `scanForAudioFiles`.
+    static func scanForEPUBs(in folder: URL) -> [URL] {
+        var results: [URL] = []
+
+        let enumerator = FileManager.default.enumerator(
+            at: folder,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        )
+
+        while let url = enumerator?.nextObject() as? URL {
+            if url.pathExtension.lowercased() == "epub" {
+                results.append(url)
+            }
+        }
+
+        return results.sorted { $0.path < $1.path }
+    }
+
     /// Finds the EPUB companion living alongside `audioURL` (same directory).
     static func companionEPUB(for audioURL: URL) -> URL? {
         let dir = audioURL.deletingLastPathComponent()

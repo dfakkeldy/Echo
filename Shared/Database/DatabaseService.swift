@@ -25,7 +25,7 @@ final class DatabaseService {
     @ObservationIgnored private let migrationFlag = "sql_migration_done"
     @ObservationIgnored private let appGroupIdentifier: String
 
-    init(appGroupIdentifier: String = "group.com.echo.audiobooks") throws {
+    init(appGroupIdentifier: String = AppGroupDefaults.suiteName) throws {
         self.appGroupIdentifier = appGroupIdentifier
         guard
             let containerURL = FileManager.default.containerURL(
@@ -110,6 +110,7 @@ final class DatabaseService {
         migrator.registerMigration("v18_abs_server") { db in try Schema_V18.migrate(db) }
         migrator.registerMigration("v19_word_timing") { db in try Schema_V19.migrate(db) }
         migrator.registerMigration("v20_batch_queue") { db in try Schema_V20.migrate(db) }
+        migrator.registerMigration("v21_batch_kind") { db in try Schema_V21.migrate(db) }
         try migrator.migrate(writer)
     }
 
