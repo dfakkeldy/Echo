@@ -33,7 +33,9 @@ struct VoicePickerView: View {
                 .buttonStyle(.plain)
             }
             .navigationTitle("Choose a Voice")
-            .navigationBarTitleDisplayMode(.inline)
+            #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -46,6 +48,8 @@ struct VoicePickerView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        #if os(iOS)
+            .presentationDetents([.medium])
+        #endif
     }
 }

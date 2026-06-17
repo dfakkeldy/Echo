@@ -31,7 +31,11 @@ struct NarrationNudgeView: View {
             .clipShape(.rect(cornerRadius: 12))
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        #if os(macOS)
+            .background(Color(nsColor: .windowBackgroundColor))
+        #else
+            .background(Color(.secondarySystemBackground))
+        #endif
         .clipShape(.rect(cornerRadius: 16))
     }
 }
