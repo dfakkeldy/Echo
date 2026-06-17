@@ -10,6 +10,7 @@
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC00000000006FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
+		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000012GRDB00000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -350,6 +351,7 @@
 				CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */,
 				CC0000000015WHSK00000015 /* WhisperKit in Frameworks */,
 				CC00000000006FLUI0000000 /* FluidAudio in Frameworks */,
+				CC00000000009AUMK0000000 /* AudioMarker in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -676,6 +678,7 @@
 				CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 				CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -1591,6 +1594,14 @@
 				minimumVersion = 0.12.0;
 			};
 		};
+		CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/atelier-socle/swift-audio-marker.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
+			};
+		};
 		CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift.git";
@@ -1622,6 +1633,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		CC00000000008AUMK0000000 /* AudioMarker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
+			productName = AudioMarker;
 		};
 		CC0000000002GRDB00000002 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
