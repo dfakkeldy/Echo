@@ -417,6 +417,28 @@ final class MacPlayerModel {
         open(url: audioFiles[0])
     }
 
+    /// Loads a completed narrated book for playback by reading its rendered
+    /// `TrackRecord` rows from the database. The synthesized chapter files live
+    /// in Application Support/Narration — outside any user-selected folder — so
+    /// the filesystem-scanning `loadFolder` can't discover them; this is the
+    /// DB-driven counterpart. The narration cache is app-owned, so no
+    /// security-scoped access is needed. Mirrors `loadFolder`'s state setup but
+    /// sources the ordered file URLs from `TrackDAO`.
+    func loadNarratedBook(audiobookID: String) {
+        guard let db = dbService else { return }
+        let records = (try? TrackDAO(db: db.writer).tracks(for: audiobookID)) ?? []
+        let urls = NarrationTrackOrdering.orderedFileURLs(records)
+        guard !urls.isEmpty else { return }
+
+        // Restore the book's id as `folderURL` so the computed `audiobookID`
+        // (and any bookmark / marked-passage writes that key off it) stay correct.
+        // Set before `open(url:)`, which only fills these when still nil/empty.
+        folderURL = URL(string: audiobookID)
+        tracks = urls
+        currentTrackIndex = 0
+        open(url: urls[0])
+    }
+
     func nextTrack() {
         guard hasMultipleTracks else { return }
         let nextIndex = currentTrackIndex + 1
