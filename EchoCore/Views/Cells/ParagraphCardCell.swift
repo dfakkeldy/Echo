@@ -148,16 +148,13 @@ final class ParagraphCardCell: UICollectionViewCell {
 
     /// Word boundary ranges over `text`, matching the word order the timing
     /// interpolator produces, so word index N maps to the same rendered word.
+    ///
+    /// Delegates to the shared `WordTokenizer` (whitespace-delimited tokens with
+    /// attached punctuation kept on the word) so this side cannot fork from the
+    /// `WordTimingInterpolator` that assigns each word its `wordIndex` — otherwise
+    /// the karaoke highlight drifts on punctuation/em-dash/hyphen.
     static func wordRanges(in text: String) -> [NSRange] {
-        var ranges: [NSRange] = []
-        let ns = text as NSString
-        ns.enumerateSubstrings(
-            in: NSRange(location: 0, length: ns.length),
-            options: .byWords
-        ) { _, range, _, _ in
-            ranges.append(range)
-        }
-        return ranges
+        WordTokenizer.wordRanges(in: text).map { NSRange($0, in: text) }
     }
 
     /// Applies (or clears) the karaoke highlight without rebuilding base text.

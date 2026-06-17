@@ -25,8 +25,7 @@ enum WordTimingInterpolator {
     static func interpolate(text: String, blockStart: TimeInterval, blockEnd: TimeInterval)
         -> [Word]
     {
-        let words = text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
-            .map(String.init)
+        let words = WordTokenizer.words(in: text).map(String.init)
         guard !words.isEmpty else { return [] }
 
         let span = max(0, blockEnd - blockStart)
