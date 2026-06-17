@@ -22,6 +22,13 @@ final class ReaderFeedViewModel {
     /// active-block resolution can be scoped to the currently-playing track.
     private var timelineCache: [ReaderActiveBlockResolver.TimelineRow] = []
 
+    /// Per-word audio `[start, end)` rows for the whole book, ordered by audio
+    /// start time. Consumed by `ReaderActiveBlockResolver.activeWord` to drive
+    /// karaoke highlighting within the active block.
+    private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
+    /// (blockID, wordIndex) of the currently spoken word, for karaoke.
+    private(set) var activeWord: (blockID: String, index: Int)?
+
     /// Full, unscoped alignment statuses keyed by block ID (every timestamped
     /// block in the book). The published `alignmentStatusByBlockID` is derived
     /// from this, gated to the current track.
@@ -274,6 +281,17 @@ final class ReaderFeedViewModel {
                 }
             }
             timelineCache = newTimeline
+
+            // Load per-word read-along timings for karaoke highlighting. Uses
+            // the same writer the timeline query above runs on.
+            let words = try WordTimingDAO(db: db).words(forAudiobook: audiobookID)
+            wordCache = words.map {
+                (
+                    start: $0.audioStartTime, end: $0.audioEndTime,
+                    blockID: $0.epubBlockID, wordIndex: $0.wordIndex
+                )
+            }
+
             allAlignmentStatusByBlockID = newAlignmentStatus
             allAudioStartTimeByBlockID = newAudioStartTime
             chapterIndexByBlockID = newChapterIndex
@@ -362,6 +380,15 @@ final class ReaderFeedViewModel {
         )
         if activeBlockID != foundBlockID {
             activeBlockID = foundBlockID
+        }
+
+        let wordIdx = ReaderActiveBlockResolver.activeWord(
+            in: wordCache, time: time, activeBlockID: foundBlockID)
+        let newActiveWord = wordIdx.map { (blockID: foundBlockID ?? "", index: $0) }
+        if newActiveWord?.blockID != activeWord?.blockID
+            || newActiveWord?.index != activeWord?.index
+        {
+            activeWord = newActiveWord
         }
     }
 
