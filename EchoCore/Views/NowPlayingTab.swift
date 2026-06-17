@@ -16,6 +16,8 @@ struct NowPlayingTab: View {
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
     @State private var showingPlaybackOptions = false
+    /// Presents the M4B export + share sheet once narration has fully rendered.
+    @State private var showingExport = false
     /// Owns the player-More chapter-navigation sheet binding (WS-C). Kept here,
     /// not on RootTabView, so it cannot collide with the global header sheets.
     @State private var showingChapterPicker = false
@@ -76,6 +78,23 @@ struct NowPlayingTab: View {
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
                             .accessibilityHint("Choose the narrator voice")
+                        }
+
+                        // Export the fully-rendered narration as a single
+                        // chapterised .m4b. Gated on `.completed` so the cache
+                        // holds every chapter — exporting mid-render would ship a
+                        // truncated book.
+                        if model.narrationPlaybackState.phase == .completed {
+                            Button {
+                                showingExport = true
+                            } label: {
+                                Label("Export as M4B", systemImage: "square.and.arrow.up")
+                                    .font(.subheadline)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHint(
+                                "Saves the narration as a chapterised audiobook file")
                         }
                     }
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
@@ -161,6 +180,15 @@ struct NowPlayingTab: View {
         .sheet(isPresented: $showingChapterPicker) {
             ChapterPickerSheet(chapters: model.chapters) { chapter in
                 model.seek(toSeconds: chapter.startSeconds + 0.05)
+            }
+        }
+        .sheet(isPresented: $showingExport) {
+            if let audiobookID = model.folderURL?.absoluteString {
+                ExportProgressView(
+                    audiobookID: audiobookID,
+                    bookTitle: model.currentTitle,
+                    cacheDirectory: PlayerModel.narrationCacheDirectory(),
+                    databaseWriter: model.databaseService?.writer)
             }
         }
     }

@@ -190,6 +190,7 @@
 				Views/Components/WordCloudView.swift,
 				Views/DashboardShelf.swift,
 				Views/EPUBHeadingPickerSheet.swift,
+				Views/ExportProgressView.swift,
 				Views/Fidget/BubblePopView.swift,
 				Views/Fidget/DoodlePadView.swift,
 				Views/Fidget/FidgetOverlayView.swift,
