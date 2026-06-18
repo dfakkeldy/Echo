@@ -11,7 +11,11 @@
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC00000000006FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
 		CC00000000007FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
+		CC00000000008KOKO0000000 /* KokoroPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000009KOKO0000000 /* KokoroPipeline */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
+		CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000009KOKO0000000 /* KokoroPipeline */; };
+		CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
+		CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000HMSKI0000000 /* MisakiSwift */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000012GRDB00000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -24,6 +28,7 @@
 		CC00BC612FA6B66500323F38 /* Echo WidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC00BC4D2FA6B66400323F38 /* Echo WidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CCC48EBB2FA6AB350003458B /* Echo Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Echo Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CCE2746A2FDE85E10076D9CC /* (null) in Frameworks */ = {isa = PBXBuildFile; };
+		CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000003ZIPF00000003 /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -112,34 +117,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		AA0100000000000000000011 /* Exceptions for "Echo macOS" folder in "Echo macOS" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = AA0100000000000000000020 /* Echo macOS */;
-		};
-		CC00BC662FA6B66500323F38 /* Exceptions for "Echo Widget" folder in "Echo WidgetExtension" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = CC00BC4C2FA6B66400323F38 /* Echo WidgetExtension */;
-		};
-		CC08EC842F95256B00206D2F /* Exceptions for "EchoCore" folder in "Echo" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = CC08EC582F9522F600206D2F /* Echo */;
-		};
-		CC33EBB42FB41C610035179D /* Exceptions for "EchoCore" folder in "Echo WidgetExtension" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Views/Bookmarks.swift,
-			);
-			target = CC00BC4C2FA6B66400323F38 /* Echo WidgetExtension */;
-		};
 		718DD03F18BB433E7AD362E2 /* Exceptions for "EchoCore" folder in "Echo macOS" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -166,8 +143,8 @@
 				ViewModels/ReaderFeedViewModel.swift,
 				Views/AppIconSelectionView.swift,
 				Views/AutoAlignmentProgressView.swift,
-				Views/BookSettingsView.swift,
 				Views/BookmarkCardView.swift,
+				Views/BookSettingsView.swift,
 				Views/BottomToolbarView.swift,
 				Views/CardInboxView.swift,
 				Views/Cells/HeadingCardCell.swift,
@@ -217,6 +194,7 @@
 				Views/PlayheadLineView.swift,
 				Views/PlaylistView.swift,
 				Views/ProTranscriptsSettingsView.swift,
+				Views/PronunciationDictionaryView.swift,
 				Views/ReaderEmptyState.swift,
 				Views/ReaderFeedCollectionView.swift,
 				Views/ReaderHeaderView.swift,
@@ -250,7 +228,34 @@
 			);
 			target = AA0100000000000000000020 /* Echo macOS */;
 		};
-
+		AA0100000000000000000011 /* Exceptions for "Echo macOS" folder in "Echo macOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AA0100000000000000000020 /* Echo macOS */;
+		};
+		CC00BC662FA6B66500323F38 /* Exceptions for "Echo Widget" folder in "Echo WidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = CC00BC4C2FA6B66400323F38 /* Echo WidgetExtension */;
+		};
+		CC08EC842F95256B00206D2F /* Exceptions for "EchoCore" folder in "Echo" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = CC08EC582F9522F600206D2F /* Echo */;
+		};
+		CC33EBB42FB41C610035179D /* Exceptions for "EchoCore" folder in "Echo WidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Views/Bookmarks.swift,
+			);
+			target = CC00BC4C2FA6B66400323F38 /* Echo WidgetExtension */;
+		};
 		CCA11E012FA6C00100323F38 /* Exceptions for "Echo Watch App" folder in "Echo Watch App" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -330,6 +335,9 @@
 				CC0000000011GRDB00000011 /* GRDB in Frameworks */,
 				CC0000000016WHSK00000016 /* WhisperKit in Frameworks */,
 				CC00000000007FLUI0000000 /* FluidAudio in Frameworks */,
+				CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */,
+				CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */,
+				CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -352,6 +360,8 @@
 				CC0000000015WHSK00000015 /* WhisperKit in Frameworks */,
 				CC00000000006FLUI0000000 /* FluidAudio in Frameworks */,
 				CC00000000009AUMK0000000 /* AudioMarker in Frameworks */,
+				CC00000000008KOKO0000000 /* KokoroPipeline in Frameworks */,
+				CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -461,18 +471,20 @@
 			);
 			dependencies = (
 			);
-			packageProductDependencies = (
-				CC0000000002GRDB00000002 /* GRDB */,
-				CC0000000004WHSK00000004 /* WhisperKit */,
-				CC0000000003ZIPF00000003 /* ZIPFoundation */,
-				CC00000000005FLUI0000000 /* FluidAudio */,
-			);
 			fileSystemSynchronizedGroups = (
 				AA0100000000000000000010 /* Echo macOS */,
 				CC08EC5B2F9522F600206D2F /* EchoCore */,
 				DD0100000000000000000001 /* Shared */,
 			);
 			name = "Echo macOS";
+			packageProductDependencies = (
+				CC0000000002GRDB00000002 /* GRDB */,
+				CC0000000004WHSK00000004 /* WhisperKit */,
+				CC0000000003ZIPF00000003 /* ZIPFoundation */,
+				CC00000000005FLUI0000000 /* FluidAudio */,
+				CC00000000009KOKO0000000 /* KokoroPipeline */,
+				CC0000000000FMSKI0000000 /* MisakiSwift */,
+			);
 			productName = "Echo macOS";
 			productReference = AA0100000000000000000001 /* Echo macOS.app */;
 			productType = "com.apple.product-type.application";
@@ -680,6 +692,8 @@
 				CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
+				CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "ThirdParty/KokoroPipeline" */,
+				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -1586,6 +1600,17 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "ThirdParty/KokoroPipeline" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ThirdParty/KokoroPipeline;
+		};
+		CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ThirdParty/MisakiSwift;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1639,6 +1664,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
 			productName = AudioMarker;
+		};
+		CC00000000009KOKO0000000 /* KokoroPipeline */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "ThirdParty/KokoroPipeline" */;
+			productName = KokoroPipeline;
+		};
+		CC0000000000FMSKI0000000 /* MisakiSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */;
+			productName = MisakiSwift;
+		};
+		CC0000000000HMSKI0000000 /* MisakiSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */;
+			productName = MisakiSwift;
 		};
 		CC0000000002GRDB00000002 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;

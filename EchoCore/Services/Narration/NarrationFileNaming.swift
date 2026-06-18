@@ -13,8 +13,11 @@ enum NarrationFileNaming {
     /// already-clean render without fixing the whine, which was a playback-side
     /// time-pitch artifact); v3 = low-pass removed, raw vocoder output again;
     /// v4 = 0.75 s lead-out silence so the final word isn't clipped on chapter
-    /// advance (NarrationService.leadOutPadSeconds).
-    static let renderVersion = 4
+    /// advance (NarrationService.leadOutPadSeconds);
+    /// v5 = fixed-shape mattmireles Kokoro CoreML pipeline + MisakiSwift G2P
+    /// (replaces FluidAudio's dynamic-shape vocoder) — different model, DSP, and
+    /// G2P produce different bytes, so every cached chapter re-renders once.
+    static let renderVersion = 5
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {

@@ -15,6 +15,27 @@ enum NarrationError: Error, Equatable {
     /// test double can exercise the "skip this sub-chunk, keep the chapter"
     /// path; the real engine raises FluidAudio's `KokoroAneError` length cases.
     case lengthCapExceeded
+    /// A CoreML model package failed to download/verify from Hugging Face.
+    /// `underlying` is the transport error (or nil on a non-2xx HTTP status);
+    /// kept optional + not compared for `Equatable` since the underlying error
+    /// is not itself `Equatable`.
+    case modelDownloadFailed(name: String, underlying: Error?)
+    /// The narration engine was asked to synthesize before `prepare()` succeeded.
+    case engineUnavailable
+
+    static func == (lhs: NarrationError, rhs: NarrationError) -> Bool {
+        switch (lhs, rhs) {
+        case (.synthesisFailed, .synthesisFailed),
+            (.audiobookNotFound, .audiobookNotFound),
+            (.lengthCapExceeded, .lengthCapExceeded),
+            (.engineUnavailable, .engineUnavailable):
+            return true
+        case (.modelDownloadFailed(let l, _), .modelDownloadFailed(let r, _)):
+            return l == r
+        default:
+            return false
+        }
+    }
 }
 
 /// Renders narration one chapter at a time (render-then-play): synthesize each
@@ -40,10 +61,19 @@ final class NarrationService {
     private let audioWriter: AudioFileWriting
     private let cacheDirectory: URL
     let state: NarrationState
+    /// Supplies the user pronunciation overrides applied to each block's text
+    /// after `TextNormalizer` and before chunking/synthesis. Evaluated as a
+    /// closure (not a stored value) so the live `PronunciationOverrideStore` is
+    /// read at render time; defaults to an empty map, so callers and tests that
+    /// don't pass one are unaffected by the feature.
+    private let pronunciationOverrides: () -> PronunciationOverrides
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
-        audioWriter: AudioFileWriting, cacheDirectory: URL, state: NarrationState
+        audioWriter: AudioFileWriting, cacheDirectory: URL, state: NarrationState,
+        pronunciationOverrides: @escaping () -> PronunciationOverrides = {
+            PronunciationOverrides(entries: [:])
+        }
     ) {
         self.db = db
         self.audiobookID = audiobookID
@@ -51,6 +81,7 @@ final class NarrationService {
         self.audioWriter = audioWriter
         self.cacheDirectory = cacheDirectory
         self.state = state
+        self.pronunciationOverrides = pronunciationOverrides
     }
 
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
@@ -86,9 +117,14 @@ final class NarrationService {
                 audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
         let stream = try audioWriter.makeStream(to: fileURL, sampleRate: 24_000)
 
+        // Snapshot the override map once per chapter so a mid-render edit (the
+        // store is @MainActor, and this method awaits between blocks) can't change
+        // a word's pronunciation partway through the same chapter.
+        let overrides = pronunciationOverrides()
+
         for (i, block) in spoken.enumerated() {
             try Task.checkCancellation()
-            let text = TextNormalizer.normalize(block.text ?? "")
+            let text = overrides.apply(to: TextNormalizer.normalize(block.text ?? ""))
 
             // FluidAudio does no internal chunking and caps IPA input at ~510
             // phonemes — feeding a whole 400+ char block in one synthesize call
@@ -223,12 +259,12 @@ final class NarrationService {
             }
             let snippet = Array(texts.prefix(3))
 
-            logger.info("Preparing Kokoro (first run compiles on the ANE, ~15s)…")
-            let engine = KokoroTTSEngine()
+            logger.info("Preparing Kokoro (first run downloads + compiles the pruned CoreML set)…")
+            let engine = KokoroFixedShapeEngine()
             var chunks: [TTSChunk] = []
             for text in snippet {
                 // Chunk before synthesize, mirroring NarrationService.renderChapter:
-                // a whole 400+ char block traps Kokoro's BNNS fallback (uncatchable
+                // a whole 400+char block traps Kokoro's BNNS fallback (uncatchable
                 // SIGTRAP), so bound every synthesize call to <=200 chars.
                 for subText in NarrationTextChunker.split(TextNormalizer.normalize(text)) {
                     chunks.append(

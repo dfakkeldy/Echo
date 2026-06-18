@@ -60,7 +60,8 @@
             let service = NarrationService(
                 db: db, audiobookID: audiobookID, tts: narrationTTS,
                 audioWriter: AVFoundationAudioWriter(), cacheDirectory: cacheDirectory,
-                state: narrationPlaybackState)
+                state: narrationPlaybackState,
+                pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
 
             narrationRenderTask = Task { [weak self] in
                 guard let self else { return }

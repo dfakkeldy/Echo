@@ -263,13 +263,15 @@ final class MacBatchProcessingService {
                 // Built via a closure so a failed chapter can retry with a FRESH
                 // engine — re-initialising KokoroAne resets the ANE state that an
                 // inference failure (e.g. the Kokoro vocoder tripping on the Neural
-                // Engine) can leave wedged.
+                // Engine) can leave wedged. The closure also injects the user's
+                // pronunciation overrides so each (re-)created service honors them.
                 @MainActor func makeService() -> NarrationService {
                     NarrationService(
                         db: dbService.writer, audiobookID: audiobookID,
                         tts: NarrationEngineFactory.make(),
                         audioWriter: AVFoundationAudioWriter(),
-                        cacheDirectory: NarrationCache.directory(), state: NarrationState())
+                        cacheDirectory: NarrationCache.directory(), state: NarrationState(),
+                        pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
                 }
                 var service = makeService()
                 var skipped = 0
