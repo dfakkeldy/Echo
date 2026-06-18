@@ -194,6 +194,7 @@
 				Views/PlayheadLineView.swift,
 				Views/PlaylistView.swift,
 				Views/ProTranscriptsSettingsView.swift,
+				Views/PronunciationDictionaryView.swift,
 				Views/ReaderEmptyState.swift,
 				Views/ReaderFeedCollectionView.swift,
 				Views/ReaderHeaderView.swift,
