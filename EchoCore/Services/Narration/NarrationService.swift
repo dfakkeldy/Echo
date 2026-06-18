@@ -15,6 +15,27 @@ enum NarrationError: Error, Equatable {
     /// test double can exercise the "skip this sub-chunk, keep the chapter"
     /// path; the real engine raises FluidAudio's `KokoroAneError` length cases.
     case lengthCapExceeded
+    /// A CoreML model package failed to download/verify from Hugging Face.
+    /// `underlying` is the transport error (or nil on a non-2xx HTTP status);
+    /// kept optional + not compared for `Equatable` since the underlying error
+    /// is not itself `Equatable`.
+    case modelDownloadFailed(name: String, underlying: Error?)
+    /// The narration engine was asked to synthesize before `prepare()` succeeded.
+    case engineUnavailable
+
+    static func == (lhs: NarrationError, rhs: NarrationError) -> Bool {
+        switch (lhs, rhs) {
+        case (.synthesisFailed, .synthesisFailed),
+             (.audiobookNotFound, .audiobookNotFound),
+             (.lengthCapExceeded, .lengthCapExceeded),
+             (.engineUnavailable, .engineUnavailable):
+            return true
+        case let (.modelDownloadFailed(l, _), .modelDownloadFailed(r, _)):
+            return l == r
+        default:
+            return false
+        }
+    }
 }
 
 /// Renders narration one chapter at a time (render-then-play): synthesize each
