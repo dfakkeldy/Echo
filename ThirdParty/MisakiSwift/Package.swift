@@ -6,11 +6,19 @@
 //   1. Resources are NOT declared here. Upstream's `.copy("../../Resources/")`
 //      produces a `MisakiSwift_MisakiSwift.bundle` whose `.bundle` extension
 //      the iOS-simulator codesign rejects ("bundle format unrecognized").
-//      Instead the model/lexicon files (us_*.json, us_*.safetensors) ship as
-//      Echo app-bundle resources under `MisakiResources/`, and the 4 load sites
-//      read them via `Bundle.main` (see DataResourcesUtil.swift and
-//      EnglishFallbackNetwork.swift). This signs cleanly on sim, device, macOS.
+//      Instead the US-English model/lexicon files (us_gold, us_silver) ship as
+//      Echo app-bundle resources under
+//      `EchoCore/Services/Narration/MisakiResources/`, and the load sites read
+//      them via `Bundle.main`. This signs cleanly on sim, device, macOS.
 //   2. British-English (`gb_*`) resources removed — Echo ships US English only.
+//   3. The MLX-backed BART OOV-fallback network was removed (lexicon-only G2P).
+//      mlx-swift is no longer a dependency — it had an upstream iOS-Simulator
+//      link bug (ml-explore/mlx-swift#341) that blocked the whole sim test
+//      suite, and the BART fallback's value on Echo's nonfiction workload was
+//      low. OOV words now emit the ❓ unk glyph; user pronunciation overrides
+//      (PronunciationOverrides) are the supported way to give OOV words a real
+//      pronunciation. MLXUtilsLibrary stays (pure-Swift data structures:
+//      MToken, TokenContext).
 
 import PackageDescription
 
@@ -27,17 +35,14 @@ let package = Package(
     ),
   ],
   dependencies: [
-    .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.30.2"),
     .package(url: "https://github.com/mlalma/MLXUtilsLibrary.git", exact: "0.0.6")
   ],
   targets: [
     .target(
       name: "MisakiSwift",
       dependencies: [
-        .product(name: "MLX", package: "mlx-swift"),
-        .product(name: "MLXNN", package: "mlx-swift"),
         .product(name: "MLXUtilsLibrary", package: "MLXUtilsLibrary")
-     ]
+      ]
     ),
     .testTarget(
       name: "MisakiSwiftTests",
