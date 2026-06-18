@@ -11,6 +11,8 @@
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC00000000006FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
 		CC00000000007FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
+		CC00000000008KOKO0000000 /* KokoroPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000009KOKO0000000 /* KokoroPipeline */; };
+		CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000009KOKO0000000 /* KokoroPipeline */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -330,6 +332,7 @@
 				CC0000000011GRDB00000011 /* GRDB in Frameworks */,
 				CC0000000016WHSK00000016 /* WhisperKit in Frameworks */,
 				CC00000000007FLUI0000000 /* FluidAudio in Frameworks */,
+				CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -352,6 +355,7 @@
 				CC0000000015WHSK00000015 /* WhisperKit in Frameworks */,
 				CC00000000006FLUI0000000 /* FluidAudio in Frameworks */,
 				CC00000000009AUMK0000000 /* AudioMarker in Frameworks */,
+				CC00000000008KOKO0000000 /* KokoroPipeline in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,6 +470,7 @@
 				CC0000000004WHSK00000004 /* WhisperKit */,
 				CC0000000003ZIPF00000003 /* ZIPFoundation */,
 				CC00000000005FLUI0000000 /* FluidAudio */,
+				CC00000000009KOKO0000000 /* KokoroPipeline */,
 			);
 			fileSystemSynchronizedGroups = (
 				AA0100000000000000000010 /* Echo macOS */,
@@ -680,6 +685,7 @@
 				CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
+				CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "KokoroPipeline" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -1586,6 +1592,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "KokoroPipeline" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ThirdParty/KokoroPipeline;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1630,6 +1643,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		CC00000000009KOKO0000000 /* KokoroPipeline */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "KokoroPipeline" */;
+			productName = KokoroPipeline;
+		};
 		CC00000000005FLUI0000000 /* FluidAudio */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */;
