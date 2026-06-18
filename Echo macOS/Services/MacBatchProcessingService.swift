@@ -130,7 +130,9 @@ final class MacBatchProcessingService {
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil)
-        let audiobookID = epubURL.deletingLastPathComponent().absoluteString
+        // One EPUB = one book, so key off the EPUB's own URL (not its parent
+        // directory): multiple EPUBs in a single folder must not share an id.
+        let audiobookID = epubURL.absoluteString
         _ = try dao.enqueue(
             BatchQueueRecord(
                 audiobookID: audiobookID,
@@ -223,7 +225,8 @@ final class MacBatchProcessingService {
                 }
                 defer { epubURL.stopAccessingSecurityScopedResource() }
 
-                let audiobookID = epubURL.deletingLastPathComponent().absoluteString
+                // Per-EPUB id (matches enqueueNarration) — see importEPUBOnly.
+                let audiobookID = epubURL.absoluteString
 
                 // 1) Import the EPUB's blocks (no audio). `chapterIndex` comes from
                 //    the EPUB's own structure, so empty audio `chapters` is fine —
@@ -407,9 +410,28 @@ final class MacBatchProcessingService {
     private func importEPUBOnly(
         epubURL: URL, audiobookID: String, dbService: DatabaseService
     ) async throws {
+        // Create the parent `audiobook` row FIRST. `epub_block` has a NOT-NULL
+        // FK to `audiobook` (ON DELETE CASCADE, Schema V5), and — unlike the
+        // align path, where the player's folder-load persists it — nothing else
+        // creates it for a text-only narrate item. Without it every block insert
+        // fails the FK and the import silently yields zero blocks. INSERT-OR-
+        // REPLACE via `save`, so it's idempotent across re-runs.
+        try AudiobookDAO(db: dbService.writer).save(
+            AudiobookRecord(
+                id: audiobookID,
+                title: epubURL.deletingPathExtension().lastPathComponent,
+                author: nil,
+                duration: 0,
+                fileCount: 0,
+                addedAt: Date().ISO8601Format()))
+
+        // Import in place. Passing the EPUB file itself as the import target makes
+        // the coordinator key blocks off the EPUB's own URL (`epubURL.absoluteString`),
+        // so multiple EPUBs in one folder don't collide on a shared parent-dir id,
+        // while the same-file copy is still skipped.
         await EPUBImportCoordinator.importEPUB(
             from: epubURL,
-            to: epubURL.deletingLastPathComponent(),
+            to: epubURL,
             databaseService: dbService,
             chapters: [],
             duration: nil)
