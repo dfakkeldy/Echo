@@ -51,6 +51,9 @@ struct SettingsView: View {
                     NavigationLink("Watch App Settings") {
                         WatchAppSettingsView()
                     }
+                    NavigationLink("Pronunciation") {
+                        PronunciationDictionaryView(store: .shared)
+                    }
                     NavigationLink("Advanced") {
                         SettingsAdvancedView()
                     }
