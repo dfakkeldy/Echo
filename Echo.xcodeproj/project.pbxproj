@@ -16,10 +16,6 @@
 		CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000009KOKO0000000 /* KokoroPipeline */; };
 		CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
 		CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000HMSKI0000000 /* MisakiSwift */; };
-		CC0000000000PMLXS0000000 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
-		CC0000000000QMLXS0000000 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000IMLXS0000000 /* MLX */; };
-		CC0000000000RMLXU0000000 /* MLXUtilsLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000KMLXU0000000 /* MLXUtilsLibrary */; };
-		CC0000000000SMLXU0000000 /* MLXUtilsLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000LMLXU0000000 /* MLXUtilsLibrary */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000011GRDB00000011 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000012GRDB00000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -340,8 +336,6 @@
 				CC00000000007FLUI0000000 /* FluidAudio in Frameworks */,
 				CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */,
 				CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */,
-				CC0000000000PMLXS0000000 /* (null) in Frameworks */,
-				CC0000000000RMLXU0000000 /* MLXUtilsLibrary in Frameworks */,
 				CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -367,8 +361,6 @@
 				CC00000000009AUMK0000000 /* AudioMarker in Frameworks */,
 				CC00000000008KOKO0000000 /* KokoroPipeline in Frameworks */,
 				CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */,
-				CC0000000000QMLXS0000000 /* MLX in Frameworks */,
-				CC0000000000SMLXU0000000 /* MLXUtilsLibrary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -491,7 +483,6 @@
 				CC00000000005FLUI0000000 /* FluidAudio */,
 				CC00000000009KOKO0000000 /* KokoroPipeline */,
 				CC0000000000FMSKI0000000 /* MisakiSwift */,
-				CC0000000000KMLXU0000000 /* MLXUtilsLibrary */,
 			);
 			productName = "Echo macOS";
 			productReference = AA0100000000000000000001 /* Echo macOS.app */;
@@ -702,8 +693,6 @@
 				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
 				CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "ThirdParty/KokoroPipeline" */,
 				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */,
-				CC0000000000DMLXS0000000 /* XCRemoteSwiftPackageReference "mlx-swift" */,
-				CC0000000000EMLXU0000000 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -1638,22 +1627,6 @@
 				minimumVersion = 0.1.0;
 			};
 		};
-		CC0000000000DMLXS0000000 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ml-explore/mlx-swift";
-			requirement = {
-				kind = exactVersion;
-				version = 0.30.2;
-			};
-		};
-		CC0000000000EMLXU0000000 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mlalma/MLXUtilsLibrary.git";
-			requirement = {
-				kind = exactVersion;
-				version = 0.0.6;
-			};
-		};
 		CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift.git";
@@ -1705,21 +1678,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */;
 			productName = MisakiSwift;
-		};
-		CC0000000000IMLXS0000000 /* MLX */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000DMLXS0000000 /* XCRemoteSwiftPackageReference "mlx-swift" */;
-			productName = MLX;
-		};
-		CC0000000000KMLXU0000000 /* MLXUtilsLibrary */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000EMLXU0000000 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */;
-			productName = MLXUtilsLibrary;
-		};
-		CC0000000000LMLXU0000000 /* MLXUtilsLibrary */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000EMLXU0000000 /* XCRemoteSwiftPackageReference "MLXUtilsLibrary" */;
-			productName = MLXUtilsLibrary;
 		};
 		CC0000000002GRDB00000002 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;

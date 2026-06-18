@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
-import MLXUtilsLibrary
 
 /// BART OOV-fallback stub. The real neural network (in the other files of this
 /// directory, backed by mlx-swift) was removed from Echo to drop the MLX

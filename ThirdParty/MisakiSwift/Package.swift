@@ -11,14 +11,16 @@
 //      `EchoCore/Services/Narration/MisakiResources/`, and the load sites read
 //      them via `Bundle.main`. This signs cleanly on sim, device, macOS.
 //   2. British-English (`gb_*`) resources removed — Echo ships US English only.
-//   3. The MLX-backed BART OOV-fallback network was removed (lexicon-only G2P).
+//   3. The MLX-backed BART OOV-fallback network was removed (lexicon-only G2P),
+//      and MLXUtilsLibrary (which transitively pulled mlx-swift) was dropped.
 //      mlx-swift is no longer a dependency — it had an upstream iOS-Simulator
 //      link bug (ml-explore/mlx-swift#341) that blocked the whole sim test
 //      suite, and the BART fallback's value on Echo's nonfiction workload was
 //      low. OOV words now emit the ❓ unk glyph; user pronunciation overrides
 //      (PronunciationOverrides) are the supported way to give OOV words a real
-//      pronunciation. MLXUtilsLibrary stays (pure-Swift data structures:
-//      MToken, TokenContext).
+//      pronunciation. The one MLXUtilsLibrary symbol MisakiSwift actually used
+//      (MToken) is now vendored at Sources/MisakiSwift/DataStructures/MToken.swift
+//      (148 lines, Foundation+NaturalLanguage only — Apache-2.0, mlalma/MLXUtilsLibrary).
 
 import PackageDescription
 
@@ -34,15 +36,11 @@ let package = Package(
       targets: ["MisakiSwift"]
     ),
   ],
-  dependencies: [
-    .package(url: "https://github.com/mlalma/MLXUtilsLibrary.git", exact: "0.0.6")
-  ],
+  dependencies: [],
   targets: [
     .target(
       name: "MisakiSwift",
-      dependencies: [
-        .product(name: "MLXUtilsLibrary", package: "MLXUtilsLibrary")
-      ]
+      dependencies: []
     ),
     .testTarget(
       name: "MisakiSwiftTests",
