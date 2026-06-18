@@ -10,7 +10,17 @@ import os.log
 #if os(iOS) || os(macOS)
     actor KokoroTTSEngine: TTSEngine {
         private let logger = Logger(category: "Kokoro")
-        private let manager = KokoroAneManager()
+        // Pin the vocoder stage OFF the ANE. FluidAudio's default
+        // (`.aneTailGpu`) runs the Kokoro vocoder on `.cpuAndNeuralEngine`,
+        // whose palettized, dynamic-shape conv graph wedges the Apple Neural
+        // Engine mid-book on M-series (and is rejected outright on A14) —
+        // unrecoverable until app restart. Moving ONLY the vocoder to CPU+GPU
+        // (the other six stages keep their `.aneTailGpu` placement, which the
+        // initializer's defaults already match) is FluidAudio's sanctioned
+        // per-stage workaround for this crash class. Trades vocoder throughput
+        // (GPU vs ANE) for stability — the right call for full-book narration.
+        private let manager = KokoroAneManager(
+            computeUnits: KokoroAneComputeUnits(vocoder: .cpuAndGPU))
         private var initializationTask: Task<Void, Error>?
 
         init() {}
