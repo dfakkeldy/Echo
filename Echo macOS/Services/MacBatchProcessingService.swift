@@ -181,6 +181,13 @@ final class MacBatchProcessingService {
         refresh()
     }
 
+    /// Whether a narrated book has at least one rendered chapter on disk. Lets the
+    /// queue offer "Open" for a `.failed` narrate item that still produced playable
+    /// chapters before it stopped (e.g. a mid-book vocoder failure).
+    func hasRenderedTracks(for audiobookID: String) -> Bool {
+        ((try? TrackDAO(db: dbService.writer).tracks(for: audiobookID).count) ?? 0) > 0
+    }
+
     // MARK: - Stages
 
     private func makeStages() -> BatchQueueRunner.Stages {
@@ -253,20 +260,69 @@ final class MacBatchProcessingService {
                 let voice =
                     VoiceCatalog.voice(for: VoiceID(settings.narrationVoiceID))?.id
                     ?? VoiceCatalog.default.id
-                let service = NarrationService(
-                    db: dbService.writer, audiobookID: audiobookID,
-                    tts: NarrationEngineFactory.make(),
-                    audioWriter: AVFoundationAudioWriter(),
-                    cacheDirectory: NarrationCache.directory(), state: NarrationState(),
-                    pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
+                // Built via a closure so a failed chapter can retry with a FRESH
+                // engine — re-initialising KokoroAne resets the ANE state that an
+                // inference failure (e.g. the Kokoro vocoder tripping on the Neural
+                // Engine) can leave wedged. The closure also injects the user's
+                // pronunciation overrides so each (re-)created service honors them.
+                @MainActor func makeService() -> NarrationService {
+                    NarrationService(
+                        db: dbService.writer, audiobookID: audiobookID,
+                        tts: NarrationEngineFactory.make(),
+                        audioWriter: AVFoundationAudioWriter(),
+                        cacheDirectory: NarrationCache.directory(), state: NarrationState(),
+                        pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
+                }
+                var service = makeService()
+                var skipped = 0
                 for (n, chapter) in chapters.enumerated() {
+                    try Task.checkCancellation()
+
+                    // Resume: a chapter already rendered by a prior (partial) run is
+                    // cached on disk with its TrackRecord, so skip it instead of
+                    // re-burning the ANE — mirrors the iOS render loop.
+                    let cachedFile = NarrationCache.directory().appendingPathComponent(
+                        NarrationFileNaming.chapterFileName(
+                            audiobookID: audiobookID, chapterIndex: chapter.index, voice: voice))
+                    if FileManager.default.fileExists(atPath: cachedFile.path) { continue }
+
                     progress(
                         .transcribing,
                         0.1 + 0.85 * Double(n) / Double(chapters.count),
                         "Narrating chapter \(n + 1) of \(chapters.count)…")
-                    try await service.renderChapter(
-                        chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                        blocks: chapter.blocks, voice: voice)
+                    do {
+                        try await service.renderChapter(
+                            chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
+                            blocks: chapter.blocks, voice: voice)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        // A single Kokoro/ANE vocoder failure must not fail the whole
+                        // book. Retry once with a fresh engine (resets ANE state);
+                        // if it still fails, skip this chapter and keep going so the
+                        // rest of the book still renders.
+                        logger.error(
+                            "Narration chapter \(n + 1) failed (\(error.localizedDescription, privacy: .public)); retrying with a fresh engine."
+                        )
+                        service = makeService()
+                        do {
+                            try await service.renderChapter(
+                                chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
+                                blocks: chapter.blocks, voice: voice)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            logger.error(
+                                "Narration chapter \(n + 1) failed again; skipping. \(error.localizedDescription, privacy: .public)"
+                            )
+                            skipped += 1
+                        }
+                    }
+                }
+                if skipped > 0 {
+                    progress(
+                        .transcribing, 0.97,
+                        "Narrated — \(skipped) chapter(s) skipped (synthesis failed).")
                 }
                 self?.refresh()
                 return

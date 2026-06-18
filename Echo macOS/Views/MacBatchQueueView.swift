@@ -34,10 +34,15 @@ struct MacBatchQueueView: View {
                     List(service.items) { item in
                         MacBatchQueueRow(
                             item: item,
-                            // Completed narration items can be opened straight into
-                            // the player, whose tracks come from the DB (the rendered
-                            // files live outside any scanned folder).
-                            onOpen: (item.status == .completed && item.kind == .narrate)
+                            // A narration book can be opened straight into the player
+                            // (its tracks come from the DB, since rendered files live
+                            // outside any scanned folder) once it has reached a
+                            // terminal state AND produced at least one chapter — so a
+                            // `.failed` book that stopped mid-way (e.g. a vocoder
+                            // failure) is still playable up to where it got.
+                            onOpen: (item.kind == .narrate
+                                && (item.status == .completed || item.status == .failed)
+                                && service.hasRenderedTracks(for: item.audiobookID))
                                 ? {
                                     player.loadNarratedBook(audiobookID: item.audiobookID)
                                     dismiss()

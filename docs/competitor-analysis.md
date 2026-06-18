@@ -10,6 +10,7 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | :--- | :--- | :--- | :--- | :--- |
 | **BookPlayer** | Gianni Carlo | `1138219998` | Direct | Local DRM-free audiobook listening |
 | **Prologue Audiobook Player** | Prologue Audio Pty Ltd | `1459223267` | Direct | Self-hosted Plex/Audiobookshelf listeners |
+| **Voice Dream Reader** | Voice Dream LLC | `496177674` | Direct (Narration) | TTS reading of EPUB/PDF/text for accessibility users |
 | **Bound - Audiobook Player** | Deadpan, LLC | `1041727137` | Direct | Cloud storage (Dropbox/OneDrive) listeners |
 | **AnkiMobile Flashcards** | Anki Software, LLC | `373493387` | Indirect | Hardcore spaced repetition (SRS) learners |
 | **Apple Books** | Apple | `364709193` | Indirect | Mainstream book/audiobook consumers |
@@ -133,3 +134,41 @@ quadrantChart
 4.  **Context-Dependent Memory Bookmarks:** Allows photo bookmarks and dynamically switches player artwork as you playback to stimulate retention.
 5.  **Hands-Free Watch Review:** Supports studying flashcards directly on watchOS via haptic feedback and simple taps—perfect for commuters, mail carriers, or active users.
 6.  **Accessibility First:** Native support for OpenDyslexic and Lexend fonts, ensuring users with ADHD or dyslexia have a tailored reading/study experience.
+
+---
+
+## 7. Competitive Field Notes (June 2026)
+
+Hands-on impressions and the concrete lessons to carry into Echo's roadmap. Each entry is framed as **Copy** (do this), **Avoid** (their mistake), and **Exploit** (the gap we attack). These are qualitative notes from trialing the apps directly, not App Store metadata.
+
+### 7.1 — Voice Dream Reader
+
+Echo's closest competitor on the **Narration** axis (our on-device Kokoro neural TTS), not on the study workflow. Voice Dream is fundamentally a TTS *reader* with a large, fiercely loyal accessibility community (blind/low-vision, dyslexia).
+
+*   **Status (debunking "they gave up"):** Actively maintained, *not* abandoned. Latest v5.5.5 shipped May 2026; the past year added Canvas customization, Notes export, OneDrive, Mac sync, and a (rough) Apple Watch app. The app changed hands — original creator Winston Chen sold it to Voice Dream LLC, which is what drove the monetization change.
+*   **Monetization cautionary tale:** Flipped to subscription (~$59.99/yr) on 1 May 2024, was accused of breaching App Store guidelines, and faced a community revolt. They walked it back: **original one-time purchasers keep all existing features free forever**; only new features sit behind the subscription (+25% lifetime discount for legacy buyers who do subscribe). The "honouring old buyers" behavior is *damage control*, not a generosity-first strategy.
+*   **Copy:** Treat accessibility as a headline feature, not a checkbox — Voice Dream's loyal base proves an under-served, evangelizing audience exists here. Reinforces Echo's existing OpenDyslexic/Lexend support and the pending VoiceOver audit (Roadmap 8.2).
+*   **Avoid:** Never retroactively paywall something a user already paid for. As a GPL-3.0 app Echo sidesteps this structurally, but if paid services arrive (cloud sync, hosted transcription) the lesson stands: grandfather generously *by design*, not as an apology after backlash.
+*   **Exploit:**
+    *   **Voice quality.** Their robotic/dated TTS is the single biggest opening. Voice Dream relies on older concatenative engines (Acapela, NeoSpeech, Ivona) plus Apple's built-in `AVSpeechSynthesizer` voices — and critically, **third-party apps cannot access Apple's on-device Neural Engine voices**, so they're locked out of the good ones. Echo's Kokoro neural narration is a different league. Lead with "real human narrator perfectly synced to the page" for real audiobooks, and modern neural TTS where synthesis is needed.
+    *   **TTS architecture — render-then-play vs real-time synthesis.** Voice Dream synthesizes audio **on-the-fly during playback**, pinning a CPU core for the whole listening session. The result is a common user complaint: the device runs hot and iOS **pauses charging** (thermal protection kicks in above ~35 °C). Echo's `NarrationService` is deliberately **render-then-play** — synthesize each chapter once to an AAC file, then play it back like any audiobook. Playback then leans on the hardware audio decoder for near-zero power: the compute spike is confined to a one-time render, not spread across every second of listening. Echo gets *both* better-sounding voices *and* normal-audiobook battery/thermal behavior. Marketing angle: **"neural-quality narration that doesn't melt your phone."**
+    *   **Watch persistence.** Their watch app loses state — the #1 complaint in this category. Echo's watchOS target (durable application context, resume-where-you-left-off, offline persistence; Roadmap 1.8) is a tangible, demoable win. *This is a flagship differentiator for Echo and the reason the watch target exists — keep it bulletproof against relaunch / wrist-down / app eviction.*
+
+### 7.2 — BookPlayer
+
+The polished, open-source-feeling local player. Strong fit-and-finish, especially widgets and the watch extension. The benchmark for "clean basic listening done well."
+
+*   **Copy:** Their non-intrusive, native-feeling monetization (Tip Jar + simple unlock sheet) is a good model for Echo's eventual pricing — no aggressive carousel paywalls. Their widget/complication polish sets the bar Echo's Widget target should meet.
+*   **Avoid:** They stop at listening — no study layer, no synced reader, simple progress tracking. Being "just a clean player" leaves the entire study workflow on the table.
+*   **Exploit:** Everything past playback — EPUB/audio sync, SRS flashcards with auto-attached snippets, Smart Rewind. A BookPlayer user who wants to *remember* what they heard has nowhere to go inside that app.
+
+### 7.3 — Prologue Audiobook Player
+
+The self-hosted listener's favorite (Plex/Audiobookshelf streaming). Stellar developer responsiveness and rock-solid multi-device position sync; a clean native design with a one-time $5.99 unlock (no subscription).
+
+*   **Copy:** Their flawless cross-device position sync is the experience bar for Echo's CloudKit sync (Roadmap 8.1) and the planned Audiobookshelf progress sync (Phase 9.4). Their indie-friendly one-time-unlock pricing resonates with the same audience Echo targets.
+*   **Avoid:** Server-first onboarding is a high barrier — they launch straight into "Connect to Plex/Audiobookshelf," which excludes non-technical users. Echo's Audiobookshelf integration (Phase 9) should stay *optional and additive*, never the front door.
+*   **Exploit:** Streaming-only means no offline study layer. Echo's Phase 9 deliberately **downloads ABS content to local** so alignment, phrase search, EPUB sync, and flashcards all keep working — the exact study features Prologue structurally can't offer on a streamed book.
+
+> [!NOTE]
+> **Doc-sync reminder:** These notes reference roadmap items (watch persistence 1.8, VoiceOver audit 8.2, CloudKit sync 8.1, Audiobookshelf 9.x). If competitive findings start *driving* roadmap priority (e.g. promoting the VoiceOver audit), mirror that in `ROADMAP.md` so the two docs don't drift.

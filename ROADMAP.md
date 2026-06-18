@@ -1,8 +1,82 @@
 # Echo: Audiobook Study Player — Roadmap
 
-<!-- Last updated: 2026-06-14 (added Phase 9: Audiobookshelf Integration — sequenced after narration/Kokoro, before WS9 release; download-to-local approach. Prior: Phases 1-3 complete, Phase 4 90%, Phase 5 complete, Phase 6 core complete, Phase 7 not started, Phase 8 partially started) -->
+<!-- Last updated: 2026-06-18 (reconciled with README's "Road to v1.0" workstream model — WS0–WS10 are now the canonical forward plan; added the shipped On-Device Narration (Kokoro) workstream, the Echo Pro / FreeTierGate monetization tier, a Competitive Priorities section driven by docs/competitor-analysis.md §7, and corrected schema drift to V21. The original Phase 1–9 blueprint is preserved below as completed-foundation history.) -->
 
 ---
+
+## How this roadmap is organized
+
+This roadmap has two layers:
+
+- **Part A — Road to v1.0 workstreams (canonical, forward-looking).** Mirrors the WS0–WS10 model in `README.md` ("The Road to v1.0"). This is the single source of truth for *what's next*.
+- **Part B — Original blueprint (Phases 1–9, historical).** The foundational hardening/feature phases that predate the workstream model. Phases 1–7 are complete and kept as engineering history; the forward-looking items in Phases 8–9 are now tracked under the workstreams in Part A (cross-referenced).
+
+> [!IMPORTANT]
+> Keep this file in sync with `README.md`'s workstream table and `docs/competitor-analysis.md`. When a workstream's status changes, update both. **Current schema version: V21** (see `ARCHITECTURE.md` for the full migration ledger).
+
+---
+
+## Part A — Road to v1.0 (Canonical Workstreams)
+
+> **Echo 1.0:** a trustworthy study player on iPhone (full), Apple Watch (companion), and Mac (functional core), with real listening/study analytics, a complete intentional-flashcard workflow including real Anki deck import, and study-state sync across devices.
+
+Dependency-ordered workstreams mirroring `README.md`. Status verified against code on 2026-06-18.
+
+| # | Workstream | Status | Notes |
+|---|------------|--------|-------|
+| WS0 | Listening capture layer | ✅ Shipped | `PlaybackSessionRecorder` (actor) + `PlaybackSegmentBuilder` over `playback_event`; Schema V14 index. |
+| WS1 | Identity & macOS foundation | 🟡 Mostly complete | Bundle IDs/app group → `com.echo.*`; macOS target substantially built out (Settings scene, chapter axis, volume boost, batch queue, narration port). **Remaining:** Fastlane `Appfile` still `com.orbit.*` + provisioning regen (`docs/provisioning-rebrand.md`). |
+| WS2 | CI | 🟡 Build gate live | GitHub Actions "Build gate + tests" runs on PRs. Full multi-scheme + simulator **test** action still blocked by an Apple isolated-deinit simulator runtime bug — unit/integration suites run locally via `make test`. |
+| WS3–4 | Insights | 🟡 Partial | Stats modules + dashboard cards shipped (`StatsModuleView`, `UpcomingReviewsModuleView`). **Remaining:** full Insights screen with Swift Charts. |
+| WS5 | Context Memory | 🟡 Partial | `session_location` schema groundwork (V14). **Remaining:** opt-in reduced-accuracy capture + UI + deletion. |
+| WS6 | Anki core | 🟡 Partial | Deck/tag schema + `DeckImportService` landed. **Remaining:** mark-later Card Inbox, full editor, and retiring inline flashcard popups (see Part B §8.1). |
+| WS6b | Brain Dump / Book Notes | 🟡 Partial | Note global/voice-memo columns (V14). **Remaining:** global voice-memo inbox + watch dictation. |
+| WS7 | Import / Export | 🟡 Partial | `.apkg` **export** service + tests exist (`ApkgExportServiceTests`). **Remaining:** real `.apkg` *import* (scheduling preserved), JSON deck export, Markdown second-brain bundle. |
+| WS-N | **On-Device Narration (Kokoro)** | ✅ Core shipped | New workstream — was only implied in README (lands between WS8 and WS9). See §A.1 below. |
+| WS8 | iCloud study sync | 🟡 Partial | `CloudKitSyncService` infra in place; currently **anchors only**. **Remaining:** bookmarks, flashcards, decks, playback position (see Part B §8.1). |
+| WS8b | Audiobookshelf integration | 🔜 Planned | Full design in Part B §9. Download-to-local, topic search, two-way progress sync; streaming deferred post-1.0. |
+| WS9 | Polish & release | 🟡 Partial | Now Playing redesign, accent-contrast safety, Pomodoro shipped. **Remaining:** onboarding, reader speed controls, alignment celebration, Mac stats/review panes, TestFlight → release (see Part B §8.1). |
+| WS10 | Docs & site content | 🟢 Ongoing | Website, glossary, manual/learn/devlog, marketing suite shipped; continues as features land. |
+
+**Deliberately after 1.0:** FSRS scheduling, `.apkg` export polish, AnkiConnect, on-device AI card drafting, focus soundscapes, hyperfocus/transition alarms, Context Memory map view, CarPlay capture buttons, full Mac reader parity, ABS streaming (Part B §9.5).
+
+### A.1 — On-Device Narration (Kokoro) — ✅ Core shipped
+
+Echo's direct answer to TTS-reader competitors (see `docs/competitor-analysis.md` §7.1, Voice Dream). Generates spoken audio for study EPUBs that have **no audiobook**, entirely on-device.
+
+- [x] **Engine core (Schema V17)** — `TTSEngine`/`AudioFileWriting` seams, `VoiceCatalog` (default "Ava"), pure `TextNormalizer`, `@Observable` `NarrationState`, and `NarrationService.renderChapter` (**render-then-play**: synthesize each chapter → one AAC file + one `.synthesized` `AlignmentAnchorRecord` per block). `track.narration_voice` column marks synthesized tracks.
+- [x] **Kokoro-82M voice** — `KokoroTTSEngine` via FluidAudio's `KokoroAneManager` (Neural Engine) + `MisakiPhonemizer` (Apache, no GPL espeak-ng) + `AVFoundationAudioWriter`.
+- [x] **Word-level read-along / karaoke (Schema V19)** — `word_timing` table; char-proportional interpolation refined to real WhisperKit/DTW word times; iOS + macOS readers. *(Existing books need a one-time re-align.)*
+- [x] **Chaptered `.m4b` export (iOS)** — `ChapterMarkerWriter` authors Nero `chpl` + QuickTime `chap` atoms via `swift-audio-marker`.
+- [x] **macOS port + overnight narrate queue (Schema V21)** — Kokoro de-gated to iOS+macOS via `NarrationEngineFactory`; `batch_queue.kind` carries text-only **narrate** items; Batch ▸ "Narrate EPUB(s)…" (⌘⌥N).
+- [ ] **Read-first Listen UI polish** — finish the read-first narration wiring on iOS.
+- [ ] **macOS custom font/theme application** — `appFont`/`themeColor` persist but aren't yet applied to the macOS UI (documented follow-up).
+
+> **Why this is a competitive moat (vs Voice Dream):** render-then-play means playback is just a finished AAC file (hardware decoder, near-zero power) — no sustained on-the-fly synthesis, so no overheating / charging-pause. Neural voice quality *and* normal-audiobook battery behavior. Keep this property protected.
+
+### A.2 — Monetization: Echo Pro (`FreeTierGate`)
+
+Tracked here because no prior roadmap section owned it. Full pricing copy lives in `PRICING.md`.
+
+- [x] **Free-tier gate** — `FreeTierGate` caps the free tier at **20 flashcards** and **1 narrated chapter per book**; Pro entitlement (`ProEntitlementProviding`) unlocks both. Idempotent re-renders/voice-changes of an already-narrated chapter are never blocked.
+- [ ] **Paywall UX** — model the unlock sheet on BookPlayer's non-intrusive tip-jar/simple-unlock style (`docs/competitor-analysis.md` §7.2), not an aggressive carousel.
+
+---
+
+## Part A.3 — Competitive Priorities
+
+Sourced from `docs/competitor-analysis.md` §7 (field notes on Voice Dream, BookPlayer, Prologue). These are the items where competitor findings should *re-order* priority within the workstreams above.
+
+1. **⬆️ Promote: VoiceOver audit (was Part B §8.2 stretch → P1).** Voice Dream's loyal base is heavily accessibility-driven (blind/low-vision, dyslexia). Echo's a11y story (OpenDyslexic/Lexend fonts, the `ScrubberJoystick` VoiceOver work) is a real wedge — finish a full-screen VoiceOver pass and treat accessibility as a headline feature, not a checkbox.
+2. **🛡️ Protect: watch persistence (✅ Part B §1.8).** A stateless watch app is the category's #1 complaint and Voice Dream's biggest weakness. Echo's durable-state watch target is a flagship differentiator — guard it against regression (relaunch / wrist-down / app eviction).
+3. **🛡️ Protect: narration thermal behavior (WS-N).** Render-then-play vs Voice Dream's real-time synthesis is *the* narration differentiator. Don't regress it into on-the-fly synthesis.
+4. **📐 Bar to meet: cross-device sync (WS8) & widget polish.** Prologue's position sync and BookPlayer's widget/complication polish set the quality bar. Keep Audiobookshelf (WS8b) *optional and additive* — never the front door, unlike Prologue's server-first onboarding.
+
+---
+
+## Part B — Original Blueprint (Phases 1–9, historical)
+
+Phases 1–7 are complete and preserved as engineering history. Forward-looking items in Phases 8–9 are now tracked under the workstreams in Part A.
 
 ## Phase 1: Stability & Correctness Fixes
 
@@ -250,7 +324,7 @@ Priority items for the Echo rebrand and study-player positioning, plus stretch g
 - [ ] **Stats & insights dashboard** — listening time, books completed, speed trends, review streaks.
 - [ ] **Social/sharing features** — share bookmark with quote, export reading progress, book club sync.
 - [ ] **Audio effects** — equalizer presets, silence trimming, chapter-level volume normalization.
-- [ ] **Accessibility: VoiceOver audit** — full pass through every screen with VoiceOver enabled.
+- [ ] **Accessibility: VoiceOver audit (⬆️ P1 — elevated per Competitive Priorities §A.3)** — full pass through every screen with VoiceOver enabled. Prioritized because Voice Dream's loyal base is accessibility-driven; this is a competitive wedge, not a stretch goal.
 - [ ] **macOS polish** — proper menu bar integration, Touch Bar support, keyboard shortcuts for all transport actions.
 
 ---
@@ -300,7 +374,29 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 
 ---
 
-## Summary by Phase
+## Summary
+
+### Part A — Road to v1.0 workstreams (canonical)
+
+| # | Workstream | Status |
+|---|------------|--------|
+| WS0 | Listening capture layer | ✅ Shipped |
+| WS1 | Identity & macOS foundation | 🟡 Mostly complete (Fastlane/provisioning pending) |
+| WS2 | CI | 🟡 Build gate live; test action blocked by simulator runtime bug |
+| WS3–4 | Insights | 🟡 Partial (modules shipped; full Charts screen pending) |
+| WS5 | Context Memory | 🟡 Partial (schema groundwork) |
+| WS6 | Anki core | 🟡 Partial (deck schema/import; Card Inbox pending) |
+| WS6b | Brain Dump / Book Notes | 🟡 Partial |
+| WS7 | Import / Export | 🟡 Partial (export exists; import pending) |
+| WS-N | On-Device Narration (Kokoro) | ✅ Core shipped (Listen-UI polish + Mac theming pending) |
+| WS8 | iCloud study sync | 🟡 Partial (anchors only) |
+| WS8b | Audiobookshelf integration | 🔜 Planned |
+| WS9 | Polish & release | 🟡 Partial |
+| WS10 | Docs & site content | 🟢 Ongoing |
+
+**Competitive priorities (§A.3):** ⬆️ promote VoiceOver audit to P1; 🛡️ protect watch persistence + narration thermal behavior; 📐 meet Prologue's sync bar / BookPlayer's widget polish.
+
+### Part B — Original blueprint (historical)
 
 | Phase | Focus | Status |
 |-------|-------|--------|
@@ -310,11 +406,11 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 | 4 | Spaced Repetition System | ✅ 4.1–4.2 complete; 4.3 1/3 (2 deferred) |
 | 5 | EPUB Viewing | ✅ Complete (dedicated Reader tab + Timeline integration) |
 | 6 | EPUB Manual Alignment | ✅ Core complete (6/8 items); 2 deferred (anchor import/export, word-count alignment hints) |
-| 7 | Testing & CI | ~7 items remaining |
-| 8 | Study Workflow & Polish | ~17 items remaining (6 P0, 11 stretch); Accent Contrast Safety ✅, Now Playing redesign ✅, Watch Connectivity hardened ✅, Pomodoro timer ✅, CloudKit sync infrastructure in place |
-| 9 | Audiobookshelf Integration | 🔜 Planned — after narration (Kokoro), before WS9 release (download-to-local + topic search + progress sync; streaming deferred post-1.0) |
+| 7 | Testing & CI | Folded into WS2; ~6 items remaining |
+| 8 | Study Workflow & Polish | Folded into WS5/6/8/9; Accent Contrast Safety ✅, Now Playing redesign ✅, Watch Connectivity hardened ✅, Pomodoro timer ✅, CloudKit sync infrastructure in place |
+| 9 | Audiobookshelf Integration | 🔜 Tracked as WS8b (download-to-local + topic search + progress sync; streaming deferred post-1.0) |
 
-**Completed: 5/9 phases (+ Phase 6 core, substantial Phase 8 foundations) | Remaining: ~26 items + Phase 9 (Audiobookshelf) planned**
+**Foundation (Phases 1–7): complete. Forward work tracked under Part A workstreams. Current schema: V21.**
 
 ### June 2026 Highlights (since last update)
 
