@@ -244,12 +244,12 @@ final class NarrationService {
             }
             let snippet = Array(texts.prefix(3))
 
-            logger.info("Preparing Kokoro (first run compiles on the ANE, ~15s)…")
-            let engine = KokoroTTSEngine()
+            logger.info("Preparing Kokoro (first run downloads + compiles the pruned CoreML set)…")
+            let engine = KokoroFixedShapeEngine()
             var chunks: [TTSChunk] = []
             for text in snippet {
                 // Chunk before synthesize, mirroring NarrationService.renderChapter:
-                // a whole 400+ char block traps Kokoro's BNNS fallback (uncatchable
+                // a whole 400+char block traps Kokoro's BNNS fallback (uncatchable
                 // SIGTRAP), so bound every synthesize call to <=200 chars.
                 for subText in NarrationTextChunker.split(TextNormalizer.normalize(text)) {
                     chunks.append(
