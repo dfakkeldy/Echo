@@ -26,11 +26,11 @@ enum NarrationError: Error, Equatable {
     static func == (lhs: NarrationError, rhs: NarrationError) -> Bool {
         switch (lhs, rhs) {
         case (.synthesisFailed, .synthesisFailed),
-             (.audiobookNotFound, .audiobookNotFound),
-             (.lengthCapExceeded, .lengthCapExceeded),
-             (.engineUnavailable, .engineUnavailable):
+            (.audiobookNotFound, .audiobookNotFound),
+            (.lengthCapExceeded, .lengthCapExceeded),
+            (.engineUnavailable, .engineUnavailable):
             return true
-        case let (.modelDownloadFailed(l, _), .modelDownloadFailed(r, _)):
+        case (.modelDownloadFailed(let l, _), .modelDownloadFailed(let r, _)):
             return l == r
         default:
             return false
@@ -61,10 +61,19 @@ final class NarrationService {
     private let audioWriter: AudioFileWriting
     private let cacheDirectory: URL
     let state: NarrationState
+    /// Supplies the user pronunciation overrides applied to each block's text
+    /// after `TextNormalizer` and before chunking/synthesis. Evaluated as a
+    /// closure (not a stored value) so the live `PronunciationOverrideStore` is
+    /// read at render time; defaults to an empty map, so callers and tests that
+    /// don't pass one are unaffected by the feature.
+    private let pronunciationOverrides: () -> PronunciationOverrides
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
-        audioWriter: AudioFileWriting, cacheDirectory: URL, state: NarrationState
+        audioWriter: AudioFileWriting, cacheDirectory: URL, state: NarrationState,
+        pronunciationOverrides: @escaping () -> PronunciationOverrides = {
+            PronunciationOverrides(entries: [:])
+        }
     ) {
         self.db = db
         self.audiobookID = audiobookID
@@ -72,6 +81,7 @@ final class NarrationService {
         self.audioWriter = audioWriter
         self.cacheDirectory = cacheDirectory
         self.state = state
+        self.pronunciationOverrides = pronunciationOverrides
     }
 
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
@@ -107,9 +117,14 @@ final class NarrationService {
                 audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
         let stream = try audioWriter.makeStream(to: fileURL, sampleRate: 24_000)
 
+        // Snapshot the override map once per chapter so a mid-render edit (the
+        // store is @MainActor, and this method awaits between blocks) can't change
+        // a word's pronunciation partway through the same chapter.
+        let overrides = pronunciationOverrides()
+
         for (i, block) in spoken.enumerated() {
             try Task.checkCancellation()
-            let text = TextNormalizer.normalize(block.text ?? "")
+            let text = overrides.apply(to: TextNormalizer.normalize(block.text ?? ""))
 
             // FluidAudio does no internal chunking and caps IPA input at ~510
             // phonemes — feeding a whole 400+ char block in one synthesize call

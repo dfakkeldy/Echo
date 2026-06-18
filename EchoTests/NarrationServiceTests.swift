@@ -45,6 +45,27 @@ import Testing
             state: NarrationState())
     }
 
+    /// Overload that injects a pronunciation-override closure so the override→
+    /// link-syntax rewrite can be exercised through the real render path.
+    private func makeService(
+        _ db: DatabaseService, tts: TTSEngine, writer: AudioFileWriting,
+        overrides: @escaping () -> PronunciationOverrides
+    ) -> NarrationService {
+        NarrationService(
+            db: db.writer, audiobookID: "b1",
+            tts: tts, audioWriter: writer,
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(), pronunciationOverrides: overrides)
+    }
+
+    /// Counts non-overlapping occurrences of `needle` across every synthesized
+    /// sub-chunk — robust to however the chunker groups the rewritten text.
+    private func linkOccurrences(_ calls: [(text: String, voice: VoiceID)], _ needle: String)
+        -> Int
+    {
+        calls.reduce(0) { $0 + $1.text.components(separatedBy: needle).count - 1 }
+    }
+
     @Test func writesOneTrackPerChapterWithVoiceAndDuration() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["abcd", "ef"])
@@ -259,5 +280,89 @@ import Testing
         #expect(anchorCount == 2)  // 2, not 4 — upserted
         #expect(trackCount == 1)  // 1, not 2
         #expect(voiceCol == "bf_emma")  // re-render updated the voice
+    }
+
+    // MARK: - Pronunciation overrides (Part B / B3)
+
+    private static let kubeNeedle = "[Kubernetes](/kuːbərˈnɛtɪs/)"
+
+    /// The injected override must reach the engine wrapped in Misaki link syntax —
+    /// not the bare word — so G2P pronounces it from the user's IPA.
+    @Test func pronunciationOverrideReachesEngineAsLinkSyntax() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Deploying Kubernetes to production now."])
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        let svc = makeService(db, tts: mock, writer: MockAudioWriter()) {
+            PronunciationOverrides(entries: ["Kubernetes": "kuːbərˈnɛtɪs"])
+        }
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        // The engine saw the rewritten link, never the un-wrapped word.
+        #expect(linkOccurrences(mock.calls, Self.kubeNeedle) == 1)
+        #expect(!mock.calls.contains { $0.text.contains("Deploying Kubernetes to") })
+    }
+
+    /// A long multi-sentence block fans out through the sentence-merge chunk path.
+    /// Every occurrence of the override word must reach the engine as an intact
+    /// link — none bisected by a sub-chunk boundary.
+    @Test func overrideLinkSurvivesSentenceMergeChunking() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let long = (1...6).map {
+            "Sentence number \($0) talks about deploying Kubernetes carefully."
+        }.joined(separator: " ")
+        let blocks = try seed(db, [long])
+        // Guard: the block really does fan out into multiple sub-chunks.
+        #expect(NarrationTextChunker.split(TextNormalizer.normalize(long)).count > 1)
+
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        let svc = makeService(db, tts: mock, writer: MockAudioWriter()) {
+            PronunciationOverrides(entries: ["Kubernetes": "kuːbərˈnɛtɪs"])
+        }
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        // All six occurrences arrive intact; no half-formed link survives.
+        #expect(linkOccurrences(mock.calls, Self.kubeNeedle) == 6)
+        #expect(
+            !mock.calls.contains {
+                $0.text.contains("[Kubernetes]") && !$0.text.contains(Self.kubeNeedle)
+            })
+    }
+
+    /// One terminator-free run longer than `maxChars` forces the chunker into the
+    /// word-wrap (space-splitting) fallback — the path most likely to bisect a
+    /// token. The link has no internal space, so it must stay atomic.
+    @Test func overrideLinkSurvivesWordWrapFallback() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let filler = Array(repeating: "padding", count: 40).joined(separator: " ")
+        let long = "\(filler) Kubernetes \(filler)"  // >200 chars, no sentence break
+        let blocks = try seed(db, [long])
+
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        let svc = makeService(db, tts: mock, writer: MockAudioWriter()) {
+            PronunciationOverrides(entries: ["Kubernetes": "kuːbərˈnɛtɪs"])
+        }
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        #expect(linkOccurrences(mock.calls, Self.kubeNeedle) == 1)
+        #expect(
+            !mock.calls.contains {
+                $0.text.contains("[Kubernetes]") && !$0.text.contains(Self.kubeNeedle)
+            })
+    }
+
+    /// The default (no-override) closure must leave text untouched, so existing
+    /// callers and the macOS/iOS default paths are unaffected by the feature.
+    @Test func defaultEmptyOverridesLeaveTextUnchanged() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Plain text here."])
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        let svc = makeService(db, tts: mock, writer: MockAudioWriter())  // default overrides
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        #expect(mock.calls.map(\.text) == ["Plain text here."])
     }
 }

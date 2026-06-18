@@ -13,6 +13,11 @@
     @MainActor
     @Observable
     final class PronunciationOverrideStore {
+        /// App-wide singleton. The Settings UI (`PronunciationDictionaryView`)
+        /// and both NarrationService call sites (iOS PlayerModel, macOS batch)
+        /// bind to this so edits take effect on the next chapter render.
+        static let shared = PronunciationOverrideStore()
+
         private(set) var entries: [String: String] = [:]
         private let fileURL: URL
         private let logger = Logger(category: "PronunciationOverrides")

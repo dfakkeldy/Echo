@@ -257,7 +257,8 @@ final class MacBatchProcessingService {
                     db: dbService.writer, audiobookID: audiobookID,
                     tts: NarrationEngineFactory.make(),
                     audioWriter: AVFoundationAudioWriter(),
-                    cacheDirectory: NarrationCache.directory(), state: NarrationState())
+                    cacheDirectory: NarrationCache.directory(), state: NarrationState(),
+                    pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
                 for (n, chapter) in chapters.enumerated() {
                     progress(
                         .transcribing,
