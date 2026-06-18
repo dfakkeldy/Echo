@@ -105,6 +105,7 @@ The program runs as dependency-ordered workstreams (~14 weeks solo), each landin
 | WS6 | **Anki core** | Decks + tags schema, the mark-later Card Inbox, a full card editor, deck management; inline popups retire |
 | WS6b | **Brain Dump / Book Notes** | Untethered per-book notes, global voice-memo inbox, watch dictation |
 | WS7 | **Import/Export** | Real `.apkg` import (scheduling preserved), JSON deck export, Markdown second-brain bundle export |
+| WS-N | **On-Device Narration (Kokoro)** ✅ | Speak text-only EPUBs in a natural on-device voice (Kokoro-82M), render-then-play with word-level read-along and chaptered `.m4b` export; iOS + macOS, gated by Echo Pro. *Core shipped — see [ROADMAP.md](ROADMAP.md) §A.1.* |
 | WS8 | **iCloud study sync** | Flashcards, decks, bookmarks, playback position — private database, sensible conflict rules |
 | WS8b | **Audiobookshelf integration** | Connect a self-hosted Audiobookshelf server; pull books (audio + any bundled EPUB) into the local pipeline so alignment/flashcards/search keep working; browse & search the library by topic/genre/series; two-way playback-progress sync. *Streaming deferred post-1.0 — see [ROADMAP.md](ROADMAP.md) Phase 9.* Lands after the on-device narration (Kokoro) work, before WS9. |
 | WS9 | **Polish & release** | Onboarding (incl. a library-organization step), reader speed controls, alignment celebration, Mac stats/review panes, TestFlight beta → release |
