@@ -23,9 +23,7 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **Quizlet: More than Flashcards** | Quizlet Inc | `546473125` | Indirect | Students seeking multi-modal study aids |
 
 > [!NOTE]
-> **Two names still need confirmation from the owner — *Notaria* and *Bookshelf*.** A web sweep couldn't tie either to a reader/audiobook app in this cohort: **"Notaria"** only matches an unrelated AI *meeting-transcription* app (id `6757683092`) — Spanish/Italian for "notary's office", which pollutes the search; **"Bookshelf"** only matches **VitalSource Bookshelf** (id `389359495`, a DRM eTextbook reader — wrong cohort) or is a generic library-view UI term. A direct App Store/Play Store URL or developer name for each will let these be filled in. (See §7.11.)
->
-> **Research caveat:** Apple's App Store pages and the iTunes lookup API were unreachable (HTTP 403) from the research sandbox, so feature/price details for the three new entries above come from search-result snippets and the owner's own descriptions, not full listing reads — verify on-device before quoting in public copy. *Fox Reader* and *CocoReader* in particular are recorded per the owner's description (an AI-TTS audiobook maker, and an offline audiobook player, respectively); a namesake "Fox Reader" speed-reader by Salman Ahmad (id `6761392204`) also exists and may be confused with it.
+> **Research caveat:** Apple's App Store pages and the iTunes lookup API were unreachable (HTTP 403) from the research sandbox, so feature/price details for *Murmura*, *Fox Reader*, and *CocoReader* come from search-result snippets and the owner's own descriptions, not full listing reads — verify on-device before quoting in public copy. *Fox Reader* and *CocoReader* in particular are recorded per the owner's description (an AI-TTS audiobook maker, and an offline audiobook player, respectively); a namesake "Fox Reader" speed-reader by Salman Ahmad (id `6761392204`) also exists and may be confused with it.
 
 ---
 
@@ -260,15 +258,6 @@ Unlike the rest of this batch, the name signals a **local-file audiobook player*
 *   **What CocoReader (if a local player) likely has:** straightforward offline M4B/MP3 playback, folder/library organization, chapters, speed, sleep timer — table-stakes listening.
 *   **What Echo has that a plain local player doesn't:** **EPUB↔audio alignment read-along**, the **SRS study layer**, Smart Rewind, photo bookmarks, watchOS review — everything past playback. This is the exact gap already articulated for BookPlayer/Bound in §7.2 and §6.
 *   **Action needed:** the store link, so I can confirm whether it's truly a local player (listening-axis) or another TTS maker, and slot it accordingly.
-
-### 7.11 — Notaria & Bookshelf (pending confirmation)
-
-Couldn't tie either name to a reader/audiobook app:
-
-*   **Notaria** — the only App Store match is **NotarIA** (id `6757683092`), an unrelated **AI meeting-recording/transcription** app (transcripts, summaries, action items). "Notaria" = Spanish/Italian for *notary's office*, which dominates the search. No reader/audiobook/study "Notaria" found.
-*   **Bookshelf** — only matches **VitalSource Bookshelf** (id `389359495`), a DRM **eTextbook** reader for students (free app + paid textbooks; it does have TTS read-aloud + flashcards, but it's courseware, a different cohort), or is simply the generic "library shelf" UI term every reader app uses.
-
-No claims are made for either to avoid fabrication. **Action needed from you:** the direct App Store URL or developer name for each, and they'll be researched and slotted into §1/§2/§7/§8.
 
 ---
 
