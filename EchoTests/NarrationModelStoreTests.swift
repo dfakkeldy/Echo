@@ -49,6 +49,14 @@ import Testing
         #expect(files.count == Set(files).count)
     }
 
+    @Test func concurrentDownloadCapIsBounded() {
+        // First-run pulls ~731 MB across 17 packages; packages download concurrently
+        // for speed, but the cap keeps the in-flight count — and so peak memory / HF
+        // load — bounded, which matters on a 4 GB A14.
+        #expect(NarrationModelStore.maxConcurrentDownloads >= 2)
+        #expect(NarrationModelStore.maxConcurrentDownloads <= 8)
+    }
+
     @Test func partialPackageIsNotCompleteUntilMarkerStamped() throws {
         // Reproduces the wedge that bit the retired FluidAudio path: a package
         // holding only its Manifest.json (interrupted before the weights/spec)

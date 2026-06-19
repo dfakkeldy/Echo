@@ -71,6 +71,13 @@
         private static let modelSubdir = "Models/kokoro-fixed-v5"
         private static let completeSentinel = ".complete"
 
+        /// Max packages downloaded concurrently. The pruned set is ~731 MB across
+        /// 17 packages; a serial walk made first-run painfully slow. Packages run
+        /// in parallel up to this cap so the in-flight count — and so peak memory /
+        /// HF load — stays bounded on a 4 GB A14. (Each file streams to disk, so a
+        /// package in flight costs little RAM; the cap mainly bounds socket/HF load.)
+        static let maxConcurrentDownloads = 4
+
         // MARK: - File list (pure, testable)
 
         /// The exact `.mlpackage` filenames this store must fetch. Pure function
@@ -111,9 +118,35 @@
 
             let packages = Self.requiredModelFiles()
             let total = Double(packages.count)
-            for (index, package) in packages.enumerated() {
-                try await downloadPackage(named: package, into: dir)
-                progress?(Double(index + 1) / total)
+            var completed = 0
+            progress?(0)
+
+            // Download packages concurrently (bounded by `maxConcurrentDownloads`)
+            // instead of one-at-a-time — the old serial walk made first-run crawl.
+            // A sliding window keeps at most `cap` packages in flight: as each
+            // finishes we report progress and admit the next. `downloadPackage` is
+            // idempotent and per-package files stream to disk, so a failure throws
+            // out of the group (cancelling the rest) and the next launch resumes
+            // from whatever already landed.
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                var pending = packages.makeIterator()
+                var inFlight = 0
+                let cap = min(Self.maxConcurrentDownloads, packages.count)
+                for _ in 0..<cap {
+                    guard let package = pending.next() else { break }
+                    inFlight += 1
+                    group.addTask { try await self.downloadPackage(named: package, into: dir) }
+                }
+                while inFlight > 0 {
+                    try await group.next()
+                    inFlight -= 1
+                    completed += 1
+                    progress?(Double(completed) / total)
+                    if let package = pending.next() {
+                        inFlight += 1
+                        group.addTask { try await self.downloadPackage(named: package, into: dir) }
+                    }
+                }
             }
 
             // All packages present → stamp the sentinel so subsequent launches skip.
@@ -218,13 +251,23 @@
             var lastError: Error?
             while attempt < 2 {
                 do {
-                    let (data, response) = try await urlSession.data(from: url)
+                    // Stream to a temp file (constant memory) rather than buffering
+                    // the whole 20–67 MB package file in RAM — load-bearing now that
+                    // up to `maxConcurrentDownloads` files are in flight on a 4 GB A14.
+                    let (tempURL, response) = try await urlSession.download(from: url)
                     if let http = response as? HTTPURLResponse,
                         !(200..<300).contains(http.statusCode)
                     {
+                        try? fm.removeItem(at: tempURL)
                         throw NarrationError.modelDownloadFailed(name: name, underlying: nil)
                     }
-                    try data.write(to: dest, options: .atomic)
+                    // Another in-flight task can't target this same path (paths are
+                    // unique per package), but guard anyway and clean up the temp.
+                    if fm.fileExists(atPath: dest.path) {
+                        try? fm.removeItem(at: tempURL)
+                        return
+                    }
+                    try fm.moveItem(at: tempURL, to: dest)
                     return
                 } catch {
                     lastError = error
@@ -260,14 +303,17 @@
             return try JSONDecoder().decode([HFTreeEntry].self, from: data)
         }
 
-        /// Shared session with a generous timeout — model packages are large and
-        /// the macOS first-launch timeout is the historical failure mode.
-        private nonisolated var urlSession: URLSession {
+        /// One shared session (stored, not recreated per call) so the concurrent
+        /// downloads reuse the HTTP connection pool — a fresh session per file would
+        /// defeat keep-alive and undercut the parallelism. Generous timeouts: model
+        /// packages are large and the macOS first-launch timeout was the historical
+        /// failure mode.
+        private nonisolated let urlSession: URLSession = {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 300
             config.timeoutIntervalForResource = 3_600
             config.networkServiceType = .background
             return URLSession(configuration: config)
-        }
+        }()
     }
 #endif
