@@ -83,4 +83,16 @@ struct BatchQueueDAO {
                 .deleteAll(db)
         }
     }
+
+    /// Removes a single queue entry, but only while it is still `queued` — a row the
+    /// runner has already started (or finished) is left untouched, and deleting a
+    /// non-queued id is a no-op. Only the queue row is removed; rendered audio,
+    /// tracks, and anchors for the book are not touched.
+    func deleteQueued(id: Int64) throws {
+        _ = try db.write { db in
+            try BatchQueueRecord
+                .filter(Column("id") == id && Column("status") == BatchItemStatus.queued.rawValue)
+                .deleteAll(db)
+        }
+    }
 }

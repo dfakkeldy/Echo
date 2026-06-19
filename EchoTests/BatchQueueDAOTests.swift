@@ -49,6 +49,27 @@ struct BatchQueueDAOTests {
         #expect(decoded == .align)
     }
 
+    @Test func deleteQueuedRemovesOnlyTheQueuedRow() throws {
+        let dbService = try DatabaseService(inMemory: ())
+        let dao = BatchQueueDAO(db: dbService.writer)
+        func rec(_ name: String, _ status: BatchItemStatus) -> BatchQueueRecord {
+            BatchQueueRecord(
+                audiobookID: name, sourceBookmark: Data(), companionBookmark: nil,
+                displayName: name, queuePosition: 0, status: status, progress: 0,
+                enqueuedAt: "2026-06-18T00:00:00Z")
+        }
+        let a = try dao.enqueue(rec("a", .queued))
+        _ = try dao.enqueue(rec("b", .queued))
+        let c = try dao.enqueue(rec("c", .completed))
+
+        try dao.deleteQueued(id: a.id!)
+        #expect(try dao.allItems().map(\.audiobookID) == ["b", "c"])  // a gone, order kept
+
+        // Guard: deleting a non-queued id is a no-op.
+        try dao.deleteQueued(id: c.id!)
+        #expect(try dao.allItems().count == 2)
+    }
+
     private func makeItem(name: String) -> BatchQueueRecord {
         BatchQueueRecord(
             audiobookID: "bk-\(name)", sourceBookmark: Data(),
