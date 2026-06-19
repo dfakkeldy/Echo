@@ -1,6 +1,6 @@
 # Echo: Audiobook Study Player — Roadmap
 
-<!-- Last updated: 2026-06-18 (reconciled with README's "Road to v1.0" workstream model — WS0–WS10 are now the canonical forward plan; added the shipped On-Device Narration (Kokoro) workstream, the Echo Pro / FreeTierGate monetization tier, a Competitive Priorities section driven by docs/competitor-analysis.md §7, and corrected schema drift to V21. The original Phase 1–9 blueprint is preserved below as completed-foundation history.) -->
+<!-- Last updated: 2026-06-19 (added a hybrid streaming-start narration item under WS-N §A.1 and a Fox Reader competitive-repositioning priority §A.3.5 — narration messaging moves to "real-narrator alignment, not voice quality" now that Fox Reader ships the same on-device Kokoro model — both driven by the new Fox Reader findings in docs/competitor-analysis.md §7.9/§8. Prior, 2026-06-18: reconciled with README's "Road to v1.0" workstream model — WS0–WS10 are now the canonical forward plan; added the shipped On-Device Narration (Kokoro) workstream, the Echo Pro / FreeTierGate monetization tier, a Competitive Priorities section driven by docs/competitor-analysis.md §7, and corrected schema drift to V21. The original Phase 1–9 blueprint is preserved below as completed-foundation history.) -->
 
 ---
 
@@ -51,6 +51,7 @@ Echo's direct answer to TTS-reader competitors (see `docs/competitor-analysis.md
 - [x] **macOS port + overnight narrate queue (Schema V21)** — Kokoro de-gated to iOS+macOS via `NarrationEngineFactory`; `batch_queue.kind` carries text-only **narrate** items; Batch ▸ "Narrate EPUB(s)…" (⌘⌥N).
 - [ ] **Read-first Listen UI polish** — finish the read-first narration wiring on iOS.
 - [ ] **macOS custom font/theme application** — `appFont`/`themeColor` persist but aren't yet applied to the macOS UI (documented follow-up).
+- [ ] **Hybrid streaming-start narration (latency parity vs Fox Reader)** — today `NarrationService.renderChapter` is pure **render-then-play** (synthesize the whole chapter → AAC → play), which adds an up-front wait before the first word. Competitor **Fox Reader** ships the *same* Kokoro model but **streams** synthesis for a near-instant start, even on an iPhone 12 Pro (A14) — see `docs/competitor-analysis.md` §7.9. Evaluate a hybrid: **play the first chunk as soon as it's synthesized while rendering the rest ahead, then persist the finished AAC** so replays/exports/read-along keep the render-then-play battery+thermal win (the Voice Dream moat below). `NarrationTextChunker` (≤200 chars) already produces the unit to stream. **Invariant to keep:** a chapter is only marked rendered once the full AAC + per-block anchors exist — streaming is a playback optimization, not a change to the cached-file contract.
 
 > **Why this is a competitive moat (vs Voice Dream):** render-then-play means playback is just a finished AAC file (hardware decoder, near-zero power) — no sustained on-the-fly synthesis, so no overheating / charging-pause. Neural voice quality *and* normal-audiobook battery behavior. Keep this property protected.
 
@@ -65,12 +66,13 @@ Tracked here because no prior roadmap section owned it. Full pricing copy lives 
 
 ## Part A.3 — Competitive Priorities
 
-Sourced from `docs/competitor-analysis.md` §7 (field notes on Voice Dream, BookPlayer, Prologue). These are the items where competitor findings should *re-order* priority within the workstreams above.
+Sourced from `docs/competitor-analysis.md` §7–§8 (field notes on Voice Dream, BookPlayer, Prologue, and the reader/TTS cohort incl. **Fox Reader**). These are the items where competitor findings should *re-order* priority within the workstreams above.
 
 1. **⬆️ Promote: VoiceOver audit (was Part B §8.2 stretch → P1).** Voice Dream's loyal base is heavily accessibility-driven (blind/low-vision, dyslexia). Echo's a11y story (OpenDyslexic/Lexend fonts, the `ScrubberJoystick` VoiceOver work) is a real wedge — finish a full-screen VoiceOver pass and treat accessibility as a headline feature, not a checkbox.
 2. **🛡️ Protect: watch persistence (✅ Part B §1.8).** A stateless watch app is the category's #1 complaint and Voice Dream's biggest weakness. Echo's durable-state watch target is a flagship differentiator — guard it against regression (relaunch / wrist-down / app eviction).
-3. **🛡️ Protect: narration thermal behavior (WS-N).** Render-then-play vs Voice Dream's real-time synthesis is *the* narration differentiator. Don't regress it into on-the-fly synthesis.
-4. **📐 Bar to meet: cross-device sync (WS8) & widget polish.** Prologue's position sync and BookPlayer's widget/complication polish set the quality bar. Keep Audiobookshelf (WS8b) *optional and additive* — never the front door, unlike Prologue's server-first onboarding.
+3. **🛡️ Protect: narration thermal behavior (WS-N).** Render-then-play vs Voice Dream's real-time synthesis is *the* narration differentiator. Don't regress it into on-the-fly synthesis. *(Caveat: Fox Reader proves streaming can feel instant — pursue the §A.1 hybrid that gets streaming's start latency **without** abandoning the cached-AAC thermal win.)*
+4. **📐 Bar to meet: cross-device sync (WS8) & widget polish.** Prologue's position sync and BookPlayer's widget/complication polish set the quality bar. Keep Audiobookshelf (WS8b) *optional and additive* — never the front door, unlike Prologue's server-first onboarding. **Sharper now:** the solo-dev **Fox Reader shipped working iCloud sync at v1.3** (`§7.9`) while Echo's WS8 is still anchors-only — reinforces WS8 priority.
+5. **🔁 Reposition: narration messaging — "real-narrator alignment", not "voice quality" (new, Fox Reader §7.9–§8).** Fox Reader ships the **same Kokoro model** Echo uses — fully on-device, fast, even on an A14 — so **on-device TTS and voice *quality* are no longer differentiators** (unlike vs Voice Dream's dated engines). Echo's narration story must lead with what Fox structurally lacks: **real human-narrated audiobook alignment + SRS study**. The privacy angle still wins — Fox runs **ads** (typically tracking SDKs) to give Kokoro away free; Echo is GPL-3.0, no ads, no tracking ("same on-device voices, no ads, no tracking, ever"). *Touches README/site narration copy + WS9 store metadata; not a code change.*
 
 ---
 
@@ -394,7 +396,7 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 | WS9 | Polish & release | 🟡 Partial |
 | WS10 | Docs & site content | 🟢 Ongoing |
 
-**Competitive priorities (§A.3):** ⬆️ promote VoiceOver audit to P1; 🛡️ protect watch persistence + narration thermal behavior; 📐 meet Prologue's sync bar / BookPlayer's widget polish.
+**Competitive priorities (§A.3):** ⬆️ promote VoiceOver audit to P1; 🛡️ protect watch persistence + narration thermal behavior; 📐 meet Prologue's sync bar / BookPlayer's widget polish; 🔁 reposition narration messaging to real-narrator alignment (Fox Reader ships the same on-device Kokoro).
 
 ### Part B — Original blueprint (historical)
 
