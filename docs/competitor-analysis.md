@@ -246,12 +246,13 @@ A real, polished, working iOS reader by **Salman Ahmad** (id `6761392204`). The 
 *   **Library polish** — Continue Reading, Pinned + **Smart Collections** (Reading / Almost Finished / Unread / Recent), per-author grouping, and **"Discover More from Your Authors"** AI recommendations. Dedicated **Stats** and **Tracking** tabs.
 
 > [!NOTE]
-> **TTS architecture (confirmed hands-on, June 2026).** The Neural Voice Engine is an **on-device neural TTS model, not a cloud service**: it **downloads a compact model on first use** (a few seconds) and then synthesizes locally — fast, and it **runs well on an iPhone 12 Pro** (A14, 2020). A telling detail: the iPhone 12 Pro **cannot run Apple Intelligence** (needs A17 Pro / M-series), yet the voice engine still works while the *Fox Summary Assistant* is gated off — so the **TTS and the AI-summary features are separate stacks**, and the voice engine has **far broader device reach** than the AI features. The small/fast model + older-device support points to a **compact open model in the Kokoro/Piper class run via an ONNX/CoreML runtime** (exact model unconfirmed). **Competitive implication for Echo:** this **neutralizes "on-device TTS" as an Echo-exclusive claim** — Fox Reader matches Echo's on-device synthesis and privacy posture. Echo's separation must rest on **real human-narration alignment + SRS study**, *not* "on-device vs cloud." (Open question worth a glance: whether Fox synthesizes **real-time during reading** vs Echo's **render-then-play** — the §7.1 thermal/battery angle.)
+> **TTS architecture (confirmed hands-on, June 2026).** The Neural Voice Engine is an **on-device neural TTS model, not a cloud service**: it **downloads a compact model on first use** (a few seconds) and then synthesizes locally — fast, and it **runs well on an iPhone 12 Pro** (A14, 2020). A telling detail: the iPhone 12 Pro **cannot run Apple Intelligence** (needs A17 Pro / M-series), yet the voice engine still works while the *Fox Summary Assistant* is gated off — so the **TTS and the AI-summary features are separate stacks**, and the voice engine has **far broader device reach** than the AI features. The small/fast model + older-device support points to a **compact open model in the Kokoro/Piper class run via an ONNX/CoreML runtime** (exact model unconfirmed). **Near-instant playback start** further suggests **streaming/synthesize-ahead** synthesis rather than full-chapter pre-render. The app exposes **no open-source acknowledgements/licenses screen** (as of v1.3 — About only has Privacy Policy / Terms / Support), so the model is unattributed in-app; pinning the exact engine needs a **network capture of the model-download URL** or the privacy policy. **Competitive implication for Echo:** this **neutralizes "on-device TTS" as an Echo-exclusive claim** — Fox Reader matches Echo's on-device synthesis and privacy posture. Echo's separation must rest on **real human-narration alignment + SRS study**, *not* "on-device vs cloud." (Open question worth a glance: streaming **real-time** synthesis vs Echo's **render-then-play** — the §7.1 thermal/battery angle.)
 
 **What Fox Reader has that Echo doesn't:**
 *   **On-device AI summaries** (Fox Summary Assistant) — Echo has no comprehension layer.
 *   **Speed-reading / word-pacing** (Auralis RSVP) — a distinct guided-reading mode Echo lacks.
-*   **Reading stats + tracking + smart collections + AI author recommendations** — markedly more polished library organization than Echo's.
+*   **Reading stats + tracking + smart collections + AI author recommendations** — markedly more polished library organization than Echo's. Plus an AI **"Fox Organize Series"** that auto-groups books into series.
+*   **Working iCloud sync, already shipped at v1.3** (Settings shows it active, "last synced 2 hrs ago"). Notable: a solo dev shipped cross-device sync *before* Echo, whose CloudKit sync is still only planned (Roadmap 8.1) — a nudge on sequencing.
 *   A refined, characterful **brand/UI** (mascot, themes) — worth noting as a bar for fit-and-finish.
 
 **What Echo has that Fox Reader doesn't:**
@@ -291,7 +292,7 @@ Echo against the reader/TTS cohort. ✅ = present, ❌ = absent, ⚠️ = partia
 | AI comprehension (summaries / Q&A / mind-maps) | ❌ | ❌ | ✅ | ❌ | ✅ summaries | ❌ | ❌ |
 | Reading stats / streaks / goals | ❌ | ❌ | ⚠️ | ❌ | ✅ | ❌ | ✅ |
 | Offline dictionary lookup | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Cross-device sync | ⚠️ planned (CloudKit 8.1) | ❌ | ✅ iCloud | ❌ | ⚠️ | ❌ | ✅ KOSync |
+| Cross-device sync | ⚠️ planned (CloudKit 8.1) | ❌ | ✅ iCloud | ❌ | ✅ iCloud | ❌ | ✅ KOSync |
 | Ambient soundscapes | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | OpenDyslexic / Lexend fonts | ✅ | ⚠️ | ⚠️ | ⚠️ | ❌ | ❌ | ✅ (typography) |
 | Fully on-device (no server round-trip) | ✅ | ✅ | ✅ | ❌ (text→server) | ✅ (TTS) | ⚠️ | ✅ |
