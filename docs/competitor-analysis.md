@@ -38,7 +38,7 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **PageEcho** | Freemium / IAP | Free / paid | Optional | Premium unlocks unlimited TTS + AI features; sold monthly, yearly, **or lifetime** |
 | **KOReader** | Free (donation) | Free | No | None — free software, no ads, no IAP |
 | **Murmura** | Freemium / Subscription | Free (2 books) / Pro $4.99·mo·$39.99·yr / Max $9.99·mo·$79.99·yr·**$129.99 lifetime** | Yes | Pro = 20 books; Max = unlimited docs, all voices, ambient soundscapes, Family Sharing |
-| **Fox Reader** | Freemium (ad-supported) / Subscription | Free w/ ads / *sub price unconfirmed* | Yes | Subscription removes ads + unlocks premium (Neural Voice Engine, Fox Summary Assistant) |
+| **Fox Reader** | Freemium (ad-supported) / Subscription | Free w/ ads · **$6.99/mo · $39.99/yr** (7-day trial) | Yes | Subscription sells **ad removal only** — full features (Kokoro TTS, AI summaries) appear free in the ad-supported tier |
 | **CocoReader** | *Unconfirmed* | *unknown* | *?* | *Pending listing access* |
 | **AnkiMobile** | Paid | $24.99 | No | None (supports developer of free desktop version) |
 | **Apple Books** | Free app / Paid books | Free | No | Per-book purchases |
@@ -58,8 +58,10 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 4. **Quizlet:**
    * *Aesthetic & Triggers:* Attempting to study flashcards past the free daily limit or using "Learn" mode triggers the paywall.
    * *Mechanism:* Highly optimized, multi-slide carousel highlighting premium benefits (no ads, offline access, AI-generated practice tests) with a prominent annual toggle showing a discount compared to monthly pricing.
-
----
+5. **Fox Reader** *(verified from screenshots):*
+   * *Model:* **Ad-removal subscription**, not feature-gating. Heading is literally *"Remove ads. Read uninterrupted."* — the full feature set (Kokoro TTS, AI summaries) stays free in the ad-supported tier; you pay only to silence ads. A generous, unusual choice for this cohort (most gate the *features*).
+   * *Pricing:* **Monthly $6.99**, **Yearly $39.99** (framed as "$3.50/mo · SAVE 50%", and **pre-selected** by default), behind a **7-day free trial**.
+   * *Paywall craft (worth copying):* a **3-step trust-building timeline** — "Today: ads vanish" → "In 5 Days: reminder your trial is ending" → "In 7 Days: billing starts (charged Jun 26 unless you cancel)" — paired with a reassuring **"No Payment Due Now"** checkmark and a soft **"Maybe later"** dismiss. This is the high-converting Apple-trial pattern (transparent timeline + reminder lowers the dark-pattern feel while still defaulting to the annual plan). The **$39.99/yr anchor matches LoudReader and Murmura** to the dollar — the cohort's converging price point.
 
 ## 3. Metadata & Positioning Analysis
 
@@ -239,7 +241,7 @@ A privacy-first iOS TTS app (Datachain Consulting, id `6761295449`) that imports
 
 ### 7.9 — Fox Reader (verified from screenshots)
 
-A real, polished, working iOS reader by **Salman Ahmad** (id `6761392204`). The owner rates it well, and it's the most feature-complete of this batch. It blends three things into one app: **guided/speed reading**, **neural read-aloud**, and **on-device AI summaries** — wrapped in a notably refined "Fox Library" UI (fox mascot, sepia theme, smart collections). Ad-supported freemium; a subscription removes ads and unlocks premium. Verified surfaces:
+A real, polished, working iOS reader by **Salman Ahmad** (id `6761392204`). The owner rates it well, and it's the most feature-complete of this batch. It blends three things into one app: **guided/speed reading**, **neural read-aloud**, and **on-device AI summaries** — wrapped in a notably refined "Fox Library" UI (fox mascot, sepia theme, smart collections). Ad-supported freemium — the subscription ($6.99/mo · $39.99/yr, 7-day trial) sells **ad removal only**; the full feature set (Kokoro TTS, AI summaries) is free in the ad-supported tier (TTS works with subscription Status "Inactive"). Verified surfaces:
 
 *   **Auralis** — the reading engine. *"Highlights words at your reading speed. Turn off to read at your own pace with page-by-page progress tracking."* This is RSVP-style **word-pacing/speed-reading**, paired with a **Neural Voice Engine** toggle for **neural TTS read-aloud**. So its "read-along" is *TTS-driven word highlighting*, not alignment to a recorded human narration.
 *   **Fox Summary Assistant** — an **Apple-Intelligence** on-device AI helper (a "Fox Popup") that summarizes what you're reading. (Same AI-comprehension play as PageEcho.)
@@ -264,7 +266,7 @@ A real, polished, working iOS reader by **Salman Ahmad** (id `6761392204`). The 
 *   The **SRS study layer** (inline flashcards, SM-2, auto audio snippets), **watchOS** review, **photo bookmarks**, **Smart Rewind**, **OpenDyslexic/Lexend**, **GPL-3.0**, and **no ads**.
 
 *   **Copy:** Its **AI summaries + Auralis pacing + stats** are a strong "help me read better and understand more" story. The Apple-Intelligence summary feature is the clearest thing to consider borrowing (feed recaps into Echo's SRS deck). And the fit-and-finish of "Fox Library" is the polish bar to clear.
-*   **Exploit:** Same structural moat as the whole cohort — the Neural Voice Engine is *synthetic narration*. Fox Reader can't give you a beloved professional narrator perfectly synced to the page, and it has no spaced-repetition study. Lead with **real narration + study**.
+*   **Exploit:** Same structural moat as the whole cohort — the Neural Voice Engine is *synthetic narration*. Fox Reader can't give you a beloved professional narrator perfectly synced to the page, and it has no spaced-repetition study. Lead with **real narration + study**. **On monetization:** Fox runs **ads** to give Kokoro away free, which typically means ad-network tracking SDKs. Echo — GPL-3.0, privacy-first, no ads — can draw a clean contrast: *"the same on-device Kokoro voices, with no ads and no tracking, ever."*
 
 ### 7.10 — CocoReader: offline audiobooks
 
