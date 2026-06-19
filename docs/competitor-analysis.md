@@ -26,7 +26,7 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 > [!NOTE]
 > **Research caveat:** Apple's App Store pages and the iTunes lookup API were unreachable (HTTP 403) from the research sandbox. *Developer names* for LoudReader (Jeremi Podlasek), PageEcho (harim kang), CocoReader (philip daquin), and AudioBookSync (Hans-Peter Jordi) are taken from the **owner's App Store tracker** (screenshot, June 2026); *Fox Reader*'s deeper details are confirmed from owner-supplied screenshots. *Murmura*/*AudioBookSync* feature details come from search-result snippets of the vendors' own sites — verify on-device before quoting in public copy. **AudioBookSync's App Store ID, exact price, and ratings are not yet confirmed** (app is brand-new — v1.0 2026-04-28, no ratings on the tracker; 11.8 MB, Min OS 18.6, one IAP).
 >
-> **⚠️ Emerging competitor to research next — Voxlight** (`voxlight.app`, ~$29.99/yr): surfaced during AudioBookSync research as an *even closer* match — explicitly aligns **your own real narration to EPUB text, on-device, no cloud**. Not yet profiled; flagged for a dedicated pass (see §7.11 tail).
+> **⚠️ Confirmed direct competitor — Voxlight** (`voxlight.app`, ~$29.99/yr): aligns **your own real narration to EPUB text, on-device (Apple Neural Engine), no cloud/account**. Verified real (June 2026), but **chapter-level** sync, not word-level — full details in the §7.11 tail.
 
 ---
 
@@ -313,7 +313,9 @@ A brand-new iOS app by **Hans-Peter Jordi** (v1.0 **2026-04-28**, iOS 18+, iPhon
 *   **Exploit:** AudioBookSync is a *sync/search* tool, not a *study* tool — no SRS, no word-level read-along (likely), iOS-only, no watch/Mac. Echo's wedge is **word-perfect read-along + spaced-repetition study across iPhone/Watch/Mac**. Lead there.
 
 > [!NOTE]
-> **Voxlight — research next (even closer).** Surfaced during this pass: **Voxlight** (`voxlight.app`, ~**$29.99/yr**) explicitly *"syncs your own audiobook narration with ebook text, entirely on-device, no cloud."* That's an even tighter match to Echo than AudioBookSync and it discloses pricing — it deserves its own §7 entry. Category incumbents both position against: **Storyteller** (self-hosted WhisperSync, server-side, 1–4 hrs/book) and Amazon **Whispersync for Voice** (Kindle+Audible store purchases only). *Flagged, not yet profiled.*
+> **Voxlight (confirmed) + adjacent siblings.** **Voxlight** (`voxlight.app`, ~**$29.99/yr**, iOS 17+) is verified real and is the *tightest* match to Echo: import your own **M4B/EPUB** (incl. from Audiobookshelf via Files/iCloud Drive), align **your real narration to ebook text on-device** (Apple Neural Engine), **iCloud sync, no account, no telemetry**. **But — same tier as AudioBookSync:** by its own description it *"listens to short **samples from each chapter** and matches them to the corresponding ebook **chapters**"* — i.e. **chapter-level** sync, **not** continuous word-level read-along, and **no study layer**. So it reinforces, rather than threatens, Echo's word-level + SRS wedge. Deserves its own §7 entry once profiled.
+> *Adjacent (different target, noted not tracked):* **SyncBooks** (id `6761034564`, iPad, free prototype) — a **language-learning** reader for **public-domain classics** with *sentence-level* sync + LLM parallel translation; finer-grained sync than the cohort but bundled classics, not your own files. **Vlume** (id `1325346984`) was checked and **ruled out** — it's a **$7.99/mo content-subscription catalog** (Everand/Scribd-style), not a personal-file sync tool.
+> *Category incumbents all position against:* **Storyteller** (self-hosted WhisperSync, server-side, 1–4 hrs/book) and Amazon **Whispersync for Voice** (Kindle+Audible store purchases only).
 
 ---
 
