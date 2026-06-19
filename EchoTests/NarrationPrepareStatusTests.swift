@@ -23,4 +23,30 @@ import Testing
         let s = NarrationPrepareStatus.batch(for: .compilingModels(done: 0, total: 0))
         #expect(s.fraction.isFinite)
     }
+
+    /// Regression: `prepare(progress:)` must reach a concrete engine's override
+    /// when called through the `any TTSEngine` existential — which is how
+    /// `NarrationService.tts` and the macOS/iOS surfaces call it. If it lives
+    /// only in a protocol extension (not a protocol requirement), the existential
+    /// call resolves statically to the no-op default, every progress event is
+    /// silently dropped, and the queue sits on "Narrating chapter 1" with no
+    /// feedback even though the engine is busy downloading + compiling.
+    @Test func prepareProgressReachesConcreteOverrideThroughExistential() async throws {
+        final class Recorder: TTSEngine, @unchecked Sendable {
+            final class Box: @unchecked Sendable { var items: [NarrationPrepareProgress] = [] }
+            func prepare() async throws {}
+            func prepare(
+                progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
+            ) async throws {
+                progress(.ready)
+            }
+            func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+                TTSChunk(samples: [], sampleRate: 24_000, duration: 0)
+            }
+        }
+        let box = Recorder.Box()
+        let engine: any TTSEngine = Recorder()
+        try await engine.prepare(progress: { box.items.append($0) })
+        #expect(box.items == [.ready])
+    }
 }

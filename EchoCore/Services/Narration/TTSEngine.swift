@@ -32,6 +32,14 @@ struct TTSChunk: Sendable, Equatable {
 /// The swappable narration engine boundary. Mocked in tests; Kokoro in Plan 3.
 protocol TTSEngine: Sendable {
     func prepare() async throws
+    /// Progress-reporting variant. Declared as a protocol REQUIREMENT (not merely
+    /// an extension method) so a call through the `any TTSEngine` existential —
+    /// which is how `NarrationService.tts` and the macOS/iOS surfaces invoke it —
+    /// dynamically dispatches to a concrete engine's override. An extension-only
+    /// method resolves statically to the no-op default below, silently dropping
+    /// every progress event. The extension still provides a default, so engines
+    /// that can't report progress (FluidAudio, MockTTSEngine) need not implement it.
+    func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk
 }
 
@@ -45,14 +53,10 @@ enum NarrationPrepareProgress: Sendable, Equatable {
 }
 
 extension TTSEngine {
-    /// Default: no progress. Engines that can report it (KokoroFixedShapeEngine)
-    /// shadow this with their own implementation; FluidAudio + MockTTSEngine inherit
-    /// the no-op so existing call sites and test doubles are unaffected.
-    ///
-    /// `@escaping` matches `KokoroFixedShapeEngine.prepare(progress:)` so that
-    /// callers using `any TTSEngine` see a single overload and dynamic dispatch
-    /// reaches the concrete actor's override (protocol-extension methods with a
-    /// different signature would be resolved statically, silently hitting the no-op).
+    /// Default implementation of the `prepare(progress:)` requirement: ignore the
+    /// callback and run the plain `prepare()`. Engines that can report progress
+    /// (KokoroFixedShapeEngine) override it; FluidAudio + MockTTSEngine inherit
+    /// this no-op, so they stay untouched.
     func prepare(
         progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
     ) async throws {
