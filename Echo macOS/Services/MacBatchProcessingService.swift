@@ -181,6 +181,15 @@ final class MacBatchProcessingService {
         refresh()
     }
 
+    /// Removes a still-queued item from the queue (no-op if the runner has already
+    /// started it). Only the queue row is deleted — any rendered chapters for the
+    /// book stay in the library. Mirrors `clearCompleted()`: DAO write then refresh.
+    func removeQueued(_ item: BatchQueueRecord) {
+        guard let id = item.id else { return }
+        try? dao.deleteQueued(id: id)
+        refresh()
+    }
+
     /// Whether a narrated book has at least one rendered chapter on disk. Lets the
     /// queue offer "Open" for a `.failed` narrate item that still produced playable
     /// chapters before it stopped (e.g. a mid-book vocoder failure).
@@ -274,6 +283,42 @@ final class MacBatchProcessingService {
                         pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
                 }
                 var service = makeService()
+                // One-time engine prepare (download + compile the CoreML model set) BEFORE the
+                // chapter loop, reported as its own phase. Without this the UI sits on
+                // "Narrating chapter 1" for minutes while prepare runs lazily inside the first
+                // synthesize.
+                //
+                // The engine calls its progress closure from a non-main actor (KokoroFixed's
+                // actor), so we cannot capture the non-escaping `rawProgress` parameter in the
+                // `@escaping @Sendable` closure that `prepare(progress:)` requires.
+                //
+                // Solution: use an AsyncStream as a Sendable channel. The `@Sendable` producer
+                // closure calls `continuation.yield(p)` (safe — AsyncStream is Sendable), and
+                // the consumer `for await` loop runs on @MainActor, calling the nested
+                // `progress(_:_:_:)` func that wraps `rawProgress`. A child task in
+                // `withThrowingTaskGroup` runs `prepare` concurrently with the consumer; the
+                // `defer` on `continuation.finish()` ends the stream once prepare resolves so
+                // the for-await loop drains to completion before the group exits. This is fully
+                // structured — no unstructured Task, no withoutActuallyEscaping.
+                do {
+                    let (prepareStream, prepareContinuation) =
+                        AsyncStream<NarrationPrepareProgress>.makeStream()
+                    try await withThrowingTaskGroup(of: Void.self) { group in
+                        group.addTask {
+                            defer { prepareContinuation.finish() }
+                            try await service.tts.prepare { p in prepareContinuation.yield(p) }
+                        }
+                        for await p in prepareStream {
+                            let s = NarrationPrepareStatus.batch(for: p)
+                            progress(.transcribing, s.fraction, s.message)
+                        }
+                        try await group.waitForAll()
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                }
+                // A non-cancellation prepare failure (e.g. model download) propagates to the
+                // runner, which marks this book .failed — same as any stage error.
                 var skipped = 0
                 for (n, chapter) in chapters.enumerated() {
                     try Task.checkCancellation()
@@ -288,7 +333,7 @@ final class MacBatchProcessingService {
 
                     progress(
                         .transcribing,
-                        0.1 + 0.85 * Double(n) / Double(chapters.count),
+                        0.15 + 0.80 * Double(n) / Double(chapters.count),
                         "Narrating chapter \(n + 1) of \(chapters.count)…")
                     do {
                         try await service.renderChapter(

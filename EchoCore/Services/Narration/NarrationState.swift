@@ -7,6 +7,7 @@ import Observation
 final class NarrationState {
     enum Phase: String, Sendable {
         case idle
+        case preparingEngine  // one-time model download + CoreML compile
         case preparingChapter  // cold start / seek: rendering the current chapter
         case renderingAhead  // playing, rendering the next chapter in background
         case completed
@@ -25,7 +26,7 @@ final class NarrationState {
     var isRunning: Bool {
         switch phase {
         case .idle, .completed, .failed: return false
-        case .preparingChapter, .renderingAhead: return true
+        case .preparingEngine, .preparingChapter, .renderingAhead: return true
         }
     }
 

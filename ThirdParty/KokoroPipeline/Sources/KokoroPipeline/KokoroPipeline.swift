@@ -19,9 +19,9 @@
 ///
 /// Every stage is timed with ``ContinuousClock`` and reported in ``SynthesisResult``.
 
+import Accelerate
 import CoreML
 import Foundation
-import Accelerate
 
 // MARK: - Configuration
 
@@ -88,9 +88,8 @@ public struct StageTimings {
 
     /// Total pipeline wall time.
     public var total: Double {
-        durationCoreML + alignment + matrixOps + f0ntrainCoreML +
-        padding + decoderPre + hnsfSwift - decoderPreHnsfOverlap +
-        generatorCoreML + trim
+        durationCoreML + alignment + matrixOps + f0ntrainCoreML + padding + decoderPre + hnsfSwift
+            - decoderPreHnsfOverlap + generatorCoreML + trim
     }
 
     /// Pre-decoder overhead (everything before GeneratorFromHar predict).
@@ -175,10 +174,10 @@ public struct DurationModelChoice {
 /// hundreds of milliseconds per model. For app integration, call init
 /// on a background thread or use pre-compiled ``.mlmodelc`` bundles.
 public class KokoroPipeline: KokoroModelProvider {
-    private let durationModels: [String: MLModel] // keyed by DurationModelChoice.cacheKey
+    private let durationModels: [String: MLModel]  // keyed by DurationModelChoice.cacheKey
     private let durationChoices: [DurationModelChoice]
     private let f0ntrainModels: [Int: MLModel]  // keyed by T_frames
-    private let decoderPreModels: [Int: MLModel] // keyed by bucket seconds
+    private let decoderPreModels: [Int: MLModel]  // keyed by bucket seconds
     private let generatorModels: [Int: MLModel]  // keyed by bucket seconds
 
     /// Learned weights from SourceModuleHnNSF.l_linear.
@@ -201,21 +200,43 @@ public class KokoroPipeline: KokoroModelProvider {
     /// ``.mlmodelc`` bundles to avoid blocking the main thread.
     public init(
         modelsDirectory: URL,
+        compiledModelsDirectory: URL? = nil,
         buckets: [Int] = PipelineConstants.defaultBuckets,
         linearWeights: [Float],
-        linearBias: Float
+        linearBias: Float,
+        compileProgress: ((_ done: Int, _ total: Int) -> Void)? = nil
     ) throws {
+        let durationChoices = Self.discoverDurationChoices(modelsDirectory: modelsDirectory)
+        let fm = FileManager.default
+        func present(_ name: String) -> Bool {
+            fm.fileExists(atPath: modelsDirectory.appendingPathComponent(name).path)
+        }
+        // Count every model that will actually load, so compileProgress has a stable denominator.
+        let total =
+            durationChoices.count
+            + buckets.compactMap { PipelineConstants.tFramesForBucket[$0] }
+            .filter { present("kokoro_f0ntrain_t\($0).mlpackage") }.count
+            + buckets.filter { present("kokoro_decoder_pre_\($0)s.mlpackage") }.count
+            + buckets.filter { present("kokoro_decoder_har_post_\($0)s.mlpackage") }.count
+        var done = 0
+        func loadModel(package: URL, name: String, units: MLComputeUnits) throws -> MLModel {
+            let cfg = MLModelConfiguration()
+            cfg.computeUnits = units
+            let url = try Self.ensureCompiledModel(
+                name: name, cacheDir: compiledModelsDirectory,
+                compile: { try MLModel.compileModel(at: $0) }, package: package)
+            let model = try MLModel(contentsOf: url, configuration: cfg)
+            done += 1
+            compileProgress?(done, total)
+            return model
+        }
+
         // Duration models. Use padded mask-aware packages for production by
         // default; exact native packages are an opt-in benchmark path.
-        let durationChoices = Self.discoverDurationChoices(modelsDirectory: modelsDirectory)
         var durModels: [String: MLModel] = [:]
         for choice in durationChoices {
-            let config = MLModelConfiguration()
-            config.computeUnits = .cpuAndGPU
-            durModels[choice.cacheKey] = try MLModel(
-                contentsOf: MLModel.compileModel(at: choice.packageURL),
-                configuration: config
-            )
+            durModels[choice.cacheKey] = try loadModel(
+                package: choice.packageURL, name: choice.cacheKey, units: .cpuAndGPU)
         }
         guard !durModels.isEmpty else {
             throw PipelineError.modelNotLoaded("duration")
@@ -228,10 +249,9 @@ public class KokoroPipeline: KokoroModelProvider {
         for sec in buckets {
             if let t = PipelineConstants.tFramesForBucket[sec] {
                 let url = modelsDirectory.appendingPathComponent("kokoro_f0ntrain_t\(t).mlpackage")
-                if FileManager.default.fileExists(atPath: url.path) {
-                    let config = MLModelConfiguration()
-                    config.computeUnits = .cpuAndGPU
-                    f0Models[t] = try MLModel(contentsOf: MLModel.compileModel(at: url), configuration: config)
+                if fm.fileExists(atPath: url.path) {
+                    f0Models[t] = try loadModel(
+                        package: url, name: "kokoro_f0ntrain_t\(t)", units: .cpuAndGPU)
                 }
             }
         }
@@ -241,10 +261,9 @@ public class KokoroPipeline: KokoroModelProvider {
         var decPreModels: [Int: MLModel] = [:]
         for sec in buckets {
             let url = modelsDirectory.appendingPathComponent("kokoro_decoder_pre_\(sec)s.mlpackage")
-            if FileManager.default.fileExists(atPath: url.path) {
-                let config = MLModelConfiguration()
-                config.computeUnits = .cpuAndNeuralEngine
-                decPreModels[sec] = try MLModel(contentsOf: MLModel.compileModel(at: url), configuration: config)
+            if fm.fileExists(atPath: url.path) {
+                decPreModels[sec] = try loadModel(
+                    package: url, name: "kokoro_decoder_pre_\(sec)s", units: .cpuAndNeuralEngine)
             }
         }
         self.decoderPreModels = decPreModels
@@ -252,11 +271,11 @@ public class KokoroPipeline: KokoroModelProvider {
         // Generator (HAR-post) models
         var genModels: [Int: MLModel] = [:]
         for sec in buckets {
-            let url = modelsDirectory.appendingPathComponent("kokoro_decoder_har_post_\(sec)s.mlpackage")
-            if FileManager.default.fileExists(atPath: url.path) {
-                let config = MLModelConfiguration()
-                config.computeUnits = .cpuAndGPU
-                genModels[sec] = try MLModel(contentsOf: MLModel.compileModel(at: url), configuration: config)
+            let url = modelsDirectory.appendingPathComponent(
+                "kokoro_decoder_har_post_\(sec)s.mlpackage")
+            if fm.fileExists(atPath: url.path) {
+                genModels[sec] = try loadModel(
+                    package: url, name: "kokoro_decoder_har_post_\(sec)s", units: .cpuAndGPU)
             }
         }
         self.generatorModels = genModels
@@ -299,7 +318,8 @@ public class KokoroPipeline: KokoroModelProvider {
 
     public static func discoverDurationChoices(
         modelsDirectory: URL,
-        useExactDurationModels: Bool = ProcessInfo.processInfo.environment["KOKORO_USE_EXACT_DURATION_MODELS"] == "1",
+        useExactDurationModels: Bool = ProcessInfo.processInfo.environment[
+            "KOKORO_USE_EXACT_DURATION_MODELS"] == "1",
         maxDurationTokenLength: Int? = nil
     ) -> [DurationModelChoice] {
         var choices: [DurationModelChoice] = []
@@ -310,55 +330,64 @@ public class KokoroPipeline: KokoroModelProvider {
             return tokenLength <= maxDurationTokenLength
         }
 
-        if useExactDurationModels, let urls = try? fm.contentsOfDirectory(
-            at: resolvedModelsDirectory,
-            includingPropertiesForKeys: nil
-        ) {
+        if useExactDurationModels,
+            let urls = try? fm.contentsOfDirectory(
+                at: resolvedModelsDirectory,
+                includingPropertiesForKeys: nil
+            )
+        {
             for url in urls {
                 let name = url.lastPathComponent
                 guard name.hasPrefix("kokoro_duration_exact_t"),
-                      name.hasSuffix(".mlpackage") else {
+                    name.hasSuffix(".mlpackage")
+                else {
                     continue
                 }
-                let raw = name
+                let raw =
+                    name
                     .replacingOccurrences(of: "kokoro_duration_exact_t", with: "")
                     .replacingOccurrences(of: ".mlpackage", with: "")
                 guard let tokenLength = Int(raw) else { continue }
                 guard accepts(tokenLength) else { continue }
-                choices.append(DurationModelChoice(
-                    cacheKey: "exact_t\(tokenLength)",
-                    tokenLength: tokenLength,
-                    packageURL: url,
-                    requiresAttentionMask: false,
-                    allowsPadding: false
-                ))
+                choices.append(
+                    DurationModelChoice(
+                        cacheKey: "exact_t\(tokenLength)",
+                        tokenLength: tokenLength,
+                        packageURL: url,
+                        requiresAttentionMask: false,
+                        allowsPadding: false
+                    ))
             }
         }
 
         for tokenLength in PipelineConstants.durationTokenSizes {
             guard accepts(tokenLength) else { continue }
-            let url = resolvedModelsDirectory.appendingPathComponent("kokoro_duration_t\(tokenLength).mlpackage")
+            let url = resolvedModelsDirectory.appendingPathComponent(
+                "kokoro_duration_t\(tokenLength).mlpackage")
             if fm.fileExists(atPath: url.path) {
-                choices.append(DurationModelChoice(
-                    cacheKey: "padded_t\(tokenLength)",
-                    tokenLength: tokenLength,
-                    packageURL: url,
-                    requiresAttentionMask: true,
-                    allowsPadding: true
-                ))
+                choices.append(
+                    DurationModelChoice(
+                        cacheKey: "padded_t\(tokenLength)",
+                        tokenLength: tokenLength,
+                        packageURL: url,
+                        requiresAttentionMask: true,
+                        allowsPadding: true
+                    ))
             }
         }
 
         let legacyURL = resolvedModelsDirectory.appendingPathComponent("kokoro_duration.mlpackage")
         if fm.fileExists(atPath: legacyURL.path),
-           !choices.contains(where: { $0.cacheKey == "padded_t128" }) {
-            choices.append(DurationModelChoice(
-                cacheKey: "padded_t128",
-                tokenLength: PipelineConstants.durationTokenLength,
-                packageURL: legacyURL,
-                requiresAttentionMask: true,
-                allowsPadding: true
-            ))
+            !choices.contains(where: { $0.cacheKey == "padded_t128" })
+        {
+            choices.append(
+                DurationModelChoice(
+                    cacheKey: "padded_t128",
+                    tokenLength: PipelineConstants.durationTokenLength,
+                    packageURL: legacyURL,
+                    requiresAttentionMask: true,
+                    allowsPadding: true
+                ))
         }
 
         return choices.sorted {
@@ -427,6 +456,30 @@ public class KokoroPipeline: KokoroModelProvider {
         return model
     }
 
+    /// Returns a loadable `.mlmodelc` for `package`, compiling once and caching it
+    /// under `cacheDir` when provided so later launches skip the multi-minute
+    /// `MLModel.compileModel`. On a cache write/move failure it falls back to the
+    /// freshly-compiled (temp) URL, so a full or read-only disk can't break
+    /// synthesis. The `compile` step is injected so the cache decision is testable
+    /// without a real CoreML model.
+    public static func ensureCompiledModel(
+        name: String, cacheDir: URL?, compile: (URL) throws -> URL, package: URL
+    ) throws -> URL {
+        guard let cacheDir else { return try compile(package) }
+        let fm = FileManager.default
+        let cached = cacheDir.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
+        if fm.fileExists(atPath: cached.path) { return cached }
+        let compiled = try compile(package)
+        do {
+            try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            if fm.fileExists(atPath: cached.path) { try fm.removeItem(at: cached) }
+            try fm.moveItem(at: compiled, to: cached)
+            return cached
+        } catch {
+            return compiled  // don't break narration on a cache write failure
+        }
+    }
+
 }
 
 // MARK: - Errors
@@ -443,7 +496,8 @@ public enum PipelineError: Error, LocalizedError {
         case .modelNotLoaded(let name):
             return "Model not loaded: \(name)"
         case .inputTooLong(let tokens, let maxTokens):
-            return "Input has \(tokens) tokens, but the largest loaded duration model supports \(maxTokens)"
+            return
+                "Input has \(tokens) tokens, but the largest loaded duration model supports \(maxTokens)"
         }
     }
 }

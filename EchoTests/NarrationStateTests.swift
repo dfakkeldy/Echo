@@ -33,4 +33,12 @@ import Testing
         #expect(s.phase == .idle)
         #expect(s.progress == 0)
     }
+
+    @MainActor
+    @Test func preparingEngineCountsAsRunning() {
+        let s = NarrationState()
+        s.update(phase: .preparingEngine, progress: 0.2, statusMessage: "Compiling…")
+        #expect(s.phase == .preparingEngine)
+        #expect(s.isRunning)
+    }
 }
