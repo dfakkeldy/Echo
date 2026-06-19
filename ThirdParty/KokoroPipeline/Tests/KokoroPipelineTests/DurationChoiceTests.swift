@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import KokoroPipeline
 
 final class DurationChoiceTests: XCTestCase {
@@ -30,6 +31,21 @@ final class DurationChoiceTests: XCTestCase {
         XCTAssertEqual(exact.cacheKey, "exact_t44")
         XCTAssertFalse(exact.allowsPadding)
         XCTAssertFalse(exact.requiresAttentionMask)
+    }
+
+    func testTokenCountAboveLargestModelThrowsInputTooLong() throws {
+        // The contract `KokoroFixedShapeEngine` relies on: when a chunk exceeds the
+        // largest loaded duration model, selection throws `.inputTooLong` (which the
+        // engine translates to `NarrationError.lengthCapExceeded` and re-splits).
+        let dir = try makeDurationPackageDirectory()
+        let choices = KokoroPipeline.discoverDurationChoices(modelsDirectory: dir)
+        XCTAssertThrowsError(
+            try KokoroPipeline.selectDurationChoice(choices, actualTokens: 100_000)
+        ) { error in
+            guard case PipelineError.inputTooLong = error else {
+                return XCTFail("expected .inputTooLong, got \(error)")
+            }
+        }
     }
 
     func testExactDurationPackagesAreDiscoveredThroughModelsDirectorySymlink() throws {
@@ -77,7 +93,8 @@ final class DurationChoiceTests: XCTestCase {
             withIntermediateDirectories: true
         )
         try FileManager.default.createDirectory(
-            at: dir.appendingPathComponent("kokoro_duration_exact_t44.mlpackage", isDirectory: true),
+            at: dir.appendingPathComponent(
+                "kokoro_duration_exact_t44.mlpackage", isDirectory: true),
             withIntermediateDirectories: true
         )
         try FileManager.default.createDirectory(
