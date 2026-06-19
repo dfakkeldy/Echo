@@ -15,13 +15,17 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **LoudReader** | loudreader.io (maker unverified) | `6758149478` | Direct (Narration) | On-device AI TTS turning your EPUB/PDF into an audiobook |
 | **PageEcho** | Solo/small dev (unverified) | `6755965837` | Direct (Narration) | Privacy-first on-device AI TTS reader + AI comprehension aids |
 | **KOReader** | KOReader Community (open source) | *n/a — no App Store build* | Indirect (Reader) | Power-user e-ink/Android document reader |
-| **Coco Reader** | *Unverified — see §7.8* | *unknown* | Unverified | *Could not confirm this app exists; awaiting a link* |
+| **Murmura** | Datachain Consulting Pty Ltd | `6761295449` | Direct (Narration) | TTS "Listen to Your Books" — multi-voice narration of your docs |
+| **Fox Reader** | *Maker unverified* | *see §7.9* | Direct (Narration) | "AI audiobook maker" — AI TTS turning text into audiobooks |
+| **CocoReader: offline audiobooks** | *Maker unverified* | *see §7.10* | Direct | Offline/local-file audiobook player |
 | **AnkiMobile Flashcards** | Anki Software, LLC | `373493387` | Indirect | Hardcore spaced repetition (SRS) learners |
 | **Apple Books** | Apple | `364709193` | Indirect | Mainstream book/audiobook consumers |
 | **Quizlet: More than Flashcards** | Quizlet Inc | `546473125` | Indirect | Students seeking multi-modal study aids |
 
 > [!NOTE]
-> **"Coco Reader" is unverified.** A web sweep (App Store, Play Store, GitHub, AlternativeTo/Reddit) found **no** EPUB/audiobook reader by that name — the string only maps to the NVIDIA DALI *COCO dataset reader*, Disney's *Coco* read-along storybook, and unrelated "Coco"-branded apps. It is listed here as a placeholder. Share a direct App Store/Play Store URL or developer name and the entry will be filled in.
+> **Two names still need confirmation from the owner — *Notaria* and *Bookshelf*.** A web sweep couldn't tie either to a reader/audiobook app in this cohort: **"Notaria"** only matches an unrelated AI *meeting-transcription* app (id `6757683092`) — Spanish/Italian for "notary's office", which pollutes the search; **"Bookshelf"** only matches **VitalSource Bookshelf** (id `389359495`, a DRM eTextbook reader — wrong cohort) or is a generic library-view UI term. A direct App Store/Play Store URL or developer name for each will let these be filled in. (See §7.11.)
+>
+> **Research caveat:** Apple's App Store pages and the iTunes lookup API were unreachable (HTTP 403) from the research sandbox, so feature/price details for the three new entries above come from search-result snippets and the owner's own descriptions, not full listing reads — verify on-device before quoting in public copy. *Fox Reader* and *CocoReader* in particular are recorded per the owner's description (an AI-TTS audiobook maker, and an offline audiobook player, respectively); a namesake "Fox Reader" speed-reader by Salman Ahmad (id `6761392204`) also exists and may be confused with it.
 
 ---
 
@@ -35,7 +39,9 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **LoudReader** | Freemium / Subscription | Free / $4.99·mo or $39.99·yr | Yes | Premium: unlimited books, all voices, speed, notes (free tier = 3 books / ~50% each) |
 | **PageEcho** | Freemium / IAP | Free / paid | Optional | Premium unlocks unlimited TTS + AI features; sold monthly, yearly, **or lifetime** |
 | **KOReader** | Free (donation) | Free | No | None — free software, no ads, no IAP |
-| **Coco Reader** | *Unverified* | *unknown* | *?* | *Pending confirmation the app exists* |
+| **Murmura** | Freemium / Subscription | Free (2 books) / Pro $4.99·mo·$39.99·yr / Max $9.99·mo·$79.99·yr·**$129.99 lifetime** | Yes | Pro = 20 books; Max = unlimited docs, all voices, ambient soundscapes, Family Sharing |
+| **Fox Reader** | Freemium / Subscription | *price unconfirmed* (7-day trial → monthly/yearly) | Yes | Premium unlocks full AI audiobook generation |
+| **CocoReader** | *Unconfirmed* | *unknown* | *?* | *Pending listing access* |
 | **AnkiMobile** | Paid | $24.99 | No | None (supports developer of free desktop version) |
 | **Apple Books** | Free app / Paid books | Free | No | Per-book purchases |
 | **Quizlet** | Freemium / Subscription | Free | Yes | Quizlet Plus subscription (~$35.99/yr) |
@@ -222,11 +228,78 @@ The most-requested item here: KOReader **is** open source — **AGPL-3.0**, ~27k
 
 ### 7.7 — Cross-cutting pattern (reader/TTS cohort)
 
-LoudReader, PageEcho, and the wider Speechify/ElevenReader cohort all converge on the same play: **on-device AI TTS that *generates* narration from text, with inherent word-sync.** That makes "listen to your EPUB" a commodity. Echo sits in a different, harder, more defensible category — **aligning real human-narrated audiobooks to the book text** — and layers **SRS study** on top, which none of this cohort touches. The strategic takeaway: position Echo against *audiobooks people already own and love being read by a real narrator*, not against synthetic read-aloud.
+LoudReader, PageEcho, Murmura, Fox Reader, and the wider Speechify/ElevenReader cohort all converge on the same play: **on-device (or server-assisted) AI TTS that *generates* narration from text, with inherent word-sync.** That makes "listen to your EPUB" a commodity, and it's getting crowded fast — multiple near-identical apps launched in 2025–26 at the same $4.99/mo · $39.99/yr price point. Echo sits in a different, harder, more defensible category — **aligning real human-narrated audiobooks to the book text** — and layers **SRS study** on top, which none of this cohort touches. The strategic takeaway: position Echo against *audiobooks people already own and love being read by a real narrator*, not against synthetic read-aloud. The one place the cohort is genuinely ahead and worth borrowing from: **expressive multi-voice narration** (Murmura's per-character "Auto Cast") and **AI comprehension** (PageEcho's summaries/Q&A) — see §8 for where that maps onto Echo's gaps.
 
-### 7.8 — Coco Reader (unverified)
+### 7.8 — Murmura ("Listen to Your Books")
 
-Could **not** confirm an EPUB/audiobook reader app by this name exists (App Store, Play Store, GitHub, AlternativeTo/Reddit all came up empty — see the note under §1). No claims are made here to avoid fabrication. **Action needed from you:** a direct store URL, developer name, or screenshot, and this section will be researched and filled in.
+A privacy-first iOS TTS app (Datachain Consulting, id `6761295449`) that imports PDF/EPUB/TXT and narrates it in neural voices. Closed-source. Documents stay on-device; only text is sent server-side for voice generation, then discarded (no account, no tracking). Freemium: free = 2 books; **Pro** $4.99/mo·$39.99/yr (20 books); **Max** $9.99/mo·$79.99/yr·**$129.99 lifetime** (unlimited, all voices, ambient soundscapes).
+
+*   **What Murmura has that Echo doesn't:** automatic **per-character voice casting** ("Auto Cast" — detects who's speaking each dialogue line and assigns distinct voices, turning a novel into a radio drama); **PDF + plain-TXT** read-aloud (Echo centers on M4B/MP3 + EPUB); procedural **ambient soundscapes** (Focus/Calm/Night); a polished freemium ladder with a **lifetime** tier.
+*   **What Echo has that Murmura doesn't:** plays **real human-narrated M4B/MP3** (Murmura is TTS-only, no human narration); **alignment-based read-along against real narration** (Murmura only highlights its own synthetic output); the entire **SRS study layer** (inline flashcards, SM-2, auto audio snippets); **Smart Rewind**, **photo bookmarks**, **watchOS** review; **OpenDyslexic/Lexend**; **GPL-3.0** and fully on-device (no server round-trip).
+*   **Copy:** Auto Cast is the standout idea — multi-voice expressive narration is a real differentiator within the TTS cohort, and a natural enhancement for Echo's *secondary* Kokoro narration (e.g. distinct narrator/character voices when no human audiobook exists). The "$129.99 lifetime" reinforces the indie one-time-purchase signal (cf. Prologue, PageEcho).
+*   **Exploit:** Murmura's privacy story has an asterisk — it **ships your text to a server** to synthesize voices. Echo's narration is **fully on-device** (Kokoro, render-then-play). "Nothing leaves your phone — not even the text" is a sharper privacy claim than Murmura can make.
+
+### 7.9 — Fox Reader ("AI audiobook maker")
+
+> [!CAUTION]
+> **Unverified listing.** Recorded per the owner's description as an AI-TTS "audiobook maker." The App Store/iTunes API were unreachable from research, so specifics aren't confirmed, and a **separate speed-reader named "Fox Reader"** (Salman Ahmad, id `6761392204`, no audio) exists and is easy to confuse with it. Confirm the exact App Store URL so this can be verified.
+
+Per the owner, the more aggressive competitor: an **AI audiobook maker** — turns text/EPUB/PDF into a generated audiobook via AI TTS. Functionally it sits in the same cohort as LoudReader / PageEcho / Murmura.
+
+*   **What Fox Reader (as described) has that Echo doesn't:** one-tap **bulk text→audiobook generation** as the headline use case; presumably a library of AI voices and a frictionless "drop any document, get an audiobook" flow.
+*   **What Echo has that Fox Reader doesn't:** **real human-narrated playback + alignment read-along**, the **SRS study layer**, watchOS/widgets/macOS, OpenDyslexic/Lexend, and GPL-3.0 — the same structural moat that separates Echo from every pure TTS-maker.
+*   **Exploit:** identical to the cohort — an AI-generated audiobook is *synthetic*; it can't give you a beloved professional narrator perfectly synced to the page. Lead with real narration.
+
+### 7.10 — CocoReader: offline audiobooks
+
+> [!CAUTION]
+> **Unverified listing.** Recorded per the owner's description as an **offline / local-file audiobook player**; the App Store listing couldn't be loaded from research, so features below are inferred from the name. Confirm the App Store URL to verify and fill in pricing.
+
+Unlike the rest of this batch, the name signals a **local-file audiobook player** (the BookPlayer / Bound mold — play your own M4B/MP3 offline), **not** a TTS maker. If so, it's a *listening*-axis competitor, and the right comparison is §7.2 (BookPlayer): clean offline playback, no study layer.
+
+*   **What CocoReader (if a local player) likely has:** straightforward offline M4B/MP3 playback, folder/library organization, chapters, speed, sleep timer — table-stakes listening.
+*   **What Echo has that a plain local player doesn't:** **EPUB↔audio alignment read-along**, the **SRS study layer**, Smart Rewind, photo bookmarks, watchOS review — everything past playback. This is the exact gap already articulated for BookPlayer/Bound in §7.2 and §6.
+*   **Action needed:** the store link, so I can confirm whether it's truly a local player (listening-axis) or another TTS maker, and slot it accordingly.
+
+### 7.11 — Notaria & Bookshelf (pending confirmation)
+
+Couldn't tie either name to a reader/audiobook app:
+
+*   **Notaria** — the only App Store match is **NotarIA** (id `6757683092`), an unrelated **AI meeting-recording/transcription** app (transcripts, summaries, action items). "Notaria" = Spanish/Italian for *notary's office*, which dominates the search. No reader/audiobook/study "Notaria" found.
+*   **Bookshelf** — only matches **VitalSource Bookshelf** (id `389359495`), a DRM **eTextbook** reader for students (free app + paid textbooks; it does have TTS read-aloud + flashcards, but it's courseware, a different cohort), or is simply the generic "library shelf" UI term every reader app uses.
+
+No claims are made for either to avoid fabrication. **Action needed from you:** the direct App Store URL or developer name for each, and they'll be researched and slotted into §1/§2/§7/§8.
+
+---
+
+## 8. Feature Gap Matrix — "what they have that Echo doesn't, and vice versa"
+
+Echo against the reader/TTS cohort. ✅ = present, ❌ = absent, ⚠️ = partial/unverified. Echo's signature row (human-narration alignment + SRS) is where it stands alone; the columns show where the cohort is ahead of Echo.
+
+| Capability | **Echo** | LoudReader | PageEcho | Murmura | Fox Reader | CocoReader | KOReader |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Plays **real human-narrated** M4B/MP3 | ✅ | ❌ | ❌ | ❌ | ❌ | ⚠️ likely ✅ | ❌ |
+| **Read-along synced to real narration** (WhisperKit+DTW) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| AI TTS text→audio (word-synced) | ⚠️ secondary | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **SRS flashcards + auto audio snippets** (SM-2) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| EPUB reading | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| PDF reading | ❌ | ✅ | ✅ | ✅ | ⚠️ | ❌ | ✅ |
+| **watchOS** app | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Multi-voice / per-character narration | ❌ | ❌ | ❌ | ✅ Auto Cast | ⚠️ | ❌ | ❌ |
+| AI comprehension (summaries / Q&A / mind-maps) | ❌ | ❌ | ✅ | ❌ | ⚠️ | ❌ | ❌ |
+| Reading stats / streaks / goals | ❌ | ❌ | ⚠️ | ❌ | ❌ | ❌ | ✅ |
+| Offline dictionary lookup | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Cross-device sync | ⚠️ planned (CloudKit 8.1) | ❌ | ✅ iCloud | ❌ | ⚠️ | ❌ | ✅ KOSync |
+| Ambient soundscapes | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| OpenDyslexic / Lexend fonts | ✅ | ⚠️ | ⚠️ | ⚠️ | ❌ | ❌ | ✅ (typography) |
+| Fully on-device (no server round-trip) | ✅ | ✅ | ✅ | ❌ (text→server) | ⚠️ | ⚠️ | ✅ |
+| Open source | ✅ GPL-3.0 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ AGPL-3.0 |
+
+**Reading the matrix — where Echo is uniquely ahead:** real-narration playback + alignment read-along + SRS study is a combination **no competitor has** (top rows are an Echo-only column). **Where the cohort is ahead of Echo (candidate borrowings):**
+1.  **PDF support** — nearly the whole cohort reads PDF; Echo is EPUB-centric. Lowest-hanging gap.
+2.  **AI comprehension** (PageEcho) — summaries/Q&A could feed Echo's SRS deck (auto-generated review cards).
+3.  **Multi-voice narration** (Murmura Auto Cast) — a natural upgrade to Echo's *secondary* Kokoro TTS.
+4.  **Reading stats / dictionary / cross-device sync** (KOReader, Fox Reader, PageEcho) — table-stakes polish; CloudKit sync (Roadmap 8.1) already addresses one.
 
 > [!NOTE]
-> **Doc-sync reminder:** These notes reference roadmap items (watch persistence 1.8, VoiceOver audit 8.2, CloudKit sync 8.1, Audiobookshelf 9.x). If competitive findings start *driving* roadmap priority (e.g. promoting the VoiceOver audit, or adding lightweight on-device comprehension aids in response to PageEcho), mirror that in `ROADMAP.md` so the two docs don't drift.
+> **Doc-sync reminder:** §8 surfaces concrete feature gaps (PDF reading, AI comprehension aids, multi-voice narration, reading stats). If any of these get promoted into actual work, add them to `ROADMAP.md` so the two docs don't drift — these notes already reference roadmap items (watch persistence 1.8, VoiceOver audit 8.2, CloudKit sync 8.1, Audiobookshelf 9.x).
