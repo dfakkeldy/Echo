@@ -16,7 +16,7 @@ import Testing
         #expect(c1.fraction <= ready.fraction)
         #expect(ready.fraction == 0.15)  // never exceeds the reserved prepare band
         #expect(d1.message.contains("100%"))
-        #expect(c0.message == "Compiling voice models… 0 of 20")
+        #expect(c0.message == "Loading voice models… 0 of 20")
     }
 
     @Test func compileTotalZeroDoesNotDivideByZero() {
@@ -48,5 +48,26 @@ import Testing
         let engine: any TTSEngine = Recorder()
         try await engine.prepare(progress: { box.items.append($0) })
         #expect(box.items == [.ready])
+    }
+
+    /// Regression for the coalescing-join drop: a subscriber that joins an
+    /// in-flight prepare (via `ProgressFanOut`) must still receive subsequent
+    /// events, in order. Without this the iOS Listen tap that arrives after the
+    /// NowPlayingTab pre-warm started the download saw no download/compile feedback.
+    @Test func fanOutDeliversInOrderAndToLateJoiners() {
+        final class Box: @unchecked Sendable { var items: [NarrationPrepareProgress] = [] }
+        let fan = ProgressFanOut()
+        let early = Box()
+        let late = Box()
+        fan.add { early.items.append($0) }
+        fan.emit(.downloadingModels(fraction: 0.5))
+        fan.add { late.items.append($0) }  // joins after the first event
+        fan.emit(.compilingModels(done: 1, total: 2))
+        fan.emit(.ready)
+        #expect(
+            early.items == [
+                .downloadingModels(fraction: 0.5), .compilingModels(done: 1, total: 2), .ready,
+            ])
+        #expect(late.items == [.compilingModels(done: 1, total: 2), .ready])
     }
 }

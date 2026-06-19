@@ -23,6 +23,10 @@
         private let logger = Logger(category: "KokoroFixed")
         private var pipeline: KokoroPipeline?
         private var initializationTask: Task<Void, Error>?
+        /// Fans prepare-progress out to every caller of `prepare(progress:)` —
+        /// including one that JOINS an in-flight prepare (e.g. the iOS Listen tap
+        /// arriving after a background pre-warm already started the download).
+        private var progressFanOut: ProgressFanOut?
 
         init() {}
 
@@ -57,15 +61,31 @@
 
         func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
         {
-            // Coalesce concurrent prepares onto a single download + compile.
-            if let task = initializationTask {
-                try await task.value
+            // Already prepared → just signal completion to this caller.
+            if pipeline != nil {
+                progress(.ready)
                 return
             }
+            // Coalesce concurrent prepares onto a single download + compile, but
+            // FAN OUT progress to every caller — including one that joins an
+            // in-flight prepare. (A bare pre-warm `prepare()` on iOS starts the
+            // init before the Listen tap's `prepare(progress:)`; without fan-out
+            // the tap's closure would be dropped and the user would see no
+            // feedback through the multi-minute first run.)
+            if let task = initializationTask {
+                progressFanOut?.add(progress)
+                try await task.value
+                progress(.ready)  // covers the race where init finished before we subscribed
+                return
+            }
+            let fan = ProgressFanOut()
+            fan.add(progress)
+            progressFanOut = fan
             let task = Task<Void, Error> { [logger] in
+                defer { fan.clear() }
                 // Download the pruned model set (was: progress discarded as `nil`).
                 let dir = try await NarrationModelStore.shared.ensureModels(
-                    progress: { f in progress(.downloadingModels(fraction: f)) })
+                    progress: { f in fan.emit(.downloadingModels(fraction: f)) })
                 // Persist the compiled .mlmodelc next to the packages so the multi-minute
                 // CoreML compile happens once ever; renderVersion-keyed via the subdir.
                 let compiledDir = dir.appendingPathComponent("compiled", isDirectory: true)
@@ -76,10 +96,10 @@
                     linearWeights: NarrationModelStore.hnsfLinearWeights,
                     linearBias: NarrationModelStore.hnsfLinearBias,
                     compileProgress: { done, total in
-                        progress(.compilingModels(done: done, total: total))
+                        fan.emit(.compilingModels(done: done, total: total))
                     })
                 await self.setPipeline(built)
-                progress(.ready)
+                fan.emit(.ready)
                 logger.info("Fixed-shape pipeline ready.")
             }
             initializationTask = task
@@ -107,6 +127,36 @@
         /// compiled pipeline back onto the actor safely under Swift 6 isolation.
         private func setPipeline(_ pipeline: KokoroPipeline) {
             self.pipeline = pipeline
+        }
+    }
+
+    /// Thread-safe, ordered fan-out of prepare-progress to one or more
+    /// subscribers, so a caller that JOINS an in-flight `prepare` still receives
+    /// events. A small locked box rather than the engine actor itself, because
+    /// `emit` is called synchronously (and in order: download events, then
+    /// compile, then ready) from the non-isolated `NarrationModelStore` /
+    /// `KokoroPipeline` progress callbacks.
+    final class ProgressFanOut: @unchecked Sendable {
+        private let lock = NSLock()
+        private var subscribers: [@Sendable (NarrationPrepareProgress) -> Void] = []
+
+        func add(_ subscriber: @escaping @Sendable (NarrationPrepareProgress) -> Void) {
+            lock.lock()
+            defer { lock.unlock() }
+            subscribers.append(subscriber)
+        }
+
+        func emit(_ progress: NarrationPrepareProgress) {
+            lock.lock()
+            let current = subscribers
+            lock.unlock()
+            for subscriber in current { subscriber(progress) }
+        }
+
+        func clear() {
+            lock.lock()
+            defer { lock.unlock() }
+            subscribers.removeAll()
         }
     }
 #endif

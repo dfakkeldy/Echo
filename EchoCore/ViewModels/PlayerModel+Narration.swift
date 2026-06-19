@@ -167,7 +167,7 @@
                                 let frac = total > 0 ? Double(done) / Double(total) : 0
                                 self.narrationPlaybackState.update(
                                     phase: .preparingEngine, progress: 0.5 + 0.5 * frac,
-                                    statusMessage: "Compiling voice models… \(done) of \(total)")
+                                    statusMessage: "Loading voice models… \(done) of \(total)")
                             case .ready:
                                 self.narrationPlaybackState.update(
                                     phase: .preparingEngine, progress: 1.0,

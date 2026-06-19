@@ -76,8 +76,11 @@ enum NarrationPrepareStatus {
             let c = min(max(f, 0), 1)
             return (0.075 * c, "Preparing voice models (one-time, ~850 MB)… \(Int(c * 100))%")
         case .compilingModels(let done, let total):
+            // "Loading" not "Compiling": after the first run every model is a fast
+            // cache-load (the compile is persisted), yet this callback still fires
+            // per model — "Compiling" on a sub-second load would be misleading.
             let frac = total > 0 ? Double(done) / Double(total) : 0
-            return (0.075 + 0.075 * frac, "Compiling voice models… \(done) of \(total)")
+            return (0.075 + 0.075 * frac, "Loading voice models… \(done) of \(total)")
         case .ready:
             return (0.15, "Voice models ready")
         }
