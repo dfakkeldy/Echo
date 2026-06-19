@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
 import Testing
+
 @testable import Echo
 
 @Suite struct NarrationModelStoreTests {
@@ -41,5 +43,31 @@ import Testing
     @Test func requiredFileListIsUnique() {
         let files = NarrationModelStore.requiredModelFiles()
         #expect(files.count == Set(files).count)
+    }
+
+    @Test func partialPackageIsNotCompleteUntilMarkerStamped() throws {
+        // Reproduces the wedge that bit the retired FluidAudio path: a package
+        // holding only its Manifest.json (interrupted before the weights/spec)
+        // must read as INCOMPLETE. Completeness is the explicit marker, stamped
+        // only after every internal file lands — so the package is re-walked and
+        // finished instead of being trusted and locked into the cache (the way
+        // KokoroNoise_v2 lost its model.mil yet was reused on every launch).
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent(
+            "nms-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+
+        let pkg = "kokoro_duration.mlpackage"
+        let root = dir.appendingPathComponent(pkg, isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data().write(to: root.appendingPathComponent("Manifest.json"))
+
+        let store = NarrationModelStore.shared
+        // Manifest present but no marker → incomplete (the bug, now guarded).
+        #expect(store.isPackageComplete(pkg, in: dir) == false)
+
+        try Data().write(to: NarrationModelStore.packageMarker(pkg, in: dir))
+        #expect(store.isPackageComplete(pkg, in: dir) == true)
     }
 }

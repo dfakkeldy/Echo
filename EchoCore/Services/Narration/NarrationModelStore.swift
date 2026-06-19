@@ -117,6 +117,22 @@
             NarrationCache.directory().appendingPathComponent(Self.modelSubdir, isDirectory: true)
         }
 
+        // MARK: - Per-package completeness marker
+
+        /// Sibling marker signalling that a package's every internal file landed.
+        /// Hidden + suffixed so it never collides with a `.mlpackage` the pipeline
+        /// loads. Order-independent, unlike a "Manifest.json exists" heuristic.
+        nonisolated static func packageMarker(_ name: String, in dir: URL) -> URL {
+            dir.appendingPathComponent(".\(name).complete")
+        }
+
+        /// True iff `name`'s completeness marker is present. A partial package —
+        /// even one that already wrote its `Manifest.json` — reads as incomplete,
+        /// so it is re-walked and finished rather than trusted blindly.
+        nonisolated func isPackageComplete(_ name: String, in dir: URL) -> Bool {
+            FileManager.default.fileExists(atPath: Self.packageMarker(name, in: dir).path)
+        }
+
         // MARK: - Per-package tree walk
 
         /// Downloads one `.mlpackage` directory from HF into `dir/<name>`, retrying
@@ -125,25 +141,33 @@
         /// re-fetches what's missing.
         private func downloadPackage(named name: String, into dir: URL) async throws {
             let packageRoot = dir.appendingPathComponent(name)
-            // A complete package is signalled by its Manifest.json (always present
-            // in a valid .mlpackage). If it's there, assume the package finished.
-            if FileManager.default.fileExists(atPath: packageRoot.appendingPathComponent("Manifest.json").path) {
-                return
-            }
+            // A package is complete ONLY once every internal file has landed,
+            // signalled by the sibling marker stamped after the loop below.
+            // Manifest.json presence is NOT sufficient: an interrupt after it but
+            // before the weights/spec leaves a partial package a presence check
+            // would wrongly accept — the exact way the retired FluidAudio cache
+            // wedged (KokoroNoise_v2 lost its model.mil, and every launch —
+            // including the "fresh engine" retry — reused the broken dir).
+            if isPackageComplete(name, in: dir) { return }
 
             let entries = try await listTree(at: "coreml/\(name)")
             // `entries` is the top level of the package; recurse into directories.
-            var allFiles: [String] = [] // repo-relative paths of every leaf file
+            var allFiles: [String] = []  // repo-relative paths of every leaf file
             try await collectFiles(from: entries, into: &allFiles)
 
             for file in allFiles {
                 try await downloadInternalFile(repoPath: file, packageRoot: packageRoot, name: name)
             }
+            // Every file present → stamp the marker (atomic) so later launches skip
+            // this package without a network round-trip, even offline.
+            try Data().write(to: Self.packageMarker(name, in: dir), options: .atomic)
         }
 
         /// Recursively walks HF tree entries, appending every leaf-file path
         /// (repo-relative, e.g. `coreml/foo.mlpackage/Data/weights.bin`) to `out`.
-        private func collectFiles(from entries: [HFTreeEntry], into out: inout [String]) async throws {
+        private func collectFiles(from entries: [HFTreeEntry], into out: inout [String])
+            async throws
+        {
             for entry in entries {
                 switch entry.type {
                 case "file":
@@ -152,7 +176,7 @@
                     let children = try await listTree(at: entry.path)
                     try await collectFiles(from: children, into: &out)
                 default:
-                    continue // symlinks etc. are not used by this repo
+                    continue  // symlinks etc. are not used by this repo
                 }
             }
         }
@@ -181,7 +205,9 @@
             while attempt < 2 {
                 do {
                     let (data, response) = try await urlSession.data(from: url)
-                    if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    if let http = response as? HTTPURLResponse,
+                        !(200..<300).contains(http.statusCode)
+                    {
                         throw NarrationError.modelDownloadFailed(name: name, underlying: nil)
                     }
                     try data.write(to: dest, options: .atomic)
@@ -190,7 +216,8 @@
                     lastError = error
                     attempt += 1
                     logger.warning(
-                        "Fetch \(repoPath, privacy: .public) failed (attempt \(attempt, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                        "Fetch \(repoPath, privacy: .public) failed (attempt \(attempt, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+                    )
                 }
             }
             throw NarrationError.modelDownloadFailed(name: name, underlying: lastError)
@@ -208,7 +235,8 @@
         /// via the HF HTTP API.
         private func listTree(at repoPath: String) async throws -> [HFTreeEntry] {
             // URL-encode path segments individually (slashes are path separators).
-            let encoded = repoPath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            let encoded =
+                repoPath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
                 ?? repoPath
             let url = URL(string: Self.hfTreeAPI + encoded)!
             let (data, response) = try await urlSession.data(from: url)

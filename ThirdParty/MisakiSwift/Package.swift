@@ -25,26 +25,33 @@
 import PackageDescription
 
 let package = Package(
-  name: "MisakiSwift",
-  platforms: [
-    .iOS(.v18), .macOS(.v15)
-  ],
-  products: [
-    .library(
-      name: "MisakiSwift",
-      type: .dynamic,
-      targets: ["MisakiSwift"]
-    ),
-  ],
-  dependencies: [],
-  targets: [
-    .target(
-      name: "MisakiSwift",
-      dependencies: []
-    ),
-    .testTarget(
-      name: "MisakiSwiftTests",
-      dependencies: ["MisakiSwift"]
-    ),
-  ]
+    name: "MisakiSwift",
+    platforms: [
+        .iOS(.v18), .macOS(.v15),
+    ],
+    products: [
+        .library(
+            // Static (default), matching the sibling KokoroPipeline package. It was
+            // `.dynamic` only to coexist with mlx-swift; MLX was dropped (see note 3
+            // above) so a separate dynamic framework is no longer needed — and under
+            // the app's hardened runtime an ad-hoc-signed, non-embedded MisakiSwift
+            // .framework has no Team ID, so dyld refused to load it and the signed
+            // macOS/device app aborted at launch ("different Team IDs"). Linking the
+            // (dependency-free, resource-free) sources straight into the app avoids
+            // the embed-and-re-sign dance entirely.
+            name: "MisakiSwift",
+            targets: ["MisakiSwift"]
+        )
+    ],
+    dependencies: [],
+    targets: [
+        .target(
+            name: "MisakiSwift",
+            dependencies: []
+        ),
+        .testTarget(
+            name: "MisakiSwiftTests",
+            dependencies: ["MisakiSwift"]
+        ),
+    ]
 )
