@@ -34,10 +34,24 @@
         /// 3s→120, 7s→280, 10s→400, 15s→600. The 30s→1200 is pruned.
         private static let keptTFrames: [Int] = [120, 280, 400, 600]
 
+        /// Largest duration token-bucket we compile/load. `NarrationTextChunker`
+        /// caps synthesis input at 200 chars → ≤~220 tokens for prose (measured
+        /// 2026-06-19 with the real Misaki G2P), so `selectDurationChoice` never
+        /// picks above t256 for ordinary text. The bigger duration models are
+        /// LSTM+attention over the token sequence, so their first-run CoreML compile
+        /// is O(n²) in token length — t320/t384/t512 cost ~29 min for models the
+        /// prose path never runs. Number-dense chunks that *do* exceed this are
+        /// re-split token-aware by `KokoroFixedShapeEngine`, so the cap never drops
+        /// content. Passed to `KokoroPipeline(maxDurationTokenLength:)`.
+        static let maxDurationTokens = 256
+
         /// Duration-token sizes shipped on HF (legacy `kokoro_duration` maps to
-        /// t128). All are small; keep every one so the pipeline can pad to the
-        /// nearest size for any utterance length.
-        private static let durationTokenSizes: [Int] = [32, 64, 128, 256, 320, 384, 512]
+        /// t128). Pruned to ≤ `maxDurationTokens`: the larger buckets are never
+        /// selected (the 200-char chunker caps tokens well under 256) and only add
+        /// minutes of dead first-run compile. The runtime cap
+        /// (`maxDurationTokenLength`) also ignores any larger packages already on
+        /// disk from a prior install, so this prune needs no re-download.
+        private static let durationTokenSizes: [Int] = [32, 64, 128, 256]
 
         /// Learned weights of `SourceModuleHnNSF.l_linear`, transcribed verbatim
         /// from `hnsf_weights.json` (Phase 0 source of truth). Pinned in a test.

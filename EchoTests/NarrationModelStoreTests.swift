@@ -34,10 +34,14 @@ import Testing
         #expect(files.contains("kokoro_f0ntrain_t600.mlpackage"))
         #expect(!files.contains("kokoro_f0ntrain_t1200.mlpackage"))
 
-        // ALL duration buckets are small; keep every one (the pipeline picks
-        // the nearest padded token size per utterance).
+        // Duration buckets pruned to ≤ maxDurationTokens (256): the 200-char chunker
+        // never produces tokens above ~220, so t320/t384/t512 are never selected and
+        // only add minutes of dead first-run compile. Legacy + t32…t256 are kept.
         #expect(files.contains("kokoro_duration.mlpackage"))
-        #expect(files.contains("kokoro_duration_t512.mlpackage"))
+        #expect(files.contains("kokoro_duration_t256.mlpackage"))
+        #expect(!files.contains("kokoro_duration_t320.mlpackage"))
+        #expect(!files.contains("kokoro_duration_t384.mlpackage"))
+        #expect(!files.contains("kokoro_duration_t512.mlpackage"))
     }
 
     @Test func requiredFileListIsUnique() {
