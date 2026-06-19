@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Building Echo — The Devlog</title>
-    <meta name="description" content="How Echo was built: week-by-week summaries of 423 commits in eight weeks, by a mail carrier with no prior Swift experience. Open source, fully auditable.">
+    <meta name="description" content="How Echo was built: week-by-week summaries of 600+ commits in nine weeks, by a mail carrier with no prior Swift experience. Open source, fully auditable.">
     <meta property="og:title" content="Building Echo — The Devlog">
-    <meta property="og:description" content="From 'I wonder if I could make an iOS app' to a four-platform audiobook study system in eight weeks. The week-by-week story, from the real git history.">
+    <meta property="og:description" content="From 'I wonder if I could make an iOS app' to a four-platform audiobook study system — with on-device AI narration — in nine weeks. The week-by-week story, from the real git history.">
     <meta property="og:image" content="https://dfakkeldy.github.io/Echo/assets/icon.png">
     <meta property="og:url" content="https://dfakkeldy.github.io/Echo/devlog.html">
     <meta property="og:type" content="article">
@@ -40,8 +40,8 @@
             <h1>Building Echo — The Devlog</h1>
             <p>
                 Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system in
-                about eight weeks. This is the week-by-week story, reconstructed from the actual git history —
-                <strong>423 commits between April 19 and June 9, 2026</strong>, written by a mail carrier with no
+                about nine weeks. This is the week-by-week story, reconstructed from the actual git history —
+                <strong>600+ commits between April 19 and June 19, 2026</strong>, written by a mail carrier with no
                 prior Swift experience, in the hours around a full-time delivery route.
             </p>
             <p>
@@ -54,7 +54,7 @@
             <article class="week-entry">
                 <p class="week-meta">Now · June 2026 · in progress</p>
                 <h2>The road to 1.0</h2>
-                <p>The next chapter is underway: Echo now has a defined 1.0 — a trustworthy study player on iPhone, Watch, and Mac, with honest study analytics and a complete flashcard workflow. The program, in landing order: a <strong>listening capture layer</strong> (so your stats accumulate from the very next beta build), <strong>CI and the Echo identity cleanup</strong>, the <strong>Insights screen</strong> (real listening time, streaks, chapter coverage, retention curves), opt-in <strong>Context Memory</strong> (place-tagged bookmarks and sessions), the full <strong>Anki workflow</strong> (decks, tags, a card editor, the mark-later Card Inbox, real .apkg import), <strong>Brain Dump notes</strong> with watch dictation, <strong>Markdown second-brain export</strong>, and <strong>iCloud study sync</strong>. About fourteen weeks of evenings and weekends, planned the same way everything else here was built: in public. Follow along on <a href="https://github.com/dfakkeldy/Echo" style="color: var(--link);" target="_blank" rel="noopener noreferrer">GitHub</a> — or <a href="beta.html" style="color: var(--link);">join the beta</a> and watch it land build by build.</p>
+                <p>Most of the 1.0 program has now landed, build by build: the <strong>listening capture layer</strong> and the <strong>Insights screen</strong> (real listening time, streaks, chapter coverage, retention curves), opt-in <strong>Context Memory</strong> (place-tagged bookmarks and sessions), the full <strong>Anki workflow</strong> (decks, a card editor, the mark-later Card Inbox, Markdown and JSON export), and — the headline of the last two weeks — <strong>on-device AI narration</strong> that reads a text-only EPUB aloud in a neural voice, entirely offline. Echo also went <strong>GPL-3.0</strong>. What's left for 1.0: <strong>Brain Dump notes</strong> with watch dictation, deeper <strong>Markdown second-brain export</strong>, <strong>Audiobookshelf sync</strong>, and <strong>iCloud study sync</strong> — planned the same way everything else here was built: in public. Follow along on <a href="https://github.com/dfakkeldy/Echo" style="color: var(--link);" target="_blank" rel="noopener noreferrer">GitHub</a> — or <a href="beta.html" style="color: var(--link);">join the beta</a> and watch it land build by build.</p>
             </article>
 
             <article class="week-entry">
@@ -119,20 +119,29 @@
             </article>
 
             <article class="week-entry">
-                <p class="week-meta">Week 8 · June 8 – 14 · 22 commits so far · in progress</p>
-                <h2>Polish with a safety net</h2>
-                <p>Current work, straight from the log: a <strong>watch connectivity overhaul</strong> (durable application-context sync; stale transport commands can no longer replay and phantom-pause you), pause-on-headphone-disconnect, a <strong>Pomodoro timer</strong> on the watch with a persistent alarm, a fullscreen cover-art viewer, and a configurable date overlay.</p>
-                <p>The engineering flourish of the week: the <strong>accent contrast safety pipeline</strong>. Artwork-derived theme colors now pass WCAG/CIELAB legibility gates, with a three-stage rescue ladder (nudge the hue → re-pick a safe hue → fall back to brand tint) so no album cover can ever make the UI unreadable. Plus the unglamorous good stuff: a zip-slip path-traversal security fix in EPUB extraction, and documentation refreshed across the board.</p>
+                <p class="week-meta">Week 8 · June 8 – 14 · 96 commits</p>
+                <h2>Polish, then the study system lands</h2>
+                <p>The week opened on polish with a safety net: a <strong>watch connectivity overhaul</strong> (durable application-context sync; stale transport commands can no longer replay and phantom-pause you), pause-on-headphone-disconnect, a <strong>Pomodoro timer</strong> on the watch with a persistent alarm, a fullscreen cover-art viewer, and a configurable date overlay. The engineering flourish: the <strong>accent contrast safety pipeline</strong> — artwork-derived theme colors now pass WCAG/CIELAB legibility gates, with a three-stage rescue ladder (nudge the hue → re-pick a safe hue → fall back to brand tint) so no album cover can ever make the UI unreadable. Plus a zip-slip path-traversal security fix in EPUB extraction.</p>
+                <p>Then, mid-week, the study system the "road to 1.0" had promised actually shipped. The <strong>Insights screen</strong> arrived — a Swift Charts dashboard over a new stats aggregation layer (listening time, streaks, chapter coverage, retention trends), built pure-functions-first with its own tests. <strong>Context Memory</strong> landed as opt-in location capture wired into bookmarks. The <strong>Anki workflow</strong> filled out: deck support, a card editor, the mark-later <strong>Card Inbox</strong>, and Markdown study-notes plus JSON deck export. A battery-drain audit pulled the always-on CADisplayLink, halved timer ticks, and made the FFT visualizer reuse its setup. And quietly, the first bricks of the next big thing went in: a <strong>TTSEngine</strong> seam, a curated voice catalog, synthesized alignment anchors, and a Kokoro CoreML inference spike — the foundation for on-device narration.</p>
+            </article>
+
+            <article class="week-entry">
+                <p class="week-meta">Week 9 · June 15 – 19 · 132 commits</p>
+                <h2>The voice arrives</h2>
+                <p>The biggest push since the big-bang week, and it had one headline: <strong>on-device AI narration</strong>. Point Echo at a text-only EPUB and it reads the book aloud in a neural voice — the <strong>Kokoro</strong> TTS model running entirely on device, no account, no cloud, no audio leaving the phone. The architecture is <em>render-then-play</em>: each chapter is synthesized to a lossless cache and then played back, so there are none of the streaming hitches that plague live-TTS readers, and the result survives backgrounding and scrubbing like any other audiobook. The reader gained <strong>word-by-word karaoke highlighting</strong> driven by the synthesizer's own word timings, and a <strong>pronunciation dictionary</strong> so you can teach it names and jargon with your own IPA.</p>
+                <p>Getting there meant a hard week of audio engineering: killing an encoder whine, fixing a Kokoro/BNNS crash by chunking the input, gating to A15+ where the older Neural Engine traps, and — by week's end — swapping in a <strong>fixed-shape Kokoro pipeline</strong> with lexicon-only grapheme-to-phoneme conversion that dropped a heavy MLX dependency so the whole thing builds and unit-tests cleanly. The UI now shows one-time model download and compile progress so the first render doesn't look frozen.</p>
+                <p>Around the headline, a lot else shipped. The <strong>macOS app</strong> got a BookPlayer-style redesign — a chapter-navigation bar, volume boost, a real Settings scene, a playback-options popover — plus an <strong>overnight batch queue</strong> that can align <em>or</em> narrate a whole folder of EPUBs while you sleep, then export real <strong>M4B files with chapter markers</strong>. iOS got an <strong>Echo Pro</strong> entitlement model with a free-tier gate and paywall, per-tab <strong>NavigationStacks</strong> with deep links and restored state, and an Audiobookshelf data-layer foundation. The website grew a <strong>glossary</strong> with accessible inline popovers. And the licensing changed for good: Echo is now <strong>GPL-3.0</strong>, with SPDX headers across every source file.</p>
             </article>
         </div>
 
         <section class="band" style="max-width: 72ch;">
             <h2 class="section-title">The shape of the thing</h2>
             <p style="color: var(--text-secondary); margin-bottom: 1rem;">
-                Eight working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database,
-                an on-device ML alignment pipeline, a spaced-repetition system, and an EPUB/PDF reader — built
-                nights-and-weekends around a mail route, by someone whose previous programming experience was
-                "some Python scripts for GIS and a Visual Basic call logger in high school."
+                Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database,
+                an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition
+                system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose
+                previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in
+                high school."
             </p>
             <p style="color: var(--text-secondary);">
                 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code:
