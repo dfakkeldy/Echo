@@ -181,6 +181,15 @@ final class MacBatchProcessingService {
         refresh()
     }
 
+    /// Removes a still-queued item from the queue (no-op if the runner has already
+    /// started it). Only the queue row is deleted — any rendered chapters for the
+    /// book stay in the library. Mirrors `clearCompleted()`: DAO write then refresh.
+    func removeQueued(_ item: BatchQueueRecord) {
+        guard let id = item.id else { return }
+        try? dao.deleteQueued(id: id)
+        refresh()
+    }
+
     /// Whether a narrated book has at least one rendered chapter on disk. Lets the
     /// queue offer "Open" for a `.failed` narrate item that still produced playable
     /// chapters before it stopped (e.g. a mid-book vocoder failure).

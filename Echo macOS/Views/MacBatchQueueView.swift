@@ -34,12 +34,6 @@ struct MacBatchQueueView: View {
                     List(service.items) { item in
                         MacBatchQueueRow(
                             item: item,
-                            // A narration book can be opened straight into the player
-                            // (its tracks come from the DB, since rendered files live
-                            // outside any scanned folder) once it has reached a
-                            // terminal state AND produced at least one chapter — so a
-                            // `.failed` book that stopped mid-way (e.g. a vocoder
-                            // failure) is still playable up to where it got.
                             onOpen: (item.kind == .narrate
                                 && (item.status == .completed || item.status == .failed)
                                 && service.hasRenderedTracks(for: item.audiobookID))
@@ -47,7 +41,9 @@ struct MacBatchQueueView: View {
                                     player.loadNarratedBook(audiobookID: item.audiobookID)
                                     dismiss()
                                 }
-                                : nil)
+                                : nil,
+                            // Only a not-yet-started item can be pulled from the queue.
+                            onRemove: item.status == .queued ? { service.removeQueued(item) } : nil)
                     }
                 }
             }
@@ -78,6 +74,8 @@ private struct MacBatchQueueRow: View {
     let item: BatchQueueRecord
     /// Non-nil for a completed narrated book: opens it in the player.
     var onOpen: (() -> Void)? = nil
+    /// Non-nil for a queued item: removes it from the queue.
+    var onRemove: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -98,8 +96,23 @@ private struct MacBatchQueueRow: View {
                 Button("Open", action: onOpen)
                     .buttonStyle(.borderless)
             }
+            if let onRemove {
+                Spacer()
+                Button(role: .destructive, action: onRemove) {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Remove from Queue")
+            }
         }
         .padding(.vertical, 4)
+        .contextMenu {
+            if let onRemove {
+                Button(
+                    "Remove from Queue", systemImage: "minus.circle", role: .destructive,
+                    action: onRemove)
+            }
+        }
     }
 
     private var icon: some View {
