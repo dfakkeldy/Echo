@@ -287,19 +287,32 @@ final class MacBatchProcessingService {
                 // chapter loop, reported as its own phase. Without this the UI sits on
                 // "Narrating chapter 1" for minutes while prepare runs lazily inside the first
                 // synthesize.
-                // `rawProgress` is non-escaping (it writes to the DB row via the runner), so we
-                // use `withoutActuallyEscaping` to bridge it into the `@escaping @Sendable`
-                // closure that `prepare(progress:)` requires. The `await` here guarantees
-                // prepare is fully done before we return — the closure cannot outlive this call.
+                //
+                // The engine calls its progress closure from a non-main actor (KokoroFixed's
+                // actor), so we cannot capture the non-escaping `rawProgress` parameter in the
+                // `@escaping @Sendable` closure that `prepare(progress:)` requires.
+                //
+                // Solution: use an AsyncStream as a Sendable channel. The `@Sendable` producer
+                // closure calls `continuation.yield(p)` (safe — AsyncStream is Sendable), and
+                // the consumer `for await` loop runs on @MainActor, calling the nested
+                // `progress(_:_:_:)` func that wraps `rawProgress`. A child task in
+                // `withThrowingTaskGroup` runs `prepare` concurrently with the consumer; the
+                // `defer` on `continuation.finish()` ends the stream once prepare resolves so
+                // the for-await loop drains to completion before the group exits. This is fully
+                // structured — no unstructured Task, no withoutActuallyEscaping.
                 do {
-                    try await withoutActuallyEscaping(rawProgress) { escapableRawProgress in
-                        try await service.tts.prepare(progress: { p in
-                            Task { @MainActor in
-                                let s = NarrationPrepareStatus.batch(for: p)
-                                escapableRawProgress(.transcribing, s.fraction, s.message)
-                                self?.refresh()
-                            }
-                        })
+                    let (prepareStream, prepareContinuation) =
+                        AsyncStream<NarrationPrepareProgress>.makeStream()
+                    try await withThrowingTaskGroup(of: Void.self) { group in
+                        group.addTask {
+                            defer { prepareContinuation.finish() }
+                            try await service.tts.prepare { p in prepareContinuation.yield(p) }
+                        }
+                        for await p in prepareStream {
+                            let s = NarrationPrepareStatus.batch(for: p)
+                            progress(.transcribing, s.fraction, s.message)
+                        }
+                        try await group.waitForAll()
                     }
                 } catch is CancellationError {
                     throw CancellationError()
