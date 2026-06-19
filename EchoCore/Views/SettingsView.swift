@@ -15,6 +15,8 @@ struct SettingsView: View {
 
     #if DEBUG
         @State private var debugNarrationPlayer: AVAudioPlayer?
+        @AppStorage(NarrationCapability.developerForceEnableKey)
+        private var forceEnableA14Narration = false
     #endif
 
     var body: some View {
@@ -96,10 +98,15 @@ struct SettingsView: View {
                                 }
                             }
                         }
+                        Toggle("Force-enable narration on A14", isOn: $forceEnableA14Narration)
                     } header: {
                         Text("Debug Menu")
                     } footer: {
-                        Text("Loads audio files from Development Assets into the player.")
+                        Text(
+                            "Loads audio files from Development Assets into the player. "
+                                + "“Force-enable narration on A14” bypasses the A15+ hardware gate "
+                                + "(DEBUG only) so the fixed-shape Kokoro engine can be verified on "
+                                + "an iPhone 12 Pro / other A14 device.")
                     }
                 #endif
 
