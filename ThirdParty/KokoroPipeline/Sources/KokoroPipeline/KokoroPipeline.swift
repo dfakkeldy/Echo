@@ -22,6 +22,7 @@
 import Accelerate
 import CoreML
 import Foundation
+import OSLog
 
 // MARK: - Configuration
 
@@ -174,6 +175,21 @@ public struct DurationModelChoice {
 /// hundreds of milliseconds per model. For app integration, call init
 /// on a background thread or use pre-compiled ``.mlmodelc`` bundles.
 public class KokoroPipeline: KokoroModelProvider {
+
+    /// Loud by design: the first-run model compile is CPU-bound and minutes long,
+    /// so without per-model logging the app looks frozen. `.notice` level so it
+    /// surfaces in Console + the Xcode debug console without extra configuration.
+    private static let log = Logger(subsystem: "Echo.Narration", category: "KokoroPipeline")
+
+    private static func unitsLabel(_ units: MLComputeUnits) -> String {
+        switch units {
+        case .cpuOnly: return "CPU"
+        case .cpuAndGPU: return "CPU+GPU"
+        case .all: return "CPU+GPU+ANE"
+        case .cpuAndNeuralEngine: return "CPU+ANE"
+        @unknown default: return "?"
+        }
+    }
     private let durationModels: [String: MLModel]  // keyed by DurationModelChoice.cacheKey
     private let durationChoices: [DurationModelChoice]
     private let f0ntrainModels: [Int: MLModel]  // keyed by T_frames
@@ -204,9 +220,18 @@ public class KokoroPipeline: KokoroModelProvider {
         buckets: [Int] = PipelineConstants.defaultBuckets,
         linearWeights: [Float],
         linearBias: Float,
+        maxDurationTokenLength: Int? = nil,
         compileProgress: ((_ done: Int, _ total: Int) -> Void)? = nil
     ) throws {
-        let durationChoices = Self.discoverDurationChoices(modelsDirectory: modelsDirectory)
+        // Cap the duration models discovered/compiled. The duration predictor is an
+        // LSTM+attention stack over the token sequence, so its first-run CoreML
+        // compile is O(n²) in token length; callers that bound their chunk length
+        // (e.g. a 200-char text chunker) pass the largest size they can ever select
+        // so the bigger, never-used models aren't compiled. Defaulted → existing
+        // callers are unaffected.
+        let durationChoices = Self.discoverDurationChoices(
+            modelsDirectory: modelsDirectory,
+            maxDurationTokenLength: maxDurationTokenLength)
         let fm = FileManager.default
         func present(_ name: String) -> Bool {
             fm.fileExists(atPath: modelsDirectory.appendingPathComponent(name).path)
@@ -218,15 +243,48 @@ public class KokoroPipeline: KokoroModelProvider {
             .filter { present("kokoro_f0ntrain_t\($0).mlpackage") }.count
             + buckets.filter { present("kokoro_decoder_pre_\($0)s.mlpackage") }.count
             + buckets.filter { present("kokoro_decoder_har_post_\($0)s.mlpackage") }.count
+        Self.log.notice(
+            "Building Kokoro pipeline: loading \(total, privacy: .public) CoreML models. First run compiles each on-device (Espresso AOT, CPU-bound) — minutes; cached after."
+        )
+        let pipelineStart = Date()
         var done = 0
         func loadModel(package: URL, name: String, units: MLComputeUnits) throws -> MLModel {
+            // `MLModel.compileModel` is an uninterruptible blocking call, so without a
+            // check between models a cancel/quit is ignored until the current model
+            // finishes. Checking here lands a cancel within one model (~tens of ms
+            // for the pruned set) instead of mid-multi-minute-compile.
+            try Task.checkCancellation()
             let cfg = MLModelConfiguration()
             cfg.computeUnits = units
+            Self.log.notice(
+                "Loading model \(done + 1, privacy: .public)/\(total, privacy: .public): \(name, privacy: .public) [\(Self.unitsLabel(units), privacy: .public)]…"
+            )
+            let started = Date()
+            let compileStep: (URL) throws -> URL = { try MLModel.compileModel(at: $0) }
             let url = try Self.ensureCompiledModel(
                 name: name, cacheDir: compiledModelsDirectory,
-                compile: { try MLModel.compileModel(at: $0) }, package: package)
-            let model = try MLModel(contentsOf: url, configuration: cfg)
+                compile: compileStep, package: package)
+            let model: MLModel
+            do {
+                model = try MLModel(contentsOf: url, configuration: cfg)
+            } catch let loadError {
+                // A cached `.mlmodelc` that no longer loads (e.g. an OS upgrade
+                // invalidated it) would otherwise hard-fail every launch forever.
+                // Discard the stale cache entry and recompile from the package once.
+                guard let cacheDir = compiledModelsDirectory else { throw loadError }
+                Self.log.error(
+                    "Cached model \(name, privacy: .public) failed to load (\(loadError.localizedDescription, privacy: .public)); discarding cache + recompiling once."
+                )
+                try? FileManager.default.removeItem(
+                    at: cacheDir.appendingPathComponent("\(name).mlmodelc", isDirectory: true))
+                let fresh = try Self.ensureCompiledModel(
+                    name: name, cacheDir: cacheDir, compile: compileStep, package: package)
+                model = try MLModel(contentsOf: fresh, configuration: cfg)
+            }
             done += 1
+            Self.log.notice(
+                "  ✓ \(name, privacy: .public) ready in \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public) ms (\(done, privacy: .public)/\(total, privacy: .public))"
+            )
             compileProgress?(done, total)
             return model
         }
@@ -283,6 +341,9 @@ public class KokoroPipeline: KokoroModelProvider {
 
         self.linearWeights = linearWeights
         self.linearBias = linearBias
+        Self.log.notice(
+            "Kokoro pipeline ready: \(total, privacy: .public) models loaded in \(Int(Date().timeIntervalSince(pipelineStart) * 1000), privacy: .public) ms."
+        )
     }
 
     /// Synthesize audio from pre-tokenized input.
@@ -468,7 +529,11 @@ public class KokoroPipeline: KokoroModelProvider {
         guard let cacheDir else { return try compile(package) }
         let fm = FileManager.default
         let cached = cacheDir.appendingPathComponent("\(name).mlmodelc", isDirectory: true)
-        if fm.fileExists(atPath: cached.path) { return cached }
+        if fm.fileExists(atPath: cached.path) {
+            log.notice("compile-cache HIT \(name, privacy: .public)")
+            return cached
+        }
+        log.notice("compile-cache MISS \(name, privacy: .public) — compiling (one-time)")
         let compiled = try compile(package)
         do {
             try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
@@ -476,6 +541,12 @@ public class KokoroPipeline: KokoroModelProvider {
             try fm.moveItem(at: compiled, to: cached)
             return cached
         } catch {
+            // Loud: a persistent write failure here means EVERY launch recompiles —
+            // exactly the multi-minute "stuck loading models" symptom — so surface it
+            // instead of letting it look like an environmental fluke.
+            log.error(
+                "compile-cache WRITE FAILED \(name, privacy: .public): \(error.localizedDescription, privacy: .public) — will recompile on every launch until fixed"
+            )
             return compiled  // don't break narration on a cache write failure
         }
     }

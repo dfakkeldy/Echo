@@ -83,9 +83,13 @@
             progressFanOut = fan
             let task = Task<Void, Error> { [logger] in
                 defer { fan.clear() }
+                logger.notice("Preparing narration engine: ensuring model set is present…")
                 // Download the pruned model set (was: progress discarded as `nil`).
                 let dir = try await NarrationModelStore.shared.ensureModels(
                     progress: { f in fan.emit(.downloadingModels(fraction: f)) })
+                logger.notice(
+                    "Model set present; building pipeline (CoreML compile/load follows — see KokoroPipeline logs)…"
+                )
                 // Persist the compiled .mlmodelc next to the packages so the multi-minute
                 // CoreML compile happens once ever; renderVersion-keyed via the subdir.
                 let compiledDir = dir.appendingPathComponent("compiled", isDirectory: true)
@@ -95,12 +99,17 @@
                     buckets: NarrationModelStore.keptBucketSeconds,
                     linearWeights: NarrationModelStore.hnsfLinearWeights,
                     linearBias: NarrationModelStore.hnsfLinearBias,
+                    // Ignore any duration models above the cap that a prior install
+                    // left on disk, so the multi-minute compile of never-selected
+                    // t320/t384/t512 is skipped even before the pruned download set
+                    // reaches new installs.
+                    maxDurationTokenLength: NarrationModelStore.maxDurationTokens,
                     compileProgress: { done, total in
                         fan.emit(.compilingModels(done: done, total: total))
                     })
                 await self.setPipeline(built)
                 fan.emit(.ready)
-                logger.info("Fixed-shape pipeline ready.")
+                logger.notice("Fixed-shape pipeline ready; narration can begin.")
             }
             initializationTask = task
             try await task.value
@@ -109,16 +118,80 @@
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             try await prepare()
             guard let pipeline else { throw NarrationError.engineUnavailable }
+            let cap = NarrationModelStore.maxDurationTokens
             let inputs = try Self.PipelineInputs.make(text: text, voice: voice)
-            let result = try pipeline.synthesize(
-                inputIds: inputs.ids,
-                attentionMask: inputs.attentionMask,
-                refS: inputs.refS,
-                speed: 1.0)
+            // Fast path: the chunk fits the largest loaded duration model.
+            if inputs.ids.count <= cap {
+                return try run(inputs, on: pipeline)
+            }
+            // Over-cap (number/OCR-dense text whose phoneme count exceeds the cap):
+            // split token-aware into fitting pieces, synthesize each, and concatenate
+            // into ONE chunk — so NarrationService's per-block duration + single
+            // read-along anchor see exactly what an un-split chunk would produce. A
+            // piece that still can't fit (a single indivisible token) is skipped, not
+            // failed, matching NarrationService's per-sub-chunk loss-tolerance.
+            let pieces = Self.splitToFit(text, maxTokens: cap) { piece in
+                (try? Self.PipelineInputs.make(text: piece, voice: voice).ids.count) ?? Int.max
+            }
+            var samples: [Float] = []
+            var producedAny = false
+            for piece in pieces {
+                do {
+                    let pieceInputs = try Self.PipelineInputs.make(text: piece, voice: voice)
+                    samples += try run(pieceInputs, on: pipeline).samples
+                    producedAny = true
+                } catch NarrationError.lengthCapExceeded {
+                    continue  // indivisible over-cap fragment → skip just this piece
+                }
+            }
+            guard producedAny else { throw NarrationError.lengthCapExceeded }
             return TTSChunk(
-                samples: result.audio,
-                sampleRate: 24_000,
-                duration: Double(result.audio.count) / 24_000)
+                samples: samples, sampleRate: 24_000,
+                duration: Double(samples.count) / 24_000)
+        }
+
+        /// Runs one prepared synthesis call, translating the pipeline's length error
+        /// (`PipelineError.inputTooLong`) into `NarrationError.lengthCapExceeded` so
+        /// `NarrationService`'s existing skip path handles it — without coupling the
+        /// service to the KokoroPipeline error type. Other `PipelineError` cases
+        /// (`modelNotLoaded`, `noBucketAvailable`) propagate unchanged.
+        private func run(_ inputs: PipelineInputs, on pipeline: KokoroPipeline) throws -> TTSChunk {
+            do {
+                let result = try pipeline.synthesize(
+                    inputIds: inputs.ids,
+                    attentionMask: inputs.attentionMask,
+                    refS: inputs.refS,
+                    speed: 1.0)
+                return TTSChunk(
+                    samples: result.audio,
+                    sampleRate: 24_000,
+                    duration: Double(result.audio.count) / 24_000)
+            } catch let error as PipelineError {
+                if case .inputTooLong = error { throw NarrationError.lengthCapExceeded }
+                throw error
+            }
+        }
+
+        /// Splits `text` into pieces each estimated `<= maxTokens` by `tokenCount`,
+        /// recursing through `NarrationTextChunker` (sentence/clause boundaries) at a
+        /// halving char budget. A genuinely indivisible fragment — a single token
+        /// whose own count exceeds the cap — is returned as-is for the caller to skip.
+        /// Pure (tokenizer injected) so the bound + termination are unit-testable
+        /// without the CoreML model set. Validated 2026-06-19: worst leaf 238 ≤ 256
+        /// across the adversarial corpus including a 1151-token all-digit string.
+        static func splitToFit(
+            _ text: String, maxTokens: Int, depth: Int = 0,
+            tokenCount: (String) -> Int
+        ) -> [String] {
+            if tokenCount(text) <= maxTokens { return [text] }
+            // Halve the char budget each level; the chunker bounds every piece to it,
+            // so pieces shrink geometrically. `depth` is a backstop against any
+            // pathological non-shrinking input.
+            let pieces = NarrationTextChunker.split(text, maxChars: max(40, text.count / 2))
+            if pieces.count < 2 || depth >= 40 { return [text] }  // indivisible / floor
+            return pieces.flatMap {
+                splitToFit($0, maxTokens: maxTokens, depth: depth + 1, tokenCount: tokenCount)
+            }
         }
 
         // MARK: - Private
