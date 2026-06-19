@@ -245,6 +245,9 @@ A real, polished, working iOS reader by **Salman Ahmad** (id `6761392204`). The 
 *   **Fox Summary Assistant** — an **Apple-Intelligence** on-device AI helper (a "Fox Popup") that summarizes what you're reading. (Same AI-comprehension play as PageEcho.)
 *   **Library polish** — Continue Reading, Pinned + **Smart Collections** (Reading / Almost Finished / Unread / Recent), per-author grouping, and **"Discover More from Your Authors"** AI recommendations. Dedicated **Stats** and **Tracking** tabs.
 
+> [!NOTE]
+> **TTS architecture (confirmed hands-on, June 2026).** The Neural Voice Engine is an **on-device neural TTS model, not a cloud service**: it **downloads a compact model on first use** (a few seconds) and then synthesizes locally — fast, and it **runs well on an iPhone 12 Pro** (A14, 2020). A telling detail: the iPhone 12 Pro **cannot run Apple Intelligence** (needs A17 Pro / M-series), yet the voice engine still works while the *Fox Summary Assistant* is gated off — so the **TTS and the AI-summary features are separate stacks**, and the voice engine has **far broader device reach** than the AI features. The small/fast model + older-device support points to a **compact open model in the Kokoro/Piper class run via an ONNX/CoreML runtime** (exact model unconfirmed). **Competitive implication for Echo:** this **neutralizes "on-device TTS" as an Echo-exclusive claim** — Fox Reader matches Echo's on-device synthesis and privacy posture. Echo's separation must rest on **real human-narration alignment + SRS study**, *not* "on-device vs cloud." (Open question worth a glance: whether Fox synthesizes **real-time during reading** vs Echo's **render-then-play** — the §7.1 thermal/battery angle.)
+
 **What Fox Reader has that Echo doesn't:**
 *   **On-device AI summaries** (Fox Summary Assistant) — Echo has no comprehension layer.
 *   **Speed-reading / word-pacing** (Auralis RSVP) — a distinct guided-reading mode Echo lacks.
@@ -291,7 +294,7 @@ Echo against the reader/TTS cohort. ✅ = present, ❌ = absent, ⚠️ = partia
 | Cross-device sync | ⚠️ planned (CloudKit 8.1) | ❌ | ✅ iCloud | ❌ | ⚠️ | ❌ | ✅ KOSync |
 | Ambient soundscapes | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | OpenDyslexic / Lexend fonts | ✅ | ⚠️ | ⚠️ | ⚠️ | ❌ | ❌ | ✅ (typography) |
-| Fully on-device (no server round-trip) | ✅ | ✅ | ✅ | ❌ (text→server) | ⚠️ | ⚠️ | ✅ |
+| Fully on-device (no server round-trip) | ✅ | ✅ | ✅ | ❌ (text→server) | ✅ (TTS) | ⚠️ | ✅ |
 | Open source | ✅ GPL-3.0 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ AGPL-3.0 |
 
 **Reading the matrix — where Echo is uniquely ahead:** real-narration playback + alignment read-along + SRS study is a combination **no competitor has** (top rows are an Echo-only column). **Where the cohort is ahead of Echo (candidate borrowings):**
