@@ -16,14 +16,14 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **PageEcho** | Solo/small dev (unverified) | `6755965837` | Direct (Narration) | Privacy-first on-device AI TTS reader + AI comprehension aids |
 | **KOReader** | KOReader Community (open source) | *n/a — no App Store build* | Indirect (Reader) | Power-user e-ink/Android document reader |
 | **Murmura** | Datachain Consulting Pty Ltd | `6761295449` | Direct (Narration) | TTS "Listen to Your Books" — multi-voice narration of your docs |
-| **Fox Reader** | *Maker unverified* | *see §7.9* | Direct (Narration) | "AI audiobook maker" — AI TTS turning text into audiobooks |
+| **Fox Reader** | Salman Ahmad | `6761392204` | Direct (Narration) | Speed-reading EPUB reader + neural read-aloud + AI summaries |
 | **CocoReader: offline audiobooks** | *Maker unverified* | *see §7.10* | Direct | Offline/local-file audiobook player |
 | **AnkiMobile Flashcards** | Anki Software, LLC | `373493387` | Indirect | Hardcore spaced repetition (SRS) learners |
 | **Apple Books** | Apple | `364709193` | Indirect | Mainstream book/audiobook consumers |
 | **Quizlet: More than Flashcards** | Quizlet Inc | `546473125` | Indirect | Students seeking multi-modal study aids |
 
 > [!NOTE]
-> **Research caveat:** Apple's App Store pages and the iTunes lookup API were unreachable (HTTP 403) from the research sandbox, so feature/price details for *Murmura*, *Fox Reader*, and *CocoReader* come from search-result snippets and the owner's own descriptions, not full listing reads — verify on-device before quoting in public copy. *Fox Reader* and *CocoReader* in particular are recorded per the owner's description (an AI-TTS audiobook maker, and an offline audiobook player, respectively); a namesake "Fox Reader" speed-reader by Salman Ahmad (id `6761392204`) also exists and may be confused with it.
+> **Research caveat:** Apple's App Store pages and the iTunes lookup API were unreachable (HTTP 403) from the research sandbox. ***Fox Reader*'s details below are confirmed from owner-supplied screenshots** — it is the app by Salman Ahmad (id `6761392204`), a real, polished, working product. *Murmura* details come from search-result snippets, and *CocoReader* is recorded per the owner's description (an offline audiobook player) pending a listing read — verify both on-device before quoting in public copy.
 
 ---
 
@@ -38,7 +38,7 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **PageEcho** | Freemium / IAP | Free / paid | Optional | Premium unlocks unlimited TTS + AI features; sold monthly, yearly, **or lifetime** |
 | **KOReader** | Free (donation) | Free | No | None — free software, no ads, no IAP |
 | **Murmura** | Freemium / Subscription | Free (2 books) / Pro $4.99·mo·$39.99·yr / Max $9.99·mo·$79.99·yr·**$129.99 lifetime** | Yes | Pro = 20 books; Max = unlimited docs, all voices, ambient soundscapes, Family Sharing |
-| **Fox Reader** | Freemium / Subscription | *price unconfirmed* (7-day trial → monthly/yearly) | Yes | Premium unlocks full AI audiobook generation |
+| **Fox Reader** | Freemium (ad-supported) / Subscription | Free w/ ads / *sub price unconfirmed* | Yes | Subscription removes ads + unlocks premium (Neural Voice Engine, Fox Summary Assistant) |
 | **CocoReader** | *Unconfirmed* | *unknown* | *?* | *Pending listing access* |
 | **AnkiMobile** | Paid | $24.99 | No | None (supports developer of free desktop version) |
 | **Apple Books** | Free app / Paid books | Free | No | Per-book purchases |
@@ -237,16 +237,26 @@ A privacy-first iOS TTS app (Datachain Consulting, id `6761295449`) that imports
 *   **Copy:** Auto Cast is the standout idea — multi-voice expressive narration is a real differentiator within the TTS cohort, and a natural enhancement for Echo's *secondary* Kokoro narration (e.g. distinct narrator/character voices when no human audiobook exists). The "$129.99 lifetime" reinforces the indie one-time-purchase signal (cf. Prologue, PageEcho).
 *   **Exploit:** Murmura's privacy story has an asterisk — it **ships your text to a server** to synthesize voices. Echo's narration is **fully on-device** (Kokoro, render-then-play). "Nothing leaves your phone — not even the text" is a sharper privacy claim than Murmura can make.
 
-### 7.9 — Fox Reader ("AI audiobook maker")
+### 7.9 — Fox Reader (verified from screenshots)
 
-> [!CAUTION]
-> **Unverified listing.** Recorded per the owner's description as an AI-TTS "audiobook maker." The App Store/iTunes API were unreachable from research, so specifics aren't confirmed, and a **separate speed-reader named "Fox Reader"** (Salman Ahmad, id `6761392204`, no audio) exists and is easy to confuse with it. Confirm the exact App Store URL so this can be verified.
+A real, polished, working iOS reader by **Salman Ahmad** (id `6761392204`). The owner rates it well, and it's the most feature-complete of this batch. It blends three things into one app: **guided/speed reading**, **neural read-aloud**, and **on-device AI summaries** — wrapped in a notably refined "Fox Library" UI (fox mascot, sepia theme, smart collections). Ad-supported freemium; a subscription removes ads and unlocks premium. Verified surfaces:
 
-Per the owner, the more aggressive competitor: an **AI audiobook maker** — turns text/EPUB/PDF into a generated audiobook via AI TTS. Functionally it sits in the same cohort as LoudReader / PageEcho / Murmura.
+*   **Auralis** — the reading engine. *"Highlights words at your reading speed. Turn off to read at your own pace with page-by-page progress tracking."* This is RSVP-style **word-pacing/speed-reading**, paired with a **Neural Voice Engine** toggle for **neural TTS read-aloud**. So its "read-along" is *TTS-driven word highlighting*, not alignment to a recorded human narration.
+*   **Fox Summary Assistant** — an **Apple-Intelligence** on-device AI helper (a "Fox Popup") that summarizes what you're reading. (Same AI-comprehension play as PageEcho.)
+*   **Library polish** — Continue Reading, Pinned + **Smart Collections** (Reading / Almost Finished / Unread / Recent), per-author grouping, and **"Discover More from Your Authors"** AI recommendations. Dedicated **Stats** and **Tracking** tabs.
 
-*   **What Fox Reader (as described) has that Echo doesn't:** one-tap **bulk text→audiobook generation** as the headline use case; presumably a library of AI voices and a frictionless "drop any document, get an audiobook" flow.
-*   **What Echo has that Fox Reader doesn't:** **real human-narrated playback + alignment read-along**, the **SRS study layer**, watchOS/widgets/macOS, OpenDyslexic/Lexend, and GPL-3.0 — the same structural moat that separates Echo from every pure TTS-maker.
-*   **Exploit:** identical to the cohort — an AI-generated audiobook is *synthetic*; it can't give you a beloved professional narrator perfectly synced to the page. Lead with real narration.
+**What Fox Reader has that Echo doesn't:**
+*   **On-device AI summaries** (Fox Summary Assistant) — Echo has no comprehension layer.
+*   **Speed-reading / word-pacing** (Auralis RSVP) — a distinct guided-reading mode Echo lacks.
+*   **Reading stats + tracking + smart collections + AI author recommendations** — markedly more polished library organization than Echo's.
+*   A refined, characterful **brand/UI** (mascot, themes) — worth noting as a bar for fit-and-finish.
+
+**What Echo has that Fox Reader doesn't:**
+*   **Real human-narrated M4B/MP3 playback + alignment read-along** — Fox Reader's audio is *synthetic* (Neural Voice Engine reading the text); it does not play or sync to a professional audiobook.
+*   The **SRS study layer** (inline flashcards, SM-2, auto audio snippets), **watchOS** review, **photo bookmarks**, **Smart Rewind**, **OpenDyslexic/Lexend**, **GPL-3.0**, and **no ads**.
+
+*   **Copy:** Its **AI summaries + Auralis pacing + stats** are a strong "help me read better and understand more" story. The Apple-Intelligence summary feature is the clearest thing to consider borrowing (feed recaps into Echo's SRS deck). And the fit-and-finish of "Fox Library" is the polish bar to clear.
+*   **Exploit:** Same structural moat as the whole cohort — the Neural Voice Engine is *synthetic narration*. Fox Reader can't give you a beloved professional narrator perfectly synced to the page, and it has no spaced-repetition study. Lead with **real narration + study**.
 
 ### 7.10 — CocoReader: offline audiobooks
 
@@ -274,9 +284,9 @@ Echo against the reader/TTS cohort. ✅ = present, ❌ = absent, ⚠️ = partia
 | EPUB reading | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
 | PDF reading | ❌ | ✅ | ✅ | ✅ | ⚠️ | ❌ | ✅ |
 | **watchOS** app | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Multi-voice / per-character narration | ❌ | ❌ | ❌ | ✅ Auto Cast | ⚠️ | ❌ | ❌ |
-| AI comprehension (summaries / Q&A / mind-maps) | ❌ | ❌ | ✅ | ❌ | ⚠️ | ❌ | ❌ |
-| Reading stats / streaks / goals | ❌ | ❌ | ⚠️ | ❌ | ❌ | ❌ | ✅ |
+| Multi-voice / per-character narration | ❌ | ❌ | ❌ | ✅ Auto Cast | ❌ | ❌ | ❌ |
+| AI comprehension (summaries / Q&A / mind-maps) | ❌ | ❌ | ✅ | ❌ | ✅ summaries | ❌ | ❌ |
+| Reading stats / streaks / goals | ❌ | ❌ | ⚠️ | ❌ | ✅ | ❌ | ✅ |
 | Offline dictionary lookup | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Cross-device sync | ⚠️ planned (CloudKit 8.1) | ❌ | ✅ iCloud | ❌ | ⚠️ | ❌ | ✅ KOSync |
 | Ambient soundscapes | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
@@ -286,7 +296,7 @@ Echo against the reader/TTS cohort. ✅ = present, ❌ = absent, ⚠️ = partia
 
 **Reading the matrix — where Echo is uniquely ahead:** real-narration playback + alignment read-along + SRS study is a combination **no competitor has** (top rows are an Echo-only column). **Where the cohort is ahead of Echo (candidate borrowings):**
 1.  **PDF support** — nearly the whole cohort reads PDF; Echo is EPUB-centric. Lowest-hanging gap.
-2.  **AI comprehension** (PageEcho) — summaries/Q&A could feed Echo's SRS deck (auto-generated review cards).
+2.  **AI comprehension** (PageEcho + Fox Reader both ship on-device AI summaries) — the clearest convergent signal in the cohort; summaries/Q&A could feed Echo's SRS deck (auto-generated review cards).
 3.  **Multi-voice narration** (Murmura Auto Cast) — a natural upgrade to Echo's *secondary* Kokoro TTS.
 4.  **Reading stats / dictionary / cross-device sync** (KOReader, Fox Reader, PageEcho) — table-stakes polish; CloudKit sync (Roadmap 8.1) already addresses one.
 
