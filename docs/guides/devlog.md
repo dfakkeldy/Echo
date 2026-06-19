@@ -1,6 +1,6 @@
 # Building Echo — The Devlog
 
-Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system — with on-device AI narration — in about nine weeks. This is the week-by-week story, reconstructed from the actual git history — **600+ commits** between April 19 and June 19, 2026, written by a mail carrier with no prior Swift experience, in the hours around a full-time delivery route.
+Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system — with on-device AI narration — in about nine weeks. This is the week-by-week story, reconstructed from the actual git history — **956 commits** between April 19 and June 19, 2026, written by a mail carrier with no prior Swift experience, in the hours around a full-time delivery route.
 
 It's all open source. You can audit every claim below: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
 
@@ -44,7 +44,7 @@ Under the hood, the foundation work began in earnest: the AVPlayer backend was r
 
 ## Week 5 — May 18 – 24 · *The big bang* (132 commits)
 
-The busiest week in the project's history, and it reads like a different app shipped every day:
+The busiest week of the project's opening stretch, and it reads like a different app shipped every day:
 
 - **A real database.** GRDB/SQLite foundation with migrations, DAOs, and tests — bookmarks and everything after now had a durable home.
 - **The Anki system.** SM-2 daily review, inline flashcard recall during playback, audio snippet cards, JSON deck import, and hands-free **flashcard review on the watch**.
@@ -72,7 +72,7 @@ The reader grew up too: **PDF companion documents** shipped — page-level align
 
 ---
 
-## Week 8 — June 8 – 14 · *Polish, then the study system lands* (96 commits)
+## Week 8 — June 8 – 14 · *Polish, then the study system lands* (210 commits)
 
 The week opened on polish with a safety net: a **watch connectivity overhaul** (durable application-context sync; stale transport commands can no longer replay and phantom-pause you), pause-on-headphone-disconnect, a **Pomodoro timer** on the watch with a persistent alarm, a fullscreen cover-art viewer, and a configurable date overlay. The engineering flourish: the **accent contrast safety pipeline** — artwork-derived theme colors now pass WCAG/CIELAB legibility gates, with a three-stage rescue ladder (nudge the hue → re-pick a safe hue → fall back to brand tint) so no album cover can ever make the UI unreadable. Plus a zip-slip path-traversal security fix in EPUB extraction.
 
@@ -80,9 +80,9 @@ Then, mid-week, the study system the "road to 1.0" had promised actually shipped
 
 ---
 
-## Week 9 — June 15 – 19 · *The voice arrives* (132 commits)
+## Week 9 — June 15 – 19 · *The voice arrives* (345 commits)
 
-The biggest push since the big-bang week, and it had one headline: **on-device AI narration**. Point Echo at a text-only EPUB and it reads the book aloud in a neural voice — the **Kokoro** TTS model running entirely on device, no account, no cloud, no audio leaving the phone. The architecture is *render-then-play*: each chapter is synthesized to a lossless cache and then played back, so there are none of the streaming hitches that plague live-TTS readers, and the result survives backgrounding and scrubbing like any other audiobook. The reader gained **word-by-word karaoke highlighting** driven by the synthesizer's own word timings, and a **pronunciation dictionary** so you can teach it names and jargon with your own IPA.
+The single biggest week in the project's history, and it had one headline: **on-device AI narration**. Point Echo at a text-only EPUB and it reads the book aloud in a neural voice — the **Kokoro** TTS model running entirely on device, no account, no cloud, no audio leaving the phone. The architecture is *render-then-play*: each chapter is synthesized to a lossless cache and then played back, so there are none of the streaming hitches that plague live-TTS readers, and the result survives backgrounding and scrubbing like any other audiobook. The reader gained **word-by-word karaoke highlighting** driven by the synthesizer's own word timings, and a **pronunciation dictionary** so you can teach it names and jargon with your own IPA.
 
 Getting there meant a hard week of audio engineering: killing an encoder whine, fixing a Kokoro/BNNS crash by chunking the input, gating to A15+ where the older Neural Engine traps, and — by week's end — swapping in a **fixed-shape Kokoro pipeline** with lexicon-only grapheme-to-phoneme conversion that dropped a heavy MLX dependency so the whole thing builds and unit-tests cleanly. The UI now shows one-time model download and compile progress so the first render doesn't look frozen.
 
