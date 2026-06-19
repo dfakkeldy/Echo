@@ -1,6 +1,6 @@
 # Building Echo — The Devlog
 
-Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system in about eight weeks. This is the week-by-week story, reconstructed from the actual git history — **423 commits** between April 19 and June 9, 2026, written by a mail carrier with no prior Swift experience, in the hours around a full-time delivery route.
+Echo went from "I wonder if I could make an iOS app" to a four-platform audiobook study system — with on-device AI narration — in about nine weeks. This is the week-by-week story, reconstructed from the actual git history — **600+ commits** between April 19 and June 19, 2026, written by a mail carrier with no prior Swift experience, in the hours around a full-time delivery route.
 
 It's all open source. You can audit every claim below: [github.com/dfakkeldy/Echo](https://github.com/dfakkeldy/Echo).
 
@@ -8,7 +8,7 @@ It's all open source. You can audit every claim below: [github.com/dfakkeldy/Ech
 
 ## Now — June 2026 · *The road to 1.0* (in progress)
 
-The next chapter is underway: Echo now has a defined 1.0 — a trustworthy study player on iPhone, Watch, and Mac, with honest study analytics and a complete flashcard workflow. The program, in landing order: a **listening capture layer** (so your stats accumulate from the very next beta build), **CI and the Echo identity cleanup**, the **Insights screen** (real listening time, streaks, chapter coverage, retention curves), opt-in **Context Memory** (place-tagged bookmarks and sessions), the full **Anki workflow** (decks, tags, a card editor, the mark-later Card Inbox, real .apkg import), **Brain Dump notes** with watch dictation, **Markdown second-brain export**, and **iCloud study sync**. About fourteen weeks of evenings and weekends, planned the same way everything else here was built: in public.
+Most of the 1.0 program has now landed, build by build: the **listening capture layer** and the **Insights screen** (real listening time, streaks, chapter coverage, retention curves), opt-in **Context Memory** (place-tagged bookmarks and sessions), the full **Anki workflow** (decks, a card editor, the mark-later Card Inbox, Markdown and JSON export), and — the headline of the last two weeks — **on-device AI narration** that reads a text-only EPUB aloud in a neural voice, entirely offline. Echo also went **GPL-3.0**. What's left for 1.0: **Brain Dump notes** with watch dictation, deeper **Markdown second-brain export**, **Audiobookshelf sync**, and **iCloud study sync** — planned the same way everything else here was built: in public.
 
 ---
 
@@ -72,17 +72,27 @@ The reader grew up too: **PDF companion documents** shipped — page-level align
 
 ---
 
-## Week 8 — June 8 – 14 (in progress) · *Polish with a safety net* (22 commits so far)
+## Week 8 — June 8 – 14 · *Polish, then the study system lands* (96 commits)
 
-Current work, straight from the log: a **watch connectivity overhaul** (durable application-context sync; stale transport commands can no longer replay and phantom-pause you), pause-on-headphone-disconnect, a **Pomodoro timer** on the watch with a persistent alarm, a fullscreen cover-art viewer, and a configurable date overlay.
+The week opened on polish with a safety net: a **watch connectivity overhaul** (durable application-context sync; stale transport commands can no longer replay and phantom-pause you), pause-on-headphone-disconnect, a **Pomodoro timer** on the watch with a persistent alarm, a fullscreen cover-art viewer, and a configurable date overlay. The engineering flourish: the **accent contrast safety pipeline** — artwork-derived theme colors now pass WCAG/CIELAB legibility gates, with a three-stage rescue ladder (nudge the hue → re-pick a safe hue → fall back to brand tint) so no album cover can ever make the UI unreadable. Plus a zip-slip path-traversal security fix in EPUB extraction.
 
-The engineering flourish of the week: the **accent contrast safety pipeline**. Artwork-derived theme colors now pass WCAG/CIELAB legibility gates, with a three-stage rescue ladder (nudge the hue → re-pick a safe hue → fall back to brand tint) so no album cover can ever make the UI unreadable. Plus the unglamorous good stuff: a zip-slip path-traversal fix in EPUB extraction, and documentation refreshed across the board.
+Then, mid-week, the study system the "road to 1.0" had promised actually shipped. The **Insights screen** arrived — a Swift Charts dashboard over a new stats aggregation layer (listening time, streaks, chapter coverage, retention trends), built pure-functions-first with its own tests. **Context Memory** landed as opt-in location capture wired into bookmarks. The **Anki workflow** filled out: deck support, a card editor, the mark-later **Card Inbox**, and Markdown study-notes plus JSON deck export. A battery-drain audit pulled the always-on CADisplayLink, halved timer ticks, and made the FFT visualizer reuse its setup. And quietly, the first bricks of the next big thing went in: a **TTSEngine** seam, a curated voice catalog, synthesized alignment anchors, and a Kokoro CoreML inference spike — the foundation for on-device narration.
+
+---
+
+## Week 9 — June 15 – 19 · *The voice arrives* (132 commits)
+
+The biggest push since the big-bang week, and it had one headline: **on-device AI narration**. Point Echo at a text-only EPUB and it reads the book aloud in a neural voice — the **Kokoro** TTS model running entirely on device, no account, no cloud, no audio leaving the phone. The architecture is *render-then-play*: each chapter is synthesized to a lossless cache and then played back, so there are none of the streaming hitches that plague live-TTS readers, and the result survives backgrounding and scrubbing like any other audiobook. The reader gained **word-by-word karaoke highlighting** driven by the synthesizer's own word timings, and a **pronunciation dictionary** so you can teach it names and jargon with your own IPA.
+
+Getting there meant a hard week of audio engineering: killing an encoder whine, fixing a Kokoro/BNNS crash by chunking the input, gating to A15+ where the older Neural Engine traps, and — by week's end — swapping in a **fixed-shape Kokoro pipeline** with lexicon-only grapheme-to-phoneme conversion that dropped a heavy MLX dependency so the whole thing builds and unit-tests cleanly. The UI now shows one-time model download and compile progress so the first render doesn't look frozen.
+
+Around the headline, a lot else shipped. The **macOS app** got a BookPlayer-style redesign — a chapter-navigation bar, volume boost, a real Settings scene, a playback-options popover — plus an **overnight batch queue** that can align *or* narrate a whole folder of EPUBs while you sleep, then export real **M4B files with chapter markers**. iOS got an **Echo Pro** entitlement model with a free-tier gate and paywall, per-tab **NavigationStacks** with deep links and restored state, and an Audiobookshelf data-layer foundation. The website grew a **glossary** with accessible inline popovers. And the licensing changed for good: Echo is now **GPL-3.0**, with SPDX headers across every source file.
 
 ---
 
 ## The shape of the thing
 
-Eight working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database, an on-device ML alignment pipeline, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
+Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 
