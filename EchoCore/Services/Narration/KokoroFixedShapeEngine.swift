@@ -83,9 +83,13 @@
             progressFanOut = fan
             let task = Task<Void, Error> { [logger] in
                 defer { fan.clear() }
+                logger.notice("Preparing narration engine: ensuring model set is present…")
                 // Download the pruned model set (was: progress discarded as `nil`).
                 let dir = try await NarrationModelStore.shared.ensureModels(
                     progress: { f in fan.emit(.downloadingModels(fraction: f)) })
+                logger.notice(
+                    "Model set present; building pipeline (CoreML compile/load follows — see KokoroPipeline logs)…"
+                )
                 // Persist the compiled .mlmodelc next to the packages so the multi-minute
                 // CoreML compile happens once ever; renderVersion-keyed via the subdir.
                 let compiledDir = dir.appendingPathComponent("compiled", isDirectory: true)
@@ -100,7 +104,7 @@
                     })
                 await self.setPipeline(built)
                 fan.emit(.ready)
-                logger.info("Fixed-shape pipeline ready.")
+                logger.notice("Fixed-shape pipeline ready; narration can begin.")
             }
             initializationTask = task
             try await task.value

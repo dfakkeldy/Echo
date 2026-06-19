@@ -103,6 +103,8 @@ final class NarrationService {
             statusMessage: "Preparing chapter \(displayNumber)…")
 
         let spoken = blocks.filter { ($0.text?.isEmpty == false) }
+        let chapterStart = Date()
+        logger.notice("Chapter \(displayNumber): synthesizing \(spoken.count) block(s)…")
         var anchors: [AlignmentAnchorRecord] = []
         var cursor: TimeInterval = 0
         let now = Self.iso8601.string(from: Date())
@@ -160,6 +162,7 @@ final class NarrationService {
                     source: AlignmentAnchorRecord.Source.synthesized.rawValue,
                     note: nil, createdAt: now, modifiedAt: now))
             cursor += blockDuration
+            logger.notice("  chapter \(displayNumber): block \(i + 1)/\(spoken.count) synthesized")
             state.update(
                 phase: .preparingChapter,
                 progress: Double(i + 1) / Double(spoken.count),
@@ -229,7 +232,9 @@ final class NarrationService {
         )
 
         state.renderedChapterCount += 1
-        logger.info("Rendered chapter \(chapterIndex) → \(anchors.count) anchors")
+        logger.notice(
+            "Chapter \(displayNumber) rendered: \(anchors.count) anchors, ~\(Int(duration))s audio, in \(Int(Date().timeIntervalSince(chapterStart)))s."
+        )
     }
 
     #if DEBUG && os(iOS)

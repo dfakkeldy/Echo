@@ -22,6 +22,7 @@
 import Accelerate
 import CoreML
 import Foundation
+import OSLog
 
 // MARK: - Configuration
 
@@ -174,6 +175,21 @@ public struct DurationModelChoice {
 /// hundreds of milliseconds per model. For app integration, call init
 /// on a background thread or use pre-compiled ``.mlmodelc`` bundles.
 public class KokoroPipeline: KokoroModelProvider {
+
+    /// Loud by design: the first-run model compile is CPU-bound and minutes long,
+    /// so without per-model logging the app looks frozen. `.notice` level so it
+    /// surfaces in Console + the Xcode debug console without extra configuration.
+    private static let log = Logger(subsystem: "Echo.Narration", category: "KokoroPipeline")
+
+    private static func unitsLabel(_ units: MLComputeUnits) -> String {
+        switch units {
+        case .cpuOnly: return "CPU"
+        case .cpuAndGPU: return "CPU+GPU"
+        case .all: return "CPU+GPU+ANE"
+        case .cpuAndNeuralEngine: return "CPU+ANE"
+        @unknown default: return "?"
+        }
+    }
     private let durationModels: [String: MLModel]  // keyed by DurationModelChoice.cacheKey
     private let durationChoices: [DurationModelChoice]
     private let f0ntrainModels: [Int: MLModel]  // keyed by T_frames
@@ -218,15 +234,26 @@ public class KokoroPipeline: KokoroModelProvider {
             .filter { present("kokoro_f0ntrain_t\($0).mlpackage") }.count
             + buckets.filter { present("kokoro_decoder_pre_\($0)s.mlpackage") }.count
             + buckets.filter { present("kokoro_decoder_har_post_\($0)s.mlpackage") }.count
+        Self.log.notice(
+            "Building Kokoro pipeline: loading \(total, privacy: .public) CoreML models. First run compiles each on-device (Espresso AOT, CPU-bound) — minutes; cached after."
+        )
+        let pipelineStart = Date()
         var done = 0
         func loadModel(package: URL, name: String, units: MLComputeUnits) throws -> MLModel {
             let cfg = MLModelConfiguration()
             cfg.computeUnits = units
+            Self.log.notice(
+                "Loading model \(done + 1, privacy: .public)/\(total, privacy: .public): \(name, privacy: .public) [\(Self.unitsLabel(units), privacy: .public)]…"
+            )
+            let started = Date()
             let url = try Self.ensureCompiledModel(
                 name: name, cacheDir: compiledModelsDirectory,
                 compile: { try MLModel.compileModel(at: $0) }, package: package)
             let model = try MLModel(contentsOf: url, configuration: cfg)
             done += 1
+            Self.log.notice(
+                "  ✓ \(name, privacy: .public) ready in \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public) ms (\(done, privacy: .public)/\(total, privacy: .public))"
+            )
             compileProgress?(done, total)
             return model
         }
@@ -283,6 +310,9 @@ public class KokoroPipeline: KokoroModelProvider {
 
         self.linearWeights = linearWeights
         self.linearBias = linearBias
+        Self.log.notice(
+            "Kokoro pipeline ready: \(total, privacy: .public) models loaded in \(Int(Date().timeIntervalSince(pipelineStart) * 1000), privacy: .public) ms."
+        )
     }
 
     /// Synthesize audio from pre-tokenized input.
