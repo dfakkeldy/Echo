@@ -12,9 +12,16 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **Prologue Audiobook Player** | Prologue Audio Pty Ltd | `1459223267` | Direct | Self-hosted Plex/Audiobookshelf listeners |
 | **Voice Dream Reader** | Voice Dream LLC | `496177674` | Direct (Narration) | TTS reading of EPUB/PDF/text for accessibility users |
 | **Bound - Audiobook Player** | Deadpan, LLC | `1041727137` | Direct | Cloud storage (Dropbox/OneDrive) listeners |
+| **LoudReader** | loudreader.io (maker unverified) | `6758149478` | Direct (Narration) | On-device AI TTS turning your EPUB/PDF into an audiobook |
+| **PageEcho** | Solo/small dev (unverified) | `6755965837` | Direct (Narration) | Privacy-first on-device AI TTS reader + AI comprehension aids |
+| **KOReader** | KOReader Community (open source) | *n/a — no App Store build* | Indirect (Reader) | Power-user e-ink/Android document reader |
+| **Coco Reader** | *Unverified — see §7.8* | *unknown* | Unverified | *Could not confirm this app exists; awaiting a link* |
 | **AnkiMobile Flashcards** | Anki Software, LLC | `373493387` | Indirect | Hardcore spaced repetition (SRS) learners |
 | **Apple Books** | Apple | `364709193` | Indirect | Mainstream book/audiobook consumers |
 | **Quizlet: More than Flashcards** | Quizlet Inc | `546473125` | Indirect | Students seeking multi-modal study aids |
+
+> [!NOTE]
+> **"Coco Reader" is unverified.** A web sweep (App Store, Play Store, GitHub, AlternativeTo/Reddit) found **no** EPUB/audiobook reader by that name — the string only maps to the NVIDIA DALI *COCO dataset reader*, Disney's *Coco* read-along storybook, and unrelated "Coco"-branded apps. It is listed here as a placeholder. Share a direct App Store/Play Store URL or developer name and the entry will be filled in.
 
 ---
 
@@ -25,6 +32,10 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **BookPlayer** | Free / Freemium | Free | No | Optional tips / Pro features |
 | **Prologue** | Freemium | Free / $5.99 | No | One-time $5.99 to unlock offline/collections |
 | **Bound** | Paid | $4.99 | No | None (one-time purchase) |
+| **LoudReader** | Freemium / Subscription | Free / $4.99·mo or $39.99·yr | Yes | Premium: unlimited books, all voices, speed, notes (free tier = 3 books / ~50% each) |
+| **PageEcho** | Freemium / IAP | Free / paid | Optional | Premium unlocks unlimited TTS + AI features; sold monthly, yearly, **or lifetime** |
+| **KOReader** | Free (donation) | Free | No | None — free software, no ads, no IAP |
+| **Coco Reader** | *Unverified* | *unknown* | *?* | *Pending confirmation the app exists* |
 | **AnkiMobile** | Paid | $24.99 | No | None (supports developer of free desktop version) |
 | **Apple Books** | Free app / Paid books | Free | No | Per-book purchases |
 | **Quizlet** | Freemium / Subscription | Free | Yes | Quizlet Plus subscription (~$35.99/yr) |
@@ -170,5 +181,52 @@ The self-hosted listener's favorite (Plex/Audiobookshelf streaming). Stellar dev
 *   **Avoid:** Server-first onboarding is a high barrier — they launch straight into "Connect to Plex/Audiobookshelf," which excludes non-technical users. Echo's Audiobookshelf integration (Phase 9) should stay *optional and additive*, never the front door.
 *   **Exploit:** Streaming-only means no offline study layer. Echo's Phase 9 deliberately **downloads ABS content to local** so alignment, phrase search, EPUB sync, and flashcards all keep working — the exact study features Prologue structurally can't offer on a streamed book.
 
+### 7.4 — LoudReader (loudreader.io)
+
+Tagline: *"Every text is an audiobook."* Imports your EPUBs/PDFs and turns them into audiobooks via on-device AI TTS, with word-by-word highlighting. iOS-first; closed-source. Freemium ($4.99/mo or $39.99/yr; free tier capped at 3 books / ~50% of each). Bundles a 70k+ public-domain classics catalog as an acquisition hook.
+
+*   **The critical distinction:** LoudReader **sidesteps the hard problem Echo solves.** Because it *generates* the audio from the text with TTS, word-level sync is free — there is no real narrator to align to. Echo's moat is the inverse: aligning **professionally narrated human audiobooks (M4B)** to the actual EPUB text via WhisperKit + `TokenDTW`. That's the capability TTS apps structurally cannot offer, and it's what listeners of commercial audiobooks actually want.
+*   **Copy:** On-device/offline synthesis as a *privacy* headline ("no accounts, tracking, or data collection") mirrors Echo's posture — worth echoing in our own copy. The free public-domain catalog is a cheap, effective on-ramp; consider an equivalent.
+*   **Avoid:** Read-aloud TTS is now a crowded commodity (LoudReader, Speechify, ElevenReader, Audeus, PageEcho, plus open-source CLIs). Competing as "yet another read-aloud app" is a race to the bottom.
+*   **Exploit:** Lead with **"real narrator, perfectly synced to the page,"** not "read-aloud." Their pricing ($4.99/mo · $39.99/yr, 3-book free gate) is a useful market anchor for when Echo monetizes.
+
+### 7.5 — PageEcho
+
+> [!CAUTION]
+> **Name collision.** "PageEcho" is close to our own name — worth a quick trademark/SEO sanity check before any public launch copy leans on "Echo" + reading. Same App Store category, similar phonetics.
+
+A privacy-first, on-device **AI reader** for iPhone/iPad (app id `6755965837`, listing renamed repeatedly — "AI eBook Reader" / "AI Text Reader"). Closed-source. Reads EPUB/PDF/MOBI/AZW3/FB2/TXT + web articles. On-device TTS via the **Supertonic** model (downloadable) plus Apple system voices. Freemium with monthly/yearly/**lifetime** IAP.
+
+*   **Copy:** Its real edge is **AI comprehension** — chapter summaries, interactive book Q&A/chat, theme extraction, "mind maps," translation — all on-device. This sets a rising "help me *understand* the book" bar that pure players don't meet. Echo could pair its alignment advantage with *lightweight* on-device comprehension aids (e.g. chapter recap, auto-generated review questions feeding the SRS deck) to avoid being out-featured on understanding.
+*   **Avoid:** Same TTS-vs-real-narration gap as LoudReader — it synthesizes speech, it does not align a recorded audiobook. And constant re-listing/repositioning suggests it's still hunting for product-market fit.
+*   **Exploit:** No M4B audiobook playback, no classic study scaffolding (no notes/highlights/flashcards/SRS surfaced). Echo owns narrated-audio alignment **and** spaced-repetition study; PageEcho occupies neither. The **lifetime IAP** option is a pricing lever to keep in mind (one-time purchase resonates with this indie-leaning audience — see Prologue, §7.3).
+
+### 7.6 — KOReader (open-source teardown)
+
+The most-requested item here: KOReader **is** open source — **AGPL-3.0**, ~27k★ on GitHub ([koreader/koreader](https://github.com/koreader/koreader)), a large multi-year community project. It's the gold standard for *power-user reading* on e-ink. But it is **not a real iOS competitor**, and it has **zero audiobook/alignment capability** — so the value here is architectural lessons, not market threat.
+
+**How they got it working (the part worth studying):**
+*   **Language & runtime:** ~97% **Lua on LuaJIT**, over a thin C base layer ([`koreader-base`](https://github.com/koreader/koreader-base)) that wraps the native libraries via FFI. A custom lightweight Lua widget toolkit + plugin system sits on top.
+*   **Rendering engines (don't reinvent these):** reflowable EPUB/FB2/MOBI via **CREngine** (a CoolReader/`crengine` fork); PDF/DjVu/CBZ via **MuPDF** + **djvulibre**; reflow via **k2pdfopt**. The lesson for Echo's EPUB reader: lean on a proven engine rather than hand-rolling pagination/typography edge cases.
+*   **Cross-platform strategy:** porting to a new device = a new platform *shim*, not a rewrite — the C base abstracts the OS and the Lua UI stays identical. Small-memory-footprint-first (an e-ink constraint) is baked into the design.
+*   **Progress sync (KOSync):** self-hostable sync server; documents are identified by a **partial-MD5 content hash**, so the *same book* syncs position across devices/apps regardless of filename. A clean, decentralized model worth referencing for Echo's CloudKit sync (Roadmap 8.1).
+
+**Why it can't follow us onto our turf:**
+*   **No native iOS.** No App Store build; the only option is an unofficial sideload-only fork (`hezi/koreader-ios`) that needs Xcode + a dev account, and runs LuaJIT interpreter-only because the iOS sandbox forbids JIT (W^X). A polished, App-Store-distributed native iOS experience is a structural gap KOReader cannot easily close.
+*   **No audiobook / TTS / alignment.** Built-in TTS has been an open request since ~2014 (issue #545); what exists are unofficial plugins piping text to an external TTS engine — read-aloud, *not* synchronized M4B-to-text study. Echo's entire core (narrated audio aligned to EPUB) is absent.
+*   **AGPL + Lua/e-ink-first architecture** also means it can't be cleanly repackaged into a commercial polished iOS app — the moat there is real.
+
+*   **Copy:** Match its *table-stakes* reading power — offline dictionary lookup, robust highlights/notes, fine typography/accessibility control, reading statistics, and content-hash-based progress sync. These are what its loyal base evangelizes.
+*   **Avoid:** Don't try to out-breadth KOReader on raw e-book/format support; that's its home turf and it's free.
+*   **Exploit:** Win on exactly what it can't do — **native App-Store iOS** + **audiobook↔EPUB synchronized study** as the headline, while matching its reading fundamentals.
+
+### 7.7 — Cross-cutting pattern (reader/TTS cohort)
+
+LoudReader, PageEcho, and the wider Speechify/ElevenReader cohort all converge on the same play: **on-device AI TTS that *generates* narration from text, with inherent word-sync.** That makes "listen to your EPUB" a commodity. Echo sits in a different, harder, more defensible category — **aligning real human-narrated audiobooks to the book text** — and layers **SRS study** on top, which none of this cohort touches. The strategic takeaway: position Echo against *audiobooks people already own and love being read by a real narrator*, not against synthetic read-aloud.
+
+### 7.8 — Coco Reader (unverified)
+
+Could **not** confirm an EPUB/audiobook reader app by this name exists (App Store, Play Store, GitHub, AlternativeTo/Reddit all came up empty — see the note under §1). No claims are made here to avoid fabrication. **Action needed from you:** a direct store URL, developer name, or screenshot, and this section will be researched and filled in.
+
 > [!NOTE]
-> **Doc-sync reminder:** These notes reference roadmap items (watch persistence 1.8, VoiceOver audit 8.2, CloudKit sync 8.1, Audiobookshelf 9.x). If competitive findings start *driving* roadmap priority (e.g. promoting the VoiceOver audit), mirror that in `ROADMAP.md` so the two docs don't drift.
+> **Doc-sync reminder:** These notes reference roadmap items (watch persistence 1.8, VoiceOver audit 8.2, CloudKit sync 8.1, Audiobookshelf 9.x). If competitive findings start *driving* roadmap priority (e.g. promoting the VoiceOver audit, or adding lightweight on-device comprehension aids in response to PageEcho), mirror that in `ROADMAP.md` so the two docs don't drift.
