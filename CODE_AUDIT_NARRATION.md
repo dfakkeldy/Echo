@@ -6,13 +6,15 @@
 
 > **This supersedes the PR #61-era audit.** That audit captured a non-functional spike. Since then the engine became real (FluidAudio/Kokoro), narration was rewired through the main `PlayerModel` pipeline, `BookDetailViewModel`/`MisakiPhonemizer`/`ModelDownloader` were deleted, and most prior High/Medium findings were resolved. **Appendix A** maps every prior §-reference to its current disposition so external references (memory, commit messages) still resolve.
 
-**Verdict in one line:** The narration stack is now genuinely built and largely sound — but it is **blocked by a single P0: an A14-hardware-specific crash in the Kokoro vocoder that no FluidAudio configuration can fix (§3.1).** Until that is resolved by a model-asset change, the feature cannot be end-to-end device-verified, and everything else in this audit (all device-unverified) is downstream of it.
+**Verdict in one line:** The narration stack is now genuinely built and largely sound. The single P0 — the A14 vocoder crash that no FluidAudio routing could fix (§3.1) — has had its prescribed **model-asset fix implemented** (the fixed-shape `KokoroFixedShapeEngine` swap, PR #86), corroborated by a competitor (Fox Reader) running the same Kokoro model flawlessly on an A14; the **one remaining gate is the in-Echo on-device A14 no-wedge verification** (now runnable on an A14 via the DEBUG override added 2026-06-19). Everything else in this audit remains downstream of that verify.
+
+> **NOTE (2026-06-19):** This audit was written 2026-06-15 against the FluidAudio engine. §3.1 carries a dated update reflecting the fixed-shape swap + the A14 DEBUG override; the rest of the document still describes the pre-#86 `KokoroTTSEngine` and has not been line-by-line reconciled — read it as the 2026-06-15 snapshot except where a dated update says otherwise.
 
 ---
 
 ## 1. Executive summary
 
-1. **[Critical — mitigated by A15+ gate, NOT resolved] A14 narration crash — the P0 blocker** — stream-to-sink (§7.1) fixed only the **jetsam** half; the **BNNS vocoder trap still RECURS** (device-confirmed 2026-06-15: `EXC_BREAKPOINT` in `libBNNS` three times in one session, intermittent on synthesis shape — a full re-render triggers it, and persistence would stick the book). Phase 0's 9-chapter survival was luck. **Interim fix shipped: narration gated to A15+** (`NarrationCapability`, 1B); the proper A14 fix is the **vocoder model swap** (1A), now genuinely needed — §3.1 — `KokoroTTSEngine.swift:6,28`.
+1. **[Critical — fix IMPLEMENTED, on-device A14 verify pending] A14 narration crash — the former P0 blocker** — the FluidAudio dynamic-shape vocoder's **BNNS trap** (device-confirmed 2026-06-15: `EXC_BREAKPOINT` in `libBNNS` three times in one session) drove the A15+ interim gate (1B). The **proper fix (1A) has since shipped** — `KokoroFixedShapeEngine` (fixed-shape `mattmireles/kokoro-coreml`, hn-NSF off the ANE; PR #86) replaced the FluidAudio engine via `NarrationEngineFactory`. A competitor (Fox Reader) running the same Kokoro model flawlessly on an A14 corroborates viability. **Remaining: the in-Echo on-device A14 no-wedge verify** — now runnable on an A14 via the 2026-06-19 DEBUG override (`NarrationCapability.developerForceEnableKey`); the release A15+ gate stays until it passes — §3.1.
 2. **[High] T5 voice-switch deletes the currently-playing file before stopping playback** — `startNarrationPlayback` evicts stale-voice files synchronously at the top, before the AVPlayer pointed at one of them is stopped — §5.1 — `PlayerModel+Narration.swift:38-46`.
 3. **[High] Read-along "Layer 2": `recalculateTimeline` interpolates across track boundaries** — corrupts `audio_start_time` for MP3-folder / multi-m4b books; narration is shielded by `anchoredOnly`, the general case is not — §5.2 — `AlignmentService.swift:340-359,425-446`.
 4. **[Medium] Resume is forward-only → only the resumed chapter is queued** (owner design ask B) — `NarrationChapterPlanner.resume` slices the plan and the render loop only ever queues that slice — §5.3 — `PlayerModel+Narration.swift:75-134`, `NarrationChapterPlanner.swift:33-40`.
@@ -39,7 +41,21 @@
 
 ## 3. Concurrency & runtime stability
 
-### 3.1 Kokoro vocoder traps on A14 for real-book-length input — ⚠️ PARTIALLY mitigated, NOT resolved; gated to A15+ (interim)
+### 3.1 Kokoro vocoder traps on A14 for real-book-length input — 🔧 model-asset fix IMPLEMENTED (fixed-shape swap), pending on-device A14 verification
+
+> **UPDATE (2026-06-19, fix implemented + real-world corroboration).** The model-asset change this
+> finding prescribed has SHIPPED: PR #86 replaced the FluidAudio dynamic-shape `KokoroTTSEngine`
+> with `KokoroFixedShapeEngine` (vendored `mattmireles/kokoro-coreml` fixed-shape bucketed CoreML
+> decoder; hn-NSF harmonic source in Swift/Accelerate, **off the ANE**; MisakiSwift Apache G2P) via
+> `NarrationEngineFactory`. A standalone Swift `kokoro-bench` proved it wedge-free (Phase 0); the
+> **in-Echo on-device A14 run is the one remaining open gate.** **Real-world corroboration:** the
+> competitor **Fox Reader** ships the *same* Kokoro model and runs it flawlessly on an **iPhone 12
+> Pro (A14)** — confirming the A14 wall was always a **routing/asset** problem (FluidAudio's
+> dynamic-shape palettized vocoder on the ANE), **not** Kokoro-the-model nor A14 silicon. To run the
+> still-open verify on an A14 device, a **DEBUG-only developer override** now bypasses the A15+ gate
+> (`NarrationCapability.developerForceEnableKey`; pure `isSupported(_:developerOverride:)`; Settings ▸
+> Debug Menu toggle) — release builds keep the A15+ gate until the verify passes. The forensic
+> history below (the ORIGINAL FluidAudio-engine trap) remains accurate as the *reason* for the swap.
 
 > **CORRECTION (2026-06-15, second device round).** An earlier note here claimed this was RESOLVED
 > by stream-to-sink after Phase 0 narrated 9 chapters cleanly. **That was wrong — the survival was
