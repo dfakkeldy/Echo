@@ -42,8 +42,8 @@
                 let vocab = try KokoroPhonemeVocab()
                 let pack = try KokoroVoicePack(named: voice.rawValue)
                 let phonemes = g2p.phonemes(for: text)
-                let ids = vocab.ids(forPhonemes: phonemes) // BOS/EOS wrapped
-                let refS = pack.refS(forPhonemeCount: phonemes.count) // clamped
+                let ids = vocab.ids(forPhonemes: phonemes)  // BOS/EOS wrapped
+                let refS = pack.refS(forPhonemeCount: phonemes.count)  // clamped
                 return PipelineInputs(
                     ids: ids,
                     attentionMask: [Int32](repeating: 1, count: ids.count),
@@ -53,22 +53,33 @@
 
         // MARK: - TTSEngine
 
-        func prepare() async throws {
-            // Coalesce concurrent prepare() calls onto a single download + compile.
+        func prepare() async throws { try await prepare(progress: { _ in }) }
+
+        func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
+        {
+            // Coalesce concurrent prepares onto a single download + compile.
             if let task = initializationTask {
                 try await task.value
                 return
             }
             let task = Task<Void, Error> { [logger] in
-                let dir = try await NarrationModelStore.shared.ensureModels(progress: nil)
-                // KokoroPipeline.init compiles every .mlpackage synchronously
-                // (MLModel.compileModel) — heavy, but we're off the main actor.
+                // Download the pruned model set (was: progress discarded as `nil`).
+                let dir = try await NarrationModelStore.shared.ensureModels(
+                    progress: { f in progress(.downloadingModels(fraction: f)) })
+                // Persist the compiled .mlmodelc next to the packages so the multi-minute
+                // CoreML compile happens once ever; renderVersion-keyed via the subdir.
+                let compiledDir = dir.appendingPathComponent("compiled", isDirectory: true)
                 let built = try KokoroPipeline(
                     modelsDirectory: dir,
+                    compiledModelsDirectory: compiledDir,
                     buckets: NarrationModelStore.keptBucketSeconds,
                     linearWeights: NarrationModelStore.hnsfLinearWeights,
-                    linearBias: NarrationModelStore.hnsfLinearBias)
+                    linearBias: NarrationModelStore.hnsfLinearBias,
+                    compileProgress: { done, total in
+                        progress(.compilingModels(done: done, total: total))
+                    })
                 await self.setPipeline(built)
+                progress(.ready)
                 logger.info("Fixed-shape pipeline ready.")
             }
             initializationTask = task
