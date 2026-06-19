@@ -32,15 +32,6 @@ struct TTSChunk: Sendable, Equatable {
 /// The swappable narration engine boundary. Mocked in tests; Kokoro in Plan 3.
 protocol TTSEngine: Sendable {
     func prepare() async throws
-    /// Progress-reporting prepare. `@escaping` because actor conformers must
-    /// capture the closure across a suspension boundary inside a `Task` body —
-    /// Swift requires `@escaping` there. Promoting this to a protocol requirement
-    /// (rather than a protocol-extension overload) ensures that calls through
-    /// `any TTSEngine` use dynamic dispatch and reach the concrete actor's override
-    /// instead of always resolving to the extension's static default.
-    func prepare(
-        progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
-    ) async throws
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk
 }
 
@@ -55,8 +46,13 @@ enum NarrationPrepareProgress: Sendable, Equatable {
 
 extension TTSEngine {
     /// Default: no progress. Engines that can report it (KokoroFixedShapeEngine)
-    /// override this; FluidAudio + MockTTSEngine inherit the no-op so existing
-    /// call sites and test doubles are unaffected.
+    /// shadow this with their own implementation; FluidAudio + MockTTSEngine inherit
+    /// the no-op so existing call sites and test doubles are unaffected.
+    ///
+    /// `@escaping` matches `KokoroFixedShapeEngine.prepare(progress:)` so that
+    /// callers using `any TTSEngine` see a single overload and dynamic dispatch
+    /// reaches the concrete actor's override (protocol-extension methods with a
+    /// different signature would be resolved statically, silently hitting the no-op).
     func prepare(
         progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
     ) async throws {
