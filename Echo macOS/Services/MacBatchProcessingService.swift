@@ -283,6 +283,29 @@ final class MacBatchProcessingService {
                         pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
                 }
                 var service = makeService()
+                // One-time engine prepare (download + compile the CoreML model set) BEFORE the
+                // chapter loop, reported as its own phase. Without this the UI sits on
+                // "Narrating chapter 1" for minutes while prepare runs lazily inside the first
+                // synthesize.
+                // `rawProgress` is non-escaping (it writes to the DB row via the runner), so we
+                // use `withoutActuallyEscaping` to bridge it into the `@escaping @Sendable`
+                // closure that `prepare(progress:)` requires. The `await` here guarantees
+                // prepare is fully done before we return — the closure cannot outlive this call.
+                do {
+                    try await withoutActuallyEscaping(rawProgress) { escapableRawProgress in
+                        try await service.tts.prepare(progress: { p in
+                            Task { @MainActor in
+                                let s = NarrationPrepareStatus.batch(for: p)
+                                escapableRawProgress(.transcribing, s.fraction, s.message)
+                                self?.refresh()
+                            }
+                        })
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                }
+                // A non-cancellation prepare failure (e.g. model download) propagates to the
+                // runner, which marks this book .failed — same as any stage error.
                 var skipped = 0
                 for (n, chapter) in chapters.enumerated() {
                     try Task.checkCancellation()
@@ -297,7 +320,7 @@ final class MacBatchProcessingService {
 
                     progress(
                         .transcribing,
-                        0.1 + 0.85 * Double(n) / Double(chapters.count),
+                        0.15 + 0.80 * Double(n) / Double(chapters.count),
                         "Narrating chapter \(n + 1) of \(chapters.count)…")
                     do {
                         try await service.renderChapter(
