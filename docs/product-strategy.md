@@ -19,7 +19,7 @@ The "Aha!" moment for an Echo user occurs during the transition from passive lis
 
 ## 2. Echo 1.0 Feature Scope
 
-**Launch is gate-driven (ship-when-green), not calendar-dated.** The fixed **August 1, 2026** target was retired on 2026-06-19 when 1.0 was re-scoped to hold for a deep, defensible study moat (see [`superpowers/specs/2026-06-19-roadmap-rebuild-design.md`](superpowers/specs/2026-06-19-roadmap-rebuild-design.md) and `../ROADMAP.md`). The boundary between in-scope and post-1.0 is now organized as **six competitive wedges**:
+**Launch is gate-driven (ship-when-green), not calendar-dated.** The fixed **August 1, 2026** target was retired on 2026-06-19 when 1.0 was re-scoped to hold for a deep, defensible study moat (see the internal rebuild design spec and `../ROADMAP.md`). The boundary between in-scope and post-1.0 is now organized as **six competitive wedges**:
 
 ### In-Scope for 1.0 (the six wedges — deeper than the original WS0–WS8 cut)
 *   **Listening Capture Layer:** Durably recording playback events and durations on-device to accumulate statistics.

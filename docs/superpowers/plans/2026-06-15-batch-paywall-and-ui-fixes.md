@@ -14,7 +14,7 @@
 
 | Track | What | Where | Independent? |
 |-------|------|-------|--------------|
-| **A** | Echo Pro paywall (freemium gating, StoreKit, `PaywallView`) | [docs/superpowers/plans/2026-06-14-echo-pro-paywall.md](2026-06-14-echo-pro-paywall.md) | Yes — do in any order |
+| **A** | Echo Pro paywall (freemium gating, StoreKit, `PaywallView`) | Echo Pro paywall plan (kept in the private strategy docs) | Yes — do in any order |
 | **B** | UI quick-fixes: Stats escapable + in More menu; Fidget in More menu | this doc, `EchoCore/Views/*` | Yes — ~2 commits |
 
 Do them in any order. Track B is the smaller, faster set — a reasonable warm-up before the meatier Track A. They touch disjoint files, so there are **no cross-track conflicts**.
@@ -25,7 +25,7 @@ Do them in any order. Track B is the smaller, faster set — a reasonable warm-u
 
 ## Track A — Echo Pro Paywall
 
-**Execute [docs/superpowers/plans/2026-06-14-echo-pro-paywall.md](2026-06-14-echo-pro-paywall.md) in full, unchanged.** It is a complete, self-contained TDD plan. For orientation, its shape:
+**Execute the Echo Pro paywall plan (kept in the private strategy docs) in full, unchanged.** It is a complete, self-contained TDD plan. For orientation, its shape:
 
 | Phase | Tasks |
 |-------|-------|

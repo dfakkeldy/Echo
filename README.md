@@ -104,7 +104,7 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 | **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — built on branch, pending merge + device verify), no lost progress |
 | **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
 
-**macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan, the moat audit, and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)** + the [rebuild design spec](docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md).
+**macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)**.
 
 **Deferred to 1.x:** photo-of-a-page → audio jump · multi-voice narration · AI-generated Q&A cards · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
 
