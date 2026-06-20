@@ -35,11 +35,14 @@ reusing the existing persist + narrate path. No schema change.
    bold/italic (and strikethrough) spans into the existing `textFormats` field so the
    read-along reader renders emphasis. Code fences, tables, and images are skipped
    for narration.
-3. **Title & headings:** **filename is the book title**; author left blank. **Every
-   heading of any level (`#`…`######`) starts a new chapter.** (Accepted nuance:
-   deeply nested `###` subheadings each spawn their own chapter — a heavily
-   subdivided file fragments into many chapters. Acceptable for v1; revisit only if it
-   bites.)
+3. **Title & headings:** **filename is the book title**; author left blank. Chapters
+   follow the **heading hierarchy** (EPUB-style): chapters break at the **shallowest
+   heading level that repeats** (appears ≥2 times). A heading **shallower** than that
+   level (e.g. a lone leading `# Title` above `##` chapters) is treated as a
+   **front-matter title**; a heading **deeper** than the chapter level is an in-chapter
+   **section heading** — rendered and narrated within the chapter, never its own
+   chapter. The hierarchy is preserved in the reader's TOC (chapters with nested
+   sections).
 4. **Platforms:** iOS **and** macOS together. Core logic lives in `Shared/` /
    `EchoCore/` (one copy); only the two platform pickers differ.
 
@@ -54,23 +57,28 @@ is two phases glued together:
    DB write (largely format-agnostic).
 
 **Split phase 2** into `import(parse:audiobookID:chapters:bookDuration:)` and let the
-new text parser feed it the same `EPUBBlockParse` value. The EPUB-only steps
-**self-skip** for text:
+new text parser feed it the same `EPUBBlockParse` value. The EPUB-specific steps
+either self-skip or are reused unchanged for text:
 
-- The image-copy loop guards on `blockKind == .image` — Markdown emits none.
-- `resolveTOCEntries` returns `[]` for an empty TOC tree
-  ([EchoCore/Services/EPUBImportService.swift:190](../../../EchoCore/Services/EPUBImportService.swift)).
+- The image-copy loop guards on `blockKind == .image` — Markdown emits none, so it
+  self-skips.
+- `resolveTOCEntries`
+  ([EchoCore/Services/EPUBImportService.swift:190](../../../EchoCore/Services/EPUBImportService.swift))
+  runs unchanged: for text it resolves the **heading-derived TOC tree** (below) via
+  synthetic spine hrefs + per-heading anchor IDs, exactly as it resolves an EPUB's NCX
+  tree.
 
 Net: one extracted method, **zero duplicated chapter/persist/timeline logic**, no
 schema change.
 
-**Each chapter is modelled as one synthetic spine item** (`spineIndex`). This makes
-the existing standalone-book branch
+**Each chapter is modelled as one synthetic spine item** (`spineIndex`); a chapter's
+section sub-headings and prose share that chapter's spine. This makes the existing
+standalone-book branch
 ([EPUBImportService.swift:142–163](../../../EchoCore/Services/EPUBImportService.swift))
 map body spines → 0-based chapter indices unchanged, and auto-excludes front matter
-(anything before the first heading) from narration — the same way an EPUB
-cover/copyright page is excluded. "Every heading = a chapter" becomes "every heading
-starts a new spine."
+(content before the first chapter-level heading) from narration — the same way an EPUB
+cover/copyright page is excluded. "Heading = a chapter" becomes "every **chapter-level**
+heading starts a new spine; deeper headings stay within it."
 
 **Rejected alternatives:**
 
@@ -95,7 +103,9 @@ func parsePlainTextBlocks(audiobookID: String, fileURL: URL) throws -> EPUBBlock
 
 | Markdown element | Becomes | Narrated? |
 |---|---|---|
-| `#`…`######` heading | new spine (`spineIndex++`) + `heading` block; heading text = chapter title | yes |
+| Chapter-level heading (shallowest repeating level) | new spine (`spineIndex++`) + `heading` block; text = chapter title | yes |
+| Deeper heading (section) | `heading` block within the current chapter's spine — no new chapter | yes |
+| Heading shallower than chapter level (lone leading title) | front-matter `heading` block (`isFrontMatter`) | no |
 | Paragraph (blank-line delimited) | `paragraph` block | yes |
 | List item (`-`/`*`/`+`/`1.`) | one `paragraph` block per item, marker stripped | yes (reads as a sentence) |
 | Blockquote (`>`) | `paragraph` block, `>` stripped | yes |
@@ -103,18 +113,42 @@ func parsePlainTextBlocks(audiobookID: String, fileURL: URL) throws -> EPUBBlock
 | `**bold**` / `*italic*` / `~~strike~~` | plain text + `TextFormat(type:range:)` span | text only |
 | `[label](url)` link | `label` only (URL dropped) | yes |
 
+### Heading hierarchy → chapters, sections, TOC
+
+A first pass over all headings determines the **chapter level**: the shallowest
+heading depth that occurs **≥2 times** (so a lone leading `# Title` above repeated
+`##` chapters does not count — `##` becomes the chapter level). If no level repeats,
+the single shallowest heading present is the chapter level (a one-chapter book).
+
+- Headings **at** the chapter level start a new spine (chapter).
+- Headings **deeper** than the chapter level become `heading` blocks inside the
+  current chapter's spine — section titles, rendered and narrated, never their own
+  chapter.
+- Headings **shallower** than the chapter level (the lone title case) and any content
+  before the first chapter-level heading are `isFrontMatter = true`.
+
+The hierarchy is preserved for the reader by building a hierarchical
+`tocEntryTree`: chapter-level headings are top-level nodes, deeper headings nest as
+children. Each heading block carries a synthetic `anchorID`, and each TOC node points
+at its spine's synthetic href + that anchor, so the existing `resolveTOCEntries`
+maps every node to its block and persists `epub_toc_entry` rows — the same nested TOC
+the macOS `MacTOCTreeView` and the iOS reader already render for EPUBs.
+
 ### Plain-text (`.txt`)
 
 - Same blank-line paragraph splitting.
 - Chapters from the heuristic: a line matching
   `^\s*(chapter|part|book)\s+(\d+|[ivxlcdm]+)\b…` (case-insensitive), a bare numbered
   line, or a short ALL-CAPS line, starts a new spine with that line as the heading.
+- Plain text has a single heading "level," so it produces a **flat** chapter list (no
+  sections / no nesting).
 - **No markers found → exactly one spine / one chapter.**
 
 ### Shared rules
 
-- **Front matter:** prose before the first heading → `isFrontMatter = true` (shown in
-  reader, excluded from narration). Title always from the filename; author blank.
+- **Front matter:** content before the first chapter-level heading (including a lone
+  shallower title heading) → `isFrontMatter = true` (shown in reader, excluded from
+  narration). Title always from the filename; author blank.
 - **Block IDs:** reuse `epub-<audiobookID>-s<spine>-b<block>`, assigned in reading
   order — reproducible, so re-importing the same file yields identical IDs (alignment
   anchors depend on this).
@@ -172,9 +206,14 @@ treatment as a standalone EPUB.
 ## Testing (TDD)
 
 - **`TextDocumentParserTests`** (bulk):
-  - *Structure:* N headings → N spines/chapters; blank-line paragraph splitting; list
-    items → one block each; blockquote `>` stripped; fenced code / tables / images
-    dropped (asserted absent); link → label-only.
+  - *Structure:* blank-line paragraph splitting; list items → one block each;
+    blockquote `>` stripped; fenced code / tables / images dropped (asserted absent);
+    link → label-only.
+  - *Heading hierarchy:* `##` chapters with `###` sections → chapters break only at
+    `##`, sections stay in-chapter (same `chapterIndex`); a lone leading `# Title`
+    above `##` chapters → `##` is the chapter level and the `#` is front matter; a flat
+    list of `#` chapters → each is its own chapter; nested `tocEntryTree` /
+    `epub_toc_entry` rows reflect chapter→section parentage.
   - *Inline formatting:* `**bold**`, `*italic*`, `~~strike~~`, nested `***both***`
     produce `TextFormat` spans at correct character offsets of the stripped text.
   - *Front matter:* prose before the first heading is `isFrontMatter == true`; title
