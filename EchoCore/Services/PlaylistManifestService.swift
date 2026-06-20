@@ -14,7 +14,8 @@ struct PlaylistManifestService {
     static func read(from folderURL: URL) -> EchoPlaylistManifest? {
         let manifestURL = folderURL.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: manifestURL.path),
-              let data = try? Data(contentsOf: manifestURL) else { return nil }
+            let data = try? Data(contentsOf: manifestURL)
+        else { return nil }
         return try? JSONDecoder().decode(EchoPlaylistManifest.self, from: data)
     }
 
@@ -52,7 +53,9 @@ struct PlaylistManifestService {
         let loopMode = persistence.getLoopMode(for: key) ?? "off"
 
         let manifestBookmarks: [EchoPlaylistManifest.ManifestBookmark]? =
-            bookmarks.isEmpty ? nil : bookmarks.map { bm in
+            bookmarks.isEmpty
+            ? nil
+            : bookmarks.map { bm in
                 EchoPlaylistManifest.ManifestBookmark(
                     id: bm.id.uuidString,
                     title: bm.title,
@@ -90,7 +93,10 @@ struct PlaylistManifestService {
         if let s = speed { manifest.playbackState.speed = Double(s) }
         if let lm = loopMode { manifest.playbackState.loopMode = lm }
         if let lt = lastTrackId { manifest.playbackState.lastTrackId = lt }
-        if let lp = lastPosition { manifest.playbackState.lastPosition = lp }
+        if let lp = lastPosition {
+            manifest.playbackState.lastPosition = lp
+            manifest.playbackState.updatedAt = Date().timeIntervalSince1970 * 1000
+        }
         write(manifest, to: folderURL)
     }
 
@@ -117,15 +123,18 @@ struct PlaylistManifestService {
 
     static func updateBookmarks(folderURL: URL, bookmarks: [Bookmark]) {
         guard var manifest = read(from: folderURL) else { return }
-        manifest.bookmarks = bookmarks.isEmpty ? nil : bookmarks.map { bm in
-            EchoPlaylistManifest.ManifestBookmark(
-                id: bm.id.uuidString,
-                title: bm.title,
-                timestamp: bm.timestamp,
-                trackId: bm.trackId,
-                note: bm.note
-            )
-        }
+        manifest.bookmarks =
+            bookmarks.isEmpty
+            ? nil
+            : bookmarks.map { bm in
+                EchoPlaylistManifest.ManifestBookmark(
+                    id: bm.id.uuidString,
+                    title: bm.title,
+                    timestamp: bm.timestamp,
+                    trackId: bm.trackId,
+                    note: bm.note
+                )
+            }
         write(manifest, to: folderURL)
     }
 }

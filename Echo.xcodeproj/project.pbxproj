@@ -10,6 +10,7 @@
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
+		CC0000000016AUMK0000016 /* AudioMarker in Frameworks (macOS) */ = {isa = PBXBuildFile; productRef = CC0000000017AUMK0000017 /* AudioMarker */; };
 		CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
 		CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000HMSKI0000000 /* MisakiSwift */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -137,6 +138,7 @@
 				Utilities/ColorMetrics.swift,
 				Utilities/FolderPicker.swift,
 				Utilities/OKLCH.swift,
+				"ViewModels/PlayerModel+Audiobookshelf.swift",
 				ViewModels/PlayerModel.swift,
 				ViewModels/ReaderFeedViewModel.swift,
 				Views/AppIconSelectionView.swift,
@@ -191,6 +193,8 @@
 				Views/PlayerScrubberView.swift,
 				Views/PlayheadLineView.swift,
 				Views/PlaylistView.swift,
+				Views/ABSBrowseView.swift,
+				Views/ABSConnectionsSettingsView.swift,
 				Views/PronunciationDictionaryView.swift,
 				Views/ProTranscriptsSettingsView.swift,
 				Views/ReaderEmptyState.swift,
@@ -335,6 +339,7 @@
 				CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */,
 				CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */,
 				CC595F852FE630AA0034453E /* onnxruntime in Frameworks */,
+				CC0000000016AUMK0000016 /* AudioMarker in Frameworks (macOS) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -479,6 +484,7 @@
 				CC0000000003ZIPF00000003 /* ZIPFoundation */,
 				CC0000000000FMSKI0000000 /* MisakiSwift */,
 				CC595F842FE630AA0034453E /* onnxruntime */,
+				CC0000000017AUMK0000017 /* AudioMarker */,
 			);
 			productName = "Echo macOS";
 			productReference = AA0100000000000000000001 /* Echo macOS.app */;
@@ -1646,6 +1652,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		CC00000000008AUMK0000000 /* AudioMarker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
+			productName = AudioMarker;
+		};
+		CC0000000017AUMK0000017 /* AudioMarker */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
 			productName = AudioMarker;

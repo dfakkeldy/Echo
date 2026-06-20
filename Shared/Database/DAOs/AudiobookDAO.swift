@@ -53,6 +53,10 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var duration: TimeInterval
     var fileCount: Int?
     var addedAt: String
+    var sourceType: String? = nil
+    var serverID: String? = nil
+    var remoteItemID: String? = nil
+    var topicsJSON: String? = nil
 
     static let databaseTableName = "audiobook"
 
@@ -60,5 +64,9 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case id, title, author, duration
         case fileCount = "file_count"
         case addedAt = "added_at"
+        case sourceType = "source_type"
+        case serverID = "server_id"
+        case remoteItemID = "remote_item_id"
+        case topicsJSON = "topics_json"
     }
 }

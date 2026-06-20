@@ -81,7 +81,7 @@ nonisolated struct FlashcardDAO {
 
     func grade(
         cardID: String, grade: Int, now: Date = Date(),
-        scheduler: some SchedulingAlgorithm = SM2Scheduler()
+        scheduler: some SchedulingAlgorithm = FSRSScheduler()
     ) throws {
         try db.write { db in
             guard let card = try Flashcard.fetchOne(db, key: cardID) else { return }

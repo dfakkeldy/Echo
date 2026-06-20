@@ -12,7 +12,7 @@ This roadmap has two layers:
 - **Part B — Original blueprint (Phases 1–9, historical).** The foundational hardening/feature phases that predate the wedge model. Phases 1–7 are complete and kept as engineering history; the forward-looking items in Phases 8–9 are now tracked under the wedges in Part A (cross-referenced).
 
 > [!IMPORTANT]
-> Keep this file in sync with `README.md`'s "Road to v1.0" section and `docs/competitor-analysis.md`. When a wedge item's status changes, update both. **Current schema version: V21** (see `ARCHITECTURE.md` for the full migration ledger).
+> Keep this file in sync with `README.md`'s "Road to v1.0" section and `docs/competitor-analysis.md`. When a wedge item's status changes, update both. **Current schema version: V23** (see `ARCHITECTURE.md` for the full migration ledger).
 
 ---
 
@@ -71,7 +71,7 @@ Competitors hide fees, gate features, and run ad-SDKs → **Echo is free, open, 
 Competitors lose progress and corrupt files → **Echo's BYO library + iCloud just works, and your self-hosted shelf comes with it.**
 
 - [ ] **Full CloudKit study-state sync** — position, bookmarks, cards, decks (today **anchors-only**), conflict handling, no lost progress across iPhone / Watch / Mac. *(was WS8)*
-- [ ] **Full Audiobookshelf** *(was 1.x → now 1.0)* — auth (JWT login + refresh-with-rotation), browse libraries/items, **background resumable download-to-local** (+ sibling EPUB so the existing import pipeline + alignment + flashcards fire unchanged), and **(optional)** two-way progress sync. **Foundations laid** (Schema V18 `abs_server`, `ABSServerDAO`, `ABSEndpoints`, `ABSModels`, `ABSTokenStore`); the **networking service + download pipeline + UI are still to build** — full design in Part B §9. *Streaming stays post-1.0.* *(was WS8b)*
+- [x] **Full Audiobookshelf** *(was 1.x → now 1.0)* — auth (JWT login + refresh-with-rotation), browse libraries/items, server-side search, **download-to-local** (whole-item zip → `ABSLibrary/<remoteItemID>/`; sibling EPUB auto-discovered so alignment + flashcards fire unchanged), and two-way progress sync (ABS-authoritative last-write-wins reconciler, throttled push + reconcile-on-load). *Shipped on branch `claude/romantic-wing-0dc47b` (V23 migration; progress-sync live-playback wiring device-unverified; pull re-seek single-track-only in v1; full `URLSessionConfiguration.background` + multi-server + macOS UI are fast-follows; streaming deferred post-1.0.)* *(was WS8b)*
 
 ### Wedge 6 — SUPPORT *(beats poor support / feedback)*
 
@@ -98,7 +98,7 @@ Echo's direct answer to TTS-reader competitors (see `docs/competitor-analysis.md
 - [x] **A14 narration de-gate (done)** — the A15+ `NarrationCapability` gate is removed; narration is available on every device meeting the iOS 18 / macOS 15 floor. The gate existed only because the CoreML vocoder trapped on the A14 ANE; the ONNX engine never touches the ANE, verified on an iPhone 12 Pro (≈0.7 s load, RTF ≈ 0.5, no crash/jetsam).
 - [ ] **Remove the unused FluidAudio + KokoroPipeline SPM packages** — now unimported (the legacy engines are deleted) but still linked; drop them via Xcode ▸ Package Dependencies and delete `ThirdParty/KokoroPipeline`.
 - [x] **Word-level read-along / karaoke (Schema V19)** — `word_timing` table; char-proportional interpolation refined to real WhisperKit/DTW word times; iOS + macOS readers. *(Existing books need a one-time re-align.)*
-- [x] **Chaptered `.m4b` export (iOS)** — `ChapterMarkerWriter` authors Nero `chpl` + QuickTime `chap` atoms via `swift-audio-marker`.
+- [x] **Cross-platform chaptered `.m4b` export (iOS + macOS)** — `AudioExportService` (`EchoCore/Services/Export/`) composes + transcodes any book (narrated EPUB via `NarrationCacheSource`, or imported m4b/mp3 via `ImportedBookSource`) and writes Nero `chpl` + QuickTime `chap` markers plus title/author/cover art in one in-place pass via `swift-audio-marker` (now linked on both targets). iOS entry: player More menu → share sheet. macOS entry: File menu → `NSSavePanel`. **mp3 export deferred** (needs LAME; per-chapter-file strategy decided).
 - [x] **macOS port + overnight narrate queue (Schema V21)** — Kokoro de-gated to iOS+macOS via `NarrationEngineFactory`; `batch_queue.kind` carries text-only **narrate** items; Batch ▸ "Narrate EPUB(s)…" (⌘⌥N).
 - [ ] **Read-first Listen UI polish** — finish the read-first narration wiring on iOS.
 - [ ] **macOS custom font/theme application** — `appFont`/`themeColor` persist but aren't yet applied to the macOS UI (documented follow-up).
@@ -408,32 +408,32 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 
 ### 9.1 — Foundation: connect & browse (size: M)
 
-- [ ] **`AudiobookshelfService`** — concrete service, sibling to `CloudKitSyncService`; the app's first networked-account code. Minimal async/await `URLSession` client in the `MacAnkiExportView` house style. No new protocol (matches the concrete-type DI style — see §10.1 history).
-- [ ] **Auth** — JWT login + refresh-with-rotation (persist the rotated refresh token *every time*; serialize refreshes to avoid self-invalidation). Tolerate self-signed certs, LAN `http`, and non-standard ports (homelab reality).
-- [ ] **Credential storage** — per-server token in `KeychainStore` (new key; owner runs multiple servers). New `abs_server` table (`id, baseURL, username, defaultLibraryId`); the token never goes in SQLite.
-- [ ] **Settings UI** — a "Connections" section in `SettingsView` following the existing `NavigationLink` sub-screen pattern. One server is enough for v1; multi-server is a fast-follow.
-- [ ] **Browse** — list libraries → items → item detail; covers via `/api/items/{id}/cover?token=`.
+- [x] **`AudiobookshelfService`** — concrete `@MainActor` class, injected `URLSession`, no protocol (matches the concrete-type DI style — see §10.1 history).
+- [x] **Auth** — JWT login + refresh-with-rotation (persist the rotated refresh token *every time*; serialize refreshes to avoid self-invalidation). Tolerates self-signed certs, LAN `http`, and non-standard ports.
+- [x] **Credential storage** — per-server token in `KeychainStore`. `abs_server` table (`id, baseURL, username, defaultLibraryId`); token never goes in SQLite.
+- [x] **Settings UI** — Settings ▸ Library Sources (Connections screen, iOS). One server; multi-server is a fast-follow.
+- [x] **Browse** — list libraries → items → item detail with covers.
 
 ### 9.2 — Download-to-local — the core (size: L)
 
-- [ ] **"Add from Audiobookshelf"** action beside the existing `.fileImporter` in `PlaylistView`.
-- [ ] **Background, resumable downloads** — `URLSessionConfiguration.background` (net-new; only `audio`/`fetch` background modes today, `Info.plist:46`). De-risk by shipping a foreground download first, then add background once the happy path works.
-- [ ] **Managed library folder** — land audio into app-owned `Application Support/ABSLibrary/{remoteItemID}/`; the security-scoped `start/stopAccessingSecurityScopedResource` calls become no-ops for this folder (it's already ours).
-- [ ] **Pull the bundled EPUB** — if `media.ebookFile` exists, download it into the *same* folder so `EPUBAutoImportScanner` auto-discovers the sibling `.epub` (`EPUBAutoImportScanner.swift:55`) — alignment/flashcards/search then fire with zero pipeline changes. The single cleanest synergy in the project.
-- [ ] **Hand off to the existing pipeline** — call `PlayerLoadingCoordinator.loadFolder` unchanged; `M4BParser` parses chapters locally; anchors seed.
-- [ ] **Identity (option B)** — keep `id = folderURL.absoluteString` for downloaded books; merely stamp `sourceType`/`serverID`/`remoteItemID` onto `AudiobookRecord` (migration v18). Because a downloaded book has a real folder, almost no `file://`-assuming call site breaks.
-- [ ] **Anchor-reuse win** — `CloudKitSyncService.downloadAnchors` keys shared anchors on `title+author+duration` and *ignores* `audiobookID`, so a downloaded copy inherits WhisperKit anchors another device already computed (skips transcription on device 2). Verify end-to-end.
+- [x] **"Add from Audiobookshelf"** action on the library screen.
+- [x] **Background-task grace window** — `beginBackgroundTask` keeps an in-flight download alive when the user backgrounds. *Full `URLSessionConfiguration.background` resumable download is a fast-follow (ABS zip lacks `Content-Length`/range headers).*
+- [x] **Managed library folder** — audio + EPUB land in `Application Support/ABSLibrary/<remoteItemID>/`.
+- [x] **EPUB bundled download** — sibling `.epub` downloaded when `media.ebookFile` exists; `EPUBAutoImportScanner` auto-discovers it; alignment/flashcards/search fire with zero pipeline changes.
+- [x] **Hand off to the existing pipeline** — `PlayerLoadingCoordinator.loadFolder` called unchanged.
+- [x] **Identity** — `id = folderURL.absoluteString`; V23 provenance columns (`source_type`/`server_id`/`remote_item_id`) stamp ABS origin on the `AudiobookRecord`.
+- [x] **Anchor-reuse** — `CloudKitSyncService.downloadAnchors` keys anchors on `title+author+duration`; the persisted ABS title/author ensures a re-downloaded book inherits prior alignment anchors.
 
 ### 9.3 — Library discovery: search by topic (size: S–M)
 
-- [ ] **Browse & search the connected ABS library by topic** — filter/search items by genre, tag, series, narrator, and author (ABS exposes all of these per item). This is *library-level* discovery — distinct from Echo's existing *within-book* phrase search (`EPubBlockDAO.search`).
-- [ ] **Carry topic metadata onto import** — persist ABS genres/tags on the imported book so the local library is filterable by topic too (complements Echo's embedded topic tags).
+- [x] **Server-side `.searchable`** — search the connected ABS library by title/author/genre/tag from within Echo. Library-level discovery, distinct from within-book phrase search.
+- [x] **Topic metadata on import** — `topics_json` V23 column persists ABS genres/tags on the imported `AudiobookRecord`.
 
 ### 9.4 — Two-way progress sync — Tier 3-lite (size: M, fast-follow)
 
-- [ ] **Push/pull playback position** — wire ABS media-progress into the existing closures (`PlayerModel.coordinator_saveProgress` / `coordinator_persistAndSync` and the restore-on-load path, `PlayerModel.swift:711`); throttle pushes to ~15–30 s while playing. (CloudKit syncs only alignment anchors, **not** progress — so the only conflict is Echo-local vs ABS.)
-- [ ] **Conflict policy** — add `updatedAt(ms)` to `Persistence` / `ManifestPlaybackState`; compare against ABS `lastUpdate` on open; ABS is authoritative for ABS-backed books; local sidecar is offline cache. Reuse WS8's conflict-rules thinking.
-- [ ] **Offline reconciliation** — accumulate offline, reconcile via `POST /api/session/local-all` on reconnect. (Deferrable within the phase.)
+- [x] **Push/pull playback position** — ABS-authoritative last-write-wins reconciler; throttled push while playing; reconcile-on-load. *Pure reconciler logic unit-tested; live playback wiring device-unverified. Pull re-seek is single-track-only in v1.*
+- [x] **Conflict policy** — ABS is authoritative for ABS-backed books; local sidecar is offline cache.
+- [ ] **Offline reconciliation** — `POST /api/session/local-all` on reconnect. (Fast-follow.)
 
 ### 9.5 — Deferred (post-1.0)
 
@@ -459,7 +459,7 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 | WS7 | Import / Export | 🟡 Partial (export exists; import pending) |
 | WS-N | On-Device Narration (Kokoro) | ✅ Core shipped (Listen-UI polish + Mac theming pending) |
 | WS8 | iCloud study sync | 🟡 Partial (anchors only) |
-| WS8b | Audiobookshelf integration | 🔜 Planned |
+| WS8b | Audiobookshelf integration | 🟡 Built on branch `claude/romantic-wing-0dc47b` (V23; pending merge + device verify; progress-sync wiring unverified; full background-URLSession + multi-server + macOS UI + streaming = fast-follows/post-1.0) |
 | WS9 | Polish & release | 🟡 Partial |
 | WS10 | Docs & site content | 🟢 Ongoing |
 
@@ -477,9 +477,9 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 | 6 | EPUB Manual Alignment | ✅ Core complete (6/8 items); 2 deferred (anchor import/export, word-count alignment hints) |
 | 7 | Testing & CI | Folded into WS2; ~6 items remaining |
 | 8 | Study Workflow & Polish | Folded into WS5/6/8/9; Accent Contrast Safety ✅, Now Playing redesign ✅, Watch Connectivity hardened ✅, Pomodoro timer ✅, CloudKit sync infrastructure in place |
-| 9 | Audiobookshelf Integration | 🔜 Tracked as WS8b (download-to-local + topic search + progress sync; streaming deferred post-1.0) |
+| 9 | Audiobookshelf Integration | 🟡 Core built on branch `claude/romantic-wing-0dc47b` (connect/browse/search/download/progress-sync; V23; pending merge + device verify; streaming deferred post-1.0) |
 
-**Foundation (Phases 1–7): complete. Forward work tracked under Part A workstreams. Current schema: V21.**
+**Foundation (Phases 1–7): complete. Forward work tracked under Part A workstreams. Current schema: V23.**
 
 ### June 2026 Highlights (since last update)
 

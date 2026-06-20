@@ -26,6 +26,7 @@ struct Echo_macOSApp: App {
 
     // WS-12: Anki export state
     @State private var showAnkiExport = false
+    @State private var showAudioExport = false
 
     /// Persistent batch pipeline (import → transcribe → align → word timings).
     /// Survives app restart; the queue lives in the shared database.
@@ -77,6 +78,14 @@ struct Echo_macOSApp: App {
                 .sheet(isPresented: $showAnkiExport) {
                     MacAnkiExportView()
                 }
+                .sheet(isPresented: $showAudioExport) {
+                    if let id = player.audiobookID, let db = player.dbService?.writer {
+                        MacAudioExportView(
+                            audiobookID: id,
+                            bookTitle: player.currentTitle,
+                            databaseWriter: db)
+                    }
+                }
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -91,6 +100,11 @@ struct Echo_macOSApp: App {
                     NotificationCenter.default.post(name: .requestExportTranscript, object: nil)
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
+
+                Button("Export Audiobook (.m4b)…") {
+                    showAudioExport = true
+                }
+                .disabled(player.audiobookID == nil)
             }
 
             CommandGroup(replacing: .textEditing) {

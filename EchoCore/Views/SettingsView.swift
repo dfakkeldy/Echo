@@ -44,6 +44,12 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Library Sources") {
+                    NavigationLink("Connections") {
+                        ABSConnectionsSettingsView()
+                    }
+                }
+
                 Section("Customization") {
                     NavigationLink("Phone Player Designer") {
                         PhonePlayerSettingsView()

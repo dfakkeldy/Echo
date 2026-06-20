@@ -274,6 +274,24 @@ The Mac app can process an entire folder of audiobooks unattended. A small `Fold
 - **Two item kinds (`batch_queue.kind`, Schema V21).** `kind` (additive `ALTER ADD … DEFAULT 'align'`) discriminates audiobook-alignment items (`.align`, the original import→transcribe→align) from text-only **EPUB narration** items (`.narrate`). `makeStages()` branches on `kind`: a `.narrate` item bookmarks the EPUB itself as its source, imports the EPUB's blocks (no audio), and synthesizes each chapter on-device via `NarrationService` (see *On-Device Narration*), reusing the same `BatchQueueRunner` failure isolation + restart recovery. `BatchItemKind` decodes forward-compatibly (an unknown future kind falls back to `.align` rather than crashing an older build). `FolderAudioScanner.enqueueEPUBsForNarration` and `MacBatchProcessingService.enqueueNarration(epubURL:)` enqueue them.
 - **UI.** `MacBatchQueueView` shows per-item status/progress (and an **Open** button on a completed `.narrate` book that loads it into the player); `Echo_macOSApp` adds a **Batch** command menu (Open Batch Queue / Add Folder to Queue / **Narrate EPUB(s)…** ⌘⌥N) and calls `resumeOnLaunch()` from the main window's `.task`.
 
+### Audiobookshelf Integration — download-to-local (June 2026)
+
+Echo can connect to a self-hosted **Audiobookshelf (ABS)** server and download books directly into the local study pipeline. The design is **download-to-local, not streaming** — streaming remains deferred post-1.0 because Echo's audio engine reads via `AVAudioFile(forReading:)` (local files only) and the study differentiators (alignment, phrase search, karaoke, flashcards) depend on a local folder identity.
+
+**Architecture overview:**
+
+- **`AudiobookshelfService`** (`@MainActor` class, injected `URLSession`, no protocol — matches the concrete-type DI style) speaks the ABS HTTP API: authenticate, browse libraries/items, search, download whole-item zips, and push/pull media progress. Auth uses JWT + serialized refresh-with-rotation (the rotated token is persisted on every response to avoid self-invalidation). Self-signed certs, LAN `http://`, and non-standard ports are all tolerated (homelab reality).
+- **`ABSImportService`** (or the download coordinator) receives the downloaded zip, unzips it into `Application Support/ABSLibrary/<remoteItemID>/` (an app-owned folder, no security-scoped bookmarks needed), stamps provenance columns on the `AudiobookRecord`, and hands the resulting folder to the existing `PlayerLoadingCoordinator.loadFolder` unchanged — so M4B chapter parsing, `EPUBAutoImportScanner` sibling discovery, alignment, flashcards, and phrase search all fire with zero pipeline changes.
+- **`ABSProgressReconciler`** implements a last-write-wins (ABS-authoritative) strategy: progress pushes are throttled (~15–30 s) while playing; on book open the reconciler compares local `updatedAt` against ABS `lastUpdate` and re-seeks if ABS is newer. The pull re-seek is single-track-only in v1. *The pure reconciler logic is unit-tested; live playback wiring is device-unverified as of the initial branch.*
+- **Background-task grace window:** a `beginBackgroundTask` call keeps an in-flight download alive when the user backgrounds the app during a download. This is *not* a full `URLSessionConfiguration.background` session — the ABS zip endpoint lacks `Content-Length`/range headers, so true background-session resumption (progress survives process termination) is a documented future enhancement.
+- **Anchor-reuse:** `CloudKitSyncService.downloadAnchors` keys shared anchors on `title+author+duration` (not `audiobookID`), so a book re-downloaded from ABS inherits prior WhisperKit alignment anchors that another device already computed. The provenance columns carry the real ABS title/author so the lookup key matches.
+
+**Schema V23** adds four nullable columns to `audiobook`: `source_type` (TEXT — `"abs"` for ABS-sourced books, `NULL` for local), `server_id` (TEXT), `remote_item_id` (TEXT), and `topics_json` (TEXT — serialized ABS genres/tags for local topic filtering). All are additive `ALTER TABLE ADD COLUMN` statements; no re-import or re-alignment is needed for existing books.
+
+**Platform split:** iOS UI is fully built (Settings ▸ Library Sources connect/browse sheet, search, "Add from Audiobookshelf" download action). The macOS target compiles the service layer but the macOS ABS UI is a fast-follow (not yet wired).
+
+**Credential storage:** the ABS JWT is stored in `KeychainStore` (never in SQLite). The `abs_server` table (Schema V18; existing) holds `baseURL`, `username`, and `defaultLibraryId`; V23 carries the per-book provenance on `audiobook`.
+
 ## Echo Watch App
 
 ```
@@ -492,7 +510,7 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 
 > **Update (2026-06-17 — m4b chapter markers).** Combined-`.m4b` export now writes real Nero `chpl` + QuickTime `chap` chapter atoms via the `swift-audio-marker` package (iOS target only); `ChapterMarkerWriter` replaces the copy-only `AudioMarker` stub, and `NarrationExportService` labels chapters with their real `TrackRecord` titles. AVFoundation's `loadChapterMetadataGroups` does **not** surface these atoms, so markers are verified in a chapter-aware player (Books.app) — the test suite asserts byte-level atom presence + playability instead.
 
-> **Update (2026-06-17 — narration on macOS).** On-device narration now runs on **macOS** too — a target-wiring + de-gating port, not new ML work (FluidAudio is `.macOS(.v14)`-capable and M-series doesn't hit the A14 ANE trap, so no model swap). FluidAudio is linked to the Echo macOS target and `KokoroTTSEngine` is de-gated to `os(iOS) || os(macOS)`. The one iOS-coupled helper, `PlayerModel.narrationCacheDirectory()`, moved into a cross-platform **`NarrationCache.directory()`** (the iOS symbol stays as a forwarder); a new **`NarrationEngineFactory.make()`** (gated to iOS+macOS — the only targets that compile `EchoCore` and link FluidAudio) supplies the real `KokoroTTSEngine` behind the seam. macOS synthesis runs **in the overnight batch queue** (see the batch section): a `kind == .narrate` item imports a standalone EPUB's blocks (no audio), plans chapters with `NarrationChapterPlanner`, and drives `NarrationService.renderChapter` into the same `NarrationCache`, honoring the shared `narrationVoiceID` preference. Playback is **DB-driven**: because rendered files live in Application Support (outside any scanned folder), `MacPlayerModel.loadNarratedBook(audiobookID:)` sources its track list from `TrackRecord` rows (ordered by the pure, shared `NarrationTrackOrdering`) instead of a filesystem scan. The three narration views (`VoicePickerView`, `NarrationStatusView`, `NarrationNudgeView`) are ported to the macOS target, with a voice picker in the macOS Settings *Playback* pane. **`.m4b` chapter export remains iOS-only** (the `swift-audio-marker` macOS path is unverified). No SoC gate on Macs — the A15+ branch stays iPhone-only.
+> **Update (2026-06-17 — narration on macOS).** On-device narration now runs on **macOS** too — a target-wiring + de-gating port, not new ML work (FluidAudio is `.macOS(.v14)`-capable and M-series doesn't hit the A14 ANE trap, so no model swap). FluidAudio is linked to the Echo macOS target and `KokoroTTSEngine` is de-gated to `os(iOS) || os(macOS)`. The one iOS-coupled helper, `PlayerModel.narrationCacheDirectory()`, moved into a cross-platform **`NarrationCache.directory()`** (the iOS symbol stays as a forwarder); a new **`NarrationEngineFactory.make()`** (gated to iOS+macOS — the only targets that compile `EchoCore` and link FluidAudio) supplies the real `KokoroTTSEngine` behind the seam. macOS synthesis runs **in the overnight batch queue** (see the batch section): a `kind == .narrate` item imports a standalone EPUB's blocks (no audio), plans chapters with `NarrationChapterPlanner`, and drives `NarrationService.renderChapter` into the same `NarrationCache`, honoring the shared `narrationVoiceID` preference. Playback is **DB-driven**: because rendered files live in Application Support (outside any scanned folder), `MacPlayerModel.loadNarratedBook(audiobookID:)` sources its track list from `TrackRecord` rows (ordered by the pure, shared `NarrationTrackOrdering`) instead of a filesystem scan. The three narration views (`VoicePickerView`, `NarrationStatusView`, `NarrationNudgeView`) are ported to the macOS target, with a voice picker in the macOS Settings *Playback* pane. No SoC gate on Macs — the A15+ branch stays iPhone-only. *(`.m4b` export expanded to cross-platform in a later update — see the Export module section below.)*
 
 > **Update (2026-06-18 — lexicon-only G2P + pronunciation overrides).** MisakiSwift's MLX-backed **BART out-of-vocabulary fallback** (and the transitive `mlx-swift` dependency) was **removed**, making English G2P (`KokoroG2P` → MisakiSwift's `EnglishG2P`) **lexicon-only** (`us_gold`/`us_silver`). This unblocks the iPhone-simulator test suite — `mlx-swift` 0.30.2 references Metal symbols undefined on the simulator ([mlx-swift#341](https://github.com/ml-explore/mlx-swift/issues/341)), which had transitively failed every sim test — and trims ~15 MB of `us_bart` weights from the bundle. `EnglishFallbackNetwork` is now a graceful stub: an OOV word emits the `unk` glyph (dropped by `KokoroPhonemeVocab` → silent) rather than crashing or guessing. To recover pronunciations for OOV words (proper nouns, tech terms), a user **pronunciation dictionary** — `PronunciationOverrideStore` (`@Observable`, JSON-persisted global map; **Settings ▸ Pronunciation**) feeding the pure `PronunciationOverrides` rewriter — wraps chosen words in MisakiSwift's `[word](/ipa/)` link syntax, which `EnglishG2P` injects at **rating 5** (above both the lexicon and the removed fallback). The rewrite runs in `NarrationService.renderChapter` **after `TextNormalizer` and before `NarrationTextChunker`**; the link token has no spaces or sentence terminators, so it survives chunking and reaches both the iOS and macOS render paths.
 
@@ -508,6 +526,25 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 - `TextNormalizer` — pure, deterministic prose→speakable normalization (abbreviations, thousands separators, Roman-numeral chapters, em-dash pauses); the highest naturalness-ROI unit.
 - `NarrationState` — `@MainActor @Observable` progress object mirroring `AutoAlignmentState` (phases: `idle`, `preparingChapter`, `renderingAhead`, `completed`, `failed`).
 - `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:)` normalizes + synthesizes each text block, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
+
+### Chaptered M4B Export (June 2026)
+
+Any loaded book — narrated EPUB or imported m4b/mp3 — can be exported as a single chaptered `.m4b` on both iOS and macOS. The export module lives in `EchoCore/Services/Export/` and is structured around two orthogonal seams: **source** (where the audio comes from) and **writer** (how chapter metadata is embedded).
+
+**Source seam (`ExportSource`).**  `ExportSourceResolver` inspects the book's tracks and auto-selects:
+
+- `NarrationCacheSource` — assembles audio from per-chapter narration cache files (used for narrated EPUBs).
+- `ImportedBookSource` — reads the book's original on-disk audio files directly (used for imported m4b/mp3 books).
+
+Both sources expose the same chapter-ordered `[URL]` list consumed by the shared compose step.
+
+**Compose + transcode.** `AudioExportService` is the shared spine: it gaplessly composes the chapter URLs into an `AVMutableComposition`, transcodes once via `AVAssetExportSession` (AAC / `.m4b`), and hands the result to the metadata writer.
+
+**Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, now linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with title, author, and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover from the book's database record.
+
+**Entry points.** iOS: player More menu (`UnifiedTopHeader`) → share sheet (one tap; a pre-filled confirm sheet appears only when author or cover art is missing). macOS: File menu command → `NSSavePanel`.
+
+**mp3 is intentionally deferred.** Apple frameworks cannot encode mp3; it needs a vendored LAME encoder. The decided strategy (per-chapter mp3 files) is recorded but not yet implemented.
 
 ### EPUB Reader Feed (Current)
 
@@ -533,6 +570,7 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V14–V19 | Capture & context (`session_location`, bookmark/note columns), Anki decks, FSRS + cloze/transcript, `track.narration_voice` (V17, marks synthesized tracks), Audiobookshelf server, and the `word_timing` table (V19) — see CHANGELOG.md for each |
 | V20 | `batch_queue` table — the persistent macOS overnight processing queue (queue position, status, nullable security-scoped bookmarks) |
 | V21 | `batch_queue.kind` (TEXT, default `'align'`) — discriminates audiobook-alignment items from text-only EPUB narration items (additive; no re-import) |
+| V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 
@@ -928,3 +966,60 @@ WatchConnectivity reliability fixes across the phone (`WatchSyncManager`) and wa
 - **`AlignmentService` word-position calculation**: Hidden blocks (`isHidden = true`) and image blocks (`.image` kind) now receive weight 0.0 in cumulative word-position computation. Previously they contributed their full word count, skewing proportional interpolation. Block positions also shifted from "center" to "start" positioning for more predictable interpolation behavior.
 - **`SecurityScopeManager` URL reuse**: `startSelection(url:)` and `startFile(url:)` now correctly stop the previous access grant when the URL changes (previously the `guard !hasAccess else { return }` early-exit leaked the old grant). When the same URL is requested, the call is a no-op.
 - **`TokenDTW` gap-cost initialization**: The DTW cost matrix boundary row and column are now initialized with cumulative gap costs (`Int32(i) * 2` for deletions, `Int32(j) * 2` for insertions) so the DP can correctly skip leading tokens that have no match in the other sequence. Previously all boundary cells were zero, causing incorrect alignment when audio or EPUB sequences had unmatched prefixes.
+
+## Release Engineering — Promotion Ladder (June 2026)
+
+Echo ships on a **release-train** model. The three long-lived branches are
+promotion *stages*, not parallel forks, and code only ever flows one way:
+
+```
+feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
+            (integrate)  (promote)  (promote + tag → App Store)
+```
+
+- **`nightly`** — the integration branch. Every feature PR merges here; it is
+  allowed to be briefly rough. A nightly TestFlight build goes out daily.
+- **`weekly`** — promoted from `nightly` once a week. The beta channel: more
+  soak time, fewer surprises. A weekly TestFlight build goes out on Mondays.
+- **`main`** — stable. Only ever fast-forwarded from a proven `weekly`. This is
+  what cuts App Store releases; tagging a commit here (`vX.Y.Z`) is the release
+  signal. Because promotion is one-way, anything in `main` is a strict subset of
+  what has already been exercised in `weekly` and `nightly`.
+
+**Hotfixes** are the one exception to the downhill flow: branch from `main`,
+fix, merge to `main`, then merge `main` back *down* into `weekly` and `nightly`
+so the fix is not lost at the next promotion.
+
+### CI wiring
+
+- **`.github/workflows/ci.yml`** — the existing build gate (`build-for-testing`
+  for the iOS app + widget + watch + tests, plus a macOS build) runs on every
+  push and PR to `main`, `weekly`, and `nightly`. The required status check is
+  named **`Build gate + tests`**; branch protection keys off that exact string,
+  so it must not be renamed.
+- **`.github/workflows/release-trains.yml`** — scheduled builds that give the
+  train branches teeth. `schedule`/`workflow_dispatch` triggers only execute the
+  copy of a workflow on the **default branch**, so this file lives on `main` and
+  *checks out* the train branch it was asked to build. Nightly cron builds
+  `nightly`; weekly cron builds `weekly`; `workflow_dispatch` takes a `channel`
+  input. Each run always compiles the branch (no secrets needed) and, when the
+  App Store Connect + match secrets are present, runs the `fastlane beta` lane to
+  upload to TestFlight. Missing secrets degrade to compile-only (no red-X
+  nightlies). Required secrets: `APP_STORE_CONNECT_API_KEY_JSON`,
+  `MATCH_PASSWORD`, `MATCH_GIT_SSH_KEY`.
+
+### Branch protection (configured in repo Settings, not in code)
+
+| Branch | Requires PR | Required check | Merges from |
+|---|---|---|---|
+| `main` | ✅ | `Build gate + tests` | promotion PR from `weekly` only |
+| `weekly` | ✅ | `Build gate + tests` | promotion PR from `nightly` |
+| `nightly` | optional | `Build gate + tests` | feature PRs land here |
+
+### The rhythm
+
+1. **Daily:** feature PRs merge into `nightly`; nightly TestFlight build auto-ships.
+2. **Weekly:** open a `nightly → weekly` PR, let CI pass, merge; weekly build auto-ships.
+3. **Release:** when a weekly build is solid, open a `weekly → main` PR, merge,
+   then bump the version (see `.clinerules/workflows/release.md`) and tag
+   `vX.Y.Z` — the tag is what the App Store `fastlane` lane keys off.
