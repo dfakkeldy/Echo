@@ -120,7 +120,8 @@ struct RootTabView: View {
                 onHelpTap: { model.showingHelp = true },
                 onStatsTap: { showingStats = true },
                 onFidgetTap: { showingFidget = true },
-                onExportTap: model.folderURL != nil ? { showingExport = true } : nil
+                onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                    ? { showingExport = true } : nil
             )
 
             // UnifiedBottomDock is only overlaid on non-NowPlaying views.

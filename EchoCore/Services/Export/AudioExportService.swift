@@ -44,16 +44,16 @@ actor AudioExportService {
             let fullDuration = try await asset.load(.duration)
             let range = item.timeRange ?? CMTimeRange(start: .zero, duration: fullDuration)
 
-            chapters.append(ChapterAtom(startTime: currentPosition.seconds, title: item.title))
-
             guard let assetTrack = try await asset.loadTracks(withMediaType: .audio).first
             else { continue }
             try audioTrack.insertTimeRange(range, of: assetTrack, at: currentPosition)
+            chapters.append(ChapterAtom(startTime: currentPosition.seconds, title: item.title))
             currentPosition = CMTimeAdd(currentPosition, range.duration)
         }
 
         let tempM4A = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4a")
+        defer { try? FileManager.default.removeItem(at: tempM4A) }
 
         guard
             let session = AVAssetExportSession(
@@ -74,11 +74,11 @@ actor AudioExportService {
         // them. The chaptered audiobook is the core feature, so chapters are written
         // last and nothing rebuilds the container afterwards (verified by
         // `roundTripPreservesChaptersAndTitle`).
+        // `tempM4A` is cleaned up by the `defer` above on every exit path.
         let writer = ChapterMarkerWriter()
         do {
             try await writer.writeChapters(
                 chapters, to: tempM4A, outputURL: outputURL, metadata: metadata)
-            try? FileManager.default.removeItem(at: tempM4A)
         } catch {
             throw ExportError.chapterAtomWriteFailed
         }
