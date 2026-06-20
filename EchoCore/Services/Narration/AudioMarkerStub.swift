@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-#if os(iOS)
+#if canImport(AudioMarker)
     import AudioMarker
 #endif
 
@@ -11,16 +11,11 @@ struct ChapterAtom {
     let title: String
 }
 
-#if os(iOS)
-    // The `swift-audio-marker` package both *is* a module named `AudioMarker`
-    // **and** exports an empty `public struct AudioMarker` namespace. That struct
-    // shadows the module name, so `AudioMarker.Chapter` / `AudioMarker.ChapterList`
-    // (the plan's suggested qualification) won't compile — the compiler treats
-    // them as members of the empty struct. Meanwhile the package's `Chapter`
-    // collides with Echo's own `Chapter` model (`Models/Chapter.swift`), so an
-    // unqualified `Chapter` is ambiguous. We sidestep both by reaching the
-    // package types through `ChapterList` (unambiguous — only the package defines
-    // it) and its `Element` (the package's `Chapter`).
+#if canImport(AudioMarker)
+    // `swift-audio-marker` exports an empty `public struct AudioMarker` that
+    // shadows its own module name, and a `Chapter` that collides with Echo's
+    // `Models/Chapter.swift`. Reach the package types through `ChapterList`
+    // (unambiguous — only the package defines it) and its `Element`.
     private typealias PackageChapterList = ChapterList
     private typealias PackageChapter = ChapterList.Element
 #endif
@@ -41,7 +36,7 @@ struct ChapterMarkerWriter {
             try FileManager.default.removeItem(at: outputURL)
         }
         try FileManager.default.copyItem(at: sourceURL, to: outputURL)
-        #if os(iOS)
+        #if canImport(AudioMarker)
             let engine = AudioMarkerEngine()
             let list = PackageChapterList(
                 chapters.map { atom in

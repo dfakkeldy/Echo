@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#if os(iOS)
+#if os(iOS) || os(macOS)
     import AVFoundation
     import Foundation
     import Testing
