@@ -47,23 +47,19 @@ struct FlashcardReviewCard: View {
             // Grade buttons (shown after reveal)
             if isRevealed {
                 HStack(spacing: 8) {
-                    ForEach(0..<6) { grade in
+                    ForEach(ReviewGrade.allCases, id: \.self) { grade in
                         Button {
-                            onGrade(grade)
+                            onGrade(grade.rawValue)
                         } label: {
-                            VStack(spacing: 2) {
-                                Text("\(grade)")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                Text(gradeLabel(grade))
-                                        .font(.caption2)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(gradeColor(grade).opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            Text(grade.label)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(color(for: grade).opacity(0.15))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
-                        .accessibilityLabel(Text("Grade \(grade): \(gradeLabel(grade))"))
+                        .accessibilityLabel(Text(grade.label))
                     }
                 }
                 .padding(.top, 8)
@@ -73,23 +69,12 @@ struct FlashcardReviewCard: View {
         .padding(16)
     }
 
-    private func gradeLabel(_ grade: Int) -> String {
+    private func color(for grade: ReviewGrade) -> Color {
         switch grade {
-        case 0: return "Again"
-        case 1, 2: return "Hard"
-        case 3, 4: return "Good"
-        case 5: return "Easy"
-        default: return ""
-        }
-    }
-
-    private func gradeColor(_ grade: Int) -> Color {
-        switch grade {
-        case 0: return .red
-        case 1, 2: return .orange
-        case 3, 4: return .green
-        case 5: return .blue
-        default: return .gray
+        case .again: return .red
+        case .hard: return .orange
+        case .good: return .green
+        case .easy: return .blue
         }
     }
 }
