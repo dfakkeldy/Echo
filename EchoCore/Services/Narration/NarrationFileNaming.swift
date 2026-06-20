@@ -2,7 +2,7 @@
 import Foundation
 
 /// Single source of truth for narration cache filenames, so the writer
-/// (`NarrationService`) and the exporter (`NarrationExportService`) always agree —
+/// (`NarrationService`) and the exporter (`NarrationCacheSource`) always agree —
 /// and so a `file://`-URL `audiobookID` (which contains slashes/colons) becomes a
 /// valid filename instead of breaking the write.
 enum NarrationFileNaming {

@@ -5,8 +5,8 @@ import Foundation
 /// Cross-platform, source-agnostic audiobook exporter. Concatenates an ordered
 /// list of `ExportItem`s into a gapless `.m4b`, transcodes once via
 /// `AVAssetExportSession` (AAC), and stamps real Nero (`chpl`) + QuickTime
-/// (`chap`) chapter atoms via `ChapterMarkerWriter`. Generalised from the
-/// iOS-only `NarrationExportService` so narrated and imported books share a spine.
+/// (`chap`) chapter atoms via `ChapterMarkerWriter`. Narrated and imported books
+/// share this one spine.
 actor AudioExportService {
     enum ExportError: Error {
         case noChapters
@@ -59,11 +59,11 @@ actor AudioExportService {
             let session = AVAssetExportSession(
                 asset: composition, presetName: AVAssetExportPresetAppleM4A)
         else { throw ExportError.exportSessionFailed }
-        session.outputURL = tempM4A
-        session.outputFileType = .m4a
-
-        await session.export()
-        guard session.status == .completed else { throw ExportError.exportSessionFailed }
+        do {
+            try await session.export(to: tempM4A, as: .m4a)
+        } catch {
+            throw ExportError.exportSessionFailed
+        }
 
         // Single, container-preserving finishing pass: `ChapterMarkerWriter` stamps
         // the chapter atoms AND (when supplied) the title/author/cover-art tags
