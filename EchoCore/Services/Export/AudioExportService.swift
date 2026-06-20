@@ -65,43 +65,22 @@ actor AudioExportService {
         await session.export()
         guard session.status == .completed else { throw ExportError.exportSessionFailed }
 
-        // Phase 1: stamp chapter atoms (swift-audio-marker rebuilds the moov,
-        // which strips any metadata set above on the export session).
+        // Single, container-preserving finishing pass: `ChapterMarkerWriter` stamps
+        // the chapter atoms AND (when supplied) the title/author/cover-art tags
+        // through `swift-audio-marker`'s in-place `modify`. Doing both in the
+        // package's own write — rather than re-exporting through AVFoundation to add
+        // metadata — is what keeps the chapter atoms alive: any `AVAssetExportSession`
+        // run *after* the atoms exist rebuilds the MP4 container and silently drops
+        // them. The chaptered audiobook is the core feature, so chapters are written
+        // last and nothing rebuilds the container afterwards (verified by
+        // `roundTripPreservesChaptersAndTitle`).
         let writer = ChapterMarkerWriter()
         do {
-            try await writer.writeChapters(chapters, to: tempM4A, outputURL: outputURL)
+            try await writer.writeChapters(
+                chapters, to: tempM4A, outputURL: outputURL, metadata: metadata)
             try? FileManager.default.removeItem(at: tempM4A)
         } catch {
             throw ExportError.chapterAtomWriteFailed
         }
-
-        // Phase 2 (only when metadata is supplied): re-export the chapter-stamped
-        // file through a passthrough AVAssetExportSession to embed title/author/cover
-        // art. The moov rebuild in Phase 1 would otherwise discard these atoms.
-        if let metadata {
-            try await embedMetadata(metadata, in: outputURL)
-        }
-    }
-
-    /// Replaces `fileURL` in-place with a copy that carries the supplied metadata
-    /// atoms. Uses a passthrough export (lossless for already-AAC content).
-    private func embedMetadata(_ metadata: ExportMetadata, in fileURL: URL) async throws {
-        let asset = AVURLAsset(url: fileURL)
-        let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
-        guard
-            let session = AVAssetExportSession(
-                asset: asset, presetName: AVAssetExportPresetPassthrough)
-        else { throw ExportError.exportSessionFailed }
-        session.outputURL = temp
-        session.outputFileType = .m4a
-        session.metadata = metadata.assetMetadataItems()
-        await session.export()
-        guard session.status == .completed else {
-            try? FileManager.default.removeItem(at: temp)
-            throw ExportError.exportSessionFailed
-        }
-        try? FileManager.default.removeItem(at: fileURL)
-        try FileManager.default.moveItem(at: temp, to: fileURL)
     }
 }

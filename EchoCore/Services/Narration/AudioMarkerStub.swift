@@ -25,24 +25,51 @@ struct ChapterAtom {
 struct ChapterMarkerWriter {
     enum WriteError: Error { case unavailableOnPlatform }
 
-    /// Copies `sourceURL` → `outputURL`, then writes chapter atoms in place.
+    /// Copies `sourceURL` → `outputURL`, then writes chapter atoms (and, when
+    /// supplied, book-level title/author/cover-art tags) in place.
     ///
-    /// `swift-audio-marker`'s `writeChapters` is synchronous; this method stays
-    /// `async` so the call site in the `NarrationExportService` actor reads
-    /// uniformly and so future package versions can become `async` without a
-    /// signature change.
-    func writeChapters(_ chapters: [ChapterAtom], to sourceURL: URL, outputURL: URL) async throws {
+    /// Both chapters and metadata are written through the package's own
+    /// single in-place `modify` pass — deliberately *not* via a later
+    /// `AVAssetExportSession`, which rebuilds the MP4 container and strips the
+    /// chapter atoms (verified by `roundTripPreservesChaptersAndTitle`). The
+    /// package's reader doesn't surface AVFoundation's `commonIdentifierTitle`
+    /// atom across its rewrite, so the metadata must travel on the package's own
+    /// `AudioMetadata` model rather than being pre-stamped on the export session.
+    ///
+    /// `swift-audio-marker`'s write is synchronous; this method stays `async` so
+    /// the call site in the export actor reads uniformly and so future package
+    /// versions can become `async` without a signature change.
+    func writeChapters(
+        _ chapters: [ChapterAtom],
+        to sourceURL: URL,
+        outputURL: URL,
+        metadata: ExportMetadata? = nil
+    ) async throws {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
         try FileManager.default.copyItem(at: sourceURL, to: outputURL)
         #if canImport(AudioMarker)
             let engine = AudioMarkerEngine()
-            let list = PackageChapterList(
+            // Read whatever the composed file already carries, then layer the
+            // chapters (and optional book tags) onto it and write once. This is
+            // the package's metadata-preserving in-place rewrite — no container
+            // rebuild, so the chapter atoms survive into the final output.
+            var info = (try? engine.read(from: outputURL)) ?? AudioFileInfo()
+            info.chapters = PackageChapterList(
                 chapters.map { atom in
                     PackageChapter(start: .seconds(atom.startTime), title: atom.title)
                 })
-            try engine.writeChapters(list, to: outputURL)
+            if let metadata {
+                info.metadata.title = metadata.title
+                if let author = metadata.author, !author.isEmpty {
+                    info.metadata.artist = author
+                }
+                if let coverArt = metadata.coverArt {
+                    info.metadata.artwork = try? Artwork(data: coverArt)
+                }
+            }
+            try engine.modify(info, in: outputURL)
         #else
             throw WriteError.unavailableOnPlatform
         #endif
