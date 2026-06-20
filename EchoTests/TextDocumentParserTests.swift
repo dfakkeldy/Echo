@@ -107,4 +107,19 @@ import Testing
         #expect(p.blocks.filter { $0.blockKind == "heading" }.isEmpty)
         #expect(p.blocks.allSatisfy { !$0.isFrontMatter })  // whole thing is chapter 0 body
     }
+
+    @Test func shortAllCapsAcronymsAreNotChapters() {
+        // "OK" (2 letters) and "NOTE" (4 letters) are interjections, not chapter titles.
+        let p = parse("OK\n\nFirst paragraph.\n\nNOTE\n\nSecond paragraph.")
+        #expect(p.blocks.filter { $0.blockKind == "heading" }.isEmpty)
+        #expect(Set(p.blocks.map(\.spineIndex)).count == 1)
+    }
+
+    @Test func singleWordAllCapsTitleIsDetected() {
+        // "PROLOGUE" (8 letters) is a real chapter title; "CHAPTER ONE" is keyword-detected.
+        let p = parse("PROLOGUE\n\nThe beginning.\n\nCHAPTER ONE\n\nThe body.")
+        let headings = p.blocks.filter { $0.blockKind == "heading" }.map(\.text)
+        #expect(headings == ["PROLOGUE", "CHAPTER ONE"])
+        #expect(Set(p.blocks.map(\.spineIndex)).count == 2)
+    }
 }

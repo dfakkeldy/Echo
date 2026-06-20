@@ -323,9 +323,14 @@ private func isChapterMarker(_ line: String) -> Bool {
     if line.allSatisfy({ $0.isNumber || $0 == "." }) && line.contains(where: \.isNumber) {
         return true
     }
-    // short ALL-CAPS heading (<= 6 words, has letters, no lowercase)
+    // ALL-CAPS heading: a multi-word caps line ("CHAPTER VII", "PART TWO"),
+    // or a single long caps word ("PROLOGUE", "EPILOGUE") — but NOT a short
+    // 2–5 letter acronym/interjection ("OK", "NB", "USA", "NOTE", "STOP").
     let hasLetters = line.contains(where: { $0.isLetter })
-    if hasLetters, words.count <= 6, line == line.uppercased(), lower != line {
+    let letterCount = line.filter(\.isLetter).count
+    if hasLetters, words.count <= 6, line == line.uppercased(), lower != line,
+        words.count >= 2 || letterCount >= 6
+    {
         return true
     }
     return false
