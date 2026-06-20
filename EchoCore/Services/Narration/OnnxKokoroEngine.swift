@@ -34,6 +34,11 @@
         private var progressFanOut: ProgressFanOut?
         private var didLogFirstSynthesis = false
 
+        /// Immutable Kokoro front-half (G2P + vocab + per-voice style packs), loaded
+        /// once and reused across every synthesize call instead of being rebuilt per
+        /// sub-chunk (~6 MB lexicon parse + voice-blob read each). See KokoroFrontEnd.
+        private let frontEnd = KokoroFrontEnd()
+
         init() {}
 
         // MARK: - Model location
@@ -104,13 +109,10 @@
             guard let session else { throw NarrationError.engineUnavailable }
 
             // Reuse Echo's verified front-half: G2P → vocab ids (BOS/EOS-wrapped)
-            // → af_heart refS row (clamped by phoneme count).
-            let g2p = KokoroG2P()
-            let vocab = try KokoroPhonemeVocab()
-            let pack = try KokoroVoicePack(named: voice.rawValue)
-            let phonemes = g2p.phonemes(for: text)
-            let ids32 = vocab.ids(forPhonemes: phonemes)  // [Int32], BOS/EOS = 0
-            let refS = pack.refS(forPhonemeCount: phonemes.count)  // [Float], 256
+            // → af_heart refS row (clamped by phoneme count). Cached on `frontEnd`
+            // so the ~6 MB MisakiSwift lexicon + the voice blob load ONCE, not on
+            // every ≤200-char sub-chunk (which is what NarrationService feeds us).
+            let (ids32, refS) = try frontEnd.encode(text: text, voice: voice)
 
             guard !ids32.isEmpty else {
                 return TTSChunk(samples: [], sampleRate: 24_000, duration: 0)
