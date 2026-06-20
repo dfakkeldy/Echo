@@ -275,7 +275,12 @@ struct Echo_macOSApp: App {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [UTType(filenameExtension: "epub") ?? .data]
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "epub") ?? .data,
+            UTType(filenameExtension: "md") ?? .plainText,
+            UTType(filenameExtension: "markdown") ?? .plainText,
+            .plainText,
+        ]
         panel.message = String(
             localized: "Choose EPUB files (or a folder of them) to narrate on-device overnight.")
 
@@ -300,7 +305,8 @@ struct Echo_macOSApp: App {
             (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
         if isDirectory {
             try? FolderAudioScanner.enqueueEPUBsForNarration(url, into: batchService)
-        } else if url.pathExtension.lowercased() == "epub" {
+        } else if ["epub", "md", "markdown", "txt", "text"].contains(url.pathExtension.lowercased())
+        {
             try? batchService.enqueueNarration(epubURL: url)
         }
     }

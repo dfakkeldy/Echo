@@ -531,12 +531,18 @@ final class MacBatchProcessingService {
         // the coordinator key blocks off the EPUB's own URL (`epubURL.absoluteString`),
         // so multiple EPUBs in one folder don't collide on a shared parent-dir id,
         // while the same-file copy is still skipped.
-        await EPUBImportCoordinator.importEPUB(
-            from: epubURL,
-            to: epubURL,
-            databaseService: dbService,
-            chapters: [],
-            duration: nil)
+        let ext = epubURL.pathExtension.lowercased()
+        if ["md", "markdown", "txt", "text"].contains(ext) {
+            _ = await TextAutoImportScanner.importTextFile(
+                textURL: epubURL, audiobookID: audiobookID, databaseService: dbService, force: true)
+        } else {
+            await EPUBImportCoordinator.importEPUB(
+                from: epubURL,
+                to: epubURL,
+                databaseService: dbService,
+                chapters: [],
+                duration: nil)
+        }
         let blockCount = (try? EPubBlockDAO(db: dbService.writer).count(for: audiobookID)) ?? 0
         guard blockCount > 0 else {
             throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)
