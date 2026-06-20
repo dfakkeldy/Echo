@@ -81,6 +81,14 @@ import Testing
         let p = parse("## C\n\nbody")
         #expect(!p.spine.isEmpty)
     }
+
+    @Test func tocTreeNestsSectionsUnderChapters() {
+        let p = parse("## Chapter One\n\nIntro.\n\n### Section A\n\nx.\n\n## Chapter Two\n\ny.")
+        #expect(p.tocEntryTree.map(\.title) == ["Chapter One", "Chapter Two"])
+        #expect(p.tocEntryTree.first?.children.map(\.title) == ["Section A"])
+        // Fragments point at heading anchors so resolveTOCEntries can map them.
+        #expect(p.tocEntryTree.first?.fragment != nil)
+    }
 }
 
 @Suite struct PlainTextParserTests {

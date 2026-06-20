@@ -163,10 +163,11 @@ private func buildParse(
 
     func spineHref(_ i: Int) -> String { "text-s\(i).\(hrefExt)" }
 
+    @discardableResult
     func emit(
         kind: EPubBlockRecord.Kind, plain: String, formats: [TextFormat],
         isFrontMatter: Bool, headingLevel: Int?
-    ) {
+    ) -> String? {
         if spineIndexesUsed.last != spineIndex { spineIndexesUsed.append(spineIndex) }
         let anchorID = (kind == .heading) ? "b\(spineIndex)-\(blockIndex)" : nil
         var markers: [SyncMarker] = []
@@ -207,12 +208,16 @@ private func buildParse(
 
         blockIndex += 1
         sequenceIndex += 1
+        return anchorID
     }
 
     func startNewSpine() {
         spineIndex += 1
         blockIndex = 0
     }
+
+    var tocTree: [TOCEntryNode] = []
+    var currentChapterTOCIndex: Int? = nil  // chapter node a section nests under
 
     for unit in units {
         switch unit {
@@ -225,16 +230,27 @@ private func buildParse(
                 } else {
                     startNewSpine()
                 }
-                emit(
+                let usedAnchor = emit(
                     kind: .heading, plain: plain, formats: formats,
                     isFrontMatter: false, headingLevel: level)
+                tocTree.append(
+                    TOCEntryNode(
+                        title: plain, href: spineHref(spineIndex), fragment: usedAnchor,
+                        children: []))
+                currentChapterTOCIndex = tocTree.count - 1
             } else {
                 // Shallower lone title, or deeper section heading.
                 let front = !seenChapterHeading
                 if front { emittedFrontMatter = true }
-                emit(
+                let usedAnchor = emit(
                     kind: .heading, plain: plain, formats: formats,
                     isFrontMatter: front, headingLevel: level)
+                if !front, let chapterIdx = currentChapterTOCIndex {
+                    tocTree[chapterIdx].children.append(
+                        TOCEntryNode(
+                            title: plain, href: spineHref(spineIndex), fragment: usedAnchor,
+                            children: []))
+                }
             }
         case .paragraph(let rawText):
             let (plain, formats) = MarkdownInlineFormatter.format(rawText)
@@ -257,7 +273,7 @@ private func buildParse(
         blocks: blocks,
         descriptors: descriptors,
         spine: spine,
-        tocEntryTree: [],  // populated in Task 4
+        tocEntryTree: tocTree,
         opfDir: sourceURL.deletingLastPathComponent(),
         spineXHTMLURLByIndex: spineXHTMLURLByIndex)
 }
