@@ -94,6 +94,7 @@ final class PlayerModel {
     var showBookmarks: Bool = true
     var isPlaylistEditing: Bool = false
     var showingDocumentImporter: Bool = false
+    var showingABSBrowse: Bool = false
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
     var bottomInset: CGFloat {

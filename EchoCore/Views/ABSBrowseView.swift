@@ -29,7 +29,7 @@ struct ABSBrowseView: View {
                         }
                         ForEach(items) { item in
                             NavigationLink {
-                                ABSItemDetailView(item: item)
+                                ABSItemDetailView(item: item, onImported: { dismiss() })
                             } label: {
                                 ABSItemRow(
                                     item: item,
@@ -108,7 +108,10 @@ private struct ABSItemRow: View {
 
 private struct ABSItemDetailView: View {
     let item: ABSLibraryItem
+    let onImported: () -> Void
     @Environment(PlayerModel.self) private var model
+    @State private var isImporting = false
+    @State private var importError: String?
 
     var body: some View {
         List {
@@ -141,10 +144,42 @@ private struct ABSItemDetailView: View {
             if let description = item.media?.metadata?.description, !description.isEmpty {
                 Section("Description") { Text(description).font(.callout) }
             }
-            // NOTE: Downloading this book into Echo's local pipeline lands in Milestone B.
+            Section {
+                if isImporting {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Downloading…")
+                    }
+                } else {
+                    Button {
+                        Task { await importBook() }
+                    } label: {
+                        Label("Add to Library", systemImage: "arrow.down.circle")
+                    }
+                }
+            }
+            if let importError {
+                Section {
+                    Text(importError).foregroundStyle(.red)
+                } header: {
+                    Text("Couldn't add")
+                }
+            }
         }
         .navigationTitle(item.title ?? "Untitled")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func importBook() async {
+        isImporting = true
+        importError = nil
+        defer { isImporting = false }
+        do {
+            try await model.addFromAudiobookshelf(item)
+            onImported()
+        } catch {
+            importError = error.localizedDescription
+        }
     }
 
     private static func formatted(_ seconds: Double) -> String {
