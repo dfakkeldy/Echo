@@ -18,12 +18,19 @@ This document outlines the competitive landscape for **Echo: Audiobook Study Pla
 | **Murmura** | Datachain Consulting Pty Ltd | `6761295449` | Direct (Narration) | TTS "Listen to Your Books" — multi-voice narration of your docs |
 | **Fox Reader** | Salman Ahmad | `6761392204` | Direct (Narration) | Speed-reading EPUB reader + neural read-aloud + AI summaries |
 | **CocoReader: offline audiobooks** | *Maker unverified* | *see §7.10* | Direct | Offline/local-file audiobook player |
+| **Voxlight** | *Anonymous (`hello@voxlight.app`)* | *n/a — pre-launch, waitlist-only* | **Direct (Sync)** | On-device audiobook↔EPUB forced alignment of real narration (BYO files) — §7.11 |
+| **AudioBookSync** | Hans-Peter Jordi | `6759492424` | **Direct (Sync)** | On-device audiobook transcription + photo-of-page → audio-jump bridge — §7.12 |
+| **Storyteller Reader** | Shane Friedman | `6474467720` | **Direct (Sync)** | Open-source, self-hosted Whisper forced-alignment; cross-platform reader (incl. watchOS) — §7.13 |
+| **TriBooks** | Zachary Curran | `6744568752` | **Direct (Sync)** | Book↔ebook↔audiobook sync + synced-title store + camera page-scan — §7.13 |
 | **AnkiMobile Flashcards** | Anki Software, LLC | `373493387` | Indirect | Hardcore spaced repetition (SRS) learners |
 | **Apple Books** | Apple | `364709193` | Indirect | Mainstream book/audiobook consumers |
 | **Quizlet: More than Flashcards** | Quizlet Inc | `546473125` | Indirect | Students seeking multi-modal study aids |
 
 > [!NOTE]
 > **Research caveat:** Apple's App Store pages and the iTunes lookup API were unreachable (HTTP 403) from the research sandbox. ***Fox Reader*'s details below are confirmed from owner-supplied screenshots** — it is the app by Salman Ahmad (id `6761392204`), a real, polished, working product. *Murmura* details come from search-result snippets, and *CocoReader* is recorded per the owner's description (an offline audiobook player) pending a listing read — verify both on-device before quoting in public copy.
+
+> [!IMPORTANT]
+> **New in 2026-06-19 — the "Sync" cohort (this is the big one).** A second category of *direct* competitor has crystallised: apps that align **real human-narrated audiobooks** to **your own ebook text** on-device — the exact capability the docs previously claimed was unique to Echo. This is distinct from the "Narration" cohort (TTS apps that *generate* the audio, §7.1/§7.4–7.9). **The old absolutist moat sentence is now retired** (see §6). Confirmation status: **AudioBookSync** (§7.12) is verified from the dev's own docs (shipping, id `6759492424`). **Voxlight** (§7.11) is **pre-launch / waitlist-only** — *no App Store listing, no ratings, no shipping build* (iTunes Search returns zero results); its architecture is taken from its marketing site, not a running product, and its word-level pass needs a **Mac companion**. **Storyteller** and **TriBooks** (§7.13) are shipping. Megaplatforms shipped the same idea in Feb 2026 (Audible "Read & Listen", Spotify "Page Match", Kindle Immersion). **Treat Voxlight's eventual App Store launch as a copy-audit tripwire for any alignment-lead marketing.**
 
 ---
 
@@ -144,8 +151,19 @@ quadrantChart
     ll "BookPlayer / Bound (Simple Listening, Local)"
 ```
 
+> [!CAUTION]
+> **Moat reality check (2026-06-19).** The single most-cited line in this doc — *"no competitor auto-aligns real human-narrated audiobooks to EPUB text via on-device speech recognition"* — is **now false** and has been retired. **AudioBookSync** ships on-device ASR (Apple Speech / WhisperKit) of real narration today; **Voxlight** uses the near-identical fuzzy-title + Whisper + Neural-Engine recipe; **Storyteller** open-sourced server-side forced alignment; and **Audible / Spotify / Kindle** shipped real-narration↔text sync at scale in Feb 2026. An adversarial moat audit (each candidate handed to a skeptic told to *refute* it) returned **0 durable, 3 eroding, 14 not-a-moat** — every *individual* Echo feature is copyable in a weekend-to-a-quarter or already matched. **What survives is the compound + the non-copyable attributes**, ranked:
+>
+> 1. **The fused study _system_** — auto-aligned read-along + in-playback SRS (narrator-audio-snippet flashcards, SM-2/.apkg, watchOS haptic review). *No* sync app and *no* TTS app has any SRS layer. Eroding-but-**uncontested**; the barrier is product-*identity*, not code — a **land-grab window**, not a fortress.
+> 2. **Neurodivergent-first DNA + founder authenticity** applied coherently across the whole stack — a paywalled, closed-source, anonymous-dev reader structurally cannot tell this story.
+> 3. **"Align _or_ synthesize"** — aligns real narration when it exists, *narrates a text-only EPUB on-device when it doesn't*. The sharp anti-Voxlight line: the sync cohort needs you to own **both** the audiobook **and** the ebook; Echo doesn't.
+> 4. Fully-on-device **word-level** alignment of BYO files (no Mac/server/walled-garden) — a true, **dated, falsifiable** lead, not structural. Breaks the week Voxlight ships.
+> 5. GPL-3.0 + free — **not a moat**, a credibility *wrapper* ("verifiably private, not just promised").
+>
+> **Rule:** lead with the study system; treat alignment as the on-ramp, not the fortress.
+
 ### Key Differences & Gaps Filled by Echo
-1.  **Audiobook + EPUB/PDF Synchronization:** No competitor allows auto-aligning text to audio via on-device speech recognition (WhisperKit/TokenDTW) and scrolling the text in-sync with the audiobook.
+1.  **Audiobook + EPUB/PDF Synchronization (now the on-ramp, not the moat):** Echo is the only **shipping** app that auto-aligns the audiobooks you already own to your own EPUBs into a **continuous word-level read-along entirely on your iPhone** — no server (vs Storyteller), no Mac companion (vs Voxlight's word pass), no walled garden (vs Audible/Kindle/Spotify), no manual chapter-mapping (vs Continuum/TriBooks) — *and* turns it into spaced-repetition study, which no sync rival does. State this as *"today, no one else does all of this at once"* (true, falsifiable), never *"no one can"* (false). **Honesty note:** PDF alignment is **manual scrubber-only** — the WhisperKit/TokenDTW auto-pipeline is EPUB-only; don't let "on-device alignment" imply PDF auto-alignment.
 2.  **Built-in Spaced Repetition (SRS):** Normal players have simple bookmarks. Anki has flashcards but no player. Echo provides **inline flashcard creation** during audiobook playback, with audio snippets attached automatically, utilizing the SM-2 algorithm.
 3.  **Smart Rewind:** Most players have a fixed 15-second rewind. Echo uses a **3-tier adaptive rewind** based on how long playback has been paused (seconds, minutes, hours).
 4.  **Context-Dependent Memory Bookmarks:** Allows photo bookmarks and dynamically switches player artwork as you playback to stimulate retention.
@@ -230,6 +248,9 @@ The most-requested item here: KOReader **is** open source — **AGPL-3.0**, ~27k
 
 LoudReader, PageEcho, Murmura, Fox Reader, and the wider Speechify/ElevenReader cohort all converge on the same play: **on-device (or server-assisted) AI TTS that *generates* narration from text, with inherent word-sync.** That makes "listen to your EPUB" a commodity, and it's getting crowded fast — multiple near-identical apps launched in 2025–26 at the same $4.99/mo · $39.99/yr price point. Echo sits in a different, harder, more defensible category — **aligning real human-narrated audiobooks to the book text** — and layers **SRS study** on top, which none of this cohort touches. The strategic takeaway: position Echo against *audiobooks people already own and love being read by a real narrator*, not against synthetic read-aloud. The one place the cohort is genuinely ahead and worth borrowing from: **expressive multi-voice narration** (Murmura's per-character "Auto Cast") and **AI comprehension** (PageEcho's summaries/Q&A) — see §8 for where that maps onto Echo's gaps.
 
+> [!IMPORTANT]
+> **This section is no longer the whole story (updated 2026-06-19).** The TTS cohort above *generates* the audio and so sidesteps the hard alignment problem — that clause is still true. But the alignment half of Echo's category is **now genuinely contested by non-TTS apps that solve the same hard problem**: the **Sync cohort** (Voxlight §7.11, AudioBookSync §7.12, Continuum/TriBooks/Storyteller §7.13) and the **2026 megaplatform shipments** (Audible/Spotify/Kindle). Do **not** let "TTS apps can't align real narration" stand as the entire competitive argument — it understates the field. The defensible residual is the **compound** (on-device + BYO-files + continuous word-level + an **SRS study layer**), and **study is the only uncontested leg**.
+
 ### 7.8 — Murmura ("Listen to Your Books")
 
 A privacy-first iOS TTS app (Datachain Consulting, id `6761295449`) that imports PDF/EPUB/TXT and narrates it in neural voices. Closed-source. Documents stay on-device; only text is sent server-side for voice generation, then discarded (no account, no tracking). Freemium: free = 2 books; **Pro** $4.99/mo·$39.99/yr (20 books); **Max** $9.99/mo·$79.99/yr·**$129.99 lifetime** (unlimited, all voices, ambient soundscapes).
@@ -279,6 +300,38 @@ Unlike the rest of this batch, the name signals a **local-file audiobook player*
 *   **What Echo has that a plain local player doesn't:** **EPUB↔audio alignment read-along**, the **SRS study layer**, Smart Rewind, photo bookmarks, watchOS review — everything past playback. This is the exact gap already articulated for BookPlayer/Bound in §7.2 and §6.
 *   **Action needed:** the store link, so I can confirm whether it's truly a local player (listening-axis) or another TTS maker, and slot it accordingly.
 
+### 7.11 — Voxlight (the most direct alignment threat — but pre-launch)
+
+> [!WARNING]
+> **Pre-launch / waitlist-only as of June 2026.** No App Store listing, no ratings, no shipping build (the iTunes Search API returns zero results for "voxlight"; the site shows only *"Join the waitlist for early access and launch-day pricing"*). Everything below is from its **marketing site**, not a verified product. **Apple Watch and fully-on-phone word-level alignment are roadmap (Phase 2/3), not shipped.** Treat its eventual launch as a tripwire to re-audit any alignment-lead copy.
+
+Voxlight (voxlight.app, anonymous dev, `hello@voxlight.app`) is the closest thing to an architectural twin Echo has found — and it is **not a TTS app**. It imports your own DRM-free human narration (M4B/MP3/M4A/AAC/FLAC/WAV) and pairs it with your own EPUB, then aligns them **on-device via Apple's Neural Engine** using **fuzzy chapter-title matching** plus *"sampling small portions of each chapter"* for a fast coarse sync (*"a few minutes per book"*). Word-level precision comes from an **optional Mac "Processor" companion** running *"Whisper-powered forced alignment"* locally, exported back to iOS. Privacy posture is verbatim Echo's (*"never touches a server, no telemetry, no account"*). Pricing: **Free 5 books / Pro $19.99·yr (reg. $29.99) / Lifetime $49.99**.
+
+*   **The architecture is near-identical** to Echo's pipeline: Tier-0 fuzzy chapter-title match → Whisper transcription → word alignment. The difference that matters: **Echo does word-level WhisperKit + TokenDTW fully on the iPhone; Voxlight needs a Mac for word-level** (its phone tier is chapter-coarse). Voxlight arriving independently at this recipe is proof the recipe is *obvious, not invented* — so "we can do forced alignment" was never the moat.
+*   **What Voxlight does NOT have:** any study layer (no SRS, flashcards, audio-snippet capture, .apkg — it's an *annotation/highlighting reader*), no watchOS (Phase-3, playback-only even then), no TTS path (can't read a book with no human audio), no neurodivergent/dyslexia framing, closed-source/paid.
+*   **Copy:** their fast-sync optimisation (*sample portions, don't transcribe the whole book*) and the clean usable free tier (5 books). Their Lifetime $49.99 / Pro $19.99·yr reinforces the indie one-time-purchase price signal.
+*   **Avoid:** requiring a **Mac** for word-level precision — a hard wall for Mac-less users. Echo's fully-on-phone word-level pass is the concrete advantage.
+*   **Exploit:** **Echo is a study _system_, not a sync reader.** Voxlight requires you to already own **both** the audiobook **and** the ebook and gives you a read-along; Echo adds SRS + capture + watch review, does word-level on-iPhone, and can **narrate a text-only EPUB that has no audiobook at all**. The one-line contrast: *"Other apps sync an audiobook and an ebook you already own. Echo studies them — and if there's no audiobook, it narrates the ebook for you."*
+
+### 7.12 — AudioBookSync (shipping; the photo-of-a-page bridge)
+
+A real, shipping iOS/iPad/Mac/Watch app by **Hans-Peter Jordi** (Basel, CH; id `6759492424`), **$5.99 one-time** (no subscription, no ads). It genuinely does **on-device ASR of the full human narration** — user-selectable **Apple Speech** (fast) or **WhisperKit** (local, best for German) — building a searchable **transcription index**, chapter-by-chapter in the background (*"12/24 chapters"* progress). So it is the **second confirmed on-device real-narration recognition bridge**, and the reason the old absolutist moat sentence had to be retired.
+
+*   **The bridge is photo/tap-driven _jumps_, not continuous karaoke.** Its signature feature: **photograph any page** — printed book, screenshot, even *handwritten* — and OCR + fuzzy-match against the transcription index **jumps the audio to that passage** (with a confidence-scored preview). The reader's *"Listen here"* and the player's *"read where you stopped"* are the same discrete-jump model. There is **no continuous whole-book forced-aligned word-level read-along** — the transcription index is the substrate, the photo is the query.
+*   **What it does NOT have:** any study layer (only *"bookmarks with notes"* — no flashcards, SRS, .apkg, highlights), continuous karaoke, TTS, PDF, or accessibility framing. Its watchOS app is **audio-only** (Pro-gated sliced offline listening), not study.
+*   **Copy:** the **user-selectable transcription engine** (Apple Speech for speed / Whisper for quality) and the honest **$5.99 one-time, no-ads** framing.
+*   **Exploit:** **hands-free auto-aligned read-along beats photo-tapping** for the eyes-busy on-route user (a mail carrier can't keep snapping photos), and Echo layers the SRS study + TTS fallback AudioBookSync has none of.
+*   **Roadmap opportunity (not a defence):** Echo *already builds the WhisperKit transcription index* that makes a *"scan a page → jump the audio"* affordance cheap — and it would extend Echo to the **physical-book-without-an-EPUB** case its EPUB-anchored pipeline can't serve today. See ROADMAP §A.3.8.
+
+### 7.13 — The 2026 sync wave (Continuum · TriBooks · Storyteller · DuoBook · Audible · Spotify · Kindle)
+
+The decisive context: audiobook↔text sync went from niche to **table stakes** in 2024–2026, attacked from both ends.
+
+*   **Indie BYO-files cohort.** **Continuum** (€5.99 one-time) — on-device, OpenDyslexic, but **manual** chapter-mapping wizard + **sentence-level** highlight, no SR. **TriBooks** (id `6744568752`, free + IAP) — the broadest scope: ebook↔audiobook sync, a synced-title *store*, **and** a camera page-scan; sentence/"lyrics-style", no study, no watch. **Storyteller** (id `6474467720`, open-source/GitLab) — the most similar *pipeline* (Whisper forced alignment, real narration) and the **only other watchOS competitor**, but alignment runs on a **self-hosted Docker server** (1–4 h/book) — the opposite of Echo's "import and it just aligns on your phone." **DuoBook** (Findaway) — a closed *catalog* of pre-paired titles, no BYO.
+*   **Megaplatform cohort (Feb 2026).** **Audible "Read & Listen"** ships **word-level** highlighting; **Spotify "Page Match"** ships the **camera-to-passage bridge** (validating AudioBookSync's signature feature at scale); **Kindle Immersion Reading** is the long-standing Whispersync baseline. All three are **walled-garden** — they require you to own the title in *both* of their formats, so they cannot touch the DRM-free files you own from elsewhere. That gap is exactly what Echo's BYO model fills.
+*   **Open-source engine commoditisation.** **syncabook / afaligner** (GitHub/PyPI CLI) open-sourced forced alignment itself — so "we can align audio to text" is no longer any kind of secret. **This is the strategic point: the durable moat is the on-device, zero-friction UX _plus the study/SRS layer_, never the alignment algorithm.**
+*   **Where the field is empty:** across *every* app above (and every TTS reader in §7.4–7.9), **not one layers spaced-repetition study** on the read-along. The dedicated SRS world (Anki, Mochi) does no real-narration sync. **The study lane is uncontested — that is the moat to grab and deepen.**
+
 ---
 
 ## 8. Feature Gap Matrix — "what they have that Echo doesn't, and vice versa"
@@ -304,7 +357,27 @@ Echo against the reader/TTS cohort. ✅ = present, ❌ = absent, ⚠️ = partia
 | Fully on-device (no server round-trip) | ✅ | ✅ | ✅ | ❌ (text→server) | ✅ (TTS) | ⚠️ | ✅ |
 | Open source | ✅ GPL-3.0 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ AGPL-3.0 |
 
-**Reading the matrix — where Echo is uniquely ahead:** real-narration playback + alignment read-along + SRS study is a combination **no competitor has** (top rows are an Echo-only column). **Where the cohort is ahead of Echo (candidate borrowings):**
+### 8b. Sync-cohort matrix — the axis that actually matters now
+
+The table above compares Echo to the **TTS/narration** cohort. The newer, more dangerous **Sync cohort** (real human-narration ↔ your own text) needs its own axis. ✅ present · ❌ absent · ⚠️ partial/conditional. *Voxlight is pre-launch (✱); megaplatform = Audible "Read & Listen" / Spotify "Page Match" / Kindle Immersion.*
+
+| Capability | **Echo** | Voxlight✱ | AudioBookSync | Storyteller | TriBooks | Megaplatform |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Plays **real human** narration | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **BYO** DRM-free files (not a walled garden) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Alignment **fully on-device** (no server) | ✅ | ⚠️ word needs Mac | ✅ | ❌ Docker server | ⚠️ | ❌ cloud |
+| **Word-level**, no Mac companion | ✅ | ⚠️ Mac for word | ❌ jump-points | ⚠️ server | ❌ sentence | ✅ (walled) |
+| **Continuous** word karaoke read-along | ✅ | ⚠️ roadmap | ❌ discrete jumps | ✅ | ⚠️ sentence | ✅ |
+| Photo-of-page → audio jump | ❌ *(gap)* | ❌ | ✅ | ❌ | ✅ | ✅ Spotify |
+| **TTS fallback** (narrate a text-only EPUB) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **SRS / flashcards / audio-snippet study** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **watchOS** | ✅ study | ❌ | ⚠️ audio-only | ✅ player | ❌ | ✅ player |
+| Open source | ✅ GPL-3.0 | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **Shipping today** | ✅ | ❌ pre-launch | ✅ | ✅ | ✅ | ✅ |
+
+**Reading the sync matrix:** real-narration playback and alignment read-along are now **individually contested** down the columns — *every* sync rival matches one or both. The load-bearing, **uncontested** rows are **TTS fallback** and the **SRS study layer**: Echo is the only column with a ✅ on both. The honest moat is not "we align" — it's **"we align _or_ synthesise, and we turn it into study."** The one row where Echo is *behind* is **photo-of-page → jump** (AudioBookSync, TriBooks, Spotify) — a roadmap opportunity (§A.3.8), not a moat against Echo.
+
+**Reading the TTS matrix — where Echo's _study_ leg stands alone:** the load-bearing, uncontested differentiator is the **SRS study layer fused on top** — no real-narration-sync app *and* no TTS reader has any flashcard/SRS capability. (Real-narration playback and alignment read-along, by contrast, are now individually contested per §8b — lead on study, not alignment.) **Where the cohort is ahead of Echo (candidate borrowings):**
 1.  **PDF support** — nearly the whole cohort reads PDF; Echo is EPUB-centric. Lowest-hanging gap.
 2.  **AI comprehension** (PageEcho + Fox Reader both ship on-device AI summaries) — the clearest convergent signal in the cohort; summaries/Q&A could feed Echo's SRS deck (auto-generated review cards).
 3.  **Multi-voice narration** (Murmura Auto Cast) — a natural upgrade to Echo's *secondary* Kokoro TTS.

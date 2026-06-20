@@ -7,9 +7,26 @@
 
 ## 1. Positioning
 
-**One-liner:** Echo is the audiobook player that helps you *remember* what you heard.
+**One-liner (universal hook):** Echo is the audiobook player that helps you *remember* what you heard.
 
-**Longer:** Every other audiobook app is built for passive listening — play, pause, fall asleep. Echo is built for learning: chapter looping, smart rewind, voice and photo bookmarks, a synced EPUB/PDF reader, and a built-in spaced-repetition study system, all designed around interrupted attention and backed by memory science.
+**Lead (study system — and you get alignment + narration in the box):** Echo turns the audiobooks you already own into a **spaced-repetition study system**. It **aligns your audiobook to your ebook** so you can read along on-device, **narrates ebooks that have no audiobook** (on-device neural TTS), and turns what you hear into flashcards — with the narrator's own voice attached — that you review on your phone or your wrist. Reading along is the *on-ramp*; remembering what you heard is the *point*.
+
+**Longer:** Every other audiobook app is built for passive listening — play, pause, fall asleep. Echo is built for learning: chapter looping, smart rewind, voice and photo bookmarks, a synced EPUB/PDF reader, on-device alignment of real narration, on-device narration of text-only ebooks, and a built-in spaced-repetition study system — all designed around interrupted attention and backed by memory science.
+
+### Reader vs. Study System (the 2026 competitive split — read this before writing copy)
+
+The category got crowded in 2026. A wave of apps now **sync a real audiobook to your ebook on-device** — Voxlight (pre-launch), AudioBookSync, Continuum, TriBooks, Storyteller — and the megaplatforms shipped it too (Audible "Read & Listen", Spotify "Page Match", Kindle Immersion). **Audiobook↔text sync is now table stakes, not Echo's moat.** (Full teardown: [docs/competitor-analysis.md](docs/competitor-analysis.md) §6–8.)
+
+So the line that matters is the **category split**:
+
+> **Those apps are sync _readers_. Echo is a study _system_** — the only one that turns the read-along into spaced-repetition study (flashcards with the narrator's voice, reviewed on your watch), *and* the only one that still works when you own the ebook but **not** an audiobook (it narrates it for you).
+
+The sharp competitor contrast, in one line: **"Other apps sync an audiobook and an ebook you already own. Echo studies them — and if there's no audiobook, it narrates the ebook for you."**
+
+What this means for every surface:
+- **Lead with the study system** (the uncontested moat) and the **neurodivergent-first / founder story** (the part a paywalled, closed-source, anonymous-dev reader structurally *cannot* tell).
+- **Keep alignment + narration visible** as what's in the box — but as the *on-ramp* ("how the text gets in front of you"), never as the headline "no one else can do this" claim (false, and the alignment lead breaks the week Voxlight launches).
+- **Never** write "only app that syncs real narration" / "no competitor aligns on-device." It's now false. Prefer *"today, no one else does all of this at once."*
 
 ### The audience question ("is it too focused on the neurodivergent?")
 
@@ -22,7 +39,7 @@ So the positioning is layered, not narrowed:
 | Core story | Neurodivergent learners (ADHD, AuDHD, dyslexia) | "Finally, an app that works the way your brain works." |
 | Broad benefit | Students, professionals, lifelong learners | "Stop forgetting your audiobooks. Turn listening into knowledge." |
 | Situational | Commuters, drivers, parents, tradespeople | "Built by a mail carrier who's in and out of the car 30 times a day. It survives interruption." |
-| Niche-technical | DRM-free / Libation / LibriVox / Anki users | "The serious player for your DRM-free library. Anki, but audio-first." |
+| Niche-technical | DRM-free / Libation / LibriVox / Anki users | "Whispersync for the books you already own — on-device, with study built in. Anki, but audio-first." |
 
 **Rule of thumb:** lead every surface with the *universal benefit* (remember what you hear), support it with the *neurodivergent-first origin* (credibility + differentiation), and close with the *technical depth* (alignment, SRS, watch) for the people who evaluate features.
 
@@ -101,11 +118,14 @@ Approved phrases — keep voice consistent everywhere:
 - "Built for interrupted attention." / "It survives interruption."
 - "Anki for your ears." (community surfaces only — assumes Anki familiarity)
 - "Your brain already remembers *where* you were. Echo uses that."
-- "No cloud. No tracking. Your books, your data, your device."
 - "Designed for AuDHD brains. Better for every brain." (the curb-cut line)
 - "For Every Mind." (official subtitle)
+- **NEW — "Other apps sync your audiobook and ebook. Echo helps you study them."** (the reader-vs-system line — the primary 2026 differentiator)
+- **NEW — "No audiobook? Echo narrates the ebook on-device — then you can study that too."** (the align-*or*-synthesise span; the sharp anti-Voxlight line — they need you to own *both*)
+- **NEW — "Verifiably private — not just promised. The code is open."** (privacy-as-*auditability*; pair GPL with the no-cloud line)
+- **REWORDED — "No cloud. No tracking. Your books, your data, your device."** — keep, but it's now baseline trust, *not* a differentiator (Voxlight/AudioBookSync market the same verbatim). Only sharpen the privacy *contrast* against ad-supported (Fox Reader) and cloud-AI (Speechify/Voiser) apps.
 
-Words to avoid: "revolutionary", "AI-powered" (it's on-device ML — say *that*, it's more credible), "hack your brain", any medical claims ("treats ADHD" — never).
+Words to avoid: "revolutionary", "AI-powered" (it's on-device ML — say *that*, it's more credible), "hack your brain", any medical claims ("treats ADHD" — never). **And now: any absolutist alignment claim** — "only app that syncs real narration", "no competitor aligns on-device", "only app that designs for neurodivergent users" — all are now *factually false or contestable* (AudioBookSync ships on-device ASR; Continuum ships OpenDyslexic; Audible/Spotify/Kindle ship sync at scale). Prefer **"today, no one else does all of this at once."** Don't headline **"narration that doesn't melt your phone"** — Fox Reader ships the same Kokoro model and streams it instantly even on an A14, so it invites a latency comparison Echo currently loses (scope that line to Voice Dream's *old* engines only).
 
 ---
 
@@ -140,5 +160,17 @@ The website and manual describe the complete product vision in present tense (pe
 | **.apkg import, JSON deck export, study-notes Markdown bundle** | Site, Learn, Manual | 🔶 WS7 — tagged "🚧 Coming in 1.0" |
 
 When a 🔶 item ships: move it into App Store description + What's New, announce in devlog, delete the row (and remove the site's 🚧 tag).
+
+### Competitive-honesty gaps (added 2026-06-19 — claims that would over-state Echo)
+
+Distinct from the vision-vs-shipped ledger above: these are places where current/likely copy would *overclaim against competitors*. Reviewers can falsify them in one screenshot, so keep marketing inside these bounds.
+
+| Gap | The honest bound | Why it matters |
+|---|---|---|
+| **TTS read-along is block-level, not word-level** | Don't claim "word-level read-along" for the *narrated* (Kokoro) path — it writes one anchor per text block. Word-level karaoke is the *real-narration* path only. | A reviewer comparing the two paths will catch it; undermines the alignment credibility Echo *does* deserve for EPUB. |
+| **On-device narration is gated to A15+** | Don't market on-device narration *breadth* on older phones — Fox Reader ships the same Kokoro model on an A14 (iPhone 12 Pro); Echo's A14 path is unresolved (ONNX/streaming pivot). | "Runs on your phone" is currently false on 2020-era hardware a competitor supports. |
+| **PDF alignment is manual scrubber-only** | "On-device alignment" = EPUB auto-pipeline (WhisperKit/TokenDTW). PDF is *manual* page-pinning. Frame PDF as a "read-only companion," not auto-aligned. | README's "True ePub & PDF Alignment" implies auto-alignment covers PDF; it doesn't. |
+| **"Take your decks with you" is partial** | The narrator-audio snippet — Echo's most distinctive card asset — does **not** survive `.apkg` export (no Anki schema slot). Don't imply full round-trip portability. | Also: portability *lowers* switching costs — pitch it as no-lock-in trust, never as retention. |
+| **Don't market "we ship, Voxlight doesn't"** | Voxlight is pre-launch today, but that's a perishable fact on a date Echo doesn't control. | Naming an unlaunched rival only advertises it; the claim self-destructs on its launch day. |
 
 **Site tag convention (added 2026-06-10):** all unshipped features on the website/manual carry a visible "🚧 Coming in 1.0" or "🔭 Roadmap" pill — the site may describe the full vision in present tense *because* the tags disclose status. The Libation/OpenAudible links live in the website FAQ only — never in App Store metadata or in-app help (App Review 2.3.1 posture).

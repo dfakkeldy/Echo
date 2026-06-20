@@ -1,9 +1,12 @@
-Stop choosing between listening and remembering. Echo links your audiobook to its EPUB or PDF, syncs every spoken word to the audio on your device, and turns what you hear into what you keep.
+Stop choosing between listening and remembering. Echo links the audiobook you already own to its EPUB or PDF, syncs every spoken word to the audio on your device, and turns what you hear into what you keep. No audiobook for that book? Echo narrates it on-device in a natural voice — so you can read along and study it either way.
+
+Plenty of apps now read an ebook aloud, or follow an audiobook with the text. Echo is the one that turns that into a study system.
 
 Built neurodivergent-first for ADHD, dyslexia, and attention that comes and goes. Echo is a calm, private player for people who learn best by ear.
 
 WHAT MAKES ECHO DIFFERENT
 - Read along while you listen: each word lights up in time with the narration, aligned fully on-device with WhisperKit. No cloud, no account, no tracking.
+- No audiobook? Echo narrates a text-only EPUB on-device in a natural voice (no cloud, no account), then reads along and turns it into study like any other book.
 - Full-text search with tap-to-seek: find any sentence and jump straight to that moment in the audio.
 - Smart rewind: lose the thread? Echo eases you back a few seconds so an interruption never costs you the chapter.
 
