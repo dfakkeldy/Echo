@@ -82,3 +82,29 @@ import Testing
         #expect(!p.spine.isEmpty)
     }
 }
+
+@Suite struct PlainTextParserTests {
+    private let src = URL(fileURLWithPath: "/tmp/Notes.txt")
+    private func parse(_ txt: String) -> EPUBBlockParse {
+        parsePlainText(audiobookID: "ab", content: txt, sourceURL: src)
+    }
+
+    @Test func chapterMarkersSplitChapters() {
+        let p = parse("Chapter 1\n\nAlpha text.\n\nChapter 2\n\nBeta text.")
+        #expect(Set(p.blocks.map(\.spineIndex)).count == 2)
+        let headings = p.blocks.filter { $0.blockKind == "heading" }.map(\.text)
+        #expect(headings == ["Chapter 1", "Chapter 2"])
+    }
+
+    @Test func romanAndAllCapsMarkersAreDetected() {
+        let p = parse("CHAPTER VII\n\nText.\n\nPART TWO\n\nMore.")
+        #expect(p.blocks.filter { $0.blockKind == "heading" }.count == 2)
+    }
+
+    @Test func noMarkersYieldsSingleChapter() {
+        let p = parse("Just one long\n\nplain note with two paragraphs.")
+        #expect(Set(p.blocks.map(\.spineIndex)).count == 1)
+        #expect(p.blocks.filter { $0.blockKind == "heading" }.isEmpty)
+        #expect(p.blocks.allSatisfy { !$0.isFrontMatter })  // whole thing is chapter 0 body
+    }
+}

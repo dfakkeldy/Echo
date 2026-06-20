@@ -261,3 +261,72 @@ private func buildParse(
         opfDir: sourceURL.deletingLastPathComponent(),
         spineXHTMLURLByIndex: spineXHTMLURLByIndex)
 }
+
+// MARK: - Plain-text entry points
+
+func parsePlainTextBlocks(audiobookID: String, fileURL: URL) throws -> EPUBBlockParse {
+    guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+        throw TextParseError.unreadable(fileURL)
+    }
+    return parsePlainText(audiobookID: audiobookID, content: content, sourceURL: fileURL)
+}
+
+func parsePlainText(audiobookID: String, content: String, sourceURL: URL) -> EPUBBlockParse {
+    let units = tokenizePlainText(content)
+    return buildParse(
+        units: units, audiobookID: audiobookID, sourceURL: sourceURL, hrefExt: "txt")
+}
+
+/// Plain text has no markup: split paragraphs on blank lines, and promote
+/// chapter-like lines to level-1 headings (one heading level → flat chapters).
+private func tokenizePlainText(_ content: String) -> [TextUnit] {
+    var units: [TextUnit] = []
+    var paragraphLines: [String] = []
+
+    func flush() {
+        let joined = paragraphLines.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !joined.isEmpty { units.append(.paragraph(joined)) }
+        paragraphLines.removeAll()
+    }
+
+    for rawLine in content.components(separatedBy: .newlines) {
+        let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            flush()
+            continue
+        }
+        if isChapterMarker(trimmed) {
+            flush()
+            units.append(.heading(level: 1, text: trimmed))
+            continue
+        }
+        paragraphLines.append(trimmed)
+    }
+    flush()
+    return units
+}
+
+/// A line that looks like a chapter break: "Chapter 7", "CHAPTER VII",
+/// "Part Two", a bare number, or a short ALL-CAPS title.
+private func isChapterMarker(_ line: String) -> Bool {
+    let lower = line.lowercased()
+    let words = line.split(whereSeparator: { $0.isWhitespace })
+
+    // "chapter|part|book <number|roman>"
+    if let first = words.first.map(String.init)?.lowercased(),
+        ["chapter", "part", "book"].contains(first), words.count >= 2
+    {
+        return true
+    }
+    // bare number ("7", "12.")
+    if line.allSatisfy({ $0.isNumber || $0 == "." }) && line.contains(where: \.isNumber) {
+        return true
+    }
+    // short ALL-CAPS heading (<= 6 words, has letters, no lowercase)
+    let hasLetters = line.contains(where: { $0.isLetter })
+    if hasLetters, words.count <= 6, line == line.uppercased(), lower != line {
+        return true
+    }
+    return false
+}
