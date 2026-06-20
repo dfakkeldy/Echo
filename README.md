@@ -25,7 +25,6 @@ Plenty of apps now read your ebook aloud, or sync an audiobook to the text. Echo
 | ♾️ [The Focus Field Guide](https://dfakkeldy.github.io/Echo/focus.html) ([md](docs/guides/focus-field-guide.md)) | ADHD/AuDHD strategies — task initiation, time blindness, organization, motivation, hyperfocus, distractibility — with sources |
 | 📖 [User Manual](https://dfakkeldy.github.io/Echo/manual.html) ([md](docs/guides/user-manual.md)) | Complete reference: every feature on every platform, incl. library organization |
 | 🛠 [Devlog](https://dfakkeldy.github.io/Echo/devlog.html) ([md](docs/guides/devlog.md)) | Week-by-week build history from the real commit log |
-| 📣 [Marketing Plan](MARKETING.md) | Positioning, channels, App Store strategy (open like everything else) |
 | 🏗 [ARCHITECTURE.md](ARCHITECTURE.md) · [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) | For contributors |
 
 > **Status tags used below:** 🚧 = **Coming in 1.0** (in active development) · 🔭 = **Roadmap** (planned after 1.0). Everything unmarked ships in the current beta.
