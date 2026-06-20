@@ -2,84 +2,64 @@
 import Foundation
 
 /// All Audiobookshelf URL/path construction in one place.
-enum ABSEndpoints {
-    /// Full base URL for the connected server, validated on login.
-    /// Strips a trailing slash from user input; the individual endpoint
-    /// functions prepend the leading slash they need.
-    static func baseURL(from raw: String) -> String {
-        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasSuffix("/") {
-            trimmed = String(trimmed.dropLast())
-        }
-        return trimmed
+/// `baseURL` may include a reverse-proxy subpath (e.g. http://host:13378/audiobookshelf);
+/// every endpoint appends RELATIVELY so the prefix is preserved. No force-unwraps.
+struct ABSEndpoints {
+    let baseURL: URL
+
+    /// Normalize raw user input into a base URL: trims whitespace, strips a trailing
+    /// slash, defaults a missing scheme to http (bare host:port LAN/tailnet addresses),
+    /// validates via URLComponents. Returns nil if unparseable.
+    static func normalizedBaseURL(from raw: String) -> URL? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return nil }
+        if s.hasSuffix("/") { s = String(s.dropLast()) }
+        if !s.contains("://") { s = "http://" + s }
+        guard let comps = URLComponents(string: s), comps.host != nil else { return nil }
+        return comps.url
     }
 
-    // MARK: - Auth
+    func login() -> URL { baseURL.appending(path: "login") }
+    func refresh() -> URL { baseURL.appending(path: "auth/refresh") }
+    func logout() -> URL { baseURL.appending(path: "logout") }
+    func libraries() -> URL { baseURL.appending(path: "api/libraries") }
 
-    static func login(_ base: String) -> URL {
-        URL(string: "\(base)/login")!
-    }
-
-    // MARK: - Libraries
-
-    static func libraries(_ base: String) -> URL {
-        URL(string: "\(base)/api/libraries")!
-    }
-
-    // MARK: - Library Items
-
-    /// List items in a library, paged.
-    static func libraryItems(_ base: String, libraryID: String, limit: Int = 25, page: Int = 0)
-        -> URL
-    {
-        var components = URLComponents(
-            string: "\(base)/api/libraries/\(libraryID)/items")!
-        components.queryItems = [
-            URLQueryItem(name: "limit", value: String(limit)),
+    func items(libraryID: String, page: Int, limit: Int, filter: String?) -> URL {
+        var url = baseURL.appending(path: "api/libraries/\(libraryID)/items")
+        var q = [
             URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "sort", value: "media.metadata.title"),
             URLQueryItem(name: "minified", value: "0"),
         ]
-        return components.url!
-    }
-
-    /// Single item detail.
-    static func itemDetail(_ base: String, itemID: String) -> URL {
-        URL(string: "\(base)/api/items/\(itemID)?expanded=1")!
-    }
-
-    /// Item cover image.
-    static func itemCover(_ base: String, itemID: String, coverPath: String?, width: Int = 400)
-        -> URL?
-    {
-        guard let path = coverPath else { return nil }
-        return URL(string: "\(base)/api/items/\(itemID)/cover/\(path)?width=\(width)")
-    }
-
-    // MARK: - Download
-
-    /// Download the item's full audio as a single file.
-    static func downloadItem(_ base: String, itemID: String) -> URL {
-        URL(string: "\(base)/api/items/\(itemID)/download")!
-    }
-
-    // MARK: - Media Progress (Milestone D)
-
-    static func mediaProgress(
-        _ base: String, libraryItemID: String, episodeID: String? = nil
-    ) -> URL {
-        let escapedItem =
-            libraryItemID.addingPercentEncoding(
-                withAllowedCharacters: .urlPathAllowed) ?? libraryItemID
-        var url = URL(string: "\(base)/api/me/progress/\(escapedItem)")!
-        if let ep = episodeID {
-            url = url.appending(queryItems: [URLQueryItem(name: "episodeId", value: ep)])
-        }
+        if let filter, !filter.isEmpty { q.append(URLQueryItem(name: "filter", value: filter)) }
+        url.append(queryItems: q)
         return url
     }
 
-    /// Batch sync multiple progress records.
-    static func batchProgressSync(_ base: String) -> URL {
-        URL(string: "\(base)/api/me/progress/batch/update")!
+    func item(_ id: String) -> URL {
+        baseURL.appending(path: "api/items/\(id)")
+            .appending(queryItems: [.init(name: "expanded", value: "1")])
     }
+
+    /// Cover and file downloads authenticate via `?token=` so the URL is self-contained
+    /// for AsyncImage / background downloads.
+    func cover(_ id: String, token: String) -> URL {
+        baseURL.appending(path: "api/items/\(id)/cover")
+            .appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    func fileDownload(itemID: String, ino: String, token: String) -> URL {
+        baseURL.appending(path: "api/items/\(itemID)/file/\(ino)/download")
+            .appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    /// Whole-item single-file download (used later by the foreground download path).
+    func downloadItem(_ itemID: String, token: String) -> URL {
+        baseURL.appending(path: "api/items/\(itemID)/download")
+            .appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    func progress(_ itemID: String) -> URL { baseURL.appending(path: "api/me/progress/\(itemID)") }
+    func localSessionsSync() -> URL { baseURL.appending(path: "api/session/local-all") }
 }

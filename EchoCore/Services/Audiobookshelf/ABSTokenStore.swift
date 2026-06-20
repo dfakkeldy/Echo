@@ -1,40 +1,38 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-/// Per-server token storage: the access token lives in memory (cleared on restart),
-/// while the refresh token is persisted in the Keychain. Both are tied to a
-/// server UUID so a future multi-server world keeps tokens apart.
+/// Per-server token storage for Audiobookshelf.
+/// - accessToken: short-lived JWT, memory-only (lost on relaunch; re-minted via refresh).
+/// - refreshToken: long-lived, persisted in the Keychain, namespaced per server via `service:`.
 @MainActor
 final class ABSTokenStore {
     let serverID: String
-    private var _accessToken: String?
-
-    var accessToken: String? { _accessToken }
-    var refreshToken: String? {
-        guard let data = KeychainStore.data(for: .absRefreshToken) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
+    private let service: String
 
     init(serverID: String) {
         self.serverID = serverID
+        self.service = "com.echo.abs.\(serverID)"
     }
 
-    /// Called after successful login or token refresh.
-    func setTokens(access: String, refresh: String?) {
-        _accessToken = access
-        if let refresh, let data = refresh.data(using: .utf8) {
-            KeychainStore.set(data, for: .absRefreshToken)
+    /// In-memory only. Not persisted.
+    var accessToken: String?
+
+    var refreshToken: String? {
+        get {
+            KeychainStore.data(for: .absRefreshToken, service: service)
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
+        set {
+            if let token = newValue, let data = token.data(using: .utf8) {
+                KeychainStore.set(data, for: .absRefreshToken, service: service)
+            } else {
+                KeychainStore.remove(.absRefreshToken, service: service)
+            }
         }
     }
 
-    /// Apply a rotated access token from a refresh response.
-    func updateAccessToken(_ token: String) {
-        _accessToken = token
-    }
-
-    /// Discard all tokens — sign-out.
     func clear() {
-        _accessToken = nil
-        KeychainStore.remove(.absRefreshToken)
+        accessToken = nil
+        KeychainStore.remove(.absRefreshToken, service: service)
     }
 }

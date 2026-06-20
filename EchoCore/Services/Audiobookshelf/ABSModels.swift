@@ -36,7 +36,14 @@ struct ABSLoginResponse: Decodable {
     let serverSettings: ABSServerSettings?
     struct ABSUser: Decodable {
         let id: String
+        let token: String?  // legacy permanent token (pre-2.26)
+        let accessToken: String?  // new short-lived JWT
+        let refreshToken: String?  // new rotating refresh token
     }
+
+    /// Prefer the new short-lived JWT; fall back to the legacy permanent token.
+    var access: String? { user.accessToken ?? user.token }
+    var refresh: String? { user.refreshToken }
 }
 
 struct ABSServerSettings: Decodable {
