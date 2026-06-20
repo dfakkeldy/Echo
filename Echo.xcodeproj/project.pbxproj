@@ -9,11 +9,7 @@
 /* Begin PBXBuildFile section */
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
-		CC00000000006FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
-		CC00000000007FLUI0000000 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000005FLUI0000000 /* FluidAudio */; };
-		CC00000000008KOKO0000000 /* KokoroPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000009KOKO0000000 /* KokoroPipeline */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
-		CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000009KOKO0000000 /* KokoroPipeline */; };
 		CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
 		CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000HMSKI0000000 /* MisakiSwift */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -336,8 +332,6 @@
 			files = (
 				CC0000000011GRDB00000011 /* GRDB in Frameworks */,
 				CC0000000016WHSK00000016 /* WhisperKit in Frameworks */,
-				CC00000000007FLUI0000000 /* FluidAudio in Frameworks */,
-				CC0000000000AKOKO0000000 /* KokoroPipeline in Frameworks */,
 				CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */,
 				CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */,
 				CC595F852FE630AA0034453E /* onnxruntime in Frameworks */,
@@ -362,9 +356,7 @@
 				CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */,
 				CC595F832FE6213C0034453E /* onnxruntime in Frameworks */,
 				CC0000000015WHSK00000015 /* WhisperKit in Frameworks */,
-				CC00000000006FLUI0000000 /* FluidAudio in Frameworks */,
 				CC00000000009AUMK0000000 /* AudioMarker in Frameworks */,
-				CC00000000008KOKO0000000 /* KokoroPipeline in Frameworks */,
 				CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -485,8 +477,6 @@
 				CC0000000002GRDB00000002 /* GRDB */,
 				CC0000000004WHSK00000004 /* WhisperKit */,
 				CC0000000003ZIPF00000003 /* ZIPFoundation */,
-				CC00000000005FLUI0000000 /* FluidAudio */,
-				CC00000000009KOKO0000000 /* KokoroPipeline */,
 				CC0000000000FMSKI0000000 /* MisakiSwift */,
 				CC595F842FE630AA0034453E /* onnxruntime */,
 			);
@@ -695,9 +685,7 @@
 				CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 				CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
-				CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
-				CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "ThirdParty/KokoroPipeline" */,
 				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */,
 				CC595F812FE6213C0034453E /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 			);
@@ -1607,10 +1595,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "ThirdParty/KokoroPipeline" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ThirdParty/KokoroPipeline;
-		};
 		CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ThirdParty/MisakiSwift;
@@ -1618,14 +1602,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.12.0;
-			};
-		};
 		CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/atelier-socle/swift-audio-marker.git";
@@ -1669,20 +1645,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		CC00000000005FLUI0000000 /* FluidAudio */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC00000000004FLUI0000000 /* XCRemoteSwiftPackageReference "FluidAudio" */;
-			productName = FluidAudio;
-		};
 		CC00000000008AUMK0000000 /* AudioMarker */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
 			productName = AudioMarker;
-		};
-		CC00000000009KOKO0000000 /* KokoroPipeline */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000BKOKO0000000 /* XCLocalSwiftPackageReference "ThirdParty/KokoroPipeline" */;
-			productName = KokoroPipeline;
 		};
 		CC0000000000FMSKI0000000 /* MisakiSwift */ = {
 			isa = XCSwiftPackageProductDependency;
