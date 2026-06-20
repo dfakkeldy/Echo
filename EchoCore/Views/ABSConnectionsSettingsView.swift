@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import SwiftUI
+
+struct ABSConnectionsSettingsView: View {
+    @Environment(PlayerModel.self) private var model
+
+    @State private var baseURL = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var connected: ABSServerRecord?
+    @State private var isConnecting = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Form {
+            if let server = connected {
+                Section("Connected") {
+                    LabeledContent("Server", value: server.baseURL)
+                    LabeledContent("User", value: server.username)
+                    Button("Sign Out", role: .destructive) {
+                        Task { await signOut(server) }
+                    }
+                }
+            } else {
+                Section("Add Audiobookshelf Server") {
+                    TextField("Server URL (http://host:13378)", text: $baseURL)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                    TextField("Username", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField("Password", text: $password)
+                    Button {
+                        Task { await connect() }
+                    } label: {
+                        if isConnecting { ProgressView() } else { Text("Connect") }
+                    }
+                    .disabled(isConnecting || baseURL.isEmpty || username.isEmpty)
+                }
+            }
+
+            if let errorMessage {
+                Section {
+                    Text(errorMessage).foregroundStyle(.red)
+                } header: {
+                    Text("Error")
+                }
+            }
+        }
+        .navigationTitle("Connections")
+        .task { connected = (try? model.absServerDAO?.current()) ?? nil }
+    }
+
+    private func connect() async {
+        guard let url = ABSEndpoints.normalizedBaseURL(from: baseURL) else {
+            errorMessage = "Invalid server URL"
+            return
+        }
+        isConnecting = true
+        errorMessage = nil
+        defer { isConnecting = false }
+        do {
+            let server = try await model.connectAudiobookshelf(
+                baseURL: url, username: username, password: password)
+            connected = server
+            password = ""
+        } catch {
+            errorMessage = "Could not connect: \(error.localizedDescription)"
+        }
+    }
+
+    private func signOut(_ server: ABSServerRecord) async {
+        await model.disconnectAudiobookshelf(server)
+        connected = nil
+    }
+}

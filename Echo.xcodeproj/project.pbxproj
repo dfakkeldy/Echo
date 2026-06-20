@@ -191,6 +191,7 @@
 				Views/PlayerScrubberView.swift,
 				Views/PlayheadLineView.swift,
 				Views/PlaylistView.swift,
+				Views/ABSConnectionsSettingsView.swift,
 				Views/PronunciationDictionaryView.swift,
 				Views/ProTranscriptsSettingsView.swift,
 				Views/ReaderEmptyState.swift,

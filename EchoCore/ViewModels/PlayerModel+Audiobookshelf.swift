@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+
+extension PlayerModel {
+    /// DAO for the single connected ABS server. nil if the DB isn't ready yet.
+    var absServerDAO: ABSServerDAO? {
+        guard let writer = databaseService?.writer else { return nil }
+        return ABSServerDAO(db: writer)
+    }
+
+    /// Connect + persist the server (non-secret) and tokens (Keychain). Caches the warm,
+    /// logged-in service instance.
+    @discardableResult
+    func connectAudiobookshelf(baseURL: URL, username: String, password: String) async throws
+        -> ABSServerRecord
+    {
+        guard let dao = absServerDAO else { throw ABSError.notConnected }
+        let serverID = UUID().uuidString
+        let tokens = ABSTokenStore(serverID: serverID)
+        let service = AudiobookshelfService(baseURL: baseURL, tokens: tokens, session: .shared)
+        let defaultLib = try await service.login(username: username, password: password)
+        let record = ABSServerRecord(
+            id: serverID,
+            baseURL: baseURL.absoluteString,
+            username: username,
+            defaultLibraryId: defaultLib,
+            addedAt: ISO8601DateFormatter().string(from: Date()))
+        try dao.save(record)
+        absService = service  // cache the warm instance (keeps access token + refresh serialization)
+        absServiceServerID = serverID
+        return record
+    }
+
+    func disconnectAudiobookshelf(_ server: ABSServerRecord) async {
+        let service = makeAudiobookshelfService()  // reuse cached instance if present
+        await service?.signOut()
+        try? absServerDAO?.delete(server.id)
+        absService = nil
+        absServiceServerID = nil
+    }
+
+    /// The SINGLE, cached service for the connected server. ONE instance is required for
+    /// CORRECTNESS, not just efficiency: `ABSTokenStore.accessToken` is memory-only per
+    /// instance (a fresh service per call discards the login's access token and forces a
+    /// refresh every time), and the `inFlightRefresh` serialization (Task A5) is per
+    /// instance (fresh instances let concurrent refreshes collide — the exact /auth/refresh
+    /// self-invalidation that A5 prevents). Browse, import, and progress-push MUST all go
+    /// through this one accessor. Warm cache returns FIRST, before any DB read (this is
+    /// called per-row by the Browse cover builder).
+    func makeAudiobookshelfService() -> AudiobookshelfService? {
+        if let cached = absService { return cached }
+        guard let dao = absServerDAO,
+            let server = try? dao.current(),
+            let url = URL(string: server.baseURL)
+        else { return nil }
+        let service = AudiobookshelfService(
+            baseURL: url, tokens: ABSTokenStore(serverID: server.id), session: .shared)
+        absService = service
+        absServiceServerID = server.id
+        return service
+    }
+}

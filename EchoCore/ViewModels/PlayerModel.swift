@@ -58,6 +58,14 @@ final class PlayerModel {
     let transcriptService: TranscriptService
     let timelinePersistence = PlayerTimelinePersistenceService()
 
+    // MARK: - Audiobookshelf cache
+
+    /// Cached warm `AudiobookshelfService` instance. Must be in the class body (not an
+    /// extension) because extensions cannot hold stored properties.
+    @ObservationIgnored var absService: AudiobookshelfService?
+    /// Server ID of the currently cached `absService`, used to detect stale caches.
+    @ObservationIgnored var absServiceServerID: String?
+
     // MARK: - UI state (local to PlayerModel)
 
     /// The currently selected tab (Listen, Read, or Timeline).
