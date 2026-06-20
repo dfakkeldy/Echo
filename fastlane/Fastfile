@@ -184,8 +184,10 @@ platform :ios do
       skip_waiting_for_build_processing: false,
       notify_external_testers: tf_external,
       changelog: File.read("testflight/what_to_test.txt"),
-      beta_app_description: File.read("testflight/beta_app_description.txt")
-      # TODO: set beta_app_feedback_email once a dedicated support address exists
+      beta_app_description: File.read("testflight/beta_app_description.txt"),
+      # Where TestFlight's "Send Beta Feedback" emails land. Reuses the App Store
+      # review contact for now; swap for a dedicated support address if one exists.
+      beta_app_feedback_email: File.read("metadata/review_information/email_address.txt").strip
     }
     # Route the build to the channel's tester group. distribute_external triggers
     # the (required) Beta App Review submission for the external Weekly group.
