@@ -39,12 +39,12 @@ import Testing
         #expect(p.blocks.filter { $0.blockKind == "heading" }.count == 2)
     }
 
-    @Test func loneLeadingTitleIsFrontMatterNotAChapter() {
+    @Test func loneLeadingTitleIsFrontMatterNotAChapter() throws {
         let p = parse("# The Title\n\nForeword.\n\n## Chapter One\n\nBody.")
-        let title = try! #require(p.blocks.first { $0.text == "The Title" })
+        let title = try #require(p.blocks.first { $0.text == "The Title" })
         #expect(title.isFrontMatter)
         // "Chapter One" body is a real chapter (not front matter).
-        let body = try! #require(p.blocks.first { $0.text == "Chapter One" })
+        let body = try #require(p.blocks.first { $0.text == "Chapter One" })
         #expect(!body.isFrontMatter)
     }
 
@@ -61,9 +61,9 @@ import Testing
         #expect(!p.blocks.contains { ($0.text ?? "").contains("|") })
     }
 
-    @Test func boldSpanSurvivesIntoBlockTextFormats() {
+    @Test func boldSpanSurvivesIntoBlockTextFormats() throws {
         let p = parse("## C\n\nThis is **strong** prose.")
-        let para = try! #require(p.blocks.first { ($0.text ?? "").contains("strong") })
+        let para = try #require(p.blocks.first { ($0.text ?? "").contains("strong") })
         #expect(para.text == "This is strong prose.")
         #expect(para.decodedFormats.contains { $0.type == .bold })
     }

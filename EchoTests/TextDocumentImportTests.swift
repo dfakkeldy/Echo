@@ -39,7 +39,7 @@ import Testing
         #expect(chapterZero.allSatisfy { !$0.isFrontMatter })
         // Two chapters total.
         let allBlocks = try EPubBlockDAO(db: db.writer).blocks(for: id)
-        #expect(Set(allBlocks.compactMap(\.chapterIndex)).count == 2)
+        #expect(Set(allBlocks.compactMap(\.chapterIndex)) == [0, 1])
         // Inline bold survived into stored textFormats.
         #expect(allBlocks.contains { $0.decodedFormats.contains { $0.type == .bold } })
     }
@@ -57,5 +57,7 @@ import Testing
 
         #expect(didImport)
         #expect(try EPubBlockDAO(db: db.writer).blocks(for: id, chapterIndex: 0).count > 0)
+        let allBlocks = try EPubBlockDAO(db: db.writer).blocks(for: id)
+        #expect(Set(allBlocks.compactMap(\.chapterIndex)) == [0])
     }
 }
