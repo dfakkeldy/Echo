@@ -3,9 +3,8 @@ import Foundation
 import GRDB
 
 /// `ExportSource` for a narrated book: the per-chapter `.m4a` files the narration
-/// pipeline cached. Ordering + titling is ported verbatim from the former
-/// `NarrationExportService.orderedChapters`, including the >=10-chapter numeric
-/// sort fix (a lexicographic name sort interleaves ch1, ch10, ch11, ch2…).
+/// pipeline cached. Ordering + titling preserves the >=10-chapter numeric sort
+/// fix (a lexicographic name sort interleaves ch1, ch10, ch11, ch2…).
 struct NarrationCacheSource: ExportSource {
     let audiobookID: String
     let cacheDirectory: URL

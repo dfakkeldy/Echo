@@ -21,7 +21,8 @@ struct ImportedBookSource: ExportSource {
         let chapters = try ChapterDAO(db: databaseWriter).chapters(for: audiobookID)
         let items = Self.makeItems(tracks: tracks, chapters: chapters)
         guard !items.isEmpty else { throw SourceError.sourceUnavailable }
-        for item in items where !FileManager.default.fileExists(atPath: item.url.path) {
+        for item in items
+        where !FileManager.default.fileExists(atPath: item.url.path(percentEncoded: false)) {
             throw SourceError.sourceUnavailable
         }
         return items
