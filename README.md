@@ -9,7 +9,9 @@
 [![Platform](https://img.shields.io/badge/watchOS-12+-blue.svg)](#)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-**Echo** turns audiobooks into a serious study medium. Search across spoken content, jump to any passage, create flashcards from what you hear, and review with spaced repetition — all without leaving the audio.
+**Echo** turns audiobooks into a serious study medium. It aligns the audiobook you already own to its EPUB/PDF for word-level read-along, **narrates ebooks that have no audiobook** on-device, and turns what you hear into flashcards you review with spaced repetition — all without leaving the audio.
+
+Plenty of apps now read your ebook aloud, or sync an audiobook to the text. Echo is the one that turns that into a study *system* — and it still works when you own the ebook but not an audiobook (it narrates that for you too).
 
 ---
 
@@ -76,7 +78,7 @@ See honest insights & export your second brain   →   Own what you learned
 - **Insights.** 🚧 A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, per-chapter coverage heatmaps ("Ch 7 — 86%, listened 3×"), speed trends, time-of-day patterns, retention curves, grade distributions, and a 30-day review forecast.
 - **Second-Brain Export.** 🚧 Per-book Markdown bundles — bookmarks, notes, flashcards, voice memos, photos — that drop straight into Obsidian, Logseq, or Notion. Plain files, relative links, no accounts, no lock-in. (Bookmark Markdown export ships today.)
 - **iCloud Study Sync.** 🚧 Flashcards, decks, bookmarks, and playback position across iPhone, Mac, and Watch via your personal iCloud — Echo runs no servers.
-- **True ePub & PDF Alignment.** Seamlessly scroll through the text and view diagrams exactly when the audio reaches that section. On-device auto-alignment ([WhisperKit](https://dfakkeldy.github.io/Echo/glossary.html#whisperkit) + [CoreML](https://dfakkeldy.github.io/Echo/glossary.html#coreml)) maps every paragraph to the narration — no cloud API calls, no privacy concerns. PDF companion documents are supported with page-level alignment and per-page screenshot bookmarks.
+- **On-Device EPUB Alignment (+ PDF companion).** Seamlessly scroll through the EPUB text and view diagrams exactly when the audio reaches that section. On-device auto-alignment ([WhisperKit](https://dfakkeldy.github.io/Echo/glossary.html#whisperkit) + [CoreML](https://dfakkeldy.github.io/Echo/glossary.html#coreml)) maps every paragraph of the **EPUB** to the narration — no cloud API calls, no privacy concerns. **PDF** is supported as a read-only companion with **page-level** alignment (pin a page to a timestamp) and per-page screenshot bookmarks — not the word-level auto-pipeline EPUB gets.
 - **Word-by-Word Read-Along (Karaoke).** As the narration plays, the current word lights up in the text — on iPhone *and* Mac. Built on the same on-device alignment, refined to the narrator's actual word timings wherever speech recognition is confident. (Existing books need a one-time re-align to light up.)
 - **On-Device Narration for text-only books.** Got an EPUB with no audiobook? Echo can speak it in a natural voice (Kokoro, the same on-device model on iPhone and Mac, run via ONNX Runtime on the CPU) — no cloud, no account, no API keys. On iPhone it narrates as you listen (every device — no Neural-Engine requirement); on Mac you can queue EPUBs to synthesize overnight, then play them back like any audiobook, with full read-along.
 - **Teach the narrator how to say names.** Invented character names, brands, and niche jargon trip up any text-to-speech. A built-in **Pronunciation** dictionary (Settings) lets you spell a word out in IPA once, and the narrator says it your way everywhere it appears.
@@ -90,29 +92,22 @@ See honest insights & export your second brain   →   Own what you learned
 
 ## The Road to v1.0
 
-Echo has a defined 1.0:
+Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**, each turning a recurring competitor weakness into an Echo strength:
 
-> **Echo 1.0 is a trustworthy study player on iPhone (full), Apple Watch (companion), and Mac (functional core), with real listening/study analytics, a complete intentional-flashcard workflow including real Anki deck import, and study-state sync across devices.**
+> **Echo 1.0 is a deep study _system_ on iPhone (full), Apple Watch (companion), and Mac (full peer): the audiobooks you already own turned into spaced-repetition study; rock-solid and obviously usable; free and verifiably private; with study-state and self-hosted-library sync that never loses your place. Launch is gate-driven — it ships when it's deep and solid, not on a date.**
 
-The program runs as dependency-ordered workstreams (~14 weeks solo), each landing on its own branch with tests-first plans and verification gates:
-
-| # | Workstream | What ships |
+| Wedge | Competitors fail at… | …so Echo ships |
 |---|---|---|
-| WS0 | **Listening capture layer** | The playback-event recorder — ships *first* so insights data accumulates from the next beta build onward |
-| WS1 | **Identity & macOS foundation** | The Echo rebrand completed through every identifier, and the Mac target on a solid footing |
-| WS2 | **CI** | GitHub Actions compiles every scheme + the test target on each PR (the unit/integration suites run locally via `make test` while the CI runner's iOS simulator carries an Apple isolated-deinit runtime bug) |
-| WS3–4 | **Insights** | Stats backend (pure, tested aggregation) + the Insights screen with Swift Charts and live dashboard modules |
-| WS5 | **Context Memory** | Opt-in, reduced-accuracy place capture on sessions, bookmarks, and chapter starts — privacy-first, deletable |
-| WS6 | **Anki core** | Decks + tags schema, the mark-later Card Inbox, a full card editor, deck management; inline popups retire |
-| WS6b | **Brain Dump / Book Notes** | Untethered per-book notes, global voice-memo inbox, watch dictation |
-| WS7 | **Import/Export** | Real `.apkg` import (scheduling preserved), JSON deck export, Markdown second-brain bundle export |
-| WS-N | **On-Device Narration (Kokoro)** ✅ | Speak text-only EPUBs in a natural on-device voice (Kokoro-82M), render-then-play with word-level read-along and chaptered `.m4b` export; iOS + macOS, gated by Echo Pro. *Core shipped — see [ROADMAP.md](ROADMAP.md) §A.1.* |
-| WS8 | **iCloud study sync** | Flashcards, decks, bookmarks, playback position — private database, sensible conflict rules |
-| WS8b | **Audiobookshelf integration** | Connect a self-hosted Audiobookshelf server; pull books (audio + any bundled EPUB) into the local pipeline so alignment/flashcards/search keep working; browse & search the library by topic/genre/series; two-way playback-progress sync. *Streaming deferred post-1.0 — see [ROADMAP.md](ROADMAP.md) Phase 9.* Lands after the on-device narration (Kokoro) work, before WS9. |
-| WS9 | **Polish & release** | Onboarding (incl. a library-organization step), reader speed controls, alignment celebration, Mac stats/review panes, TestFlight beta → release |
-| WS10 | **Docs & site content** | Study-workflow guides, organization training, context-memory explainer — published as features ship |
+| **1 · Study Moat** *(lead)* | nobody has it | FSRS + **Chapter Study Mode** (each chapter an Anki-style card) + narrator-voice flashcards + watch review + align-*or*-narrate + deep on-device analytics |
+| **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — a real crash-free + no-lost-progress bar |
+| **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; obvious from first launch |
+| **4 · Trust** | ads, paywalls, hidden fees | free, open-source, ad-free, **verifiably** private (you can read the code) |
+| **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library, no lost progress |
+| **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
 
-**Deliberately after 1.0** (each with its seam already designed): FSRS scheduling, `.apkg` export, AnkiConnect, on-device AI card drafting, focus soundscapes, hyperfocus/transition alarms, Context Memory map view, CarPlay capture buttons, full Mac reader parity. See [ROADMAP.md](ROADMAP.md).
+**macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan, the moat audit, and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)** + the [rebuild design spec](docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md).
+
+**Deferred to 1.x:** photo-of-a-page → audio jump · multi-voice narration · AI-generated Q&A cards · CarPlay capture · Audiobookshelf streaming · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
 
 ---
 

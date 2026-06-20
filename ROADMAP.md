@@ -1,6 +1,6 @@
 # Echo: Audiobook Study Player — Roadmap
 
-<!-- Last updated: 2026-06-19b (added §A.3.6 "defend the alignment moat" + §A.3.7 research backlog after finding AudioBookSync — the first competitor doing on-device WhisperKit audiobook↔EPUB alignment (docs/competitor-analysis.md §7.11) — which softened the §6 "no competitor" claim; flagged Voxlight for a future pass. Earlier 2026-06-19: added a hybrid streaming-start narration item under WS-N §A.1 and a Fox Reader competitive-repositioning priority §A.3.5 — narration messaging moves to "real-narrator alignment, not voice quality" now that Fox Reader ships the same on-device Kokoro model — both driven by the Fox Reader findings in docs/competitor-analysis.md §7.9/§8. Prior, 2026-06-18: reconciled with README's "Road to v1.0" workstream model — WS0–WS10 are now the canonical forward plan; added the shipped On-Device Narration (Kokoro) workstream, the Echo Pro / FreeTierGate monetization tier, a Competitive Priorities section driven by docs/competitor-analysis.md §7, and corrected schema drift to V21. The original Phase 1–9 blueprint is preserved below as completed-foundation history.) -->
+<!-- Last updated: 2026-06-20 (MERGED origin/main into the wedge rebuild: integrated the shipped **ONNX narration engine swap** — `OnnxKokoroEngine` replaced the CoreML/FluidAudio stack and **A14 narration is now DE-GATED** (§A.1; reconciled into Wedge 2, which previously listed it as to-do) — plus main's competitor findings (AudioBookSync = closest tech competitor §7.11–§7.12; Voxlight confirmed chapter-level; SyncBooks/Vlume notes; §A.3.6 "defend the alignment moat" + §A.3.7 research backlog folded into priorities 6–9). 2026-06-19 EVENING — ROADMAP REBUILT into six competitive wedges per docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md: Part A is now wedge-structured (Study Moat / Rock-Solid / Clarity / Trust / Sync / Support) + macOS full-peer parity; 1.0 holds for a DEEP moat with FSRS, Chapter Study Mode, deep analytics, and full Audiobookshelf all pulled INTO 1.0; Aug-1 target retired → gate-driven; old WS0–WS10 re-slotted under the wedges. PRIOR PM — moat reassessment vs the "Sync cohort". 2026-06-18: WS0–WS10 workstream model; On-Device Narration (Kokoro) workstream; Echo Pro / FreeTierGate; schema V21. The Phase 1–9 blueprint is preserved in Part B.) -->
 
 ---
 
@@ -8,37 +8,86 @@
 
 This roadmap has two layers:
 
-- **Part A — Road to v1.0 workstreams (canonical, forward-looking).** Mirrors the WS0–WS10 model in `README.md` ("The Road to v1.0"). This is the single source of truth for *what's next*.
-- **Part B — Original blueprint (Phases 1–9, historical).** The foundational hardening/feature phases that predate the workstream model. Phases 1–7 are complete and kept as engineering history; the forward-looking items in Phases 8–9 are now tracked under the workstreams in Part A (cross-referenced).
+- **Part A — Road to v1.0 competitive wedges (canonical, forward-looking).** Rebuilt 2026-06-19 around six wedges that turn competitor weaknesses into Echo strengths. The single source of truth for *what's next*. The old WS0–WS10 work re-slots under the wedges (mapping kept inline as "*(was WSx)*").
+- **Part B — Original blueprint (Phases 1–9, historical).** The foundational hardening/feature phases that predate the wedge model. Phases 1–7 are complete and kept as engineering history; the forward-looking items in Phases 8–9 are now tracked under the wedges in Part A (cross-referenced).
 
 > [!IMPORTANT]
-> Keep this file in sync with `README.md`'s workstream table and `docs/competitor-analysis.md`. When a workstream's status changes, update both. **Current schema version: V21** (see `ARCHITECTURE.md` for the full migration ledger).
+> Keep this file in sync with `README.md`'s "Road to v1.0" section and `docs/competitor-analysis.md`. When a wedge item's status changes, update both. **Current schema version: V21** (see `ARCHITECTURE.md` for the full migration ledger).
 
 ---
 
-## Part A — Road to v1.0 (Canonical Workstreams)
+## Part A — Road to v1.0 (Competitive Wedges)
 
-> **Echo 1.0:** a trustworthy study player on iPhone (full), Apple Watch (companion), and Mac (functional core), with real listening/study analytics, a complete intentional-flashcard workflow including real Anki deck import, and study-state sync across devices.
+> **Echo 1.0:** a deep, trustworthy study *system* on **iPhone (full), Apple Watch (companion), and Mac (full peer)** — the audiobooks you already own turned into spaced-repetition study; rock-solid and obviously usable; free and verifiably private; with study-state **and** self-hosted-library sync that never loses your place. **Launch is gate-driven (ship-when-green), not calendar-dated.**
 
-Dependency-ordered workstreams mirroring `README.md`. Status verified against code on 2026-06-18.
+Rebuilt 2026-06-19 around **six competitive wedges**. Each turns a recurring competitor weakness — mined from reviews across 13 tracked competitors (`docs/competitor-analysis.md`) — into an Echo strength: *"competitors fail at X → Echo ships Y."* Full rationale, the adversarial moat audit, and the launch-gate criteria: [`docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md`](docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md).
 
-| # | Workstream | Status | Notes |
-|---|------------|--------|-------|
-| WS0 | Listening capture layer | ✅ Shipped | `PlaybackSessionRecorder` (actor) + `PlaybackSegmentBuilder` over `playback_event`; Schema V14 index. |
-| WS1 | Identity & macOS foundation | 🟡 Mostly complete | Bundle IDs/app group → `com.echo.*`; macOS target substantially built out (Settings scene, chapter axis, volume boost, batch queue, narration port). **Remaining:** Fastlane `Appfile` still `com.orbit.*` + provisioning regen (`docs/provisioning-rebrand.md`). |
-| WS2 | CI | 🟡 Build gate live | GitHub Actions "Build gate + tests" runs on PRs. Full multi-scheme + simulator **test** action still blocked by an Apple isolated-deinit simulator runtime bug — unit/integration suites run locally via `make test`. |
-| WS3–4 | Insights | 🟡 Partial | Stats modules + dashboard cards shipped (`StatsModuleView`, `UpcomingReviewsModuleView`). **Remaining:** full Insights screen with Swift Charts. |
-| WS5 | Context Memory | 🟡 Partial | `session_location` schema groundwork (V14). **Remaining:** opt-in reduced-accuracy capture + UI + deletion. |
-| WS6 | Anki core | 🟡 Partial | Deck/tag schema + `DeckImportService` landed. **Remaining:** mark-later Card Inbox, full editor, and retiring inline flashcard popups (see Part B §8.1). |
-| WS6b | Brain Dump / Book Notes | 🟡 Partial | Note global/voice-memo columns (V14). **Remaining:** global voice-memo inbox + watch dictation. |
-| WS7 | Import / Export | 🟡 Partial | `.apkg` **export** service + tests exist (`ApkgExportServiceTests`). **Remaining:** real `.apkg` *import* (scheduling preserved), JSON deck export, Markdown second-brain bundle. |
-| WS-N | **On-Device Narration (Kokoro)** | ✅ Core shipped | New workstream — was only implied in README (lands between WS8 and WS9). See §A.1 below. |
-| WS8 | iCloud study sync | 🟡 Partial | `CloudKitSyncService` infra in place; currently **anchors only**. **Remaining:** bookmarks, flashcards, decks, playback position (see Part B §8.1). |
-| WS8b | Audiobookshelf integration | 🔜 Planned | Full design in Part B §9. Download-to-local, topic search, two-way progress sync; streaming deferred post-1.0. |
-| WS9 | Polish & release | 🟡 Partial | Now Playing redesign, accent-contrast safety, Pomodoro shipped. **Remaining:** onboarding, reader speed controls, alignment celebration, Mac stats/review panes, TestFlight → release (see Part B §8.1). |
-| WS10 | Docs & site content | 🟢 Ongoing | Website, glossary, manual/learn/devlog, marketing suite shipped; continues as features land. |
+> [!IMPORTANT]
+> This 1.0 is a **program**, not a single feature. Each wedge (often each feature within it) gets its own spec → plan → implementation cycle; per-feature implementation plans live in `docs/superpowers/plans/`. The wedges below are the dependency-ordered program. *(was WSx)* tags map each item to its old workstream for one release.
 
-**Deliberately after 1.0:** FSRS scheduling, `.apkg` export polish, AnkiConnect, on-device AI card drafting, focus soundscapes, hyperfocus/transition alarms, Context Memory map view, CarPlay capture buttons, full Mac reader parity, ABS streaming (Part B §9.5).
+### Wedge 1 — STUDY MOAT *(lead; the only uncontested differentiator)*
+
+The fused study system no sync-app and no TTS-app has. **This is the "deep" the launch gate holds for** (`docs/competitor-analysis.md` §6 — study is the only moat that survived the audit).
+
+- [ ] **FSRS scheduling** *(was post-1.0 → now 1.0)* alongside the existing SM-2.
+- [ ] **Chapter Study Mode ("Anki mode" — chapter-as-card)** — book = deck; auto one chapter-card per chapter; listen → grade **Again / Good** (Again auto-default on no tap = hands-free); a due chapter with no cards = a **skippable re-listen**, and creating a flashcard inside a chapter prompts *"retire the chapter card and review with your cards?"*; **one interleaved FSRS queue**; **per-book + global** new-cards/day limits. *(Net-new — see spec Wedge 1 for the full design.)*
+- [ ] **Card Inbox / mark-later**, full **card editor**, **decks & tags** (retire mid-playback popups). *(was WS6)*
+- [ ] **Narrator-audio-snippet cards** + **watchOS haptic review** — core shipped; harden against eviction/relaunch.
+- [ ] **Align-or-synthesize narration** — real-narration alignment + on-device Kokoro narration of text-only EPUBs (core shipped); remaining polish in §A.1. *(was WS-N)*
+- [ ] **`.apkg` round-trip** (import + export; export shipped) + Markdown second-brain export. *(was WS7)*
+- [ ] **Deep analytics / full Insights** *(was 1.x → now 1.0)* — retention curves, per-chapter coverage heatmaps, streaks, speed trends, time-of-day patterns, grade distributions, 30-day forecast, all on-device. *(was WS3–4)*
+- [ ] **Context Memory** (opt-in, on-device, deletable). *(was WS5)*
+
+### Wedge 2 — ROCK-SOLID *(beats competitor reliability/crash/perf complaints)*
+
+Competitors crash, freeze, and lose progress after updates → **Echo never loses your place and never crashes.**
+
+- [ ] **Restore CI test execution** — the build-gate is live, but the full simulator **test** action is blocked by the Apple iOS 26 isolated-deinit runtime bug. Unblock / pin a runtime so the suites gate every PR. *(was WS2)*
+- [ ] **Crash-free gate:** **≥99.5% crash-free sessions (stretch 99.9%), zero unresolved P0 crash families**, measured via **MetricKit + App Store Connect** (no third-party SDK — keeps the no-tracking promise; symbolicate with `xcsym`).
+- [ ] **No-lost-progress guarantee** — durable persistence + clean resume after call / eviction / relaunch, extended from the watch-persistence rigor to every surface.
+- [ ] **Performance budget** — fast cold launch, no playback freeze, smooth big-library scrolling.
+- [x] **A14 narration — ✅ resolved (merged from main).** The `OnnxKokoroEngine` ONNX pivot **shipped** (ONNX Runtime CPU EP, off the ANE); the A15+ `NarrationCapability` gate is **removed**, verified on an iPhone 12 Pro (≈0.7 s load, RTF ≈ 0.5, no crash/jetsam). See §A.1. *(Remaining cleanup: drop the now-unused FluidAudio/KokoroPipeline SPM packages.)*
+
+### Wedge 3 — CLARITY *(beats confusing UI / poor onboarding)*
+
+Competitors are confusing → **Echo is obvious from first launch. This is a genuine UI overhaul, not polish** — the PR #77 BookPlayer-style redesign was *net-sideways* ("a few steps forward, as many steps back") and is a step, not the target state.
+
+- [ ] **UX audit first** — name the specific regressions across player / reader / library (incl. #77) before rebuilding.
+- [ ] **UI overhaul** of the core surfaces to a coherent, obvious standard (owner sign-off that it's forward progress).
+- [ ] **Onboarding** that teaches the curb-cut workflow in under 60 seconds (import → align → capture → review).
+- [ ] **UX-flow audit** (no dead-ends/dismiss-traps; loading/empty/error states everywhere); clean navigation + library organization; reader speed controls; iOS/macOS parity. *(was WS9)*
+
+### Wedge 4 — TRUST *(beats ads / paywalls / hidden-fees + privacy complaints)*
+
+Competitors hide fees, gate features, and run ad-SDKs → **Echo is free, open, ad-free, and verifiably private.**
+
+- [x] **Free-tier gate** — `FreeTierGate` (20 cards / 1 narrated chapter free); Pro unlocks. *(shipped; see §A.2)*
+- [ ] **Honest Echo Pro paywall UX** — BookPlayer tip-jar / simple-unlock style, never an aggressive carousel. *(§A.2)*
+- [ ] **Verifiable privacy** — on-device, no accounts, no tracking, privacy manifest accurate; *provable* because GPL-3.0 ("verifiably private, not just promised").
+- [ ] **No lock-in** — open formats, full data export.
+
+### Wedge 5 — SYNC DONE RIGHT *(beats sync / file-management failures)*
+
+Competitors lose progress and corrupt files → **Echo's BYO library + iCloud just works, and your self-hosted shelf comes with it.**
+
+- [ ] **Full CloudKit study-state sync** — position, bookmarks, cards, decks (today **anchors-only**), conflict handling, no lost progress across iPhone / Watch / Mac. *(was WS8)*
+- [ ] **Full Audiobookshelf** *(was 1.x → now 1.0)* — auth (JWT login + refresh-with-rotation), browse libraries/items, **background resumable download-to-local** (+ sibling EPUB so the existing import pipeline + alignment + flashcards fire unchanged), and **(optional)** two-way progress sync. **Foundations laid** (Schema V18 `abs_server`, `ABSServerDAO`, `ABSEndpoints`, `ABSModels`, `ABSTokenStore`); the **networking service + download pipeline + UI are still to build** — full design in Part B §9. *Streaming stays post-1.0.* *(was WS8b)*
+
+### Wedge 6 — SUPPORT *(beats poor support / feedback)*
+
+Competitors give slow, unhelpful support → **Echo is responsive and open.** In-app feedback path, responsive GitHub issues, the beta-tester funnel, living docs/manual/glossary as self-serve support. *(was WS10 — ongoing.)*
+
+### Platform parity — macOS is a full peer in 1.0
+
+**Already built on Mac:** player, reader + karaoke, on-device alignment, Anki export, and the **batch pipeline** (`MacBatchProcessingService` / `MacBatchQueueView`: import → transcribe → align → word-timings + overnight Narrate-EPUBs) — so **batch transcribe/align/narrate is largely shipped** (1.0 = complete + harden). **Parity gap 1.0 closes:** the **study layer** on Mac — flashcard creation, FSRS + Chapter-Study review (`DailyReview` has no Mac UI today), Card Inbox / editor / decks, deep Insights, Context Memory — plus applying the persisted custom font/theme (§A.1 follow-up). **Excluded** (platform-inherent, not gaps): watch review, CarPlay, camera bookmarks (Mac uses the photo library / files). macOS build specifics (sandbox, notarization, menus, AppKit bridging) → handled with `axiom-macos` at build time.
+
+### The 1.0 launch gate — ship when ALL are green
+
+**Moat deep** (FSRS + Chapter Study Mode + snippet review + `.apkg` round-trip + watch + align-or-synthesize + deep Insights) · **Rock-solid** (≥99.5% crash-free sessions / zero P0 families, CI tests restored, no-lost-progress, A14 narration ✅ resolved via ONNX) · **Clear** (UI overhaul shipped — owner sign-off — + onboarding + clean flows) · **Trusted** (no-ads / honest-Pro / verifiable-privacy) · **Synced** (full iCloud **and** full Audiobookshelf, no lost progress) · **Supported** (in-app feedback live) · **macOS at full parity.**
+
+### Deferred to 1.x (post-1.0)
+
+Photo-of-page → audio jump (the one row Echo is behind on; reuses the existing transcription index) · multi-voice / per-character narration · **AI-generated Q&A flashcards** from chapter content (distinct from Chapter Study Mode, which does *no* generation) · CarPlay capture buttons · ABS streaming (Part B §9.5) · AnkiConnect · `.apkg` export polish · focus-soundscape expansion · hyperfocus/transition alarms · Context Memory map view.
 
 ### A.1 — On-Device Narration (Kokoro) — ✅ Core shipped
 
@@ -60,7 +109,7 @@ Echo's direct answer to TTS-reader competitors (see `docs/competitor-analysis.md
     - **Backpressure:** start playback at ~0.5 s buffered; **pause synthesis once the queue is ~3 s ahead** to cap CPU/ANE/thermal load (what makes long-form on-route listening sustainable). Keeping the heavy decoder on the ANE helps both latency and power.
     - **Invariant to keep:** streaming produces *ephemeral PCM for immediate playback only*; a chapter is marked rendered **only once the full AAC + per-block anchors/word-timings exist** in `NarrationCache`. A partially-streamed chapter must never be recorded as rendered, or resume/seek/karaoke read incomplete state. (Sequencing: lands **after** the A14 fixed-shape on-device verify — don't optimize start latency before confirming the engine renders wedge-free on A14.)
 
-> **Why this is a competitive moat (vs Voice Dream):** render-then-play means playback is just a finished AAC file (hardware decoder, near-zero power) — no sustained on-the-fly synthesis, so no overheating / charging-pause. Neural voice quality *and* normal-audiobook battery behavior. Keep this property protected.
+> **Why this is the right architecture (not a standalone moat — reworded 2026-06-19):** render-then-play falls out of the features that *are* the moat — replayable cached audio, word-level read-along anchors, and chaptered `.m4b` export — and as a bonus playback is just a finished AAC file (hardware decoder, near-zero power), so no overheating / charging-pause vs Voice Dream's *old* engines. **Do not market this as a moat:** Fox Reader ships the same Kokoro model and *streams* it instantly even on an A14, so "neural narration that doesn't melt your phone" invites a latency comparison Echo currently loses. The §A.1 hybrid (stream first chunk, cache the rest) closes that flank and makes the thermal point moot rather than load-bearing.
 
 ### A.2 — Monetization: Echo Pro (`FreeTierGate`)
 
@@ -73,15 +122,24 @@ Tracked here because no prior roadmap section owned it. Full pricing copy lives 
 
 ## Part A.3 — Competitive Priorities
 
-Sourced from `docs/competitor-analysis.md` §7–§8 (field notes on Voice Dream, BookPlayer, Prologue, the reader/TTS cohort incl. **Fox Reader**, and the closest tech competitor **AudioBookSync**). These are the items where competitor findings should *re-order* priority within the workstreams above.
+Sourced from `docs/competitor-analysis.md` §7–§8 (field notes on Voice Dream, BookPlayer, Prologue, the reader/TTS cohort incl. **Fox Reader**, and the closest tech competitor **AudioBookSync**).
+
+> [!NOTE]
+> **The six wedges above now carry the forward plan** — this section is retained as the *competitive reasoning* behind them (which weakness each wedge exploits, what to protect, what to reposition). Priorities 6–8 map to Wedge 1 (study moat + word-level read-along), the positioning work, and the 1.x photo-jump/OCR evaluation; priorities 1–2 (VoiceOver, watch persistence) fold into Clarity/Trust and Rock-Solid; priority 9 is the live research backlog.
 
 1. **⬆️ Promote: VoiceOver audit (was Part B §8.2 stretch → P1).** Voice Dream's loyal base is heavily accessibility-driven (blind/low-vision, dyslexia). Echo's a11y story (OpenDyslexic/Lexend fonts, the `ScrubberJoystick` VoiceOver work) is a real wedge — finish a full-screen VoiceOver pass and treat accessibility as a headline feature, not a checkbox.
 2. **🛡️ Protect: watch persistence (✅ Part B §1.8).** A stateless watch app is the category's #1 complaint and Voice Dream's biggest weakness. Echo's durable-state watch target is a flagship differentiator — guard it against regression (relaunch / wrist-down / app eviction).
 3. **🛡️ Protect: narration thermal behavior (WS-N).** Render-then-play vs Voice Dream's real-time synthesis is *the* narration differentiator. Don't regress it into on-the-fly synthesis. *(Caveat: Fox Reader proves streaming can feel instant — pursue the §A.1 hybrid that gets streaming's start latency **without** abandoning the cached-AAC thermal win.)*
 4. **📐 Bar to meet: cross-device sync (WS8) & widget polish.** Prologue's position sync and BookPlayer's widget/complication polish set the quality bar. Keep Audiobookshelf (WS8b) *optional and additive* — never the front door, unlike Prologue's server-first onboarding. **Sharper now:** the solo-dev **Fox Reader shipped working iCloud sync at v1.3** (`§7.9`) while Echo's WS8 is still anchors-only — reinforces WS8 priority.
-5. **🔁 Reposition: narration messaging — "real-narrator alignment", not "voice quality" (new, Fox Reader §7.9–§8).** Fox Reader ships the **same Kokoro model** Echo uses — fully on-device, fast, even on an A14 — so **on-device TTS and voice *quality* are no longer differentiators** (unlike vs Voice Dream's dated engines). Echo's narration story must lead with what Fox structurally lacks: **real human-narrated audiobook alignment + SRS study**. The privacy angle still wins — Fox runs **ads** (typically tracking SDKs) to give Kokoro away free; Echo is GPL-3.0, no ads, no tracking ("same on-device voices, no ads, no tracking, ever"). *Touches README/site narration copy + WS9 store metadata; not a code change.*
-6. **🧱 Defend the alignment moat — "word-level read-along + study", not "on-device alignment" (new, AudioBookSync §7.11 + §6 warning).** **AudioBookSync** (shipping since 2026-04) does on-device **WhisperKit/Apple Speech** alignment of a personal audiobook↔EPUB, and **Voxlight** ($29.99/yr) markets the same — so "no competitor auto-aligns on-device" is **no longer true** and was softened in competitor-analysis §6. Echo's still-defensible wedge is the **combination**: continuous **word-level DTW read-along + manual anchor correction + the SRS study layer + watch/Mac** — none of which AudioBookSync has (it's a sync/search tool with **no study layer**, and its sync looks position/OCR-level, not word-level — *verify hands-on*). Actions: (a) audit any "only/no-competitor" alignment claims in README/site/store copy and narrow them; (b) **evaluate AudioBookSync's OCR "scan-a-page → jump-to-audio"** as a net-new Echo feature (camera → find-my-spot); (c) keep **word-level read-along quality** (WS-N / `WordTimingMaterializer`) bulletproof — it's now the headline differentiator, not a nicety. *Mostly positioning + one feature spike; the read-along engine already exists.*
-7. **🔎 Research backlog.** **Voxlight** (`voxlight.app`, on-device narration↔EPUB, $29.99/yr) is now confirmed real — but **chapter-level** sync like AudioBookSync, not word-level (reinforces the moat in §6). Give it a full §7 entry when time allows. Adjacent: **SyncBooks** (language-learning, sentence-level, public-domain classics) is a *different* target; **Vlume** ruled out (content subscription). Still to confirm: AudioBookSync's App Store ID/price and whether *any* of the cohort does true word-level read-along.
+5. **🔁 Reposition: lead on the STUDY layer; alignment is the on-ramp (broadened 2026-06-19, was Fox-Reader-only).** Fox Reader ships the **same Kokoro model** Echo uses — fully on-device, fast, even on an A14 — so **on-device TTS and voice *quality* are no longer differentiators**. **Broader now:** the *alignment* half is also contested — **Voxlight** (§7.11) clones the recipe and **AudioBookSync** (§7.12) ships on-device ASR of real narration today, while Audible/Spotify/Kindle shipped sync at scale. So narration messaging must lead with "real-narrator alignment + SRS study," **and the overall pitch must lead with the STUDY layer**, with alignment as the on-ramp. Privacy still wins as a *contrast* vs ad-supported (Fox) / cloud-AI (Speechify/Voiser), tied to GPL-3.0 auditability. *Touches README/site/store copy; not a code change.*
+
+6. **🛡️ Protect + DEEPEN: the SRS study layer is now THE moat (Voxlight/AudioBookSync §7.11–§7.12).** Both new sync rivals contest the alignment half but **neither has any study layer** — and the adversarial moat audit (`docs/competitor-analysis.md` §6) found study is the *only* uncontested leg. This is a **land-grab window**, not a fortress: the SRS barrier is product-*identity*, not engineering (SM-2 is public, `.apkg` documented, the audio snippet is a timestamp pointer). **Prioritise FSRS, audio-snippet review polish, watch haptic-review robustness, and `.apkg` round-trip** so catching up means out-building a *study product*, not bolting on one feature. **Also protect the other headline differentiator — continuous _word-level_ DTW read-along** (WS-N / `WordTimingMaterializer`): the sync cohort matches *chapters*, Echo follows every *word*. Keep it bulletproof, and audit/narrow any "only/no-competitor" alignment claims in README/site/store copy (per §6).
+
+7. **🆚 Reposition vs Voxlight / AudioBookSync: study SYSTEM, not sync READER (new).** Voxlight needs you to own **both** the audiobook **and** the ebook and needs a **Mac** for word-level; Echo does word-level on-iPhone, adds SRS + capture + watch, and **narrates text-only EPUBs**. **AudioBookSync** (shipping since 2026-04) is a *sync/search* tool with **no study layer**, and its binding looks **position/OCR-level, not continuous word-level** — *verify hands-on*. Voxlight is **pre-launch** (no confirmed App Store ID) — treat its launch as a **copy-audit tripwire**. The study-layer + founder-story lines are launch-proof and should carry the weight.
+
+8. **🔭 Evaluate: photo-of-a-page → audio jump (AudioBookSync §7.12 + Spotify Page Match).** The one row where Echo is *behind* (§8b). Echo **already builds the WhisperKit transcription index** that makes a "scan a page → jump the audio" affordance cheap — extending Echo to the **physical-book-without-an-EPUB** case its EPUB-anchored pipeline can't serve, and matching AudioBookSync's demoable OCR feature. Scope as a **curb-cut feature spike** (camera → find-my-spot), *not* a defensive must-have.
+
+9. **🔎 Research backlog (from origin/main).** Confirm **AudioBookSync**'s App Store ID, exact price, and whether it (or *any* cohort app) does true word-level read-along. **Voxlight** confirmed real but **chapter-level**. Adjacent, noted-not-tracked: **SyncBooks** (id `6761034564`, language-learning, sentence-level, public-domain classics — a *different* target) and **Vlume** (id `1325346984`, **ruled out** — a $7.99/mo content-subscription catalog, not a personal-file sync tool).
 
 ---
 

@@ -1,1 +1,1 @@
-Now in TestFlight on the road to 1.0: on-device word sync, highlight-to-flashcard study, and hands-free review on Apple Watch. Free and open source, no tracking.
+More than read-along: Echo turns the audiobooks you own into a study system — word sync, highlight-to-flashcard, hands-free Watch review. On-device, free, no tracking.
