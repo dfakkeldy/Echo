@@ -15,10 +15,6 @@ struct SettingsView: View {
 
     #if DEBUG
         @State private var debugNarrationPlayer: AVAudioPlayer?
-        #if os(iOS)
-            @AppStorage(NarrationEngineFactory.useLegacyCoreMLEngineKey)
-            private var useLegacyCoreMLEngine = false
-        #endif
     #endif
 
     var body: some View {
@@ -100,17 +96,13 @@ struct SettingsView: View {
                                 }
                             }
                         }
-                        #if os(iOS)
-                            Toggle("Use legacy CoreML engine", isOn: $useLegacyCoreMLEngine)
-                        #endif
                     } header: {
                         Text("Debug Menu")
                     } footer: {
                         Text(
-                            "Loads audio files from Development Assets into the player. "
-                                + "Narration uses the ONNX engine by default; "
-                                + "“Use legacy CoreML engine” reverts to the fixed-shape CoreML "
-                                + "pipeline for A/B comparison (DEBUG only).")
+                            "Loads audio files from Development Assets into the player, "
+                                + "and renders chapter 1 through the on-device ONNX narration engine."
+                        )
                     }
                 #endif
 
