@@ -20,15 +20,20 @@ struct TimelineIngestionService {
     ) {
         let audiobookID = folderURL.absoluteString
         let title = folderURL.deletingPathExtension().lastPathComponent
-        let audiobook = AudiobookRecord(
-            id: audiobookID,
-            title: title,
-            author: nil,
-            duration: duration ?? 0,
-            fileCount: tracks.count,
-            addedAt: Date().ISO8601Format()
-        )
         do {
+            let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
+            let audiobook = AudiobookRecord(
+                id: audiobookID,
+                title: title,
+                author: nil,
+                duration: duration ?? 0,
+                fileCount: tracks.count,
+                addedAt: Date().ISO8601Format(),
+                sourceType: existing?.sourceType,
+                serverID: existing?.serverID,
+                remoteItemID: existing?.remoteItemID,
+                topicsJSON: existing?.topicsJSON
+            )
             try AudiobookDAO(db: db.writer).save(audiobook)
             let records = tracks.enumerated().map { (i, track) in
                 TrackRecord(
@@ -89,7 +94,8 @@ struct TimelineIngestionService {
     ) async {
         let hasTranscript = !transcription.isEmpty
         let hasEnhancedTranscript = !enhancedTranscription.isEmpty
-        let hasEPUB = (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
+        let hasEPUB =
+            (try? EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).isEmpty) == false
         let strategy = TimelineIngestionFactory.strategy(
             hasTranscript: hasTranscript,
             hasEnhancedTranscript: hasEnhancedTranscript,
@@ -121,12 +127,12 @@ struct TimelineIngestionService {
             guard !items.isEmpty else { return }
             try TimelineDAO(db: db.writer).deleteAll(for: audiobookID)
             try TimelineDAO(db: db.writer).ingest(items)
-            
+
             if hasEPUB {
                 // Re-apply interpolations that TimelineIngestionFactory dropped
                 try AlignmentService(db: db.writer, audiobookID: audiobookID).recalculateTimeline()
             }
-            
+
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: .timelineItemsIngested,

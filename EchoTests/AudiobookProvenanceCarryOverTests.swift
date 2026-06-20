@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import Testing
+
+@testable import Echo
+
+@MainActor
+@Suite struct AudiobookProvenanceCarryOverTests {
+    @Test func reingestPreservesProvenance() throws {
+        let db = try DatabaseService(inMemory: ())
+        let folder = URL(fileURLWithPath: "/tmp/EchoTestBook")
+        let id = folder.absoluteString
+
+        // Seed a row as if ABSImportService had stamped provenance.
+        let seeded = AudiobookRecord(
+            id: id, title: "Book", author: "Author", duration: 10, fileCount: 1, addedAt: "seed",
+            sourceType: "audiobookshelf", serverID: "srv1", remoteItemID: "item9",
+            topicsJSON: "[\"Psychology\"]")
+        try AudiobookDAO(db: db.writer).save(seeded)
+
+        // A normal folder re-open must NOT wipe provenance.
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: folder, tracks: [], duration: 20)
+
+        let after = try AudiobookDAO(db: db.writer).get(id)
+        #expect(after?.sourceType == "audiobookshelf")
+        #expect(after?.serverID == "srv1")
+        #expect(after?.remoteItemID == "item9")
+        #expect(after?.topicsJSON == "[\"Psychology\"]")
+        // And the local-import case is still NULL by default.
+        let localID = URL(fileURLWithPath: "/tmp/EchoLocalOnly").absoluteString
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: URL(fileURLWithPath: "/tmp/EchoLocalOnly"), tracks: [], duration: 5)
+        #expect((try AudiobookDAO(db: db.writer).get(localID))?.sourceType == nil)
+    }
+}
