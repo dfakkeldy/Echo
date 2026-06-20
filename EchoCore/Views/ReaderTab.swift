@@ -156,14 +156,17 @@ struct ReaderTab: View {
                 // The collection fills the screen and scrolls behind the translucent
                 // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
                 //   1. the reader's own header (self-measuring),
-                //   2. Row 1 of UnifiedTopHeader (50pt, overlaid in RootTabView),
+                //   2. Row 1 of UnifiedTopHeader (overlaid in RootTabView),
                 //   3. the floating bottom dock.
+                // (2) must match the header's real height, or the reader's own
+                // header tucks under the glass — hence `rowOneHeight`, not a
+                // hard-coded constant that goes stale when the chips resize.
                 feedCollectionView
                     .safeAreaInset(edge: .top, spacing: 0) {
                         readerHeaderOverlay
                     }
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        Color.clear.frame(height: 50)
+                        Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         Color.clear.frame(height: model.bottomInset)
