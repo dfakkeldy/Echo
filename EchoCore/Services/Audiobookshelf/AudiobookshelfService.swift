@@ -93,6 +93,15 @@ final class AudiobookshelfService {
         return try await authorized(request, decode: ABSLibraryItem.self)
     }
 
+    /// Server-side search across the library (title/author/series/narrator/...).
+    /// Returns the matched library items (the `book` results).
+    func search(libraryID: String, query: String, limit: Int = 25) async throws -> [ABSLibraryItem]
+    {
+        let request = URLRequest(
+            url: endpoints.search(libraryID: libraryID, query: query, limit: limit))
+        return try await authorized(request, decode: ABSSearchResponse.self).book.map(\.libraryItem)
+    }
+
     /// Self-contained cover URL for `AsyncImage` (token in query). nil if not logged in.
     func coverURL(itemID: String) -> URL? {
         guard let token = tokens.accessToken else { return nil }

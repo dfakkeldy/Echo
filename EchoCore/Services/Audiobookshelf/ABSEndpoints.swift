@@ -60,6 +60,15 @@ struct ABSEndpoints {
             .appending(queryItems: [.init(name: "token", value: token)])
     }
 
+    func search(libraryID: String, query: String, limit: Int) -> URL {
+        var url = baseURL.appending(path: "api/libraries/\(libraryID)/search")
+        url.append(queryItems: [
+            .init(name: "q", value: query),
+            .init(name: "limit", value: String(limit)),
+        ])
+        return url
+    }
+
     func progress(_ itemID: String) -> URL { baseURL.appending(path: "api/me/progress/\(itemID)") }
     func localSessionsSync() -> URL { baseURL.appending(path: "api/session/local-all") }
 }

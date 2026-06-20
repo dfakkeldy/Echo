@@ -10,6 +10,8 @@ struct ABSBrowseView: View {
     @State private var items: [ABSLibraryItem] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var searchQuery = ""
+    @State private var searchResults: [ABSLibraryItem]? = nil
 
     var body: some View {
         NavigationStack {
@@ -27,7 +29,7 @@ struct ABSBrowseView: View {
                                 ForEach(libraries) { lib in Text(lib.name).tag(Optional(lib)) }
                             }
                         }
-                        ForEach(items) { item in
+                        ForEach(searchResults ?? items) { item in
                             NavigationLink {
                                 ABSItemDetailView(item: item, onImported: { dismiss() })
                             } label: {
@@ -41,6 +43,7 @@ struct ABSBrowseView: View {
                 }
             }
             .navigationTitle("Audiobookshelf")
+            .searchable(text: $searchQuery)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
@@ -49,6 +52,29 @@ struct ABSBrowseView: View {
             // prevents a slow older library's response from overwriting a newer one.
             // Do NOT replace with `.onChange { Task {} }`.
             .task(id: selectedLibrary) { await loadItems() }
+            .task(id: searchQuery) { await runSearch() }
+        }
+    }
+
+    private func runSearch() async {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else {
+            searchResults = nil
+            return
+        }
+        guard let service = model.makeAudiobookshelfService(), let lib = selectedLibrary else {
+            return
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(300))  // debounce keystrokes
+            try Task.checkCancellation()
+            let results = try await service.search(libraryID: lib.id, query: q)
+            try Task.checkCancellation()
+            searchResults = results
+        } catch is CancellationError {
+            // superseded by a newer keystroke — ignore
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

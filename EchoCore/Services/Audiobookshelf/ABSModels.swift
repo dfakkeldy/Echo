@@ -176,6 +176,16 @@ struct ABSLibraryItem: Decodable, Identifiable {
     }
 }
 
+// MARK: - Search
+
+struct ABSSearchResponse: Decodable {
+    let book: [ABSSearchBookResult]
+}
+
+struct ABSSearchBookResult: Decodable {
+    let libraryItem: ABSLibraryItem
+}
+
 // MARK: - Media Progress (Milestone D)
 
 struct ABSMediaProgress: Encodable {
