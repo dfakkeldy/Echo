@@ -39,12 +39,15 @@ final class URLProtocolStub: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.requests.append(request)
-        let path = request.url?.path ?? ""
+        guard let url = request.url else {
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         let match =
-            Self.responses.first { path.hasSuffix($0.key) }?.value
+            Self.responses.first { url.path.hasSuffix($0.key) }?.value
             ?? Response(status: 404, body: Data("{}".utf8), headers: [:])
         let response = HTTPURLResponse(
-            url: request.url!, statusCode: match.status,
+            url: url, statusCode: match.status,
             httpVersion: "HTTP/1.1", headerFields: match.headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: match.body)
