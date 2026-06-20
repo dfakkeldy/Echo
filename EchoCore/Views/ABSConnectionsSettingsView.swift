@@ -10,6 +10,7 @@ struct ABSConnectionsSettingsView: View {
     @State private var connected: ABSServerRecord?
     @State private var isConnecting = false
     @State private var errorMessage: String?
+    @State private var showingBrowse = false
 
     var body: some View {
         Form {
@@ -17,6 +18,7 @@ struct ABSConnectionsSettingsView: View {
                 Section("Connected") {
                     LabeledContent("Server", value: server.baseURL)
                     LabeledContent("User", value: server.username)
+                    Button("Browse Library") { showingBrowse = true }
                     Button("Sign Out", role: .destructive) {
                         Task { await signOut(server) }
                     }
@@ -50,6 +52,7 @@ struct ABSConnectionsSettingsView: View {
         }
         .navigationTitle("Connections")
         .task { connected = (try? model.absServerDAO?.current()) ?? nil }
+        .sheet(isPresented: $showingBrowse) { ABSBrowseView() }
     }
 
     private func connect() async {

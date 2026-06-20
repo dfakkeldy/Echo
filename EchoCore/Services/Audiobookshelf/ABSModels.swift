@@ -56,7 +56,7 @@ struct ABSLibrariesResponse: Decodable {
     let libraries: [ABSLibrary]
 }
 
-struct ABSLibrary: Decodable, Identifiable {
+struct ABSLibrary: Decodable, Identifiable, Hashable {
     let id: String
     let name: String
     let displayOrder: Int?
