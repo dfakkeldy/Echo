@@ -33,4 +33,20 @@ import Testing
             db: db, folderURL: URL(fileURLWithPath: "/tmp/EchoLocalOnly"), tracks: [], duration: 5)
         #expect((try AudiobookDAO(db: db.writer).get(localID))?.sourceType == nil)
     }
+
+    @Test func reingestKeepsABSTitleNotFolderName() throws {
+        let db = try DatabaseService(inMemory: ())
+        let folder = URL(fileURLWithPath: "/tmp/ABSLibrary/uuid-123")
+        let id = folder.absoluteString
+        let seeded = AudiobookRecord(
+            id: id, title: "Real ABS Title", author: "Real Author", duration: 10, fileCount: 1,
+            addedAt: "seed", sourceType: "audiobookshelf", serverID: "s", remoteItemID: "r",
+            topicsJSON: nil)
+        try AudiobookDAO(db: db.writer).save(seeded)
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: folder, tracks: [], duration: 20)
+        let after = try AudiobookDAO(db: db.writer).get(id)
+        #expect(after?.title == "Real ABS Title")  // NOT "uuid-123"
+        #expect(after?.author == "Real Author")
+    }
 }

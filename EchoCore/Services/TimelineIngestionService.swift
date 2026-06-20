@@ -22,13 +22,14 @@ struct TimelineIngestionService {
         let title = folderURL.deletingPathExtension().lastPathComponent
         do {
             let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
+            let isABS = existing?.sourceType == "audiobookshelf"
             let audiobook = AudiobookRecord(
                 id: audiobookID,
-                title: title,
-                author: nil,
+                title: isABS ? (existing?.title ?? title) : title,
+                author: isABS ? existing?.author : nil,
                 duration: duration ?? 0,
                 fileCount: tracks.count,
-                addedAt: Date().ISO8601Format(),
+                addedAt: existing?.addedAt ?? Date().ISO8601Format(),
                 sourceType: existing?.sourceType,
                 serverID: existing?.serverID,
                 remoteItemID: existing?.remoteItemID,

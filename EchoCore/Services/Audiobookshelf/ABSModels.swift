@@ -100,6 +100,15 @@ struct ABSLibraryItem: Decodable, Identifiable {
     var duration: Double? { media?.duration }
     var coverPath: String? { media?.coverPath }
 
+    /// Genre + tag + series, deduped — the "topics" Echo persists on import.
+    var topics: [String] {
+        var set = Set<String>()
+        media?.metadata?.genres?.forEach { set.insert($0) }
+        media?.tags?.forEach { set.insert($0) }
+        if let series = media?.metadata?.series { set.insert(series) }
+        return set.sorted()
+    }
+
     struct ABSMedia: Decodable {
         let id: String?
         let metadata: ABSMetadata?
