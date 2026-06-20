@@ -25,7 +25,6 @@ Plenty of apps now read your ebook aloud, or sync an audiobook to the text. Echo
 | ♾️ [The Focus Field Guide](https://dfakkeldy.github.io/Echo/focus.html) ([md](docs/guides/focus-field-guide.md)) | ADHD/AuDHD strategies — task initiation, time blindness, organization, motivation, hyperfocus, distractibility — with sources |
 | 📖 [User Manual](https://dfakkeldy.github.io/Echo/manual.html) ([md](docs/guides/user-manual.md)) | Complete reference: every feature on every platform, incl. library organization |
 | 🛠 [Devlog](https://dfakkeldy.github.io/Echo/devlog.html) ([md](docs/guides/devlog.md)) | Week-by-week build history from the real commit log |
-| 📣 [Marketing Plan](MARKETING.md) | Positioning, channels, App Store strategy (open like everything else) |
 | 🏗 [ARCHITECTURE.md](ARCHITECTURE.md) · [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) | For contributors |
 
 > **Status tags used below:** 🚧 = **Coming in 1.0** (in active development) · 🔭 = **Roadmap** (planned after 1.0). Everything unmarked ships in the current beta.
@@ -105,7 +104,7 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 | **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — built on branch, pending merge + device verify), no lost progress |
 | **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
 
-**macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan, the moat audit, and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)** + the [rebuild design spec](docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md).
+**macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)**.
 
 **Deferred to 1.x:** photo-of-a-page → audio jump · multi-voice narration · AI-generated Q&A cards · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
 
