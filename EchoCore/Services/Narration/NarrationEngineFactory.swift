@@ -3,21 +3,19 @@
     import Foundation
 
     /// Supplies the concrete on-device `TTSEngine` for real narration synthesis.
-    /// Gated to iOS + macOS because `KokoroFixedShapeEngine` (and the vendored
-    /// KokoroPipeline / MisakiSwift) only exist there, and those are the only
-    /// targets that compile `EchoCore` *and* synthesize narration (watchOS and
-    /// the Widget sync neither `EchoCore` nor the narration deps). Tests inject
-    /// `MockTTSEngine` straight into `NarrationService`, so they bypass this
-    /// factory entirely — hence no test/mock branch here.
+    /// Gated to iOS + macOS because `OnnxKokoroEngine` (and ONNX Runtime /
+    /// MisakiSwift) only link there, and those are the only targets that compile
+    /// `EchoCore` *and* synthesize narration (watchOS and the Widget sync neither
+    /// `EchoCore` nor the narration deps). Tests inject `MockTTSEngine` straight
+    /// into `NarrationService`, so they bypass this factory entirely.
     enum NarrationEngineFactory {
-        /// The real on-device synthesis engine for the current platform.
-        ///
-        /// The previous `KokoroTTSEngine` (FluidAudio dynamic-shape vocoder) is
-        /// kept in-tree for a one-line revert if the fixed-shape engine regresses
-        /// in Phase 5 verification; it is removed in the Phase 5.3 cleanup once
-        /// the macOS + A14 full-book narrations pass.
+        /// The on-device synthesis engine for both iOS and macOS:
+        /// **`OnnxKokoroEngine`** (ONNX Runtime, CPU) — instant load (no AOT
+        /// compile), RTF ≈ 0.5 on A14, and it never touches the ANE so the BNNS
+        /// vocoder trap can't occur. (The former FluidAudio + fixed-shape CoreML
+        /// engines were removed once this was device-verified.)
         static func make() -> TTSEngine {
-            KokoroFixedShapeEngine()
+            OnnxKokoroEngine()
         }
     }
 #endif

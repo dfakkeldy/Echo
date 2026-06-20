@@ -4,16 +4,12 @@ import Foundation
 import GRDB
 import os.log
 
-#if os(iOS)
-    import FluidAudio
-#endif
-
 enum NarrationError: Error, Equatable {
     case synthesisFailed
     case audiobookNotFound
     /// A single sub-chunk exceeded the model's input length cap. Surfaced so a
-    /// test double can exercise the "skip this sub-chunk, keep the chapter"
-    /// path; the real engine raises FluidAudio's `KokoroAneError` length cases.
+    /// test double can exercise the "skip this sub-chunk, keep the chapter" path;
+    /// the ONNX engine raises it when a chunk can't be synthesized within bounds.
     case lengthCapExceeded
     /// A CoreML model package failed to download/verify from Hugging Face.
     /// `underlying` is the transport error (or nil on a non-2xx HTTP status);
@@ -264,8 +260,8 @@ final class NarrationService {
             }
             let snippet = Array(texts.prefix(3))
 
-            logger.info("Preparing Kokoro (first run downloads + compiles the pruned CoreML set)…")
-            let engine = KokoroFixedShapeEngine()
+            logger.info("Preparing narration engine via factory (honors the DEBUG ONNX toggle)…")
+            let engine = NarrationEngineFactory.make()
             var chunks: [TTSChunk] = []
             for text in snippet {
                 // Chunk before synthesize, mirroring NarrationService.renderChapter:
@@ -293,19 +289,9 @@ final class NarrationService {
 
     /// True for an error that means a single sub-chunk overran the model's input
     /// length cap, so the caller should skip it rather than abort the chapter.
-    /// Covers FluidAudio's two length cases plus our own test marker.
+    /// The ONNX engine signals this via `NarrationError.lengthCapExceeded`.
     private static func isLengthCapError(_ error: Error) -> Bool {
         if case NarrationError.lengthCapExceeded = error { return true }
-        #if os(iOS)
-            if let k = error as? KokoroAneError {
-                switch k {
-                case .phonemeSequenceTooLong, .acousticFramesExceedCap:
-                    return true
-                default:
-                    return false
-                }
-            }
-        #endif
         return false
     }
 }

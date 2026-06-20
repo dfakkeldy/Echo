@@ -43,6 +43,17 @@ So the positioning is layered, not narrowed:
 
 **Rule of thumb:** lead every surface with the *universal benefit* (remember what you hear), support it with the *neurodivergent-first origin* (credibility + differentiation), and close with the *technical depth* (alignment, SRS, watch) for the people who evaluate features.
 
+### Holding the line against the "sync" crowd (2026)
+
+A wave of indie apps now does on-device audiobook↔ebook **sync** — Voxlight, AudioBookSync, SyncBooks (see `docs/competitor-analysis.md` §7.11). They share Echo's privacy/on-device pitch and even similar landing pages, so **never lead with "sync your own files, on-device, private."** That's table stakes now — it camouflages Echo into the crowd.
+
+Lead with the two tiers above them, which none of them reach:
+
+1. **Word-level read-along** (true karaoke), not chapter-level snapping. The sync cohort matches *chapters*; Echo follows every *word*.
+2. **Spaced-repetition study** — flashcards with auto-attached audio snippets, across iPhone/Watch/Mac. **No competitor has a study layer at all.**
+
+Messaging rule: **sync is the bridge, study is the destination.** The defensible superlative is **"the only audiobook *study* player"** — *never* "the only app that aligns audio to text," which is no longer true (a reviewer will catch it; see `competitor-analysis.md` §6). The website carries this as the "Read-along is where most apps stop" depth-ladder section on `index.html`.
+
 ### How much of Dan's story to include
 
 All of it — it is the single most differentiating asset Echo has. A 47-year-old mail carrier with no formal CS background, facing a layoff, who built a four-platform Apple app in two months because no app on the internet would loop a chapter — that is a story tech press, Reddit, and Apple editorial all respond to. People root for it, and it *proves* the app's thesis: it was built inside the exact interruption-heavy life it serves.
@@ -168,7 +179,7 @@ Distinct from the vision-vs-shipped ledger above: these are places where current
 | Gap | The honest bound | Why it matters |
 |---|---|---|
 | **TTS read-along is block-level, not word-level** | Don't claim "word-level read-along" for the *narrated* (Kokoro) path — it writes one anchor per text block. Word-level karaoke is the *real-narration* path only. | A reviewer comparing the two paths will catch it; undermines the alignment credibility Echo *does* deserve for EPUB. |
-| **On-device narration is gated to A15+** | Don't market on-device narration *breadth* on older phones — Fox Reader ships the same Kokoro model on an A14 (iPhone 12 Pro); Echo's A14 path is unresolved (ONNX/streaming pivot). | "Runs on your phone" is currently false on 2020-era hardware a competitor supports. |
+| **On-device narration A14 gate — ✅ resolved (merged from main)** | Narration now runs on **every device at the iOS 18 floor, including A14 (iPhone 12 Pro)**, via the ONNX engine (`OnnxKokoroEngine`, off the ANE) — you *can* now market on-device narration breadth, including older phones. | Was a gap; the A14 ONNX pivot **de-gated** it (ROADMAP §A.1, verified ≈0.7 s load / RTF ≈0.5 on a 12 Pro). |
 | **PDF alignment is manual scrubber-only** | "On-device alignment" = EPUB auto-pipeline (WhisperKit/TokenDTW). PDF is *manual* page-pinning. Frame PDF as a "read-only companion," not auto-aligned. | README's "True ePub & PDF Alignment" implies auto-alignment covers PDF; it doesn't. |
 | **"Take your decks with you" is partial** | The narrator-audio snippet — Echo's most distinctive card asset — does **not** survive `.apkg` export (no Anki schema slot). Don't imply full round-trip portability. | Also: portability *lowers* switching costs — pitch it as no-lock-in trust, never as retention. |
 | **Don't market "we ship, Voxlight doesn't"** | Voxlight is pre-launch today, but that's a perishable fact on a date Echo doesn't control. | Naming an unlaunched rival only advertises it; the claim self-destructs on its launch day. |
