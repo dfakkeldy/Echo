@@ -17,24 +17,17 @@
             static let useLegacyCoreMLEngineKey = "narration.useLegacyCoreMLEngine"
         #endif
 
-        /// The on-device synthesis engine for the current platform.
-        ///
-        /// **iOS default: `OnnxKokoroEngine`** (ONNX Runtime, CPU) — instant load,
-        /// RTF ≈ 0.5 on A14, never touches the ANE (so no BNNS trap). A DEBUG toggle
-        /// reverts to the legacy `KokoroFixedShapeEngine` for A/B. **macOS still uses
-        /// `KokoroFixedShapeEngine`** until the ONNX engine is ported there (ORT is
-        /// only linked to the iOS target for now).
+        /// The on-device synthesis engine. **`OnnxKokoroEngine`** (ONNX Runtime, CPU)
+        /// on both iOS and macOS — instant load, RTF ≈ 0.5 on A14, never touches the
+        /// ANE (so no BNNS trap). A DEBUG toggle (iOS) reverts to the legacy
+        /// `KokoroFixedShapeEngine` for A/B; that CoreML stack is removed in cleanup.
         static func make() -> TTSEngine {
-            #if os(iOS)
-                #if DEBUG
-                    if UserDefaults.standard.bool(forKey: useLegacyCoreMLEngineKey) {
-                        return KokoroFixedShapeEngine()
-                    }
-                #endif
-                return OnnxKokoroEngine()
-            #else
-                return KokoroFixedShapeEngine()
+            #if os(iOS) && DEBUG
+                if UserDefaults.standard.bool(forKey: useLegacyCoreMLEngineKey) {
+                    return KokoroFixedShapeEngine()
+                }
             #endif
+            return OnnxKokoroEngine()
         }
     }
 #endif
