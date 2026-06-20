@@ -104,13 +104,55 @@ platform :ios do
       readonly: is_ci
     )
 
+    # ── CI: point the archive at the match profiles (manual signing) ──────
+    # The project uses Automatic signing (ideal for local dev), but automatic
+    # signing can't mint provisioning profiles on a headless runner. match has
+    # already installed the App Store profiles; switch each target to manual
+    # signing using them so build_app's *archive* step resolves signing. CI-only
+    # — local dev keeps Automatic signing. (build_app already auto-applies the
+    # match profile mapping on *export*.)
+    if is_ci
+      mapping = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {}
+      {
+        "Echo"                 => "com.echo.audiobooks",
+        "Echo Watch App"       => "com.echo.audiobooks.watchkitapp",
+        "Echo WidgetExtension" => "com.echo.audiobooks.watchkitapp.widget",
+        "Echo macOS"           => "com.echo.audiobooks.macos"
+      }.each do |target, bundle_id|
+        profile = mapping[bundle_id]
+        next if profile.nil?
+        update_code_signing_settings(
+          path: "Echo.xcodeproj",
+          use_automatic_signing: false,
+          targets: [target],
+          team_id: "8AXNA5B37R",
+          code_sign_identity: "Apple Distribution",
+          profile_name: profile
+        )
+      end
+    end
+
+    # ── Unique, monotonic build number ────────────────────────────────────
+    # TestFlight requires each upload's build number (CFBundleVersion) to be
+    # unique and higher than the previous. The marketing version is left alone —
+    # bump MARKETING_VERSION only for real releases. Query TestFlight's latest
+    # build and add one (starts at 1 when the app has no builds). Applied via
+    # xcargs so CURRENT_PROJECT_VERSION is overridden without mutating the project.
+    next_build = latest_testflight_build_number(
+      api_key: @api_key,
+      app_identifier: "com.echo.audiobooks",
+      initial_build_number: 0
+    ) + 1
+    UI.message("Build number for this run: #{next_build}")
+
     # ── Build iOS + watchOS ──────────────────────────
     # Note: Xcode automatically embeds the watch app and widget inside the iOS wrapper
     build_app(
       project: "Echo.xcodeproj",
       scheme: "Echo",
       export_method: "app-store",
-      output_directory: "build"
+      output_directory: "build",
+      xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
     )
 
     # ── Build macOS (if scheme exists) ───────────────
@@ -121,7 +163,8 @@ platform :ios do
           project: "Echo.xcodeproj",
           scheme: "Echo macOS",
           export_method: "app-store",
-          output_directory: "build"
+          output_directory: "build",
+          xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
         )
       rescue => e
         UI.error("macOS build failed: #{e.message}")

@@ -10,7 +10,6 @@
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
-		CC0000000016AUMK0000016 /* AudioMarker in Frameworks (macOS) */ = {isa = PBXBuildFile; productRef = CC0000000017AUMK0000017 /* AudioMarker */; };
 		CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
 		CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000HMSKI0000000 /* MisakiSwift */; };
 		CC0000000010GRDB00000010 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
@@ -19,6 +18,7 @@
 		CC0000000013GRDB00000013 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000002GRDB00000002 /* GRDB */; };
 		CC0000000014ZIPF00000014 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000003ZIPF00000003 /* ZIPFoundation */; };
 		CC0000000015WHSK00000015 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000004WHSK00000004 /* WhisperKit */; };
+		CC0000000016AUMK0000016 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000017AUMK0000017 /* AudioMarker */; };
 		CC0000000016WHSK00000016 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000004WHSK00000004 /* WhisperKit */; };
 		CC00BC502FA6B66400323F38 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */; };
 		CC00BC522FA6B66400323F38 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00BC512FA6B66400323F38 /* SwiftUI.framework */; };
@@ -26,7 +26,7 @@
 		CC595F832FE6213C0034453E /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = CC595F822FE6213C0034453E /* onnxruntime */; };
 		CC595F852FE630AA0034453E /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = CC595F842FE630AA0034453E /* onnxruntime */; };
 		CCC48EBB2FA6AB350003458B /* Echo Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Echo Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CCE2746A2FDE85E10076D9CC /* (null) in Frameworks */ = {isa = PBXBuildFile; };
+		CCE2746A2FDE85E10076D9CC /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 		CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000003ZIPF00000003 /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
@@ -296,11 +296,15 @@
 		};
 		CC08EC692F9522F800206D2F /* EchoTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = EchoTests;
 			sourceTree = "<group>";
 		};
 		CC08EC732F9522F800206D2F /* EchoUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = EchoUITests;
 			sourceTree = "<group>";
 		};
@@ -314,16 +318,22 @@
 		};
 		CCC48EAA2FA6AB340003458B /* Echo Watch AppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Echo Watch AppTests";
 			sourceTree = "<group>";
 		};
 		CCC48EB42FA6AB340003458B /* Echo Watch AppUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Echo Watch AppUITests";
 			sourceTree = "<group>";
 		};
 		DD0100000000000000000001 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -339,7 +349,7 @@
 				CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */,
 				CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */,
 				CC595F852FE630AA0034453E /* onnxruntime in Frameworks */,
-				CC0000000016AUMK0000016 /* AudioMarker in Frameworks (macOS) */,
+				CC0000000016AUMK0000016 /* AudioMarker in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -370,7 +380,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CCE2746A2FDE85E10076D9CC /* (null) in Frameworks */,
+				CCE2746A2FDE85E10076D9CC /* BuildFile in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -692,7 +702,7 @@
 				CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 				CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
-				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */,
+				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */,
 				CC595F812FE6213C0034453E /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -888,6 +898,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo macOS/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -931,6 +942,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo macOS/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -966,6 +978,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo Widget/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo Widget";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1002,6 +1015,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Echo Widget/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo Widget";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1162,6 +1176,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = EchoCore/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -1204,6 +1219,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = EchoCore/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -1348,6 +1364,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UIBackgroundModes = audio;
@@ -1387,6 +1404,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo: Audiobook Study Player";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need access to the microphone to record voice memos for bookmarks.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition to dictate text for bookmarks.";
 				INFOPLIST_KEY_UIBackgroundModes = audio;
@@ -1601,7 +1619,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */ = {
+		CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ThirdParty/MisakiSwift;
 		};
@@ -1656,19 +1674,14 @@
 			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
 			productName = AudioMarker;
 		};
-		CC0000000017AUMK0000017 /* AudioMarker */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
-			productName = AudioMarker;
-		};
 		CC0000000000FMSKI0000000 /* MisakiSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */;
+			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */;
 			productName = MisakiSwift;
 		};
 		CC0000000000HMSKI0000000 /* MisakiSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */;
+			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */;
 			productName = MisakiSwift;
 		};
 		CC0000000002GRDB00000002 /* GRDB */ = {
@@ -1685,6 +1698,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
+		};
+		CC0000000017AUMK0000017 /* AudioMarker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
+			productName = AudioMarker;
 		};
 		CC595F822FE6213C0034453E /* onnxruntime */ = {
 			isa = XCSwiftPackageProductDependency;
