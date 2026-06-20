@@ -40,10 +40,6 @@ actor NarrationExportService {
             audiobookID: bookID, cacheDirectory: cacheDirectory, databaseWriter: databaseWriter)
         let items = try await source.items()
         guard !items.isEmpty else { throw ExportError.missingAudiobook }
-        do {
-            try await AudioExportService().exportM4B(items: items, outputURL: outputURL)
-        } catch {
-            throw ExportError.exportSessionFailed
-        }
+        try await AudioExportService().exportM4B(items: items, outputURL: outputURL)
     }
 }
