@@ -136,6 +136,7 @@ final class AudiobookshelfService {
             (tempURL, response) = try await attempt(refreshed)
         }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: tempURL)  // don't leak the temp file on a non-2xx
             throw ABSError.http((response as? HTTPURLResponse)?.statusCode ?? -1, body: nil)
         }
         try? FileManager.default.removeItem(at: destination)
