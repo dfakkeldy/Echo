@@ -60,6 +60,74 @@ extension PlayerModel {
         return service
     }
 
+    // MARK: - Progress sync
+
+    /// Cache whether the currently-loaded book is ABS-sourced (so the hot save path is a
+    /// cheap nil-check, not a DB hit every tick). Call when a book finishes loading.
+    func refreshABSSyncIdentity() {
+        absLastPushAt = nil
+        guard let db = databaseService,
+            let id = folderURL?.absoluteString,
+            let record = try? AudiobookDAO(db: db.writer).get(id)
+        else {
+            absSyncRemoteItemID = nil
+            return
+        }
+        absSyncRemoteItemID = record.sourceType == "audiobookshelf" ? record.remoteItemID : nil
+    }
+
+    /// Throttled push of the current book-absolute position to ABS. No-op for non-ABS books.
+    func maybePushABSProgress(force: Bool = false) {
+        guard let itemID = absSyncRemoteItemID, let service = makeAudiobookshelfService() else {
+            return
+        }
+        let now = Date().timeIntervalSince1970
+        guard
+            force
+                || ABSProgressSync.shouldPush(
+                    now: now, lastPushAt: absLastPushAt, minInterval: 20, isPlaying: isPlaying)
+        else { return }
+        absLastPushAt = now
+        let current = cumulativePlaybackTime
+        let duration = durationSeconds ?? 0
+        let finished = ABSProgressSync.isFinished(currentTime: current, duration: duration)
+        Task {
+            try? await service.patchProgress(
+                itemID: itemID, currentTime: current, duration: duration, isFinished: finished)
+        }
+    }
+
+    /// On ABS-book load: pull ABS progress, reconcile vs local, and either re-seek (single-track
+    /// only in v1) or push local. Runs async after the normal local restore; never blocks playback.
+    func reconcileABSProgressOnLoad() {
+        guard let itemID = absSyncRemoteItemID, let service = makeAudiobookshelfService(),
+            let folder = folderURL
+        else { return }
+        let localUpdatedAt = PlaylistManifestService.read(from: folder)?.playbackState.updatedAt
+        Task { [weak self] in
+            guard let remote = try? await service.getProgress(itemID: itemID) else { return }
+            guard let self else { return }
+            let decision = ABSProgressReconciler.decide(
+                localTime: self.cumulativePlaybackTime,
+                localUpdatedAt: localUpdatedAt,
+                remoteTime: remote.currentTime,
+                remoteUpdatedAt: remote.lastUpdate.map(Double.init))
+            switch decision {
+            case .seekLocalTo(let target):
+                // v1: only override-seek single-track books (book time == track time → safe).
+                if self.tracks.count == 1, target >= 0,
+                    target <= (self.durationSeconds ?? .greatestFiniteMagnitude)
+                {
+                    await MainActor.run { self.seek(toSeconds: target) }
+                }
+            case .pushLocal:
+                self.maybePushABSProgress(force: true)
+            case .noop:
+                break
+            }
+        }
+    }
+
     /// Download an ABS item into the local library and start loading it.
     func addFromAudiobookshelf(_ item: ABSLibraryItem) async throws {
         guard let service = makeAudiobookshelfService(), let db = databaseService else {
