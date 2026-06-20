@@ -10,14 +10,31 @@
     /// `MockTTSEngine` straight into `NarrationService`, so they bypass this
     /// factory entirely — hence no test/mock branch here.
     enum NarrationEngineFactory {
-        /// The real on-device synthesis engine for the current platform.
+        #if os(iOS)
+            /// DEBUG-only A/B revert (Settings ▸ Debug Menu): force the legacy
+            /// fixed-shape CoreML engine instead of the default ONNX engine. Off
+            /// (default) → ONNX. Kept until the CoreML stack is removed in cleanup.
+            static let useLegacyCoreMLEngineKey = "narration.useLegacyCoreMLEngine"
+        #endif
+
+        /// The on-device synthesis engine for the current platform.
         ///
-        /// The previous `KokoroTTSEngine` (FluidAudio dynamic-shape vocoder) is
-        /// kept in-tree for a one-line revert if the fixed-shape engine regresses
-        /// in Phase 5 verification; it is removed in the Phase 5.3 cleanup once
-        /// the macOS + A14 full-book narrations pass.
+        /// **iOS default: `OnnxKokoroEngine`** (ONNX Runtime, CPU) — instant load,
+        /// RTF ≈ 0.5 on A14, never touches the ANE (so no BNNS trap). A DEBUG toggle
+        /// reverts to the legacy `KokoroFixedShapeEngine` for A/B. **macOS still uses
+        /// `KokoroFixedShapeEngine`** until the ONNX engine is ported there (ORT is
+        /// only linked to the iOS target for now).
         static func make() -> TTSEngine {
-            KokoroFixedShapeEngine()
+            #if os(iOS)
+                #if DEBUG
+                    if UserDefaults.standard.bool(forKey: useLegacyCoreMLEngineKey) {
+                        return KokoroFixedShapeEngine()
+                    }
+                #endif
+                return OnnxKokoroEngine()
+            #else
+                return KokoroFixedShapeEngine()
+            #endif
         }
     }
 #endif

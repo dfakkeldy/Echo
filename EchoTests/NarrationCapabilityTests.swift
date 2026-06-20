@@ -5,38 +5,9 @@ import Testing
 
 @Suite struct NarrationCapabilityTests {
 
-    @Test func gatesIPhonesToA15Plus() {
-        // A14 and older iPhones — unsupported (the BNNS trap).
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone13,3") == false)  // 12 Pro, A14
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone13,1") == false)  // 12 mini
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone12,1") == false)  // 11, A13
-        // A15 and newer — supported.
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone14,2") == true)  // 13 Pro, A15
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone15,2") == true)  // 14 Pro, A16
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone17,1") == true)  // 16 Pro, A18
-    }
-
-    @Test func otherFamiliesDefaultSupported() {
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPad13,1") == true)
-        #expect(NarrationCapability.isSupported(modelIdentifier: "Mac15,3") == true)
-        #expect(NarrationCapability.isSupported(modelIdentifier: "arm64") == true)  // odd/unknown → allow
-    }
-
-    @Test func developerOverrideUnblocksOlderiPhones() {
-        // The production gate still blocks A14/A13 by default…
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone13,3") == false)  // 12 Pro, A14
-        #expect(NarrationCapability.isSupported(modelIdentifier: "iPhone12,1") == false)  // 11, A13
-        // …but a DEBUG developer override unblocks them so the fixed-shape engine
-        // can be verified on the very hardware the gate was built for.
-        #expect(
-            NarrationCapability.isSupported(modelIdentifier: "iPhone13,3", developerOverride: true)
-                == true)
-        #expect(
-            NarrationCapability.isSupported(modelIdentifier: "iPhone12,1", developerOverride: true)
-                == true)
-        // Override defaults to off → existing call sites and the A15+ gate are unchanged.
-        #expect(
-            NarrationCapability.isSupported(modelIdentifier: "iPhone14,2", developerOverride: false)
-                == true)  // A15
+    @Test func narrationSupportedOnAllDevices() {
+        // The ONNX (CPU) engine never touches the ANE, so the former A14 BNNS-trap
+        // gate (A15+) is gone — every device that meets the deployment floor narrates.
+        #expect(NarrationCapability.supportsOnDeviceNarration == true)
     }
 }

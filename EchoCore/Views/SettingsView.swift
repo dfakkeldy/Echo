@@ -15,8 +15,10 @@ struct SettingsView: View {
 
     #if DEBUG
         @State private var debugNarrationPlayer: AVAudioPlayer?
-        @AppStorage(NarrationCapability.developerForceEnableKey)
-        private var forceEnableA14Narration = false
+        #if os(iOS)
+            @AppStorage(NarrationEngineFactory.useLegacyCoreMLEngineKey)
+            private var useLegacyCoreMLEngine = false
+        #endif
     #endif
 
     var body: some View {
@@ -98,15 +100,17 @@ struct SettingsView: View {
                                 }
                             }
                         }
-                        Toggle("Force-enable narration on A14", isOn: $forceEnableA14Narration)
+                        #if os(iOS)
+                            Toggle("Use legacy CoreML engine", isOn: $useLegacyCoreMLEngine)
+                        #endif
                     } header: {
                         Text("Debug Menu")
                     } footer: {
                         Text(
                             "Loads audio files from Development Assets into the player. "
-                                + "“Force-enable narration on A14” bypasses the A15+ hardware gate "
-                                + "(DEBUG only) so the fixed-shape Kokoro engine can be verified on "
-                                + "an iPhone 12 Pro / other A14 device.")
+                                + "Narration uses the ONNX engine by default; "
+                                + "“Use legacy CoreML engine” reverts to the fixed-shape CoreML "
+                                + "pipeline for A/B comparison (DEBUG only).")
                     }
                 #endif
 

@@ -264,8 +264,8 @@ final class NarrationService {
             }
             let snippet = Array(texts.prefix(3))
 
-            logger.info("Preparing Kokoro (first run downloads + compiles the pruned CoreML set)…")
-            let engine = KokoroFixedShapeEngine()
+            logger.info("Preparing narration engine via factory (honors the DEBUG ONNX toggle)…")
+            let engine = NarrationEngineFactory.make()
             var chunks: [TTSChunk] = []
             for text in snippet {
                 // Chunk before synthesize, mirroring NarrationService.renderChapter:
