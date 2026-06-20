@@ -117,6 +117,34 @@ final class AudiobookshelfService {
         }
     }
 
+    // MARK: Download
+
+    /// Downloads the item's whole-item zip (audio + any EPUB) to `destination`, replacing
+    /// any existing file there. The token is carried in the URL query (ABS-supported) and
+    /// also as a Bearer header; on a 401 it refreshes once and retries. The zip has no
+    /// Content-Length (streamed), so callers can't show a determinate percentage.
+    func downloadItemZip(itemID: String, to destination: URL) async throws {
+        func attempt(_ token: String) async throws -> (URL, URLResponse) {
+            var request = URLRequest(url: endpoints.downloadItem(itemID, token: token))
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            return try await session.download(for: request)
+        }
+        guard let access = tokens.accessToken else { throw ABSError.unauthorized }
+        var (tempURL, response) = try await attempt(access)
+        if (response as? HTTPURLResponse)?.statusCode == 401 {
+            let refreshed = try await refreshAccessToken()
+            (tempURL, response) = try await attempt(refreshed)
+        }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ABSError.http((response as? HTTPURLResponse)?.statusCode ?? -1, body: nil)
+        }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: tempURL, to: destination)
+    }
+
     // MARK: Transport
 
     private func send<T: Decodable>(_ request: URLRequest, decode type: T.Type) async throws -> T {
