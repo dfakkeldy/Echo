@@ -39,12 +39,12 @@ struct MacAudioExportView: View {
         errorText = nil
         let panel = NSSavePanel()
         panel.title = String(localized: "Export Audiobook as .m4b")
-        panel.allowedContentTypes = [UTType("public.m4a-audio") ?? .audio]
+        panel.allowedContentTypes = [.mpeg4Audio]
         panel.nameFieldStringValue = "\(ExportFileName.safe(bookTitle)).m4b"
         panel.begin { response in
             guard response == .OK, let dest = panel.url else { return }
-            isExporting = true
             Task {
+                await MainActor.run { isExporting = true }
                 do {
                     let source = NarrationCacheSource(
                         audiobookID: audiobookID,
@@ -53,12 +53,12 @@ struct MacAudioExportView: View {
                     let items = try await source.items()
                     let temp = FileManager.default.temporaryDirectory
                         .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+                    defer { try? FileManager.default.removeItem(at: temp) }
                     try await AudioExportService().exportM4B(items: items, outputURL: temp)
                     try? FileManager.default.removeItem(at: dest)
                     try FileManager.default.copyItem(at: temp, to: dest)
-                    try? FileManager.default.removeItem(at: temp)
                     await MainActor.run {
-                        savedPath = dest.path
+                        savedPath = dest.path(percentEncoded: false)
                         isExporting = false
                     }
                 } catch {
