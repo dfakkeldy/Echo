@@ -137,6 +137,7 @@
 				Utilities/ColorMetrics.swift,
 				Utilities/FolderPicker.swift,
 				Utilities/OKLCH.swift,
+				"ViewModels/PlayerModel+Audiobookshelf.swift",
 				ViewModels/PlayerModel.swift,
 				ViewModels/ReaderFeedViewModel.swift,
 				Views/AppIconSelectionView.swift,
