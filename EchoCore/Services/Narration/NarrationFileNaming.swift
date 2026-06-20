@@ -17,7 +17,11 @@ enum NarrationFileNaming {
     /// v5 = fixed-shape mattmireles Kokoro CoreML pipeline + MisakiSwift G2P
     /// (replaces FluidAudio's dynamic-shape vocoder) — different model, DSP, and
     /// G2P produce different bytes, so every cached chapter re-renders once.
-    static let renderVersion = 5
+    /// v6 = ONNX Runtime (CPU) Kokoro engine replaces the fixed-shape CoreML
+    /// pipeline on iOS (instant load, RTF ≈ 0.5 on A14, off-ANE) — different
+    /// acoustic model, so cached v5 audio regenerates once. (macOS still renders
+    /// via CoreML until the ONNX port; the shared version means it re-renders too.)
+    static let renderVersion = 6
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {

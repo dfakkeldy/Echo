@@ -37,8 +37,8 @@ protocol TTSEngine: Sendable {
     /// which is how `NarrationService.tts` and the macOS/iOS surfaces invoke it —
     /// dynamically dispatches to a concrete engine's override. An extension-only
     /// method resolves statically to the no-op default below, silently dropping
-    /// every progress event. The extension still provides a default, so engines
-    /// that can't report progress (FluidAudio, MockTTSEngine) need not implement it.
+    /// every progress event. The extension still provides a default, so an engine
+    /// that can't report progress (`MockTTSEngine`) need not implement it.
     func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk
 }
@@ -54,9 +54,9 @@ enum NarrationPrepareProgress: Sendable, Equatable {
 
 extension TTSEngine {
     /// Default implementation of the `prepare(progress:)` requirement: ignore the
-    /// callback and run the plain `prepare()`. Engines that can report progress
-    /// (KokoroFixedShapeEngine) override it; FluidAudio + MockTTSEngine inherit
-    /// this no-op, so they stay untouched.
+    /// callback and run the plain `prepare()`. The real engine (`OnnxKokoroEngine`)
+    /// overrides it to report download/load progress; `MockTTSEngine` inherits this
+    /// no-op.
     func prepare(
         progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
     ) async throws {

@@ -99,7 +99,10 @@ struct SettingsView: View {
                     } header: {
                         Text("Debug Menu")
                     } footer: {
-                        Text("Loads audio files from Development Assets into the player.")
+                        Text(
+                            "Loads audio files from Development Assets into the player, "
+                                + "and renders chapter 1 through the on-device ONNX narration engine."
+                        )
                     }
                 #endif
 
