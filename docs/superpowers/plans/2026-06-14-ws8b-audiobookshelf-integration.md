@@ -25,7 +25,7 @@ This plan was written 2026-06-14. Four migrations have shipped since, and some M
 
 3. **Subpath base URLs are supported.** The connected server may live under a reverse-proxy path prefix (e.g. `http://host:13378/audiobookshelf`), so the base URL is **not** guaranteed to be just `scheme://host:port`. `baseURL` must retain its full path; every endpoint appends to it with `.appending(path:)` (relative, no leading slash) — never reconstruct from host/port. The login/normalization step also defaults a missing scheme to `http` for bare `host:port` LAN/tailnet addresses.
 
-4. **Pro gating: build UNGATED this pass.** PRICING.md marks downloads + background sync as Pro, but the paywall is a separate, later change. Do **not** add `isPro` checks at the download / sync entry points here.
+4. **Pro gating: build UNGATED this pass.** Downloads + background sync are planned as Pro features, but the paywall is a separate, later change. Do **not** add `isPro` checks at the download / sync entry points here.
 
 5. **Live verification** happens at the end against the owner's real ABS server (owner-driven, like the narration device gates). All development + CI stays offline via `URLProtocolStub`. Credentials are never written to disk or committed.
 

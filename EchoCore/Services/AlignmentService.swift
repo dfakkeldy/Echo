@@ -170,6 +170,11 @@ struct AlignmentService {
         try recalculateTimeline()
     }
 
+    func unhideChapter(chapterIndex: Int) throws {
+        try blockDAO.unhideChapter(chapterIndex: chapterIndex, audiobookID: audiobookID)
+        try recalculateTimeline()
+    }
+
     // MARK: - Timeline Recalculation
 
     /// Recalculates all affected `timeline_item` rows in one transaction.

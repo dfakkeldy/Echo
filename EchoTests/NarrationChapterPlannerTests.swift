@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import Testing
 
 @testable import Echo
@@ -103,5 +104,27 @@ import Testing
         #expect(NarrationChapterPlanner.beforeResume(plan, startingAtChapterIndex: 0).isEmpty)
         // Unknown index → nothing earlier (resume() already plays the full plan).
         #expect(NarrationChapterPlanner.beforeResume(plan, startingAtChapterIndex: 99).isEmpty)
+    }
+
+    /// Guard for the narration-outline feature: excluding a whole chapter
+    /// (all its blocks hidden) drops it from a plan built over `visibleBlocks`,
+    /// so an excluded chapter is never synthesized or queued.
+    @Test func hiddenChapterIsAbsentFromVisiblePlan() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk','Book',0)")
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block
+                      (id, audiobook_id, spine_href, spine_index, block_index,
+                       sequence_index, block_kind, text, chapter_index, is_hidden)
+                    VALUES ('a','bk','c.xhtml',0,0,0,'paragraph','keep',1,0),
+                           ('b','bk','c.xhtml',0,1,1,'paragraph','skip',2,1)
+                    """)
+        }
+        let visible = try EPubBlockDAO(db: db.writer).visibleBlocks(for: "bk")
+        let plan = NarrationChapterPlanner.plan(from: visible)
+        #expect(plan.map(\.index) == [1])  // chapter 2 (all-hidden) is gone
     }
 }

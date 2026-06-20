@@ -325,6 +325,23 @@ struct PlaylistView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(.clear)
+            } else if model.isNarrationBook {
+                // Narration book: show the full EPUB chapter outline (every
+                // narratable chapter, independent of render progress) with
+                // tap-to-exclude, instead of the audio-derived chapter/track rows.
+                List {
+                    Section(header: Text("Chapters")) {
+                        ForEach(model.narrationOutline) { chapter in
+                            narrationOutlineRow(chapter)
+                        }
+                    }
+                    Color.clear
+                        .frame(height: model.bottomInset)
+                        .listRowBackground(Color.clear)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(.clear)
             } else if cachedPlaylistRows.isEmpty {
                 VStack {
                     Spacer()
@@ -431,6 +448,7 @@ struct PlaylistView: View {
             try? await Task.sleep(for: .milliseconds(16))
             cachedPlaylistRows = recomputePlaylistRows()
         }
+        .onAppear { if model.isNarrationBook { model.refreshNarrationOutline() } }
     }
 
     /// Audit C3: a self-describing segmented control instead of ambiguous
@@ -557,6 +575,39 @@ struct PlaylistView: View {
             .padding(.horizontal, 16)
         }
         .padding(.vertical, 8)
+    }
+
+    /// One row of the narration chapter outline: the whole row toggles whether the
+    /// chapter is narrated (greyed + speaker-slash when excluded). A not-yet-rendered,
+    /// included chapter shows a "Pending" hint.
+    @ViewBuilder
+    private func narrationOutlineRow(_ chapter: NarrationOutlineChapter) -> some View {
+        Button {
+            model.toggleNarrationChapterExcluded(chapterIndex: chapter.chapterIndex)
+            Haptic.play(.rigid)
+        } label: {
+            HStack {
+                Image(systemName: chapter.isExcluded ? "speaker.slash" : "checkmark.circle.fill")
+                    .foregroundStyle(chapter.isExcluded ? Color.secondary : Color.accentColor)
+                    .frame(width: 22)
+                Text(chapter.title)
+                    .foregroundStyle(chapter.isExcluded ? .secondary : .primary)
+                Spacer()
+                if !chapter.isRendered && !chapter.isExcluded {
+                    Text("Pending")
+                        .customFont(.caption, appFont: model.resolvedAppFont)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(chapter.isExcluded ? 0.55 : 1.0)
+        .accessibilityLabel(Text(chapter.title))
+        .accessibilityValue(
+            Text(chapter.isExcluded ? String(localized: "Excluded") : String(localized: "Included"))
+        )
+        .accessibilityHint(Text("Double tap to include or exclude this chapter from narration"))
     }
 
     @ViewBuilder

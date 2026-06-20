@@ -135,9 +135,18 @@ jobs:
         if: steps.creds.outputs.ready == 'true'
         run: printf '%s' "$ASC_API_KEY_JSON" > fastlane/api_key.json
 
-      - name: Install Ruby gems (fastlane)
+      # Pin a modern, OpenSSL-linked Ruby (read from .ruby-version) instead of
+      # relying on whatever the macos-15 runner happens to ship. This keeps CI
+      # deterministic and on the same Ruby as local dev. `bundler-cache: true`
+      # runs `bundle install` and caches the gems. (Note: the LibreSSL match
+      # encryption bug that bites macOS *system* Ruby 2.6 does not occur here —
+      # this Ruby links real OpenSSL.)
+      - name: Set up Ruby
         if: steps.creds.outputs.ready == 'true'
-        run: bundle install
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          bundler-cache: true
 
       # The `beta` lane archives iOS (+ embedded watch & widget) and macOS, then
       # uploads every binary to TestFlight using fastlane/testflight/*.txt for
@@ -145,4 +154,4 @@ jobs:
       # separate TestFlight tester groups so testers self-select their risk.
       - name: Upload ${{ steps.train.outputs.channel }} build to TestFlight
         if: steps.creds.outputs.ready == 'true'
-        run: bundle exec fastlane beta
+        run: bundle exec fastlane beta channel:${{ steps.train.outputs.channel }}

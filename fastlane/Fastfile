@@ -65,8 +65,22 @@ platform :ios do
     - fastlane match set up with a git repo and MATCH_PASSWORD
     - App Store Connect API key JSON at fastlane/api_key.json
   DESC
-  lane :beta do
+  lane :beta do |options|
     require_api_key!
+
+    # ── Release-train channel → TestFlight group routing ──────────────
+    # release-trains.yml passes channel:nightly|weekly. Map each channel to its
+    # tester group + distribution mode:
+    #   nightly → "Nightly" (INTERNAL group: builds available instantly, no review)
+    #   weekly  → "Weekly"  (EXTERNAL group: first build of a version needs Beta App Review)
+    # Unknown/absent channel (e.g. a manual `fastlane beta`) → no group targeting.
+    channel = (options[:channel] || ENV["RELEASE_CHANNEL"] || "").to_s.downcase
+    tf_group, tf_external = case channel
+                            when "nightly" then ["Nightly", false]
+                            when "weekly"  then ["Weekly", true]
+                            else [nil, false]
+                            end
+    UI.message("Release channel: #{channel.empty? ? '(none)' : channel} → group: #{tf_group || '(none)'}, external: #{tf_external}")
 
     # ── iOS Code Signing ─────────────────────────────
     # Syncs certificates and profiles for main app, watch app, and widget extension
@@ -85,6 +99,7 @@ platform :ios do
     sync_code_signing(
       api_key: @api_key,
       type: "appstore",
+      platform: "macos", # native macOS target needs a Mac App Store profile (not ios)
       app_identifier: ["com.echo.audiobooks.macos"],
       readonly: is_ci
     )
@@ -121,14 +136,21 @@ platform :ios do
     # TestFlight copy lives in version-controlled files (paths relative to fastlane/):
     #   testflight/what_to_test.txt          → per-build "What to Test" (≤4000 chars)
     #   testflight/beta_app_description.txt  → Test Information description (≤4000 chars)
-    upload_to_testflight(
+    tf_options = {
       api_key: @api_key,
       skip_waiting_for_build_processing: false,
-      notify_external_testers: false,
+      notify_external_testers: tf_external,
       changelog: File.read("testflight/what_to_test.txt"),
       beta_app_description: File.read("testflight/beta_app_description.txt")
       # TODO: set beta_app_feedback_email once a dedicated support address exists
-    )
+    }
+    # Route the build to the channel's tester group. distribute_external triggers
+    # the (required) Beta App Review submission for the external Weekly group.
+    if tf_group
+      tf_options[:groups] = [tf_group]
+      tf_options[:distribute_external] = tf_external
+    end
+    upload_to_testflight(tf_options)
   end
 
   lane :test_auth do
