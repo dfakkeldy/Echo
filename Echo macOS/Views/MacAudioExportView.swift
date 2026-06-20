@@ -46,10 +46,11 @@ struct MacAudioExportView: View {
             Task {
                 await MainActor.run { isExporting = true }
                 do {
-                    let source = NarrationCacheSource(
+                    // Auto-detect narrated-vs-imported so File ▸ Export covers both.
+                    let source = ExportSourceResolver.resolve(
                         audiobookID: audiobookID,
-                        cacheDirectory: NarrationCache.directory(),
-                        databaseWriter: databaseWriter)
+                        databaseWriter: databaseWriter,
+                        cacheDirectory: NarrationCache.directory())
                     let items = try await source.items()
                     let temp = FileManager.default.temporaryDirectory
                         .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")

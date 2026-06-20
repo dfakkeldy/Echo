@@ -11,6 +11,9 @@ struct UnifiedTopHeader: View {
     let onHelpTap: () -> Void
     let onStatsTap: () -> Void
     let onFidgetTap: () -> Void
+    /// Unified ".m4b export" action. `nil` when no book is loaded (nothing to
+    /// export); when set, the resolver auto-detects narrated-vs-imported.
+    var onExportTap: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,6 +49,11 @@ struct UnifiedTopHeader: View {
                         Label("Fidget", systemImage: "circle.hexagongrid.fill")
                     }
                     .disabled(model.tracks.isEmpty)
+                    if let onExportTap {
+                        Button(action: onExportTap) {
+                            Label("Export Audiobook (.m4b)…", systemImage: "square.and.arrow.up")
+                        }
+                    }
                     Button(action: onSettingsTap) {
                         Label("Settings", systemImage: "gearshape")
                     }

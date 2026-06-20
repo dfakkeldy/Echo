@@ -23,6 +23,9 @@ struct RootTabView: View {
     @State private var editingBookmarkID: UUID? = nil
     @State private var showingFidget = false
     @State private var showingStats = false
+    /// Unified ".m4b export" sheet, presented from the global More menu. The
+    /// resolver auto-detects narrated-vs-imported, so one action covers both.
+    @State private var showingExport = false
     @State private var showingReview = false
     @State private var reviewViewModel: DailyReviewViewModel?
     @State private var editingIdentifiableUUID: IdentifiableUUID?
@@ -116,7 +119,8 @@ struct RootTabView: View {
                 onBookSettingsTap: { showingBookSettings = true },
                 onHelpTap: { model.showingHelp = true },
                 onStatsTap: { showingStats = true },
-                onFidgetTap: { showingFidget = true }
+                onFidgetTap: { showingFidget = true },
+                onExportTap: model.folderURL != nil ? { showingExport = true } : nil
             )
 
             // UnifiedBottomDock is only overlaid on non-NowPlaying views.
@@ -202,6 +206,16 @@ struct RootTabView: View {
                             Button("Done") { showingStats = false }
                         }
                     }
+            }
+        }
+        .sheet(isPresented: $showingExport) {
+            if let id = model.folderURL?.absoluteString, let writer = model.databaseService?.writer
+            {
+                ExportProgressView(
+                    audiobookID: id,
+                    bookTitle: model.currentTitle,
+                    cacheDirectory: PlayerModel.narrationCacheDirectory(),
+                    databaseWriter: writer)
             }
         }
         .sheet(isPresented: $model.showPaywall) {
