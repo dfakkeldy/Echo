@@ -56,4 +56,19 @@ struct WordTimingDAO {
                 .deleteAll(db)
         }
     }
+
+    /// Deletes only the rows belonging to `blockIDs`, leaving the rest of the
+    /// book's word rows intact. Lets the narration render loop rebuild one
+    /// chapter's words without the whole-book wipe (which, run per chapter, made
+    /// a render run O(N²)).
+    @discardableResult
+    func deleteAll(forAudiobook audiobookID: String, blockIDs: [String]) throws -> Int {
+        guard !blockIDs.isEmpty else { return 0 }
+        return try db.write { db in
+            try WordTimingRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(blockIDs.contains(Column("epub_block_id")))
+                .deleteAll(db)
+        }
+    }
 }

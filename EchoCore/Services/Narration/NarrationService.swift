@@ -210,8 +210,17 @@ final class NarrationService {
             // otherwise un-narrated front matter gets a near-zero interpolated
             // `audio_start_time`, passes the reader's `>= 0` filter, and the
             // reader highlights front matter instead of the narrated chapter.
+            //
+            // `materializeWordTimings: false`: the default would wipe & rebuild the
+            // WHOLE book's `word_timing` table here — run once per chapter that is
+            // O(chapters²) over a render run (the exact pitfall this method's doc
+            // warns about; AutoAlignmentService opts out the same way). Instead we
+            // materialize just this chapter's words below, so per-word read-along
+            // still lights up incrementally without the quadratic rebuild.
             try AlignmentService(db: db, audiobookID: audiobookID)
-                .recalculateTimeline(anchoredOnly: true)
+                .recalculateTimeline(anchoredOnly: true, materializeWordTimings: false)
+            try WordTimingMaterializer.materializeChapter(
+                audiobookID: audiobookID, blockIDs: spoken.map(\.id), writer: db)
         } catch {
             logger.error(
                 "Timeline recalc after chapter \(chapterIndex) failed: \(error.localizedDescription)"
