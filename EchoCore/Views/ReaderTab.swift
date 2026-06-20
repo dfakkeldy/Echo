@@ -22,6 +22,11 @@ struct ReaderTab: View {
     @State var pulseBlockID: String? = nil
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
+
+    /// Coalesces per-chapter `.timelineItemsIngested` posts during a narration
+    /// render into a single trailing `reload()` (reload re-reads the whole book on
+    /// the main thread — running it per chapter is O(chapters²) over a render run).
+    @State private var readerReloadToken = 0
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
     @State private var hasDismissedAlignmentBanner = false
@@ -238,6 +243,17 @@ struct ReaderTab: View {
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
                 ingestedID == folderURL.absoluteString
             else { return }
+            // Coalesce instead of reloading synchronously per post: narration posts
+            // this once per rendered chapter, and reload() re-reads the whole book
+            // on the main thread. Bump a token so a burst (e.g. the cached-chapter
+            // backfill) collapses into one trailing reload.
+            readerReloadToken &+= 1
+        }
+        .task(id: readerReloadToken) {
+            guard readerReloadToken > 0 else { return }
+            // Quiet window; a newer post cancels this task and restarts the wait,
+            // so only the last post in a burst actually triggers the reload.
+            try? await Task.sleep(for: .milliseconds(250))
             viewModel?.reload()
         }
         .sheet(isPresented: $model.showReaderSettings) {
