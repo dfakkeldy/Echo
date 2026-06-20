@@ -23,12 +23,18 @@ final class ABSImportService {
     @discardableResult
     func prepareLocalFolder(for item: ABSLibraryItem) async throws -> URL {
         let folder = FileLocations.absLibraryDirectory(remoteItemID: item.id)
+        // Start clean so a retry never mixes a previous partial extraction.
+        try? FileManager.default.removeItem(at: folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-
-        let zipURL = folder.appendingPathComponent("__abs_download.zip")
-        try await service.downloadItemZip(itemID: item.id, to: zipURL)
-        try FileManager.default.unzipItem(at: zipURL, to: folder)
-        try? FileManager.default.removeItem(at: zipURL)
+        do {
+            let zipURL = folder.appendingPathComponent("__abs_download.zip")
+            try await service.downloadItemZip(itemID: item.id, to: zipURL)
+            try FileManager.default.unzipItem(at: zipURL, to: folder)
+            try? FileManager.default.removeItem(at: zipURL)
+        } catch {
+            try? FileManager.default.removeItem(at: folder)  // never leave a partial folder
+            throw error
+        }
 
         // Pre-stamp BEFORE loadFolder so persistAudiobook's carry-over preserves these.
         let record = AudiobookRecord(

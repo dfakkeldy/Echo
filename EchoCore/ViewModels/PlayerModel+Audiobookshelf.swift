@@ -65,7 +65,11 @@ extension PlayerModel {
         guard let service = makeAudiobookshelfService(), let db = databaseService else {
             throw ABSError.notConnected
         }
-        let serverID = absServiceServerID ?? (try? absServerDAO?.current())?.id ?? ""
+        guard let serverID = absServiceServerID ?? (try? absServerDAO?.current())?.id,
+            !serverID.isEmpty
+        else {
+            throw ABSError.notConnected
+        }
         let importer = ABSImportService(service: service, db: db, serverID: serverID)
         let folder = try await importer.prepareLocalFolder(for: item)
         loadFolder(folder, autoplay: false)

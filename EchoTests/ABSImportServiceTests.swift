@@ -22,13 +22,13 @@ import ZIPFoundation
         return try Data(contentsOf: tmp)
     }
 
-    private func makeItem(id: String) -> ABSLibraryItem {
+    private func makeItem(id: String) throws -> ABSLibraryItem {
         // Decode a minimal item so titles/topics are populated as the real model expects.
         let json = """
             {"id":"\(id)","libraryId":"lib1","media":{"duration":1200,"tags":["studied"],
              "metadata":{"title":"Hungry Ghosts","author":"Gabor Mate","genres":["Psychology"]}}}
             """
-        return try! JSONDecoder().decode(ABSLibraryItem.self, from: Data(json.utf8))
+        return try JSONDecoder().decode(ABSLibraryItem.self, from: Data(json.utf8))
     }
 
     @Test func prepareLocalFolderDownloadsUnzipsAndStamps() async throws {
@@ -44,7 +44,7 @@ import ZIPFoundation
             pathSuffix: "/download", status: 200, data: zipBytes,
             headers: ["Content-Type": "application/zip"])
 
-        let item = makeItem(id: "item-\(UUID().uuidString)")
+        let item = try makeItem(id: "item-\(UUID().uuidString)")
         let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
         let folder = try await importer.prepareLocalFolder(for: item)
         defer { try? FileManager.default.removeItem(at: folder) }
