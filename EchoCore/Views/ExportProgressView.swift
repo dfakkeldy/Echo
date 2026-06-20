@@ -69,7 +69,11 @@
                 .appendingPathExtension("m4b")
             do {
                 let items = try await source.items()
-                try await AudioExportService().exportM4B(items: items, outputURL: output)
+                let meta = await ExportMetadataResolver.resolve(
+                    audiobookID: audiobookID, fallbackTitle: bookTitle,
+                    firstSourceURL: items.first?.url, databaseWriter: databaseWriter)
+                try await AudioExportService().exportM4B(
+                    items: items, outputURL: output, metadata: meta)
                 exportedURL = output
             } catch {
                 errorText = error.localizedDescription

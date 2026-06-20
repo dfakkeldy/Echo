@@ -52,10 +52,14 @@ struct MacAudioExportView: View {
                         databaseWriter: databaseWriter,
                         cacheDirectory: NarrationCache.directory())
                     let items = try await source.items()
+                    let meta = await ExportMetadataResolver.resolve(
+                        audiobookID: audiobookID, fallbackTitle: bookTitle,
+                        firstSourceURL: items.first?.url, databaseWriter: databaseWriter)
                     let temp = FileManager.default.temporaryDirectory
                         .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
                     defer { try? FileManager.default.removeItem(at: temp) }
-                    try await AudioExportService().exportM4B(items: items, outputURL: temp)
+                    try await AudioExportService().exportM4B(
+                        items: items, outputURL: temp, metadata: meta)
                     try? FileManager.default.removeItem(at: dest)
                     try FileManager.default.copyItem(at: temp, to: dest)
                     await MainActor.run {

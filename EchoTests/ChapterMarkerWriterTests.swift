@@ -34,12 +34,10 @@
     /// manual case rather than a silently-deleted (fake-green) one.
     @Suite struct ChapterMarkerWriterTests {
 
-        private static let sampleRate: Double = 24_000
-
         /// `ChapterMarkerWriter` embeds the chapter atoms into a copy of the source
         /// and leaves the result a valid, still-playable audio file.
         @Test func embedsChapterAtomsAndKeepsFilePlayable() async throws {
-            let source = try await makeSilentM4A(seconds: 6)
+            let source = try await SilentAudioFixture.makeSilentM4A(seconds: 6)
             defer { try? FileManager.default.removeItem(at: source) }
             let output = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
@@ -86,7 +84,7 @@
                 "manual: AVFoundation.loadChapterMetadataGroups does not expose swift-audio-marker chapter atoms; verify chapters in Books.app"
             ))
         func chaptersVisibleToAVFoundation() async throws {
-            let source = try await makeSilentM4A(seconds: 6)
+            let source = try await SilentAudioFixture.makeSilentM4A(seconds: 6)
             defer { try? FileManager.default.removeItem(at: source) }
             let output = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
@@ -106,15 +104,5 @@
             #expect(groups.count == 2)
         }
 
-        /// Renders `seconds` of digital silence to a temp `.m4a` (ALAC) using the
-        /// production audio writer. Reliable in the simulator — the same path is
-        /// already exercised by `AVFoundationAudioWriterTests`.
-        private func makeSilentM4A(seconds: Double) async throws -> URL {
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("chmarker-\(UUID().uuidString).m4a")
-            let chunk = TTSChunk.silence(seconds: seconds, sampleRate: Self.sampleRate)
-            _ = try await AVFoundationAudioWriter().write([chunk], to: url)
-            return url
-        }
     }
 #endif
