@@ -117,8 +117,11 @@ func parsePlainTextBlocks(audiobookID: String, fileURL: URL) throws -> EPUBBlock
 
 A first pass over all headings determines the **chapter level**: the shallowest
 heading depth that occurs **≥2 times** (so a lone leading `# Title` above repeated
-`##` chapters does not count — `##` becomes the chapter level). If no level repeats,
-the single shallowest heading present is the chapter level (a one-chapter book).
+`##` chapters does not count — `##` becomes the chapter level). When **no** level
+repeats (a degenerate single-occurrence document): a lone leading `#` (H1) is treated
+as a book title, so the next level down is the chapter level; any other lone shallowest
+heading (e.g. a single `##` above a `###` section) is itself the chapter. With no
+headings at all, the whole document is one body chapter.
 
 - Headings **at** the chapter level start a new spine (chapter).
 - Headings **deeper** than the chapter level become `heading` blocks inside the

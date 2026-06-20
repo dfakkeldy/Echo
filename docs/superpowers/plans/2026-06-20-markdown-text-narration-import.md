@@ -217,6 +217,10 @@ import Testing
         #expect(TextDocChapterLeveling.chapterLevel(of: [1, 1, 2]) == 1)   // flat # chapters
         #expect(TextDocChapterLeveling.chapterLevel(of: [1]) == 1)         // single heading
         #expect(TextDocChapterLeveling.chapterLevel(of: []) == nil)        // no headings
+        // Degenerate single-occurrence cases: a lone leading H1 is a title
+        // (skip to ##); a lone H2 with no H1 is itself the chapter.
+        #expect(TextDocChapterLeveling.chapterLevel(of: [1, 2]) == 2)      // # title + one ## chapter
+        #expect(TextDocChapterLeveling.chapterLevel(of: [2, 3]) == 2)      // ## chapter + ### section
     }
 
     @Test func eachChapterLevelHeadingIsItsOwnSpineChapter() {
@@ -302,8 +306,15 @@ private enum TextUnit {
 
 /// Decides the chapter break level for a document's heading depths.
 enum TextDocChapterLeveling {
-    /// The shallowest heading depth that occurs at least twice; else the single
-    /// shallowest depth present; `nil` when there are no headings (one body chapter).
+    /// The heading depth (1–6) at which chapters break.
+    ///
+    /// 1. The shallowest depth that occurs at least twice — the clearest signal
+    ///    that "these are the chapters" (a lone `#` title above repeated `##`
+    ///    chapters does not count, so `##` wins).
+    /// 2. When nothing repeats: a lone leading `#` (H1) is treated as a book
+    ///    title, so chapters are the next level down. Any other lone shallowest
+    ///    heading (e.g. a single `##` with a `###` section) is itself the chapter.
+    /// 3. `nil` when there are no headings at all (one body chapter).
     static func chapterLevel(of levels: [Int]) -> Int? {
         guard !levels.isEmpty else { return nil }
         var counts: [Int: Int] = [:]
@@ -311,7 +322,12 @@ enum TextDocChapterLeveling {
         if let shallowestRepeating = counts.filter({ $0.value >= 2 }).keys.min() {
             return shallowestRepeating
         }
-        return levels.min()
+        let present = counts.keys.sorted()
+        // A lone leading H1 above deeper headings is a title → skip it.
+        if present.count >= 2, present[0] == 1, counts[1] == 1 {
+            return present[1]
+        }
+        return present[0]
     }
 }
 
