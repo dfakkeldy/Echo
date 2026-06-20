@@ -928,3 +928,60 @@ WatchConnectivity reliability fixes across the phone (`WatchSyncManager`) and wa
 - **`AlignmentService` word-position calculation**: Hidden blocks (`isHidden = true`) and image blocks (`.image` kind) now receive weight 0.0 in cumulative word-position computation. Previously they contributed their full word count, skewing proportional interpolation. Block positions also shifted from "center" to "start" positioning for more predictable interpolation behavior.
 - **`SecurityScopeManager` URL reuse**: `startSelection(url:)` and `startFile(url:)` now correctly stop the previous access grant when the URL changes (previously the `guard !hasAccess else { return }` early-exit leaked the old grant). When the same URL is requested, the call is a no-op.
 - **`TokenDTW` gap-cost initialization**: The DTW cost matrix boundary row and column are now initialized with cumulative gap costs (`Int32(i) * 2` for deletions, `Int32(j) * 2` for insertions) so the DP can correctly skip leading tokens that have no match in the other sequence. Previously all boundary cells were zero, causing incorrect alignment when audio or EPUB sequences had unmatched prefixes.
+
+## Release Engineering — Promotion Ladder (June 2026)
+
+Echo ships on a **release-train** model. The three long-lived branches are
+promotion *stages*, not parallel forks, and code only ever flows one way:
+
+```
+feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
+            (integrate)  (promote)  (promote + tag → App Store)
+```
+
+- **`nightly`** — the integration branch. Every feature PR merges here; it is
+  allowed to be briefly rough. A nightly TestFlight build goes out daily.
+- **`weekly`** — promoted from `nightly` once a week. The beta channel: more
+  soak time, fewer surprises. A weekly TestFlight build goes out on Mondays.
+- **`main`** — stable. Only ever fast-forwarded from a proven `weekly`. This is
+  what cuts App Store releases; tagging a commit here (`vX.Y.Z`) is the release
+  signal. Because promotion is one-way, anything in `main` is a strict subset of
+  what has already been exercised in `weekly` and `nightly`.
+
+**Hotfixes** are the one exception to the downhill flow: branch from `main`,
+fix, merge to `main`, then merge `main` back *down* into `weekly` and `nightly`
+so the fix is not lost at the next promotion.
+
+### CI wiring
+
+- **`.github/workflows/ci.yml`** — the existing build gate (`build-for-testing`
+  for the iOS app + widget + watch + tests, plus a macOS build) runs on every
+  push and PR to `main`, `weekly`, and `nightly`. The required status check is
+  named **`Build gate + tests`**; branch protection keys off that exact string,
+  so it must not be renamed.
+- **`.github/workflows/release-trains.yml`** — scheduled builds that give the
+  train branches teeth. `schedule`/`workflow_dispatch` triggers only execute the
+  copy of a workflow on the **default branch**, so this file lives on `main` and
+  *checks out* the train branch it was asked to build. Nightly cron builds
+  `nightly`; weekly cron builds `weekly`; `workflow_dispatch` takes a `channel`
+  input. Each run always compiles the branch (no secrets needed) and, when the
+  App Store Connect + match secrets are present, runs the `fastlane beta` lane to
+  upload to TestFlight. Missing secrets degrade to compile-only (no red-X
+  nightlies). Required secrets: `APP_STORE_CONNECT_API_KEY_JSON`,
+  `MATCH_PASSWORD`, `MATCH_GIT_SSH_KEY`.
+
+### Branch protection (configured in repo Settings, not in code)
+
+| Branch | Requires PR | Required check | Merges from |
+|---|---|---|---|
+| `main` | ✅ | `Build gate + tests` | promotion PR from `weekly` only |
+| `weekly` | ✅ | `Build gate + tests` | promotion PR from `nightly` |
+| `nightly` | optional | `Build gate + tests` | feature PRs land here |
+
+### The rhythm
+
+1. **Daily:** feature PRs merge into `nightly`; nightly TestFlight build auto-ships.
+2. **Weekly:** open a `nightly → weekly` PR, let CI pass, merge; weekly build auto-ships.
+3. **Release:** when a weekly build is solid, open a `weekly → main` PR, merge,
+   then bump the version (see `.clinerules/workflows/release.md`) and tag
+   `vX.Y.Z` — the tag is what the App Store `fastlane` lane keys off.

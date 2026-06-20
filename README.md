@@ -242,6 +242,30 @@ In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button
 
 This allows developers to test the full playback, bookmarking, and chapter-navigation pipeline without any network dependency or real audiobook files.
 
+### Branching & Release Trains
+
+Echo uses a **promotion ladder** — three long-lived branches that are release
+*stages*, with code flowing one direction only:
+
+```
+feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
+            (integrate)  (promote)  (promote + tag → App Store)
+```
+
+- **`nightly`** — integration branch; feature PRs land here. Builds to TestFlight daily.
+- **`weekly`** — the beta channel, promoted from `nightly` weekly. Builds to TestFlight on Mondays.
+- **`main`** — stable; only ever promoted from a proven `weekly`. Tagging `vX.Y.Z` here cuts an App Store release.
+
+Hotfixes branch from `main`, then merge back *down* into `weekly`/`nightly`.
+
+CI (`.github/workflows/ci.yml`) gates pushes/PRs to all three branches with the
+**`Build gate + tests`** check. Scheduled TestFlight builds live in
+`.github/workflows/release-trains.yml` (it runs from `main` and checks out the
+train branch; uploads via `fastlane beta` once the App Store Connect / match
+secrets are configured, compile-only until then). See **Release Engineering —
+Promotion Ladder** in [`ARCHITECTURE.md`](ARCHITECTURE.md) for branch-protection
+settings and the full rhythm.
+
 ---
 
 ## Agentic Workflows
