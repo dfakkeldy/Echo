@@ -81,6 +81,7 @@ If SwiftData is configured to use CloudKit:
 
 ## PR instructions
 
+- **Open PRs against `nightly`, not `main`.** Echo uses a promotion ladder (`feature/* → nightly → weekly → main`); `main` is the stable App Store branch reached only by promotion. Targeting `main` bypasses the ladder. See `CLAUDE.md ▸ Branching & Release Workflow` and `ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder`.
 - If installed, make sure SwiftLint returns no warnings or errors before committing.
 
 
