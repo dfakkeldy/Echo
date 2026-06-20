@@ -102,12 +102,12 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 | **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — a real crash-free + no-lost-progress bar |
 | **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; obvious from first launch |
 | **4 · Trust** | ads, paywalls, hidden fees | free, open-source, ad-free, **verifiably** private (you can read the code) |
-| **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library, no lost progress |
+| **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — built on branch, pending merge + device verify), no lost progress |
 | **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
 
 **macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan, the moat audit, and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)** + the [rebuild design spec](docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md).
 
-**Deferred to 1.x:** photo-of-a-page → audio jump · multi-voice narration · AI-generated Q&A cards · CarPlay capture · Audiobookshelf streaming · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
+**Deferred to 1.x:** photo-of-a-page → audio jump · multi-voice narration · AI-generated Q&A cards · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
 
 ---
 
