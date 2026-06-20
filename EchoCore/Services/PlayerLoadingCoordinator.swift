@@ -198,13 +198,18 @@ final class PlayerLoadingCoordinator {
         pickedURL: URL, isDirectory: Bool, folderURL: URL, state: PlaybackState, db: DatabaseService
     ) {
         let audiobookID = folderURL.absoluteString
-        let importedEPUBFile = !isDirectory && pickedURL.pathExtension.lowercased() == "epub"
+        let ext = pickedURL.pathExtension.lowercased()
+        let importedEPUBFile = !isDirectory && ext == "epub"
+        let importedTextFile = !isDirectory && ["md", "markdown", "txt", "text"].contains(ext)
         documentImportTask = Task { @MainActor in
             let didImport: Bool
             if importedEPUBFile {
                 didImport = await EPUBAutoImportScanner.importEPUBFile(
                     epubURL: pickedURL, audiobookID: audiobookID, databaseService: db,
                     chapters: [], duration: nil, force: false)
+            } else if importedTextFile {
+                didImport = await TextAutoImportScanner.importTextFile(
+                    textURL: pickedURL, audiobookID: audiobookID, databaseService: db, force: false)
             } else {
                 didImport = await EPUBAutoImportScanner.scanAndImportIfNeeded(
                     folderURL: folderURL, databaseService: db, chapters: [], duration: nil)

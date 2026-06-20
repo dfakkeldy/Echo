@@ -39,11 +39,26 @@ struct EPUBImportService {
         chapters: [Chapter],
         bookDuration: TimeInterval?
     ) async throws -> [EPubBlockRecord] {
-        // 1. Parse the canonical block set + stable IDs via the shared driver.
-        // This is the same driver the macOS aligner uses, so block IDs match
-        // across platforms (CODE_AUDIT.md §5.1 / Phase A1).
+        // Parse the canonical block set + stable IDs via the shared driver, then
+        // run the shared persist/post-process phase. Text import reuses that
+        // phase via the `parse:` overload below.
         let parse = try parseEPUBBlocks(audiobookID: audiobookID, epubURL: epubURL)
+        return try await `import`(
+            parse: parse, audiobookID: audiobookID, chapters: chapters,
+            bookDuration: bookDuration, assetBaseURL: epubURL)
+    }
 
+    /// Persist + post-process a pre-computed block parse (image localization, TOC
+    /// resolution, chapter-index assignment, DB write). Shared by EPUB import and
+    /// text-document import. For text there are no image blocks (the image-copy
+    /// loop self-skips) and the TOC tree is heading-derived.
+    func `import`(
+        parse: EPUBBlockParse,
+        audiobookID: String,
+        chapters: [Chapter],
+        bookDuration: TimeInterval?,
+        assetBaseURL: URL
+    ) async throws -> [EPubBlockRecord] {
         // 2. Prepare asset storage directory (for image localization below).
         try assetStorage.prepare(for: audiobookID)
 
@@ -75,10 +90,10 @@ struct EPUBImportService {
             guard allBlocks[idx].blockKind == EPubBlockRecord.Kind.image.rawValue,
                 let imagePath = allBlocks[idx].imagePath
             else { continue }
-            let xhtmlURL = parse.spineXHTMLURLByIndex[allBlocks[idx].spineIndex] ?? epubURL
+            let xhtmlURL = parse.spineXHTMLURLByIndex[allBlocks[idx].spineIndex] ?? assetBaseURL
             let sourceURL = resolveImageURL(
                 href: imagePath, baseURL: xhtmlURL.deletingLastPathComponent(),
-                epubRoot: epubURL, opfDir: parse.opfDir)
+                epubRoot: assetBaseURL, opfDir: parse.opfDir)
             if let localPath = assetStorage.copyImage(
                 from: sourceURL, audiobookID: audiobookID,
                 filename: URL(fileURLWithPath: imagePath).lastPathComponent)

@@ -9,7 +9,10 @@ struct FolderPicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let m4bType = UTType(filenameExtension: "m4b") ?? .audio
         let epubType = UTType(filenameExtension: "epub")
-        let types: [UTType] = [.folder, m4bType, .audio] + [epubType].compactMap { $0 }
+        let markdownType = UTType(filenameExtension: "md")
+        let types: [UTType] =
+            [.folder, m4bType, .audio, .plainText]
+            + [epubType, markdownType].compactMap { $0 }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
