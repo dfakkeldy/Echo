@@ -32,6 +32,15 @@
         @State private var exportedURL: URL?
         @State private var errorText: String?
 
+        // When the resolved metadata is missing an author or cover, we pause and
+        // ask the user to confirm/fill it in before exporting. We stash the already
+        // resolved items + pre-filled metadata so `onConfirm` can run the export
+        // without re-reading the source. `ExportMetadata` isn't `Identifiable`, so
+        // the sheet is driven by `showingDetails` rather than `.sheet(item:)`.
+        @State private var showingDetails = false
+        @State private var pendingItems: [ExportItem] = []
+        @State private var pendingMetadata = ExportMetadata(title: "", author: nil, coverArt: nil)
+
         var body: some View {
             VStack(spacing: 20) {
                 if isExporting {
@@ -51,6 +60,12 @@
             }
             .padding()
             .task { await runExport() }
+            .sheet(isPresented: $showingDetails) {
+                ExportDetailsSheet(metadata: pendingMetadata) { confirmed in
+                    isExporting = true
+                    Task { await export(items: pendingItems, metadata: confirmed) }
+                }
+            }
         }
 
         private func runExport() async {
@@ -61,6 +76,31 @@
                 audiobookID: audiobookID,
                 databaseWriter: databaseWriter,
                 cacheDirectory: cacheDirectory)
+            do {
+                let items = try await source.items()
+                let meta = await ExportMetadataResolver.resolve(
+                    audiobookID: audiobookID, fallbackTitle: bookTitle,
+                    firstSourceURL: items.first?.url, databaseWriter: databaseWriter)
+                // Complete metadata exports silently; otherwise hand off to the
+                // confirm sheet, which re-enters `export(items:metadata:)` on confirm.
+                if meta.isComplete {
+                    await export(items: items, metadata: meta)
+                } else {
+                    pendingItems = items
+                    pendingMetadata = meta
+                    isExporting = false
+                    showingDetails = true
+                }
+            } catch {
+                errorText = error.localizedDescription
+                isExporting = false
+            }
+        }
+
+        /// Runs the actual concatenation + chapterised export and surfaces the
+        /// result. Shared by the silent path and the confirm-sheet path so the
+        /// export logic lives in exactly one place.
+        private func export(items: [ExportItem], metadata: ExportMetadata) async {
             // The exported file is a one-shot share artifact, so the system temp dir
             // is the right home for it — it must NOT be confused with `cacheDirectory`,
             // which holds the durable per-chapter source audio we read from.
@@ -68,12 +108,8 @@
                 .appendingPathComponent(ExportFileName.safe(bookTitle))
                 .appendingPathExtension("m4b")
             do {
-                let items = try await source.items()
-                let meta = await ExportMetadataResolver.resolve(
-                    audiobookID: audiobookID, fallbackTitle: bookTitle,
-                    firstSourceURL: items.first?.url, databaseWriter: databaseWriter)
                 try await AudioExportService().exportM4B(
-                    items: items, outputURL: output, metadata: meta)
+                    items: items, outputURL: output, metadata: metadata)
                 exportedURL = output
             } catch {
                 errorText = error.localizedDescription
