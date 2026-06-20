@@ -74,8 +74,9 @@ struct PlaylistView: View {
             playlistContent
                 // Reserve room for Row 1 of UnifiedTopHeader (overlaid in RootTabView).
                 // Native inset — stacks on the real safe area, no GeometryReader math.
+                // Must equal the header's real height (see `rowOneHeight`).
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: 50)
+                    Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
                 }
                 .environment(\.editMode, .constant(model.isPlaylistEditing ? .active : .inactive))
         } else {

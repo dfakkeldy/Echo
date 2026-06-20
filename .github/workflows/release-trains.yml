@@ -1,0 +1,148 @@
+name: Release Trains
+
+# ── Promotion ladder: feature/* → nightly → weekly → main (stable) ───────────
+# This workflow is the engine that makes the `nightly` and `weekly` branches
+# *mean* something: it builds the head of each train on a schedule and (when
+# signing secrets are configured) ships it to TestFlight.
+#
+# IMPORTANT — why this file must live on `main`:
+#   GitHub only runs `schedule` (and `workflow_dispatch`) using the workflow
+#   file as it exists on the repository's DEFAULT branch. So the cron triggers
+#   below fire from `main`, and each run then *checks out* the train branch it
+#   was asked to build. The `nightly` / `weekly` branches do not need their own
+#   copy of this file for the schedule to work.
+#
+# Required repository secrets for the TestFlight upload step (Settings ▸
+# Secrets and variables ▸ Actions). Until these exist, runs still compile the
+# train branch and simply skip the upload — no red-X nightlies:
+#   APP_STORE_CONNECT_API_KEY_JSON  Full contents of fastlane/api_key.json
+#                                   (key_id / issuer_id / key / in_house).
+#   MATCH_PASSWORD                  Passphrase for the fastlane match repo.
+#   MATCH_GIT_SSH_KEY               Private deploy key with READ access to the
+#                                   certificates repo in fastlane/Matchfile
+#                                   (git@github.com:dfakkeldy/echo-audiobooks-certificates).
+
+on:
+  schedule:
+    # Times are UTC. GitHub cron is best-effort (may lag at peak) and only runs
+    # on the default branch; it is also auto-paused after 60 days of repo
+    # inactivity (a manual run or any push re-arms it).
+    - cron: '0 7 * * *'    # Nightly — every day 07:00 UTC → builds `nightly`
+    - cron: '0 8 * * 1'    # Weekly  — Mondays   08:00 UTC → builds `weekly`
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Which train to build & ship'
+        type: choice
+        options: [nightly, weekly]
+        default: nightly
+
+# Don't pile up overlapping builds of the same channel, but never cancel an
+# in-flight upload (an interrupted TestFlight submission is messy to recover).
+concurrency:
+  group: release-trains-${{ github.event.inputs.channel || github.event.schedule }}
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    name: Build & ship train
+    runs-on: macos-15
+
+    env:
+      # Surfaced as env so the credential check below can test for them; empty
+      # strings when the secrets are not configured.
+      ASC_API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_SSH_KEY: ${{ secrets.MATCH_GIT_SSH_KEY }}
+      # match reads its repo URL from fastlane/Matchfile; readonly is forced via
+      # `readonly: is_ci` in the Fastfile so CI never mutates signing assets.
+      IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
+
+    steps:
+      # ── Map the trigger to a channel/branch ───────────────────────────────
+      # Scheduled runs identify themselves by their cron string; manual runs by
+      # the `channel` input. Channel name == branch name by design.
+      - name: Resolve channel → branch
+        id: train
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 7 * * *") CH=nightly ;;
+            "0 8 * * 1") CH=weekly ;;
+            *)           CH="${{ github.event.inputs.channel }}" ;;
+          esac
+          CH="${CH:-nightly}"
+          echo "channel=$CH" >> "$GITHUB_OUTPUT"
+          echo "branch=$CH"  >> "$GITHUB_OUTPUT"
+          echo "Building '$CH' train from branch '$CH'."
+
+      - name: Checkout ${{ steps.train.outputs.branch }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.train.outputs.branch }}
+
+      # Pin Xcode 26.x to match ci.yml (newest installed 26.x; never a future
+      # major). See ci.yml for why the macos-15 default of 16.4 is too old.
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-xcode26-spm-${{ hashFiles('**/Package.resolved', 'Echo.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode26-spm-
+
+      - name: Resolve package dependencies
+        run: xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
+
+      # ── Always-on gate: compile the train branch (no secrets required) ─────
+      # This is the guaranteed-useful part of a scheduled run and the same gate
+      # ci.yml applies to pushes/PRs. It fails fast and clearly on a train that
+      # someone promoted in a non-compiling state.
+      - name: Build gate — Echo (iOS app + widget + watch + tests)
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project Echo.xcodeproj \
+            -scheme Echo \
+            -destination "$IOS_DESTINATION" \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+
+      # ── Can we actually ship, or only validate? ───────────────────────────
+      - name: Check release credentials
+        id: creds
+        run: |
+          if [ -n "$ASC_API_KEY_JSON" ] && [ -n "$MATCH_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=TestFlight upload skipped::Signing secrets not configured (APP_STORE_CONNECT_API_KEY_JSON / MATCH_PASSWORD). The ${{ steps.train.outputs.channel }} branch was compiled but not uploaded."
+          fi
+
+      - name: Load match deploy key
+        if: steps.creds.outputs.ready == 'true' && env.MATCH_GIT_SSH_KEY != ''
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.MATCH_GIT_SSH_KEY }}
+
+      - name: Write App Store Connect API key
+        if: steps.creds.outputs.ready == 'true'
+        run: printf '%s' "$ASC_API_KEY_JSON" > fastlane/api_key.json
+
+      - name: Install Ruby gems (fastlane)
+        if: steps.creds.outputs.ready == 'true'
+        run: bundle install
+
+      # The `beta` lane archives iOS (+ embedded watch & widget) and macOS, then
+      # uploads every binary to TestFlight using fastlane/testflight/*.txt for
+      # the "What to Test" copy. Tip: route the Nightly and Weekly builds to
+      # separate TestFlight tester groups so testers self-select their risk.
+      - name: Upload ${{ steps.train.outputs.channel }} build to TestFlight
+        if: steps.creds.outputs.ready == 'true'
+        run: bundle exec fastlane beta

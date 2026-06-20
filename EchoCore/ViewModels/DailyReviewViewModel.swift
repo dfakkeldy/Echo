@@ -67,10 +67,7 @@ final class DailyReviewViewModel {
         isPlayingSnippet = false
         do {
             let dao = FlashcardDAO(db: db)
-            let scheduler: any SchedulingAlgorithm = card.repetitions >= 6
-                ? FSRSScheduler()
-                : SM2Scheduler()
-            try dao.grade(cardID: card.id, grade: grade, scheduler: scheduler)
+            try dao.grade(cardID: card.id, grade: grade, now: Date())  // FSRS (DAO default)
             logFlashcardReviewed(card: card, grade: grade)
             let remaining = dueCards.count - (currentIndex + 1)
             ReviewNotificationService.updateNotification(dueCount: remaining)

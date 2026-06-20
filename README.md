@@ -83,7 +83,7 @@ See honest insights & export your second brain   →   Own what you learned
 - **On-Device Narration for text-only books.** Got an EPUB with no audiobook? Echo can speak it in a natural voice (Kokoro, the same on-device model on iPhone and Mac, run via ONNX Runtime on the CPU) — no cloud, no account, no API keys. On iPhone it narrates as you listen (every device — no Neural-Engine requirement); on Mac you can queue EPUBs to synthesize overnight, then play them back like any audiobook, with full read-along.
 - **Teach the narrator how to say names.** Invented character names, brands, and niche jargon trip up any text-to-speech. A built-in **Pronunciation** dictionary (Settings) lets you spell a word out in IPA once, and the narrator says it your way everywhere it appears.
 - **Overnight Batch Processing (Mac).** Point the Mac app at a folder of audiobooks and it imports, transcribes, and aligns them one by one, unattended — and picks up where it left off if you quit and relaunch. The same queue can also **narrate text-only EPUBs** overnight (Batch ▸ “Narrate EPUB(s)…”).
-- **Chaptered M4B Export.** AI-narrated books export to a single `.m4b` with real chapter markers, playable in any chapter-aware player.
+- **Chaptered M4B Export.** Export any book — AI-narrated or already-imported — as a single `.m4b` with real chapter markers and embedded metadata, playable in any chapter-aware player. Works on both iPhone and Mac; one tap on iOS (player More menu → share sheet), File menu → Save on Mac.
 - **Pristine Speed Control.** Listen at 1.25x (or faster) with zero pitch distortion. Speed suggestions adapt to your listening habits.
 - **Apple Watch Remote.** A massive, user-configurable interface with up to 25 customizable buttons across 5 pages. Assign the Digital Crown to control volume or scrub through audio — leave your phone in your pocket.
 - **Designed for Neurodiversity.** Lexend and OpenDyslexic fonts — both backed by reading-fluency research — are built in. The hybrid document+audio view means you're never forced to learn by listening alone. The app icon (an infinity symbol in silver and gold) is a nod to the AuDHD community. The name "Echo" reflects how many neurodivergent brains work: ideas echoing between different modes of thinking, with text and audio reinforcing each other.
@@ -241,6 +241,30 @@ EchoCore/Development Assets/aliceinwonderland_1102_librivox/
 In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, seeding the sample audiobook for immediate testing of the reader, alignment, and search features without requiring external file selection.
 
 This allows developers to test the full playback, bookmarking, and chapter-navigation pipeline without any network dependency or real audiobook files.
+
+### Branching & Release Trains
+
+Echo uses a **promotion ladder** — three long-lived branches that are release
+*stages*, with code flowing one direction only:
+
+```
+feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
+            (integrate)  (promote)  (promote + tag → App Store)
+```
+
+- **`nightly`** — integration branch; feature PRs land here. Builds to TestFlight daily.
+- **`weekly`** — the beta channel, promoted from `nightly` weekly. Builds to TestFlight on Mondays.
+- **`main`** — stable; only ever promoted from a proven `weekly`. Tagging `vX.Y.Z` here cuts an App Store release.
+
+Hotfixes branch from `main`, then merge back *down* into `weekly`/`nightly`.
+
+CI (`.github/workflows/ci.yml`) gates pushes/PRs to all three branches with the
+**`Build gate + tests`** check. Scheduled TestFlight builds live in
+`.github/workflows/release-trains.yml` (it runs from `main` and checks out the
+train branch; uploads via `fastlane beta` once the App Store Connect / match
+secrets are configured, compile-only until then). See **Release Engineering —
+Promotion Ladder** in [`ARCHITECTURE.md`](ARCHITECTURE.md) for branch-protection
+settings and the full rhythm.
 
 ---
 
