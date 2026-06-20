@@ -157,6 +157,26 @@ struct EPubBlockDAO {
         }
     }
 
+    /// Re-includes a previously hidden chapter: clears `is_hidden`/`hidden_reason`
+    /// for every block with this `chapter_index`. The include-counterpart to
+    /// `hideChapter`, used by the narration outline's tap-to-include.
+    func unhideChapter(chapterIndex: Int, audiobookID: String) throws {
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE epub_block
+                    SET is_hidden = 0, hidden_reason = NULL, modified_at = :now
+                    WHERE chapter_index = :chapterIndex AND audiobook_id = :audiobookID
+                    """,
+                arguments: [
+                    "now": Self.isoFormatter.string(from: Date()),
+                    "chapterIndex": chapterIndex,
+                    "audiobookID": audiobookID,
+                ]
+            )
+        }
+    }
+
     // MARK: - Chapter grouping
 
     /// Blocks grouped by chapter index. Blocks without a chapter index go in bucket -1.

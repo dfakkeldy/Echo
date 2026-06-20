@@ -5,6 +5,18 @@
     import GRDB
     import OSLog
 
+    /// Pure rule for "this book is narrated on-device" (vs an imported audiobook):
+    /// it has EPUB text, and any tracks present are files in the narration cache.
+    /// Stable before render (no tracks) and during render (narration-cache tracks).
+    enum NarrationBookClassifier {
+        static func isNarrationBook(
+            hasEPUB: Bool, trackPaths: [String], narrationCachePath: String
+        ) -> Bool {
+            guard hasEPUB else { return false }
+            return trackPaths.allSatisfy { $0.hasPrefix(narrationCachePath) }
+        }
+    }
+
     // MARK: - On-device narration playback
 
     extension PlayerModel {
@@ -127,6 +139,10 @@
                         self.progressPresenter.updateNowPlayingInfo(isPaused: true)
                         return
                     }
+                    // Surface the full chapter outline (incl. any excluded chapters)
+                    // now that the EPUB blocks are committed, so the playlist shows
+                    // every chapter, not just the ones about to render.
+                    self.refreshNarrationOutline()
                     // Resume at the last-played chapter, but keep the FULL book in the
                     // queue (§5.3 / Phase 4B). `chapters` (the forward set, resume→end)
                     // renders + plays first; `earlierChapters` (resume-1…0, descending)
@@ -315,6 +331,85 @@
                     self.narrationPlaybackState.fail(error.localizedDescription)
                 }
             }
+        }
+
+        // MARK: - Chapter outline (full EPUB outline + tap-to-exclude)
+
+        /// True when the playlist should show the narration chapter outline: an EPUB
+        /// book whose tracks (if any) are narration-cache files, not imported audio.
+        var isNarrationBook: Bool {
+            NarrationBookClassifier.isNarrationBook(
+                hasEPUB: hasEPUB,
+                trackPaths: state.tracks.map { $0.url.path },
+                narrationCachePath: Self.narrationCacheDirectory().path)
+        }
+
+        /// The full EPUB chapter outline for the current narration book.
+        var narrationOutline: [NarrationOutlineChapter] { state.narrationOutline }
+
+        /// Voice used to key narration cache filenames (matches the render path's
+        /// resolution, so `isRendered` lines up with the files actually written).
+        private var narrationVoiceForFiles: VoiceID {
+            VoiceCatalog.voice(for: VoiceID(settingsManager?.narrationVoiceID ?? ""))?.id
+                ?? VoiceCatalog.default.id
+        }
+
+        /// Rebuilds `state.narrationOutline` from the book's EPUB blocks + which
+        /// chapter files exist. User-driven (sheet open / narration start / toggle) —
+        /// never per rendered chapter, so it doesn't reintroduce O(chapters²) work.
+        func refreshNarrationOutline() {
+            guard let audiobookID = folderURL?.absoluteString,
+                let db = databaseService?.writer
+            else {
+                state.narrationOutline = []
+                return
+            }
+            let blocks = (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID)) ?? []
+            let cacheDir = Self.narrationCacheDirectory()
+            let voice = narrationVoiceForFiles
+            state.narrationOutline = NarrationOutlineBuilder.build(allBlocks: blocks) { idx in
+                let url = cacheDir.appendingPathComponent(
+                    NarrationFileNaming.chapterFileName(
+                        audiobookID: audiobookID, chapterIndex: idx, voice: voice))
+                return FileManager.default.fileExists(atPath: url.path)
+            }
+        }
+
+        /// Toggles whether a chapter is narrated. Excluding hides all its blocks
+        /// (dropped from `plan(from: visibleBlocks)` → never synthesized or queued);
+        /// including unhides them. A rendered file is left on disk so re-including is
+        /// instant. A newly-excluded chapter is pulled from the live queue unless it
+        /// is the one currently playing (that finishes; future renders exclude it).
+        func toggleNarrationChapterExcluded(chapterIndex: Int) {
+            guard let audiobookID = folderURL?.absoluteString,
+                let db = databaseService?.writer
+            else { return }
+            let currentlyExcluded =
+                state.narrationOutline.first { $0.chapterIndex == chapterIndex }?.isExcluded
+                ?? false
+            let service = AlignmentService(db: db, audiobookID: audiobookID)
+            do {
+                if currentlyExcluded {
+                    try service.unhideChapter(chapterIndex: chapterIndex)
+                } else {
+                    try service.hideChapter(
+                        chapterIndex: chapterIndex, reason: "Excluded from narration")
+                }
+            } catch {
+                return
+            }
+            if !currentlyExcluded {
+                let fileName = NarrationFileNaming.chapterFileName(
+                    audiobookID: audiobookID, chapterIndex: chapterIndex,
+                    voice: narrationVoiceForFiles)
+                if let removeAt = state.tracks.firstIndex(where: {
+                    $0.url.lastPathComponent == fileName
+                }), removeAt != state.currentIndex {
+                    state.tracks.remove(at: removeAt)
+                    if removeAt < state.currentIndex { state.currentIndex -= 1 }
+                }
+            }
+            refreshNarrationOutline()
         }
 
         /// App-owned, durable location for rendered narration audio. The body now

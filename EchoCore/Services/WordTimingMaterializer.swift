@@ -15,40 +15,80 @@ enum WordTimingMaterializer {
         let end: TimeInterval?
     }
 
+    /// Whole-book rebuild: wipes and re-materializes every word row for the book.
+    /// Used by manual alignment and at the END of the AutoAlignment pipeline (one
+    /// rebuild per user action). Do NOT call this once per chapter in a render
+    /// loop — that is O(chapters²); use `materializeChapter` instead.
     static func materialize(audiobookID: String, writer: DatabaseWriter) throws {
         let dao = WordTimingDAO(db: writer)
         try dao.deleteAll(forAudiobook: audiobookID)
+        let blocks = try alignedBlocks(audiobookID: audiobookID, blockIDs: nil, writer: writer)
+        guard !blocks.isEmpty else { return }
+        try dao.insert(records(from: blocks, audiobookID: audiobookID))
+    }
 
-        // Aligned, text-bearing blocks ordered by audio time. audio_start_time < 0
-        // is the "unaligned" sentinel — skip those.
-        let blocks: [Block] = try writer.read { db in
-            try Row.fetchAll(
-                db,
-                sql: """
-                    SELECT ti.epub_block_id AS id,
-                           eb.text AS text,
-                           ti.audio_start_time AS start,
-                           ti.audio_end_time AS end
-                    FROM timeline_item ti
-                    JOIN epub_block eb ON eb.id = ti.epub_block_id
-                    WHERE ti.audiobook_id = ?
-                      AND ti.epub_block_id IS NOT NULL
-                      AND ti.audio_start_time >= 0
-                      AND eb.text IS NOT NULL AND eb.text <> ''
-                    ORDER BY ti.audio_start_time
-                    """, arguments: [audiobookID]
-            ).map { row in
+    /// Per-chapter rebuild for the narration render loop: deletes & re-materializes
+    /// ONLY `blockIDs`' word rows, leaving every other chapter's rows intact. Run
+    /// once per chapter this is O(chapter), so a render run is O(N) instead of the
+    /// O(N²) the whole-book `materialize` would cost when called per chapter (the
+    /// pitfall AlignmentService.recalculateTimeline's doc warns about). Each narrated
+    /// chapter is its own 0-based audio file, so scoping the end-bound interpolation
+    /// to the chapter is also more correct than ordering all chapters' overlapping
+    /// 0-based start times together.
+    static func materializeChapter(
+        audiobookID: String, blockIDs: [String], writer: DatabaseWriter
+    ) throws {
+        guard !blockIDs.isEmpty else { return }
+        let dao = WordTimingDAO(db: writer)
+        try dao.deleteAll(forAudiobook: audiobookID, blockIDs: blockIDs)
+        let blocks = try alignedBlocks(audiobookID: audiobookID, blockIDs: blockIDs, writer: writer)
+        guard !blocks.isEmpty else { return }
+        try dao.insert(records(from: blocks, audiobookID: audiobookID))
+    }
+
+    // MARK: - Shared
+
+    /// Aligned, text-bearing blocks ordered by audio time. `audio_start_time < 0`
+    /// is the "unaligned" sentinel — skipped. `blockIDs == nil` fetches the whole
+    /// book; a non-empty list scopes to those blocks.
+    private static func alignedBlocks(
+        audiobookID: String, blockIDs: [String]?, writer: DatabaseWriter
+    ) throws -> [Block] {
+        try writer.read { db in
+            var sql = """
+                SELECT ti.epub_block_id AS id,
+                       eb.text AS text,
+                       ti.audio_start_time AS start,
+                       ti.audio_end_time AS end
+                FROM timeline_item ti
+                JOIN epub_block eb ON eb.id = ti.epub_block_id
+                WHERE ti.audiobook_id = ?
+                  AND ti.epub_block_id IS NOT NULL
+                  AND ti.audio_start_time >= 0
+                  AND eb.text IS NOT NULL AND eb.text <> ''
+                """
+            var args: [String] = [audiobookID]
+            if let blockIDs, !blockIDs.isEmpty {
+                sql += " AND ti.epub_block_id IN (\(databaseQuestionMarks(count: blockIDs.count)))"
+                args += blockIDs
+            }
+            sql += " ORDER BY ti.audio_start_time"
+            return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args)).map { row in
                 Block(
                     id: row["id"], text: row["text"],
                     start: row["start"], end: row["end"])
             }
         }
-        guard !blocks.isEmpty else { return }
+    }
 
+    /// Interpolates per-word rows for a run of aligned blocks. Each block's end
+    /// bound is the next block's start, else its own end, else a ~15 cps estimate
+    /// so the last block still gets ranges.
+    private static func records(
+        from blocks: [Block], audiobookID: String
+    ) -> [WordTimingRecord] {
         var records: [WordTimingRecord] = []
         for (i, block) in blocks.enumerated() {
-            // End bound: next block's start, else this block's own end, else a
-            // char-rate estimate (~15 cps) so the last block still gets ranges.
             let blockEnd: TimeInterval
             if i + 1 < blocks.count {
                 blockEnd = max(block.start, blocks[i + 1].start)
@@ -75,7 +115,7 @@ enum WordTimingMaterializer {
                         confidence: 0.5, source: "interpolated"))
             }
         }
-        try dao.insert(records)
+        return records
     }
 
     /// Confidence stamped on a word whose time came from a real DTW audio match.

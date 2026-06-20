@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Observation
+
 #if os(iOS)
-import UIKit
+    import UIKit
 #endif
 
 /// Shared mutable playback state, owned by PlaybackController and observed by
@@ -48,6 +49,10 @@ final class PlaybackState {
 
     var chapters: [Chapter] = []
     var currentChapterIndex: Int? = nil
+    /// Full EPUB chapter outline for a narration book (every narratable chapter,
+    /// independent of render progress), shown on the playlist page with
+    /// tap-to-exclude. Empty for non-narration books. See NarrationOutlineBuilder.
+    var narrationOutline: [NarrationOutlineChapter] = []
     /// Fine-grained sub-section atoms per logical chapter index.
     /// Populated by `ChapterGroupingService` when a Libation-style naming
     /// pattern is detected; empty for all other books.
@@ -61,10 +66,10 @@ final class PlaybackState {
 
     // MARK: - Artwork
 
-#if os(iOS)
-    var thumbnailImage: UIImage? = nil
-    var currentDisplayArtwork: UIImage? = nil
-#endif
+    #if os(iOS)
+        var thumbnailImage: UIImage? = nil
+        var currentDisplayArtwork: UIImage? = nil
+    #endif
     var currentDisplayArtworkVersion: Int = 0
     var watchThumbnailData: Data? = nil
 
