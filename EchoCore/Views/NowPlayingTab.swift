@@ -45,10 +45,10 @@ struct NowPlayingTab: View {
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                     .padding(.top, 16)
 
-                // C2. On-device narration — shown when the book has EPUB text AND
-                // the chip can run it. The A14 (and older) ANE traps on the Kokoro
-                // vocoder (§3.1, device-confirmed), so synthesis is gated to A15+;
-                // the reader stays fully functional either way.
+                // C2. On-device narration — shown whenever the book has EPUB text.
+                // The ONNX (CPU) engine runs on every supported device, so
+                // `supportsOnDeviceNarration` is always true; it stays in the
+                // condition as the single named capability seam (see NarrationCapability).
                 if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration {
                     VStack(spacing: 8) {
                         NarrationStatusView(state: model.narrationPlaybackState)
@@ -82,16 +82,6 @@ struct NowPlayingTab: View {
                     }
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                     .padding(.top, 12)
-                } else if model.hasEPUB {
-                    // Narration synthesis is gated off on this chip (A14/older);
-                    // the reader stays usable.
-                    Text("Narration needs an A15 or newer device.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, NowPlayingLayout.horizontalPadding)
-                        .padding(.top, 12)
                 }
 
                 // D. Main Scrubber (completely exposed, floating over background)
