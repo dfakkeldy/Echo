@@ -1034,3 +1034,43 @@ so the fix is not lost at the next promotion.
 3. **Release:** when a weekly build is solid, open a `weekly → main` PR, merge,
    then bump the version (see `.clinerules/workflows/release.md`) and tag
    `vX.Y.Z` — the tag is what the App Store `fastlane` lane keys off.
+
+### Getting builds & testers into TestFlight
+
+The trains map one-to-one onto TestFlight tester groups; the `fastlane beta` lane
+routes each channel to its group (see `fastlane/Fastfile`):
+
+| Channel | TestFlight group | Type | Beta App Review? | How testers join |
+|---|---|---|---|---|
+| `nightly` | **Nightly** | Internal | No — builds appear instantly | Added as App Store Connect users (Users and Access), then to the group. Max 100. |
+| `weekly`  | **Weekly**  | External | Yes — first build of each version | Email invite **or a public link**. Max 10,000. |
+
+**Internal vs external — the practical difference.** Internal testers must be
+members of the App Store Connect team (any role), so they're for *you and a
+handful of trusted people*. Builds reach them within minutes of upload, no
+review. External testers are the general public; the **first build of a given
+marketing version** must clear Beta App Review (a lighter, faster pass than full
+App Store review — usually hours) before any external tester can install it.
+
+**The shareable link.** "Send me a link" = a TestFlight **public link**
+(`https://testflight.apple.com/join/XXXXXXXX`). It is a property of an *external*
+group (Weekly), not internal, and it only goes live once that group has a build
+that has passed Beta App Review. There is no fastlane/MCP action for it — enable
+it once, by hand, in **App Store Connect ▸ Echo ▸ TestFlight ▸ Weekly ▸ Public
+Link ▸ Enable**, then share the URL anywhere. Testers must install Apple's
+**TestFlight** app first; the link opens the app to a one-tap *Install*.
+
+**Per-build "What to Test" copy** lives in version control, not the ASC web UI:
+`fastlane/testflight/what_to_test.txt` (the changelog) and
+`beta_app_description.txt` (the group's Test Information). Edit those, not the
+dashboard — the lane reads them on every upload.
+
+**Shipping the first build.** The release-train cron only uploads when the
+signing secrets are present (`APP_STORE_CONNECT_API_KEY_JSON`, `MATCH_PASSWORD`,
+`MATCH_GIT_SSH_KEY`); before they exist, runs degrade to compile-only. To ship
+on demand without waiting for the 07:00 UTC nightly / Monday weekly cron, run the
+workflow manually: **Actions ▸ Release Trains ▸ Run workflow ▸ channel:**, or
+`gh workflow run release-trains.yml -f channel=nightly`. The lane auto-assigns a
+unique, monotonic build number from TestFlight's latest + 1, so `MARKETING_VERSION`
+only moves for real releases. A purely local upload is `bundle exec fastlane beta
+channel:weekly` (needs `fastlane/api_key.json` and `MATCH_PASSWORD`).
