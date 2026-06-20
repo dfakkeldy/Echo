@@ -18,15 +18,17 @@ struct UnifiedTopHeader: View {
             HStack {
                 Button(action: onFolderTap) {
                     Image(systemName: "folder")
-                        .font(.body.bold())
-                        .frame(width: 40, height: 40)
+                        .font(.title3.bold())
+                        .frame(width: 48, height: 48)
                         .background {
                             Circle()
                                 .fill(chipFill)
                                 .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                         }
                 }
-                .foregroundStyle(Color.accentColor)
+                // Use the artwork-derived accent (matches the transport buttons),
+                // not the static system blue, so the chrome tints to the cover.
+                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
                 .accessibilityLabel(Text("Open folder"))
 
                 Spacer()
@@ -54,24 +56,22 @@ struct UnifiedTopHeader: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.body.bold())
-                        .frame(width: 40, height: 40)
+                        .font(.title3.bold())
+                        .frame(width: 48, height: 48)
                         .background {
                             Circle()
                                 .fill(chipFill)
                                 .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                         }
                 }
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
                 .accessibilityLabel(Text("More options"))
             }
-            // Align the buttons with each tab's content: 32pt on Now Playing so
-            // they sit flush with the artwork edge (not "past the edge"), 16pt
-            // elsewhere to match the Timeline/Reader secondary rows.
-            .padding(
-                .horizontal,
-                model.selectedTab == .nowPlaying ? NowPlayingLayout.horizontalPadding : 16
-            )
+            // A consistent 16pt inset on every tab. The earlier 32pt on Now
+            // Playing pushed the two chips inward toward each other; the larger
+            // chips now sit nearer the screen edges, matching the pre-redesign
+            // header.
+            .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 8)
         }

@@ -137,7 +137,12 @@ struct RootTabView: View {
                 }
             }
         }
-        .ignoresSafeArea(edges: .bottom)
+        // NOTE: the player/background layers ignore the safe area themselves
+        // (AdaptiveBackground + the systemBackground fill), so the ZStack no
+        // longer needs a blanket `.ignoresSafeArea(.bottom)`. Dropping it lets
+        // the bottom dock respect the home indicator — its rounded bottom edge
+        // is visible and it anchors to the true bottom edge instead of bleeding
+        // underneath the indicator.
         .sheet(isPresented: $showingFolderPicker) {
             FolderPicker { url in
                 showingFolderPicker = false

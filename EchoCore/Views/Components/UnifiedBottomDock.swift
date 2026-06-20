@@ -60,7 +60,7 @@ struct UnifiedBottomDock: View {
                 Divider()
                     .background(separatorColor.opacity(0.25))
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
             }
 
             // Lower layer: Static 5-Button Utility Bar
@@ -78,9 +78,15 @@ struct UnifiedBottomDock: View {
     var body: some View {
         stackedContent
             // Uniform vertical breathing room so the circular play-button progress
-            // ring is never clipped by the capsule's rounded corners.
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity)
+            // ring is never clipped by the capsule's rounded corners. Trimmed from
+            // 16 → 10 so the deck reads as a compact capsule rather than a tall slab.
+            .padding(.vertical, 10)
+            // Explicit width via `containerRelativeFrame`, NOT `.frame(maxWidth:
+            // .infinity)` + `.padding(.horizontal, 16)`: the transport/toolbar rows
+            // are greedy (Spacers, `maxWidth: .infinity`) and overflow a
+            // padding-reduced proposal back to full bleed, which pushed the
+            // capsule's rounded side edges off-screen. A fixed width can't overflow.
+            .containerRelativeFrame(.horizontal) { width, _ in width - 32 }
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(
@@ -94,7 +100,6 @@ struct UnifiedBottomDock: View {
                     .opacity(0.08)
             )
             .shadow(color: Color.black.opacity(0.25), radius: 15, x: 0, y: 5)
-            .padding(.horizontal, 16)
             .padding(.bottom, 12)
     }
 }
