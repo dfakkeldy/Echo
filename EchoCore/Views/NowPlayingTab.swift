@@ -144,8 +144,9 @@ struct NowPlayingTab: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             // Reserve room for Row 1 of UnifiedTopHeader (overlaid in RootTabView).
             // Stacks on top of the real status-bar inset, so it's correct on every device.
+            // Must equal the header's real height (see `rowOneHeight`).
             .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: 50)
+                Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
             }
             .environment(
                 \.font,

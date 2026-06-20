@@ -20,17 +20,17 @@ enum PlaylistRow: Identifiable {
         switch self {
         case .partHeader(let t, let key): return "part-\(key)-\(t)"
         case .chapter(_, let c, _): return "chapter-\(c.id)"
-        case .track(_, let t):   return "track-\(t.id)"
-        case .bookmark(let b):   return "bookmark-\(b.id.uuidString)"
+        case .track(_, let t): return "track-\(t.id)"
+        case .bookmark(let b): return "bookmark-\(b.id.uuidString)"
         }
     }
 
     var sortKey: Double {
         switch self {
-        case .partHeader: return -.infinity // emitted in order, never sorted
+        case .partHeader: return -.infinity  // emitted in order, never sorted
         case .chapter(_, let c, _): return c.startSeconds
-        case .track(let i, _):   return Double(i) // track ordering
-        case .bookmark(let b):   return b.timestamp
+        case .track(let i, _): return Double(i)  // track ordering
+        case .bookmark(let b): return b.timestamp
         }
     }
 }
@@ -74,8 +74,9 @@ struct PlaylistView: View {
             playlistContent
                 // Reserve room for Row 1 of UnifiedTopHeader (overlaid in RootTabView).
                 // Native inset — stacks on the real safe area, no GeometryReader math.
+                // Must equal the header's real height (see `rowOneHeight`).
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: 50)
+                    Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
                 }
                 .environment(\.editMode, .constant(model.isPlaylistEditing ? .active : .inactive))
         } else {
@@ -103,15 +104,21 @@ struct PlaylistView: View {
                             }
                         }
                     }
-                    .sheet(item: Binding(
-                        get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
-                        set: { editingBookmarkID = $0?.id }
-                    )) { wrapper in
+                    .sheet(
+                        item: Binding(
+                            get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
+                            set: { editingBookmarkID = $0?.id }
+                        )
+                    ) { wrapper in
                         EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
                     }
             }
             .environment(\.editMode, .constant(model.isPlaylistEditing ? .active : .inactive))
-            .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+            .environment(
+                \.font,
+                model.resolvedAppFont == SettingsManager.systemFontName
+                    ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body)
+            )
             .sheet(item: $chapterForEPUBMatch) { _ in
                 if let url = model.folderURL {
                     EPUBHeadingPickerSheet(
@@ -130,7 +137,9 @@ struct PlaylistView: View {
                     applyPendingMatches()
                 }
             } message: {
-                Text("Found \(pendingEPUBMatches.count) more audio chapters that can be automatically matched to EPUB headings. Would you like to match them?")
+                Text(
+                    "Found \(pendingEPUBMatches.count) more audio chapters that can be automatically matched to EPUB headings. Would you like to match them?"
+                )
             }
         }
     }
@@ -138,27 +147,30 @@ struct PlaylistView: View {
     private func computeHierarchicalTitles(for chapters: [Chapter]) -> [String] {
         var results: [String] = []
         var stack: [(rawTitle: String, level: Int)] = []
-        
+
         func isProperPrefix(_ prefix: String, of full: String) -> Bool {
             guard full.hasPrefix(prefix) else { return false }
             if full.count == prefix.count { return true }
             let nextChar = full[full.index(full.startIndex, offsetBy: prefix.count)]
             return nextChar.isWhitespace || nextChar.isPunctuation
         }
-        
+
         for chapter in chapters {
             let defaultTitle = String(localized: "Chapter \(chapter.index + 1)")
-            let rawTitle = (chapter.title ?? defaultTitle).applyingChapterTruncation(enabled: settings.truncateChapterNamesEnabled)
-            
+            let rawTitle = (chapter.title ?? defaultTitle).applyingChapterTruncation(
+                enabled: settings.truncateChapterNamesEnabled)
+
             while let last = stack.last, !isProperPrefix(last.rawTitle, of: rawTitle) {
                 stack.removeLast()
             }
-            
+
             if let parent = stack.last {
                 let level = parent.level + 1
                 let remainder = String(rawTitle.dropFirst(parent.rawTitle.count))
-                let trimmed = remainder.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ":-.,")))
-                let formatted = String(repeating: ".", count: level) + (trimmed.isEmpty ? rawTitle : trimmed)
+                let trimmed = remainder.trimmingCharacters(
+                    in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ":-.,")))
+                let formatted =
+                    String(repeating: ".", count: level) + (trimmed.isEmpty ? rawTitle : trimmed)
                 results.append(formatted)
                 stack.append((rawTitle, level))
             } else {
@@ -177,13 +189,13 @@ struct PlaylistView: View {
 
     private func recomputePlaylistRows() -> [PlaylistRow] {
         var rows: [PlaylistRow] = []
-        
+
         if model.chapters.count >= 2 {
             // Chapter Mode: respect custom chapter ordering if reordered.
             // If showChapters is true, we iterate over the chapters in their current array order.
             if model.showChapters {
                 let minStartSeconds = model.chapters.map { $0.startSeconds }.min() ?? 0.0
-                
+
                 // Show bookmarks that appear before any chapter first
                 if model.showBookmarks {
                     let preBookmarks = model.bookmarks
@@ -193,7 +205,7 @@ struct PlaylistView: View {
                         rows.append(.bookmark(bookmark))
                     }
                 }
-                
+
                 let hierarchicalTitles = computeHierarchicalTitles(for: model.chapters)
 
                 // Audit C2: shared part prefixes become section headers; rows
@@ -206,11 +218,15 @@ struct PlaylistView: View {
                     }
                     for rowTitle in group.rowTitles {
                         let chapter = model.chapters[chapterIndex]
-                        rows.append(.chapter(index: chapterIndex, chapter: chapter, displayTitle: rowTitle))
+                        rows.append(
+                            .chapter(index: chapterIndex, chapter: chapter, displayTitle: rowTitle))
 
                         if model.showBookmarks {
                             let chapterBookmarks = model.bookmarks
-                                .filter { $0.timestamp >= chapter.startSeconds && $0.timestamp < chapter.endSeconds }
+                                .filter {
+                                    $0.timestamp >= chapter.startSeconds
+                                        && $0.timestamp < chapter.endSeconds
+                                }
                                 .sorted { $0.timestamp < $1.timestamp }
                             for bookmark in chapterBookmarks {
                                 rows.append(.bookmark(bookmark))
@@ -222,16 +238,17 @@ struct PlaylistView: View {
                 return filteredBySearch(rows)
             } else if model.showBookmarks {
                 // If only bookmarks are shown, display them chronologically
-                return filteredBySearch(model.bookmarks
-                    .sorted { $0.timestamp < $1.timestamp }
-                    .map { .bookmark($0) })
+                return filteredBySearch(
+                    model.bookmarks
+                        .sorted { $0.timestamp < $1.timestamp }
+                        .map { .bookmark($0) })
             } else {
                 return []
             }
         } else {
             // Track Mode: group bookmarks inline right under their parent tracks
             for (index, track) in model.tracks.enumerated() {
-                if model.showChapters { // showChapters acts as "showTracks" when chapters aren't available
+                if model.showChapters {  // showChapters acts as "showTracks" when chapters aren't available
                     rows.append(.track(index: index, track: track))
                 }
                 if model.showBookmarks {
@@ -262,7 +279,10 @@ struct PlaylistView: View {
                 pendingHeader = row
             case .chapter(_, _, let displayTitle):
                 if displayTitle.localizedStandardContains(query) {
-                    if let header = pendingHeader { result.append(header); pendingHeader = nil }
+                    if let header = pendingHeader {
+                        result.append(header)
+                        pendingHeader = nil
+                    }
                     result.append(row)
                 }
             case .track(_, let track):
@@ -272,7 +292,10 @@ struct PlaylistView: View {
             case .bookmark(let bm):
                 let title = bm.title.isEmpty ? String(localized: "Bookmark") : bm.title
                 if title.localizedStandardContains(query) {
-                    if let header = pendingHeader { result.append(header); pendingHeader = nil }
+                    if let header = pendingHeader {
+                        result.append(header)
+                        pendingHeader = nil
+                    }
                     result.append(row)
                 }
             }
@@ -318,7 +341,9 @@ struct PlaylistView: View {
                         switch row {
                         case .partHeader(let title, _):
                             Text(title)
-                                .customFont(.caption, weight: .semibold, appFont: model.resolvedAppFont)
+                                .customFont(
+                                    .caption, weight: .semibold, appFont: model.resolvedAppFont
+                                )
                                 .textCase(.uppercase)
                                 .kerning(0.8)
                                 .foregroundStyle(.secondary)
@@ -361,10 +386,12 @@ struct PlaylistView: View {
                 logger.error("Failed to select document: \(error)")
             }
         }
-        .sheet(item: Binding(
-            get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
-            set: { editingBookmarkID = $0?.id }
-        )) { wrapper in
+        .sheet(
+            item: Binding(
+                get: { editingBookmarkID.map { IdentifiableUUID(id: $0) } },
+                set: { editingBookmarkID = $0?.id }
+            )
+        ) { wrapper in
             EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
         }
         .onAppear {
@@ -384,10 +411,11 @@ struct PlaylistView: View {
         .onChange(of: model.showChapters) { _, _ in scheduleRebuild() }
         .onChange(of: model.showBookmarks) { _, _ in scheduleRebuild() }
         .onChange(of: searchText) { _, _ in scheduleRebuild() }
-        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
+            notification in
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
-                  let audiobookID = model.folderURL?.absoluteString,
-                  ingestedID == audiobookID
+                let audiobookID = model.folderURL?.absoluteString,
+                ingestedID == audiobookID
             else { return }
             hasEPUB = model.hasEPUB
             hasPDF = model.hasPDF
@@ -417,9 +445,15 @@ struct PlaylistView: View {
             },
             set: { newValue in
                 switch newValue {
-                case .all: model.showChapters = true; model.showBookmarks = true
-                case .chapters: model.showChapters = true; model.showBookmarks = false
-                case .bookmarks: model.showChapters = false; model.showBookmarks = true
+                case .all:
+                    model.showChapters = true
+                    model.showBookmarks = true
+                case .chapters:
+                    model.showChapters = true
+                    model.showBookmarks = false
+                case .bookmarks:
+                    model.showChapters = false
+                    model.showBookmarks = true
                 }
             }
         )
@@ -429,85 +463,91 @@ struct PlaylistView: View {
     private var filterChipsRow: some View {
         @Bindable var model = model
         VStack(spacing: 8) {
-        HStack(spacing: 12) {
-            Picker("Show", selection: filterSelection) {
-                Text("All").tag(PlaylistFilter.all)
-                Text(model.chapters.count >= 2 ? "Chapters" : "Tracks").tag(PlaylistFilter.chapters)
-                Text("Bookmarks").tag(PlaylistFilter.bookmarks)
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 280)
-
-            if isEmbedded && (model.chapters.count >= 2 || model.tracks.count > 1) {
-                Button {
-                    withAnimation { model.isPlaylistEditing.toggle() }
-                } label: {
-                    Image(systemName: model.isPlaylistEditing ? "checkmark.circle.fill" : "arrow.up.and.down")
+            HStack(spacing: 12) {
+                Picker("Show", selection: filterSelection) {
+                    Text("All").tag(PlaylistFilter.all)
+                    Text(model.chapters.count >= 2 ? "Chapters" : "Tracks").tag(
+                        PlaylistFilter.chapters)
+                    Text("Bookmarks").tag(PlaylistFilter.bookmarks)
                 }
-                .buttonStyle(.bordered)
-                .accessibilityLabel(model.isPlaylistEditing ? String(localized: "Done") : String(localized: "Reorder"))
-            }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 280)
 
-            Spacer()
-            
-            if hasEPUB || hasPDF || hasTranscript {
-                Button {
-                    if let action = onZoomIn {
-                        action()
-                    } else {
-                        model.selectedTab = .read
+                if isEmbedded && (model.chapters.count >= 2 || model.tracks.count > 1) {
+                    Button {
+                        withAnimation { model.isPlaylistEditing.toggle() }
+                    } label: {
+                        Image(
+                            systemName: model.isPlaylistEditing
+                                ? "checkmark.circle.fill" : "arrow.up.and.down")
                     }
-                } label: {
-                    Image(systemName: "doc.text.magnifyingglass")
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(
+                        model.isPlaylistEditing
+                            ? String(localized: "Done") : String(localized: "Reorder"))
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.accentColor)
-                .accessibilityLabel(String(localized: "Read companion document"))
-                .contextMenu {
+
+                Spacer()
+
+                if hasEPUB || hasPDF || hasTranscript {
+                    Button {
+                        if let action = onZoomIn {
+                            action()
+                        } else {
+                            model.selectedTab = .read
+                        }
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.accentColor)
+                    .accessibilityLabel(String(localized: "Read companion document"))
+                    .contextMenu {
+                        Button {
+                            model.showingDocumentImporter = true
+                        } label: {
+                            Label(
+                                String(localized: "Replace Document"),
+                                systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                        }
+                    }
+                } else {
                     Button {
                         model.showingDocumentImporter = true
                     } label: {
-                        Label(String(localized: "Replace Document"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                        Image(systemName: "doc.badge.plus")
                     }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(String(localized: "Import Document"))
                 }
-            } else {
-                Button {
-                    model.showingDocumentImporter = true
-                } label: {
-                    Image(systemName: "doc.badge.plus")
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel(String(localized: "Import Document"))
             }
-        }
-        .padding(.horizontal, 16)
+            .padding(.horizontal, 16)
 
-        // Inline search field (stands in for `.searchable`, which needs the
-        // hidden system navigation bar to render).
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search chapters & bookmarks", text: $searchText)
-                .textFieldStyle(.plain)
-                .autocorrectionDisabled()
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+            // Inline search field (stands in for `.searchable`, which needs the
+            // hidden system navigation bar to render).
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search chapters & bookmarks", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel(Text("Clear search"))
                 }
-                .accessibilityLabel(Text("Clear search"))
             }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 16)
         }
         .padding(.vertical, 8)
     }
-
 
     @ViewBuilder
     private func chapterRow(index: Int, chapter: Chapter, displayTitle: String) -> some View {
@@ -527,7 +567,8 @@ struct PlaylistView: View {
     }
 
     @ViewBuilder
-    private func chapterRowContent(index: Int, chapter: Chapter, displayTitle: String) -> some View {
+    private func chapterRowContent(index: Int, chapter: Chapter, displayTitle: String) -> some View
+    {
         HStack {
             // Audit C1 (inverted on purpose): the whole row toggles the chapter
             // — an accidental toggle is harmless and instantly visible; an
@@ -559,7 +600,11 @@ struct PlaylistView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(displayTitle))
-            .accessibilityValue(Text(chapter.isEnabled ? String(localized: "Enabled") : String(localized: "Disabled")))
+            .accessibilityValue(
+                Text(
+                    chapter.isEnabled ? String(localized: "Enabled") : String(localized: "Disabled")
+                )
+            )
             .accessibilityHint(Text("Double tap to toggle this chapter"))
 
             Button {
@@ -582,7 +627,9 @@ struct PlaylistView: View {
             Button {
                 model.toggleChapterEnabled(at: index)
             } label: {
-                Label(chapter.isEnabled ? String(localized: "Disable") : String(localized: "Enable"), systemImage: chapter.isEnabled ? "eye.slash" : "eye")
+                Label(
+                    chapter.isEnabled ? String(localized: "Disable") : String(localized: "Enable"),
+                    systemImage: chapter.isEnabled ? "eye.slash" : "eye")
             }
             .tint(chapter.isEnabled ? .orange : .green)
         }
@@ -652,7 +699,9 @@ struct PlaylistView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(track.title))
-            .accessibilityValue(Text(track.isEnabled ? String(localized: "Enabled") : String(localized: "Disabled")))
+            .accessibilityValue(
+                Text(track.isEnabled ? String(localized: "Enabled") : String(localized: "Disabled"))
+            )
             .accessibilityHint(Text("Double tap to toggle this track"))
 
             Button {
@@ -675,7 +724,9 @@ struct PlaylistView: View {
             Button {
                 model.toggleTrackEnabled(at: index)
             } label: {
-                Label(track.isEnabled ? String(localized: "Disable") : String(localized: "Enable"), systemImage: track.isEnabled ? "eye.slash" : "eye")
+                Label(
+                    track.isEnabled ? String(localized: "Disable") : String(localized: "Enable"),
+                    systemImage: track.isEnabled ? "eye.slash" : "eye")
             }
             .tint(track.isEnabled ? .orange : .green)
         }
@@ -689,7 +740,11 @@ struct PlaylistView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: bm.voiceMemoFileName != nil ? "mic.fill" : "note.text")
-                    .foregroundStyle(bm.isEnabled ? (bm.voiceMemoFileName != nil ? Color.red : Color.accentColor) : Color.secondary)
+                    .foregroundStyle(
+                        bm.isEnabled
+                            ? (bm.voiceMemoFileName != nil ? Color.red : Color.accentColor)
+                            : Color.secondary
+                    )
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(bm.title.isEmpty ? String(localized: "Bookmark") : bm.title)
@@ -705,15 +760,20 @@ struct PlaylistView: View {
             }
             .foregroundStyle(bm.isEnabled ? .primary : .tertiary)
         }
-        .accessibilityHint(Text(bm.isEnabled
-            ? String(localized: "Swipe left to edit or delete, swipe right to disable")
-            : String(localized: "Swipe left to edit or delete, swipe right to enable")))
+        .accessibilityHint(
+            Text(
+                bm.isEnabled
+                    ? String(localized: "Swipe left to edit or delete, swipe right to disable")
+                    : String(localized: "Swipe left to edit or delete, swipe right to enable"))
+        )
         .listRowBackground(Color.accentColor.opacity(bm.isEnabled ? 0.06 : 0.02))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 model.toggleBookmarkEnabled(id: bm.id)
             } label: {
-                Label(bm.isEnabled ? String(localized: "Disable") : String(localized: "Enable"), systemImage: bm.isEnabled ? "bookmark.slash" : "bookmark")
+                Label(
+                    bm.isEnabled ? String(localized: "Disable") : String(localized: "Enable"),
+                    systemImage: bm.isEnabled ? "bookmark.slash" : "bookmark")
             }
             .tint(bm.isEnabled ? .orange : .green)
         }
@@ -740,8 +800,10 @@ struct PlaylistView: View {
             if model.showChapters {
                 Section("Chapters") {
                     let hierarchicalTitles = computeHierarchicalTitles(for: model.chapters)
-                    ForEach(Array(model.chapters.enumerated()), id: \.element.id) { index, chapter in
-                        editingChapterRow(index: index, chapter: chapter, displayTitle: hierarchicalTitles[index])
+                    ForEach(Array(model.chapters.enumerated()), id: \.element.id) {
+                        index, chapter in
+                        editingChapterRow(
+                            index: index, chapter: chapter, displayTitle: hierarchicalTitles[index])
                     }
                     .onMove { source, destination in
                         model.moveChapters(from: source, to: destination)
@@ -767,7 +829,8 @@ struct PlaylistView: View {
     }
 
     @ViewBuilder
-    private func editingChapterRow(index: Int, chapter: Chapter, displayTitle: String) -> some View {
+    private func editingChapterRow(index: Int, chapter: Chapter, displayTitle: String) -> some View
+    {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayTitle)
@@ -793,20 +856,22 @@ struct PlaylistView: View {
             if model.currentIndex == index {
                 Image(systemName: "play.circle.fill")
                     .foregroundStyle(.tint)
-                }
             }
+        }
         .foregroundStyle(track.isEnabled ? .primary : .tertiary)
         .opacity(track.isEnabled ? 1.0 : 0.35)
     }
 
     private func handleEPUBMatch(_ heading: EPubBlockRecord) {
         guard let audioChapter = chapterForEPUBMatch,
-              let db = model.databaseService,
-              let audiobookID = model.folderURL?.absoluteString else { return }
+            let db = model.databaseService,
+            let audiobookID = model.folderURL?.absoluteString
+        else { return }
 
         let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
         do {
-            try alignmentService.moveBlockToCurrentTime(blockID: heading.id, time: audioChapter.startSeconds)
+            try alignmentService.moveBlockToCurrentTime(
+                blockID: heading.id, time: audioChapter.startSeconds)
             Haptic.play(.medium)
         } catch {
             logger.error("Failed to align chapter: \(error.localizedDescription)")
@@ -815,15 +880,18 @@ struct PlaylistView: View {
         let dao = EPubBlockDAO(db: db.writer)
         do {
             let allBlocks = try dao.blocks(for: audiobookID)
-            let allHeadings = allBlocks.filter { $0.blockKind == EPubBlockRecord.Kind.heading.rawValue && !($0.text?.isEmpty ?? true) }
-            
+            let allHeadings = allBlocks.filter {
+                $0.blockKind == EPubBlockRecord.Kind.heading.rawValue && !($0.text?.isEmpty ?? true)
+            }
+
             let audioChapters = model.alignmentPickerChapters
             guard let audioIdx = audioChapters.firstIndex(where: { $0.id == audioChapter.id }),
-                  let headingIdx = allHeadings.firstIndex(where: { $0.id == heading.id }) else { return }
-            
+                let headingIdx = allHeadings.firstIndex(where: { $0.id == heading.id })
+            else { return }
+
             let remainingAudio = audioChapters.dropFirst(audioIdx + 1)
             let remainingHeadings = allHeadings.dropFirst(headingIdx + 1)
-            
+
             let matchCount = min(remainingAudio.count, remainingHeadings.count)
             if matchCount > 0 {
                 var pending: [(audioChapter: Chapter, heading: EPubBlockRecord)] = []
@@ -842,17 +910,19 @@ struct PlaylistView: View {
 
     private func applyPendingMatches() {
         guard let db = model.databaseService,
-              let audiobookID = model.folderURL?.absoluteString else { return }
-        
+            let audiobookID = model.folderURL?.absoluteString
+        else { return }
+
         let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
         for match in pendingEPUBMatches {
             do {
-                try alignmentService.moveBlockToCurrentTime(blockID: match.heading.id, time: match.audioChapter.startSeconds)
+                try alignmentService.moveBlockToCurrentTime(
+                    blockID: match.heading.id, time: match.audioChapter.startSeconds)
             } catch {
                 logger.error("Failed to align pending chapter: \(error.localizedDescription)")
             }
         }
-        
+
         Haptic.play(.medium)
         pendingEPUBMatches.removeAll()
     }
