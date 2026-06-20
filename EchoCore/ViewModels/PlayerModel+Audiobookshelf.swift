@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import UIKit
 
 extension PlayerModel {
     /// DAO for the single connected ABS server. nil if the DB isn't ready yet.
@@ -139,6 +140,13 @@ extension PlayerModel {
             throw ABSError.notConnected
         }
         let importer = ABSImportService(service: service, db: db, serverID: serverID)
+        // Background-task grace window: if the user backgrounds the app mid-import, the OS
+        // grants ~30s–3min so an in-flight download can finish rather than being suspended
+        // immediately. Full background-`URLSession` resumption is a future enhancement — the
+        // ABS whole-item zip has no Content-Length / byte-range support, so it can't truly
+        // resume; this covers the common "switch apps while it downloads" case.
+        let bgTask = UIApplication.shared.beginBackgroundTask(withName: "abs-import")
+        defer { if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) } }
         let folder = try await importer.prepareLocalFolder(for: item)
         loadFolder(folder, autoplay: false)
     }
