@@ -68,6 +68,15 @@ platform :ios do
   lane :beta do |options|
     require_api_key!
 
+    # ── CI: non-interactive code-signing keychain ─────────────────────
+    # Create a dedicated temporary keychain with its partition list set so
+    # codesign can use the match-installed signing key WITHOUT a GUI prompt.
+    # Without this, the archive's *signing* step hangs forever on a headless
+    # runner waiting for a keychain-access dialog that no one can click (the
+    # multi-hour stall at "Signing …appex"). No-op locally — local dev signs
+    # against the login keychain. Must run BEFORE match so it installs there.
+    setup_ci if is_ci
+
     # ── Release-train channel → TestFlight group routing ──────────────
     # release-trains.yml passes channel:nightly|weekly. Map each channel to its
     # tester group + distribution mode:
