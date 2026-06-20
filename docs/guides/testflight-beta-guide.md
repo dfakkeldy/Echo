@@ -93,6 +93,49 @@ Pick whichever matches your life. Each plan is 10–20 minutes of intentional te
 3. If you use VoiceOver: a pass over the player and reader — every control labeled and operable?
 4. Enable Reduce Motion: anything still animating that shouldn't?
 
+### Plan G — The 1.0 Preview *(as builds gain the new features)* 🚧
+The road to 1.0 lands feature-by-feature in beta builds — each build's **What to Test** notes say which of these are live. When yours has them:
+1. **Insights:** after a few days of normal listening, open Insights. Do the totals, streak, and per-chapter coverage match your memory of the week?
+2. **Card Inbox:** mark three passages from the transport bar (and one from the watch) without pausing; later, convert one, dismiss one, leave one. Did anything interrupt playback?
+3. **Brain Dump:** dictate a note from the watch mid-chapter; confirm it lands on the right book and playback never hiccuped. Promote it to a flashcard.
+4. **Anki import:** bring a real .apkg deck. Counts right? Scheduling sensible (mature cards not reset)? Cloze cards reported in the summary?
+5. **Context Memory:** opt in, bookmark something on a walk, check the place chip. Try airplane mode — bookmarks must still save instantly. Then press *Delete Location History* and verify everything's gone.
+6. **Study sync:** with two devices on the same iCloud, create a card on one and review it on the other.
+
+### Plan H — The Narrator *(on-device narration — no audiobook needed)*
+Echo's flagship new surface. Works on every device Echo supports — no special chip required.
+1. Import a **text-only EPUB** (one with no matching audiobook) and tap **Narrate**. Echo voices it on-device — no cloud, no account. Note your device and how long the first words took (the model warms up once).
+2. Try a plain **.md / .markdown / .txt** file too: does it import and narrate, with chapter breaks in sensible places?
+3. Read along as it narrates — do the words light up in time? Scrub, then tap a paragraph: does the voice follow?
+4. Switch the narrator voice and re-narrate a chapter.
+5. Free narration covers **one chapter per book**; the rest is Echo Pro (Plan K). Does that limit explain itself clearly when you hit it?
+
+### Plan I — The PDF Companion
+1. Import a **PDF** — as a book's companion (slides, a scanned textbook, sheet music) or on its own. The import button takes EPUB and PDF and routes automatically.
+2. Reader tab: is continuous scroll and pinch-zoom smooth? Pages legible at your text size?
+3. If the PDF has matching audio, try tap-to-seek / read-along. Report anything that drifts or won't seek.
+
+### Plan J — Export & Take It With You
+1. Export an audiobook as **.m4b** (the "Export Audiobook (.m4b)…" action). Open it in another player: do chapters, cover, and metadata survive?
+2. Export your study notes as **Markdown** — formatting and passages intact?
+3. Export a deck as **Anki .apkg** and import it into Anki: card counts and fronts/backs right? *(Study export is an Echo Pro feature — see Plan K.)*
+
+### Plan K — Echo Pro *(in-app purchase — TestFlight sandbox)*
+1. Trip a Pro gate: narrate past chapter 1, or tap **Study Export**. Does the paywall make the value obvious and state the free limits honestly?
+2. In the TestFlight sandbox, buy each tier — **monthly**, **yearly**, the **lifetime** unlock, and the **founders** offer. Any price, copy, or flow that feels off?
+3. Force-quit, relaunch, and tap **Restore Purchases** — does Pro come back without re-paying?
+4. Report anything that locks a feature it shouldn't, or unlocks one it shouldn't.
+
+### Plan L — The Mac *(if you test on macOS)*
+1. Import a book — or a whole folder of EPUBs.
+2. Use **Narrate EPUB(s)…** from the menu; if you queued several, watch the batch queue chew through them.
+3. Read along in the reader; export an audiobook or a deck. Anything Mac-only broken, or different from the phone?
+
+### Plan M — Audiobookshelf *(self-hosters)*
+1. Settings → **Add Audiobookshelf Server**; connect to your server.
+2. Browse and search your ABS library; download or stream a book and play it.
+3. Listen on one device, then confirm progress synced back to the server (and to Echo on another device). Report anything that double-counts or resets position.
+
 ---
 
 ## 4. Known limitations (current beta)
