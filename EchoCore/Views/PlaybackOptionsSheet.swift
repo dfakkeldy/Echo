@@ -68,9 +68,19 @@ struct PlaybackOptionsSheet: View {
                 }
             }
             .navigationTitle("Playback Options")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
+                }
+                // BookPlayer-style "More" → the full player-controls surface
+                // (skip intervals, smart rewind, quick-action speeds, layout).
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        PhonePlayerSettingsView()
+                    } label: {
+                        Text("More")
+                    }
                 }
             }
         }

@@ -112,8 +112,15 @@ struct NowPlayingTab: View {
                 }
 
                 // D. Main Scrubber (completely exposed, floating over background)
+                // `containerRelativeFrame` (not `.padding`) sets an explicit
+                // width: the scrubber's greedy `Slider`/`maxWidth: .infinity`
+                // content overflows a padding-reduced proposal back to full
+                // bleed, so padding alone left the slider + time labels jammed
+                // against the screen edges.
                 PlayerScrubberView()
-                    .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                    .containerRelativeFrame(.horizontal) { width, _ in
+                        width - 2 * NowPlayingLayout.horizontalPadding
+                    }
                     .tint(model.artworkAccentColor ?? .accentColor)
                     .padding(.vertical, 16)
 
