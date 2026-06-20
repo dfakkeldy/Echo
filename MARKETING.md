@@ -26,6 +26,17 @@ So the positioning is layered, not narrowed:
 
 **Rule of thumb:** lead every surface with the *universal benefit* (remember what you hear), support it with the *neurodivergent-first origin* (credibility + differentiation), and close with the *technical depth* (alignment, SRS, watch) for the people who evaluate features.
 
+### Holding the line against the "sync" crowd (2026)
+
+A wave of indie apps now does on-device audiobook↔ebook **sync** — Voxlight, AudioBookSync, SyncBooks (see `docs/competitor-analysis.md` §7.11). They share Echo's privacy/on-device pitch and even similar landing pages, so **never lead with "sync your own files, on-device, private."** That's table stakes now — it camouflages Echo into the crowd.
+
+Lead with the two tiers above them, which none of them reach:
+
+1. **Word-level read-along** (true karaoke), not chapter-level snapping. The sync cohort matches *chapters*; Echo follows every *word*.
+2. **Spaced-repetition study** — flashcards with auto-attached audio snippets, across iPhone/Watch/Mac. **No competitor has a study layer at all.**
+
+Messaging rule: **sync is the bridge, study is the destination.** The defensible superlative is **"the only audiobook *study* player"** — *never* "the only app that aligns audio to text," which is no longer true (a reviewer will catch it; see `competitor-analysis.md` §6). The website carries this as the "Read-along is where most apps stop" depth-ladder section on `index.html`.
+
 ### How much of Dan's story to include
 
 All of it — it is the single most differentiating asset Echo has. A 47-year-old mail carrier with no formal CS background, facing a layoff, who built a four-platform Apple app in two months because no app on the internet would loop a chapter — that is a story tech press, Reddit, and Apple editorial all respond to. People root for it, and it *proves* the app's thesis: it was built inside the exact interruption-heavy life it serves.
