@@ -9,10 +9,9 @@ team_id("8AXNA5B37R") # Put your real Team ID here
 # Since you have macOS and watchOS extensions, you can explicitly add them too:
 for_lane :beta do
   app_identifier([
-    "com.echo.audiobooks",
+    "com.echo.audiobooks",                     # iOS app AND native macOS app (universal — same bundle id)
     "com.echo.audiobooks.watchkitapp",
-    "com.echo.audiobooks.watchkitapp.widget",
-    "com.echo.audiobooks.macos"
+    "com.echo.audiobooks.watchkitapp.widget"
   ])
   # TODO(Echo rebrand): Update to com.echo.audiobooks equivalents
 end

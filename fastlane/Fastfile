@@ -82,8 +82,27 @@ platform :ios do
                             end
     UI.message("Release channel: #{channel.empty? ? '(none)' : channel} → group: #{tf_group || '(none)'}, external: #{tf_external}")
 
-    # ── iOS Code Signing ─────────────────────────────
-    # Syncs certificates and profiles for main app, watch app, and widget extension
+    # ── Build number (computed once; used by both iOS and macOS archives) ──
+    # TestFlight requires each upload's build number (CFBundleVersion) to be
+    # unique and higher than the previous. MARKETING_VERSION is left alone —
+    # bump that only for real releases. Query TestFlight's latest build and add
+    # one (starts at 1 when the app has no builds). Applied via xcargs so
+    # CURRENT_PROJECT_VERSION is overridden without mutating the project.
+    next_build = latest_testflight_build_number(
+      api_key: @api_key,
+      app_identifier: "com.echo.audiobooks",
+      initial_build_number: 0
+    ) + 1
+    UI.message("Build number for this run: #{next_build}")
+
+    # ── iOS: sync → (CI) manual-sign → archive ────────────────────────────
+    # IMPORTANT: iOS is signed *and archived* fully BEFORE the macOS sync. The
+    # macOS app is universal — it shares the iOS bundle id (com.echo.audiobooks)
+    # under the `macos` platform — so its Mac App Store profile would overwrite
+    # the iOS profile in match's bundle-id-keyed MATCH_PROVISIONING_PROFILE_MAPPING.
+    # Building iOS first keeps the live mapping correct for the iOS archive/export.
+    # (On CI the project's Automatic signing can't mint profiles headlessly, so we
+    # switch each target to the match profile manually; local dev keeps Automatic.)
     sync_code_signing(
       api_key: @api_key,
       type: "appstore",
@@ -94,30 +113,12 @@ platform :ios do
       ],
       readonly: is_ci
     )
-
-    # ── macOS Code Signing ───────────────────────────
-    sync_code_signing(
-      api_key: @api_key,
-      type: "appstore",
-      platform: "macos", # native macOS target needs a Mac App Store profile (not ios)
-      app_identifier: ["com.echo.audiobooks.macos"],
-      readonly: is_ci
-    )
-
-    # ── CI: point the archive at the match profiles (manual signing) ──────
-    # The project uses Automatic signing (ideal for local dev), but automatic
-    # signing can't mint provisioning profiles on a headless runner. match has
-    # already installed the App Store profiles; switch each target to manual
-    # signing using them so build_app's *archive* step resolves signing. CI-only
-    # — local dev keeps Automatic signing. (build_app already auto-applies the
-    # match profile mapping on *export*.)
     if is_ci
       mapping = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {}
       {
         "Echo"                 => "com.echo.audiobooks",
         "Echo Watch App"       => "com.echo.audiobooks.watchkitapp",
-        "Echo WidgetExtension" => "com.echo.audiobooks.watchkitapp.widget",
-        "Echo macOS"           => "com.echo.audiobooks.macos"
+        "Echo WidgetExtension" => "com.echo.audiobooks.watchkitapp.widget"
       }.each do |target, bundle_id|
         profile = mapping[bundle_id]
         next if profile.nil?
@@ -131,22 +132,6 @@ platform :ios do
         )
       end
     end
-
-    # ── Unique, monotonic build number ────────────────────────────────────
-    # TestFlight requires each upload's build number (CFBundleVersion) to be
-    # unique and higher than the previous. The marketing version is left alone —
-    # bump MARKETING_VERSION only for real releases. Query TestFlight's latest
-    # build and add one (starts at 1 when the app has no builds). Applied via
-    # xcargs so CURRENT_PROJECT_VERSION is overridden without mutating the project.
-    next_build = latest_testflight_build_number(
-      api_key: @api_key,
-      app_identifier: "com.echo.audiobooks",
-      initial_build_number: 0
-    ) + 1
-    UI.message("Build number for this run: #{next_build}")
-
-    # ── Build iOS + watchOS ──────────────────────────
-    # Note: Xcode automatically embeds the watch app and widget inside the iOS wrapper
     build_app(
       project: "Echo.xcodeproj",
       scheme: "Echo",
@@ -155,10 +140,34 @@ platform :ios do
       xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
     )
 
-    # ── Build macOS (if scheme exists) ───────────────
-    # Wrapped in a rescue so a macOS failure doesn't block the iOS upload
+    # ── macOS: sync → (CI) manual-sign → archive (rescue-wrapped) ─────────
+    # Universal app: the Mac App Store profile is under the SAME bundle id
+    # (com.echo.audiobooks) but the `macos` platform. Synced AFTER the iOS build
+    # so it doesn't clobber the iOS profile mapping. Wrapped in a rescue so a
+    # macOS failure (e.g. the still-manual Mac Installer Distribution cert, or the
+    # App Store record not yet having a macOS platform) never blocks the iOS upload.
     if scheme_exists?("Echo macOS")
       begin
+        sync_code_signing(
+          api_key: @api_key,
+          type: "appstore",
+          platform: "macos",
+          app_identifier: ["com.echo.audiobooks"],
+          readonly: is_ci
+        )
+        if is_ci
+          macos_profile = (lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {})["com.echo.audiobooks"]
+          unless macos_profile.nil?
+            update_code_signing_settings(
+              path: "Echo.xcodeproj",
+              use_automatic_signing: false,
+              targets: ["Echo macOS"],
+              team_id: "8AXNA5B37R",
+              code_sign_identity: "Apple Distribution",
+              profile_name: macos_profile
+            )
+          end
+        end
         build_app(
           project: "Echo.xcodeproj",
           scheme: "Echo macOS",
