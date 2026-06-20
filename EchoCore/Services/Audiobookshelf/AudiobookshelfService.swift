@@ -108,6 +108,59 @@ final class AudiobookshelfService {
         return endpoints.cover(itemID, token: token)
     }
 
+    // MARK: Progress
+
+    /// Current ABS-side progress for an item, or nil if none recorded yet (404).
+    func getProgress(itemID: String) async throws -> ABSMediaProgressResponse? {
+        let request = URLRequest(url: endpoints.progress(itemID))
+        do {
+            return try await authorized(request, decode: ABSMediaProgressResponse.self)
+        } catch ABSError.http(404, _) {
+            return nil
+        }
+    }
+
+    /// Push local progress to ABS (PATCH /api/me/progress/<id>).
+    func patchProgress(itemID: String, currentTime: Double, duration: Double, isFinished: Bool)
+        async throws
+    {
+        var request = URLRequest(url: endpoints.progress(itemID))
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let fraction = duration > 0 ? min(1.0, max(0.0, currentTime / duration)) : 0
+        request.httpBody = try JSONEncoder().encode(
+            ABSMediaProgressPatch(
+                currentTime: currentTime, duration: duration,
+                progress: fraction, isFinished: isFinished))
+        try await authorizedNoContent(request)
+    }
+
+    /// Like `authorized` but for requests whose response body we don't decode (PATCH/POST).
+    /// Same Bearer + single 401-refresh-retry behavior.
+    func authorizedNoContent(_ request: URLRequest) async throws {
+        func run(_ r: URLRequest) async throws {
+            let (_, response) = try await session.data(for: r)
+            guard let http = response as? HTTPURLResponse else {
+                throw ABSError.network(URLError(.badServerResponse))
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                throw ABSError.http(http.statusCode, body: nil)
+            }
+        }
+        var attempt = request
+        if let access = tokens.accessToken {
+            attempt.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        }
+        do {
+            try await run(attempt)
+        } catch ABSError.http(401, _) {
+            let access = try await refreshAccessToken()
+            var retry = request
+            retry.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+            try await run(retry)
+        }
+    }
+
     // MARK: Authorized request plumbing
 
     /// Performs `request` with a Bearer access token; on 401 refreshes once and retries.

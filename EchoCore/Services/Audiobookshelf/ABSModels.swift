@@ -211,3 +211,11 @@ struct ABSMediaProgressResponse: Decodable {
     let ebookLocation: String?
     let ebookProgress: Double?
 }
+
+/// Focused PATCH body for pushing local playback progress to ABS.
+struct ABSMediaProgressPatch: Encodable {
+    let currentTime: Double
+    let duration: Double
+    let progress: Double
+    let isFinished: Bool
+}

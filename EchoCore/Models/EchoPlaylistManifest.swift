@@ -24,6 +24,7 @@ struct EchoPlaylistManifest: Codable, Sendable {
         var lastPosition: Double = 0
         var speed: Double = 1.25
         var loopMode: String = "off"
+        var updatedAt: Double? = nil  // local last-progress-save time, epoch ms (for ABS sync conflict resolution)
     }
 
     struct ManifestBookmark: Codable {
@@ -66,5 +67,6 @@ extension EchoPlaylistManifest.ManifestPlaybackState {
         lastPosition = try c.decodeIfPresent(Double.self, forKey: .lastPosition) ?? 0
         speed = try c.decodeIfPresent(Double.self, forKey: .speed) ?? 1.25
         loopMode = try c.decodeIfPresent(String.self, forKey: .loopMode) ?? "off"
+        updatedAt = try c.decodeIfPresent(Double.self, forKey: .updatedAt)
     }
 }
