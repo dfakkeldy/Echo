@@ -99,6 +99,7 @@ platform :ios do
     sync_code_signing(
       api_key: @api_key,
       type: "appstore",
+      platform: "macos", # native macOS target needs a Mac App Store profile (not ios)
       app_identifier: ["com.echo.audiobooks.macos"],
       readonly: is_ci
     )
