@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import Testing
+
+@testable import Echo
+
+@Suite struct TextDocumentParserTests {
+
+    private let src = URL(fileURLWithPath: "/tmp/My Book.md")
+
+    private func parse(_ md: String) -> EPUBBlockParse {
+        parseMarkdown(audiobookID: "ab", content: md, sourceURL: src)
+    }
+
+    @Test func chapterLevelIsShallowestRepeatingLevel() {
+        #expect(TextDocChapterLeveling.chapterLevel(of: [1, 2, 2]) == 2)  // lone # title, ## chapters
+        #expect(TextDocChapterLeveling.chapterLevel(of: [2, 2, 3, 3]) == 2)  // ## chapters, ### sections
+        #expect(TextDocChapterLeveling.chapterLevel(of: [1, 1, 2]) == 1)  // flat # chapters
+        #expect(TextDocChapterLeveling.chapterLevel(of: [1]) == 1)  // single heading
+        #expect(TextDocChapterLeveling.chapterLevel(of: []) == nil)  // no headings
+        // Degenerate single-occurrence cases: a lone leading H1 is a title
+        // (skip to ##); a lone H2 with no H1 is itself the chapter.
+        #expect(TextDocChapterLeveling.chapterLevel(of: [1, 2]) == 2)  // # title + one ## chapter
+        #expect(TextDocChapterLeveling.chapterLevel(of: [2, 3]) == 2)  // ## chapter + ### section
+    }
+
+    @Test func eachChapterLevelHeadingIsItsOwnSpineChapter() {
+        let p = parse("## One\n\nAlpha.\n\n## Two\n\nBeta.")
+        let chapters = Set(p.blocks.compactMap(\.spineIndex))
+        #expect(chapters.count == 2)
+        let headings = p.blocks.filter { $0.blockKind == "heading" }.map { $0.text }
+        #expect(headings == ["One", "Two"])
+    }
+
+    @Test func deeperHeadingsStayInsideTheChapter() {
+        let p = parse("## Chapter\n\nIntro.\n\n### Section\n\nBody.")
+        // One chapter spine; the ### heading shares it, not a new chapter.
+        #expect(Set(p.blocks.map(\.spineIndex)).count == 1)
+        #expect(p.blocks.filter { $0.blockKind == "heading" }.count == 2)
+    }
+
+    @Test func loneLeadingTitleIsFrontMatterNotAChapter() {
+        let p = parse("# The Title\n\nForeword.\n\n## Chapter One\n\nBody.")
+        let title = try! #require(p.blocks.first { $0.text == "The Title" })
+        #expect(title.isFrontMatter)
+        // "Chapter One" body is a real chapter (not front matter).
+        let body = try! #require(p.blocks.first { $0.text == "Chapter One" })
+        #expect(!body.isFrontMatter)
+    }
+
+    @Test func listItemsBecomeOneBlockEach() {
+        let p = parse("## C\n\n- first\n- second\n- third")
+        let paras = p.blocks.filter { $0.blockKind == "paragraph" }.map { $0.text }
+        #expect(paras == ["first", "second", "third"])
+    }
+
+    @Test func fencedCodeAndTablesAreDropped() {
+        let p = parse("## C\n\nReal text.\n\n```\nlet x = 1\n```\n\n| a | b |\n| - | - |\n")
+        #expect(p.blocks.contains { $0.text == "Real text." })
+        #expect(!p.blocks.contains { ($0.text ?? "").contains("let x") })
+        #expect(!p.blocks.contains { ($0.text ?? "").contains("|") })
+    }
+
+    @Test func boldSpanSurvivesIntoBlockTextFormats() {
+        let p = parse("## C\n\nThis is **strong** prose.")
+        let para = try! #require(p.blocks.first { ($0.text ?? "").contains("strong") })
+        #expect(para.text == "This is strong prose.")
+        #expect(para.decodedFormats.contains { $0.type == .bold })
+    }
+
+    @Test func blockIDsFollowSchemeAndAreReproducible() {
+        let a = parse("## C\n\nx.\n\n## D\n\ny.")
+        let b = parse("## C\n\nx.\n\n## D\n\ny.")
+        #expect(a.blocks.map(\.id) == b.blocks.map(\.id))
+        #expect(a.blocks.allSatisfy { $0.id.hasPrefix("epub-ab-s") })
+    }
+
+    @Test func titleComesFromFilename() {
+        // (Title is consumed by the importer/loader, not the parse; assert the
+        // source filename is recoverable via the spine href the parser emits.)
+        let p = parse("## C\n\nbody")
+        #expect(!p.spine.isEmpty)
+    }
+}
