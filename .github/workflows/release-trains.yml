@@ -145,4 +145,4 @@ jobs:
       # separate TestFlight tester groups so testers self-select their risk.
       - name: Upload ${{ steps.train.outputs.channel }} build to TestFlight
         if: steps.creds.outputs.ready == 'true'
-        run: bundle exec fastlane beta
+        run: bundle exec fastlane beta channel:${{ steps.train.outputs.channel }}
