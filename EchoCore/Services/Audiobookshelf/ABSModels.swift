@@ -52,6 +52,10 @@ struct ABSServerSettings: Decodable {
 
 // MARK: - Libraries
 
+struct ABSLibrariesResponse: Decodable {
+    let libraries: [ABSLibrary]
+}
+
 struct ABSLibrary: Decodable, Identifiable {
     let id: String
     let name: String

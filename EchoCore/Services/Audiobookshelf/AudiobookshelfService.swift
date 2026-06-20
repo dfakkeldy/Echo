@@ -73,6 +73,32 @@ final class AudiobookshelfService {
         tokens.clear()
     }
 
+    // MARK: Browse
+
+    func libraries() async throws -> [ABSLibrary] {
+        let request = URLRequest(url: endpoints.libraries())
+        return try await authorized(request, decode: ABSLibrariesResponse.self).libraries
+    }
+
+    func items(libraryID: String, page: Int = 0, limit: Int = 50, filter: String? = nil)
+        async throws -> ABSLibraryItemsResponse
+    {
+        let request = URLRequest(
+            url: endpoints.items(libraryID: libraryID, page: page, limit: limit, filter: filter))
+        return try await authorized(request, decode: ABSLibraryItemsResponse.self)
+    }
+
+    func item(id: String) async throws -> ABSLibraryItem {
+        let request = URLRequest(url: endpoints.item(id))
+        return try await authorized(request, decode: ABSLibraryItem.self)
+    }
+
+    /// Self-contained cover URL for `AsyncImage` (token in query). nil if not logged in.
+    func coverURL(itemID: String) -> URL? {
+        guard let token = tokens.accessToken else { return nil }
+        return endpoints.cover(itemID, token: token)
+    }
+
     // MARK: Authorized request plumbing
 
     /// Performs `request` with a Bearer access token; on 401 refreshes once and retries.
