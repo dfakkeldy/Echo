@@ -112,6 +112,9 @@ final class DatabaseService {
         migrator.registerMigration("v20_batch_queue") { db in try Schema_V20.migrate(db) }
         migrator.registerMigration("v21_batch_kind") { db in try Schema_V21.migrate(db) }
         migrator.registerMigration("v22_fsrs_seed") { db in try Schema_V22.migrate(db) }
+        migrator.registerMigration("v23_audiobook_abs_provenance") { db in
+            try Schema_V23.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 

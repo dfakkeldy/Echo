@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import Testing
+
+@testable import Echo
+
+@MainActor
+@Suite struct AudiobookshelfServiceLibraryTests {
+    private func makeService() -> AudiobookshelfService {
+        URLProtocolStub.reset()
+        let tokens = ABSTokenStore(serverID: "lib-\(UUID().uuidString)")
+        tokens.accessToken = "acc"
+        return AudiobookshelfService(
+            baseURL: URL(string: "http://homelab.local:13378")!,
+            tokens: tokens, session: URLProtocolStub.makeSession())
+    }
+
+    @Test func fetchLibrariesDecodes() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/api/libraries",
+            json: """
+                {"libraries":[{"id":"lib1","name":"Audiobooks"},{"id":"lib2","name":"Podcasts"}]}
+                """)
+        let libs = try await service.libraries()
+        #expect(libs.map(\.id) == ["lib1", "lib2"])
+        #expect(libs.first?.name == "Audiobooks")
+    }
+
+    @Test func fetchItemsDecodesTitleAuthorDuration() async throws {
+        let service = makeService()
+        // Path suffix "/items" matches /api/libraries/lib1/items.
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            json: """
+                {"total":1,"page":0,"results":[
+                  {"id":"it1","libraryId":"lib1","media":{"duration":3600,"tags":["studied"],
+                   "metadata":{"title":"Thinking Fast","author":"Kahneman"}}}
+                ]}
+                """)
+        let page = try await service.items(libraryID: "lib1")
+        #expect(page.results.first?.title == "Thinking Fast")
+        #expect(page.results.first?.author == "Kahneman")
+        #expect(page.results.first?.duration == 3600)
+    }
+
+    @Test func fetchItemDetailDecodes() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/api/items/it1",
+            json: """
+                {"id":"it1","libraryId":"lib1","media":{"duration":3600,"numTracks":1,
+                 "tracks":[{"index":0,"duration":3600,"title":"Chapter 1"}],
+                 "metadata":{"title":"Thinking Fast","author":"Kahneman"}}}
+                """)
+        let item = try await service.item(id: "it1")
+        #expect(item.title == "Thinking Fast")
+        #expect(item.media?.tracks?.first?.title == "Chapter 1")
+    }
+
+    @Test func coverURLEmbedsTokenAndItemID() {
+        let service = makeService()  // tokens.accessToken == "acc"
+        let url = service.coverURL(itemID: "it1")?.absoluteString
+        #expect(url?.contains("/api/items/it1/cover") == true)
+        #expect(url?.contains("token=acc") == true)
+    }
+}

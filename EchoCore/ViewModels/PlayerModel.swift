@@ -58,6 +58,19 @@ final class PlayerModel {
     let transcriptService: TranscriptService
     let timelinePersistence = PlayerTimelinePersistenceService()
 
+    // MARK: - Audiobookshelf cache
+
+    /// Cached warm `AudiobookshelfService` instance. Must be in the class body (not an
+    /// extension) because extensions cannot hold stored properties.
+    @ObservationIgnored var absService: AudiobookshelfService?
+    /// Server ID of the currently cached `absService`, used to detect stale caches.
+    @ObservationIgnored var absServiceServerID: String?
+    /// Remote item ID of the currently loaded ABS book. nil = not ABS-sourced.
+    /// Cached so the hot save path is a cheap nil-check, not a DB hit every tick.
+    @ObservationIgnored var absSyncRemoteItemID: String? = nil
+    /// Epoch-seconds timestamp of the last successful ABS progress push.
+    @ObservationIgnored var absLastPushAt: TimeInterval? = nil
+
     // MARK: - UI state (local to PlayerModel)
 
     /// The currently selected tab (Listen, Read, or Timeline).
@@ -86,6 +99,7 @@ final class PlayerModel {
     var showBookmarks: Bool = true
     var isPlaylistEditing: Bool = false
     var showingDocumentImporter: Bool = false
+    var showingABSBrowse: Bool = false
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
     var bottomInset: CGFloat {
@@ -773,6 +787,11 @@ final class PlayerModel {
                     }
                 }
             }
+
+            // ABS two-way progress sync: refresh identity + reconcile remote progress on
+            // every book load (both no-op when the loaded book is not Audiobookshelf-sourced).
+            self.refreshABSSyncIdentity()
+            self.reconcileABSProgressOnLoad()
         }
 
         // Wire player loading coordinator dependencies.
@@ -886,6 +905,7 @@ final class PlayerModel {
         }
         playbackController.coordinator_saveProgress = { [weak self] folder, trackId, time in
             self?.persistence.saveBookProgress(for: folder, trackId: trackId, time: time)
+            self?.maybePushABSProgress()
         }
         playbackController.coordinator_stopSecurityScope = { [weak self] in
             self?.stopCurrentFileSecurityScopeIfNeeded()

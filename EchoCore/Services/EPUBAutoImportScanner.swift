@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
-import os.log
 import ZIPFoundation
+import os.log
 
 enum EPUBAutoImportScanner {
     private static let logger = Logger(category: "EPUBAutoImport")
@@ -33,14 +33,17 @@ enum EPUBAutoImportScanner {
         // 1. Scan for .epub files in the folder.
         let epubFiles: [URL]
         var isDir: ObjCBool = false
-        let folderIsDirectory = FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir) && isDir.boolValue
+        let folderIsDirectory =
+            FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir)
+            && isDir.boolValue
         let targetURL = folderIsDirectory ? folderURL : folderURL.deletingLastPathComponent()
 
         // When the original URL is a single file (e.g. an M4B opened directly),
         // SecurityScopeManager only covers that file — not its parent directory.
         // Start a temporary scope on the parent so we can enumerate siblings.
         let needsParentScope = !folderIsDirectory
-        let didStartParentScope = needsParentScope && targetURL.startAccessingSecurityScopedResource()
+        let didStartParentScope =
+            needsParentScope && targetURL.startAccessingSecurityScopedResource()
         defer {
             if didStartParentScope {
                 targetURL.stopAccessingSecurityScopedResource()
@@ -55,7 +58,9 @@ enum EPUBAutoImportScanner {
             )
             epubFiles = contents.filter { $0.pathExtension.lowercased() == "epub" }
         } catch {
-            logger.warning("Cannot scan folder for EPUB files: \(sanitizedPath(targetURL.path)) — \(error.localizedDescription)")
+            logger.warning(
+                "Cannot scan folder for EPUB files: \(sanitizedPath(targetURL.path)) — \(error.localizedDescription)"
+            )
             return false
         }
 
@@ -92,14 +97,18 @@ enum EPUBAutoImportScanner {
 
         // Check if EPUB blocks are already imported for this audiobook.
         if !force {
-            let alreadyImported = (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID).isEmpty) == false
+            let alreadyImported =
+                (try? EPubBlockDAO(db: databaseService.writer).visibleBlocks(for: audiobookID)
+                    .isEmpty) == false
             if alreadyImported {
-                logger.debug("EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import.")
+                logger.debug(
+                    "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
+                )
                 return false
             }
         }
 
-        // Try downloading CloudKit anchors first if not forced, but wait, if blocks aren't extracted yet, CloudKit anchors need the blocks. 
+        // Try downloading CloudKit anchors first if not forced, but wait, if blocks aren't extracted yet, CloudKit anchors need the blocks.
         // So we must extract EPUB first, insert blocks, then check CloudKit before doing auto-alignment.
 
         // Extract the EPUB archive to a cache directory.
@@ -116,7 +125,9 @@ enum EPUBAutoImportScanner {
         do {
             extractedDir = try extractEPUB(epubURL, to: cacheDir, safeID: safeID)
         } catch {
-            logger.error("Failed to extract EPUB \(sanitizedPath(epubURL.lastPathComponent)): \(error.localizedDescription)")
+            logger.error(
+                "Failed to extract EPUB \(sanitizedPath(epubURL.lastPathComponent)): \(error.localizedDescription)"
+            )
             return false
         }
 
@@ -130,14 +141,18 @@ enum EPUBAutoImportScanner {
                 chapters: chapters,
                 bookDuration: duration
             )
-            logger.info("Auto-imported \(blocks.count) EPUB blocks for \(sanitizedPath(epubURL.lastPathComponent))")
+            logger.info(
+                "Auto-imported \(blocks.count) EPUB blocks for \(sanitizedPath(epubURL.lastPathComponent))"
+            )
 
             // Create initial system anchors (first block → 0, last block → duration)
             // so every block gets an interpolated timestamp from the start.
-            let alignmentService = AlignmentService(db: databaseService.writer, audiobookID: audiobookID)
+            let alignmentService = AlignmentService(
+                db: databaseService.writer, audiobookID: audiobookID)
             let anchorDAO = AlignmentAnchorDAO(db: databaseService.writer)
-            
-            let alignmentSidecarURL = epubURL.deletingPathExtension().appendingPathExtension("alignment.json")
+
+            let alignmentSidecarURL = epubURL.deletingPathExtension().appendingPathExtension(
+                "alignment.json")
             if FileManager.default.fileExists(atPath: alignmentSidecarURL.path) {
                 do {
                     let data = try Data(contentsOf: alignmentSidecarURL)
@@ -162,19 +177,22 @@ enum EPUBAutoImportScanner {
                     try alignmentService.recalculateTimeline()
                     logger.info("Ingested \(exports.count) anchors from alignment.json")
                 } catch {
-                    logger.error("Failed to ingest alignment.json sidecar: \(error.localizedDescription)")
+                    logger.error(
+                        "Failed to ingest alignment.json sidecar: \(error.localizedDescription)")
                 }
             } else {
                 // Try CloudKit sync
                 let syncService = CloudKitSyncService(db: databaseService.writer)
-                // Use folder name as title, parent folder as author (common audiobook convention)
                 let folderURL = epubURL.deletingLastPathComponent()
-                let title = folderURL.lastPathComponent
-                let author = folderURL.deletingLastPathComponent().lastPathComponent
+                let record = try? AudiobookDAO(db: databaseService.writer).get(audiobookID)
+                let (title, author) = anchorLookupMetadata(folderURL: folderURL, record: record)
                 let durationVal = duration ?? 0.0
-                
-                let downloadedAnchors = (try? await syncService.downloadAnchors(audiobookID: audiobookID, title: title, author: author, duration: durationVal)) ?? []
-                
+
+                let downloadedAnchors =
+                    (try? await syncService.downloadAnchors(
+                        audiobookID: audiobookID, title: title, author: author,
+                        duration: durationVal)) ?? []
+
                 if !downloadedAnchors.isEmpty {
                     try? anchorDAO.deleteAll(for: audiobookID)
                     for anchor in downloadedAnchors {
@@ -182,39 +200,41 @@ enum EPUBAutoImportScanner {
                     }
                     try? alignmentService.recalculateTimeline()
                     logger.info("Ingested \(downloadedAnchors.count) anchors from CloudKit")
-                } else if let firstBlock = blocks.first, let lastBlock = blocks.last, let bookDuration = duration {
+                } else if let firstBlock = blocks.first, let lastBlock = blocks.last,
+                    let bookDuration = duration
+                {
                     // Anchor first block to time 0
-                let firstAnchor = AlignmentAnchorRecord(
-                    id: "anchor-init-first-\(audiobookID)",
-                    audiobookID: audiobookID,
-                    epubBlockID: firstBlock.id,
-                    audioTime: 0,
-                    audioEndTime: nil,
-                    anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-                    source: AlignmentAnchorRecord.Source.imported.rawValue,
-                    note: "Auto-created: first block",
-                    createdAt: AlignmentService.isoFormatter.string(from: Date()),
-                    modifiedAt: nil
-                )
-                // Anchor last block to total duration
-                let lastAnchor = AlignmentAnchorRecord(
-                    id: "anchor-init-last-\(audiobookID)",
-                    audiobookID: audiobookID,
-                    epubBlockID: lastBlock.id,
-                    audioTime: bookDuration,
-                    audioEndTime: nil,
-                    anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-                    source: AlignmentAnchorRecord.Source.imported.rawValue,
-                    note: "Auto-created: last block",
-                    createdAt: AlignmentService.isoFormatter.string(from: Date()),
-                    modifiedAt: nil
-                )
-                try? anchorDAO.deleteAll(for: audiobookID)
-                try? anchorDAO.upsert(firstAnchor)
-                try? anchorDAO.upsert(lastAnchor)
-                try? alignmentService.recalculateTimeline()
-                logger.info("Created initial alignment anchors for \(audiobookID)")
-            }
+                    let firstAnchor = AlignmentAnchorRecord(
+                        id: "anchor-init-first-\(audiobookID)",
+                        audiobookID: audiobookID,
+                        epubBlockID: firstBlock.id,
+                        audioTime: 0,
+                        audioEndTime: nil,
+                        anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                        source: AlignmentAnchorRecord.Source.imported.rawValue,
+                        note: "Auto-created: first block",
+                        createdAt: AlignmentService.isoFormatter.string(from: Date()),
+                        modifiedAt: nil
+                    )
+                    // Anchor last block to total duration
+                    let lastAnchor = AlignmentAnchorRecord(
+                        id: "anchor-init-last-\(audiobookID)",
+                        audiobookID: audiobookID,
+                        epubBlockID: lastBlock.id,
+                        audioTime: bookDuration,
+                        audioEndTime: nil,
+                        anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                        source: AlignmentAnchorRecord.Source.imported.rawValue,
+                        note: "Auto-created: last block",
+                        createdAt: AlignmentService.isoFormatter.string(from: Date()),
+                        modifiedAt: nil
+                    )
+                    try? anchorDAO.deleteAll(for: audiobookID)
+                    try? anchorDAO.upsert(firstAnchor)
+                    try? anchorDAO.upsert(lastAnchor)
+                    try? alignmentService.recalculateTimeline()
+                    logger.info("Created initial alignment anchors for \(audiobookID)")
+                }
             }
 
             // Always recalculate timeline to ensure chapter-boundary virtual
@@ -239,16 +259,32 @@ enum EPUBAutoImportScanner {
         }
     }
 
+    // MARK: - Anchor lookup
+
+    /// Title/author to use for the CloudKit anchor lookup. Prefer the persisted
+    /// audiobook row (authoritative — for ABS books this is the real ABS metadata);
+    /// fall back to folder-name derivation for not-yet-persisted local books.
+    static func anchorLookupMetadata(folderURL: URL, record: AudiobookRecord?) -> (
+        title: String, author: String
+    ) {
+        let title = record?.title ?? folderURL.lastPathComponent
+        let author = record?.author ?? folderURL.deletingLastPathComponent().lastPathComponent
+        return (title, author)
+    }
+
     // MARK: - Private helpers
 
     /// Creates (or reuses) the cache directory `Caches/EPUBUnpacked/<safeID>/`.
     private static func prepareCacheDirectory(safeID: String) throws -> URL {
-        guard let caches = FileManager.default.urls(
-            for: .cachesDirectory, in: .userDomainMask
-        ).first else {
+        guard
+            let caches = FileManager.default.urls(
+                for: .cachesDirectory, in: .userDomainMask
+            ).first
+        else {
             throw ScannerError.cachesUnavailable
         }
-        let dir = caches
+        let dir =
+            caches
             .appendingPathComponent("EPUBUnpacked", isDirectory: true)
             .appendingPathComponent(safeID, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -259,13 +295,16 @@ enum EPUBAutoImportScanner {
     /// `<cacheDir>/` to prevent races when two imports of the same EPUB
     /// happen concurrently.  The caller should atomically move the content
     /// into its final location after extraction.
-    private static func extractEPUB(_ epubURL: URL, to cacheDir: URL, safeID: String) throws -> URL {
-        let destDir = cacheDir.appendingPathComponent("\(safeID)_\(UUID().uuidString)_content", isDirectory: true)
+    private static func extractEPUB(_ epubURL: URL, to cacheDir: URL, safeID: String) throws -> URL
+    {
+        let destDir = cacheDir.appendingPathComponent(
+            "\(safeID)_\(UUID().uuidString)_content", isDirectory: true)
 
         try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
 
         // Apply data protection so extracted book text is encrypted at rest.
-        try (destDir as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
+        try (destDir as NSURL).setResourceValue(
+            URLFileProtection.complete, forKey: .fileProtectionKey)
 
         // Copy the EPUB into the cache directory so Archive opens a local file
         // rather than a file-provider-managed one. This avoids permission issues
@@ -281,7 +320,9 @@ enum EPUBAutoImportScanner {
             var copyError: Error?
             let coordinator = NSFileCoordinator()
             var coordinatorError: NSError?
-            coordinator.coordinate(readingItemAt: epubURL, options: .withoutChanges, error: &coordinatorError) { url in
+            coordinator.coordinate(
+                readingItemAt: epubURL, options: .withoutChanges, error: &coordinatorError
+            ) { url in
                 do {
                     try FileManager.default.copyItem(at: url, to: cachedEPUB)
                 } catch {
@@ -292,7 +333,9 @@ enum EPUBAutoImportScanner {
                 throw error
             }
         } catch {
-            logger.error("Failed to copy EPUB to cache at \(sanitizedPath(cachedEPUB.path)): \(error.localizedDescription)")
+            logger.error(
+                "Failed to copy EPUB to cache at \(sanitizedPath(cachedEPUB.path)): \(error.localizedDescription)"
+            )
             throw ScannerError.invalidArchive(url: epubURL)
         }
 
@@ -301,7 +344,9 @@ enum EPUBAutoImportScanner {
             logger.debug("Opening EPUB archive from cache: \(sanitizedPath(cachedEPUB.path))")
             archive = try Archive(url: cachedEPUB, accessMode: .read)
         } catch {
-            logger.error("Failed to open EPUB archive at \(sanitizedPath(cachedEPUB.path)): \(error.localizedDescription) (type: \(type(of: error)))")
+            logger.error(
+                "Failed to open EPUB archive at \(sanitizedPath(cachedEPUB.path)): \(error.localizedDescription) (type: \(type(of: error)))"
+            )
             throw ScannerError.invalidArchive(url: epubURL)
         }
 

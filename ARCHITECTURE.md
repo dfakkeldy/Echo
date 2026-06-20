@@ -274,6 +274,24 @@ The Mac app can process an entire folder of audiobooks unattended. A small `Fold
 - **Two item kinds (`batch_queue.kind`, Schema V21).** `kind` (additive `ALTER ADD … DEFAULT 'align'`) discriminates audiobook-alignment items (`.align`, the original import→transcribe→align) from text-only **EPUB narration** items (`.narrate`). `makeStages()` branches on `kind`: a `.narrate` item bookmarks the EPUB itself as its source, imports the EPUB's blocks (no audio), and synthesizes each chapter on-device via `NarrationService` (see *On-Device Narration*), reusing the same `BatchQueueRunner` failure isolation + restart recovery. `BatchItemKind` decodes forward-compatibly (an unknown future kind falls back to `.align` rather than crashing an older build). `FolderAudioScanner.enqueueEPUBsForNarration` and `MacBatchProcessingService.enqueueNarration(epubURL:)` enqueue them.
 - **UI.** `MacBatchQueueView` shows per-item status/progress (and an **Open** button on a completed `.narrate` book that loads it into the player); `Echo_macOSApp` adds a **Batch** command menu (Open Batch Queue / Add Folder to Queue / **Narrate EPUB(s)…** ⌘⌥N) and calls `resumeOnLaunch()` from the main window's `.task`.
 
+### Audiobookshelf Integration — download-to-local (June 2026)
+
+Echo can connect to a self-hosted **Audiobookshelf (ABS)** server and download books directly into the local study pipeline. The design is **download-to-local, not streaming** — streaming remains deferred post-1.0 because Echo's audio engine reads via `AVAudioFile(forReading:)` (local files only) and the study differentiators (alignment, phrase search, karaoke, flashcards) depend on a local folder identity.
+
+**Architecture overview:**
+
+- **`AudiobookshelfService`** (`@MainActor` class, injected `URLSession`, no protocol — matches the concrete-type DI style) speaks the ABS HTTP API: authenticate, browse libraries/items, search, download whole-item zips, and push/pull media progress. Auth uses JWT + serialized refresh-with-rotation (the rotated token is persisted on every response to avoid self-invalidation). Self-signed certs, LAN `http://`, and non-standard ports are all tolerated (homelab reality).
+- **`ABSImportService`** (or the download coordinator) receives the downloaded zip, unzips it into `Application Support/ABSLibrary/<remoteItemID>/` (an app-owned folder, no security-scoped bookmarks needed), stamps provenance columns on the `AudiobookRecord`, and hands the resulting folder to the existing `PlayerLoadingCoordinator.loadFolder` unchanged — so M4B chapter parsing, `EPUBAutoImportScanner` sibling discovery, alignment, flashcards, and phrase search all fire with zero pipeline changes.
+- **`ABSProgressReconciler`** implements a last-write-wins (ABS-authoritative) strategy: progress pushes are throttled (~15–30 s) while playing; on book open the reconciler compares local `updatedAt` against ABS `lastUpdate` and re-seeks if ABS is newer. The pull re-seek is single-track-only in v1. *The pure reconciler logic is unit-tested; live playback wiring is device-unverified as of the initial branch.*
+- **Background-task grace window:** a `beginBackgroundTask` call keeps an in-flight download alive when the user backgrounds the app during a download. This is *not* a full `URLSessionConfiguration.background` session — the ABS zip endpoint lacks `Content-Length`/range headers, so true background-session resumption (progress survives process termination) is a documented future enhancement.
+- **Anchor-reuse:** `CloudKitSyncService.downloadAnchors` keys shared anchors on `title+author+duration` (not `audiobookID`), so a book re-downloaded from ABS inherits prior WhisperKit alignment anchors that another device already computed. The provenance columns carry the real ABS title/author so the lookup key matches.
+
+**Schema V23** adds four nullable columns to `audiobook`: `source_type` (TEXT — `"abs"` for ABS-sourced books, `NULL` for local), `server_id` (TEXT), `remote_item_id` (TEXT), and `topics_json` (TEXT — serialized ABS genres/tags for local topic filtering). All are additive `ALTER TABLE ADD COLUMN` statements; no re-import or re-alignment is needed for existing books.
+
+**Platform split:** iOS UI is fully built (Settings ▸ Library Sources connect/browse sheet, search, "Add from Audiobookshelf" download action). The macOS target compiles the service layer but the macOS ABS UI is a fast-follow (not yet wired).
+
+**Credential storage:** the ABS JWT is stored in `KeychainStore` (never in SQLite). The `abs_server` table (Schema V18; existing) holds `baseURL`, `username`, and `defaultLibraryId`; V23 carries the per-book provenance on `audiobook`.
+
 ## Echo Watch App
 
 ```
@@ -552,6 +570,7 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V14–V19 | Capture & context (`session_location`, bookmark/note columns), Anki decks, FSRS + cloze/transcript, `track.narration_voice` (V17, marks synthesized tracks), Audiobookshelf server, and the `word_timing` table (V19) — see CHANGELOG.md for each |
 | V20 | `batch_queue` table — the persistent macOS overnight processing queue (queue position, status, nullable security-scoped bookmarks) |
 | V21 | `batch_queue.kind` (TEXT, default `'align'`) — discriminates audiobook-alignment items from text-only EPUB narration items (additive; no re-import) |
+| V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 

@@ -36,7 +36,14 @@ struct ABSLoginResponse: Decodable {
     let serverSettings: ABSServerSettings?
     struct ABSUser: Decodable {
         let id: String
+        let token: String?  // legacy permanent token (pre-2.26)
+        let accessToken: String?  // new short-lived JWT
+        let refreshToken: String?  // new rotating refresh token
     }
+
+    /// Prefer the new short-lived JWT; fall back to the legacy permanent token.
+    var access: String? { user.accessToken ?? user.token }
+    var refresh: String? { user.refreshToken }
 }
 
 struct ABSServerSettings: Decodable {
@@ -45,7 +52,11 @@ struct ABSServerSettings: Decodable {
 
 // MARK: - Libraries
 
-struct ABSLibrary: Decodable, Identifiable {
+struct ABSLibrariesResponse: Decodable {
+    let libraries: [ABSLibrary]
+}
+
+struct ABSLibrary: Decodable, Identifiable, Hashable {
     let id: String
     let name: String
     let displayOrder: Int?
@@ -88,6 +99,15 @@ struct ABSLibraryItem: Decodable, Identifiable {
     var numTracks: Int? { media?.numTracks }
     var duration: Double? { media?.duration }
     var coverPath: String? { media?.coverPath }
+
+    /// Genre + tag + series, deduped — the "topics" Echo persists on import.
+    var topics: [String] {
+        var set = Set<String>()
+        media?.metadata?.genres?.forEach { set.insert($0) }
+        media?.tags?.forEach { set.insert($0) }
+        if let series = media?.metadata?.series { set.insert(series) }
+        return set.sorted()
+    }
 
     struct ABSMedia: Decodable {
         let id: String?
@@ -156,6 +176,16 @@ struct ABSLibraryItem: Decodable, Identifiable {
     }
 }
 
+// MARK: - Search
+
+struct ABSSearchResponse: Decodable {
+    let book: [ABSSearchBookResult]
+}
+
+struct ABSSearchBookResult: Decodable {
+    let libraryItem: ABSLibraryItem
+}
+
 // MARK: - Media Progress (Milestone D)
 
 struct ABSMediaProgress: Encodable {
@@ -180,4 +210,12 @@ struct ABSMediaProgressResponse: Decodable {
     let lastUpdate: Int64?
     let ebookLocation: String?
     let ebookProgress: Double?
+}
+
+/// Focused PATCH body for pushing local playback progress to ABS.
+struct ABSMediaProgressPatch: Encodable {
+    let currentTime: Double
+    let duration: Double
+    let progress: Double
+    let isFinished: Bool
 }

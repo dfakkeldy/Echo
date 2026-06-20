@@ -12,16 +12,19 @@ enum FileLocations {
         var errorDescription: String? {
             switch self {
             case .appGroupNotFound(let identifier):
-                return "App Group container not found for identifier: \(identifier). Check entitlements."
+                return
+                    "App Group container not found for identifier: \(identifier). Check entitlements."
             }
         }
     }
 
     /// The shared App Group container directory.
     static func appGroupContainer(identifier: String = "group.com.echo.audiobooks") throws -> URL {
-        guard let url = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: identifier
-        ) else {
+        guard
+            let url = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: identifier
+            )
+        else {
             throw Error.appGroupNotFound(identifier)
         }
         return url
@@ -44,5 +47,16 @@ enum FileLocations {
         cachesDirectory
             .appending(path: "EPUBUnpacked", directoryHint: .isDirectory)
             .appending(path: safeID, directoryHint: .isDirectory)
+    }
+
+    /// Managed folder for an Audiobookshelf-downloaded item's files (audio + any EPUB):
+    /// `Application Support/ABSLibrary/<remoteItemID>/`. Once populated and handed to
+    /// `PlayerLoadingCoordinator.loadFolder`, this folder IS the book's identity — so an
+    /// ABS book becomes indistinguishable from a local import and every study feature works.
+    /// ABS item IDs are server UUIDs (filesystem-safe), used verbatim.
+    static func absLibraryDirectory(remoteItemID: String) -> URL {
+        applicationSupportDirectory
+            .appending(path: "ABSLibrary", directoryHint: .isDirectory)
+            .appending(path: remoteItemID, directoryHint: .isDirectory)
     }
 }

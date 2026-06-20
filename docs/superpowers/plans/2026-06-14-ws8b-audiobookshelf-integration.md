@@ -10,6 +10,29 @@
 
 ---
 
+## ⚠️ Reconciliation (2026-06-20) — read this first; it overrides stale text below
+
+This plan was written 2026-06-14. Four migrations have shipped since, and some Milestone A scaffolding already exists. **Where this banner and the body disagree, the banner wins.**
+
+1. **Migration head is now V21** (`v17_track_narration_voice`, `v18_abs_server`, `v19_word_timing`, `v20_batch_queue`, `v21_batch_kind`). So:
+   - **Milestone A's `abs_server` migration (V18) already SHIPPED.** Task A1 is **DONE** — do not recreate `Schema_V18.swift`, `ABSServerDAO.swift`, the V18 registration, or `SchemaV18Tests.swift`. Verify they exist and pass, then move on.
+   - **Milestone B's `audiobook` provenance migration is `V22`, NOT `V19`.** Everywhere the body says `V19` / `Schema_V19` / `SchemaV19Tests` / `v19_audiobook_abs_provenance` **for the four audiobook provenance columns** (`source_type`, `server_id`, `remote_item_id`, `topics_json`), read **`V22` / `Schema_V22` / `SchemaV22Tests` / `v22_audiobook_abs_provenance`**. (`V19` in the live schema is `word_timing` — a different, already-shipped migration.)
+
+2. **Existing Milestone A scaffolding must be HARDENED/COMPLETED, not recreated.** These files already exist:
+   - `EchoCore/Services/Audiobookshelf/ABSModels.swift` — **richer than the body's version** (full metadata, tracks, chapters, progress response). **Keep it.** Required fix: `ABSLoginResponse.user` only decodes `id`, so JWT login cannot read tokens — add `accessToken` / `refreshToken` (and a legacy permanent `token` fallback for pre-2.26 servers) plus the `access`/`refresh` convenience accessors the service expects.
+   - `EchoCore/Services/Audiobookshelf/ABSEndpoints.swift` — currently an `enum` of static methods using seven `URL(string:…)!` force-unwraps (**CODE_AUDIT Critical**). **Replace the shape with the body's injectable `struct ABSEndpoints { let baseURL: URL }`** using `.appending(path:)` / `URLComponents` (no force-unwraps). Update call sites accordingly.
+   - `EchoCore/Services/Audiobookshelf/ABSTokenStore.swift` — exists; reconcile to the body's per-server (`service:`-namespaced) design from Task A2 and annotate `@MainActor` (Rec-3). Keep the refresh-in-Keychain / access-in-memory split.
+
+3. **Subpath base URLs are supported.** The connected server may live under a reverse-proxy path prefix (e.g. `http://host:13378/audiobookshelf`), so the base URL is **not** guaranteed to be just `scheme://host:port`. `baseURL` must retain its full path; every endpoint appends to it with `.appending(path:)` (relative, no leading slash) — never reconstruct from host/port. The login/normalization step also defaults a missing scheme to `http` for bare `host:port` LAN/tailnet addresses.
+
+4. **Pro gating: build UNGATED this pass.** PRICING.md marks downloads + background sync as Pro, but the paywall is a separate, later change. Do **not** add `isPro` checks at the download / sync entry points here.
+
+5. **Live verification** happens at the end against the owner's real ABS server (owner-driven, like the narration device gates). All development + CI stays offline via `URLProtocolStub`. Credentials are never written to disk or committed.
+
+6. **Reviewer gates unchanged but renumbered:** schema-migration-reviewer checks **V22** (not V19) for sibling-branch collisions; cross-platform-parity-reviewer runs after the `Shared/` DB + service changes (v1 UI is iOS-only by design).
+
+---
+
 ## Scope & Decisions
 
 This plan implements **ROADMAP.md Phase 9** tiers **9.1 → 9.4**. Tier **9.5 (streaming, bookmark round-trip, multi-server) is out of scope** — deferred post-1.0.
@@ -18,12 +41,12 @@ Four **milestones**, each producing working, testable software on its own (each 
 
 | Milestone | Tier | Ships | Migration |
 |-----------|------|-------|-----------|
-| **A** | 9.1 | Connect to a server, browse libraries/items (read-only) | V18 (`abs_server`) |
-| **B** | 9.2 | Download a book → it plays through the existing pipeline (the MVP) | V19 (`audiobook` provenance + topics) |
-| **C** | 9.3 | Browse/search the ABS library by topic; carry topics onto import | — (uses V19) |
+| **A** | 9.1 | Connect to a server, browse libraries/items (read-only) | V18 (`abs_server`) — **SHIPPED** |
+| **B** | 9.2 | Download a book → it plays through the existing pipeline (the MVP) | **V22** (`audiobook` provenance + topics) |
+| **C** | 9.3 | Browse/search the ABS library by topic; carry topics onto import | — (uses V22) |
 | **D** | 9.4 | Two-way playback-progress sync (ABS-authoritative) | — (sidecar field) |
 
-**Deviation from the roadmap's migration numbering:** ROADMAP §9.2 says "migration v18" for the `audiobook` columns. Because Milestone A ships first and needs its own migration, **A takes V18 (`abs_server`)** and **B takes V19 (`audiobook` columns)**. Latest shipped migration is V17 (`Shared/Database/Migrations/Schema_V17.swift`), so V18/V19 are the next free numbers. The cross-platform-parity and schema-migration reviewer agents should confirm no V18/V19 collision exists on sibling branches before merge (several `feat/v1-real/*` branches carry their own migrations).
+**Migration numbering (corrected 2026-06-20 — see banner):** **A's V18 (`abs_server`) has shipped.** Since then V19 (`word_timing`), V20 (`batch_queue`), and V21 (`batch_kind`) shipped, so **B's `audiobook`-columns migration is now V22**, the next free number. The cross-platform-parity and schema-migration reviewer agents should confirm no V22 collision exists on sibling branches before merge (several `feat/v1-real/*` branches carry their own migrations).
 
 **UI surface:** v1 UI (Connections settings, Browse, "Add from Audiobookshelf") is **iOS-only** (it lives in `EchoCore/Views/`, the iOS app's view layer). The `AudiobookshelfService` + DB layer live in `Shared/` + `EchoCore/Services/` so macOS can adopt the same service later (fast-follow, matches the single-server v1 decision). watchOS/Widget/CarPlay are unaffected — they read whatever local books exist.
 
@@ -1258,7 +1281,9 @@ git commit -m "feat(abs): read-only Browse UI (libraries -> items -> detail)"
 
 ---
 
-### Task B1: Provenance columns on `audiobook` + migration V19 + carry-over
+### Task B1: Provenance columns on `audiobook` + migration V22 + carry-over
+
+> **Renumbered (2026-06-20):** this task's migration is **V22** throughout — every `V19` / `Schema_V19` / `SchemaV19Tests` / `v19_audiobook_abs_provenance` below means **V22** / `Schema_V22` / `SchemaV22Tests` / `v22_audiobook_abs_provenance`. See the Reconciliation banner.
 
 **Files:**
 - Create: `Shared/Database/Migrations/Schema_V19.swift`

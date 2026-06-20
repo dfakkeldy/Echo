@@ -394,6 +394,9 @@ struct PlaylistView: View {
         ) { wrapper in
             EditBookmarkView(bookmarkID: wrapper.id, draft: nil)
         }
+        .sheet(isPresented: $model.showingABSBrowse) {
+            ABSBrowseView()
+        }
         .onAppear {
             hasEPUB = model.hasEPUB
             hasPDF = model.hasPDF
@@ -520,6 +523,13 @@ struct PlaylistView: View {
                     .buttonStyle(.bordered)
                     .accessibilityLabel(String(localized: "Import Document"))
                 }
+                Button {
+                    model.showingABSBrowse = true
+                } label: {
+                    Image(systemName: "server.rack")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(String(localized: "Add from Audiobookshelf"))
             }
             .padding(.horizontal, 16)
 
