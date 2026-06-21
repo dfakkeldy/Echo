@@ -191,6 +191,7 @@ Low-risk, mostly compiler-flagged; clears the warning set and removes leaked ins
 - **Severity:** Medium
 
 ### 5.11 ONNX engine caches a *failed* initialization Task — narration wedged for the session
+> **✅ FIXED** (branch `claude/fix-narration-prepare-retry`, 2026-06-20). `prepare(progress:)` now clears `initializationTask = nil` when the init task throws, so a later call starts a fresh attempt instead of re-awaiting the cached failure. A constructor seam (`OnnxKokoroEngine(modelProvider:)`) makes the retry path unit-testable without a network/model. Covered by `EchoTests/OnnxKokoroEnginePrepareTests`. _Related but still open: §5.13 (a corrupt downloaded model is still sticky — no integrity check before promote)._
 - **Location:** `EchoCore/Services/Narration/OnnxKokoroEngine.swift:72-77,103-104`
 - **What:** `initializationTask` is set once and never reset on failure; after any thrown `prepare()` (network blip mid-download, non-2xx, disk-full move), every later call re-awaits the cached failed task and re-throws. The production engine is a session-lived `lazy var` (`PlayerModel.narrationTTS`).
 - **Why:** A single transient first-load failure bricks all on-device narration until app relaunch, with no retry. Compounded by §5.13 (a corrupt model is sticky).
