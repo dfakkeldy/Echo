@@ -95,8 +95,12 @@
                     <li><strong>FLAC, AAC, AIFF, OGG, OPUS, WMA</strong> — on Mac</li>
                     <li><strong><a class="gloss" href="glossary.html#epub" data-term="epub">EPUB</a></strong> — as a synced companion text (see <a href="#reader">The Reader</a>)</li>
                     <li><strong>PDF</strong> — as a synced companion document (see <a href="#pdf">PDF Companions</a>)</li>
+                    <li><strong>Markdown / plain text</strong> (.md, .markdown, .txt) — imported as a standalone, narratable book; headings become chapters, then Echo can read it aloud on-device</li>
                 </ul>
                 <p>Echo does not bypass DRM and cannot play protected Audible/Apple Books titles. Tools like Libation or OpenAudible can export books you own to open formats — see <a href="#faq-audible">the FAQ</a> for details and a note on legality.</p>
+
+                <h3>From an Audiobookshelf server</h3>
+                <p>Already running <strong>Audiobookshelf</strong>? Echo connects to your self-hosted server: add it in Settings, browse and search your libraries, download a book to your device, and play. Progress syncs both ways, so where you stopped on the server is where you start in Echo, and vice-versa. Books download for offline listening (Echo is not a streaming client). On iPhone today; the Mac app follows.</p>
 
                 <h3>Loading your first book</h3>
                 <ol>
@@ -343,7 +347,7 @@ iCloud Drive/
 
                 <h3>Daily Review</h3>
                 <ul>
-                    <li>Echo schedules every card with the <strong>SM-2 algorithm</strong> (the same scheduling family Anki uses): grade a card and its next appearance is computed from your history — tomorrow if you missed it, weeks out if it was easy.</li>
+                    <li>Echo schedules every card with <strong>FSRS-4.5</strong> (the modern scheduler Anki now ships): grade a card and its next appearance is computed from your history — tomorrow if you missed it, weeks out if it was easy.</li>
                     <li>The <strong>review queue</strong> shows everything due today. Grade each card <strong>Again / Hard / Good / Easy</strong>.</li>
                     <li>Cards with audio play their snippet — review with your ears.</li>
                     <li><strong>Stats:</strong> due count, reviewed-today, and total cards show on the Timeline tab's review module — and the full picture lives in <a href="#insights">Insights</a> <span class="tag-soon">🚧</span>.</li>
@@ -471,6 +475,10 @@ iCloud Drive/
                 <table>
                     <thead><tr><th scope="col">Export</th><th scope="col">What you get</th></tr></thead>
                     <tbody>
+                        <tr>
+                            <td><strong>Audiobook → chaptered .m4b</strong></td>
+                            <td>Export a narrated EPUB, or an audiobook you imported, as a single chaptered <code>.m4b</code> — cover art, metadata, and chapter markers included — playable in any audiobook app. On iPhone via the player's More menu; on Mac via the File menu, where you can also batch-narrate a folder of EPUBs overnight and export each. Today: <code>.m4b</code> only (mp3 export is on the roadmap).</td>
+                        </tr>
                         <tr>
                             <td><strong>Bookmarks → Markdown</strong></td>
                             <td>A book's bookmarks as clean Markdown — timestamps, notes, and deep links that reopen Echo at the exact second. Available today from the bookmark list.</td>
@@ -711,7 +719,7 @@ iCloud Drive/
                 <details class="faq-item">
                     <summary>What's coming after 1.0?</summary>
                     <div class="faq-body">
-                        <p>The honest shortlist on the roadmap: Chapter Study Mode (chapters as flashcards), on-device AI card drafting, focus soundscapes layered under the narration, gentle hyperfocus/transition reminders, a map view for Context Memory, FSRS as an alternative scheduler, .apkg export, richer CarPlay, and full Mac reader parity. The <a href="https://github.com/dfakkeldy/Echo/blob/main/ROADMAP.md" target="_blank" rel="noopener noreferrer">ROADMAP</a> is public, like everything else.</p>
+                        <p>The honest shortlist on the roadmap: Chapter Study Mode (chapters as flashcards), on-device AI card drafting, focus soundscapes layered under the narration, gentle hyperfocus/transition reminders, a map view for Context Memory, .apkg export, richer CarPlay, and full Mac reader parity. The <a href="https://github.com/dfakkeldy/Echo/blob/main/ROADMAP.md" target="_blank" rel="noopener noreferrer">ROADMAP</a> is public, like everything else.</p>
                     </div>
                 </details>
                 <details class="faq-item">

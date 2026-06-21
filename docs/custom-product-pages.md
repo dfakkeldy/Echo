@@ -138,7 +138,7 @@ TRANSFORM AUDIO INTO LASTING KNOWLEDGE:
 When you hear an important concept, capture it. Echo lets you convert any audiobook bookmark or EPUB highlight into a digital study card. The front of the card can capture your question or note, while the back links directly to the audio snippet. 
 
 2. BUILT-IN SPACED REPETITION (SRS)
-Review what you learn at the perfect interval. Echo features a built-in spaced repetition scheduler that queues cards based on how well you remember them (using the SuperMemo SM-2 algorithm). Your daily review deck loads in seconds, helping you move key concepts from short-term memory to long-term storage.
+Review what you learn at the perfect interval. Echo features a built-in spaced repetition scheduler that queues cards based on how well you remember them (using FSRS, the modern algorithm Anki now ships). Your daily review deck loads in seconds, helping you move key concepts from short-term memory to long-term storage.
 
 3. ANKI DECK COMPATIBILITY
 Already use Anki? Echo is the perfect companion. Import your existing Anki decks to practice on the go, or export the flashcards you build while listening directly to `.apkg` files to continue studying them in your desktop Anki setup.
@@ -159,7 +159,7 @@ Each screenshot uses high-contrast text overlays optimized for OCR indexing:
     *   *Caption:* "Audiobooks to flashcards. Convert book highlights into study cards with a single tap."
     *   *Visual:* A split card layout: the top showing a highlighted book quote, the bottom showing the corresponding flashcard draft.
 2.  **Slide 2: Spaced Repetition Scheduler**
-    *   *Caption:* "Spaced repetition study. Optimize review intervals with a built-in SM-2 scheduler."
+    *   *Caption:* "Spaced repetition study. Optimize review intervals with a built-in FSRS scheduler."
     *   *Visual:* The Daily Review deck showing a card, with three colored review buttons at the bottom ("Easy", "Good", "Hard").
 3.  **Slide 3: Interactive Audio Snippets**
     *   *Caption:* "Listen to original context. Play the exact audio snippet behind any study card."
