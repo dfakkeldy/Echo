@@ -90,7 +90,11 @@ extension PlayerModel {
         else { return }
         absLastPushAt = now
         let current = cumulativePlaybackTime
-        let duration = durationSeconds ?? 0
+        // Whole-book duration: `current` is book-absolute (cumulativePlaybackTime),
+        // so it must be divided by the whole-book span, not the current track's
+        // `durationSeconds` — otherwise multi-M4B books read as finished after the
+        // first track (CODE_AUDIT §5.20).
+        let duration = state.effectiveBookDuration
         let finished = ABSProgressSync.isFinished(currentTime: current, duration: duration)
         Task {
             try? await service.patchProgress(

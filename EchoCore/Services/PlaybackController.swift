@@ -72,6 +72,26 @@ final class PlaybackController {
         return nil
     }
 
+    /// Next-chapter target index for an aggregated (multi-M4B) book, or nil when
+    /// the play head is at/past the final chapter. Returning nil means "stay put":
+    /// the final chapter's half-open `[start, end)` span does not contain a time
+    /// exactly at/after `end`, and the old code fell through to chapter 0, so
+    /// pressing next on the last chapter jumped to the start of the book
+    /// (CODE_AUDIT §5.2). Before the first chapter's start, targets the first.
+    static func nextAggregatedIndex(chapters: [AggregatedChapter], globalTime: TimeInterval)
+        -> Int?
+    {
+        guard !chapters.isEmpty else { return nil }
+        if let current = chapters.firstIndex(where: {
+            globalTime >= $0.startSeconds && globalTime < $0.endSeconds
+        }) {
+            let next = current + 1
+            return chapters.indices.contains(next) ? next : nil
+        }
+        // No containing chapter: before the first → first; at/after the last → nil.
+        return globalTime < chapters[0].startSeconds ? 0 : nil
+    }
+
     /// Jumps to the next enabled chapter or track when the current one is disabled.
     /// Called on each time update tick from the delegate.
     func enforceEnabledState() {
@@ -191,9 +211,7 @@ final class PlaybackController {
 
     private func computeChapterStartTarget(current: TimeInterval) -> TimeInterval {
         if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-            let currentOffset =
-                state.m4bBooks.indices.contains(state.currentIndex)
-                ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let currentOffset = state.currentBookStartOffset
             let globalTime = currentOffset + current
             if let idx = aggregatedChapterIndex(at: globalTime) {
                 return max(0, state.aggregatedChapters[idx].startSeconds - currentOffset)
@@ -208,9 +226,7 @@ final class PlaybackController {
     private func clampToChapterBoundary(target: TimeInterval, current: TimeInterval) -> TimeInterval
     {
         if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-            let currentOffset =
-                state.m4bBooks.indices.contains(state.currentIndex)
-                ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let currentOffset = state.currentBookStartOffset
             let globalTime = currentOffset + current
             if let idx = aggregatedChapterIndex(at: globalTime) {
                 let intraBookStart = max(
@@ -405,20 +421,13 @@ final class PlaybackController {
     }
 
     private func nextAggregatedChapter() {
-        let currentOffset: TimeInterval = {
-            guard state.m4bBooks.indices.contains(state.currentIndex) else { return 0 }
-            return state.m4bBooks[state.currentIndex].cumulativeStartOffset
-        }()
-        let globalTime = currentOffset + audioEngine.currentTime
-
-        // Find current aggregated chapter, then advance to the next one.
-        let currentIdx = aggregatedChapterIndex(at: globalTime) ?? -1
-        let nextIdx = currentIdx + 1
-        if state.aggregatedChapters.indices.contains(nextIdx) {
+        let globalTime = state.currentBookStartOffset + audioEngine.currentTime
+        if let nextIdx = Self.nextAggregatedIndex(
+            chapters: state.aggregatedChapters, globalTime: globalTime)
+        {
             seekToAggregatedChapter(state.aggregatedChapters[nextIdx])
-        } else if let firstEnabled = state.aggregatedChapters.first {
-            seekToAggregatedChapter(firstEnabled)
         }
+        // At/past the final chapter: stay put — do not loop to the first (§5.2).
     }
 
     func previousChapterOrRestart() {
@@ -454,10 +463,7 @@ final class PlaybackController {
     }
 
     private func previousAggregatedChapterOrRestart() {
-        let currentOffset: TimeInterval = {
-            guard state.m4bBooks.indices.contains(state.currentIndex) else { return 0 }
-            return state.m4bBooks[state.currentIndex].cumulativeStartOffset
-        }()
+        let currentOffset = state.currentBookStartOffset
         let globalTime = currentOffset + audioEngine.currentTime
 
         guard let current = findAggregatedChapter(at: globalTime) else {
@@ -689,9 +695,7 @@ final class PlaybackController {
 
         // Clamp to chapter start to prevent unintended chapter crossings
         if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
-            let currentOffset =
-                state.m4bBooks.indices.contains(state.currentIndex)
-                ? state.m4bBooks[state.currentIndex].cumulativeStartOffset : 0
+            let currentOffset = state.currentBookStartOffset
             let globalTime = currentOffset + current
             if let idx = aggregatedChapterIndex(at: globalTime) {
                 let agg = state.aggregatedChapters[idx]
