@@ -91,7 +91,9 @@ final class NarrationService {
     /// exercise numbering).
     func renderChapter(
         chapterIndex: Int, chapterNumber: Int? = nil,
-        blocks: [EPubBlockRecord], voice: VoiceID
+        blocks: [EPubBlockRecord], voice: VoiceID,
+        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
+            nil
     ) async throws {
         let displayNumber = chapterNumber ?? (chapterIndex + 1)
         state.update(
@@ -163,6 +165,7 @@ final class NarrationService {
                 phase: .preparingChapter,
                 progress: Double(i + 1) / Double(spoken.count),
                 statusMessage: "Preparing chapter \(displayNumber)…")
+            onBlockProgress?(displayNumber, Double(i + 1) / Double(spoken.count))
         }
 
         // Lead-out pad: append trailing silence so the last word has room to ring
