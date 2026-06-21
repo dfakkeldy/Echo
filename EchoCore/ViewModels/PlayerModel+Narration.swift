@@ -245,6 +245,11 @@
                                     guard let self else { return }
                                     self.state.currentSubtitle = NarrationProgressText.subtitle(
                                         chapterDisplayNumber: displayNumber, fraction: fraction)
+                                    // `isPaused: true` is a prepare-time precondition: this
+                                    // callback only fires while the chapter is still rendering
+                                    // (render-then-play), so no audio is playing yet. If this
+                                    // callback is ever reused on a live-playback path, derive
+                                    // the flag from `self.isPlaying` instead of hardcoding it.
                                     self.progressPresenter.updateNowPlayingInfo(isPaused: true)
                                 })
                             try Task.checkCancellation()
