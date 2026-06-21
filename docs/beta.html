@@ -39,13 +39,18 @@
             <p class="section-label">TestFlight</p>
             <h1>Join the Echo Beta</h1>
             <p>
-                Echo is built by one person around a full-time mail route — every tester genuinely moves the project.
-                This page covers how the beta works, how to send feedback that actually helps, and structured test
-                plans if you want to hunt bugs on purpose.
+                <strong>Echo is a free, open-source audiobook <em>study</em> player.</strong> It lines your audiobooks up with
+                their ebook text so you can read along as you listen — or narrates plain text on-device when there's no audio
+                at all — and turns what you hear into bookmarks and flashcards you actually review later.
+            </p>
+            <p>
+                It's built by one person around a full-time mail route, so every tester genuinely moves the project. This page
+                is your whole guide: what Echo does, how to get started, how to stay on the latest build, and how to send
+                feedback that actually helps.
             </p>
             <p><strong>The short version:</strong> use Echo like you really listen — commute, chores, workouts, bedtime — and tell us the moment something feels wrong.</p>
             <div class="hero-ctas" style="justify-content: flex-start; margin-top: 1.5rem;">
-                <a href="https://github.com/dfakkeldy/Echo/issues" class="cta-button" target="_blank" rel="noopener noreferrer">Request an Invite</a>
+                <a href="mailto:testflight@kinnokilabs.com?subject=Echo%20Beta%20invite%20request&amp;body=Hi%20Dan%2C%20I'd%20like%20to%20test%20Echo.%20Device(s)%20I'd%20test%20on%3A%20" class="cta-button">Request an Invite</a>
                 <a href="https://github.com/dfakkeldy/Echo/issues" class="cta-button secondary" target="_blank" rel="noopener noreferrer">Report a Bug</a>
             </div>
             <!-- When the public TestFlight link exists, point the primary CTA at it:
@@ -56,30 +61,61 @@
             <aside class="docs-toc" aria-label="Table of contents">
                 <h2>On this page</h2>
                 <ol>
-                    <li><a href="#join">1 · Joining the beta</a></li>
-                    <li><a href="#feedback">2 · Sending feedback</a></li>
-                    <li><a href="#plans">3 · Test plans</a></li>
-                    <li><a href="#known">4 · Known limitations</a></li>
-                    <li><a href="#privacy">5 · Beta privacy</a></li>
+                    <li><a href="#start">1 · Getting started</a></li>
+                    <li><a href="#join">2 · Joining the beta</a></li>
+                    <li><a href="#updates">3 · Staying on the latest build</a></li>
+                    <li><a href="#feedback">4 · Sending feedback</a></li>
+                    <li><a href="#plans">5 · Test plans</a></li>
+                    <li><a href="#known">6 · Known limitations</a></li>
+                    <li><a href="#privacy">7 · Beta privacy</a></li>
                 </ol>
             </aside>
 
             <article class="prose">
-                <h2 id="join"><span class="sec-num">01</span>Joining the beta</h2>
+                <h2 id="start"><span class="sec-num">01</span>Getting started</h2>
+                <p>New to Echo? Here's the whole idea in three lines:</p>
+                <ul>
+                    <li><strong>Align <em>or</em> narrate.</strong> Drop an ebook (EPUB/PDF) next to an audiobook and Echo syncs the words to the voice so you can read along. No audiobook? Echo narrates text-only EPUBs, Markdown, or plain text on-device — no cloud, no account.</li>
+                    <li><strong>A study system, not just a player.</strong> Bookmarks — with voice memos or photos — become flashcards you review with spaced repetition, on your phone, your wrist, or your Mac.</li>
+                    <li><strong>Private by design.</strong> No analytics, no tracking, no servers; alignment and narration run entirely on your device.</li>
+                </ul>
+                <h3>Your first 5 minutes</h3>
+                <ol>
+                    <li><strong>Add something to read.</strong> Import an audiobook (an M4B or a folder of MP3s) — or, to try narration with nothing else, a text-only EPUB, <code>.md</code>, or <code>.txt</code> file.</li>
+                    <li><strong>Play it.</strong> If you added matching ebook text, open the reader and watch the words follow the voice; tap any paragraph to jump there.</li>
+                    <li><strong>Make one bookmark.</strong> That's the seed of the study side — later you can promote it to a flashcard.</li>
+                </ol>
+                <p>That's enough to get the feel of it. The <a href="manual.html">Manual</a> covers everything in depth, and <a href="learn.html">Learn</a> walks through the study workflow.</p>
+
+                <h2 id="join"><span class="sec-num">02</span>Joining the beta</h2>
                 <ol>
                     <li>Install <strong>TestFlight</strong> (Apple's free beta app) from the App Store.</li>
                     <li>Open your Echo invite link on the device — it opens in TestFlight.</li>
                     <li>Tap <strong>Accept</strong>, then <strong>Install</strong>. Echo appears on your home screen like any app, with an orange dot in TestFlight marking it as a beta.</li>
                 </ol>
-                <p>Don't have an invite yet? <a href="https://github.com/dfakkeldy/Echo/issues" target="_blank" rel="noopener noreferrer">Request access via GitHub Issues</a> — include the device you'd test on.</p>
+                <p>Don't have an invite yet? <a href="mailto:testflight@kinnokilabs.com?subject=Echo%20Beta%20invite%20request&amp;body=Hi%20Dan%2C%20I'd%20like%20to%20test%20Echo.%20Device(s)%20I'd%20test%20on%3A%20">Email testflight@kinnokilabs.com</a> and say which device you'd test on.</p>
                 <p><strong>Requirements:</strong> a recent iPhone (on-device alignment uses the Neural Engine, so newer hardware aligns faster). Apple Watch and Mac are optional but very welcome test surfaces — the watch app installs automatically from the iPhone's Watch app.</p>
-                <p><strong>Updates:</strong> TestFlight notifies you when a new build lands; each build's <em>What to Test</em> notes tell you where to aim. Beta builds expire after 90 days; updating resets the clock.</p>
                 <div class="tip-note">
                     <span class="label">Your data</span>
                     <p>Beta data carries forward to future builds — but it's a beta, so keep your source audiobook files backed up. (You should anyway; Echo never modifies them.)</p>
                 </div>
 
-                <h2 id="feedback"><span class="sec-num">02</span>Sending feedback that helps</h2>
+                <h2 id="updates"><span class="sec-num">03</span>Staying on the latest build</h2>
+                <p>The public beta follows Echo's <strong>weekly</strong> track: a fresh, tested build lands roughly once a week. The simplest way to keep up is to let TestFlight update Echo for you.</p>
+                <h3>Turn on Automatic Updates</h3>
+                <p>Two switches do this — flip whichever you prefer:</p>
+                <ul>
+                    <li><strong>Just for Echo:</strong> open <strong>TestFlight</strong> → tap <strong>Echo</strong> → turn on <strong>Automatic Updates</strong>. New weekly builds then install on their own.</li>
+                    <li><strong>For every beta you test:</strong> in <strong>TestFlight</strong> → <strong>Settings</strong> (top corner) → turn on <strong>Automatic Updates</strong> to do the same across all your betas.</li>
+                </ul>
+                <p>With either on, you'll always be on the newest build TestFlight has for you. Leave it off and TestFlight simply notifies you instead — tap <strong>Update</strong> when you're ready.</p>
+                <div class="tip-note">
+                    <span class="label">What to test</span>
+                    <p>Every build ships with <em>What to Test</em> notes in TestFlight — a quick read tells you what changed and where to aim. Beta builds expire after 90 days; updating resets the clock.</p>
+                </div>
+                <p><strong>Want the bleeding edge?</strong> Nightly builds — rebuilt every day, rougher around the edges — go to core contributors only. If you'd like in, mention it when you <a href="mailto:testflight@kinnokilabs.com?subject=Echo%20nightly%20access">email testflight@kinnokilabs.com</a>; otherwise the weekly track is the right home for most testers.</p>
+
+                <h2 id="feedback"><span class="sec-num">04</span>Sending feedback that helps</h2>
                 <h3>The fastest way: TestFlight screenshots</h3>
                 <p>See something wrong? <strong>Take a screenshot right then.</strong> Tap the screenshot preview → <strong>Share</strong> → <strong>Send Beta Feedback</strong>. Your note arrives with the build number, device model, and iOS version attached automatically — that's half the diagnosis done.</p>
                 <h3>Crashes</h3>
@@ -97,7 +133,7 @@
                 </ul>
                 <blockquote>"Book X aligned perfectly except chapter 7 drifted ~30s after an ad-libbed intro; ePub is the 2nd edition from Kobo; audio is a Libation M4B" — that's a <em>perfect</em> report.</blockquote>
 
-                <h2 id="plans"><span class="sec-num">03</span>Structured test plans</h2>
+                <h2 id="plans"><span class="sec-num">05</span>Structured test plans</h2>
                 <p>Pick whichever matches your life. Each is 10–20 minutes of intentional testing.</p>
 
                 <h3>Plan A — The Commute Run <em>(Smart Rewind &amp; interruptions)</em></h3>
@@ -208,7 +244,7 @@
                     <li>Listen on one device, then confirm progress synced back to the server (and to Echo on another device). Report anything that double-counts or resets position.</li>
                 </ol>
 
-                <h2 id="known"><span class="sec-num">04</span>Known limitations (current beta)</h2>
+                <h2 id="known"><span class="sec-num">06</span>Known limitations (current beta)</h2>
                 <p>These are known — no need to report them, though opinions are welcome:</p>
                 <ul>
                     <li><strong>First auto-align is heavy.</strong> Model download (~40&nbsp;MB) + Neural Engine work; phones run warm on long books. Plug in.</li>
@@ -218,7 +254,7 @@
                     <li><strong>Watch review sessions</strong> can briefly show stale state if the phone app was killed mid-review; relaunching the phone app reconverges.</li>
                 </ul>
 
-                <h2 id="privacy"><span class="sec-num">05</span>Privacy during the beta</h2>
+                <h2 id="privacy"><span class="sec-num">07</span>Privacy during the beta</h2>
                 <p>Echo's promise is unchanged in beta: <strong>no analytics, no tracking, no servers, alignment fully on-device.</strong></p>
                 <p>One thing TestFlight itself adds: Apple's beta system shares <strong>crash reports</strong> and <strong>the feedback you choose to send</strong> with the developer, along with device/OS/build info. That's TestFlight's standard mechanism — it's how your reports reach us — not telemetry inside Echo. Full policy: <a href="privacy.html">privacy.html</a>.</p>
 
