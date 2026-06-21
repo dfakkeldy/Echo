@@ -199,6 +199,9 @@ platform :ios do
     #   testflight/beta_app_description.txt  → Test Information description (≤4000 chars)
     tf_options = {
       api_key: @api_key,
+      # pilot needs a single bundle id; the Appfile's for_lane(:beta) sets
+      # app_identifier to an ARRAY (for match), which upload_to_testflight rejects.
+      app_identifier: "com.echo.audiobooks",
       skip_waiting_for_build_processing: false,
       notify_external_testers: tf_external,
       changelog: File.read("testflight/what_to_test.txt"),
