@@ -107,7 +107,7 @@ struct ReaderTab: View {
                 forceScrollBlockID: forceScrollBlockID,
                 forceScrollTrigger: forceScrollTrigger,
                 onTapBlock: { (blockID: String) -> Void in
-                    seekToBlock(blockID)
+                    tapBlock(blockID)
                 },
                 onContextMenu: { (block: EPubBlockRecord) -> UIContextMenuConfiguration? in
                     buildContextMenu(block: block)
@@ -432,11 +432,31 @@ struct ReaderTab: View {
         showAlignmentBanner = !vm.hasUserAlignmentAnchors(audiobookID: audiobookID)
     }
 
+    /// Tapping a paragraph card seeks to it AND starts playing (the user wants to
+    /// hear from there). Uses the canonical user-seek (`model.seek(toSeconds:)`,
+    /// which refreshes progress/artwork/now-playing) — not the bare engine seek —
+    /// and gives feedback instead of a silent no-op when the block has no audio yet.
+    private func tapBlock(_ blockID: String) {
+        guard let vm = viewModel else { return }
+        let time = vm.audioStartTime(for: blockID, audiobookID: folderURL.absoluteString)
+        switch CardTapDecision.make(time: time) {
+        case .seekAndPlay(let seconds):
+            model.seek(toSeconds: seconds)
+            if !model.isPlaying { model.play() }
+        case .noTime:
+            Haptic.play(.light)  // un-narrated / un-aligned block — acknowledge the tap
+        }
+        viewModel?.activeBlockID = blockID  // highlight + scroll the tapped card either way
+    }
+
+    /// Seek-only (no auto-play) — used by TOC navigation, which should jump without
+    /// starting playback. Upgraded from the bare engine seek to the canonical
+    /// user-seek so progress/artwork refresh and a playing session resumes there.
     private func seekToBlock(_ blockID: String) {
         guard let vm = viewModel else { return }
         let audiobookID = folderURL.absoluteString
         if let time = vm.audioStartTime(for: blockID, audiobookID: audiobookID), time >= 0 {
-            model.playbackController.seek(to: time)
+            model.seek(toSeconds: time)
         }
     }
 

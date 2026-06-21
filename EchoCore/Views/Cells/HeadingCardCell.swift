@@ -161,13 +161,10 @@ final class HeadingCardCell: UICollectionViewCell {
         guard let base = baseAttributed?.mutableCopy() as? NSMutableAttributedString else { return }
         if let wordIndex, wordIndex >= 0, wordIndex < wordRanges.count {
             let range = wordRanges[wordIndex]
+            // Color/background only — NO font-weight change (see ParagraphCardCell).
             base.addAttribute(
                 .backgroundColor,
                 value: highlightTint.withAlphaComponent(0.25), range: range)
-            base.addAttribute(
-                .font,
-                value: UIFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold),
-                range: range)
         }
         label.attributedText = base
         lastHighlightFont = baseFont

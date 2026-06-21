@@ -51,8 +51,12 @@ struct BottomToolbarView: View {
 
     // MARK: - Shared chip treatment
 
-    /// Audit B2: active state is carried by a filled chip (shape), not color
-    /// alone. 44pt target either way.
+    /// All bottom-toolbar chrome uses the cover-derived accent (matching the top
+    /// header chips and the rest of the player). The *active* state is still
+    /// carried by a filled chip (shape) so it stays distinguishable without
+    /// relying on color alone. 44pt target either way.
+    private var chromeAccent: Color { model.artworkAccentColor ?? .accentColor }
+
     private func utilityChip<Content: View>(isActive: Bool, @ViewBuilder content: () -> Content)
         -> some View
     {
@@ -63,10 +67,7 @@ struct BottomToolbarView: View {
                 in: Circle()
             )
             .contentShape(Rectangle())
-            .foregroundStyle(
-                isActive
-                    ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
-                    : AnyShapeStyle(.secondary))
+            .foregroundStyle(chromeAccent)
     }
 
     private func utilityTextChip(isActive: Bool, _ text: String) -> some View {
@@ -79,10 +80,7 @@ struct BottomToolbarView: View {
                 in: Capsule()
             )
             .contentShape(Rectangle())
-            .foregroundStyle(
-                isActive
-                    ? AnyShapeStyle(model.artworkAccentColor ?? .accentColor)
-                    : AnyShapeStyle(.secondary))
+            .foregroundStyle(chromeAccent)
     }
 
     // MARK: - Speed
