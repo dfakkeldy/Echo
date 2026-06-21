@@ -210,11 +210,17 @@ platform :ios do
       # review contact for now; swap for a dedicated support address if one exists.
       beta_app_feedback_email: File.read("metadata/review_information/email_address.txt").strip
     }
-    # Route the build to the channel's tester group. distribute_external triggers
-    # the (required) Beta App Review submission for the external Weekly group.
-    if tf_group
+    # Only EXTERNAL channels need explicit group distribution. Internal testers
+    # (the Nightly group) AUTOMATICALLY receive every processed (VALID) build — no
+    # distribution call needed. Worse, pilot's distribute_build treats any `groups`
+    # assignment as an external submission and demands full Beta App Review data
+    # (demo account, contact, notes), so passing the internal group makes the lane
+    # fail with "Missing required information to submit for external testing". The
+    # external Weekly group genuinely submits for review, so it keeps the groups +
+    # distribute_external path.
+    if tf_group && tf_external
       tf_options[:groups] = [tf_group]
-      tf_options[:distribute_external] = tf_external
+      tf_options[:distribute_external] = true
     end
     upload_to_testflight(tf_options)
   end
