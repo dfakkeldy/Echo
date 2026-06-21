@@ -247,8 +247,7 @@ final class PlayerModel {
     /// For single-M4B books, returns currentPlaybackTime directly.
     var cumulativePlaybackTime: TimeInterval {
         guard isMultiM4B else { return currentPlaybackTime }
-        guard m4bBooks.indices.contains(currentIndex) else { return currentPlaybackTime }
-        return m4bBooks[currentIndex].cumulativeStartOffset + currentPlaybackTime
+        return state.currentBookStartOffset + currentPlaybackTime
     }
     /// Coarse 0–100 book progress that changes ~1 Hz, not per tick (§7.3).
     var bookProgressPercent: Int { state.bookProgressPercent }

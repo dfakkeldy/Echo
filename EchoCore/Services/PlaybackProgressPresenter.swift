@@ -98,10 +98,7 @@ final class PlaybackProgressPresenter {
 
         // Multi-M4B: book-level progress (overrides chapter-level fraction below).
         if state.isMultiM4B, state.totalBookDuration > 0 {
-            let bookOffset: TimeInterval = {
-                guard state.m4bBooks.indices.contains(state.currentIndex) else { return 0 }
-                return state.m4bBooks[state.currentIndex].cumulativeStartOffset
-            }()
+            let bookOffset = state.currentBookStartOffset
             let bookElapsed = bookOffset + elapsed
             let frac = min(1, max(0, bookElapsed / state.totalBookDuration))
             let didChange = abs(state.progressFraction - frac) > 0.005

@@ -26,6 +26,31 @@ final class PlaybackState {
     var isMultiM4B: Bool { m4bBooks.count >= 2 }
     var pendingAggregatedChapter: AggregatedChapter? = nil
 
+    /// The M4B file currently playing, resolved by matching the playing track's
+    /// URL against `m4bBooks`. `currentIndex` indexes `tracks`, which is
+    /// independently reorderable via persisted `loadOrder`/`moveTracks`, so it must
+    /// NOT be used to index the filename-sorted `m4bBooks` — doing so returns the
+    /// wrong book's offset after a manual reorder (CODE_AUDIT §5.1).
+    var currentBook: M4BBook? {
+        guard tracks.indices.contains(currentIndex) else { return nil }
+        let playingURL = tracks[currentIndex].url
+        return m4bBooks.first { $0.url == playingURL }
+    }
+
+    /// Cumulative start offset (book-global time base) of the currently playing
+    /// book, or 0 when single-file / unresolved.
+    var currentBookStartOffset: TimeInterval { currentBook?.cumulativeStartOffset ?? 0 }
+
+    /// Whole-book duration for the current playback scope: the aggregated total
+    /// for a multi-M4B folder, otherwise the single file's duration. Centralizes
+    /// the `isMultiM4B ? totalBookDuration : durationSeconds` selection that
+    /// book-level progress, scrubbing, and remote (Audiobookshelf) sync must use —
+    /// dividing a book-absolute time by the current *track's* duration reads as
+    /// finished after the first track (CODE_AUDIT §5.20).
+    var effectiveBookDuration: TimeInterval {
+        isMultiM4B ? totalBookDuration : (durationSeconds ?? 0)
+    }
+
     // MARK: - Playback
 
     var isPlaying: Bool = false
