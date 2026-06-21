@@ -9,7 +9,7 @@ enum NarrationProgressText {
     static func subtitle(chapterDisplayNumber: Int, fraction: Double) -> String {
         let base = "Preparing chapter \(chapterDisplayNumber)…"
         guard fraction > 0 else { return base }
-        let pct = Int((min(max(fraction, 0), 1) * 100).rounded())
+        let pct = Int((min(fraction, 1) * 100).rounded())
         return "\(base) \(pct)%"
     }
 }
