@@ -231,9 +231,22 @@
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
+                            // Lock screen: name the chapter being prepared (the in-app NarrationStatusView
+                            // already shows the per-block bar; the lock screen otherwise sits on the stale
+                            // "Preparing narration…"). The per-block percent is refreshed in the cover
+                            // callback below.
+                            self.state.currentSubtitle = NarrationProgressText.subtitle(
+                                chapterDisplayNumber: chapter.displayNumber, fraction: 0)
+                            self.progressPresenter.updateNowPlayingInfo(isPaused: true)
                             try await service.renderChapter(
                                 chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                                blocks: chapter.blocks, voice: voice.id)
+                                blocks: chapter.blocks, voice: voice.id,
+                                onBlockProgress: { [weak self] displayNumber, fraction in
+                                    guard let self else { return }
+                                    self.state.currentSubtitle = NarrationProgressText.subtitle(
+                                        chapterDisplayNumber: displayNumber, fraction: fraction)
+                                    self.progressPresenter.updateNowPlayingInfo(isPaused: true)
+                                })
                             try Task.checkCancellation()
                             // Bail if the user switched books while this chapter rendered.
                             guard
