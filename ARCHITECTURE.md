@@ -355,6 +355,9 @@ Database/Migrations/Schema_V17.swift
 Database/Migrations/Schema_V18.swift
 Database/Migrations/Schema_V19.swift
 Database/Migrations/Schema_V20.swift
+Database/Migrations/Schema_V21.swift
+Database/Migrations/Schema_V22.swift
+Database/Migrations/Schema_V23.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -581,6 +584,7 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V14–V19 | Capture & context (`session_location`, bookmark/note columns), Anki decks, FSRS + cloze/transcript, `track.narration_voice` (V17, marks synthesized tracks), Audiobookshelf server, and the `word_timing` table (V19) — see CHANGELOG.md for each |
 | V20 | `batch_queue` table — the persistent macOS overnight processing queue (queue position, status, nullable security-scoped bookmarks) |
 | V21 | `batch_queue.kind` (TEXT, default `'align'`) — discriminates audiobook-alignment items from text-only EPUB narration items (additive; no re-import) |
+| V22 | FSRS memory-state seed (`v22_fsrs_seed`) — one-time, idempotent data migration seeding `stability`/`difficulty` from each legacy SM-2 card's `(interval_days, ease_factor)` so its first FSRS review evolves existing memory instead of restarting (only rows where `stability IS NULL`; the FSRS columns themselves shipped in V16) |
 | V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
