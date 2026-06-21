@@ -19,13 +19,48 @@ struct NarrationCacheSource: ExportSource {
             .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "m4a" }
 
         var titlesByChapterIndex: [Int: String] = [:]
+        var voiceByChapterIndex: [Int: VoiceID] = [:]
         if let databaseWriter {
             let tracks = try TrackDAO(db: databaseWriter).tracks(for: audiobookID)
-            for track in tracks where track.narrationVoice != nil {
+            for track in tracks {
+                guard let voice = track.narrationVoice else { continue }
                 titlesByChapterIndex[track.sortOrder] = track.title
+                voiceByChapterIndex[track.sortOrder] = VoiceID(voice)
             }
         }
-        return Self.orderedItems(files: files, titlesByChapterIndex: titlesByChapterIndex)
+        // Collapse to one file per chapter before ordering: a re-render after a
+        // voice change or a renderVersion bump leaves two files for the same
+        // chapter index, and globbing every `-ch*.m4a` would export both (§5.12).
+        let deduped = Self.currentVersionFiles(
+            files: files, audiobookID: audiobookID, voiceByChapterIndex: voiceByChapterIndex)
+        return Self.orderedItems(files: deduped, titlesByChapterIndex: titlesByChapterIndex)
+    }
+
+    /// Reduces the globbed chapter files to at most one per chapter index, so a
+    /// book re-rendered after a voice change or a `renderVersion` bump exports each
+    /// chapter once, not twice (CODE_AUDIT §5.12). Prefers the canonical file — the
+    /// current render version with the voice the DB recorded for that chapter — and
+    /// falls back to a single deterministic file when that exact file isn't on disk,
+    /// so a not-yet-re-rendered chapter is still exported rather than dropped.
+    static func currentVersionFiles(
+        files: [URL], audiobookID: String, voiceByChapterIndex: [Int: VoiceID]
+    ) -> [URL] {
+        var filesByChapterIndex: [Int: [URL]] = [:]
+        for url in files {
+            guard let index = NarrationFileNaming.chapterIndex(fromFileName: url.lastPathComponent)
+            else { continue }
+            filesByChapterIndex[index, default: []].append(url)
+        }
+        return filesByChapterIndex.compactMap { index, group in
+            if let voice = voiceByChapterIndex[index] {
+                let canonical = NarrationFileNaming.chapterFileName(
+                    audiobookID: audiobookID, chapterIndex: index, voice: voice)
+                if let match = group.first(where: { $0.lastPathComponent == canonical }) {
+                    return match
+                }
+            }
+            return group.min { $0.lastPathComponent < $1.lastPathComponent }
+        }
     }
 
     /// Pure ordering+titling, unit-tested without generating audio. Files are
