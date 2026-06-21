@@ -20,6 +20,17 @@
             func increment() { count += 1 }
         }
 
+        @Test func intraOpThreadsDefaultsToTwoAndIsInjectable() async {
+            let def = OnnxKokoroEngine()
+            #expect(await def.intraOpThreadsForTesting == 2)
+
+            let custom = OnnxKokoroEngine(
+                modelProvider: { _ in
+                    throw NarrationError.engineUnavailable
+                }, intraOpThreads: 4)
+            #expect(await custom.intraOpThreadsForTesting == 4)
+        }
+
         @Test func failedPrepareIsNotCachedSoTheNextCallRetries() async {
             let counter = CallCounter()
             let engine = OnnxKokoroEngine(modelProvider: { _ in

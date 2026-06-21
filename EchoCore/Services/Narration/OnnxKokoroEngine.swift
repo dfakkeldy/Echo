@@ -44,14 +44,27 @@
         /// the 163 MB model; defaults to the real `ensureModel`.
         private let modelProvider: @Sendable (@Sendable (Double) -> Void) async throws -> URL
 
-        init() {
+        /// Intra-op thread count for the CPU EP. The A14 has 2 performance cores;
+        /// pinning intra-op parallelism to them is the throughput lever measured on
+        /// device. Injectable so the on-device spike can compare 1/2/4.
+        private let intraOpThreads: Int32
+
+        /// Test seam: surface the configured thread count without exposing internals.
+        var intraOpThreadsForTesting: Int32 { intraOpThreads }
+
+        init(intraOpThreads: Int32 = 2) {
             self.modelProvider = { progress in try await Self.ensureModel(progress: progress) }
+            self.intraOpThreads = intraOpThreads
         }
 
         /// Test seam: inject a custom model provider (e.g. one that throws) to drive
         /// the no-cache-on-failure retry path.
-        init(modelProvider: @escaping @Sendable (@Sendable (Double) -> Void) async throws -> URL) {
+        init(
+            modelProvider: @escaping @Sendable (@Sendable (Double) -> Void) async throws -> URL,
+            intraOpThreads: Int32 = 2
+        ) {
             self.modelProvider = modelProvider
+            self.intraOpThreads = intraOpThreads
         }
 
         // MARK: - Model location
@@ -91,7 +104,7 @@
             let fan = ProgressFanOut()
             fan.add(progress)
             progressFanOut = fan
-            let task = Task<Void, Error> { [logger, modelProvider] in
+            let task = Task<Void, Error> { [logger, modelProvider, intraOpThreads] in
                 defer { fan.clear() }
                 let modelURL = try await modelProvider { f in
                     fan.emit(.downloadingModels(fraction: f))
@@ -102,13 +115,16 @@
                 let loadStart = Date()
                 let env = try ORTEnv(loggingLevel: ORTLoggingLevel.warning)
                 let options = try ORTSessionOptions()
-                // CPU EP only (ORT's CoreML EP can't run Kokoro's dynamic shapes,
-                // and routing to the ANE is the exact path that traps on A14).
+                // Tuning (behavior-preserving): op fusion + pin intra-op parallelism to the
+                // A14 performance cores. CPU EP only — no ANE (the A14 trap path).
+                try options.setGraphOptimizationLevel(.all)
+                try options.setIntraOpNumThreads(intraOpThreads)
                 let session = try ORTSession(
                     env: env, modelPath: modelURL.path, sessionOptions: options)
                 let loadMs = Int(Date().timeIntervalSince(loadStart) * 1000)
                 logger.notice(
-                    "ONNX session created in \(loadMs, privacy: .public) ms (no AOT compile).")
+                    "ONNX session created in \(loadMs, privacy: .public) ms (no AOT compile), intraOp=\(intraOpThreads, privacy: .public)."
+                )
                 await self.store(env: env, session: session)
                 fan.emit(.compilingModels(done: 1, total: 1))
                 fan.emit(.ready)
