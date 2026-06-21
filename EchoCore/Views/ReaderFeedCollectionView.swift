@@ -155,13 +155,16 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         // Karaoke: keep the coordinator's word in sync so freshly-dequeued cells
         // render the right word, then retint the on-screen active cell — throttled
         // to ~12 Hz so word-rate updates don't thrash the visible cell.
+        let blockChanged = activeWord?.blockID != context.coordinator.activeWord?.blockID
         let wordChanged =
-            activeWord?.blockID != context.coordinator.activeWord?.blockID
-            || activeWord?.index != context.coordinator.activeWord?.index
+            blockChanged || activeWord?.index != context.coordinator.activeWord?.index
         context.coordinator.activeWord = activeWord
         if wordChanged {
             let now = CACurrentMediaTime()
-            if now - context.coordinator.lastWordTick >= 0.08 {
+            // Always process a block change (or a clear to nil) immediately so the
+            // previous paragraph's highlight is removed promptly; only throttle the
+            // within-paragraph word steps to ~12 Hz.
+            if blockChanged || now - context.coordinator.lastWordTick >= 0.08 {
                 context.coordinator.lastWordTick = now
                 context.coordinator.updateActiveWord(activeWord, in: collectionView)
             }
@@ -203,6 +206,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var sections: [ReaderCardSection] = []
         var activeBlockID: String?
         var activeWord: (blockID: String, index: Int)?
+        /// The block whose karaoke word is currently highlighted on screen, so
+        /// the next word-move can clear it (otherwise the previous paragraph's
+        /// last word stays lit when playback crosses a paragraph boundary).
+        var lastHighlightedWordBlockID: String?
         /// Throttles karaoke word retints to ~12 Hz so word-rate updates don't
         /// thrash the active cell. `updateUIView` fires far more often than the
         /// human eye needs the highlight to move.
@@ -380,6 +387,22 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         func updateActiveWord(
             _ word: (blockID: String, index: Int)?, in collectionView: UICollectionView
         ) {
+            let bodyFont = settings.uiFont(forTextStyle: .body, weight: .regular)
+            let headingFont = settings.uiFont(forTextStyle: .title3, weight: .semibold)
+
+            // Clear the previously-highlighted cell when the active word leaves its
+            // block (or goes to nil) — otherwise that paragraph's last word lingers.
+            if let clearID = KaraokeHighlightTransition.blockToClear(
+                previous: lastHighlightedWordBlockID, next: word?.blockID),
+                let ip = dataSource?.indexPath(for: "b-\(clearID)"),
+                let prevCell = collectionView.cellForItem(at: ip)
+            {
+                (prevCell as? ParagraphCardCell)?.applyWordHighlight(nil, baseFont: bodyFont)
+                (prevCell as? HeadingCardCell)?.applyWordHighlight(nil, baseFont: headingFont)
+            }
+            lastHighlightedWordBlockID = word?.blockID
+
+            // Apply to the new active cell (if any, and if on screen).
             guard let word,
                 let dataSource = dataSource,
                 let indexPath = dataSource.indexPath(for: "b-\(word.blockID)"),
@@ -388,12 +411,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             // Fonts mirror those `cell(for:)` builds for each cell kind so the
             // highlighted word keeps the same metrics as the surrounding text.
             if let para = cell as? ParagraphCardCell {
-                para.applyWordHighlight(
-                    word.index, baseFont: settings.uiFont(forTextStyle: .body, weight: .regular))
+                para.applyWordHighlight(word.index, baseFont: bodyFont)
             } else if let heading = cell as? HeadingCardCell {
-                heading.applyWordHighlight(
-                    word.index,
-                    baseFont: settings.uiFont(forTextStyle: .title3, weight: .semibold))
+                heading.applyWordHighlight(word.index, baseFont: headingFont)
             }
         }
 

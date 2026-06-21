@@ -162,13 +162,12 @@ final class ParagraphCardCell: UICollectionViewCell {
         guard let base = baseAttributed?.mutableCopy() as? NSMutableAttributedString else { return }
         if let wordIndex, wordIndex >= 0, wordIndex < wordRanges.count {
             let range = wordRanges[wordIndex]
+            // Color/background only — NO font-weight change. A weight swap
+            // (regular→semibold) changes glyph metrics and reflows the line on
+            // every word step, which is the jarring "font changes" the user saw.
             base.addAttribute(
                 .backgroundColor,
                 value: highlightTint.withAlphaComponent(0.25), range: range)
-            base.addAttribute(
-                .font,
-                value: UIFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold),
-                range: range)
         }
         label.attributedText = base
         lastHighlightFont = baseFont

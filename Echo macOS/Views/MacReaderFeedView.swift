@@ -211,11 +211,18 @@ struct MacReaderFeedView: View {
             playingChapterIndex: nil)
     }
 
-    /// Seeks playback to the first timeline row matching the given block ID.
-    /// Uses the shared `timelineCache` built during load.
+    /// Tapping a paragraph card seeks to it AND starts playing (parity with iOS).
+    /// Uses the shared `timelineCache` built during load; an un-timed block is a
+    /// no-op (no audio yet — macOS has no haptics for feedback).
     private func seekToBlock(_ blockID: String) {
-        guard let row = timelineCache.first(where: { $0.blockID == blockID }) else { return }
-        player.seek(to: row.start)
+        let time = timelineCache.first(where: { $0.blockID == blockID })?.start
+        switch CardTapDecision.make(time: time) {
+        case .seekAndPlay(let seconds):
+            player.seek(to: seconds)
+            if !player.isPlaying { player.play() }
+        case .noTime:
+            break
+        }
     }
 
     /// Periodically resolves the block at the current playback time so the reader
@@ -379,8 +386,9 @@ private struct MacBlockCardView: View, Equatable {
                 ranges[activeWordIndex].upperBound, within: attributed)
         else { return attributed }
         var result = attributed
+        // Color/background only — NO font-weight change. A weight swap reflows the
+        // line on every word step (parity with iOS ParagraphCardCell).
         result[lower..<upper].backgroundColor = .accentColor.opacity(0.25)
-        result[lower..<upper].font = .body.weight(.semibold)
         return result
     }
 
