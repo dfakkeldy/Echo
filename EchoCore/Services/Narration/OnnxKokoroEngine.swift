@@ -39,7 +39,20 @@
         /// sub-chunk (~6 MB lexicon parse + voice-blob read each). See KokoroFrontEnd.
         private let frontEnd = KokoroFrontEnd()
 
-        init() {}
+        /// Resolves the local model URL (downloading once if absent). Injected so a
+        /// test can exercise the failure path of `prepare()` without a network or
+        /// the 163 MB model; defaults to the real `ensureModel`.
+        private let modelProvider: @Sendable (@Sendable (Double) -> Void) async throws -> URL
+
+        init() {
+            self.modelProvider = { progress in try await Self.ensureModel(progress: progress) }
+        }
+
+        /// Test seam: inject a custom model provider (e.g. one that throws) to drive
+        /// the no-cache-on-failure retry path.
+        init(modelProvider: @escaping @Sendable (@Sendable (Double) -> Void) async throws -> URL) {
+            self.modelProvider = modelProvider
+        }
 
         // MARK: - Model location
 
@@ -78,9 +91,9 @@
             let fan = ProgressFanOut()
             fan.add(progress)
             progressFanOut = fan
-            let task = Task<Void, Error> { [logger] in
+            let task = Task<Void, Error> { [logger, modelProvider] in
                 defer { fan.clear() }
-                let modelURL = try await Self.ensureModel { f in
+                let modelURL = try await modelProvider { f in
                     fan.emit(.downloadingModels(fraction: f))
                 }
                 // No Espresso/AOT compile — session-create is the whole cost, and
@@ -101,7 +114,17 @@
                 fan.emit(.ready)
             }
             initializationTask = task
-            try await task.value
+            do {
+                try await task.value
+            } catch {
+                // §5.11: a failed initialization must not stay cached, or every
+                // later prepare() re-awaits the same failure forever (a transient
+                // network/disk error would brick narration until app relaunch).
+                // Joiners only ever re-await this task — they never replace it — so
+                // clearing here cannot drop a newer attempt.
+                initializationTask = nil
+                throw error
+            }
         }
 
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
