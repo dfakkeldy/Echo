@@ -147,8 +147,12 @@ private struct MacPlaybackSettingsPane: View {
                         },
                         set: { settings.narrationVoiceID = $0 })
                 ) {
-                    ForEach(VoiceCatalog.all) { voice in
-                        Text(voice.displayName).tag(voice.id.rawValue)
+                    ForEach(VoiceCatalog.sections) { section in
+                        Section(section.title) {
+                            ForEach(section.voices) { voice in
+                                Text(voice.displayName).tag(voice.id.rawValue)
+                            }
+                        }
                     }
                 }
             } header: {
