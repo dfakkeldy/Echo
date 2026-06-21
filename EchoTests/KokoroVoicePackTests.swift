@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Testing
+
 @testable import Echo
 
 @Suite struct KokoroVoicePackTests {
@@ -12,8 +13,8 @@ import Testing
 
     @Test func refSReturns256Floats() throws {
         let pack = try KokoroVoicePack(named: "af_heart")
-        #expect(pack.refS(forPhonemeCount: 1).count == 256) // row 0
-        #expect(pack.refS(forPhonemeCount: 50).count == 256) // row 49
+        #expect(pack.refS(forPhonemeCount: 1).count == 256)  // row 0
+        #expect(pack.refS(forPhonemeCount: 50).count == 256)  // row 49
     }
 
     @Test func refSClampsToLastRowWithoutCrash() throws {
@@ -37,6 +38,18 @@ import Testing
         // Sanity: the bundled Float32 blob must not contain NaN/inf.
         let pack = try KokoroVoicePack(named: "af_heart")
         let row = pack.refS(forPhonemeCount: 1)
+        #expect(row.allSatisfy { $0.isFinite })
+    }
+
+    /// Every voice in the catalog must have a bundled, loadable, finite pack of
+    /// the expected [510,256] shape — guards against a catalog entry whose .f32
+    /// file is missing or corrupt (which would throw at render time).
+    @Test(arguments: VoiceCatalog.all)
+    func everyCatalogVoiceLoads(_ voice: NarrationVoice) throws {
+        let pack = try KokoroVoicePack(named: voice.id.rawValue)
+        #expect(pack.rows == 510)
+        let row = pack.refS(forPhonemeCount: 5)
+        #expect(row.count == 256)
         #expect(row.allSatisfy { $0.isFinite })
     }
 }
