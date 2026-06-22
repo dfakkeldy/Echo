@@ -91,6 +91,21 @@ platform :ios do
                             end
     UI.message("Release channel: #{channel.empty? ? '(none)' : channel} → group: #{tf_group || '(none)'}, external: #{tf_external}")
 
+    # ── Nightly only: auto-draft "What to Test" from the commit delta ──────
+    # Internal/nightly testers should always see fresh copy. Weekly/external
+    # builds intentionally skip this and ship the human-curated committed file.
+    # Fail-safe: the generator leaves the committed file untouched on empty
+    # delta or any error, so this can never break a build.
+    if channel == "nightly"
+      UI.message("Nightly channel → regenerating testflight/what_to_test.txt from commit delta")
+      sh(
+        "cd .. && git fetch --no-tags --quiet origin weekly || true && " \
+        "PYTHONPATH=Scripts python3 -m doc_automation.whats_new " \
+        "--template fastlane/testflight/what_to_test.template.txt " \
+        "--out fastlane/testflight/what_to_test.txt"
+      )
+    end
+
     # ── Build number (computed once; used by both iOS and macOS archives) ──
     # TestFlight requires each upload's build number (CFBundleVersion) to be
     # unique and higher than the previous. MARKETING_VERSION is left alone —
