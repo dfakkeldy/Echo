@@ -83,6 +83,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.train.outputs.branch }}
+          # Full history + all branches so the nightly "What to Test" generator
+          # can resolve origin/weekly and compute merge-base(origin/weekly, HEAD).
+          # The default shallow single-branch clone has no origin/weekly ref, which
+          # would silently no-op the auto-draft (it falls back to the committed copy).
+          fetch-depth: 0
 
       # Pin Xcode 26.x to match ci.yml (newest installed 26.x; never a future
       # major). See ci.yml for why the macos-15 default of 16.4 is too old.
