@@ -28,26 +28,54 @@ enum DocumentImportFinalizer {
         if FileManager.default.fileExists(atPath: alignmentSidecarURL.path) {
             do {
                 let data = try Data(contentsOf: alignmentSidecarURL)
-                let exports = try JSONDecoder().decode([AlignmentAnchorExport].self, from: data)
+                let exports = try AlignmentSidecar.decode(data)
                 logger.info("Found alignment.json sidecar with \(exports.count) anchors.")
-                try anchorDAO.deleteAll(for: audiobookID)
-                for export in exports {
-                    let anchor = AlignmentAnchorRecord(
+                // Sidecar block ids are the portable `s<i>-b<j>` suffix. Re-prefix
+                // each with THIS device's audiobookID and drop any whose block isn't
+                // present locally (stale/foreign sidecar) so we never insert orphan
+                // anchors. Resolve FIRST so an all-foreign sidecar is a true no-op
+                // that leaves existing anchors intact.
+                let localBlockIDs = Set(blocks.map(\.id))
+                let createdAt = AlignmentService.isoFormatter.string(from: Date())
+                let resolved: [AlignmentAnchorRecord] = exports.compactMap { export in
+                    let blockID = AlignmentSidecar.localBlockID(
+                        export.blockId, audiobookID: audiobookID)
+                    guard localBlockIDs.contains(blockID) else { return nil }
+                    return AlignmentAnchorRecord(
                         id: UUID().uuidString,
                         audiobookID: audiobookID,
-                        epubBlockID: export.blockId,
+                        epubBlockID: blockID,
                         audioTime: export.timestamp,
                         audioEndTime: nil,
                         anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
                         source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
                         note: "Mac App DTW alignment",
-                        createdAt: AlignmentService.isoFormatter.string(from: Date()),
+                        createdAt: createdAt,
                         modifiedAt: nil
                     )
-                    try anchorDAO.upsert(anchor)
                 }
-                try alignmentService.recalculateTimeline()
-                logger.info("Ingested \(exports.count) anchors from alignment.json")
+                if resolved.isEmpty {
+                    logger.info(
+                        "alignment.json: 0 of \(exports.count) anchors resolved to local blocks — leaving existing anchors intact"
+                    )
+                } else {
+                    // Replace machine anchors but PRESERVE user-placed (human)
+                    // anchors so a re-import never destroys manual alignment work.
+                    let humanSources: Set<String> = [
+                        AlignmentAnchorRecord.Source.moveToNow.rawValue,
+                        AlignmentAnchorRecord.Source.searchResult.rawValue,
+                        AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
+                    ]
+                    for existing in try anchorDAO.anchors(for: audiobookID)
+                    where !humanSources.contains(existing.source) {
+                        try anchorDAO.delete(id: existing.id)
+                    }
+                    for anchor in resolved { try anchorDAO.upsert(anchor) }
+                    try alignmentService.recalculateTimeline()
+                    logger.info(
+                        "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
+                    )
+                }
             } catch {
                 logger.error(
                     "Failed to ingest alignment.json sidecar: \(error.localizedDescription)")
