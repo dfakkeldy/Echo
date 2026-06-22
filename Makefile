@@ -1,4 +1,4 @@
-.PHONY: help docs architecture test build-tests test-only hooks-test
+.PHONY: help docs architecture whats-new doc-automation-test test build-tests test-only hooks-test
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -15,6 +15,13 @@ docs: ## Generate DocC documentation
 
 architecture: ## Generate ARCHITECTURE.md from source tree
 	Scripts/generate_architecture.sh
+
+whats-new: ## Draft nightly "What to Test" from commits since last weekly (stdout)
+	@PYTHONPATH=Scripts python3 -m doc_automation.whats_new \
+		--template fastlane/testflight/what_to_test.template.txt --out -
+
+doc-automation-test: ## Run the doc-automation Python unit tests
+	@PYTHONPATH=Scripts python3 -m unittest discover -s Scripts/doc_automation/tests -t Scripts -v
 
 SIM_DEST = platform=iOS Simulator,name=iPhone 17
 

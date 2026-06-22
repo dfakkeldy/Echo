@@ -1073,6 +1073,19 @@ Link ▸ Enable**, then share the URL anywhere. Testers must install Apple's
 `beta_app_description.txt` (the group's Test Information). Edit those, not the
 dashboard — the lane reads them on every upload.
 
+**Nightly "What to Test" auto-draft.** On the `nightly` channel only, the
+`fastlane beta` lane regenerates `what_to_test.txt` in the working tree (never
+committed) from the commit delta since the last weekly promotion
+(`merge-base(origin/weekly, HEAD)..HEAD`). It is a deterministic transform of
+Conventional-Commit subjects — `feat`/`fix`/`perf` grouped into New/Fixed/Improved,
+plus `Tester-note:` / `skip-changelog` trailer overrides — with no LLM, capped at
+TestFlight's 4000 characters; on an empty delta or any error it leaves the
+committed file untouched, so it can never break a build. The weekly/external
+channel skips regeneration and ships the human-curated committed file (seed it
+with `make whats-new` when you open the `nightly → weekly` promotion PR). The
+generator lives in `Scripts/doc_automation/`, and its pure `changes.py` is the
+shared change-extractor that later doc-automation phases reuse.
+
 **Shipping the first build.** The release-train cron only uploads when the
 signing secrets are present (`APP_STORE_CONNECT_API_KEY_JSON`, `MATCH_PASSWORD`,
 `MATCH_GIT_SSH_KEY`); before they exist, runs degrade to compile-only. To ship
