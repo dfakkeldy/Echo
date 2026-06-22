@@ -14,7 +14,7 @@ TURN LISTENING INTO LEARNING
 - Highlight a passage and Echo makes a flashcard from it.
 - FSRS-4.5 spaced repetition — the modern scheduler Anki now uses — surfaces each card right before you'd forget it.
 - Review hands-free on Apple Watch: tap to recall while you walk, commute, or work.
-- Export your study notes as Markdown and your flashcard decks as JSON.
+- Import Anki-style flashcard decks from JSON, so your existing study material comes along.
 
 SEE YOUR PROGRESS
 - An Insights screen tracks listening time, daily streaks, chapter coverage, and retention, so motivation stays visible.

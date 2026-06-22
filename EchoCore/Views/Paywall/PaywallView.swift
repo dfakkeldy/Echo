@@ -91,11 +91,10 @@ struct PaywallView: View {
 
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 8) {
-            benefitLabel("♾️", "Unlimited flashcards with SM-2 spaced repetition")
+            benefitLabel("♾️", "Unlimited flashcards with FSRS spaced repetition")
             benefitLabel("🗣️", "Unlimited on-device AI narration (coming in 1.0)")
             benefitLabel("📊", "Insights — listening & study streaks")
-            benefitLabel("📤", "Study export — Markdown, Anki, JSON")
-            benefitLabel("🔗", "AudiobookShelf offline & sync")
+            benefitLabel("📤", "Export any book as a chaptered .m4b audiobook")
             benefitLabel("🔒", "No account, no servers, no tracking")
         }
     }
