@@ -28,6 +28,21 @@ struct NarrateCommand: AsyncParsableCommand {
             ?? outURL.deletingLastPathComponent()
             .appendingPathComponent("work-\(outURL.deletingPathExtension().lastPathComponent)")
 
+        // Default is a fresh render; `--resume` continues an interrupted run from
+        // its `.anchors-ch<N>.json` markers. Without it, clear prior markers (and
+        // their audio) so the book is re-rendered from scratch.
+        if !resume {
+            let fm = FileManager.default
+            let stale =
+                (try? fm.contentsOfDirectory(at: work, includingPropertiesForKeys: nil)) ?? []
+            for url in stale
+            where url.lastPathComponent.hasPrefix(".anchors-ch")
+                || url.pathExtension == "m4a"
+            {
+                try? fm.removeItem(at: url)
+            }
+        }
+
         let config = NarrationRunConfig(
             epubURL: URL(fileURLWithPath: epub),
             outM4BURL: outURL,
