@@ -321,14 +321,6 @@ enum EPUBAutoImportScanner {
     }
 }
 
-// MARK: - Sidecar Models
-
-struct AlignmentAnchorExport: Codable {
-    let blockId: String
-    let timestamp: TimeInterval
-    let confidence: Double
-}
-
 // MARK: - Errors
 
 private enum ScannerError: LocalizedError {
