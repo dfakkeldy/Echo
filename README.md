@@ -265,6 +265,9 @@ secrets are configured, compile-only until then). See **Release Engineering —
 Promotion Ladder** in [`ARCHITECTURE.md`](ARCHITECTURE.md) for branch-protection
 settings and the full rhythm.
 
+Nightly builds auto-draft their TestFlight "What to Test" copy from the commit
+history (`make whats-new`); weekly/external builds keep the human-curated copy.
+
 ---
 
 ## Agentic Workflows
