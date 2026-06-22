@@ -348,7 +348,12 @@ final public class EnglishG2P {
           token.phonemes = ""
           token.`_`.rating = 4
         } else if token.tag == .dash || (token.tag == .punctuation && token.text == "–") {
-          token.phonemes = "—"
+          // A plain hyphen ("-") joins word parts in a compound like
+          // "rough-and-ready" and must read as a brief word break, NOT the long
+          // em-dash pause "—". Only a real em/en dash is a pause. (Spaced dashes
+          // used as sentence pauses are normalized to commas upstream.)
+          let isRealDash = token.text.contains("—") || token.text.contains("–")
+          token.phonemes = isRealDash ? "—" : " "
           token.`_`.rating = 3
         } else if let tag = token.tag, EnglishG2P.punctuationTags.contains(tag), !token.text.lowercased().unicodeScalars.allSatisfy({ (97...122).contains(Int($0.value)) }) {
           if let val = EnglishG2P.punctuationTagPhonemes[token.text] {
@@ -392,6 +397,23 @@ final public class EnglishG2P {
     }
   }
    
+  /// Never-voiceless guarantee for a single token's phonemes.
+  ///
+  /// Returns phonemes that can never reach the TTS vocab as a dropped `unk`
+  /// (`❓`) marker — which would render a real word as silence. If `current` is
+  /// missing (`nil`) or still contains the `unk` marker AND `text` has at least
+  /// one letter, the word is approximated by the deterministic grapheme→IPA
+  /// fallback (effectively spelling it out) instead of being silently skipped.
+  /// Letter-less tokens (punctuation, whitespace) legitimately contribute
+  /// nothing and are left as `current ?? ""`.
+  func voicedPhonemes(text: String, current: String?) -> String {
+    let isVoiceless = current == nil || current!.range(of: unk) != nil
+    guard isVoiceless, text.contains(where: { $0.isLetter }) else {
+      return current ?? ""
+    }
+    return EnglishFallbackNetwork.phonemes(for: text)
+  }
+
   // Turns the text into phonemes that can then be fed to text-to-speech (TTS) engine for converting to audio
   public func phonemize(text: String, performPreprocess: Bool = true) -> (String, [MToken]) {
     let pre: PreprocessTuple
@@ -489,6 +511,13 @@ final public class EnglishG2P {
         ps = ps.replacingOccurrences(of: "ɾ", with: "T").replacingOccurrences(of: "ʔ", with: "t")
         finalTokens[i].phonemes = ps
       }
+    }
+
+    // Never-voiceless guarantee: a letter-bearing word the lexicon and OOV
+    // fallback still left unvoiced (nil, or the dropped `❓` unk marker) is
+    // approximated here so it is spoken, never silently skipped downstream.
+    for token in finalTokens {
+      token.phonemes = voicedPhonemes(text: token.text, current: token.phonemes)
     }
 
     let result = finalTokens.map { ( $0.phonemes ?? self.unk ) + $0.whitespace }.joined()
