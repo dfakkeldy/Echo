@@ -7,8 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 841D8CAEB031B6361813E665 /* af_heart.f32 */; };
+		0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = 5C260A9D9E299B82E8D4B077 /* onnxruntime */; };
+		245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */; };
+		29039D80BE70D0549D63283A /* af_heart.rows in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E3831A65448E14AF9E50D78F /* af_heart.rows */; };
+		52F95E253C26D7F3D649C553 /* us_silver.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */; };
+		61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6243FBB0511F01F7F480630 /* NarrateCommand.swift */; };
+		63A268C4D6C82D38A8373D2B /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = 87D2A7D1EE33E445A60EBDA0 /* AudioMarker */; };
+		7D78649F9DA726D16DBDA244 /* _kokoro_vocab.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 739F167A96954DC602A63519 /* _kokoro_vocab.json */; };
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
 		AA0100000000000000000053 /* ModelRetainBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000052 /* ModelRetainBox.swift */; };
+		B4018CB079F91AD99E8418D2 /* us_gold.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 486ED82EADFDDE51ED2283A1 /* us_gold.json */; };
 		CC00000000009AUMK0000000 /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = CC00000000008AUMK0000000 /* AudioMarker */; };
 		CC0000000000MMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
 		CC0000000000NMSKI0000000 /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000HMSKI0000000 /* MisakiSwift */; };
@@ -26,8 +35,14 @@
 		CC595F832FE6213C0034453E /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = CC595F822FE6213C0034453E /* onnxruntime */; };
 		CC595F852FE630AA0034453E /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = CC595F842FE630AA0034453E /* onnxruntime */; };
 		CCC48EBB2FA6AB350003458B /* Echo Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Echo Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CCE2746A2FDE85E10076D9CC /* (null) in Frameworks */ = {isa = PBXBuildFile; };
+		CCE2746A2FDE85E10076D9CC /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 		CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000003ZIPF00000003 /* ZIPFoundation */; };
+		CD31B53C583657383A66CDDB /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = 027216E9A9EC815EFEBD0513 /* ArgumentParser */; };
+		D200EDB889EAEE8A41B581DA /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 756754EC2DEBE3CB3DA81491 /* Cocoa.framework */; };
+		D65097502BC5B75CCE4010CD /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 193825D5E9C5E9D598559FCA /* GRDB */; };
+		DC21C519E843AA3D2CAA2C7A /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 0FC84089B8B47926290BEA94 /* MisakiSwift */; };
+		F60DA9BFC6CB8E3C7056C54E /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 04B720FB270E911EFF290AEA /* WhisperKit */; };
+		F74C018CF5E291A818C03BAF /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 4F2D20FF9F54B5D9915C604A /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +91,21 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		95300DF22F2694306AD5F79C /* Copy Narration Resources */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = EchoNarrationResources;
+			dstSubfolderSpec = 16;
+			files = (
+				7D78649F9DA726D16DBDA244 /* _kokoro_vocab.json in Copy Narration Resources */,
+				B4018CB079F91AD99E8418D2 /* us_gold.json in Copy Narration Resources */,
+				52F95E253C26D7F3D649C553 /* us_silver.json in Copy Narration Resources */,
+				048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */,
+				29039D80BE70D0549D63283A /* af_heart.rows in Copy Narration Resources */,
+			);
+			name = "Copy Narration Resources";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CC00BC622FA6B66500323F38 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -101,6 +131,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		486ED82EADFDDE51ED2283A1 /* us_gold.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_gold.json; path = EchoCore/Services/Narration/MisakiResources/us_gold.json; sourceTree = SOURCE_ROOT; };
+		739F167A96954DC602A63519 /* _kokoro_vocab.json */ = {isa = PBXFileReference; includeInIndex = 1; name = _kokoro_vocab.json; path = EchoCore/Services/Narration/_kokoro_vocab.json; sourceTree = SOURCE_ROOT; };
+		756754EC2DEBE3CB3DA81491 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		841D8CAEB031B6361813E665 /* af_heart.f32 */ = {isa = PBXFileReference; includeInIndex = 1; name = af_heart.f32; path = EchoCore/Resources/af_heart.f32; sourceTree = SOURCE_ROOT; };
+		A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_silver.json; path = EchoCore/Services/Narration/MisakiResources/us_silver.json; sourceTree = SOURCE_ROOT; };
 		AA0100000000000000000001 /* Echo macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0100000000000000000050 /* WhisperSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WhisperSession.swift; path = EchoCore/Services/WhisperSession.swift; sourceTree = SOURCE_ROOT; };
 		AA0100000000000000000052 /* ModelRetainBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ModelRetainBox.swift; path = EchoCore/Services/ModelRetainBox.swift; sourceTree = SOURCE_ROOT; };
@@ -113,9 +148,127 @@
 		CCC48E9B2FA6AB330003458B /* Echo Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCC48EA72FA6AB340003458B /* Echo Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Echo Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCC48EB12FA6AB340003458B /* Echo Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Echo Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DCA1F191B4998A1FB7A21E53 /* echo-cli */ = {isa = PBXFileReference; includeInIndex = 0; path = "echo-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E3831A65448E14AF9E50D78F /* af_heart.rows */ = {isa = PBXFileReference; includeInIndex = 1; name = af_heart.rows; path = EchoCore/Resources/af_heart.rows; sourceTree = SOURCE_ROOT; };
+		E6243FBB0511F01F7F480630 /* NarrateCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NarrateCommand.swift; path = "Tools/echo-cli/NarrateCommand.swift"; sourceTree = SOURCE_ROOT; };
+		F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EchoCLI.swift; path = "Tools/echo-cli/EchoCLI.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4FEA03AA769144F6DBB2EF55 /* Exceptions for "EchoCore" folder in "echo-cli" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CarPlay/CarPlayManager.swift,
+				CarPlay/CarPlayNotificationNames.swift,
+				CarPlay/CarPlaySceneDelegate.swift,
+				DailyPlanner/SchedulingSheet.swift,
+				EchoCoreApp.swift,
+				Models/NavigationDestinations.swift,
+				Services/ArtworkCache.swift,
+				Services/BookmarkArtworkCoordinator.swift,
+				Services/CoverThemeBuilder.swift,
+				Services/DominantColorExtractor.swift,
+				Services/PlaybackProgressPresenter.swift,
+				Services/PlayerLoadingCoordinator.swift,
+				Services/WatchCommandRouter.swift,
+				Services/WatchConnectivityCoordinator.swift,
+				Services/WatchStateContextBuilder.swift,
+				Services/WatchSyncManager.swift,
+				Utilities/ColorMetrics.swift,
+				Utilities/FolderPicker.swift,
+				Utilities/OKLCH.swift,
+				ViewModels/PlayerModel.swift,
+				"ViewModels/PlayerModel+Audiobookshelf.swift",
+				ViewModels/ReaderFeedViewModel.swift,
+				Views/ABSBrowseView.swift,
+				Views/ABSConnectionsSettingsView.swift,
+				Views/AppIconSelectionView.swift,
+				Views/AutoAlignmentProgressView.swift,
+				Views/BookmarkCardView.swift,
+				Views/BookSettingsView.swift,
+				Views/BottomToolbarView.swift,
+				Views/CardInboxView.swift,
+				Views/Cells/HeadingCardCell.swift,
+				Views/Cells/ImageCardCell.swift,
+				Views/Cells/ParagraphCardCell.swift,
+				Views/ChapterPickerSheet.swift,
+				Views/ChimeSettingsView.swift,
+				Views/Components/AdaptiveBackground.swift,
+				Views/Components/AlbumArtHeroView.swift,
+				Views/Components/BookProgressTrack.swift,
+				Views/Components/CircularProgressPlayButton.swift,
+				Views/Components/FlashcardCreationSheet.swift,
+				Views/Components/FlashcardOverlayView.swift,
+				Views/Components/Haptic.swift,
+				Views/Components/InlineStepperRow.swift,
+				Views/Components/MarqueeText.swift,
+				Views/Components/PlayerControlBar.swift,
+				Views/Components/SleepTimerPill.swift,
+				Views/Components/UnifiedBottomDock.swift,
+				Views/Components/UnifiedTopHeader.swift,
+				Views/Components/WordCloudView.swift,
+				Views/DashboardShelf.swift,
+				Views/EPUBHeadingPickerSheet.swift,
+				Views/ExportProgressView.swift,
+				Views/Fidget/BubblePopView.swift,
+				Views/Fidget/DoodlePadView.swift,
+				Views/Fidget/FidgetOverlayView.swift,
+				Views/Fidget/InfinityScrollView.swift,
+				Views/Fidget/KineticSandView.swift,
+				Views/Fidget/TactilePlaygroundView.swift,
+				Views/FlashcardReviewCard.swift,
+				Views/FlashcardReviewSession.swift,
+				Views/FontSelectionView.swift,
+				Views/HelpContent.swift,
+				Views/HelpView.swift,
+				Views/ListeningProgressModuleView.swift,
+				Views/ManualAlignmentSheet.swift,
+				Views/NoteEditorView.swift,
+				Views/NowPlayingLayout.swift,
+				Views/NowPlayingTab.swift,
+				Views/OnboardingView.swift,
+				Views/PDFDocumentView.swift,
+				Views/PhonePlayerSettingsView.swift,
+				Views/PlaybackOptionsSheet.swift,
+				Views/PlayerMoreMenu.swift,
+				Views/PlayerScrubberView.swift,
+				Views/PlayheadLineView.swift,
+				Views/PlaylistView.swift,
+				Views/PronunciationDictionaryView.swift,
+				Views/ProTranscriptsSettingsView.swift,
+				Views/ReaderEmptyState.swift,
+				Views/ReaderFeedCollectionView.swift,
+				Views/ReaderHeaderView.swift,
+				Views/ReaderTab.swift,
+				Views/RootTabView.swift,
+				Views/SettingsAdvancedView.swift,
+				Views/SettingsAppearanceView.swift,
+				Views/SettingsView.swift,
+				Views/SleepTimerCardView.swift,
+				Views/SmartRewindSettingsView.swift,
+				Views/SoundscapePickerView.swift,
+				Views/SpeedCardView.swift,
+				Views/SpeedSuggestionBanner.swift,
+				Views/StandaloneTranscriptView.swift,
+				Views/Stats/BookStatsView.swift,
+				Views/Stats/DeckDetailView.swift,
+				Views/Stats/DeckListView.swift,
+				Views/Stats/StatCardView.swift,
+				Views/Stats/StatsView.swift,
+				Views/StatsModuleView.swift,
+				Views/StreakModuleView.swift,
+				Views/ThemeSelectionView.swift,
+				Views/TimelineTab.swift,
+				Views/TransportControlsView.swift,
+				Views/UpcomingReviewsModuleView.swift,
+				Views/Visualizer/VisualizerPickerView.swift,
+				Views/Visualizer/VisualizerStyle.swift,
+				Views/Visualizer/VisualizerView.swift,
+				Views/VoiceMemoOverlayView.swift,
+				Views/WatchAppSettingsView.swift,
+			);
+			target = 449F0DE14CDE91940F20CAED /* echo-cli */;
+		};
 		718DD03F18BB433E7AD362E2 /* Exceptions for "EchoCore" folder in "Echo macOS" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -290,17 +443,22 @@
 				CC08EC842F95256B00206D2F /* Exceptions for "EchoCore" folder in "Echo" target */,
 				CC33EBB42FB41C610035179D /* Exceptions for "EchoCore" folder in "Echo WidgetExtension" target */,
 				718DD03F18BB433E7AD362E2 /* Exceptions for "EchoCore" folder in "Echo macOS" target */,
+				4FEA03AA769144F6DBB2EF55 /* Exceptions for "EchoCore" folder in "echo-cli" target */,
 			);
 			path = EchoCore;
 			sourceTree = "<group>";
 		};
 		CC08EC692F9522F800206D2F /* EchoTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = EchoTests;
 			sourceTree = "<group>";
 		};
 		CC08EC732F9522F800206D2F /* EchoUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = EchoUITests;
 			sourceTree = "<group>";
 		};
@@ -314,16 +472,22 @@
 		};
 		CCC48EAA2FA6AB340003458B /* Echo Watch AppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Echo Watch AppTests";
 			sourceTree = "<group>";
 		};
 		CCC48EB42FA6AB340003458B /* Echo Watch AppUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Echo Watch AppUITests";
 			sourceTree = "<group>";
 		};
 		DD0100000000000000000001 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -340,6 +504,21 @@
 				CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */,
 				CC595F852FE630AA0034453E /* onnxruntime in Frameworks */,
 				CC0000000016AUMK0000016 /* AudioMarker in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAE51A78DC033637B1DE35C1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D200EDB889EAEE8A41B581DA /* Cocoa.framework in Frameworks */,
+				D65097502BC5B75CCE4010CD /* GRDB in Frameworks */,
+				F74C018CF5E291A818C03BAF /* ZIPFoundation in Frameworks */,
+				DC21C519E843AA3D2CAA2C7A /* MisakiSwift in Frameworks */,
+				0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */,
+				63A268C4D6C82D38A8373D2B /* AudioMarker in Frameworks */,
+				F60DA9BFC6CB8E3C7056C54E /* WhisperKit in Frameworks */,
+				CD31B53C583657383A66CDDB /* ArgumentParser in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -370,7 +549,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CCE2746A2FDE85E10076D9CC /* (null) in Frameworks */,
+				CCE2746A2FDE85E10076D9CC /* BuildFile in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -406,11 +585,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		870C39EC8A99005B07878896 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				756754EC2DEBE3CB3DA81491 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
 		CC00BC4E2FA6B66400323F38 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				CC00BC4F2FA6B66400323F38 /* WidgetKit.framework */,
 				CC00BC512FA6B66400323F38 /* SwiftUI.framework */,
+				870C39EC8A99005B07878896 /* OS X */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -430,6 +618,13 @@
 				CC00BC4E2FA6B66400323F38 /* Frameworks */,
 				CC08EC5A2F9522F600206D2F /* Products */,
 				CCA5FE092FDB54160072C2EB /* Recovered References */,
+				F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */,
+				739F167A96954DC602A63519 /* _kokoro_vocab.json */,
+				486ED82EADFDDE51ED2283A1 /* us_gold.json */,
+				A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */,
+				841D8CAEB031B6361813E665 /* af_heart.f32 */,
+				E3831A65448E14AF9E50D78F /* af_heart.rows */,
+				E6243FBB0511F01F7F480630 /* NarrateCommand.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -444,6 +639,7 @@
 				CCC48EB12FA6AB340003458B /* Echo Watch AppUITests.xctest */,
 				CC00BC4D2FA6B66400323F38 /* Echo WidgetExtension.appex */,
 				AA0100000000000000000001 /* Echo macOS.app */,
+				DCA1F191B4998A1FB7A21E53 /* echo-cli */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -460,6 +656,36 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		449F0DE14CDE91940F20CAED /* echo-cli */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F7795FFF97200DDB8A6C4A18 /* Build configuration list for PBXNativeTarget "echo-cli" */;
+			buildPhases = (
+				2B1676B37843CC4B6A7A86DF /* Sources */,
+				AAE51A78DC033637B1DE35C1 /* Frameworks */,
+				95300DF22F2694306AD5F79C /* Copy Narration Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CC08EC5B2F9522F600206D2F /* EchoCore */,
+				DD0100000000000000000001 /* Shared */,
+			);
+			name = "echo-cli";
+			packageProductDependencies = (
+				193825D5E9C5E9D598559FCA /* GRDB */,
+				4F2D20FF9F54B5D9915C604A /* ZIPFoundation */,
+				0FC84089B8B47926290BEA94 /* MisakiSwift */,
+				5C260A9D9E299B82E8D4B077 /* onnxruntime */,
+				87D2A7D1EE33E445A60EBDA0 /* AudioMarker */,
+				04B720FB270E911EFF290AEA /* WhisperKit */,
+				027216E9A9EC815EFEBD0513 /* ArgumentParser */,
+			);
+			productName = "echo-cli";
+			productReference = DCA1F191B4998A1FB7A21E53 /* echo-cli */;
+			productType = "com.apple.product-type.tool";
+		};
 		AA0100000000000000000020 /* Echo macOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA0100000000000000000040 /* Build configuration list for PBXNativeTarget "Echo macOS" */;
@@ -694,8 +920,9 @@
 				CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 				CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
-				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */,
+				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */,
 				CC595F812FE6213C0034453E /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
+				A9452D01A62A841C26D8712D /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -710,6 +937,7 @@
 				CCC48EB02FA6AB340003458B /* Echo Watch AppUITests */,
 				CC00BC4C2FA6B66400323F38 /* Echo WidgetExtension */,
 				AA0100000000000000000020 /* Echo macOS */,
+				449F0DE14CDE91940F20CAED /* echo-cli */,
 			);
 		};
 /* End PBXProject section */
@@ -813,6 +1041,15 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2B1676B37843CC4B6A7A86DF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */,
+				61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA0100000000000000000032 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -908,6 +1145,23 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		0DF66C13AECF57251EB1565C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.cli;
+				PRODUCT_NAME = "echo-cli";
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_OBJC_INTEROP_MODE = objcxx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		AA01000000000000000000A6 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -994,6 +1248,23 @@
 				SWIFT_VERSION = 5.0;
 				VALIDATE_PRODUCT = YES;
 				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		ABC17D163F37F318CCB7BC41 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.cli;
+				PRODUCT_NAME = "echo-cli";
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_OBJC_INTEROP_MODE = objcxx;
+				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -1649,16 +1920,33 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		F7795FFF97200DDB8A6C4A18 /* Build configuration list for PBXNativeTarget "echo-cli" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ABC17D163F37F318CCB7BC41 /* Release */,
+				0DF66C13AECF57251EB1565C /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */ = {
+		CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ThirdParty/MisakiSwift;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A9452D01A62A841C26D8712D /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-argument-parser";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 		CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/atelier-socle/swift-audio-marker.git";
@@ -1702,6 +1990,41 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		027216E9A9EC815EFEBD0513 /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A9452D01A62A841C26D8712D /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
+		};
+		04B720FB270E911EFF290AEA /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+		0FC84089B8B47926290BEA94 /* MisakiSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */;
+			productName = MisakiSwift;
+		};
+		193825D5E9C5E9D598559FCA /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		4F2D20FF9F54B5D9915C604A /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0000000002ZIPF00000002 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+		5C260A9D9E299B82E8D4B077 /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC595F812FE6213C0034453E /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
+		};
+		87D2A7D1EE33E445A60EBDA0 /* AudioMarker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
+			productName = AudioMarker;
+		};
 		CC00000000008AUMK0000000 /* AudioMarker */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */;
@@ -1709,12 +2032,12 @@
 		};
 		CC0000000000FMSKI0000000 /* MisakiSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */;
+			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */;
 			productName = MisakiSwift;
 		};
 		CC0000000000HMSKI0000000 /* MisakiSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "ThirdParty/MisakiSwift" */;
+			package = CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */;
 			productName = MisakiSwift;
 		};
 		CC0000000002GRDB00000002 /* GRDB */ = {
