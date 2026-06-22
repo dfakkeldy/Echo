@@ -145,6 +145,23 @@
 
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             try await prepare()
+            guard session != nil else { throw NarrationError.engineUnavailable }
+
+            // The ONNX model occasionally returns a full-length but all-zero
+            // waveform (digital silence) for a non-empty input. Guard it: retry,
+            // then re-split the text, so a real word is never dropped to silence.
+            let samples = try await NarrationSilenceGuard.synthesize(text) { piece in
+                try await self.runModel(piece, voice: voice)
+            }
+            let audioS = Double(samples.count) / 24_000
+            return TTSChunk(samples: samples, sampleRate: 24_000, duration: audioS)
+        }
+
+        /// One encode + ONNX run for a single text fragment → PCM samples (an
+        /// empty array means "nothing to synthesize", e.g. an all-punctuation
+        /// fragment). Wrapped by `NarrationSilenceGuard`, which retries / re-splits
+        /// when the model returns a silent (all-zero) waveform.
+        private func runModel(_ text: String, voice: VoiceID) async throws -> [Float] {
             guard let session else { throw NarrationError.engineUnavailable }
 
             // Reuse Echo's verified front-half: G2P → vocab ids (BOS/EOS-wrapped)
@@ -153,8 +170,12 @@
             // every ≤200-char sub-chunk (which is what NarrationService feeds us).
             let (ids32, refS) = try frontEnd.encode(text: text, voice: voice)
 
-            guard !ids32.isEmpty else {
-                return TTSChunk(samples: [], sampleRate: 24_000, duration: 0)
+            // Boundary-only ids ([BOS, EOS]) mean every phoneme was dropped — there
+            // is nothing to say. Treat it as empty (a legit zero-length fragment the
+            // guard won't retry) rather than feeding it to the model, which would
+            // return unrecoverable digital silence.
+            guard ids32.contains(where: { $0 != KokoroPhonemeVocab.boundaryTokenId }) else {
+                return []
             }
 
             // Widen ids to Int64 for the ONNX `input_ids` tensor.
@@ -194,7 +215,15 @@
                 "\(tag, privacy: .public): \(ids32.count, privacy: .public) tokens → \(String(format: "%.2f", audioS), privacy: .public)s audio in \(String(format: "%.2f", computeS), privacy: .public)s compute (RTF \(String(format: "%.2f", rtf), privacy: .public))"
             )
 
-            return TTSChunk(samples: samples, sampleRate: 24_000, duration: audioS)
+            // The model sometimes returns a full-length all-zero waveform; flag it
+            // so the guard's retry/re-split is visible and the rate is monitorable.
+            if NarrationSilenceGuard.isEffectivelySilent(samples) {
+                logger.warning(
+                    "Silent (all-zero) waveform for \(ids32.count, privacy: .public) tokens — retrying/splitting."
+                )
+            }
+
+            return samples
         }
 
         // MARK: - Private
