@@ -174,6 +174,12 @@ struct NarrationRunResult {
 
             // Capture anchors + track duration for this chapter.
             let blockIDs = chapterBlocks.map(\.id)
+            guard !blockIDs.isEmpty else {
+                // Chapter has no text blocks — SQLite `IN ()` would crash; skip the DB read.
+                let cap = ChapterCapture(duration: 0, anchors: [])
+                try JSONEncoder().encode(cap).write(to: captureURL(idx, in: config.workDir))
+                continue
+            }
             let trackID = "syn-\(audiobookID)-ch\(idx)"
             let (duration, entries): (TimeInterval, [ChapterCapture.Entry]) = try db.read { db in
                 let dur =
