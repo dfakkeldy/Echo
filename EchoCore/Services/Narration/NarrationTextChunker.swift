@@ -63,9 +63,18 @@ enum NarrationTextChunker {
             current = ""
         }
 
+        // Don't split inside a pronunciation-override link `[word](/ipa/)`: an IPA
+        // syllable separator "." is a legitimate terminator-looking character, and
+        // splitting there would insert spaces inside the link and corrupt it.
+        var inLink = false
         for ch in text {
             current.append(ch)
-            if ch == "." || ch == "!" || ch == "?" || ch == ";" {
+            if ch == "[" {
+                inLink = true
+            } else if ch == ")" {
+                inLink = false
+            }
+            if !inLink, ch == "." || ch == "!" || ch == "?" || ch == ";" {
                 flush()
             }
         }

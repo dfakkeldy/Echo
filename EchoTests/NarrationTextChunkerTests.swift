@@ -99,4 +99,17 @@ import Testing
             #expect(hasContent)
         }
     }
+
+    @Test func pronunciationOverrideLinkIsNotSplitOnIPADots() {
+        // A pronunciation override rewrites a word as `[word](/ipa/)`, and an IPA
+        // syllable separator "." must NOT trigger a sentence split — otherwise the
+        // link is broken (spaces inserted inside it) and the override is lost.
+        let text = "He met [Computer](/kəm.pjuː.tər/) today. Then he left."
+        let pieces = NarrationTextChunker.split(text, maxChars: 200)
+        let joined = pieces.joined(separator: "")
+        // The link survives verbatim — no space injected between IPA syllables.
+        #expect(joined.contains("[Computer](/kəm.pjuː.tər/)"))
+        // Exactly one piece carries the whole link (it wasn't torn across chunks).
+        #expect(pieces.filter { $0.contains("kəm.pjuː.tər") }.count == 1)
+    }
 }
