@@ -9,9 +9,10 @@
 /* Begin PBXBuildFile section */
 		048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 841D8CAEB031B6361813E665 /* af_heart.f32 */; };
 		0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = 5C260A9D9E299B82E8D4B077 /* onnxruntime */; };
-		245A97E573FB572FF8FBB995 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CFF53D74979F5CF21850A4 /* main.swift */; };
+		245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */; };
 		29039D80BE70D0549D63283A /* af_heart.rows in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E3831A65448E14AF9E50D78F /* af_heart.rows */; };
 		52F95E253C26D7F3D649C553 /* us_silver.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */; };
+		61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6243FBB0511F01F7F480630 /* NarrateCommand.swift */; };
 		63A268C4D6C82D38A8373D2B /* AudioMarker in Frameworks */ = {isa = PBXBuildFile; productRef = 87D2A7D1EE33E445A60EBDA0 /* AudioMarker */; };
 		7D78649F9DA726D16DBDA244 /* _kokoro_vocab.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 739F167A96954DC602A63519 /* _kokoro_vocab.json */; };
 		AA0100000000000000000051 /* WhisperSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000050 /* WhisperSession.swift */; };
@@ -36,6 +37,7 @@
 		CCC48EBB2FA6AB350003458B /* Echo Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CCC48E9B2FA6AB330003458B /* Echo Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CCE2746A2FDE85E10076D9CC /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 		CCF1D3F02FE400DF00D4E88F /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000003ZIPF00000003 /* ZIPFoundation */; };
+		CD31B53C583657383A66CDDB /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = 027216E9A9EC815EFEBD0513 /* ArgumentParser */; };
 		D200EDB889EAEE8A41B581DA /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 756754EC2DEBE3CB3DA81491 /* Cocoa.framework */; };
 		D65097502BC5B75CCE4010CD /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 193825D5E9C5E9D598559FCA /* GRDB */; };
 		DC21C519E843AA3D2CAA2C7A /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 0FC84089B8B47926290BEA94 /* MisakiSwift */; };
@@ -148,7 +150,8 @@
 		CCC48EB12FA6AB340003458B /* Echo Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Echo Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA1F191B4998A1FB7A21E53 /* echo-cli */ = {isa = PBXFileReference; includeInIndex = 0; path = "echo-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3831A65448E14AF9E50D78F /* af_heart.rows */ = {isa = PBXFileReference; includeInIndex = 1; name = af_heart.rows; path = EchoCore/Resources/af_heart.rows; sourceTree = SOURCE_ROOT; };
-		F0CFF53D74979F5CF21850A4 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = main.swift; path = "Tools/echo-cli/main.swift"; sourceTree = SOURCE_ROOT; };
+		E6243FBB0511F01F7F480630 /* NarrateCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NarrateCommand.swift; path = "Tools/echo-cli/NarrateCommand.swift"; sourceTree = SOURCE_ROOT; };
+		F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EchoCLI.swift; path = "Tools/echo-cli/EchoCLI.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -515,6 +518,7 @@
 				0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */,
 				63A268C4D6C82D38A8373D2B /* AudioMarker in Frameworks */,
 				F60DA9BFC6CB8E3C7056C54E /* WhisperKit in Frameworks */,
+				CD31B53C583657383A66CDDB /* ArgumentParser in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -614,12 +618,13 @@
 				CC00BC4E2FA6B66400323F38 /* Frameworks */,
 				CC08EC5A2F9522F600206D2F /* Products */,
 				CCA5FE092FDB54160072C2EB /* Recovered References */,
-				F0CFF53D74979F5CF21850A4 /* main.swift */,
+				F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */,
 				739F167A96954DC602A63519 /* _kokoro_vocab.json */,
 				486ED82EADFDDE51ED2283A1 /* us_gold.json */,
 				A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */,
 				841D8CAEB031B6361813E665 /* af_heart.f32 */,
 				E3831A65448E14AF9E50D78F /* af_heart.rows */,
+				E6243FBB0511F01F7F480630 /* NarrateCommand.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -675,6 +680,7 @@
 				5C260A9D9E299B82E8D4B077 /* onnxruntime */,
 				87D2A7D1EE33E445A60EBDA0 /* AudioMarker */,
 				04B720FB270E911EFF290AEA /* WhisperKit */,
+				027216E9A9EC815EFEBD0513 /* ArgumentParser */,
 			);
 			productName = "echo-cli";
 			productReference = DCA1F191B4998A1FB7A21E53 /* echo-cli */;
@@ -916,6 +922,7 @@
 				CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */,
 				CC0000000000CMSKI0000000 /* XCLocalSwiftPackageReference "MisakiSwift" */,
 				CC595F812FE6213C0034453E /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
+				A9452D01A62A841C26D8712D /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC08EC5A2F9522F600206D2F /* Products */;
@@ -1038,7 +1045,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				245A97E573FB572FF8FBB995 /* main.swift in Sources */,
+				245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */,
+				61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1931,6 +1939,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A9452D01A62A841C26D8712D /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-argument-parser";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 		CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/atelier-socle/swift-audio-marker.git";
@@ -1974,6 +1990,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		027216E9A9EC815EFEBD0513 /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A9452D01A62A841C26D8712D /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
+		};
 		04B720FB270E911EFF290AEA /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CC0000000003WHSK00000003 /* XCRemoteSwiftPackageReference "WhisperKit" */;
