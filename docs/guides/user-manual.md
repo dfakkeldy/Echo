@@ -50,8 +50,13 @@ Echo is a player for **DRM-free** audiobooks — files you own and can see in th
 - **FLAC, AAC, AIFF, OGG, OPUS, WMA** — on Mac
 - **EPUB** — as a synced companion text (see The Reader)
 - **PDF** — as a synced companion document (see PDF Companions)
+- **Markdown / plain text** (.md, .markdown, .txt) — imported as a standalone, narratable book; headings become chapters, then Echo narrates it on-device
 
 Echo does not bypass DRM and cannot play protected Audible/Apple Books titles. Tools like Libation or OpenAudible can export books you own to open formats — see the FAQ for details and a note on legality.
+
+### From an Audiobookshelf server
+
+Already running **Audiobookshelf**? Echo connects to your self-hosted server: add it in Settings, browse and search your libraries, download a book to your device, and play. Progress syncs both ways — where you stopped on the server is where you start in Echo, and vice-versa. Books download for offline listening (Echo is not a streaming client). On iPhone today; the Mac app follows.
 
 ### Loading your first book
 
@@ -280,7 +285,7 @@ Pick a `.apkg` from the deck list's import button — **scheduling history inclu
 
 ### Daily Review
 
-- **SM-2 scheduling** (Anki's family): grades **Again / Hard / Good / Easy** drive each card's next appearance.
+- **FSRS-4.5 scheduling** (the modern Anki scheduler): grades **Again / Hard / Good / Easy** drive each card's next appearance.
 - Cards with audio play their snippet.
 - Due / reviewed-today / total show on the Timeline review module; the full picture lives in Insights 🚧.
 - Optional **daily local notification** (generated on-device; Echo has no servers).
@@ -403,6 +408,7 @@ Your data is yours, in formats you can read, forever. The database schema is ope
 
 | Export | What you get |
 |---|---|
+| **Audiobook → chaptered .m4b** (today) | Export a narrated EPUB, or an audiobook you imported, as a single chaptered `.m4b` (cover, metadata, chapter markers) — playable in any audiobook app. iPhone: player More menu. Mac: File menu, plus overnight batch-narrate a folder of EPUBs and export each. `.m4b` only; mp3 export 🔭 Roadmap. |
 | **Bookmarks → Markdown** (today) | Timestamps, notes, deep links that reopen Echo at the exact second. |
 | **Study Notes bundle** 🚧 | Per book: one Markdown file (bookmarks, Book Notes, flashcards, chapter headings, places) + `assets/` (voice memos, photos). Obsidian/Logseq/Notion-ready. Per book or bulk in Settings. |
 | **Deck → JSON** 🚧 | `.echodeck.json` with every field incl. scheduling; re-imports losslessly — backup + migration. |
@@ -588,7 +594,7 @@ Only if you turn it on — and even then: approximate places, a few capture mome
 On-device machine learning (WhisperKit) for alignment — no cloud APIs, no uploads. No chatbots, no generative features today; if AI-assisted card drafting arrives post-1.0, it runs on-device under the same rules 🔭.
 
 **What's coming after 1.0?**
-Chapter Study Mode, on-device AI card drafting, focus soundscapes, gentle hyperfocus/transition reminders, a Context Memory map view, FSRS as an alternative scheduler, .apkg export, richer CarPlay, full Mac reader parity. The [ROADMAP](../../ROADMAP.md) is public.
+Chapter Study Mode, on-device AI card drafting, focus soundscapes, gentle hyperfocus/transition reminders, a Context Memory map view, .apkg export, richer CarPlay, full Mac reader parity. The [ROADMAP](../../ROADMAP.md) is public.
 
 **Where are my files? Can I get my data out?**
 Audio stays where you put it (read in place, never modified). Echo's data lives in a local SQL database with an open schema; everything exports (see Exports). Deleting the app deletes Echo's database — your audio folder is untouched.

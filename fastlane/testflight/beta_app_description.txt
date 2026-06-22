@@ -1,4 +1,4 @@
-Echo turns your DRM-free audiobooks into a study tool: chapter looping, smart rewind, voice memo and photo bookmarks, a synced ePub/PDF reader with on-device auto-alignment, an Anki-style flashcard system (SM-2), and an Apple Watch remote you design yourself — up to 25 buttons across 5 pages, plus hands-free flashcard review and a Pomodoro timer on your wrist.
+Echo turns your DRM-free audiobooks into a study tool: chapter looping, smart rewind, voice memo and photo bookmarks, a synced ePub/PDF reader with on-device auto-alignment, on-device AI narration for text-only books (28 voices), chaptered .m4b export, an Anki-style flashcard system (FSRS-4.5 spaced repetition), and an Apple Watch remote you design yourself — up to 25 buttons across 5 pages, plus hands-free flashcard review and a Pomodoro timer on your wrist.
 
 WHAT BETA MEANS
 
