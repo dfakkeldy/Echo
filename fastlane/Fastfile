@@ -99,7 +99,7 @@ platform :ios do
     if channel == "nightly"
       UI.message("Nightly channel → regenerating testflight/what_to_test.txt from commit delta")
       sh(
-        "cd .. && git fetch --no-tags --quiet origin weekly || true && " \
+        "cd .. && git fetch --no-tags --quiet origin weekly:refs/remotes/origin/weekly || true && " \
         "PYTHONPATH=Scripts python3 -m doc_automation.whats_new " \
         "--template fastlane/testflight/what_to_test.template.txt " \
         "--out fastlane/testflight/what_to_test.txt"
