@@ -289,4 +289,6 @@ When extending or modifying the project with autonomous tooling, future agents M
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+Echo is licensed under the [GNU General Public License v3.0 or later](LICENSE) (`GPL-3.0-or-later`) — the source stays free and open, and any derivative app must stay open source too.
+
+For distribution through Apple's App Store (and comparable platforms), the copyright holder grants an [**App Store Distribution Exception**](LICENSE-APP-STORE-EXCEPTION.md) — an additional permission under GPLv3 §7 that resolves the known GPL-vs-App-Store incompatibility, on the condition that the complete corresponding source remains available under the GPL through this repository.
