@@ -559,7 +559,13 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 
 **Compose + transcode.** `AudioExportService` is the shared spine: it gaplessly composes the chapter URLs into an `AVMutableComposition`, transcodes once via `AVAssetExportSession` (AAC / `.m4b`), and hands the result to the metadata writer.
 
-**Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, now linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with title, author, and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover from the book's database record.
+**Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, now linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with title, author, and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover.
+
+**Cover-art resolution (source-aware).** `ExportMetadataResolver.resolveCoverArt` walks the same cascade the app uses to *display* a book's cover, so the exported file carries whatever artwork the user already sees — "from the EPUB, or the mp3's, whatever the source was":
+
+1. **Embedded artwork** in the first source file (`commonKeyArtwork` → MP4 `covr` / ID3 `APIC`) — covers an imported m4b/mp3 that tags its own cover.
+2. Failing that, branch on the source: a **narrated EPUB** reads the EPUB's stored front-matter cover image block (`EPubBlockDAO.allBlocks` → first front-matter `image` block's `imagePath`; the narration cache files carry no embedded art), and an **imported** book reads a `cover.*` sidecar beside the source file (the same sidecar `ArtworkCache.folderArtworkImage` surfaces at runtime).
+3. Whatever is found is normalised to JPEG/PNG via ImageIO, because `swift-audio-marker` embeds only those two formats — JPEG/PNG pass through byte-for-byte, anything else (HEIC/WEBP/GIF/TIFF) is transcoded to JPEG so it isn't silently dropped.
 
 **Entry points.** iOS: player More menu (`UnifiedTopHeader`) → share sheet (one tap; a pre-filled confirm sheet appears only when author or cover art is missing). macOS: File menu command → `NSSavePanel`.
 
