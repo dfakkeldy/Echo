@@ -106,7 +106,7 @@ enum HelpContent {
             id: "flashcards",
             title: "Flashcards & Daily Review",
             body: """
-            Echo includes a built-in spaced repetition system (SRS) — Anki-style flashcards scheduled with the SM-2 algorithm, so each card comes back right before you'd forget it.
+            Echo includes a built-in spaced repetition system (SRS) — Anki-style flashcards scheduled with the FSRS algorithm, so each card comes back right before you'd forget it.
 
             Creating cards: Long-press a paragraph in the Reader and choose "Create Flashcard" (the text seeds the card), promote any bookmark to a card, or create one from scratch in the Timeline tab. Every card has a front (write it as a question) and a back (the answer), and can carry an audio snippet from the book.
 

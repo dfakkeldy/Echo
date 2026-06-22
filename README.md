@@ -100,7 +100,7 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 | **1 · Study Moat** *(lead)* | nobody has it | FSRS + **Chapter Study Mode** (each chapter an Anki-style card) + narrator-voice flashcards + watch review + align-*or*-narrate + deep on-device analytics |
 | **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — a real crash-free + no-lost-progress bar |
 | **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; obvious from first launch |
-| **4 · Trust** | ads, paywalls, hidden fees | free, open-source, ad-free, **verifiably** private (you can read the code) |
+| **4 · Trust** | ads, hidden fees, subscriptions | free core + a **one-time** Pro unlock (never a subscription), open-source, ad-free, **verifiably** private (you can read the code) |
 | **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — **shipped** (PR #102); live-sync device-verify + macOS UI are fast-follows), no lost progress |
 | **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
 
@@ -292,4 +292,6 @@ When extending or modifying the project with autonomous tooling, future agents M
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+Echo is licensed under the [GNU General Public License v3.0 or later](LICENSE) (`GPL-3.0-or-later`) — the source stays free and open, and any derivative app must stay open source too.
+
+For distribution through Apple's App Store (and comparable platforms), the copyright holder grants an [**App Store Distribution Exception**](LICENSE-APP-STORE-EXCEPTION.md) — an additional permission under GPLv3 §7 that resolves the known GPL-vs-App-Store incompatibility, on the condition that the complete corresponding source remains available under the GPL through this repository.

@@ -34,7 +34,7 @@ Do them in any order. Track B is the smaller, faster set — a reasonable warm-u
 | **2 — Free-tier meters** | T5: `FreeTierGate` + `FlashcardDAO.count()` · T6: flashcard cap at the two creation sites · T7: narration cap in `NarrationService.renderChapter` |
 | **3 — Enforce Pro features** | T8: fold "Pro Transcripts" into Echo Pro (`isPro`) |
 | **4 — Paywall UI** | T9: reusable `PaywallView` · T10: replace Settings entry, retire `ProTranscriptsSettingsView` |
-| **5 — Release (non-code)** | T11: ASC product setup · T12: remove the "no subscription" promise in the same release |
+| **5 — Release (non-code)** | T11: ASC product setup (one-time non-consumables only — Pro unlock + Founders) · T12: **reaffirm** the "no subscription" promise — clarify Echo Pro is a one-time unlock (README/ROADMAP Trust + App Store copy aligned) |
 
 Nothing in this umbrella modifies Track A. When complete, tick it in the Self-Review below.
 

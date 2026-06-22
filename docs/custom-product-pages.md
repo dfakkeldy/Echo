@@ -125,8 +125,8 @@ Each screenshot uses high-contrast text overlays optimized for OCR indexing:
 ### Subtitle (24/30 Chars)
 `Audiobooks to Flashcards`
 
-### Promotional Text (143/170 Chars)
-`Turn listening into keeping. Capture audio bookmarks, write notes, and review study cards daily. Built-in spaced repetition & Anki integration.`
+### Promotional Text (163/170 Chars)
+`Turn listening into keeping. Capture audio bookmarks, write notes, and review cards daily with built-in FSRS spaced repetition, plus hands-free Apple Watch review.`
 
 ### Tailored App Description (2,450 Chars)
 ```text
@@ -138,10 +138,10 @@ TRANSFORM AUDIO INTO LASTING KNOWLEDGE:
 When you hear an important concept, capture it. Echo lets you convert any audiobook bookmark or EPUB highlight into a digital study card. The front of the card can capture your question or note, while the back links directly to the audio snippet. 
 
 2. BUILT-IN SPACED REPETITION (SRS)
-Review what you learn at the perfect interval. Echo features a built-in spaced repetition scheduler that queues cards based on how well you remember them (using FSRS, the modern algorithm Anki now ships). Your daily review deck loads in seconds, helping you move key concepts from short-term memory to long-term storage.
+Review what you learn at the perfect interval. Echo features a built-in spaced repetition scheduler that queues cards based on how well you remember them, using the modern FSRS algorithm — the same scheduler behind today's best study tools — graded on a simple four-button Again / Hard / Good / Easy scale. Your daily review deck loads in seconds, helping you move key concepts from short-term memory to long-term storage.
 
-3. ANKI DECK COMPATIBILITY
-Already use Anki? Echo is the perfect companion. Import your existing Anki decks to practice on the go, or export the flashcards you build while listening directly to `.apkg` files to continue studying them in your desktop Anki setup.
+3. BRING YOUR STUDY DECKS WITH YOU
+Already keep a deck library? Import flashcard decks into Echo as JSON and review them hands-free while you listen — your cards stay in a private, on-device study database. On the Mac app, you can export your decks to Anki, either as an `.apkg` file or pushed straight into Anki over AnkiConnect.
 
 4. SNAP-TO-SENTENCE AUDIO CLIPS
 When reviewing your flashcards, tap the play icon to listen to the original audiobook snippet where the concept was discussed. Echo uses your book alignment to play the exact sentence or paragraph, restoring the original context of the quote.
@@ -159,14 +159,122 @@ Each screenshot uses high-contrast text overlays optimized for OCR indexing:
     *   *Caption:* "Audiobooks to flashcards. Convert book highlights into study cards with a single tap."
     *   *Visual:* A split card layout: the top showing a highlighted book quote, the bottom showing the corresponding flashcard draft.
 2.  **Slide 2: Spaced Repetition Scheduler**
-    *   *Caption:* "Spaced repetition study. Optimize review intervals with a built-in FSRS scheduler."
-    *   *Visual:* The Daily Review deck showing a card, with three colored review buttons at the bottom ("Easy", "Good", "Hard").
+    *   *Caption:* "Spaced repetition study. Optimize review intervals with the modern FSRS scheduler."
+    *   *Visual:* The Daily Review deck showing a card, with the four review buttons at the bottom ("Again", "Hard", "Good", "Easy").
 3.  **Slide 3: Interactive Audio Snippets**
     *   *Caption:* "Listen to original context. Play the exact audio snippet behind any study card."
     *   *Visual:* A review card showing a mini audio waves player, with a play button highlighted.
 4.  **Slide 4: Watch Study Mode**
     *   *Caption:* "Study on Apple Watch. Review your daily flashcard queue hands-free anywhere."
     *   *Visual:* An Apple Watch displaying a simplified study card with "Tap to Reveal Answer".
-5.  **Slide 5: Export to Anki**
-    *   *Caption:* "Export decks to Anki. Easily share your study cards with desktop Anki databases."
-    *   *Visual:* The Share sheet showing an `.apkg` file export confirmation banner.
+5.  **Slide 5: Bring Your Decks With You**
+    *   *Caption:* "Import your study decks. Load a deck and review it hands-free while you listen."
+    *   *Visual:* The Files importer selecting a deck, with the imported cards landing in the daily review queue.
+
+---
+
+## 4. Turn Any Ebook into an Audiobook (On-Device AI Narration)
+*   **Primary Keywords:** text to speech reader, ebook to audiobook, AI narrator, read aloud, EPUB narration, on-device TTS, listen to ebooks, markdown to audio, AI voices.
+*   **In-App Deep Link:** `echoaudio://narrate`
+
+### Subtitle (27/30 Chars)
+`Turn Ebooks into Audiobooks`
+
+### Promotional Text (154/170 Chars)
+`No audiobook? Echo narrates any EPUB, Markdown, or text file on-device in 28 natural voices — then reads along word by word. Private, offline, no account.`
+
+### Tailored App Description (~1,850 Chars)
+```text
+Have the book, but not the audiobook? Echo reads it to you. Point Echo at an EPUB — or even a Markdown or plain-text file — and it generates a natural-sounding narration right on your device, then highlights each word as it is spoken so you can read along. Nothing is uploaded, no account is required, and it works on every supported iPhone and iPad.
+
+WHY ECHO'S NARRATION IS DIFFERENT:
+
+1. 28 NATURAL VOICES, ALL ON-DEVICE
+Choose from 28 English narrators — American and British, female and male — and pick the one that's easiest for you to listen to. The voice model lives on your device after a one-time download, so narration keeps working with no signal, no servers, and no cloud-voice subscription.
+
+2. NARRATE ANYTHING YOU CAN READ
+Echo doesn't need a matching audiobook. Import an EPUB study text, a Markdown export of your notes, or a plain .txt file, and Echo turns it into chaptered audio you can play, loop, and study like any other book.
+
+3. READ ALONG, WORD BY WORD
+As the narrator speaks, the current word lights up on screen and the page follows along. Pairing your ears with your eyes aids comprehension and keeps attention from drifting — a real help for ADHD and dyslexic readers.
+
+4. TEACH ECHO THE HARD WORDS
+Proper nouns, brand names, and technical terms don't always come out right the first time. Add them to your personal pronunciation dictionary once, and Echo says them your way every time after.
+
+5. KEEP YOUR NARRATION AS A REAL AUDIOBOOK
+Once Echo has narrated a book, you can export that narration as a single chaptered .m4b — with chapter markers, title, author, and cover art — and play it in Apple Books or any audiobook app. It's your book, in your chosen voice, yours to keep.
+
+Everything runs on your device. No tracking, no ads, no cloud. Echo is free and open-source under the GPL-3.0 license.
+```
+
+### Screenshot Storyboard & Caption Copy
+Each screenshot uses high-contrast text overlays optimized for OCR indexing:
+1.  **Slide 1: Any Ebook, Read Aloud**
+    *   *Caption:* "No audiobook needed. Echo narrates your EPUB on-device in a natural voice."
+    *   *Visual:* A text-only EPUB with a "Listen" button, the player spinning up narration over the book cover.
+2.  **Slide 2: 28 On-Device Voices**
+    *   *Caption:* "28 natural voices. American and British, female and male — pick your narrator."
+    *   *Visual:* The voice picker sheet grouped into American and British sections, with one voice selected.
+3.  **Slide 3: Read Along, Word by Word**
+    *   *Caption:* "Word-by-word read-along. Each word lights up in time with the narration."
+    *   *Visual:* The reader with a single word highlighted mid-sentence as the page auto-scrolls.
+4.  **Slide 4: Narrate Markdown & Text**
+    *   *Caption:* "Turn notes into audio. Import Markdown or plain text and listen on the go."
+    *   *Visual:* A Markdown file importing, then appearing as a chaptered book in the library.
+5.  **Slide 5: Export a Chaptered Audiobook**
+    *   *Caption:* "Keep it as an .m4b. Export your narration with chapters, cover, and title."
+    *   *Visual:* The player share sheet exporting a chaptered .m4b, with chapter markers shown in Apple Books.
+
+---
+
+## 5. Audiobookshelf & Your Own Library (Self-Hosted)
+*   **Primary Keywords:** audiobookshelf client, self-hosted audiobooks, ABS app, offline audiobook download, sync listening progress, bring your own audiobooks, m4b player, open-source audiobook app.
+*   **In-App Deep Link:** `echoaudio://library`
+
+### Subtitle (28/30 Chars)
+`Your Audiobookshelf, In Sync`
+
+### Promotional Text (159/170 Chars)
+`Connect your Audiobookshelf server, download books for offline listening, and Echo keeps your place in sync both ways. Bring your own M4Bs too. Open & private.`
+
+### Tailored App Description (~1,700 Chars)
+```text
+Already run Audiobookshelf? Echo is a calm, private client for your own server. Sign in once, browse and search your hosted libraries, download the books you want for offline listening, and Echo keeps your progress in sync both ways — so where you stop on your phone is where your server (and your other devices) pick up. And because Echo aligns and studies any book you load, your self-hosted audiobooks gain read-along, full-text search, bookmarks, and flashcards too.
+
+YOUR LIBRARY, ON YOUR TERMS:
+
+1. CONNECT YOUR OWN SERVER
+Point Echo at your Audiobookshelf server and sign in. Your library, your hosting, your data — Echo runs no cloud of its own, and there's no account with us to create.
+
+2. DOWNLOAD FOR OFFLINE LISTENING
+Pick a book and Echo downloads it to your device, so it plays anywhere — on the train, on a flight, on a route with no signal. No buffering, no dependence on a live connection.
+
+3. TWO-WAY PROGRESS SYNC
+Listen on your phone and your position is written back to your server; come back later and Echo picks up where you — or another device — left off. Your place follows you.
+
+4. BRING YOUR OWN AUDIOBOOKS TOO
+No server? Just load your DRM-free M4B audiobooks and EPUB or PDF companion text straight from Files. Echo aligns the audio to the text on-device so you can read along and study, same as any book.
+
+5. EXPORT A CLEAN, CHAPTERED M4B
+Repackage any book you've loaded into a single chaptered .m4b — chapter markers, title, author, and cover art included — playable in Apple Books or any audiobook app.
+
+Echo is free and open-source under the GPL-3.0 license. Everything runs on your device: no tracking, no ads, and your files are never uploaded to us.
+```
+
+### Screenshot Storyboard & Caption Copy
+Each screenshot uses high-contrast text overlays optimized for OCR indexing:
+1.  **Slide 1: Connect Your Server**
+    *   *Caption:* "Your Audiobookshelf, in Echo. Sign in to your own self-hosted server."
+    *   *Visual:* The Library Sources connection screen with server URL and sign-in fields.
+2.  **Slide 2: Browse & Search Your Library**
+    *   *Caption:* "Browse and search. Find any book across your hosted libraries."
+    *   *Visual:* The Audiobookshelf browse view showing a cover grid with the search field active.
+3.  **Slide 3: Download for Offline**
+    *   *Caption:* "Download for offline. Take your library anywhere, no signal needed."
+    *   *Visual:* A book downloading from the server with a progress indicator, then a downloaded checkmark.
+4.  **Slide 4: Two-Way Progress Sync**
+    *   *Caption:* "Synced both ways. Your place follows you between Echo and your server."
+    *   *Visual:* The player with a sync indicator and a small phone-to-server position-sync diagram.
+5.  **Slide 5: Bring Your Own & Export**
+    *   *Caption:* "Your files, your way. Load your own M4Bs, or export any book as a chaptered .m4b."
+    *   *Visual:* The Files importer loading an M4B beside the share sheet exporting a chaptered .m4b.

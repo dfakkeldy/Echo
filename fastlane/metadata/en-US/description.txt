@@ -14,7 +14,7 @@ TURN LISTENING INTO LEARNING
 - Highlight a passage and Echo makes a flashcard from it.
 - FSRS-4.5 spaced repetition — the modern scheduler Anki now uses — surfaces each card right before you'd forget it.
 - Review hands-free on Apple Watch: tap to recall while you walk, commute, or work.
-- Export your study notes as Markdown and your flashcard decks as JSON.
+- Import Anki-style flashcard decks from JSON, so your existing study material comes along.
 
 SEE YOUR PROGRESS
 - An Insights screen tracks listening time, daily streaks, chapter coverage, and retention, so motivation stays visible.
@@ -34,6 +34,6 @@ WORKS WHERE YOU DO
 - iPhone, Mac, and Apple Watch, sharing the same library and progress. On Mac, narrate a whole folder of EPUBs overnight, then play or export the results.
 
 OPEN, PRIVATE, NO ADS
-Everything runs on your device — alignment and narration included. No account, no tracking, no ads, and your files are never uploaded or modified. Echo is free and open-source under the GPL-3.0 license: import your books, align them, read along, and study. Echo Pro is an optional upgrade — a subscription or a one-time unlock — that adds power features like whole-library narration and study export, supporting a solo developer without ever costing you your privacy.
+Everything runs on your device — alignment and narration included. No account, no tracking, no ads, and your files are never uploaded or modified. Echo is free and open-source under the GPL-3.0 license: import your books, align them, read along, and study. Echo Pro is an optional one-time unlock — no subscription, ever — that adds power features like whole-library narration and study export, supporting a solo developer without ever costing you your privacy.
 
 Bring your own audiobook and book file, press play, and start turning listening into learning.
