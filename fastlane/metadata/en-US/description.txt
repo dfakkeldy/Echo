@@ -14,7 +14,7 @@ TURN LISTENING INTO LEARNING
 - Highlight a passage and Echo makes a flashcard from it.
 - SM-2 spaced repetition schedules each card so the right one resurfaces at the right time.
 - Review hands-free on Apple Watch: tap to recall while you walk, commute, or work.
-- Export your study notes as Markdown and your flashcard decks as JSON.
+- Import Anki-style flashcard decks from JSON, so your existing study material comes along.
 
 SEE YOUR PROGRESS
 - An Insights screen tracks listening time, daily streaks, chapter coverage, and retention, so motivation stays visible.
