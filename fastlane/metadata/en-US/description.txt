@@ -34,6 +34,6 @@ WORKS WHERE YOU DO
 - iPhone, Mac, and Apple Watch, sharing the same library and progress. On Mac, narrate a whole folder of EPUBs overnight, then play or export the results.
 
 OPEN, PRIVATE, NO ADS
-Everything runs on your device — alignment and narration included. No account, no tracking, no ads, and your files are never uploaded or modified. Echo is free and open-source under the GPL-3.0 license: import your books, align them, read along, and study. Echo Pro is an optional upgrade — a subscription or a one-time unlock — that adds power features like whole-library narration and study export, supporting a solo developer without ever costing you your privacy.
+Everything runs on your device — alignment and narration included. No account, no tracking, no ads, and your files are never uploaded or modified. Echo is free and open-source under the GPL-3.0 license: import your books, align them, read along, and study. Echo Pro is an optional one-time unlock — no subscription, ever — that adds power features like whole-library narration and study export, supporting a solo developer without ever costing you your privacy.
 
 Bring your own audiobook and book file, press play, and start turning listening into learning.
