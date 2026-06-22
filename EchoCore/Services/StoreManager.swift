@@ -15,7 +15,6 @@ final class StoreManager: ProEntitlementProviding {
 
     @ObservationIgnored private var lifetimeOwned = false
     @ObservationIgnored private var foundersOwned = false
-    @ObservationIgnored private var subscriptionActive = false
     @ObservationIgnored private var transactionUpdatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
@@ -51,7 +50,7 @@ final class StoreManager: ProEntitlementProviding {
         await refreshPurchasedProducts()
     }
 
-    /// Generic purchase for any product (subscription, non-consumable, etc.).
+    /// Purchase a non-consumable product (the Pro unlock or the Founders unlock).
     @discardableResult
     func purchase(_ product: Product) async throws -> Bool {
         let result = try await product.purchase()
@@ -102,14 +101,6 @@ final class StoreManager: ProEntitlementProviding {
         lastStoreError = error.localizedDescription
     }
 
-    /// True when the user can still get the 7-day free trial on the subscription group.
-    func isEligibleForFreeTrial() async -> Bool {
-        guard
-            let sub = products.first(where: { $0.id == ProductIDs.yearly })?.subscription
-        else { return false }
-        return await sub.isEligibleForIntroOffer
-    }
-
     // MARK: - Private
 
     private func listenForTransactionUpdates() async {
@@ -135,26 +126,12 @@ final class StoreManager: ProEntitlementProviding {
         }
         lifetimeOwned = lifetime
         foundersOwned = founders
-        subscriptionActive = await isSubscriptionActive()
         recomputeIsPro()
-    }
-
-    private func isSubscriptionActive() async -> Bool {
-        guard
-            let statuses = try? await Product.SubscriptionInfo.status(
-                for: ProductIDs.subscriptionGroupID)
-        else { return false }
-        // Active if ANY status in the group is an access-granting state with a verified transaction.
-        return statuses.contains { status in
-            (try? checkVerified(status.transaction)) != nil
-                && ProEntitlement.isActive(status.state)
-        }
     }
 
     private func recomputeIsPro() {
         isPro = ProEntitlement.isPro(
-            lifetimeOwned: lifetimeOwned, foundersOwned: foundersOwned,
-            subscriptionActive: subscriptionActive)
+            lifetimeOwned: lifetimeOwned, foundersOwned: foundersOwned)
     }
 
     private func updateProUnlockState(from transaction: Transaction) async {

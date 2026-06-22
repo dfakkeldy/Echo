@@ -57,9 +57,9 @@ Competitors are confusing → **Echo is obvious from first launch. This is a gen
 - [ ] **Onboarding** that teaches the curb-cut workflow in under 60 seconds (import → align → capture → review).
 - [ ] **UX-flow audit** (no dead-ends/dismiss-traps; loading/empty/error states everywhere); clean navigation + library organization; reader speed controls; iOS/macOS parity. *(was WS9)*
 
-### Wedge 4 — TRUST *(beats ads / paywalls / hidden-fees + privacy complaints)*
+### Wedge 4 — TRUST *(beats ads / hidden-fees / subscriptions + privacy complaints)*
 
-Competitors hide fees, gate features, and run ad-SDKs → **Echo is free, open, ad-free, and verifiably private.**
+Competitors hide fees, gate features behind subscriptions, and run ad-SDKs → **Echo is free & open-source, ad-free, and verifiably private — the only paid option is an optional one-time Pro unlock, never a subscription.**
 
 - [x] **Free-tier gate** — `FreeTierGate` (20 cards / 1 narrated chapter free); Pro unlocks. *(shipped; see §A.2)*
 - [ ] **Honest Echo Pro paywall UX** — BookPlayer tip-jar / simple-unlock style, never an aggressive carousel. *(§A.2)*
