@@ -309,6 +309,21 @@ Goal: fix existing Anki/flashcard code, then implement proper SM-2 scheduling.
 
 ---
 
+### Unified Feed (Read + Study merge)
+
+> Branch `feature/unified-feed-phase5` — open PRs targeting `nightly`, not yet merged.
+
+- [x] Phase 0 — `ChapterAudioStatusResolver` foundation (PR #147)
+- [x] Phase 1 — Collapsible reader feed (iOS accordion + auto-expand)
+- [x] Phase 2 — Inline bookmarks/cards, per-chapter off-switch via `OffStateResolver`, "Read & Study" nav consolidation
+- [x] Phase 3 — Two-axis filter (content type × session scope) + last-session recap card
+- [x] Phase 4 — Voice memos and notes as feed content types with capture UI (Schema V24)
+- [x] Phase 5 — Sessions history list, session-scoped feed, macOS reader accordion parity
+
+Spec: `docs/superpowers/specs/2026-06-22-unified-feed-design.md`
+
+---
+
 ## Phase 5: EPUB Viewing
 
 Goal: a dedicated EPUB reader experience integrated with the audiobook timeline.
