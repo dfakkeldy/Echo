@@ -14,11 +14,30 @@ struct NoteDAO {
         }
     }
 
-    func notes(in timeRange: ClosedRange<TimeInterval>, audiobookID: String) throws -> [NoteRecord] {
+    /// Notes whose `epub_block_id` is one of `blockIDs`, for feed injection.
+    /// Note: the VM feeds `FeedItemInjector` via `notes(for:)` + in-memory
+    /// grouping; this query is tested and available for future callers (e.g.
+    /// per-chapter loading), but is not called in the current shipping path.
+    func notes(withEpubBlockIDsIn blockIDs: [String], audiobookID: String) throws -> [NoteRecord] {
+        guard !blockIDs.isEmpty else { return [] }
+        return try db.read { db in
+            try NoteRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(blockIDs.contains(Column("epub_block_id")))
+                .order(Column("media_timestamp"), Column("created_at"))
+                .fetchAll(db)
+        }
+    }
+
+    func notes(in timeRange: ClosedRange<TimeInterval>, audiobookID: String) throws -> [NoteRecord]
+    {
         try db.read { db in
             try NoteRecord
                 .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("media_timestamp") >= timeRange.lowerBound && Column("media_timestamp") <= timeRange.upperBound)
+                .filter(
+                    Column("media_timestamp") >= timeRange.lowerBound
+                        && Column("media_timestamp") <= timeRange.upperBound
+                )
                 .order(Column("media_timestamp"))
                 .fetchAll(db)
         }
