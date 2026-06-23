@@ -12,6 +12,9 @@ struct NoteRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var playlistPosition: Double?
     var createdAt: String
     var modifiedAt: String
+    /// FK to `epub_block.id` (V24) for document-order feed positioning; nil →
+    /// positioned by `mediaTimestamp` only (legacy notes).
+    var epubBlockID: String? = nil
 
     static let databaseTableName = "note"
 
@@ -25,5 +28,6 @@ struct NoteRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case playlistPosition = "playlist_position"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
+        case epubBlockID = "epub_block_id"
     }
 }
