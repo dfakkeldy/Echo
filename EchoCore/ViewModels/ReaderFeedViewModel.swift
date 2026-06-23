@@ -777,6 +777,61 @@ final class ReaderFeedViewModel {
 
     // MARK: - Display sections
 
+    /// Applies the current `sessionScope` filter to `input`, returning only the
+    /// sections (and their items) whose blocks fall inside the audio window.
+    /// Returns `input` unchanged when `sessionScope == .wholeBook`.
+    ///
+    /// Both `rebuildDisplaySections()` (collapsed accordion feed) and
+    /// `sessionScopedSections` (fully-expanded detail feed) delegate here so
+    /// the scope logic can't drift between the two callers.
+    private func applyScopeFilter(to input: [ReaderCardSection]) -> [ReaderCardSection] {
+        guard
+            let allowed = SessionScopeReducer.blockIDsInScope(
+                audioStartTimeByBlockID: allAudioStartTimeByBlockID,
+                scope: sessionScope
+            )
+        else {
+            return input  // .wholeBook — no filter
+        }
+        // Build the set of chapter indices that have at least one in-scope block
+        // so that chapterHeader rows are also correctly gated.
+        var chaptersInScope = Set<Int>()
+        for section in sections {
+            for item in section.items {
+                if case .block(let record) = item, allowed.contains(record.id),
+                    let chIdx = chapterIndexByBlockID[record.id] ?? nil
+                {
+                    chaptersInScope.insert(chIdx)
+                }
+            }
+        }
+        return input.compactMap { section in
+            let keptItems = section.items.filter { item in
+                switch item {
+                case .block(let record):
+                    return allowed.contains(record.id)
+                case .chapterHeader(_, let chapterIndex):
+                    return chaptersInScope.contains(chapterIndex)
+                default:
+                    return true  // notes, memos, bookmarks, cards always visible
+                }
+            }
+            guard !keptItems.isEmpty else { return nil }
+            return ReaderCardSection(
+                id: section.id, headingStack: section.headingStack, items: keptItems)
+        }
+    }
+
+    /// The full `sections` array filtered to the current `sessionScope`, with
+    /// every block's text fully expanded (no accordion collapse).
+    ///
+    /// Use this in detail views (e.g. `SessionDetailFeedView`) that need all
+    /// block text for the scoped window rather than the collapsed TOC rows that
+    /// `displaySections` produces.  Returns `sections` unchanged under `.wholeBook`.
+    var sessionScopedSections: [ReaderCardSection] {
+        applyScopeFilter(to: sections)
+    }
+
     /// Recompute `displaySections` from the current groups + accordion state.
     /// Notes and voice memos (Phase 4) are threaded in via `FeedItemInjector`
     /// on the builder output so they are visible only when their chapter is expanded.
@@ -806,41 +861,7 @@ final class ReaderFeedViewModel {
         // Uses allAudioStartTimeByBlockID (fully populated by the time
         // rebuildDisplaySections is called from reload()) so the filter is
         // not gated to a single track. Returns nil for .wholeBook (no-op).
-        if let allowed = SessionScopeReducer.blockIDsInScope(
-            audioStartTimeByBlockID: allAudioStartTimeByBlockID,
-            scope: sessionScope
-        ) {
-            // Build the set of chapter indices that have at least one in-scope
-            // block, so that collapsed header-only rows are also correctly gated.
-            var chaptersInScope = Set<Int>()
-            for section in sections {
-                for item in section.items {
-                    if case .block(let record) = item, allowed.contains(record.id),
-                        let chIdx = chapterIndexByBlockID[record.id] ?? nil
-                    {
-                        chaptersInScope.insert(chIdx)
-                    }
-                }
-            }
-            displaySections = injected.compactMap { section in
-                let keptItems = section.items.filter { item in
-                    switch item {
-                    case .block(let record):
-                        return allowed.contains(record.id)
-                    case .chapterHeader(_, let chapterIndex):
-                        // Keep the header only if this chapter has in-scope blocks.
-                        return chaptersInScope.contains(chapterIndex)
-                    default:
-                        return true  // notes, memos, bookmarks, cards always visible
-                    }
-                }
-                guard !keptItems.isEmpty else { return nil }
-                return ReaderCardSection(
-                    id: section.id, headingStack: section.headingStack, items: keptItems)
-            }
-        } else {
-            displaySections = injected
-        }
+        displaySections = applyScopeFilter(to: injected)
     }
 
     /// User tapped a chapter header: open it (collapsing any other), or collapse

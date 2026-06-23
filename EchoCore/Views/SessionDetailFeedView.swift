@@ -25,7 +25,7 @@ struct SessionDetailFeedView: View {
                     .padding(.horizontal)
 
                 if let viewModel {
-                    ForEach(viewModel.sections) { section in
+                    ForEach(viewModel.sessionScopedSections) { section in
                         ForEach(section.items.indices, id: \.self) { idx in
                             sessionItemView(section.items[idx])
                                 .padding(.horizontal)
