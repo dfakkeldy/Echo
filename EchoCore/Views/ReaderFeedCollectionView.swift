@@ -339,7 +339,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         withReuseIdentifier: NoteFeedCell.reuseIdentifier, for: indexPath
                     ) as? NoteFeedCell
                 else { return UICollectionViewCell() }
-                cell.configure(text: note.text)
+                let noteTint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                cell.configure(text: note.text, tint: noteTint)
                 return cell
 
             case .voiceMemo(let memo):
@@ -357,7 +358,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 } else {
                     durationText = "Voice memo"
                 }
-                cell.configure(durationText: durationText) { [weak self] in
+                let memoTint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                cell.configure(durationText: durationText, tint: memoTint) { [weak self] in
                     self?.onPlayMemo?(memo)
                 }
                 return cell

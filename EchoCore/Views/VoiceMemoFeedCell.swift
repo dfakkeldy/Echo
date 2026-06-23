@@ -30,16 +30,20 @@ final class VoiceMemoFeedCell: UICollectionViewCell {
         let l = UILabel()
         l.font = .preferredFont(forTextStyle: .callout)
         l.textColor = .label
+        l.adjustsFontForContentSizeCategory = true
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        container.layer.cornerCurve = .continuous
         contentView.addSubview(container)
         container.addSubview(playButton)
         container.addSubview(label)
         playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
+        isAccessibilityElement = true
+        accessibilityTraits = .button
         NSLayoutConstraint.activate([
             container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
@@ -60,9 +64,12 @@ final class VoiceMemoFeedCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    func configure(durationText: String, onPlay: @escaping () -> Void) {
+    func configure(durationText: String, tint: UIColor, onPlay: @escaping () -> Void) {
         label.text = durationText
         self.onPlay = onPlay
+        playButton.tintColor = tint
+        container.backgroundColor = tint.withAlphaComponent(0.08)
+        accessibilityLabel = "Voice memo, \(durationText)"
     }
 
     @objc private func playTapped() {

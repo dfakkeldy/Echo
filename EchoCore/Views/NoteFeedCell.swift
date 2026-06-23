@@ -28,15 +28,19 @@ final class NoteFeedCell: UICollectionViewCell {
         l.font = .preferredFont(forTextStyle: .callout)
         l.textColor = .label
         l.numberOfLines = 0
+        l.adjustsFontForContentSizeCategory = true
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        container.layer.cornerCurve = .continuous
         contentView.addSubview(container)
         container.addSubview(iconView)
         container.addSubview(label)
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
         NSLayoutConstraint.activate([
             container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
@@ -57,7 +61,10 @@ final class NoteFeedCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    func configure(text: String) {
+    func configure(text: String, tint: UIColor) {
         label.text = text
+        iconView.tintColor = tint
+        container.backgroundColor = tint.withAlphaComponent(0.08)
+        accessibilityLabel = text
     }
 }
