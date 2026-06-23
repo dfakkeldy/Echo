@@ -90,4 +90,57 @@ import Testing
             vm.displaySections.count >= 1,
             "a window covering the anchor should keep at least 1 display section")
     }
+
+    // MARK: - sessionScopedSections (I-1 fix)
+
+    /// `sessionScopedSections` under `.wholeBook` must return every block in the book
+    /// (same count as `sections`).
+    @Test func sessionScopedSectionsWholeBookReturnsAll() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+        // .wholeBook is the default; sections contains all 4 blocks across 2 chapters.
+        let allBlockCount = vm.sections.flatMap(\.items).filter {
+            if case .block = $0 { return true }
+            return false
+        }.count
+        let scopedBlockCount = vm.sessionScopedSections.flatMap(\.items).filter {
+            if case .block = $0 { return true }
+            return false
+        }.count
+        #expect(allBlockCount > 0, "seed must produce at least one block")
+        #expect(
+            scopedBlockCount == allBlockCount,
+            "wholeBook scope must return all blocks; got \(scopedBlockCount), want \(allBlockCount)"
+        )
+    }
+
+    /// `sessionScopedSections` scoped to a window containing t=100 must include the
+    /// in-scope block (c1-p) and exclude the out-of-scope block (c0-p has no anchor).
+    /// This test was RED before the `sessionScopedSections` accessor existed (the view
+    /// was reading `sections`, not a scoped property).
+    @Test func sessionScopedSectionsFiltersToWindow() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        // Window covers t=100 (the only timeline_item, anchoring block "c1-p").
+        vm.sessionScope = .session(start: 90, end: 110)
+
+        let scopedBlocks = vm.sessionScopedSections.flatMap(\.items).compactMap { item -> String? in
+            if case .block(let record) = item { return record.id }
+            return nil
+        }
+        // The in-scope block must appear.
+        #expect(scopedBlocks.contains("c1-p"), "block c1-p (at t=100) must be in scoped sections")
+        // Blocks with no audio anchor (c0-h, c0-p, c1-h) must NOT appear since the
+        // SessionScopeReducer only includes blocks whose audioStartTime is in [90,110].
+        let outOfScopeIDs = ["c0-h", "c0-p", "c1-h"]
+        for id in outOfScopeIDs {
+            #expect(
+                !scopedBlocks.contains(id),
+                "block \(id) has no anchor in [90,110] and must be excluded from sessionScopedSections"
+            )
+        }
+    }
 }
