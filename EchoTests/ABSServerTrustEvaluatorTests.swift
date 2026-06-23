@@ -56,4 +56,19 @@ import Testing
             defaultTrustSucceeded: false, leafSHA256: "abc")
         #expect(d == .accept)
     }
+
+    @Test func untrustedOurHostPinSetButNilLeafRejects() {
+        let d = evaluator(pinned: "abc").decide(
+            isServerTrust: true, challengeHost: "homelab.local",
+            defaultTrustSucceeded: false, leafSHA256: nil)
+        #expect(d == .reject)
+    }
+
+    @Test func mixedCaseExpectedHostStillMatches() {
+        let e = ABSServerTrustEvaluator(expectedHost: "Homelab.LOCAL", pinnedSHA256: "abc")
+        let d = e.decide(
+            isServerTrust: true, challengeHost: "homelab.local",
+            defaultTrustSucceeded: false, leafSHA256: "abc")
+        #expect(d == .accept)
+    }
 }

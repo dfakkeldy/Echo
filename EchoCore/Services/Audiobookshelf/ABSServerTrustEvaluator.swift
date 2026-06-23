@@ -12,6 +12,11 @@ struct ABSServerTrustEvaluator: Sendable {
     /// Trusted leaf-cert SHA-256 (lowercase hex) for this server, or nil if nothing is pinned yet.
     let pinnedSHA256: String?
 
+    init(expectedHost: String, pinnedSHA256: String?) {
+        self.expectedHost = expectedHost.lowercased()
+        self.pinnedSHA256 = pinnedSHA256
+    }
+
     func decide(
         isServerTrust: Bool,
         challengeHost: String,
