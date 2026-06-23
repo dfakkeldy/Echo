@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import AVFoundation
 import GRDB
 import SwiftUI
 import UIKit
@@ -23,10 +24,21 @@ struct ReaderTab: View {
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
 
+    /// AVAudioPlayer for voice memo playback (Phase 4). Retained so playback
+    /// continues until the user taps a different memo or leaves the screen.
+    @State private var memoPlayer: AVAudioPlayer?
+    /// Recorder for capturing standalone voice memos (Phase 4). Destination is
+    /// the book folder's `voice-memos/` subdirectory so relative `filePath` rows
+    /// survive across relaunches when re-joined with `folderURL`.
+    @State private var memoRecorder = VoiceMemoRecorder(
+        destinationDirectory: FileLocations.applicationSupportDirectory
+            .appendingPathComponent("voice-memos-tmp", isDirectory: true))
+
     /// Coalesces per-chapter `.timelineItemsIngested` posts during a narration
     /// render into a single trailing `reload()` (reload re-reads the whole book on
     /// the main thread — running it per chapter is O(chapters²) over a render run).
     @State private var readerReloadToken = 0
+    @State private var showSessions = false
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
     @State private var hasDismissedAlignmentBanner = false
@@ -117,6 +129,72 @@ struct ReaderTab: View {
                 },
                 onContextMenu: { (block: EPubBlockRecord) -> UIContextMenuConfiguration? in
                     buildContextMenu(block: block)
+                },
+                onChapterHeaderContextMenu: { (chapterIndex: Int) -> UIContextMenuConfiguration? in
+                    let state = vm.chapterOffState(chapterIndex)
+                    let hasAudio = vm.chapterHasAudio[chapterIndex] ?? false
+
+                    return UIContextMenuConfiguration(
+                        identifier: nil, previewProvider: nil
+                    ) { _ in
+                        // Turn off/on everywhere (toggles whole chapter).
+                        let everywhereOn = (state == .allOn)
+                        let everywhere = UIAction(
+                            title: everywhereOn ? "Turn off everywhere" : "Turn on everywhere",
+                            image: UIImage(systemName: everywhereOn ? "eye.slash" : "eye")
+                        ) { _ in
+                            vm.setChapterOff(.all, on: everywhereOn, chapterIndex: chapterIndex)
+                        }
+
+                        // Granular: Listen (audio).
+                        let listen = UIAction(
+                            title: state.isAudioOff ? "Turn on listening" : "Turn off listening",
+                            image: UIImage(systemName: "headphones"),
+                            attributes: hasAudio ? [] : .disabled
+                        ) { _ in
+                            vm.setChapterOff(
+                                .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
+                        }
+
+                        // Granular: Narrate (shares the same manifest audio flag in v1).
+                        // v1 limitation: narration and listening map to the same `isEnabled`
+                        // flag; a distinct narration off-switch requires separately-addressable
+                        // narration tracks (future work).
+                        let narrate = UIAction(
+                            title: state.isAudioOff ? "Turn on narration" : "Turn off narration",
+                            image: UIImage(systemName: "waveform"),
+                            attributes: hasAudio ? [] : .disabled
+                        ) { _ in
+                            vm.setChapterOff(
+                                .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
+                        }
+
+                        // Granular: Cards/text (epub off flag).
+                        let cards = UIAction(
+                            title: state.isEpubOff
+                                ? "Turn on reading & cards" : "Turn off reading & cards",
+                            image: UIImage(systemName: "text.book.closed")
+                        ) { _ in
+                            vm.setChapterOff(
+                                .epub, on: !state.isEpubOff, chapterIndex: chapterIndex)
+                        }
+
+                        let granular = UIMenu(
+                            title: "", options: .displayInline, children: [listen, narrate, cards])
+                        return UIMenu(title: "", children: [everywhere, granular])
+                    }
+                },
+                offState: { chapterIndex in vm.chapterOffState(chapterIndex) },
+                onPlayMemo: { memo in
+                    // Re-join the stored relative filePath with the book's voice-memos
+                    // subfolder so the file is found correctly after relaunch.
+                    let memoDir =
+                        folderURL
+                        .appendingPathComponent("voice-memos", isDirectory: true)
+                    let fileURL = memoDir.appendingPathComponent(memo.filePath)
+                    memoPlayer?.stop()
+                    memoPlayer = try? AVAudioPlayer(contentsOf: fileURL)
+                    memoPlayer?.play()
                 }
             )
         }
@@ -163,7 +241,7 @@ struct ReaderTab: View {
     var body: some View {
         @Bindable var model = model
         Group {
-            if viewModel != nil {
+            if let vm = viewModel {
                 // The collection fills the screen and scrolls behind the translucent
                 // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
                 //   1. the reader's own header (self-measuring),
@@ -172,16 +250,43 @@ struct ReaderTab: View {
                 // (2) must match the header's real height, or the reader's own
                 // header tucks under the glass — hence `rowOneHeight`, not a
                 // hard-coded constant that goes stale when the chips resize.
-                feedCollectionView
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        readerHeaderOverlay
+                VStack(spacing: 0) {
+                    filterBar(vm)
+                    if let recap = vm.recap {
+                        recapCard(recap)
+                            .padding(.bottom, 8)
                     }
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
-                    }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        Color.clear.frame(height: model.bottomInset)
-                    }
+                    feedCollectionView
+                        .overlay(alignment: .bottom) {
+                            FeedCaptureBar(
+                                anchorBlockID: vm.activeBlockID,
+                                onAddNote: { text, blockID in
+                                    vm.addNote(text: text, atBlockID: blockID)
+                                },
+                                onStartRecording: {
+                                    try? memoRecorder.start()
+                                },
+                                onStopRecording: { blockID in
+                                    if let result = memoRecorder.stop() {
+                                        vm.addVoiceMemo(
+                                            fileURL: result.url,
+                                            duration: result.duration,
+                                            atBlockID: blockID)
+                                    }
+                                }
+                            )
+                            .padding(.bottom, 12)
+                        }
+                }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    readerHeaderOverlay
+                }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: model.bottomInset)
+                }
             } else {
                 VStack {
                     Spacer()
@@ -249,7 +354,7 @@ struct ReaderTab: View {
         // Narration renders chapter-by-chapter, posting this after each chapter's
         // timeline_item rows are materialized. Reload so read-along lights up
         // incrementally. Gate on the audiobookID so a just-switched book doesn't
-        // trigger a spurious reload. Mirrors PlaylistView / PDFDocumentView.
+        // trigger a spurious reload. Mirrors PDFDocumentView.
         .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
             notification in
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
@@ -270,6 +375,16 @@ struct ReaderTab: View {
         }
         .sheet(isPresented: $model.showReaderSettings) {
             ReaderSettingsSheet(settings: $readerSettings)
+        }
+        .sheet(isPresented: $showSessions) {
+            NavigationStack {
+                SessionsListView(audiobookID: folderURL.absoluteString)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showSessions = false }
+                        }
+                    }
+            }
         }
         .sheet(isPresented: $model.showReaderTOC) {
             if let vm = viewModel {
@@ -373,6 +488,119 @@ struct ReaderTab: View {
         .background(Color.clear)
     }
 
+    // MARK: - Phase-3 filter bar + recap card
+
+    /// Phase-3 content-type chips + scope selector. Sits directly above the feed.
+    @ViewBuilder
+    private func filterBar(_ vm: ReaderFeedViewModel) -> some View {
+        VStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(FeedContentType.allCases, id: \.self) { type in
+                        let disabled = (type == .bookmarks || type == .cards)  // fork 3: Phase 2 dep
+                        Button {
+                            vm.filter.contentType = type
+                        } label: {
+                            Text(Self.chipLabel(type))
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule().fill(
+                                        vm.filter.contentType == type
+                                            ? Color.accentColor.opacity(0.2)
+                                            : Color.secondary.opacity(0.12))
+                                )
+                                .overlay(
+                                    Capsule().stroke(
+                                        vm.filter.contentType == type
+                                            ? Color.accentColor : .clear, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(disabled)
+                        .opacity(disabled ? 0.4 : 1)
+                        .accessibilityLabel(Self.chipLabel(type))
+                        .accessibilityAddTraits(vm.filter.contentType == type ? [.isSelected] : [])
+                    }
+                }
+                .padding(.horizontal)
+            }
+
+            Picker(
+                "Scope",
+                selection: Binding(
+                    get: { vm.filter.scope == .wholeBook ? 0 : 1 },
+                    set: { vm.filter.scope = ($0 == 0) ? .wholeBook : .lastSession }
+                )
+            ) {
+                Text("Whole book").tag(0)
+                Text("Last session").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private static func chipLabel(_ type: FeedContentType) -> String {
+        switch type {
+        case .everything: return "Everything"
+        case .audio: return "Audio"
+        case .text: return "Text"
+        case .pics: return "Pics"
+        case .picsAndAudio: return "Pics + Audio"
+        case .bookmarks: return "Bookmarks"
+        case .cards: return "Cards"
+        }
+    }
+
+    /// Phase-3 recap card shown atop a scoped feed (only when `.lastSession` resolves).
+    @ViewBuilder
+    private func recapCard(_ recap: SessionRecap) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Last session")
+                .font(.headline)
+            HStack(spacing: 16) {
+                recapLabel("clock", Self.minutesText(recap.listenedSeconds))
+                if !recap.coveredChapterIndices.isEmpty {
+                    recapLabel("book", Self.chaptersText(recap.coveredChapterIndices))
+                }
+                if recap.bookmarkCount > 0 {
+                    recapLabel("bookmark", "\(recap.bookmarkCount)")
+                }
+                if recap.cardCount > 0 {
+                    recapLabel("rectangle.on.rectangle", "\(recap.cardCount)")
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            Text(recap.startedAt, style: .date)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            // GPS ("where") deferred to Phase 5 — session_location has no writer yet.
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.1)))
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private func recapLabel(_ symbol: String, _ text: String) -> some View {
+        Label(text, systemImage: symbol).labelStyle(.titleAndIcon)
+    }
+
+    private static func minutesText(_ seconds: TimeInterval) -> String {
+        let mins = Int((seconds / 60).rounded())
+        return "\(mins) min"
+    }
+
+    private static func chaptersText(_ indices: [Int]) -> String {
+        guard let first = indices.first, let last = indices.last else { return "" }
+        // chapter index is 0-based; show 1-based to the reader.
+        return first == last ? "Ch \(first + 1)" : "Ch \(first + 1)–\(last + 1)"
+    }
+
     // MARK: - Helpers
 
     /// The set of EPUB chapter indices belonging to the currently-playing track,
@@ -432,9 +660,19 @@ struct ReaderTab: View {
     private func loadViewModel() {
         guard let db = model.databaseService else { return }
         let audiobookID = folderURL.absoluteString
-        let vm = ReaderFeedViewModel(audiobookID: audiobookID, db: db.writer)
+        // Pass the book folder so the long-press off menu's audio toggle can write
+        // `isEnabled` on the mapped tracks (without it, audio-off silently no-ops).
+        let vm = ReaderFeedViewModel(
+            audiobookID: audiobookID, db: db.writer, playlistFolderURL: folderURL)
         vm.reload()
         self.viewModel = vm
+
+        // Point the recorder at the book's own voice-memos subfolder so relative
+        // filePath rows survive relaunches when re-joined with `folderURL`.
+        memoRecorder = VoiceMemoRecorder(
+            destinationDirectory:
+                folderURL
+                .appendingPathComponent("voice-memos", isDirectory: true))
 
         // Check if alignment is entirely auto-estimated (no user-created anchors yet).
         // Only show the alignment banner after the one-time context-menu hint has been dismissed.
@@ -584,6 +822,16 @@ struct ReaderTab: View {
             .frame(width: 36, height: 36)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Reader settings"))
+
+            Button {
+                showSessions = true
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 16))
+            }
+            .frame(width: 36, height: 36)
+            .background(Color(.secondarySystemBackground), in: Circle())
+            .accessibilityLabel(Text("Listening sessions"))
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)

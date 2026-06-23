@@ -684,9 +684,21 @@ ReaderTab (SwiftUI)
 **Key types:**
 
 - `ReaderCardSection` — A group of cards under a heading hierarchy (e.g. ["Chapter 1", "Section 1.1"])
-- `ReaderCardItem` — Enum with 2 cases: `.chapterHeader(title, index)` and `.block(EPubBlockRecord)`
+- `ReaderCardItem` — Enum with cases: `.chapterHeader`, `.block`, `.bookmark`, `.ankiCard`, `.note`, `.voiceMemo`
 - `EPubBlockRecord` — Database row for a parsed EPUB block (heading, paragraph, or image)
 - `ReaderSettings` — Font size, line spacing, and card tint color for the reader
+
+**Unified Feed Initiative (Phases 1–5, June 2026):** The reader feed was progressively unified into a single "Read & Study" surface across five phases:
+
+- **Phase 1 — Collapsible accordion (iOS):** The feed opens collapsed (one row per audio chapter = a built-in table of contents). Tap to expand inline; one chapter open at a time; the playing chapter auto-expands while audio is running. Each row is honestly labelled **has-audio** (anchors span the chapter's block range) vs **text-only** via `ChapterAudioStatusResolver` (`Shared/Services/`). New pure types: `FeedAccordion` (`Shared/`), `ReaderFeedDisplayBuilder` / `ReaderChapterGroup` (`EchoCore/Models/`). No schema change.
+
+- **Phase 2 — Inline study items + off-switch + nav consolidation (iOS):** Bookmarks and Anki cards thread through the feed at their anchor positions (`ReaderCardItem.bookmark`/`.ankiCard`, collision-safe `bm-`/`fc-` ids; `ReaderFeedDisplayBuilder.spliceExtras`). A long-press chapter menu exposes a single off-switch: `OffStateResolver` (`EchoCore/Services/`) reconciles both off-state axes — `is_hidden` on EPUB blocks (narration, display, auto-cards) and `isEnabled` on audio tracks (playback queue) — through one `ChapterOffState` write so they can no longer drift. The separate chronological **Study** tab is retired; **Read** is relabelled **"Read & Study"**; deep links to the old surface remap to the Read tab. No schema change.
+
+- **Phase 3 — Filters + session scope (iOS):** A filter row above the feed narrows by content type (Everything / Audio / Text / Pics / Bookmarks / Cards). A scope selector switches between *Whole book* and *Last session*; last-session scope shows a recap card (when, minutes, chapter range, counts) derived at query time from `real_time_event` + `playback_event`. New pure types: `FeedFilter`/`FeedContentType`/`FeedScope`/`FeedScopeResolver` (`Shared/`). No schema change.
+
+- **Phase 4 — Voice memos + notes (iOS, Schema V24):** Two new content types thread through the feed — **typed notes** and **recorded voice memos** (`ReaderCardItem.note`/`.voiceMemo`; `FeedItemInjector` for per-section positioning). Schema V24: `note` gains `epub_block_id` for document-order positioning; a net-new `voice_memo` table stores standalone audio file + metadata. New: `VoiceMemoRecord`/`VoiceMemoDAO`, `NoteRecord.epubBlockID`/`NoteDAO`. The recorder (`VoiceMemoRecorder`) is iOS-only (excluded from macOS/CLI build targets).
+
+- **Phase 5 — Sessions history + macOS parity (iOS + macOS):** A browsable **Sessions history** (`SessionsListView`) lists reconstructed listening sessions. There is no `playback_session` table — `SessionSummaryService` (`Shared/Services/`) groups `playback_event` rows by 5-minute wall-clock gaps, then derives GPS route / miles (from `session_location`), chapter range (overlap join on the `chapter` table), minutes, and bookmark/card/note counts into a pure `SessionSummary` (`Shared/`). Tapping a session opens a read-only scoped reader feed via `SessionScope` / `SessionScopeReducer` (pure, `Shared/`) applied in `ReaderFeedViewModel.reload()`. **macOS parity:** `MacReaderFeedView` (`Echo macOS/`) was extended to drive a SwiftUI-native collapsible chapter accordion reusing the UIKit-free pure types (`FeedAccordion`, `ChapterAudioStatusResolver`); it does not import the iOS `ReaderFeedViewModel` / `ReaderFeedCollectionView` (UIKit/EchoCore, iOS-only). No schema change (session data is derived in-query).
 
 ### PDF Companion Document Support (June 2026)
 

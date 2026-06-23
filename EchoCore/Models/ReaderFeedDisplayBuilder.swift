@@ -82,3 +82,49 @@ enum ReaderFeedDisplayBuilder {
         key < 0 ? "Front Matter" : "Chapter \(key + 1)"
     }
 }
+
+extension ReaderFeedDisplayBuilder {
+    /// An extra feed item (bookmark or card) plus the id of the block it should
+    /// appear immediately after. `nil` `afterBlockID` (or an unknown one) sends it
+    /// to the end of the chapter's items.
+    struct SplicedExtra {
+        let item: ReaderCardItem
+        let afterBlockID: String?
+    }
+
+    /// Insert `extras` into `items` (one chapter's items, in document order) so
+    /// each anchored extra appears right after its block, preserving the relative
+    /// order of multiple extras on the same block, and unanchored extras land at
+    /// the end. `.chapterHeader` and `.block` ordering is left untouched.
+    static func spliceExtras(into items: [ReaderCardItem], extras: [SplicedExtra])
+        -> [ReaderCardItem]
+    {
+        guard !extras.isEmpty else { return items }
+
+        // Group extras by the block id they trail. Unknown/nil anchors go to a
+        // dedicated "tail" bucket appended last.
+        let knownBlockIDs: Set<String> = Set(
+            items.compactMap { if case .block(let b) = $0 { return b.id } else { return nil } })
+
+        var afterBlock: [String: [ReaderCardItem]] = [:]
+        var tail: [ReaderCardItem] = []
+        for extra in extras {
+            if let anchor = extra.afterBlockID, knownBlockIDs.contains(anchor) {
+                afterBlock[anchor, default: []].append(extra.item)
+            } else {
+                tail.append(extra.item)
+            }
+        }
+
+        var result: [ReaderCardItem] = []
+        result.reserveCapacity(items.count + extras.count)
+        for item in items {
+            result.append(item)
+            if case .block(let b) = item, let trailing = afterBlock[b.id] {
+                result.append(contentsOf: trailing)
+            }
+        }
+        result.append(contentsOf: tail)
+        return result
+    }
+}

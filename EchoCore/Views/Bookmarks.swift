@@ -15,120 +15,6 @@ import os.log
 // Shared/Models/Bookmark.swift so they are available on both iOS and macOS.
 
 #if os(iOS)
-    // MARK: - Voice Memo Recorder
-
-    @MainActor @Observable
-    final class VoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
-        private(set) var isRecording: Bool = false
-        private(set) var lastFileName: String?
-        private var recorder: AVAudioRecorder?
-        private(set) var elapsed: TimeInterval = 0
-        private var timer: Timer?
-
-        /// Tracks the security-scoped folder we opened for writing, so we can release it.
-        private var scopedFolderURL: URL?
-
-        /// Start recording. The memo is written next to the audiobook (`folderURL`)
-        /// when possible; otherwise it falls back to Documents/VoiceMemos.
-        func startRecording(in folderURL: URL?) throws {
-            let session = AVAudioSession.sharedInstance()
-            // Use playAndRecord so microphone + speaker routing are configured for memo capture.
-            var options: AVAudioSession.CategoryOptions = []
-            #if !os(watchOS)
-                options = [.defaultToSpeaker, .allowBluetoothHFP]
-            #endif
-            try session.setCategory(.playAndRecord, mode: .default, options: options)
-            try session.setActive(true)
-
-            let fileName = "memo-\(UUID().uuidString).m4a"
-            let url = Self.recordingURL(
-                forFileName: fileName, in: folderURL, scopedURLOut: &scopedFolderURL)
-
-            let settings: [String: Any] = [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 44_100.0,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-            ]
-
-            let r = try AVAudioRecorder(url: url, settings: settings)
-            r.delegate = self
-            r.prepareToRecord()
-            r.record()
-            recorder = r
-            isRecording = true
-            lastFileName = fileName
-            elapsed = 0
-            timer?.invalidate()
-            timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-                guard let self, let r = self.recorder, r.isRecording else { return }
-                self.elapsed = r.currentTime
-            }
-        }
-
-        @discardableResult
-        func stopRecording() -> String? {
-            recorder?.stop()
-            recorder = nil
-            timer?.invalidate()
-            timer = nil
-            isRecording = false
-            // Restore audiobook session category.
-            try? AVAudioSession.sharedInstance().setCategory(
-                .playback, mode: .spokenAudio, options: [])
-            if let scoped = scopedFolderURL {
-                scoped.stopAccessingSecurityScopedResource()
-                scopedFolderURL = nil
-            }
-            return lastFileName
-        }
-
-        func discard(in folderURL: URL?) {
-            if let name = lastFileName {
-                // Try the audiobook folder first, then the legacy directory.
-                if let folderURL {
-                    var isDir: ObjCBool = false
-                    FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir)
-                    let baseDir =
-                        isDir.boolValue ? folderURL : folderURL.deletingLastPathComponent()
-                    try? FileManager.default.removeItem(at: baseDir.appendingPathComponent(name))
-                }
-                try? FileManager.default.removeItem(
-                    at: Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(name))
-            }
-            lastFileName = nil
-            elapsed = 0
-        }
-
-        /// Build the recording URL — preferring the audiobook folder (with
-        /// security scope), falling back to Documents/VoiceMemos if the folder
-        /// is not writable or no folder is provided.
-        private static func recordingURL(
-            forFileName fileName: String,
-            in folderURL: URL?,
-            scopedURLOut: inout URL?
-        ) -> URL {
-            if let folderURL {
-                var isDir: ObjCBool = false
-                FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir)
-                let baseDir = isDir.boolValue ? folderURL : folderURL.deletingLastPathComponent()
-                // Try to acquire security-scoped access for writing.
-                let didStart = baseDir.startAccessingSecurityScopedResource()
-                if didStart { scopedURLOut = baseDir }
-                // Confirm we can write here by checking the parent directory.
-                if FileManager.default.isWritableFile(atPath: baseDir.path) {
-                    return baseDir.appendingPathComponent(fileName)
-                }
-                // Not writable — release scope and fall through.
-                if didStart {
-                    baseDir.stopAccessingSecurityScopedResource()
-                    scopedURLOut = nil
-                }
-            }
-            return Bookmark.legacyVoiceMemoDirectory().appendingPathComponent(fileName)
-        }
-    }
-
     // MARK: - Edit Bookmark Sheet
 
     #if !os(watchOS)
@@ -148,7 +34,9 @@ import os.log
                 @State private var selectedImageItem: PhotosPickerItem?
             #endif
 
-            @State private var recorder = VoiceMemoRecorder()
+            @State private var recorder: VoiceMemoRecorder?
+            @State private var elapsed: TimeInterval = 0
+            @State private var elapsedTimer: Timer?
             @State private var previewPlayer: SnippetPlayer? = nil
             @State private var isPreviewPlaying: Bool = false
             /// Tracks whether the main audiobook player was playing when we started
@@ -274,12 +162,12 @@ import os.log
                                     .accessibilityLabel("Delete voice memo")
                                 }
                             } else {
-                                if recorder.isRecording {
+                                if recorder?.isRecording == true {
                                     HStack {
                                         Image(systemName: "record.circle.fill")
                                             .foregroundStyle(.red)
                                         Text(
-                                            "Recording… \(String(format: "%.1fs", recorder.elapsed))"
+                                            "Recording… \(String(format: "%.1fs", elapsed))"
                                         )
                                         Spacer()
                                         Button("Stop") {
@@ -302,7 +190,8 @@ import os.log
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("Cancel", role: .cancel) {
-                                if recorder.isRecording { _ = recorder.stopRecording() }
+                                recorder?.cancel()
+                                stopElapsedTimer()
                                 stopPreview()
                                 dismiss()
                             }
@@ -327,7 +216,8 @@ import os.log
                         }
                     #endif
                     .onDisappear {
-                        if recorder.isRecording { _ = recorder.stopRecording() }
+                        recorder?.cancel()
+                        stopElapsedTimer()
                         stopPreview()
                     }
                 }
@@ -377,18 +267,37 @@ import os.log
                 // Pause the main audiobook before we hijack the audio session.
                 model.pause()
                 do {
-                    try recorder.startRecording(in: model.folderURL)
+                    let dir = model.folderURL ?? Bookmark.legacyVoiceMemoDirectory()
+                    let r = VoiceMemoRecorder(destinationDirectory: dir)
+                    try r.start()
+                    recorder = r
+                    elapsed = 0
+                    elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) {
+                        _ in
+                        Task { @MainActor in
+                            guard self.recorder?.isRecording == true else { return }
+                            self.elapsed += 0.2
+                        }
+                    }
                 } catch {
                     showAlert(error.localizedDescription)
                 }
             }
 
+            private func stopElapsedTimer() {
+                elapsedTimer?.invalidate()
+                elapsedTimer = nil
+            }
+
             private func saveVoiceMemo() {
-                guard let name = recorder.stopRecording() else {
+                stopElapsedTimer()
+                guard let result = recorder?.stop() else {
                     showAlert("No recording was captured.")
                     return
                 }
+                recorder = nil
 
+                let name = result.url.lastPathComponent
                 let probe = Bookmark(timestamp: timestamp, voiceMemoFileName: name)
                 guard probe.voiceMemoURL(in: model.folderURL) != nil else {
                     showAlert("The voice memo could not be saved.")
@@ -400,7 +309,7 @@ import os.log
             }
 
             private func saveBookmark() {
-                if recorder.isRecording {
+                if recorder?.isRecording == true {
                     saveVoiceMemo()
                     return
                 }

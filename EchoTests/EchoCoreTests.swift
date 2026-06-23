@@ -6,9 +6,10 @@
 //  Created by Dan Fakkeldy on 2026-04-19.
 //
 
-import Testing
 import Foundation
 import GRDB
+import Testing
+
 @testable import Echo
 
 @MainActor
@@ -78,7 +79,7 @@ struct EchoCoreTests {
 
         let studyLink = try #require(PlayerDeepLink(url: URL(string: "echoaudio://study")!))
         let studyAction = handler.handle(studyLink, isItemLoaded: false, isPlaying: false)
-        #expect(studyAction == .navigate(.timeline))
+        #expect(studyAction == .navigate(.read))
     }
 
     @Test func bookmarkMarkdownUsesCanonicalDeepLinkScheme() {
@@ -113,13 +114,13 @@ struct EchoCoreTests {
 
     @Test func bookmarkDecodingTreatsImageFileNameAsOptionalForLegacyJSON() throws {
         let json = """
-        {
-          "id": "\(UUID().uuidString)",
-          "title": "Legacy",
-          "timestamp": 12.5,
-          "isEnabled": true
-        }
-        """
+            {
+              "id": "\(UUID().uuidString)",
+              "title": "Legacy",
+              "timestamp": 12.5,
+              "isEnabled": true
+            }
+            """
 
         let bookmark = try JSONDecoder().decode(Bookmark.self, from: Data(json.utf8))
 
@@ -143,11 +144,17 @@ struct EchoCoreTests {
     @Test func activeArtworkBookmarkUsesMostRecentEnabledImageBookmarkAtOrBeforePlaybackTime() {
         let trackId = "track-a"
         let bookmarks = [
-            Bookmark(title: "Early", trackId: trackId, timestamp: 5, bookmarkImageFileName: "early.jpg"),
-            Bookmark(title: "Later", trackId: trackId, timestamp: 12, bookmarkImageFileName: "later.jpg"),
-            Bookmark(title: "Future", trackId: trackId, timestamp: 30, bookmarkImageFileName: "future.jpg"),
-            Bookmark(title: "Other Track", trackId: "track-b", timestamp: 20, bookmarkImageFileName: "other.jpg"),
-            Bookmark(title: "No Image", trackId: trackId, timestamp: 22)
+            Bookmark(
+                title: "Early", trackId: trackId, timestamp: 5, bookmarkImageFileName: "early.jpg"),
+            Bookmark(
+                title: "Later", trackId: trackId, timestamp: 12, bookmarkImageFileName: "later.jpg"),
+            Bookmark(
+                title: "Future", trackId: trackId, timestamp: 30,
+                bookmarkImageFileName: "future.jpg"),
+            Bookmark(
+                title: "Other Track", trackId: "track-b", timestamp: 20,
+                bookmarkImageFileName: "other.jpg"),
+            Bookmark(title: "No Image", trackId: trackId, timestamp: 22),
         ]
 
         let active = BookmarkStore.activeArtworkBookmark(from: bookmarks, at: 24, trackId: trackId)
@@ -208,10 +215,14 @@ struct EchoCoreTests {
         settings.seekForwardDuration = 15
         settings.phonePage = [.empty, .skipBackward, .playPause, .skipForward, .empty]
 
-        let phonePreset = PhonePreset(name: "Test Phone Preset", slots: [.empty, .skipBackward, .playPause, .skipForward, .empty])
+        let phonePreset = PhonePreset(
+            name: "Test Phone Preset",
+            slots: [.empty, .skipBackward, .playPause, .skipForward, .empty])
         settings.phonePresets = [phonePreset]
 
-        let watchPreset = WatchPreset(name: "Test Watch Preset", page1: [.empty, .skipBackward, .playPause, .skipForward, .empty], page2: [])
+        let watchPreset = WatchPreset(
+            name: "Test Watch Preset",
+            page1: [.empty, .skipBackward, .playPause, .skipForward, .empty], page2: [])
         settings.watchPresets = [watchPreset]
 
         // Verify values are persisted
@@ -233,11 +244,13 @@ struct EchoCoreTests {
     @Test func databaseV1SchemaCreatesAllTables() throws {
         let db = try DatabaseService(inMemory: ())
         let tables = try db.read { db in
-            try String.fetchAll(db, sql: """
-                SELECT name FROM sqlite_master
-                WHERE type='table' OR type='view'
-                ORDER BY name
-                """)
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' OR type='view'
+                    ORDER BY name
+                    """)
         }
         #expect(tables.contains("audiobook"))
         #expect(tables.contains("track"))
@@ -256,7 +269,8 @@ struct EchoCoreTests {
         let db = try DatabaseService(inMemory: ())
         let dao = BookmarkDAO(db: db.writer)
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
         let bm = BookmarkRecord(
             id: UUID().uuidString,
@@ -283,7 +297,8 @@ struct EchoCoreTests {
         let db = try DatabaseService(inMemory: ())
         let dao = BookmarkDAO(db: db.writer)
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
         }
         let id = UUID().uuidString
         let bm = BookmarkRecord(
@@ -304,20 +319,27 @@ struct EchoCoreTests {
         let queue = try makeTestDB()
 
         let items: [TimelineItem] = [
-            TimelineItem(id: "t1", audiobookID: "book-1", itemType: .chapterMarker, title: "Track 1",
-                        audioStartTime: 0, granularityLevel: .chapter, isEnabled: true),
-            TimelineItem(id: "ch1", audiobookID: "book-1", itemType: .chapterMarker, title: "Chapter 1",
-                        audioStartTime: 0, audioEndTime: 1800, granularityLevel: .chapter, isEnabled: true),
-            TimelineItem(id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "Bookmark 1",
-                        audioStartTime: 120, granularityLevel: .sentence, isEnabled: true),
-            TimelineItem(id: "fc1", audiobookID: "book-1", itemType: .ankiCard, title: "Question?",
-                        subtitle: "Answer.", audioStartTime: 300, granularityLevel: .sentence, isEnabled: true),
-            TimelineItem(id: "ts1", audiobookID: "book-1", itemType: .textSegment, title: "Hello world",
-                        audioStartTime: 0, audioEndTime: 5, granularityLevel: .sentence, isEnabled: true),
+            TimelineItem(
+                id: "t1", audiobookID: "book-1", itemType: .chapterMarker, title: "Track 1",
+                audioStartTime: 0, granularityLevel: .chapter, isEnabled: true),
+            TimelineItem(
+                id: "ch1", audiobookID: "book-1", itemType: .chapterMarker, title: "Chapter 1",
+                audioStartTime: 0, audioEndTime: 1800, granularityLevel: .chapter, isEnabled: true),
+            TimelineItem(
+                id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "Bookmark 1",
+                audioStartTime: 120, granularityLevel: .sentence, isEnabled: true),
+            TimelineItem(
+                id: "fc1", audiobookID: "book-1", itemType: .ankiCard, title: "Question?",
+                subtitle: "Answer.", audioStartTime: 300, granularityLevel: .sentence,
+                isEnabled: true),
+            TimelineItem(
+                id: "ts1", audiobookID: "book-1", itemType: .textSegment, title: "Hello world",
+                audioStartTime: 0, audioEndTime: 5, granularityLevel: .sentence, isEnabled: true),
         ]
 
         try queue.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             for var item in items { try item.insert(db) }
         }
 
@@ -335,12 +357,15 @@ struct EchoCoreTests {
         let queue = try makeTestDB()
 
         try queue.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             let items: [TimelineItem] = [
-                TimelineItem(id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "BM",
-                            audioStartTime: 10, granularityLevel: .sentence, isEnabled: true),
-                TimelineItem(id: "fc1", audiobookID: "book-1", itemType: .ankiCard, title: "Q",
-                            subtitle: "A", audioStartTime: 20, granularityLevel: .sentence, isEnabled: true),
+                TimelineItem(
+                    id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "BM",
+                    audioStartTime: 10, granularityLevel: .sentence, isEnabled: true),
+                TimelineItem(
+                    id: "fc1", audiobookID: "book-1", itemType: .ankiCard, title: "Q",
+                    subtitle: "A", audioStartTime: 20, granularityLevel: .sentence, isEnabled: true),
             ]
             for var item in items { try item.insert(db) }
         }
@@ -359,14 +384,18 @@ struct EchoCoreTests {
         let queue = try makeTestDB()
 
         try queue.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             let items: [TimelineItem] = [
-                TimelineItem(id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "Early",
-                            audioStartTime: 10, granularityLevel: .sentence, isEnabled: true),
-                TimelineItem(id: "bm2", audiobookID: "book-1", itemType: .bookmark, title: "Mid",
-                            audioStartTime: 100, granularityLevel: .sentence, isEnabled: true),
-                TimelineItem(id: "bm3", audiobookID: "book-1", itemType: .bookmark, title: "Late",
-                            audioStartTime: 200, granularityLevel: .sentence, isEnabled: true),
+                TimelineItem(
+                    id: "bm1", audiobookID: "book-1", itemType: .bookmark, title: "Early",
+                    audioStartTime: 10, granularityLevel: .sentence, isEnabled: true),
+                TimelineItem(
+                    id: "bm2", audiobookID: "book-1", itemType: .bookmark, title: "Mid",
+                    audioStartTime: 100, granularityLevel: .sentence, isEnabled: true),
+                TimelineItem(
+                    id: "bm3", audiobookID: "book-1", itemType: .bookmark, title: "Late",
+                    audioStartTime: 200, granularityLevel: .sentence, isEnabled: true),
             ]
             for var item in items { try item.insert(db) }
         }

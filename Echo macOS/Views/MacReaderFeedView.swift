@@ -13,6 +13,12 @@ struct MacReaderFeedView: View {
     @State private var blocks: [EPubBlockRecord] = []
     @State private var currentBlockID: String?
     @State private var isLoading = true
+    /// Phase 5 (macOS parity): which chapter is currently expanded (nil = all collapsed).
+    @State private var openChapterKey: Int?
+    /// Chapter indices that actually have audio (honest has-audio styling).
+    @State private var chaptersWithAudio: Set<Int> = []
+    /// Tracks the previously-playing chapter so auto-expand only fires on change.
+    @State private var lastPlayingChapterKey: Int?
     /// Timeline rows (audio range → block, with chapter index) for the loaded
     /// book. Resolution scopes by chapter to the currently-playing track via the
     /// shared `ReaderActiveBlockResolver`, so per-track time collisions across
@@ -24,6 +30,29 @@ struct MacReaderFeedView: View {
     @State private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
     /// (blockID, wordIndex) of the currently spoken word, for karaoke highlight.
     @State private var activeWord: (blockID: String, index: Int)?
+
+    /// Blocks grouped into one entry per chapter, in reading order.
+    /// Uses `$0.chapterIndex ?? -1` because `EPubBlockRecord.chapterIndex` is `Int?`;
+    /// -1 is the front-matter convention already used by `ChapterAudioStatusResolver`.
+    private var chapterGroups:
+        [(key: Int, title: String, hasAudio: Bool, blocks: [EPubBlockRecord])]
+    {
+        let grouped = Dictionary(grouping: blocks, by: { $0.chapterIndex ?? -1 })
+        return grouped.keys.sorted().map { key in
+            let chapterBlocks = grouped[key] ?? []
+            // Use the first heading block's text as the chapter title; fall back to
+            // first block text, then a generic label.
+            let title =
+                chapterBlocks.first(where: { $0.blockKind == EPubBlockRecord.Kind.heading.rawValue }
+                )?.text
+                ?? chapterBlocks.first?.text
+                ?? "Chapter \(key + 1)"
+            return (
+                key: key, title: title, hasAudio: chaptersWithAudio.contains(key),
+                blocks: chapterBlocks
+            )
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,17 +95,52 @@ struct MacReaderFeedView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(blocks, id: \.id) { block in
-                                MacBlockCardView(
-                                    block: block,
-                                    isActive: block.id == currentBlockID,
-                                    activeWordIndex: block.id == currentBlockID
-                                        ? activeWord?.index : nil,
-                                    onTap: { seekToBlock(block.id) }
-                                )
-                                .equatable()
-                                .id(block.id)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(chapterGroups, id: \.key) { group in
+                                // Collapsed chapter header row (always visible, tappable).
+                                Button {
+                                    openChapterKey = FeedAccordion.toggled(
+                                        current: openChapterKey, tapped: group.key)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(
+                                            systemName: openChapterKey == group.key
+                                                ? "chevron.down" : "chevron.right"
+                                        )
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        Text(group.title)
+                                            .font(.headline)
+                                            .foregroundStyle(
+                                                group.hasAudio ? .primary : .secondary)
+                                        if !group.hasAudio {
+                                            Text("Text only")
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                // Expanded content (only the open chapter).
+                                if openChapterKey == group.key {
+                                    ForEach(group.blocks, id: \.id) { block in
+                                        MacBlockCardView(
+                                            block: block,
+                                            isActive: block.id == currentBlockID,
+                                            activeWordIndex: block.id == currentBlockID
+                                                ? activeWord?.index : nil,
+                                            onTap: { seekToBlock(block.id) }
+                                        )
+                                        .equatable()
+                                        .id(block.id)
+                                    }
+                                }
+                                Divider()
                             }
                         }
                     }
@@ -122,6 +186,10 @@ struct MacReaderFeedView: View {
         isLoading = true
         defer { isLoading = false }
 
+        // Reset auto-expand state on book switch so a new book's first playing
+        // chapter is never suppressed by a stale key from the previous book.
+        lastPlayingChapterKey = nil
+
         guard let audiobookID = player.audiobookID else {
             blocks = []
             timelineCache = []
@@ -138,6 +206,9 @@ struct MacReaderFeedView: View {
                     .fetchAll(db)
             }
             blocks = result
+            // Phase 5: honest per-chapter has-audio for the accordion.
+            let resolver = ChapterAudioStatusResolver(db: dbService.writer)
+            chaptersWithAudio = (try? resolver.chaptersWithAudio(audiobookID: audiobookID)) ?? []
             timelineCache = try await loadTimelineCache(audiobookID: audiobookID)
             // Per-word timings (Phase A) for karaoke; absent on unaligned books → [].
             let words = try WordTimingDAO(db: dbService.writer).words(forAudiobook: audiobookID)
@@ -246,6 +317,17 @@ struct MacReaderFeedView: View {
                     activeWord = (blockID: currentBlockID ?? "", index: idx)
                 } else {
                     activeWord = nil
+                }
+                // Phase 5: auto-expand the chapter that is currently playing.
+                if let playingID = currentBlockID,
+                    let playingChapter = blocks.first(where: { $0.id == playingID })?.chapterIndex
+                {
+                    openChapterKey = FeedAccordion.autoExpand(
+                        current: openChapterKey,
+                        playingChapterKey: playingChapter,
+                        lastPlayingChapterKey: lastPlayingChapterKey
+                    )
+                    lastPlayingChapterKey = playingChapter
                 }
             } else {
                 currentBlockID = nil

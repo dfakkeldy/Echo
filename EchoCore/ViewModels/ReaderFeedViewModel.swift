@@ -15,6 +15,20 @@ final class ReaderFeedViewModel {
     let audiobookID: String
     private let blockDAO: EPubBlockDAO
     private let chapterDAO: ChapterDAO
+    private let bookmarkDAO: BookmarkDAO
+    private let flashcardDAO: FlashcardDAO
+    private let noteDAO: NoteDAO
+    private let voiceMemoDAO: VoiceMemoDAO
+    private let anchorDAO: AlignmentAnchorDAO
+    private let offResolver: OffStateResolver
+    /// Playlist folder for `.echoplaylist.json` (audio off lives here). May be nil
+    /// for text-only books.
+    private let playlistFolderURL: URL?
+    /// Cached chapter → backing-track files (filled in `reload`). Single-track m4b
+    /// books map their one file to every chapter.
+    private var trackFilesByChapter: [Int: [String]] = [:]
+    /// Cached off-state per chapter, recomputed in `reload`.
+    private(set) var offStateByChapter: [Int: ChapterOffState] = [:]
     private let db: DatabaseWriter
 
     /// Cache mapping time ranges to block IDs for fast lookup during playback.
@@ -38,6 +52,11 @@ final class ReaderFeedViewModel {
     /// Chapter index of each timestamped block, used to gate the alignment badge
     /// to the current track.
     private var chapterIndexByBlockID: [String: Int?] = [:]
+
+    /// Cached notes grouped by their anchor block ID (repopulated on every reload).
+    private var notesByBlockID: [String: [NoteRecord]] = [:]
+    /// Cached voice memos grouped by their anchor block ID (repopulated on every reload).
+    private var memosByBlockID: [String: [VoiceMemoRecord]] = [:]
 
     /// The chapter-index scope of the most recent `updateActiveBlock` call. Drives
     /// which blocks read as "aligned" in the UI. `nil` = whole-book (no scoping).
@@ -65,6 +84,23 @@ final class ReaderFeedViewModel {
     /// resolves while scrolling collapsed (header-only) rows. Absent key = no
     /// theme (neutral) — which also clears a stale tint from a closed chapter.
     private(set) var chapterThemeColorByKey: [Int: String] = [:]
+    /// Phase-3 two-axis filter (content type × scope). Setting it re-derives the feed.
+    var filter: FeedFilter = FeedFilter() {
+        didSet {
+            guard filter != oldValue else { return }
+            if filter.scope != oldValue.scope {
+                resolveScope()
+            }
+            rebuildDisplaySections()
+        }
+    }
+
+    /// The resolved window for the current scope (nil under `.wholeBook`).
+    private(set) var scopeWindow: FeedScopeWindow?
+
+    /// The recap card metadata for the current scoped window (nil under `.wholeBook`).
+    private(set) var recap: SessionRecap?
+
     /// The single expanded chapter (accordion). `nil` = all collapsed.
     private(set) var openChapterKey: Int?
     /// Chapter of the most recent active block, so auto-expand only fires on a
@@ -96,21 +132,63 @@ final class ReaderFeedViewModel {
     /// Last auto-alignment error message for the failure alert.
     var autoAlignmentErrorMessage: String?
 
+    /// Scopes the feed to a reconstructed session's audio window. `.wholeBook`
+    /// = no filter (default). Set this then call `reload()`.
+    var sessionScope: SessionScope = .wholeBook {
+        didSet {
+            guard oldValue != sessionScope else { return }
+            reload()
+        }
+    }
+
     /// Current search query. nil = show all blocks.
     var searchQuery: String? {
         didSet { reload() }
     }
 
-    init(audiobookID: String, db: DatabaseWriter) {
+    /// Token returned by `NotificationCenter.addObserver(forName:object:queue:block:)`.
+    /// Retained so the observer can be removed in `deinit` and doesn't leak for the
+    /// whole process lifetime (I1 fix). Marked `nonisolated(unsafe)` because `deinit`
+    /// is nonisolated on `@MainActor` classes, but access is safe: the token is written
+    /// only during `init` (before any other code can see the instance) and read only in
+    /// `deinit` (after the last reference has been dropped — both on the main actor in
+    /// practice). The `NSObjectProtocol` value itself is thread-safe to call `removeObserver` on.
+    nonisolated(unsafe) private var timelineObserverToken: (any NSObjectProtocol)?
+
+    init(audiobookID: String, db: DatabaseWriter, playlistFolderURL: URL? = nil) {
         self.audiobookID = audiobookID
         self.blockDAO = EPubBlockDAO(db: db)
         self.chapterDAO = ChapterDAO(db: db)
+        self.bookmarkDAO = BookmarkDAO(db: db)
+        self.flashcardDAO = FlashcardDAO(db: db)
+        self.noteDAO = NoteDAO(db: db)
+        self.voiceMemoDAO = VoiceMemoDAO(db: db)
+        self.anchorDAO = AlignmentAnchorDAO(db: db)
+        self.playlistFolderURL = playlistFolderURL
+        self.offResolver = OffStateResolver(db: db, folderURL: playlistFolderURL)
         self.db = db
+        timelineObserverToken = NotificationCenter.default.addObserver(
+            forName: .timelineItemsIngested,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.reload()
+        }
+    }
+
+    deinit {
+        if let token = timelineObserverToken {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     /// Load blocks from the database and build the card array.
     func reload() {
         do {
+            // Captured in the browse branch; used after timeline is loaded to
+            // rebuild chapterGroups with spliced extras (C1 fix).
+            var capturedTitlesByKey: [Int: String] = [:]
+            var capturedWithAudio: Set<Int> = []
+
             let blocks: [EPubBlockRecord]
             if let query = searchQuery, !query.isEmpty {
                 blocks = try blockDAO.searchBlocks(for: audiobookID, query: query)
@@ -251,6 +329,12 @@ final class ReaderFeedViewModel {
                 let withAudio =
                     (try? ChapterAudioStatusResolver(db: db).chaptersWithAudio(
                         audiobookID: audiobookID)) ?? []
+                // Capture for Phase-2 post-timeline rebuild (C1 fix: chapterGroups
+                // will be rebuilt from the spliced sections after chapterIndexByBlockID
+                // is populated, so placement() hits the in-memory cache instead of
+                // doing redundant DB reads — I2 fix).
+                capturedTitlesByKey = titlesByKey
+                capturedWithAudio = withAudio
                 chapterGroups = ReaderFeedDisplayBuilder.groups(
                     from: parsedSections, titlesByKey: titlesByKey, chaptersWithAudio: withAudio)
                 chapterHasAudio = Dictionary(
@@ -276,7 +360,8 @@ final class ReaderFeedViewModel {
                 {
                     openChapterKey = nil
                 }
-                rebuildDisplaySections()
+                // NOTE: Phase-2 splice is deferred to after chapterIndexByBlockID
+                // is populated (see below), so placement() cache hits are live (C1+I2 fix).
             }
 
             // Rebuild block ID index.
@@ -349,6 +434,67 @@ final class ReaderFeedViewModel {
             allAlignmentStatusByBlockID = newAlignmentStatus
             allAudioStartTimeByBlockID = newAudioStartTime
             chapterIndexByBlockID = newChapterIndex
+
+            // --- Phase 2 (browse branch only): splice bookmarks + cards now that
+            // chapterIndexByBlockID is populated so placement() hits the cache (I2 fix).
+            // Rebuild chapterGroups from the spliced sections so displaySections
+            // actually includes the extras (C1 fix). ---
+            if searchQuery == nil || searchQuery?.isEmpty == true {
+                // C2 fix: bucket by section id (not chapter key) so each extra lands
+                // in exactly one section. Multi-section chapters no longer receive the
+                // same extras array in every section, preventing duplicate snapshot ids.
+                let extrasBySection = buildExtrasBySection()
+                if !extrasBySection.isEmpty {
+                    sections = sections.map { section in
+                        guard let extras = extrasBySection[section.id], !extras.isEmpty
+                        else { return section }
+                        let merged = ReaderFeedDisplayBuilder.spliceExtras(
+                            into: section.items, extras: extras)
+                        return ReaderCardSection(
+                            id: section.id, headingStack: section.headingStack, items: merged)
+                    }
+                    // Rebuild chapterGroups from the now-spliced sections so
+                    // rebuildDisplaySections() surfaces extras in the accordion.
+                    chapterGroups = ReaderFeedDisplayBuilder.groups(
+                        from: sections,
+                        titlesByKey: capturedTitlesByKey,
+                        chaptersWithAudio: capturedWithAudio)
+                    // Re-derive per-chapter audio flag and theme color from rebuilt groups.
+                    chapterHasAudio = Dictionary(
+                        chapterGroups.map { ($0.chapterKey, $0.hasAudio) },
+                        uniquingKeysWith: { a, _ in a })
+                    var themeByKey: [Int: String] = [:]
+                    for group in chapterGroups {
+                        outer: for section in group.sections {
+                            for item in section.items {
+                                if case .block(let b) = item, let theme = b.chapterThemeColor {
+                                    themeByKey[group.chapterKey] = theme
+                                    break outer
+                                }
+                            }
+                        }
+                    }
+                    chapterThemeColorByKey = themeByKey
+                }
+                // Recompute reconciled off-state per chapter.
+                refreshOffState()
+                // Populate note/memo caches for FeedItemInjector (Phase 4).
+                let notes = (try? noteDAO.notes(for: audiobookID)) ?? []
+                let memos = (try? voiceMemoDAO.memos(for: audiobookID)) ?? []
+                notesByBlockID = Dictionary(
+                    grouping: notes.filter { $0.epubBlockID != nil },
+                    by: { $0.epubBlockID! })
+                memosByBlockID = Dictionary(
+                    grouping: memos.filter { $0.epubBlockID != nil },
+                    by: { $0.epubBlockID! })
+                rebuildDisplaySections()
+                // Phase 3: re-resolve scope after a reload (covered range depends on freshly
+                // loaded blocks; whole-book is a no-op).
+                if filter.scope != .wholeBook {
+                    resolveScope()
+                }
+            }
+
             // Re-publish the track-gated badge dictionaries for the existing scope
             // (whole-book until the first scoped updateActiveBlock call).
             applyTrackScope(currentTrackScope)
@@ -357,10 +503,365 @@ final class ReaderFeedViewModel {
         }
     }
 
+    // MARK: - Phase 4: note/memo capture
+
+    /// Persists a free-text note anchored to `blockID` at the current reading
+    /// position, then refreshes the feed so it appears inline.
+    func addNote(text: String, atBlockID blockID: String) {
+        let now = Date().ISO8601Format()
+        let note = NoteRecord(
+            id: UUID().uuidString,
+            audiobookID: audiobookID,
+            text: text,
+            mediaTimestamp: -1,
+            realTimestamp: now,
+            isEnabled: true,
+            playlistPosition: nil,
+            createdAt: now,
+            modifiedAt: now,
+            epubBlockID: blockID)
+        do {
+            try noteDAO.insert(note)
+        } catch {
+            logger.error("addNote failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        reload()
+    }
+
+    /// Persists a standalone voice memo (already recorded to `fileURL`) anchored
+    /// to `blockID`, then refreshes the feed.
+    func addVoiceMemo(fileURL: URL, duration: TimeInterval, atBlockID blockID: String) {
+        let now = Date().ISO8601Format()
+        let memo = VoiceMemoRecord(
+            id: UUID().uuidString,
+            audiobookID: audiobookID,
+            epubBlockID: blockID,
+            mediaTimestamp: -1,
+            filePath: fileURL.lastPathComponent,
+            duration: duration,
+            isEnabled: true,
+            createdAt: now,
+            modifiedAt: now)
+        do {
+            try voiceMemoDAO.insert(memo)
+        } catch {
+            logger.error("addVoiceMemo failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        reload()
+    }
+
+    /// Opens (expands) the chapter with the given key, collapsing any other open
+    /// chapter. Used by tests and by the session-start auto-expand. No-op if the
+    /// key is already open.
+    func expandChapter(_ chapterKey: Int) {
+        guard chapterKey != openChapterKey else { return }
+        openChapterKey = chapterKey
+        rebuildDisplaySections()
+    }
+
+    // MARK: - Phase 2: extras bucketing
+
+    /// Parse the audio chapter index out of a section id "ch<key>-s<n>".
+    /// Front matter is "ch-1-s0" → -1.
+    static func chapterKey(ofSectionID id: String) -> Int? {
+        guard id.hasPrefix("ch") else { return nil }
+        let afterCh = id.dropFirst(2)
+        guard let sRange = afterCh.range(of: "-s") else { return nil }
+        return Int(afterCh[..<sRange.lowerBound])
+    }
+
+    /// Return the id of the last section in `sections` that belongs to the given
+    /// chapter key (i.e. whose id has the prefix `"ch{key}-"`). Used to route
+    /// unanchored or unknown-anchor extras to the chapter tail so they are not
+    /// duplicated across multiple sections.
+    private func lastSectionID(forChapterKey key: Int) -> String? {
+        let prefix = "ch\(key)-"
+        return sections.last(where: { $0.id.hasPrefix(prefix) })?.id
+    }
+
+    /// Build `.bookmark`/`.ankiCard` extras bucketed by **section id**, not chapter
+    /// key. Each extra is resolved to exactly one target section:
+    ///   - Anchored (afterBlockID is known in `cardIndexByBlockID`): the section
+    ///     that contains the anchor block.
+    ///   - Unanchored / unknown anchor: the chapter's **last** section (tail).
+    /// This guarantees each extra appears in exactly one section in `displaySections`,
+    /// preventing duplicate snapshot item identifiers that would crash the diffable
+    /// data source when an open chapter has ≥ 2 sections. (C2 fix)
+    private func buildExtrasBySection() -> [String: [ReaderFeedDisplayBuilder.SplicedExtra]] {
+        var bySection: [String: [ReaderFeedDisplayBuilder.SplicedExtra]] = [:]
+
+        /// Resolve placement to a specific section id.
+        func targetSectionID(forChapter chapterKey: Int, afterBlockID: String?) -> String {
+            // If there is an anchor block, find which section owns it.
+            if let blockID = afterBlockID,
+                let indexPath = cardIndexByBlockID[blockID],
+                sections.indices.contains(indexPath.section)
+            {
+                return sections[indexPath.section].id
+            }
+            // Unanchored or unknown anchor → chapter's last section.
+            return lastSectionID(forChapterKey: chapterKey)
+                ?? "ch\(chapterKey)-s0"
+        }
+
+        // Cards: prefer the precise sourceBlockID; else derive from timestamp.
+        let cards = (try? flashcardDAO.flashcards(for: audiobookID)) ?? []
+        for card in cards {
+            let (chapter, blockID) = placement(
+                sourceBlockID: card.sourceBlockID, mediaTimestamp: card.mediaTimestamp)
+            let sectionID = targetSectionID(forChapter: chapter, afterBlockID: blockID)
+            bySection[sectionID, default: []].append(
+                .init(item: .ankiCard(card), afterBlockID: blockID))
+        }
+
+        // Bookmarks: no source block — always timestamp-derived.
+        let bookmarks = (try? bookmarkDAO.bookmarks(for: audiobookID)) ?? []
+        for bm in bookmarks {
+            let (chapter, blockID) = placement(
+                sourceBlockID: nil, mediaTimestamp: bm.mediaTimestamp)
+            let sectionID = targetSectionID(forChapter: chapter, afterBlockID: blockID)
+            bySection[sectionID, default: []].append(
+                .init(item: .bookmark(bm), afterBlockID: blockID))
+        }
+        return bySection
+    }
+
+    /// Resolve an item to `(chapterIndex, afterBlockID?)`. If `sourceBlockID` is
+    /// known, look up its chapter directly; otherwise find the alignment anchor at or
+    /// before `mediaTimestamp` and use its block. Unresolvable → (-1, nil) (front
+    /// matter bucket) so the item is never dropped.
+    private func placement(sourceBlockID: String?, mediaTimestamp: TimeInterval)
+        -> (chapter: Int, blockID: String?)
+    {
+        if let sourceBlockID {
+            let looked: Int? =
+                (chapterIndexByBlockID[sourceBlockID] ?? nil)
+                ?? lookupChapter(ofBlock: sourceBlockID)
+            if let idx = looked {
+                return (idx, sourceBlockID)
+            }
+        }
+        if let block = anchorDAO.block(at: mediaTimestamp, audiobookID: audiobookID),
+            let idx = lookupChapter(ofBlock: block)
+        {
+            return (idx, block)
+        }
+        return (-1, nil)
+    }
+
+    private func lookupChapter(ofBlock blockID: String) -> Int? {
+        if let cached = chapterIndexByBlockID[blockID] { return cached ?? nil }
+        let idx = try? db.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT chapter_index FROM epub_block WHERE id = ?",
+                arguments: [blockID])
+        }
+        return idx ?? nil
+    }
+
+    // MARK: - Phase 2: off-state
+
+    /// Recompute the reconciled off-state for every chapter that has sections.
+    func refreshOffState() {
+        var result: [Int: ChapterOffState] = [:]
+        let keys = Set(sections.compactMap { Self.chapterKey(ofSectionID: $0.id) })
+        for key in keys where key >= 0 {
+            let files = trackFilesByChapter[key] ?? allTrackFiles()
+            result[key] =
+                (try? offResolver.resolve(
+                    audiobookID: audiobookID, chapterIndex: key, trackFiles: files)) ?? .allOn
+        }
+        offStateByChapter = result
+    }
+
+    /// All track files from the manifest (fallback when a per-chapter map is absent).
+    private func allTrackFiles() -> [String] {
+        guard let playlistFolderURL,
+            let manifest = PlaylistManifestService.read(from: playlistFolderURL)
+        else { return [] }
+        return manifest.tracks.map(\.file)
+    }
+
+    // MARK: - Phase 2: off-state public API
+
+    enum OffKind { case all, audio, epub }
+
+    func chapterOffState(_ chapterIndex: Int) -> ChapterOffState {
+        offStateByChapter[chapterIndex] ?? .allOn
+    }
+
+    /// Apply an off/on toggle for one chapter, write through the resolver, then
+    /// reload so the feed (grey-out + visibility) reflects the new truth.
+    func setChapterOff(_ kind: OffKind, on: Bool, chapterIndex: Int) {
+        let files = trackFilesByChapter[chapterIndex] ?? allTrackFiles()
+        do {
+            switch kind {
+            case .all:
+                try offResolver.setAllOff(
+                    on, audiobookID: audiobookID, chapterIndex: chapterIndex, trackFiles: files)
+            case .audio:
+                try offResolver.setAudioOff(on, trackFiles: files)
+            case .epub:
+                try offResolver.setEpubOff(on, audiobookID: audiobookID, chapterIndex: chapterIndex)
+            }
+        } catch {
+            // Best-effort: GRDB write may have landed even if the manifest write did
+            // not. Log only; the reload below re-reads whatever truth persisted.
+            logger.error("setChapterOff failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
+    // MARK: - Phase 3: scope resolution
+
+    /// Resolves the current `filter.scope` to a `scopeWindow` + `recap`, off the
+    /// stored `audiobookID` (the GRDB UUID used by `playback_event`). Synchronous
+    /// GRDB reads on a few rows — within smooth-scroll budget (Phase-3 Trap B).
+    private func resolveScope() {
+        switch filter.scope {
+        case .wholeBook:
+            scopeWindow = nil
+            recap = nil
+        case .lastSession:
+            let resolver = FeedScopeResolver(db: db)
+            let window = (try? resolver.lastSessionWindow(audiobookID: audiobookID)) ?? nil
+            scopeWindow = window
+            if let window {
+                recap = try? SessionRecapViewModel(db: db).recap(
+                    audiobookID: audiobookID, window: window)
+                expandChapter(forSessionStart: window.coveredStartPosition)
+            } else {
+                recap = nil
+            }
+        case .session(let id, _, _):
+            let resolver = FeedScopeResolver(db: db)
+            let window = (try? resolver.sessionWindow(id: id, audiobookID: audiobookID)) ?? nil
+            scopeWindow = window
+            if let window {
+                recap = try? SessionRecapViewModel(db: db).recap(
+                    audiobookID: audiobookID, window: window)
+                expandChapter(forSessionStart: window.coveredStartPosition)
+            } else {
+                recap = nil
+            }
+        }
+    }
+
+    /// Auto-expands the chapter that contains `position` (book seconds), mapping the
+    /// position to a chapter index via timeline_item → epub_block, then opening it
+    /// (Phase-3 Trap H — a new auto-expand trigger beyond Phase-1's isPlaying one).
+    func expandChapter(forSessionStart position: TimeInterval) {
+        let key: Int? =
+            (try? db.read { db in
+                try Int.fetchOne(
+                    db,
+                    sql: """
+                        SELECT eb.chapter_index
+                        FROM timeline_item ti
+                        JOIN epub_block eb ON eb.id = ti.epub_block_id
+                        WHERE ti.audiobook_id = ?
+                          AND ti.audio_start_time <= ?
+                          AND eb.chapter_index IS NOT NULL
+                        ORDER BY ti.audio_start_time DESC
+                        LIMIT 1
+                        """, arguments: [audiobookID, position])
+            }) ?? nil
+        if let key {
+            openChapterKey = key
+            rebuildDisplaySections()
+        }
+    }
+
+    // MARK: - Display sections
+
+    /// Applies the current `sessionScope` filter to `input`, returning only the
+    /// sections (and their items) whose blocks fall inside the audio window.
+    /// Returns `input` unchanged when `sessionScope == .wholeBook`.
+    ///
+    /// Both `rebuildDisplaySections()` (collapsed accordion feed) and
+    /// `sessionScopedSections` (fully-expanded detail feed) delegate here so
+    /// the scope logic can't drift between the two callers.
+    private func applyScopeFilter(to input: [ReaderCardSection]) -> [ReaderCardSection] {
+        guard
+            let allowed = SessionScopeReducer.blockIDsInScope(
+                audioStartTimeByBlockID: allAudioStartTimeByBlockID,
+                scope: sessionScope
+            )
+        else {
+            return input  // .wholeBook — no filter
+        }
+        // Build the set of chapter indices that have at least one in-scope block
+        // so that chapterHeader rows are also correctly gated.
+        var chaptersInScope = Set<Int>()
+        for section in sections {
+            for item in section.items {
+                if case .block(let record) = item, allowed.contains(record.id),
+                    let chIdx = chapterIndexByBlockID[record.id] ?? nil
+                {
+                    chaptersInScope.insert(chIdx)
+                }
+            }
+        }
+        return input.compactMap { section in
+            let keptItems = section.items.filter { item in
+                switch item {
+                case .block(let record):
+                    return allowed.contains(record.id)
+                case .chapterHeader(_, let chapterIndex):
+                    return chaptersInScope.contains(chapterIndex)
+                default:
+                    return true  // notes, memos, bookmarks, cards always visible
+                }
+            }
+            guard !keptItems.isEmpty else { return nil }
+            return ReaderCardSection(
+                id: section.id, headingStack: section.headingStack, items: keptItems)
+        }
+    }
+
+    /// The full `sections` array filtered to the current `sessionScope`, with
+    /// every block's text fully expanded (no accordion collapse).
+    ///
+    /// Use this in detail views (e.g. `SessionDetailFeedView`) that need all
+    /// block text for the scoped window rather than the collapsed TOC rows that
+    /// `displaySections` produces.  Returns `sections` unchanged under `.wholeBook`.
+    var sessionScopedSections: [ReaderCardSection] {
+        applyScopeFilter(to: sections)
+    }
+
     /// Recompute `displaySections` from the current groups + accordion state.
+    /// Notes and voice memos (Phase 4) are threaded in via `FeedItemInjector`
+    /// on the builder output so they are visible only when their chapter is expanded.
     private func rebuildDisplaySections() {
-        displaySections = ReaderFeedDisplayBuilder.displaySections(
-            groups: chapterGroups, openChapterKey: openChapterKey)
+        // While a search is active, `displaySections` IS the flat search-result list
+        // (the search branch of reload() sets it directly and clears `chapterGroups`).
+        // Rebuilding here would clobber those results with an empty grouped feed, so a
+        // filter/scope/accordion change must not run during search — clearing the
+        // search box re-runs reload() and restores the browse feed.
+        if let query = searchQuery, !query.isEmpty { return }
+        let grouped = ReaderFeedDisplayBuilder.displaySections(
+            groups: chapterGroups,
+            openChapterKey: openChapterKey)
+        let filtered = ReaderFeedDisplayBuilder.applyFilter(
+            filter.contentType,
+            to: grouped,
+            chapterHasAudio: chapterHasAudio)
+        // Inject notes/memos after filtering so injected items don't influence
+        // the content-type filter (notes are not audio/text blocks), and after
+        // the display builder so collapsed chapters keep only their header row.
+        let injected = FeedItemInjector.inject(
+            into: filtered,
+            notesByBlockID: notesByBlockID,
+            memosByBlockID: memosByBlockID)
+
+        // Phase 5: restrict to a session's audio window when scoped.
+        // Uses allAudioStartTimeByBlockID (fully populated by the time
+        // rebuildDisplaySections is called from reload()) so the filter is
+        // not gated to a single track. Returns nil for .wholeBook (no-op).
+        displaySections = applyScopeFilter(to: injected)
     }
 
     /// User tapped a chapter header: open it (collapsing any other), or collapse
