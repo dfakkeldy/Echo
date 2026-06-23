@@ -1959,8 +1959,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/dfakkeldy/swift-audio-marker.git";
 			requirement = {
-				kind = exactVersion;
-				version = 0.1.2;
+				kind = revision;
+				revision = ac1d747b0e34684b12d7e0bc9fd6aa4db91cca26;
 			};
 		};
 		CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
