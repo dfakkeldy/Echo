@@ -52,6 +52,24 @@ final class ReaderFeedViewModel {
 
     /// All cards in the feed grouped by sections.
     private(set) var sections: [ReaderCardSection] = []
+    /// Audio-chapter groups (one collapsible unit per chapter), rebuilt on reload.
+    private(set) var chapterGroups: [ReaderChapterGroup] = []
+    /// The feed actually rendered by the collection: collapsed = one header row
+    /// per chapter; the open chapter expands inline. Derived from
+    /// `chapterGroups` + `openChapterKey`; `sections` stays the full list for the
+    /// TOC sheet / pickers.
+    private(set) var displaySections: [ReaderCardSection] = []
+    /// Per-chapter honest has-audio flag for header-row styling.
+    private(set) var chapterHasAudio: [Int: Bool] = [:]
+    /// Per-chapter denormalized theme color, so the sticky background still
+    /// resolves while scrolling collapsed (header-only) rows. Absent key = no
+    /// theme (neutral) — which also clears a stale tint from a closed chapter.
+    private(set) var chapterThemeColorByKey: [Int: String] = [:]
+    /// The single expanded chapter (accordion). `nil` = all collapsed.
+    private(set) var openChapterKey: Int?
+    /// Chapter of the most recent active block, so auto-expand only fires on a
+    /// real chapter transition (not every playback tick).
+    private var lastPlayingChapterKey: Int?
     /// Publisher-declared TOC entries (NCX/nav) persisted at import, in
     /// preorder. Drives the TOC sheet tree and breadcrumb ancestry.
     private(set) var tocEntries: [EPubTOCEntryRecord] = []
@@ -101,6 +119,11 @@ final class ReaderFeedViewModel {
                         id: "search", headingStack: ["Search Results"],
                         items: blocks.map { .block($0) })
                 ]
+                chapterGroups = []
+                chapterHasAudio = [:]
+                chapterThemeColorByKey = [:]
+                openChapterKey = nil
+                displaySections = sections
             } else {
                 let grouped = try blockDAO.blocksByChapter(for: audiobookID)
                 tocEntries = (try? EPubTOCEntryDAO(db: db).entries(for: audiobookID)) ?? []
@@ -147,6 +170,7 @@ final class ReaderFeedViewModel {
                 var globalActiveHeadings: [String?] = Array(repeating: nil, count: 6)
                 var currentHeadingStack: [String] = []
                 var audioChaptersWithHeadings: Set<Int> = []
+                var titlesByKey: [Int: String] = [:]
 
                 for key in sortedKeys {
                     guard let chapterBlocks = grouped[key], !chapterBlocks.isEmpty else { continue }
@@ -160,6 +184,7 @@ final class ReaderFeedViewModel {
                         let rawTitle = chapters?[safe: key]?.title ?? "Chapter \(key + 1)"
                         chapterTitle = Self.formatChapterTitle(rawTitle)
                     }
+                    titlesByKey[key] = chapterTitle
 
                     let groupStartTOCPath =
                         chapterBlocks.first.map { tocPath(at: $0.sequenceIndex) } ?? []
@@ -223,6 +248,35 @@ final class ReaderFeedViewModel {
                     }
                 }
                 sections = parsedSections
+                let withAudio =
+                    (try? ChapterAudioStatusResolver(db: db).chaptersWithAudio(
+                        audiobookID: audiobookID)) ?? []
+                chapterGroups = ReaderFeedDisplayBuilder.groups(
+                    from: parsedSections, titlesByKey: titlesByKey, chaptersWithAudio: withAudio)
+                chapterHasAudio = Dictionary(
+                    chapterGroups.map { ($0.chapterKey, $0.hasAudio) },
+                    uniquingKeysWith: { a, _ in a })
+                // Denormalized per-chapter theme color (first themed block wins) so
+                // the sticky background resolves over collapsed header rows.
+                var themeByKey: [Int: String] = [:]
+                for group in chapterGroups {
+                    outer: for section in group.sections {
+                        for item in section.items {
+                            if case .block(let b) = item, let theme = b.chapterThemeColor {
+                                themeByKey[group.chapterKey] = theme
+                                break outer
+                            }
+                        }
+                    }
+                }
+                chapterThemeColorByKey = themeByKey
+                // Keep the open chapter only if it still exists after the reload.
+                if let open = openChapterKey,
+                    !chapterGroups.contains(where: { $0.chapterKey == open })
+                {
+                    openChapterKey = nil
+                }
+                rebuildDisplaySections()
             }
 
             // Rebuild block ID index.
@@ -303,6 +357,41 @@ final class ReaderFeedViewModel {
         }
     }
 
+    /// Recompute `displaySections` from the current groups + accordion state.
+    private func rebuildDisplaySections() {
+        displaySections = ReaderFeedDisplayBuilder.displaySections(
+            groups: chapterGroups, openChapterKey: openChapterKey)
+    }
+
+    /// User tapped a chapter header: open it (collapsing any other), or collapse
+    /// it if it was already open.
+    func toggleChapter(_ chapterKey: Int) {
+        let next = FeedAccordion.toggled(current: openChapterKey, tapped: chapterKey)
+        guard next != openChapterKey else { return }
+        openChapterKey = next
+        rebuildDisplaySections()
+    }
+
+    /// Ensure the chapter that owns `blockID` is expanded (used before a
+    /// scroll-to-active jump so the target row exists in the snapshot).
+    func expandChapter(containingBlockID blockID: String) {
+        guard let key = chapterKey(forBlockID: blockID), key != openChapterKey else { return }
+        openChapterKey = key
+        rebuildDisplaySections()
+    }
+
+    /// Resolve a block's audio chapter key: prefer the timeline-derived index,
+    /// else find the block's section and parse its id.
+    private func chapterKey(forBlockID blockID: String) -> Int? {
+        if let idx = chapterIndexByBlockID[blockID] ?? nil { return idx }
+        if let indexPath = cardIndexByBlockID[blockID],
+            sections.indices.contains(indexPath.section)
+        {
+            return ReaderFeedDisplayBuilder.chapterKey(forSectionID: sections[indexPath.section].id)
+        }
+        return nil
+    }
+
     /// Check if any user-created alignment anchors exist (not auto-generated).
     func hasUserAlignmentAnchors(audiobookID: String) -> Bool {
         (try? db.read { database in
@@ -369,7 +458,9 @@ final class ReaderFeedViewModel {
     ///   - time: The current **per-track** playback time (`PlayerModel.currentPlaybackTime`).
     ///   - currentTrackChapterIndices: EPUB chapter indices in the playing track.
     ///     `nil` = no scoping (single-track books — strict legacy behavior).
-    func updateActiveBlock(time: TimeInterval, currentTrackChapterIndices: Set<Int>?) {
+    func updateActiveBlock(
+        time: TimeInterval, currentTrackChapterIndices: Set<Int>?, isPlaying: Bool = false
+    ) {
         if currentTrackScope != currentTrackChapterIndices {
             applyTrackScope(currentTrackChapterIndices)
         }
@@ -389,6 +480,21 @@ final class ReaderFeedViewModel {
             || newActiveWord?.index != activeWord?.index
         {
             activeWord = newActiveWord
+        }
+
+        // Auto-expand the chapter being played — but only WHILE PLAYING (so a
+        // fresh/resumed-but-paused book stays a collapsed TOC) and only on a real
+        // chapter transition (so a manual collapse within the same chapter sticks).
+        if isPlaying {
+            let playingChapterKey = foundBlockID.flatMap { chapterIndexByBlockID[$0] ?? nil }
+            let nextOpen = FeedAccordion.autoExpand(
+                current: openChapterKey, playingChapterKey: playingChapterKey,
+                lastPlayingChapterKey: lastPlayingChapterKey)
+            lastPlayingChapterKey = playingChapterKey
+            if nextOpen != openChapterKey {
+                openChapterKey = nextOpen
+                rebuildDisplaySections()
+            }
         }
     }
 

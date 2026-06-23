@@ -23,4 +23,29 @@ struct ChapterAudioStatusResolver {
         return try AlignmentAnchorDAO(db: db)
             .hasAnchor(for: audiobookID, anyOf: blockIDs)
     }
+
+    /// The set of chapter indices (for `audiobookID`) that have at least one
+    /// alignment anchor anywhere in their block range. One query for the whole
+    /// book — the feed needs every chapter's status on each reload, so N per-
+    /// chapter lookups would be wasteful. Front-matter blocks (null
+    /// `chapter_index`) are excluded; the feed groups them under key -1 which by
+    /// definition has no audio in practice.
+    func chaptersWithAudio(audiobookID: String) throws -> Set<Int> {
+        try db.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT DISTINCT eb.chapter_index AS chapter_index
+                    FROM epub_block eb
+                    JOIN alignment_anchor aa ON aa.epub_block_id = eb.id
+                    WHERE eb.audiobook_id = ? AND eb.chapter_index IS NOT NULL
+                    """,
+                arguments: [audiobookID])
+            var result: Set<Int> = []
+            for row in rows {
+                if let idx: Int = row["chapter_index"] { result.insert(idx) }
+            }
+            return result
+        }
+    }
 }
