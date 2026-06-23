@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
+/// A wrapper to make UUID Identifiable for use with `.sheet(item:)`.
+struct IdentifiableUUID: Identifiable, Hashable {
+    let id: UUID
+}
+
 struct RootTabView: View {
     @Binding var pendingDeepLink: PlayerDeepLink?
     @Environment(PlayerModel.self) private var model
@@ -32,11 +37,9 @@ struct RootTabView: View {
 
     @State private var nowPlayingPath = NavigationPath()
     @State private var readPath = NavigationPath()
-    @State private var timelinePath = NavigationPath()
 
     @SceneStorage("nowPlayingPathData") private var nowPlayingPathData: Data?
     @SceneStorage("readPathData") private var readPathData: Data?
-    @SceneStorage("timelinePathData") private var timelinePathData: Data?
 
     init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
         _pendingDeepLink = pendingDeepLink
@@ -95,18 +98,6 @@ struct RootTabView: View {
                             dest.view(using: model)
                         }
                     }
-                case .timeline:
-                    NavigationStack(path: $timelinePath) {
-                        TimelineTab(
-                            onReviewTap: { launchReview() },
-                            onEditBookmark: { id in editingBookmarkID = id },
-                            onCreateBookmark: { draft in newBookmarkDraft = draft }
-                        )
-                        .toolbarVisibility(.hidden, for: .navigationBar)
-                        .navigationDestination(for: NavigationDestination.self) { dest in
-                            dest.view(using: model)
-                        }
-                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,7 +127,7 @@ struct RootTabView: View {
                         // Full wiring on this non-NowPlaying overlay (chapter sheet
                         // binding) is task C3; Bookmarks/Settings reuse existing state.
                         onShowChapters: { showingChapterPicker = true },
-                        onShowBookmarks: { model.selectedTab = .timeline },
+                        onShowBookmarks: { model.selectedTab = .read },
                         onShowSettings: { showingSettings = true }
                     )
                 }
@@ -248,13 +239,6 @@ struct RootTabView: View {
             {
                 readPath = NavigationPath(representation)
             }
-            if let data = timelinePathData,
-                let representation = try? JSONDecoder().decode(
-                    NavigationPath.CodableRepresentation.self, from: data
-                )
-            {
-                timelinePath = NavigationPath(representation)
-            }
         }
         .onChange(of: pendingDeepLink) { _, _ in
             applyPendingDeepLinkIfNeeded()
@@ -275,11 +259,6 @@ struct RootTabView: View {
                     let data = try? JSONEncoder().encode(codable)
                 {
                     readPathData = data
-                }
-                if let codable = timelinePath.codable,
-                    let data = try? JSONEncoder().encode(codable)
-                {
-                    timelinePathData = data
                 }
                 model.persistCurrentState()
             }

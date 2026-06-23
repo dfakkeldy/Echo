@@ -311,7 +311,7 @@ struct ReaderTab: View {
         // Narration renders chapter-by-chapter, posting this after each chapter's
         // timeline_item rows are materialized. Reload so read-along lights up
         // incrementally. Gate on the audiobookID so a just-switched book doesn't
-        // trigger a spurious reload. Mirrors PlaylistView / PDFDocumentView.
+        // trigger a spurious reload. Mirrors PDFDocumentView.
         .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
             notification in
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,

@@ -107,7 +107,7 @@ struct NowPlayingTab: View {
                         onCreateBookmark: onCreateBookmark,
                         onShowPlaybackOptions: { showingPlaybackOptions = true },
                         onShowChapters: { showingChapterPicker = true },
-                        onShowBookmarks: { model.selectedTab = .timeline },
+                        onShowBookmarks: { model.selectedTab = .read },
                         onShowSettings: showSettings
                     )
                     .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
@@ -156,8 +156,8 @@ struct NowPlayingTab: View {
             PlaybackOptionsSheet()
         }
         // Player-More "Chapters" → jump-to-chapter. Reuses the existing
-        // ChapterPickerSheet, supplying a seek closure (matches PlaylistView's
-        // chapter-row tap: seek to startSeconds + 0.05 to land inside the chapter).
+        // ChapterPickerSheet, supplying a seek closure (seek to startSeconds + 0.05
+        // to land inside the chapter).
         .sheet(isPresented: $showingChapterPicker) {
             ChapterPickerSheet(chapters: model.chapters) { chapter in
                 model.seek(toSeconds: chapter.startSeconds + 0.05)
