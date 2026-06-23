@@ -30,8 +30,11 @@ enum M4BRetagger {
         }
     }
 
-    /// Ordered heading titles of the chapters that were narrated (non-excluded), as
-    /// they appear in the EPUB — the same source the export uses for chapter names.
+    /// Heading titles for EVERY chapter, in `chapterIndex` order — matching the order
+    /// the m4b's chapters were written in (`HeadlessNarrationRunner` renders one
+    /// chapter per `chapterIndex`, sorted by index). Excluded chapters are NOT
+    /// filtered out: the m4b has a chapter for each one, so dropping them here would
+    /// shift every later title onto the wrong chapter.
     static func chapterTitles(forExpandedEPUBAt dir: URL) async throws -> [String] {
         let db = try DatabaseService(inMemory: ())
         let audiobookID = "retag-\(dir.lastPathComponent)"
@@ -45,8 +48,7 @@ enum M4BRetagger {
         let blocks = try await importer.import(
             audiobookID: audiobookID, epubURL: dir, chapters: [], bookDuration: nil)
         return NarrationOutlineBuilder.build(allBlocks: blocks, isRendered: { _ in true })
-            .filter { !$0.isExcluded }
-            .sorted { $0.displayNumber < $1.displayNumber }
+            .sorted { $0.chapterIndex < $1.chapterIndex }
             .map(\.title)
     }
 

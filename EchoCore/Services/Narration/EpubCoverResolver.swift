@@ -23,9 +23,13 @@ enum EpubCoverResolver {
 
         // hrefs are relative to the OPF's directory and may be percent-encoded.
         let decoded = href.removingPercentEncoding ?? href
-        let imageURL = opfURL.deletingLastPathComponent()
-            .appendingPathComponent(decoded)
-        guard ["jpg", "jpeg", "png"].contains(imageURL.pathExtension.lowercased()),
+        let imageURL =
+            opfURL.deletingLastPathComponent()
+            .appendingPathComponent(decoded).standardizedFileURL
+        // Contain to the EPUB root so a `../../` href can't read outside the book.
+        let root = expandedEPUBDir.standardizedFileURL.path
+        guard imageURL.path == root || imageURL.path.hasPrefix(root + "/"),
+            ["jpg", "jpeg", "png"].contains(imageURL.pathExtension.lowercased()),
             FileManager.default.fileExists(atPath: imageURL.path)
         else { return nil }
         return try? Data(contentsOf: imageURL)
