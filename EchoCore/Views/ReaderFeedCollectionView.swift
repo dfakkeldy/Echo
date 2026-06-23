@@ -133,10 +133,16 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         {
             context.coordinator.lastForceScrolledID = forceID
             context.coordinator.lastForceScrollTrigger = forceScrollTrigger
-            if let dataSource = context.coordinator.dataSource,
-                let indexPath = dataSource.indexPath(for: "b-\(forceID)")
-            {
-                Task { @MainActor in
+            // Resolve the index path inside the Task, not synchronously here: when the
+            // scroll target's chapter was just expanded (its blocks are added by the
+            // snapshot apply later in this same updateUIView pass), a synchronous lookup
+            // would miss the not-yet-applied item and silently skip the scroll. The Task
+            // runs after this pass returns, by which point applySnapshot has updated the
+            // data source's snapshot, so the lookup sees the freshly-expanded block.
+            Task { @MainActor in
+                if let indexPath = context.coordinator.dataSource?.indexPath(
+                    for: "b-\(forceID)")
+                {
                     collectionView.scrollToItem(
                         at: indexPath, at: .centeredVertically, animated: true)
                 }
