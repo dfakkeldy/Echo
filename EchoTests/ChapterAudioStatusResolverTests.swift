@@ -62,4 +62,18 @@ struct ChapterAudioStatusResolverTests {
         let resolver = ChapterAudioStatusResolver(db: db.writer)
         #expect(try resolver.hasAudio(audiobookID: "book-1", chapterIndex: 99) == false)
     }
+
+    @Test func chaptersWithAudioReturnsOnlyChaptersHavingAnchors() throws {
+        let db = try seed()
+        // Anchor on the CONTENT block of chapter 0 only (the honesty case).
+        try insertAnchor(db, block: "ch0-para")
+        let resolver = ChapterAudioStatusResolver(db: db.writer)
+        #expect(try resolver.chaptersWithAudio(audiobookID: "book-1") == Set([0]))
+    }
+
+    @Test func chaptersWithAudioEmptyWhenNoAnchors() throws {
+        let db = try seed()
+        let resolver = ChapterAudioStatusResolver(db: db.writer)
+        #expect(try resolver.chaptersWithAudio(audiobookID: "book-1").isEmpty)
+    }
 }
