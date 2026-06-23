@@ -102,6 +102,17 @@ struct NarrationRunResult {
             outline.map { ($0.chapterIndex, $0.title) }, uniquingKeysWith: { first, _ in first })
     }
 
+    /// Provenance stamp embedded in the m4b comment (`©cmt`): render date + the
+    /// engine/render version, e.g. "Echo narration — 2026-06-23 · ONNX rv6".
+    static func narrationVersionStamp(date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return
+            "Echo narration — \(formatter.string(from: date)) · ONNX rv\(NarrationFileNaming.renderVersion)"
+    }
+
     // MARK: run
 
     /// Execute a narration run per `config`.
@@ -248,26 +259,30 @@ struct NarrationRunResult {
                 url: url, timeRange: nil)
         }
 
-        // Embed cover art from the EPUB's front-matter image (matches the library view).
-        let coverData: Data? = {
-            let images = blocks.filter { $0.blockKind == EPubBlockRecord.Kind.image.rawValue }
-            let front = images.filter(\.isFrontMatter)
-            for b in (front.isEmpty ? images : front).sorted(by: {
-                $0.sequenceIndex < $1.sequenceIndex
-            }) {
-                if let p = b.imagePath, fm.fileExists(atPath: p),
-                    let d = try? Data(contentsOf: URL(fileURLWithPath: p))
-                {
-                    return d
+        // Cover art: prefer the OPF-declared cover (where EPUB covers actually live);
+        // fall back to a front-matter inline image block.
+        let coverData: Data? =
+            EpubCoverResolver.coverData(expandedEPUBDir: config.epubURL)
+            ?? {
+                let images = blocks.filter { $0.blockKind == EPubBlockRecord.Kind.image.rawValue }
+                let front = images.filter(\.isFrontMatter)
+                for b in (front.isEmpty ? images : front).sorted(by: {
+                    $0.sequenceIndex < $1.sequenceIndex
+                }) {
+                    if let p = b.imagePath, fm.fileExists(atPath: p),
+                        let d = try? Data(contentsOf: URL(fileURLWithPath: p))
+                    {
+                        return d
+                    }
                 }
-            }
-            return nil
-        }()
+                return nil
+            }()
 
         try await AudioExportService().exportM4B(
             items: items, outputURL: config.outM4BURL,
             metadata: ExportMetadata(
-                title: config.title, author: config.author, coverArt: coverData))
+                title: config.title, author: config.author, coverArt: coverData,
+                comment: Self.narrationVersionStamp()))
 
         // 7. Assemble the portable alignment sidecar (per-chapter relative → absolute).
         var totalDuration: TimeInterval = 0

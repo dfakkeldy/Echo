@@ -63,7 +63,8 @@ import Testing
             try await AudioExportService().exportM4B(
                 items: items, outputURL: out,
                 metadata: ExportMetadata(
-                    title: "RoundTripTitle", author: "RoundTripAuthor", coverArt: nil))
+                    title: "RoundTripTitle", author: "RoundTripAuthor", coverArt: nil,
+                    comment: "Echo narration — 2026-06-23 · ONNX rv6"))
 
             let outputBytes = try Data(contentsOf: out)
             let sourceBytes = try Data(contentsOf: a)
@@ -96,6 +97,10 @@ import Testing
             //     reader is exercised directly in `titleAndChaptersVisibleToAVFoundation`.)
             #expect(outputBytes.range(of: Data("elst".utf8)) != nil)
             #expect(outputBytes.range(of: Data("ftab".utf8)) != nil)
+
+            // (e) The version stamp lands in the `©cmt` comment atom.
+            #expect(
+                outputBytes.range(of: Data("Echo narration — 2026-06-23 · ONNX rv6".utf8)) != nil)
         }
 
         /// The definitive proof: Apple's own AVFoundation reader (the Books / iOS /
@@ -131,12 +136,23 @@ import Testing
             #expect((try? await title?.load(.stringValue)) == "Round Trip")
             #expect((try? await artist?.load(.stringValue)) == "Tester")
 
-            // Chapters via Apple's chapter API.
+            // Chapters via Apple's chapter API — assert the real titles and time
+            // ranges, not just the count (a count check passes for anonymous /
+            // mis-timed chapters).
             let locales = try await asset.load(.availableChapterLocales)
             #expect(!locales.isEmpty)
             let groups = try await asset.loadChapterMetadataGroups(
                 bestMatchingPreferredLanguages: locales.map(\.identifier))
             #expect(groups.count == 2)
+            var chapterTitles: [String] = []
+            for group in groups {
+                let item = group.items.first { $0.commonKey == .commonKeyTitle }
+                if let value = try? await item?.load(.stringValue) { chapterTitles.append(value) }
+            }
+            #expect(chapterTitles == ["One", "Two"])
+            // First chapter starts at 0; second starts at ~1s (the first clip's length).
+            #expect(abs(groups[0].timeRange.start.seconds - 0) < 0.05)
+            #expect(abs(groups[1].timeRange.start.seconds - 1) < 0.2)
         }
     #endif
 }

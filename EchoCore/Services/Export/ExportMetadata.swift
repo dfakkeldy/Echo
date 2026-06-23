@@ -9,4 +9,7 @@ struct ExportMetadata: Equatable {
     var title: String
     var author: String?
     var coverArt: Data?
+    /// Free-text provenance written to the `©cmt` atom (e.g. the narration version
+    /// stamp). `nil` leaves any existing comment untouched.
+    var comment: String? = nil
 }

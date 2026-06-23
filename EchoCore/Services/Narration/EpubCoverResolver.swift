@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+
+/// Resolves an EPUB's cover image to raw JPEG/PNG bytes, suitable for embedding as
+/// MP4 cover art. The cover is usually declared in the OPF as a manifest item —
+/// either `<meta name="cover" content="id">` (EPUB 2) or a manifest item with
+/// `properties="cover-image"` (EPUB 3) — NOT as an inline content image block, which
+/// is why scanning `epub_block` image rows misses it. Cross-platform (no UIKit).
+enum EpubCoverResolver {
+
+    /// Cover bytes for an *expanded* (unzipped) EPUB directory, or nil if none is
+    /// declared / the referenced file isn't a JPEG/PNG that exists on disk.
+    static func coverData(expandedEPUBDir: URL) -> Data? {
+        guard let opfURL = locateOPF(in: expandedEPUBDir),
+            let opfData = try? Data(contentsOf: opfURL)
+        else { return nil }
+
+        let delegate = CoverOPFDelegate()
+        let parser = XMLParser(data: opfData)
+        parser.delegate = delegate
+        parser.parse()
+        guard let href = delegate.resolvedCoverHref else { return nil }
+
+        // hrefs are relative to the OPF's directory and may be percent-encoded.
+        let decoded = href.removingPercentEncoding ?? href
+        let imageURL = opfURL.deletingLastPathComponent()
+            .appendingPathComponent(decoded)
+        guard ["jpg", "jpeg", "png"].contains(imageURL.pathExtension.lowercased()),
+            FileManager.default.fileExists(atPath: imageURL.path)
+        else { return nil }
+        return try? Data(contentsOf: imageURL)
+    }
+
+    /// Finds the OPF: first via `META-INF/container.xml`'s rootfile, else the first
+    /// `*.opf` anywhere under the directory.
+    private static func locateOPF(in dir: URL) -> URL? {
+        let containerURL = dir.appendingPathComponent("META-INF/container.xml")
+        if let data = try? Data(contentsOf: containerURL) {
+            let delegate = ContainerDelegate()
+            let parser = XMLParser(data: data)
+            parser.delegate = delegate
+            parser.parse()
+            if let path = delegate.rootfilePath {
+                let decoded = path.removingPercentEncoding ?? path
+                let url = dir.appendingPathComponent(decoded)
+                if FileManager.default.fileExists(atPath: url.path) { return url }
+            }
+        }
+        let enumerator = FileManager.default.enumerator(
+            at: dir, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            if url.pathExtension.lowercased() == "opf" { return url }
+        }
+        return nil
+    }
+}
+
+/// Reads `META-INF/container.xml` for the OPF rootfile path.
+private final class ContainerDelegate: NSObject, XMLParserDelegate {
+    var rootfilePath: String?
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String,
+        namespaceURI: String?, qualifiedName qName: String?,
+        attributes attributeDict: [String: String]
+    ) {
+        if elementName == "rootfile", rootfilePath == nil {
+            rootfilePath = attributeDict["full-path"]
+        }
+    }
+}
+
+/// Extracts the cover image href from an OPF: the EPUB 3 `properties="cover-image"`
+/// manifest item wins; otherwise the EPUB 2 `<meta name="cover" content="id">` → the
+/// manifest item with that id.
+private final class CoverOPFDelegate: NSObject, XMLParserDelegate {
+    private var coverMetaID: String?
+    private var hrefByID: [String: String] = [:]
+    private var coverImageHref: String?
+
+    var resolvedCoverHref: String? {
+        coverImageHref ?? coverMetaID.flatMap { hrefByID[$0] }
+    }
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String,
+        namespaceURI: String?, qualifiedName qName: String?,
+        attributes attributeDict: [String: String]
+    ) {
+        let name = elementName.hasSuffix(":item") ? "item" : elementName
+        switch name {
+        case "meta":
+            if attributeDict["name"] == "cover" { coverMetaID = attributeDict["content"] }
+        case "item":
+            guard let id = attributeDict["id"], let href = attributeDict["href"] else { return }
+            hrefByID[id] = href
+            let properties = (attributeDict["properties"] ?? "").split(separator: " ")
+            if properties.contains("cover-image") { coverImageHref = href }
+        default:
+            break
+        }
+    }
+}
