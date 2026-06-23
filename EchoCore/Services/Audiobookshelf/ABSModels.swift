@@ -10,6 +10,7 @@ enum ABSError: Error, LocalizedError {
     case http(Int, body: String?)
     case serverMessage(String)
     case missingField(String)
+    case untrustedCertificate(host: String, sha256: String)
 
     var errorDescription: String? {
         switch self {
@@ -19,7 +20,24 @@ enum ABSError: Error, LocalizedError {
         case .http(let code, _): return "Server returned HTTP \(code)."
         case .serverMessage(let m): return m
         case .missingField(let f): return "Response missing required field: \(f)."
+        case .untrustedCertificate(let host, _):
+            return "\"\(host)\" is using a self-signed certificate that isn't trusted yet."
         }
+    }
+}
+
+extension ABSError {
+    /// If `error` is a TLS server-trust failure (`URLError.serverCertificateUntrusted`) and the
+    /// trust delegate captured a leaf fingerprint, surface it as `.untrustedCertificate` so the UI
+    /// can offer to pin it. Every other error passes through unchanged. Pure — unit-tested.
+    static func mappingTrustFailure(
+        _ error: ABSError, capturedFingerprint: String?, host: String
+    ) -> ABSError {
+        guard case .network(let underlying) = error,
+            (underlying as? URLError)?.code == .serverCertificateUntrusted,
+            let fingerprint = capturedFingerprint
+        else { return error }
+        return .untrustedCertificate(host: host, sha256: fingerprint)
     }
 }
 

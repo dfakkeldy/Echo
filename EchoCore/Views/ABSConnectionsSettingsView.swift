@@ -11,6 +11,13 @@ struct ABSConnectionsSettingsView: View {
     @State private var isConnecting = false
     @State private var errorMessage: String?
     @State private var showingBrowse = false
+    @State private var pendingTrust: PendingTrust?
+
+    private struct PendingTrust: Identifiable {
+        let id = UUID()
+        let host: String
+        let sha256: String
+    }
 
     var body: some View {
         Form {
@@ -53,6 +60,26 @@ struct ABSConnectionsSettingsView: View {
         .navigationTitle("Connections")
         .task { connected = (try? model.absServerDAO?.current()) ?? nil }
         .sheet(isPresented: $showingBrowse) { ABSBrowseView() }
+        .alert(
+            "Self-Signed Certificate",
+            isPresented: Binding(
+                get: { pendingTrust != nil },
+                set: { if !$0 { pendingTrust = nil } }),
+            presenting: pendingTrust
+        ) { trust in
+            Button("Trust and Connect") { Task { await trustAndConnect(trust) } }
+            Button("Cancel", role: .cancel) { pendingTrust = nil }
+        } message: { trust in
+            Text(
+                """
+                "\(trust.host)" presented a self-signed certificate.
+
+                SHA-256:
+                \(ABSCertificateFingerprint.display(trust.sha256))
+
+                Only trust it if you recognize this fingerprint.
+                """)
+        }
     }
 
     private func connect() async {
@@ -66,6 +93,32 @@ struct ABSConnectionsSettingsView: View {
         do {
             let server = try await model.connectAudiobookshelf(
                 baseURL: url, username: username, password: password)
+            connected = server
+            password = ""
+        } catch let error as ABSError {
+            if case .untrustedCertificate(let host, let sha256) = error {
+                pendingTrust = PendingTrust(host: host, sha256: sha256)  // password kept for retry
+            } else {
+                errorMessage = "Could not connect: \(error.localizedDescription)"
+            }
+        } catch {
+            errorMessage = "Could not connect: \(error.localizedDescription)"
+        }
+    }
+
+    private func trustAndConnect(_ trust: PendingTrust) async {
+        pendingTrust = nil
+        guard let url = ABSEndpoints.normalizedBaseURL(from: baseURL) else {
+            errorMessage = "Invalid server URL"
+            return
+        }
+        isConnecting = true
+        errorMessage = nil
+        defer { isConnecting = false }
+        do {
+            let server = try await model.connectAudiobookshelf(
+                baseURL: url, username: username, password: password,
+                trustingCertificate: trust.sha256)
             connected = server
             password = ""
         } catch {

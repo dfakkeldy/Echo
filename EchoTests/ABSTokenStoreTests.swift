@@ -26,4 +26,18 @@ import Testing
         #expect(reopened.accessToken == nil)
         store.clear()
     }
+
+    @Test func persistsAndClearsPinnedCertificate() {
+        let store = makeStore()
+        #expect(store.pinnedCertificateSHA256 == nil)
+        store.pinnedCertificateSHA256 = "deadbeef"
+        #expect(store.pinnedCertificateSHA256 == "deadbeef")
+
+        // A second store for the same server reads the same pin (persisted, not memory-only).
+        let reopened = ABSTokenStore(serverID: store.serverID)
+        #expect(reopened.pinnedCertificateSHA256 == "deadbeef")
+
+        store.clear()
+        #expect(store.pinnedCertificateSHA256 == nil)
+    }
 }

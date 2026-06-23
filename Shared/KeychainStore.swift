@@ -17,6 +17,7 @@ enum KeychainStore {
         case securityScopedBookmark
         case bookmarkNotes
         case absRefreshToken
+        case absPinnedCertificate
     }
 
     @discardableResult

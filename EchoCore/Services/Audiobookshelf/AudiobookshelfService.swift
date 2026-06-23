@@ -9,14 +9,21 @@ final class AudiobookshelfService {
     private let endpoints: ABSEndpoints
     private let tokens: ABSTokenStore
     private let session: URLSession
+    /// Trust delegate backing `session`, when this service owns a custom (non-`.shared`) session.
+    /// nil for `.shared`/stub sessions (tests, CA-trusted/http servers reuse the legacy default).
+    private let trustDelegate: ABSServerTrustDelegate?
 
     /// Serializes refreshes so concurrent 401s don't each rotate the token (ABS #5253).
     private var inFlightRefresh: Task<String, Error>?
 
-    init(baseURL: URL, tokens: ABSTokenStore, session: URLSession = .shared) {
+    init(
+        baseURL: URL, tokens: ABSTokenStore,
+        session: URLSession = .shared, trustDelegate: ABSServerTrustDelegate? = nil
+    ) {
         self.endpoints = ABSEndpoints(baseURL: baseURL)
         self.tokens = tokens
         self.session = session
+        self.trustDelegate = trustDelegate
     }
 
     // MARK: Auth
@@ -211,7 +218,22 @@ final class AudiobookshelfService {
     // MARK: Transport
 
     private func send<T: Decodable>(_ request: URLRequest, decode type: T.Type) async throws -> T {
-        try await Self.sendStatic(request, session: session, decode: type)
+        do {
+            return try await Self.sendStatic(request, session: session, decode: type)
+        } catch let error as ABSError {
+            // A self-signed cert surfaces here on first connect; turn it into `.untrustedCertificate`
+            // (carrying the fingerprint the delegate captured) so the UI can offer to pin it.
+            throw ABSError.mappingTrustFailure(
+                error,
+                capturedFingerprint: trustDelegate?.lastUntrustedLeafSHA256,
+                host: endpoints.baseURL.host ?? "")
+        }
+    }
+
+    /// Releases the custom delegate-backed session (and its retained delegate). No-op for the
+    /// `.shared`/stub path — never invalidate `URLSession.shared`.
+    func invalidate() {
+        if trustDelegate != nil { session.finishTasksAndInvalidate() }
     }
 
     /// Static so the refresh `Task` closure doesn't capture `self`.
