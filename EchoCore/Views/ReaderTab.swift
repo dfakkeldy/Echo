@@ -117,7 +117,62 @@ struct ReaderTab: View {
                 },
                 onContextMenu: { (block: EPubBlockRecord) -> UIContextMenuConfiguration? in
                     buildContextMenu(block: block)
-                }
+                },
+                onChapterHeaderContextMenu: { (chapterIndex: Int) -> UIContextMenuConfiguration? in
+                    let state = vm.chapterOffState(chapterIndex)
+                    let hasAudio = vm.chapterHasAudio[chapterIndex] ?? false
+
+                    return UIContextMenuConfiguration(
+                        identifier: nil, previewProvider: nil
+                    ) { _ in
+                        // Turn off/on everywhere (toggles whole chapter).
+                        let everywhereOn = (state == .allOn)
+                        let everywhere = UIAction(
+                            title: everywhereOn ? "Turn off everywhere" : "Turn on everywhere",
+                            image: UIImage(systemName: everywhereOn ? "eye.slash" : "eye")
+                        ) { _ in
+                            vm.setChapterOff(.all, on: everywhereOn, chapterIndex: chapterIndex)
+                        }
+
+                        // Granular: Listen (audio).
+                        let listen = UIAction(
+                            title: state.isAudioOff ? "Turn on listening" : "Turn off listening",
+                            image: UIImage(systemName: "headphones"),
+                            attributes: hasAudio ? [] : .disabled
+                        ) { _ in
+                            vm.setChapterOff(
+                                .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
+                        }
+
+                        // Granular: Narrate (shares the same manifest audio flag in v1).
+                        // v1 limitation: narration and listening map to the same `isEnabled`
+                        // flag; a distinct narration off-switch requires separately-addressable
+                        // narration tracks (future work).
+                        let narrate = UIAction(
+                            title: state.isAudioOff ? "Turn on narration" : "Turn off narration",
+                            image: UIImage(systemName: "waveform"),
+                            attributes: hasAudio ? [] : .disabled
+                        ) { _ in
+                            vm.setChapterOff(
+                                .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
+                        }
+
+                        // Granular: Cards/text (epub off flag).
+                        let cards = UIAction(
+                            title: state.isEpubOff
+                                ? "Turn on reading & cards" : "Turn off reading & cards",
+                            image: UIImage(systemName: "text.book.closed")
+                        ) { _ in
+                            vm.setChapterOff(
+                                .epub, on: !state.isEpubOff, chapterIndex: chapterIndex)
+                        }
+
+                        let granular = UIMenu(
+                            title: "", options: .displayInline, children: [listen, narrate, cards])
+                        return UIMenu(title: "", children: [everywhere, granular])
+                    }
+                },
+                offState: { chapterIndex in vm.chapterOffState(chapterIndex) }
             )
         }
     }
@@ -432,7 +487,10 @@ struct ReaderTab: View {
     private func loadViewModel() {
         guard let db = model.databaseService else { return }
         let audiobookID = folderURL.absoluteString
-        let vm = ReaderFeedViewModel(audiobookID: audiobookID, db: db.writer)
+        // Pass the book folder so the long-press off menu's audio toggle can write
+        // `isEnabled` on the mapped tracks (without it, audio-off silently no-ops).
+        let vm = ReaderFeedViewModel(
+            audiobookID: audiobookID, db: db.writer, playlistFolderURL: folderURL)
         vm.reload()
         self.viewModel = vm
 
