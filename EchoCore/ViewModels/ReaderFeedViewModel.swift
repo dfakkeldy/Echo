@@ -17,6 +17,8 @@ final class ReaderFeedViewModel {
     private let chapterDAO: ChapterDAO
     private let bookmarkDAO: BookmarkDAO
     private let flashcardDAO: FlashcardDAO
+    private let noteDAO: NoteDAO
+    private let voiceMemoDAO: VoiceMemoDAO
     private let anchorDAO: AlignmentAnchorDAO
     private let offResolver: OffStateResolver
     /// Playlist folder for `.echoplaylist.json` (audio off lives here). May be nil
@@ -50,6 +52,11 @@ final class ReaderFeedViewModel {
     /// Chapter index of each timestamped block, used to gate the alignment badge
     /// to the current track.
     private var chapterIndexByBlockID: [String: Int?] = [:]
+
+    /// Cached notes grouped by their anchor block ID (repopulated on every reload).
+    private var notesByBlockID: [String: [NoteRecord]] = [:]
+    /// Cached voice memos grouped by their anchor block ID (repopulated on every reload).
+    private var memosByBlockID: [String: [VoiceMemoRecord]] = [:]
 
     /// The chapter-index scope of the most recent `updateActiveBlock` call. Drives
     /// which blocks read as "aligned" in the UI. `nil` = whole-book (no scoping).
@@ -145,6 +152,8 @@ final class ReaderFeedViewModel {
         self.chapterDAO = ChapterDAO(db: db)
         self.bookmarkDAO = BookmarkDAO(db: db)
         self.flashcardDAO = FlashcardDAO(db: db)
+        self.noteDAO = NoteDAO(db: db)
+        self.voiceMemoDAO = VoiceMemoDAO(db: db)
         self.anchorDAO = AlignmentAnchorDAO(db: db)
         self.playlistFolderURL = playlistFolderURL
         self.offResolver = OffStateResolver(db: db, folderURL: playlistFolderURL)
@@ -460,6 +469,15 @@ final class ReaderFeedViewModel {
                 }
                 // Recompute reconciled off-state per chapter.
                 refreshOffState()
+                // Populate note/memo caches for FeedItemInjector (Phase 4).
+                let notes = (try? noteDAO.notes(for: audiobookID)) ?? []
+                let memos = (try? voiceMemoDAO.memos(for: audiobookID)) ?? []
+                notesByBlockID = Dictionary(
+                    grouping: notes.filter { $0.epubBlockID != nil },
+                    by: { $0.epubBlockID! })
+                memosByBlockID = Dictionary(
+                    grouping: memos.filter { $0.epubBlockID != nil },
+                    by: { $0.epubBlockID! })
                 rebuildDisplaySections()
                 // Phase 3: re-resolve scope after a reload (covered range depends on freshly
                 // loaded blocks; whole-book is a no-op).
@@ -474,6 +492,64 @@ final class ReaderFeedViewModel {
         } catch {
             logger.error("Failed to load reader blocks: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Phase 4: note/memo capture
+
+    /// Persists a free-text note anchored to `blockID` at the current reading
+    /// position, then refreshes the feed so it appears inline.
+    func addNote(text: String, atBlockID blockID: String) {
+        let now = Date().ISO8601Format()
+        let note = NoteRecord(
+            id: UUID().uuidString,
+            audiobookID: audiobookID,
+            text: text,
+            mediaTimestamp: -1,
+            realTimestamp: now,
+            isEnabled: true,
+            playlistPosition: nil,
+            createdAt: now,
+            modifiedAt: now,
+            epubBlockID: blockID)
+        do {
+            try noteDAO.insert(note)
+        } catch {
+            logger.error("addNote failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        reload()
+    }
+
+    /// Persists a standalone voice memo (already recorded to `fileURL`) anchored
+    /// to `blockID`, then refreshes the feed.
+    func addVoiceMemo(fileURL: URL, duration: TimeInterval, atBlockID blockID: String) {
+        let now = Date().ISO8601Format()
+        let memo = VoiceMemoRecord(
+            id: UUID().uuidString,
+            audiobookID: audiobookID,
+            epubBlockID: blockID,
+            mediaTimestamp: -1,
+            filePath: fileURL.lastPathComponent,
+            duration: duration,
+            isEnabled: true,
+            createdAt: now,
+            modifiedAt: now)
+        do {
+            try voiceMemoDAO.insert(memo)
+        } catch {
+            logger.error("addVoiceMemo failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        reload()
+    }
+
+    /// Opens (expands) the chapter with the given key, collapsing any other open
+    /// chapter. Used by tests and by the session-start auto-expand. No-op if the
+    /// key is already open.
+    func expandChapter(_ chapterKey: Int) {
+        guard chapterKey != openChapterKey else { return }
+        openChapterKey = chapterKey
+        rebuildDisplaySections()
     }
 
     // MARK: - Phase 2: extras bucketing
@@ -693,6 +769,8 @@ final class ReaderFeedViewModel {
     // MARK: - Display sections
 
     /// Recompute `displaySections` from the current groups + accordion state.
+    /// Notes and voice memos (Phase 4) are threaded in via `FeedItemInjector`
+    /// on the builder output so they are visible only when their chapter is expanded.
     private func rebuildDisplaySections() {
         // While a search is active, `displaySections` IS the flat search-result list
         // (the search branch of reload() sets it directly and clears `chapterGroups`).
@@ -703,10 +781,17 @@ final class ReaderFeedViewModel {
         let grouped = ReaderFeedDisplayBuilder.displaySections(
             groups: chapterGroups,
             openChapterKey: openChapterKey)
-        displaySections = ReaderFeedDisplayBuilder.applyFilter(
+        let filtered = ReaderFeedDisplayBuilder.applyFilter(
             filter.contentType,
             to: grouped,
             chapterHasAudio: chapterHasAudio)
+        // Inject notes/memos after filtering so injected items don't influence
+        // the content-type filter (notes are not audio/text blocks), and after
+        // the display builder so collapsed chapters keep only their header row.
+        displaySections = FeedItemInjector.inject(
+            into: filtered,
+            notesByBlockID: notesByBlockID,
+            memosByBlockID: memosByBlockID)
     }
 
     /// User tapped a chapter header: open it (collapsing any other), or collapse
