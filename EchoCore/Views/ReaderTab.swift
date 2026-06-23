@@ -38,6 +38,7 @@ struct ReaderTab: View {
     /// render into a single trailing `reload()` (reload re-reads the whole book on
     /// the main thread — running it per chapter is O(chapters²) over a render run).
     @State private var readerReloadToken = 0
+    @State private var showSessions = false
     @AppStorage("hasSeenReaderContextMenuHint") private var hasSeenContextMenuHint = false
     @State private var showAlignmentBanner = false
     @State private var hasDismissedAlignmentBanner = false
@@ -374,6 +375,16 @@ struct ReaderTab: View {
         }
         .sheet(isPresented: $model.showReaderSettings) {
             ReaderSettingsSheet(settings: $readerSettings)
+        }
+        .sheet(isPresented: $showSessions) {
+            NavigationStack {
+                SessionsListView(audiobookID: folderURL.absoluteString)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showSessions = false }
+                        }
+                    }
+            }
         }
         .sheet(isPresented: $model.showReaderTOC) {
             if let vm = viewModel {
@@ -811,6 +822,16 @@ struct ReaderTab: View {
             .frame(width: 36, height: 36)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Reader settings"))
+
+            Button {
+                showSessions = true
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 16))
+            }
+            .frame(width: 36, height: 36)
+            .background(Color(.secondarySystemBackground), in: Circle())
+            .accessibilityLabel(Text("Listening sessions"))
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
