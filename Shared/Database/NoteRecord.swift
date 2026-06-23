@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-struct NoteRecord: Codable, FetchableRecord, MutablePersistableRecord {
+struct NoteRecord: Codable, Equatable, Hashable, FetchableRecord, MutablePersistableRecord {
     var id: String
     var audiobookID: String
     var text: String

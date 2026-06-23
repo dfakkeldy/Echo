@@ -50,8 +50,8 @@ extension ReaderFeedDisplayBuilder {
                         kept.append(item)
                         contentBlockCount += 1
                     }
-                case .bookmark, .ankiCard:
-                    // Phase 2 items: pass-through under block-level filters.
+                case .bookmark, .ankiCard, .note, .voiceMemo:
+                    // Phase 2/4 items: pass-through under block-level filters.
                     kept.append(item)
                     contentBlockCount += 1
                 }
