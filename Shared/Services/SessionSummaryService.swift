@@ -195,14 +195,9 @@ struct SessionSummaryService {
     private static func count(
         _ db: Database, table: String, audiobookID: String, from: String, to: String
     ) throws -> Int {
-        // Tolerate a missing table gracefully.
-        let exists =
-            try Bool.fetchOne(
-                db,
-                sql: """
-                    SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1
-                    """, arguments: [table]) ?? false
-        guard exists else { return 0 }
+        // The bookmark/flashcard/note tables always exist after DatabaseService runs
+        // migrations on open, so the sqlite_master existence check is unnecessary
+        // and costs an extra round-trip per call (3 tables × every session group).
         return try Int.fetchOne(
             db,
             sql: """

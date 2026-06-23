@@ -186,6 +186,10 @@ struct MacReaderFeedView: View {
         isLoading = true
         defer { isLoading = false }
 
+        // Reset auto-expand state on book switch so a new book's first playing
+        // chapter is never suppressed by a stale key from the previous book.
+        lastPlayingChapterKey = nil
+
         guard let audiobookID = player.audiobookID else {
             blocks = []
             timelineCache = []
