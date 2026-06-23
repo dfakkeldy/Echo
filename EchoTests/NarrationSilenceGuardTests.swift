@@ -24,6 +24,20 @@ import Testing
         }
     }
 
+    /// Records the speed of each `run` call and returns samples from an injected
+    /// behavior keyed on the speed.
+    private actor SpeedRecorder {
+        private(set) var speeds: [Float] = []
+        private let behavior: @Sendable (_ speed: Float) -> [Float]
+        init(_ behavior: @escaping @Sendable (_ speed: Float) -> [Float]) {
+            self.behavior = behavior
+        }
+        func run(_ speed: Float) -> [Float] {
+            speeds.append(speed)
+            return behavior(speed)
+        }
+    }
+
     private static func zeros(_ n: Int = 100) -> [Float] { Array(repeating: 0, count: n) }
     private static func tone(_ n: Int = 100) -> [Float] { Array(repeating: 0.5, count: n) }
 
@@ -128,5 +142,37 @@ import Testing
         }
         #expect(NarrationSilenceGuard.isEffectivelySilent(out))
         #expect(await stub.calls.count == 3)  // initial + 2 retries, then give up
+    }
+
+    // MARK: - Speed nudge
+
+    @Test func speedNudgeStaysOnNormalSpeedWhenAudible() async throws {
+        // The common case (~90% of chunks): audio at the first/normal speed, so no
+        // nudge — zero extra synthesis for chunks that come back fine.
+        let rec = SpeedRecorder { _ in Self.tone() }
+        let out = try await NarrationSilenceGuard.synthesizeWithSpeedNudge(
+            speeds: [1.0, 1.03, 0.97]) { await rec.run($0) }
+        #expect(!NarrationSilenceGuard.isEffectivelySilent(out))
+        #expect(await rec.speeds == [1.0])
+    }
+
+    @Test func speedNudgeRecoversAtFirstNonSilentSpeed() async throws {
+        // Silent at 1.0, recovers at the first nudge → ONE utterance, no split, so
+        // no audible seam. Stops as soon as it recovers (doesn't try 0.97).
+        let rec = SpeedRecorder { speed in speed == 1.0 ? Self.zeros() : Self.tone() }
+        let out = try await NarrationSilenceGuard.synthesizeWithSpeedNudge(
+            speeds: [1.0, 1.03, 0.97]) { await rec.run($0) }
+        #expect(!NarrationSilenceGuard.isEffectivelySilent(out))
+        #expect(await rec.speeds == [1.0, 1.03])
+    }
+
+    @Test func speedNudgeReturnsSilentAfterTryingEverySpeed() async throws {
+        // Speed alone can't recover it → returns silent so the caller escalates to
+        // the text perturb/split ladder. Each speed is tried exactly once.
+        let rec = SpeedRecorder { _ in Self.zeros() }
+        let out = try await NarrationSilenceGuard.synthesizeWithSpeedNudge(
+            speeds: [1.0, 1.03, 0.97]) { await rec.run($0) }
+        #expect(NarrationSilenceGuard.isEffectivelySilent(out))
+        #expect(await rec.speeds == [1.0, 1.03, 0.97])
     }
 }
