@@ -27,10 +27,9 @@ final class PlayerModel {
     /// Voice memo recorder used for CarPlay voice-memo capture. Owned by
     /// PlayerModel so recordings can start even when no bookmark-editing view
     /// is presented (e.g. fired from a CarPlay notification).
-    /// Guarded by `canImport(UIKit)` because `VoiceMemoRecorder` is defined
-    /// inside that same conditional in Bookmarks.swift.
+    /// Guarded by `canImport(UIKit)` because `VoiceMemoRecorder` is iOS-only.
     #if canImport(UIKit)
-        @ObservationIgnored private(set) var carPlayVoiceMemoRecorder = VoiceMemoRecorder()
+        @ObservationIgnored private(set) var carPlayVoiceMemoRecorder: VoiceMemoRecorder?
     #endif
 
     /// Observer tokens for CarPlay notifications. Retained so they can be
@@ -1531,7 +1530,7 @@ final class PlayerModel {
         func carPlayStartVoiceMemo() {
             addBookmarkAtCurrentTime()
 
-            guard folderURL != nil else {
+            guard let dir = folderURL else {
                 os_log("CarPlay voice memo: no audiobook folder — recording skipped")
                 return
             }
@@ -1539,7 +1538,9 @@ final class PlayerModel {
             pause()
 
             do {
-                try carPlayVoiceMemoRecorder.startRecording(in: folderURL)
+                let r = VoiceMemoRecorder(destinationDirectory: dir)
+                try r.start()
+                carPlayVoiceMemoRecorder = r
             } catch {
                 os_log(
                     .error, "CarPlay voice memo recording failed: %{public}@",
