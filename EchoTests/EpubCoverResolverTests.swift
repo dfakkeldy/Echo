@@ -28,7 +28,10 @@ import Testing
         try opf.write(
             to: oebps.appendingPathComponent("content.opf"), atomically: true, encoding: .utf8)
         if let coverRelPath, let coverBytes {
-            try coverBytes.write(to: oebps.appendingPathComponent(coverRelPath))
+            let coverURL = oebps.appendingPathComponent(coverRelPath)
+            try FileManager.default.createDirectory(
+                at: coverURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try coverBytes.write(to: coverURL)
         }
         return dir
     }
@@ -41,9 +44,6 @@ import Testing
                 """,
             coverRelPath: "images/cover.jpg", coverBytes: jpeg)
         defer { try? FileManager.default.removeItem(at: dir) }
-        try FileManager.default.createDirectory(
-            at: dir.appendingPathComponent("OEBPS/images"), withIntermediateDirectories: true)
-        try jpeg.write(to: dir.appendingPathComponent("OEBPS/images/cover.jpg"))
         #expect(EpubCoverResolver.coverData(expandedEPUBDir: dir) == jpeg)
     }
 
