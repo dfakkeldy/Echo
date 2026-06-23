@@ -15,6 +15,18 @@ final class ReaderFeedViewModel {
     let audiobookID: String
     private let blockDAO: EPubBlockDAO
     private let chapterDAO: ChapterDAO
+    private let bookmarkDAO: BookmarkDAO
+    private let flashcardDAO: FlashcardDAO
+    private let anchorDAO: AlignmentAnchorDAO
+    private let offResolver: OffStateResolver
+    /// Playlist folder for `.echoplaylist.json` (audio off lives here). May be nil
+    /// for text-only books.
+    private let playlistFolderURL: URL?
+    /// Cached chapter → backing-track files (filled in `reload`). Single-track m4b
+    /// books map their one file to every chapter.
+    private var trackFilesByChapter: [Int: [String]] = [:]
+    /// Cached off-state per chapter, recomputed in `reload`.
+    private(set) var offStateByChapter: [Int: ChapterOffState] = [:]
     private let db: DatabaseWriter
 
     /// Cache mapping time ranges to block IDs for fast lookup during playback.
@@ -101,16 +113,47 @@ final class ReaderFeedViewModel {
         didSet { reload() }
     }
 
-    init(audiobookID: String, db: DatabaseWriter) {
+    /// Token returned by `NotificationCenter.addObserver(forName:object:queue:block:)`.
+    /// Retained so the observer can be removed in `deinit` and doesn't leak for the
+    /// whole process lifetime (I1 fix). Marked `nonisolated(unsafe)` because `deinit`
+    /// is nonisolated on `@MainActor` classes, but access is safe: the token is written
+    /// only during `init` (before any other code can see the instance) and read only in
+    /// `deinit` (after the last reference has been dropped — both on the main actor in
+    /// practice). The `NSObjectProtocol` value itself is thread-safe to call `removeObserver` on.
+    nonisolated(unsafe) private var timelineObserverToken: (any NSObjectProtocol)?
+
+    init(audiobookID: String, db: DatabaseWriter, playlistFolderURL: URL? = nil) {
         self.audiobookID = audiobookID
         self.blockDAO = EPubBlockDAO(db: db)
         self.chapterDAO = ChapterDAO(db: db)
+        self.bookmarkDAO = BookmarkDAO(db: db)
+        self.flashcardDAO = FlashcardDAO(db: db)
+        self.anchorDAO = AlignmentAnchorDAO(db: db)
+        self.playlistFolderURL = playlistFolderURL
+        self.offResolver = OffStateResolver(db: db, folderURL: playlistFolderURL)
         self.db = db
+        timelineObserverToken = NotificationCenter.default.addObserver(
+            forName: .timelineItemsIngested,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.reload()
+        }
+    }
+
+    deinit {
+        if let token = timelineObserverToken {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     /// Load blocks from the database and build the card array.
     func reload() {
         do {
+            // Captured in the browse branch; used after timeline is loaded to
+            // rebuild chapterGroups with spliced extras (C1 fix).
+            var capturedTitlesByKey: [Int: String] = [:]
+            var capturedWithAudio: Set<Int> = []
+
             let blocks: [EPubBlockRecord]
             if let query = searchQuery, !query.isEmpty {
                 blocks = try blockDAO.searchBlocks(for: audiobookID, query: query)
@@ -251,6 +294,12 @@ final class ReaderFeedViewModel {
                 let withAudio =
                     (try? ChapterAudioStatusResolver(db: db).chaptersWithAudio(
                         audiobookID: audiobookID)) ?? []
+                // Capture for Phase-2 post-timeline rebuild (C1 fix: chapterGroups
+                // will be rebuilt from the spliced sections after chapterIndexByBlockID
+                // is populated, so placement() hits the in-memory cache instead of
+                // doing redundant DB reads — I2 fix).
+                capturedTitlesByKey = titlesByKey
+                capturedWithAudio = withAudio
                 chapterGroups = ReaderFeedDisplayBuilder.groups(
                     from: parsedSections, titlesByKey: titlesByKey, chaptersWithAudio: withAudio)
                 chapterHasAudio = Dictionary(
@@ -276,7 +325,8 @@ final class ReaderFeedViewModel {
                 {
                     openChapterKey = nil
                 }
-                rebuildDisplaySections()
+                // NOTE: Phase-2 splice is deferred to after chapterIndexByBlockID
+                // is populated (see below), so placement() cache hits are live (C1+I2 fix).
             }
 
             // Rebuild block ID index.
@@ -349,6 +399,51 @@ final class ReaderFeedViewModel {
             allAlignmentStatusByBlockID = newAlignmentStatus
             allAudioStartTimeByBlockID = newAudioStartTime
             chapterIndexByBlockID = newChapterIndex
+
+            // --- Phase 2 (browse branch only): splice bookmarks + cards now that
+            // chapterIndexByBlockID is populated so placement() hits the cache (I2 fix).
+            // Rebuild chapterGroups from the spliced sections so displaySections
+            // actually includes the extras (C1 fix). ---
+            if searchQuery == nil || searchQuery?.isEmpty == true {
+                let extrasByChapter = buildExtrasByChapter()
+                if !extrasByChapter.isEmpty {
+                    sections = sections.map { section in
+                        guard let key = Self.chapterKey(ofSectionID: section.id),
+                            let extras = extrasByChapter[key], !extras.isEmpty
+                        else { return section }
+                        let merged = ReaderFeedDisplayBuilder.spliceExtras(
+                            into: section.items, extras: extras)
+                        return ReaderCardSection(
+                            id: section.id, headingStack: section.headingStack, items: merged)
+                    }
+                    // Rebuild chapterGroups from the now-spliced sections so
+                    // rebuildDisplaySections() surfaces extras in the accordion.
+                    chapterGroups = ReaderFeedDisplayBuilder.groups(
+                        from: sections,
+                        titlesByKey: capturedTitlesByKey,
+                        chaptersWithAudio: capturedWithAudio)
+                    // Re-derive per-chapter audio flag and theme color from rebuilt groups.
+                    chapterHasAudio = Dictionary(
+                        chapterGroups.map { ($0.chapterKey, $0.hasAudio) },
+                        uniquingKeysWith: { a, _ in a })
+                    var themeByKey: [Int: String] = [:]
+                    for group in chapterGroups {
+                        outer: for section in group.sections {
+                            for item in section.items {
+                                if case .block(let b) = item, let theme = b.chapterThemeColor {
+                                    themeByKey[group.chapterKey] = theme
+                                    break outer
+                                }
+                            }
+                        }
+                    }
+                    chapterThemeColorByKey = themeByKey
+                }
+                // Recompute reconciled off-state per chapter.
+                refreshOffState()
+                rebuildDisplaySections()
+            }
+
             // Re-publish the track-gated badge dictionaries for the existing scope
             // (whole-book until the first scoped updateActiveBlock call).
             applyTrackScope(currentTrackScope)
@@ -356,6 +451,131 @@ final class ReaderFeedViewModel {
             logger.error("Failed to load reader blocks: \(error.localizedDescription)")
         }
     }
+
+    // MARK: - Phase 2: extras bucketing
+
+    /// Parse the audio chapter index out of a section id "ch<key>-s<n>".
+    /// Front matter is "ch-1-s0" → -1.
+    static func chapterKey(ofSectionID id: String) -> Int? {
+        guard id.hasPrefix("ch") else { return nil }
+        let afterCh = id.dropFirst(2)
+        guard let sRange = afterCh.range(of: "-s") else { return nil }
+        return Int(afterCh[..<sRange.lowerBound])
+    }
+
+    /// Build `.bookmark`/`.ankiCard` extras bucketed by chapter index, each tagged
+    /// with the block id it should trail (or nil → chapter end).
+    private func buildExtrasByChapter() -> [Int: [ReaderFeedDisplayBuilder.SplicedExtra]] {
+        var byChapter: [Int: [ReaderFeedDisplayBuilder.SplicedExtra]] = [:]
+
+        // Cards: prefer the precise sourceBlockID; else derive from timestamp.
+        let cards = (try? flashcardDAO.flashcards(for: audiobookID)) ?? []
+        for card in cards {
+            let (chapter, blockID) = placement(
+                sourceBlockID: card.sourceBlockID, mediaTimestamp: card.mediaTimestamp)
+            byChapter[chapter, default: []].append(
+                .init(item: .ankiCard(card), afterBlockID: blockID))
+        }
+
+        // Bookmarks: no source block — always timestamp-derived.
+        let bookmarks = (try? bookmarkDAO.bookmarks(for: audiobookID)) ?? []
+        for bm in bookmarks {
+            let (chapter, blockID) = placement(
+                sourceBlockID: nil, mediaTimestamp: bm.mediaTimestamp)
+            byChapter[chapter, default: []].append(
+                .init(item: .bookmark(bm), afterBlockID: blockID))
+        }
+        return byChapter
+    }
+
+    /// Resolve an item to `(chapterIndex, afterBlockID?)`. If `sourceBlockID` is
+    /// known, look up its chapter directly; otherwise find the alignment anchor at or
+    /// before `mediaTimestamp` and use its block. Unresolvable → (-1, nil) (front
+    /// matter bucket) so the item is never dropped.
+    private func placement(sourceBlockID: String?, mediaTimestamp: TimeInterval)
+        -> (chapter: Int, blockID: String?)
+    {
+        if let sourceBlockID {
+            let looked: Int? =
+                (chapterIndexByBlockID[sourceBlockID] ?? nil)
+                ?? lookupChapter(ofBlock: sourceBlockID)
+            if let idx = looked {
+                return (idx, sourceBlockID)
+            }
+        }
+        if let block = anchorDAO.block(at: mediaTimestamp, audiobookID: audiobookID),
+            let idx = lookupChapter(ofBlock: block)
+        {
+            return (idx, block)
+        }
+        return (-1, nil)
+    }
+
+    private func lookupChapter(ofBlock blockID: String) -> Int? {
+        if let cached = chapterIndexByBlockID[blockID] { return cached ?? nil }
+        let idx = try? db.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT chapter_index FROM epub_block WHERE id = ?",
+                arguments: [blockID])
+        }
+        return idx ?? nil
+    }
+
+    // MARK: - Phase 2: off-state
+
+    /// Recompute the reconciled off-state for every chapter that has sections.
+    func refreshOffState() {
+        var result: [Int: ChapterOffState] = [:]
+        let keys = Set(sections.compactMap { Self.chapterKey(ofSectionID: $0.id) })
+        for key in keys where key >= 0 {
+            let files = trackFilesByChapter[key] ?? allTrackFiles()
+            result[key] =
+                (try? offResolver.resolve(
+                    audiobookID: audiobookID, chapterIndex: key, trackFiles: files)) ?? .allOn
+        }
+        offStateByChapter = result
+    }
+
+    /// All track files from the manifest (fallback when a per-chapter map is absent).
+    private func allTrackFiles() -> [String] {
+        guard let playlistFolderURL,
+            let manifest = PlaylistManifestService.read(from: playlistFolderURL)
+        else { return [] }
+        return manifest.tracks.map(\.file)
+    }
+
+    // MARK: - Phase 2: off-state public API
+
+    enum OffKind { case all, audio, epub }
+
+    func chapterOffState(_ chapterIndex: Int) -> ChapterOffState {
+        offStateByChapter[chapterIndex] ?? .allOn
+    }
+
+    /// Apply an off/on toggle for one chapter, write through the resolver, then
+    /// reload so the feed (grey-out + visibility) reflects the new truth.
+    func setChapterOff(_ kind: OffKind, on: Bool, chapterIndex: Int) {
+        let files = trackFilesByChapter[chapterIndex] ?? allTrackFiles()
+        do {
+            switch kind {
+            case .all:
+                try offResolver.setAllOff(
+                    on, audiobookID: audiobookID, chapterIndex: chapterIndex, trackFiles: files)
+            case .audio:
+                try offResolver.setAudioOff(on, trackFiles: files)
+            case .epub:
+                try offResolver.setEpubOff(on, audiobookID: audiobookID, chapterIndex: chapterIndex)
+            }
+        } catch {
+            // Best-effort: GRDB write may have landed even if the manifest write did
+            // not. Log only; the reload below re-reads whatever truth persisted.
+            logger.error("setChapterOff failed: \(error.localizedDescription)")
+        }
+        reload()
+    }
+
+    // MARK: - Display sections
 
     /// Recompute `displaySections` from the current groups + accordion state.
     private func rebuildDisplaySections() {

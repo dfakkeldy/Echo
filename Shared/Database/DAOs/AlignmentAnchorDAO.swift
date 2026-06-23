@@ -131,6 +131,23 @@ struct AlignmentAnchorDAO {
         }
     }
 
+    // MARK: - Point lookup
+
+    /// The `epub_block_id` of the alignment anchor at or immediately before
+    /// `time` for the given audiobook. Returns `nil` when no anchor exists.
+    func block(at time: TimeInterval, audiobookID: String) -> String? {
+        (try? db.read { db in
+            try String.fetchOne(
+                db,
+                sql: """
+                    SELECT epub_block_id FROM alignment_anchor
+                    WHERE audiobook_id = ? AND audio_time <= ?
+                    ORDER BY audio_time DESC LIMIT 1
+                    """,
+                arguments: [audiobookID, time])
+        }) ?? nil
+    }
+
     // MARK: - Upsert
 
     func upsert(_ anchor: AlignmentAnchorRecord) throws {

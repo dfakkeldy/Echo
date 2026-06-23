@@ -67,6 +67,40 @@ struct ReaderFeedViewModelAccordionTests {
         #expect(vm.openChapterKey == nil)
     }
 
+    /// Regression for C1: spliced bookmarks must appear in `displaySections` when
+    /// their chapter is toggled open. Before the fix, `chapterGroups` was built from
+    /// the unspliced `parsedSections` so extras were visible in `sections` but never
+    /// reached `displaySections`.
+    @Test func bookmarkSplicedIntoExpandedChapterDisplaySection() throws {
+        let db = try seed()
+        try db.write { db in
+            // Bookmark at t=100; the existing anchor (a1) at audio_time=100 on
+            // block c1-p (chapter 1) makes placement() resolve this to chapter 1.
+            try db.execute(
+                sql: """
+                    INSERT INTO bookmark
+                      (id, audiobook_id, title, media_timestamp, is_enabled, created_at, modified_at)
+                    VALUES ('bm1', 'bk', 'Test BM', 100, 1, '2026-06-23T00:00:00Z', '2026-06-23T00:00:00Z')
+                    """)
+        }
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        // Open chapter 1 so its content sections render in displaySections.
+        vm.toggleChapter(1)
+        #expect(vm.openChapterKey == 1)
+
+        // The open chapter's section(s) must include at least one item whose id
+        // starts with "bm-" (the spliced bookmark item).
+        let allItemIDs = vm.displaySections
+            .filter { $0.id.hasPrefix("ch1-") }
+            .flatMap(\.items)
+            .map(\.id)
+        #expect(
+            allItemIDs.contains(where: { $0.hasPrefix("bm-") }),
+            "Expected a spliced bookmark item in chapter 1's display sections, got: \(allItemIDs)")
+    }
+
     @Test func playbackAutoExpandsPlayingChapter() throws {
         let db = try seed()
         let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
