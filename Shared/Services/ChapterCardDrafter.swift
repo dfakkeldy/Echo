@@ -31,14 +31,17 @@ struct ChapterCardDrafter {
         let headings: [Row]
         do {
             headings = try db.read { db in
-                try Row.fetchAll(db, sql: """
-                    SELECT id, text, chapter_index
-                    FROM epub_block
-                    WHERE audiobook_id = ?
-                      AND block_kind = 'heading'
-                      AND is_front_matter = 0
-                    ORDER BY sequence_index
-                    """, arguments: [audiobookID])
+                try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT id, text, chapter_index
+                        FROM epub_block
+                        WHERE audiobook_id = ?
+                          AND block_kind = 'heading'
+                          AND is_front_matter = 0
+                          AND is_hidden = 0
+                        ORDER BY sequence_index
+                        """, arguments: [audiobookID])
             }
         } catch {
             throw DrafterError.headingQueryFailed(error)
@@ -62,12 +65,13 @@ struct ChapterCardDrafter {
             let chapterIndex: Int = heading["chapter_index"] ?? 0
 
             // Idempotency: skip if card already exists for this heading
-            let exists = (try? await db.read { db in
-                try Flashcard
-                    .filter(Column("source_block_id") == headingID)
-                    .filter(Column("card_type") == "normal")
-                    .fetchCount(db) > 0
-            }) ?? false
+            let exists =
+                (try? await db.read { db in
+                    try Flashcard
+                        .filter(Column("source_block_id") == headingID)
+                        .filter(Column("card_type") == "normal")
+                        .fetchCount(db) > 0
+                }) ?? false
             guard !exists else { continue }
 
             let card = Flashcard(
@@ -131,10 +135,11 @@ struct ChapterCardDrafter {
         let id = UUID().uuidString
         let now = Date().ISO8601Format()
         try await db.write { db in
-            try db.execute(sql: """
-                INSERT INTO deck (id, name, source, created_at, modified_at)
-                VALUES (?, ?, 'auto', ?, ?)
-                """, arguments: [id, name, now, now])
+            try db.execute(
+                sql: """
+                    INSERT INTO deck (id, name, source, created_at, modified_at)
+                    VALUES (?, ?, 'auto', ?, ?)
+                    """, arguments: [id, name, now, now])
         }
         return id
     }
