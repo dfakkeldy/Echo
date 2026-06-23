@@ -1957,10 +1957,10 @@
 		};
 		CC00000000007AUMK0000000 /* XCRemoteSwiftPackageReference "swift-audio-marker" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/atelier-socle/swift-audio-marker.git";
+			repositoryURL = "https://github.com/dfakkeldy/swift-audio-marker.git";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.1.0;
+				kind = revision;
+				revision = ac1d747b0e34684b12d7e0bc9fd6aa4db91cca26;
 			};
 		};
 		CC0000000001GRDB00000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {

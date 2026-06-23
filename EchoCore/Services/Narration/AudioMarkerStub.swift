@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import os.log
 
 #if canImport(AudioMarker)
     import AudioMarker
@@ -24,6 +25,8 @@ struct ChapterAtom {
 /// `swift-audio-marker` package. Replaces the former copy-only stub.
 struct ChapterMarkerWriter {
     enum WriteError: Error { case unavailableOnPlatform }
+
+    static let logger = Logger(subsystem: "com.echo.export", category: "ChapterMarkerWriter")
 
     /// Copies `sourceURL` → `outputURL`, then writes chapter atoms (and, when
     /// supplied, book-level title/author/cover-art tags) in place.
@@ -61,12 +64,32 @@ struct ChapterMarkerWriter {
                     PackageChapter(start: .seconds(atom.startTime), title: atom.title)
                 })
             if let metadata {
-                info.metadata.title = metadata.title
+                // Map the book onto the audiobook tags players expect, landing in the
+                // `ilst` atoms ©nam/©alb/©ART/aART/©gen/©cmt. album/albumArtist/genre
+                // DEFAULT only when the source carries none — so re-exporting an
+                // imported m4b keeps its real album/series/genre rather than clobbering
+                // them with the title / "Audiobook".
+                if !metadata.title.isEmpty {
+                    info.metadata.title = metadata.title
+                    if (info.metadata.album ?? "").isEmpty { info.metadata.album = metadata.title }
+                }
+                if (info.metadata.genre ?? "").isEmpty { info.metadata.genre = "Audiobook" }
                 if let author = metadata.author, !author.isEmpty {
                     info.metadata.artist = author
+                    if (info.metadata.albumArtist ?? "").isEmpty {
+                        info.metadata.albumArtist = author
+                    }
+                }
+                if let comment = metadata.comment, !comment.isEmpty {
+                    info.metadata.comment = comment
                 }
                 if let coverArt = metadata.coverArt {
-                    info.metadata.artwork = try? Artwork(data: coverArt)
+                    if let artwork = try? Artwork(data: coverArt) {
+                        info.metadata.artwork = artwork
+                    } else {
+                        Self.logger.warning(
+                            "export: cover art could not be decoded; exporting without a cover")
+                    }
                 }
             }
             try engine.modify(info, in: outputURL)
