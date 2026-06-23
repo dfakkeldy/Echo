@@ -206,4 +206,69 @@ struct ReaderFeedViewModelAccordionTests {
         vm.updateActiveBlock(time: 100, currentTrackChapterIndices: nil, isPlaying: true)
         #expect(vm.openChapterKey == 1)
     }
+
+    // MARK: - Phase 3: content-type filter tests
+
+    @Test func settingAudioFilterDropsTextChapterFromDisplay() throws {
+        let db = try seed()  // ch1 = audio, ch0 = no-audio
+        let bookID = "bk"
+        let vm = ReaderFeedViewModel(audiobookID: bookID, db: db.writer)
+        vm.reload()
+
+        // Sanity: both chapters present under .everything.
+        let allKeys = Set(
+            vm.displaySections.map {
+                ReaderFeedDisplayBuilder.chapterKey(forSectionID: $0.id) ?? -1
+            })
+        #expect(allKeys.contains(1))  // audio chapter
+        #expect(allKeys.contains(0))  // text-only chapter
+
+        vm.filter.contentType = .audio
+
+        let audioKeys = Set(
+            vm.displaySections.map {
+                ReaderFeedDisplayBuilder.chapterKey(forSectionID: $0.id) ?? -1
+            })
+        #expect(audioKeys.contains(1))  // audio chapter retained
+        #expect(!audioKeys.contains(0))  // text-only chapter dropped
+    }
+
+    @Test func settingTextFilterKeepsOnlyNoAudioChapter() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        vm.filter.contentType = .text
+
+        let keys = Set(
+            vm.displaySections.map {
+                ReaderFeedDisplayBuilder.chapterKey(forSectionID: $0.id) ?? -1
+            })
+        #expect(keys == [0])  // ch0 is the text-only chapter (D6: ch1=audio, ch0=no-audio)
+    }
+
+    @Test func resettingToEverythingRestoresAllChapters() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        vm.filter.contentType = .audio
+        vm.filter.contentType = .everything
+
+        let keys = Set(
+            vm.displaySections.map {
+                ReaderFeedDisplayBuilder.chapterKey(forSectionID: $0.id) ?? -1
+            })
+        #expect(keys.contains(1))
+        #expect(keys.contains(0))
+    }
+
+    @Test func wholeBookScopeHasNoRecap() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+        #expect(vm.filter.scope == .wholeBook)
+        #expect(vm.recap == nil)
+        #expect(vm.scopeWindow == nil)
+    }
 }
