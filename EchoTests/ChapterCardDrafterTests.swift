@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import Testing
+
 import GRDB
+import Testing
+
 @testable import Echo
 
 struct ChapterCardDrafterTests {
@@ -65,12 +67,15 @@ struct ChapterCardDrafterTests {
         let db = try await makeDB()
         let bookID = "test-book"
         try await db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test Book"])
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)",
+                arguments: [bookID, "Test Book"])
             for i in 0..<3 {
-                try db.execute(sql: """
-                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
-                    VALUES (?, ?, ?, 'heading', ?, ?, 0)
-                    """, arguments: ["h\(i)", bookID, "Chapter \(i+1)", i, i])
+                try db.execute(
+                    sql: """
+                        INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
+                        VALUES (?, ?, ?, 'heading', ?, ?, 0)
+                        """, arguments: ["h\(i)", bookID, "Chapter \(i+1)", i, i])
             }
         }
 
@@ -82,30 +87,57 @@ struct ChapterCardDrafterTests {
         let db = try await makeDB()
         let bookID = "test-book2"
         try await db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
-            try db.execute(sql: """
-                INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
-                VALUES ('h0', ?, 'Preface', 'heading', 0, 0, 1)
-                """, arguments: [bookID])
-            try db.execute(sql: """
-                INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
-                VALUES ('h1', ?, 'Chapter 1', 'heading', 1, 1, 0)
-                """, arguments: [bookID])
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
+                    VALUES ('h0', ?, 'Preface', 'heading', 0, 0, 1)
+                    """, arguments: [bookID])
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
+                    VALUES ('h1', ?, 'Chapter 1', 'heading', 1, 1, 0)
+                    """, arguments: [bookID])
         }
 
         let count = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: db)
         #expect(count == 1)
     }
 
+    @Test func skipsHiddenHeadings() async throws {
+        let db = try await makeDB()
+        let bookID = "test-book-hidden"
+        try await db.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter, is_hidden)
+                    VALUES ('h0', ?, 'Visible Chapter', 'heading', 0, 0, 0, 0)
+                    """, arguments: [bookID])
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter, is_hidden)
+                    VALUES ('h1', ?, 'Hidden Chapter', 'heading', 1, 1, 0, 1)
+                    """, arguments: [bookID])
+        }
+
+        let count = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: db)
+        #expect(count == 1)  // only the visible heading is drafted
+    }
+
     @Test func idempotentReRunDoesNotDuplicate() async throws {
         let db = try await makeDB()
         let bookID = "test-book3"
         try await db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
-            try db.execute(sql: """
-                INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index)
-                VALUES ('h0', ?, 'Ch1', 'heading', 0, 0)
-                """, arguments: [bookID])
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index)
+                    VALUES ('h0', ?, 'Ch1', 'heading', 0, 0)
+                    """, arguments: [bookID])
         }
 
         _ = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: db)
@@ -117,16 +149,20 @@ struct ChapterCardDrafterTests {
         let db = try await makeDB()
         let bookID = "test-book4"
         try await db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "The Scarlet Letter"])
-            try db.execute(sql: """
-                INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index)
-                VALUES ('h0', ?, 'The Prison Door', 'heading', 0, 0)
-                """, arguments: [bookID])
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)",
+                arguments: [bookID, "The Scarlet Letter"])
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index)
+                    VALUES ('h0', ?, 'The Prison Door', 'heading', 0, 0)
+                    """, arguments: [bookID])
         }
 
         _ = try await drafter.draftCards(for: bookID, bookTitle: "The Scarlet Letter", db: db)
         let deckName = try await db.read { db in
-            try Row.fetchOne(db, sql: "SELECT name FROM deck WHERE name = ?", arguments: ["The Scarlet Letter"])
+            try Row.fetchOne(
+                db, sql: "SELECT name FROM deck WHERE name = ?", arguments: ["The Scarlet Letter"])
         }
         #expect(deckName != nil)
     }
