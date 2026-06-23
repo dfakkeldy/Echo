@@ -58,7 +58,10 @@ struct SessionDetailFeedView: View {
         case .block(let record):
             Text(record.text ?? "")
                 .font(.body)
-        default:
+        case .bookmark, .ankiCard, .note, .voiceMemo:
+            // Study items are intentionally not rendered in the lightweight session
+            // detail preview. Listed explicitly (not via `default`) so a future
+            // ReaderCardItem case triggers a compile error here instead of vanishing.
             EmptyView()
         }
     }
