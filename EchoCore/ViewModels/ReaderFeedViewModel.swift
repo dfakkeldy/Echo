@@ -694,6 +694,12 @@ final class ReaderFeedViewModel {
 
     /// Recompute `displaySections` from the current groups + accordion state.
     private func rebuildDisplaySections() {
+        // While a search is active, `displaySections` IS the flat search-result list
+        // (the search branch of reload() sets it directly and clears `chapterGroups`).
+        // Rebuilding here would clobber those results with an empty grouped feed, so a
+        // filter/scope/accordion change must not run during search — clearing the
+        // search box re-runs reload() and restores the browse feed.
+        if let query = searchQuery, !query.isEmpty { return }
         let grouped = ReaderFeedDisplayBuilder.displaySections(
             groups: chapterGroups,
             openChapterKey: openChapterKey)
