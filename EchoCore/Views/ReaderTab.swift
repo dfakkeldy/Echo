@@ -90,7 +90,7 @@ struct ReaderTab: View {
             let bindableVM = Bindable(vm)
 
             ReaderFeedCollectionView(
-                sections: vm.sections,
+                sections: vm.displaySections,
                 activeBlockID: bindableVM.activeBlockID,
                 activeWord: vm.activeWord,
                 isHeaderVisible: $isHeaderVisible,
@@ -102,6 +102,12 @@ struct ReaderTab: View {
                 settings: readerSettings,
                 alignmentStatusByBlockID: vm.alignmentStatusByBlockID,
                 audioStartTimeByBlockID: vm.audioStartTimeByBlockID,
+                chapterHasAudio: vm.chapterHasAudio,
+                chapterThemeColorByKey: vm.chapterThemeColorByKey,
+                openChapterKey: vm.openChapterKey,
+                onToggleChapter: { (chapterKey: Int) -> Void in
+                    vm.toggleChapter(chapterKey)
+                },
                 searchQuery: query,
                 pulseBlockID: pulseBlockID,
                 forceScrollBlockID: forceScrollBlockID,
@@ -220,13 +226,15 @@ struct ReaderTab: View {
         .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
             autoScrollEnabled = true
             if let activeID = viewModel?.activeBlockID {
+                viewModel?.expandChapter(containingBlockID: activeID)
                 forceScrollBlockID = activeID
                 forceScrollTrigger += 1
             }
         }
         .onChange(of: model.currentPlaybackTime) { _, newPos in
             viewModel?.updateActiveBlock(
-                time: newPos, currentTrackChapterIndices: currentTrackChapterIndices)
+                time: newPos, currentTrackChapterIndices: currentTrackChapterIndices,
+                isPlaying: model.isPlaying)
         }
         // Re-scope + re-resolve at a track boundary: the per-track playback time
         // can be identical across tracks, so without re-scoping the highlight
@@ -234,7 +242,8 @@ struct ReaderTab: View {
         .onChange(of: model.currentIndex) { _, _ in
             viewModel?.updateActiveBlock(
                 time: model.currentPlaybackTime,
-                currentTrackChapterIndices: currentTrackChapterIndices
+                currentTrackChapterIndices: currentTrackChapterIndices,
+                isPlaying: model.isPlaying
             )
         }
         // Narration renders chapter-by-chapter, posting this after each chapter's

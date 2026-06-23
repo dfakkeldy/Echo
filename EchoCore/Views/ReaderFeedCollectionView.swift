@@ -20,6 +20,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     let settings: ReaderSettings
     var alignmentStatusByBlockID: [String: String] = [:]
     var audioStartTimeByBlockID: [String: TimeInterval] = [:]
+    var chapterHasAudio: [Int: Bool] = [:]
+    var chapterThemeColorByKey: [Int: String] = [:]
+    var openChapterKey: Int? = nil
+    var onToggleChapter: ((Int) -> Void)?
     var searchQuery: String? = nil
     var pulseBlockID: String? = nil
     var forceScrollBlockID: String? = nil
@@ -79,6 +83,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onTapBlock = onTapBlock
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.settings = settings
+        context.coordinator.onToggleChapter = onToggleChapter
+        context.coordinator.chapterHasAudio = chapterHasAudio
+        context.coordinator.chapterThemeColorByKey = chapterThemeColorByKey
         let statusChanged = alignmentStatusByBlockID != context.coordinator.alignmentStatusByBlockID
         let startTimesChanged =
             audioStartTimeByBlockID != context.coordinator.audioStartTimeByBlockID
@@ -136,10 +143,18 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             }
         }
 
+        let previousOpenKey = context.coordinator.openChapterKey
+        let openKeyChanged = openChapterKey != previousOpenKey
+        context.coordinator.openChapterKey = openChapterKey
+
         if sections != context.coordinator.sections {
             let wasEmpty = context.coordinator.sections.isEmpty
             context.coordinator.sections = sections
-            context.coordinator.applySnapshot(animated: !wasEmpty, in: collectionView)
+            let headerReconfigures =
+                openKeyChanged
+                ? [previousOpenKey, openChapterKey].compactMap { $0.map { "ch-\($0)" } } : []
+            context.coordinator.applySnapshot(
+                animated: !wasEmpty, in: collectionView, reconfiguring: headerReconfigures)
 
             if wasEmpty, let firstSection = sections.first,
                 let title = firstSection.headingStack.first
@@ -148,6 +163,15 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     self.topChapterTitle = title
                 }
             }
+        } else if openKeyChanged {
+            // Same section structure but a header chevron must flip (rare; e.g. a
+            // chapter with no extra sub-sections).
+            context.coordinator.applySnapshot(
+                animated: true, in: collectionView,
+                reconfiguring: [previousOpenKey, openChapterKey].compactMap {
+                    $0.map { "ch-\($0)" }
+                }
+            )
         }
 
         context.coordinator.updateActiveBlock(activeBlockID, in: collectionView)
@@ -200,6 +224,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8", appFont: "System")
         var alignmentStatusByBlockID: [String: String] = [:]
         var audioStartTimeByBlockID: [String: TimeInterval] = [:]
+        var chapterHasAudio: [Int: Bool] = [:]
+        var chapterThemeColorByKey: [Int: String] = [:]
+        var openChapterKey: Int?
+        var onToggleChapter: ((Int) -> Void)?
         var searchQuery: String? = nil
         var pulseBlockID: String? = nil
         var dataSource: UICollectionViewDiffableDataSource<String, String>?
@@ -249,13 +277,15 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         {
             guard let item = card(for: itemID) else { return UICollectionViewCell() }
             switch item {
-            case .chapterHeader(let title, _):
+            case .chapterHeader(let title, let chapterIndex):
                 guard
                     let cell = collectionView.dequeueReusableCell(
                         withReuseIdentifier: ChapterDividerCell.reuseIdentifier, for: indexPath
                     ) as? ChapterDividerCell
                 else { return UICollectionViewCell() }
-                cell.configure(with: title)
+                cell.configure(
+                    title: title, hasAudio: chapterHasAudio[chapterIndex] ?? false,
+                    isExpanded: openChapterKey == chapterIndex)
                 return cell
 
             case .block(let block):
@@ -330,13 +360,18 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             }
         }
 
-        func applySnapshot(animated: Bool, in collectionView: UICollectionView) {
+        func applySnapshot(
+            animated: Bool, in collectionView: UICollectionView, reconfiguring: [String] = []
+        ) {
             var snapshot = NSDiffableDataSourceSnapshot<String, String>()
             let sectionIDs = sections.map(\.id)
             snapshot.appendSections(sectionIDs)
             for section in sections {
                 snapshot.appendItems(section.items.map(\.id), toSection: section.id)
             }
+            let present = Set(sections.flatMap { $0.items.map(\.id) })
+            let toReconfigure = reconfiguring.filter { present.contains($0) }
+            if !toReconfigure.isEmpty { snapshot.reconfigureItems(toReconfigure) }
             dataSource?.apply(snapshot, animatingDifferences: animated)
             Task { @MainActor in
                 self.updateTopChapterTitle(collectionView)
@@ -555,24 +590,25 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     }
                 }
 
+                var resolvedTheme: String? = nil
                 if let itemID = dataSource?.itemIdentifier(for: indexPath),
-                    case .block(let block) = card(for: itemID)
+                    let item = card(for: itemID)
                 {
-                    let themeColor = block.chapterThemeColor
-                    if topChapterThemeColor.wrappedValue != themeColor {
-                        Task { @MainActor in
-                            self.topChapterThemeColor.wrappedValue = themeColor
-                        }
+                    switch item {
+                    case .block(let block):
+                        resolvedTheme = block.chapterThemeColor
+                    case .chapterHeader(_, let chapterIndex):
+                        resolvedTheme = chapterThemeColorByKey[chapterIndex]
                     }
                 } else if let firstBlock = section.items.compactMap({ item -> EPubBlockRecord? in
                     if case .block(let b) = item { return b }
                     return nil
                 }).first {
-                    let themeColor = firstBlock.chapterThemeColor
-                    if topChapterThemeColor.wrappedValue != themeColor {
-                        Task { @MainActor in
-                            self.topChapterThemeColor.wrappedValue = themeColor
-                        }
+                    resolvedTheme = firstBlock.chapterThemeColor
+                }
+                if topChapterThemeColor.wrappedValue != resolvedTheme {
+                    Task { @MainActor in
+                        self.topChapterThemeColor.wrappedValue = resolvedTheme
                     }
                 }
             }
@@ -582,9 +618,14 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             _ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath
         ) {
             guard let itemID = dataSource?.itemIdentifier(for: indexPath),
-                case .block(let block) = card(for: itemID)
+                let item = card(for: itemID)
             else { return }
-            onTapBlock?(block.id)
+            switch item {
+            case .chapterHeader(_, let chapterIndex):
+                onToggleChapter?(chapterIndex)
+            case .block(let block):
+                onTapBlock?(block.id)
+            }
         }
 
         func collectionView(
@@ -600,33 +641,64 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     }
 }
 
-// MARK: - Chapter Divider Cell
+// MARK: - Chapter Header Cell (collapsed-TOC row)
 
 private final class ChapterDividerCell: UICollectionViewCell {
     static let reuseIdentifier = "ChapterDividerCell"
 
-    private let label: UILabel = {
-        let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .subheadline)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
+    private let chevron = UIImageView()
+    private let titleLabel = UILabel()
+    private let audioIcon = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.addSubview(label)
+
+        chevron.contentMode = .scaleAspectFit
+        chevron.tintColor = .tertiaryLabel
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 2
+        titleLabel.adjustsFontForContentSizeCategory = true
+
+        audioIcon.contentMode = .scaleAspectFit
+        audioIcon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [chevron, titleLabel, audioIcon])
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            chevron.widthAnchor.constraint(equalToConstant: 14),
+            audioIcon.widthAnchor.constraint(equalToConstant: 18),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
         ])
+        isAccessibilityElement = true
+        accessibilityTraits = .button
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    func configure(with title: String) {
-        label.text = "— \(title) —"
+    func configure(title: String, hasAudio: Bool, isExpanded: Bool) {
+        titleLabel.text = title
+        chevron.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
+        if hasAudio {
+            audioIcon.image = UIImage(systemName: "headphones")
+            audioIcon.tintColor = .tintColor
+            titleLabel.textColor = .label
+        } else {
+            audioIcon.image = UIImage(systemName: "text.alignleft")
+            audioIcon.tintColor = .tertiaryLabel
+            titleLabel.textColor = .secondaryLabel
+        }
+        accessibilityLabel = title
+        accessibilityValue =
+            (hasAudio ? "Has audio" : "Text only") + ", " + (isExpanded ? "expanded" : "collapsed")
     }
 }
