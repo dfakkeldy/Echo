@@ -405,11 +405,13 @@ final class ReaderFeedViewModel {
             // Rebuild chapterGroups from the spliced sections so displaySections
             // actually includes the extras (C1 fix). ---
             if searchQuery == nil || searchQuery?.isEmpty == true {
-                let extrasByChapter = buildExtrasByChapter()
-                if !extrasByChapter.isEmpty {
+                // C2 fix: bucket by section id (not chapter key) so each extra lands
+                // in exactly one section. Multi-section chapters no longer receive the
+                // same extras array in every section, preventing duplicate snapshot ids.
+                let extrasBySection = buildExtrasBySection()
+                if !extrasBySection.isEmpty {
                     sections = sections.map { section in
-                        guard let key = Self.chapterKey(ofSectionID: section.id),
-                            let extras = extrasByChapter[key], !extras.isEmpty
+                        guard let extras = extrasBySection[section.id], !extras.isEmpty
                         else { return section }
                         let merged = ReaderFeedDisplayBuilder.spliceExtras(
                             into: section.items, extras: extras)
@@ -463,17 +465,47 @@ final class ReaderFeedViewModel {
         return Int(afterCh[..<sRange.lowerBound])
     }
 
-    /// Build `.bookmark`/`.ankiCard` extras bucketed by chapter index, each tagged
-    /// with the block id it should trail (or nil → chapter end).
-    private func buildExtrasByChapter() -> [Int: [ReaderFeedDisplayBuilder.SplicedExtra]] {
-        var byChapter: [Int: [ReaderFeedDisplayBuilder.SplicedExtra]] = [:]
+    /// Return the id of the last section in `sections` that belongs to the given
+    /// chapter key (i.e. whose id has the prefix `"ch{key}-"`). Used to route
+    /// unanchored or unknown-anchor extras to the chapter tail so they are not
+    /// duplicated across multiple sections.
+    private func lastSectionID(forChapterKey key: Int) -> String? {
+        let prefix = "ch\(key)-"
+        return sections.last(where: { $0.id.hasPrefix(prefix) })?.id
+    }
+
+    /// Build `.bookmark`/`.ankiCard` extras bucketed by **section id**, not chapter
+    /// key. Each extra is resolved to exactly one target section:
+    ///   - Anchored (afterBlockID is known in `cardIndexByBlockID`): the section
+    ///     that contains the anchor block.
+    ///   - Unanchored / unknown anchor: the chapter's **last** section (tail).
+    /// This guarantees each extra appears in exactly one section in `displaySections`,
+    /// preventing duplicate snapshot item identifiers that would crash the diffable
+    /// data source when an open chapter has ≥ 2 sections. (C2 fix)
+    private func buildExtrasBySection() -> [String: [ReaderFeedDisplayBuilder.SplicedExtra]] {
+        var bySection: [String: [ReaderFeedDisplayBuilder.SplicedExtra]] = [:]
+
+        /// Resolve placement to a specific section id.
+        func targetSectionID(forChapter chapterKey: Int, afterBlockID: String?) -> String {
+            // If there is an anchor block, find which section owns it.
+            if let blockID = afterBlockID,
+                let indexPath = cardIndexByBlockID[blockID],
+                sections.indices.contains(indexPath.section)
+            {
+                return sections[indexPath.section].id
+            }
+            // Unanchored or unknown anchor → chapter's last section.
+            return lastSectionID(forChapterKey: chapterKey)
+                ?? "ch\(chapterKey)-s0"
+        }
 
         // Cards: prefer the precise sourceBlockID; else derive from timestamp.
         let cards = (try? flashcardDAO.flashcards(for: audiobookID)) ?? []
         for card in cards {
             let (chapter, blockID) = placement(
                 sourceBlockID: card.sourceBlockID, mediaTimestamp: card.mediaTimestamp)
-            byChapter[chapter, default: []].append(
+            let sectionID = targetSectionID(forChapter: chapter, afterBlockID: blockID)
+            bySection[sectionID, default: []].append(
                 .init(item: .ankiCard(card), afterBlockID: blockID))
         }
 
@@ -482,10 +514,11 @@ final class ReaderFeedViewModel {
         for bm in bookmarks {
             let (chapter, blockID) = placement(
                 sourceBlockID: nil, mediaTimestamp: bm.mediaTimestamp)
-            byChapter[chapter, default: []].append(
+            let sectionID = targetSectionID(forChapter: chapter, afterBlockID: blockID)
+            bySection[sectionID, default: []].append(
                 .init(item: .bookmark(bm), afterBlockID: blockID))
         }
-        return byChapter
+        return bySection
     }
 
     /// Resolve an item to `(chapterIndex, afterBlockID?)`. If `sourceBlockID` is
