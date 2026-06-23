@@ -19,6 +19,10 @@ enum ReaderCardItem {
     case bookmark(BookmarkRecord)
     /// An Anki/study flashcard threaded inline at its source-block (or timestamp) position.
     case ankiCard(Flashcard)
+    /// A free-text note threaded into the feed at its EPUB block position.
+    case note(NoteRecord)
+    /// A standalone voice memo threaded into the feed at its EPUB block position.
+    case voiceMemo(VoiceMemoRecord)
 
     var id: String {
         switch self {
@@ -30,6 +34,10 @@ enum ReaderCardItem {
             return "bm-\(record.id)"
         case .ankiCard(let card):
             return "fc-\(card.id)"
+        case .note(let note):
+            return "note-\(note.id)"
+        case .voiceMemo(let memo):
+            return "vm-\(memo.id)"
         }
     }
 }
@@ -45,6 +53,10 @@ extension ReaderCardItem: Hashable {
             return a.id == b.id && a.modifiedAt == b.modifiedAt
         case (.ankiCard(let a), .ankiCard(let b)):
             return a.id == b.id && a.modifiedAt == b.modifiedAt
+        case (.note(let a), .note(let b)):
+            return a == b
+        case (.voiceMemo(let a), .voiceMemo(let b)):
+            return a == b
         default:
             return false
         }
@@ -67,6 +79,12 @@ extension ReaderCardItem: Hashable {
             hasher.combine(3)
             hasher.combine(card.id)
             hasher.combine(card.modifiedAt)
+        case .note(let note):
+            hasher.combine(4)
+            hasher.combine(note)
+        case .voiceMemo(let memo):
+            hasher.combine(5)
+            hasher.combine(memo)
         }
     }
 }
