@@ -167,7 +167,7 @@
             // Reuse Echo's verified front-half: G2P → vocab ids (BOS/EOS-wrapped)
             // → af_heart refS row (clamped by phoneme count). Cached on `frontEnd`
             // so the ~6 MB MisakiSwift lexicon + the voice blob load ONCE, not on
-            // every ≤200-char sub-chunk (which is what NarrationService feeds us).
+            // every text sub-chunk (which is what NarrationService feeds us).
             let (ids32, refS) = try frontEnd.encode(text: text, voice: voice)
 
             // Boundary-only ids ([BOS, EOS]) mean every phoneme was dropped — there

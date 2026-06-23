@@ -126,12 +126,10 @@ final class NarrationService {
             try Task.checkCancellation()
             let text = overrides.apply(to: TextNormalizer.normalize(block.text ?? ""))
 
-            // FluidAudio does no internal chunking and caps IPA input at ~510
-            // phonemes — feeding a whole 400+ char block in one synthesize call
-            // drives the palettized vocoder into a dynamic BNNS tensor shape that
-            // traps (uncatchable SIGTRAP). Bound each call to a small, predictable
-            // run. One anchor per ORIGINAL block (keyed on block.id) is preserved
-            // by spanning the summed sub-chunk durations, so read-along is unchanged.
+            // Bound each synthesize call under Kokoro's ~510-phoneme context window
+            // (see NarrationTextChunker for the budget). One anchor per ORIGINAL
+            // block (keyed on block.id) is preserved by spanning the summed sub-chunk
+            // durations, so read-along is unchanged regardless of how it sub-chunks.
             var blockDuration: TimeInterval = 0
             for subText in NarrationTextChunker.split(text) {
                 try Task.checkCancellation()
@@ -277,8 +275,8 @@ final class NarrationService {
             var chunks: [TTSChunk] = []
             for text in snippet {
                 // Chunk before synthesize, mirroring NarrationService.renderChapter:
-                // a whole 400+char block traps Kokoro's BNNS fallback (uncatchable
-                // SIGTRAP), so bound every synthesize call to <=200 chars.
+                // bound every synthesize call under Kokoro's ~510-phoneme context
+                // (see NarrationTextChunker for the budget rationale).
                 for subText in NarrationTextChunker.split(TextNormalizer.normalize(text)) {
                     chunks.append(
                         try await engine.synthesize(subText, voice: VoiceID("af_heart")))

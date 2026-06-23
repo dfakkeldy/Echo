@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-/// Splits a block of prose into small sub-chunks the TTS model can synthesize
-/// safely. FluidAudio's Kokoro path does **no** internal chunking and caps IPA
-/// input at ~510 phonemes ("chunk longer prompts upstream"); feeding a whole
-/// 400+ char EPUB block in one call drives the palettized vocoder into a dynamic
-/// BNNS tensor shape that traps (uncatchable SIGTRAP). We bound the input here,
-/// well under the cap, so every `synthesize` call gets a short, predictable run.
+/// Splits a block of prose into sub-chunks the TTS model can synthesize in one
+/// call. The hard ceiling is Kokoro's ~510-phoneme context (the `af_heart` style
+/// pack has exactly 510 rows = `MAX_PHONEME_LENGTH`; past it the style row
+/// saturates and the model runs beyond its trained length). English phonemizes at
+/// ~1.0–1.3 phonemes per character, so the default budget stays well under 510.
+///
+/// Bigger chunks are better for prosody: each `synthesize` call is an independent
+/// utterance whose final word gets sentence-final intonation (a falling pitch and
+/// trailing pause), so every chunk seam is an audible "period." Fewer, longer
+/// chunks mean fewer seams. (The old 200-char cap was a FluidAudio/CoreML-era
+/// guard against an ANE BNNS vocoder trap on long dynamic shapes; that engine was
+/// replaced by the ONNX Runtime CPU EP, which has no such trap and runs dynamic
+/// shapes natively — so the budget could be relaxed toward the real ceiling.)
 ///
 /// Pure and deterministic so it's unit-testable without the real model.
 ///
@@ -20,9 +27,10 @@ import Foundation
 /// - Empty / whitespace-only input → `[]`.
 enum NarrationTextChunker {
 
-    /// Conservative default budget: ~200 chars sits comfortably under the
-    /// ~510-phoneme cap even when a character expands to multiple phonemes.
-    static func split(_ text: String, maxChars: Int = 200) -> [String] {
+    /// Default budget: 350 chars ≈ 350–455 phonemes, a comfortable margin under
+    /// Kokoro's ~510-phoneme ceiling while roughly halving the synth-call count
+    /// (and so the number of audible chunk seams) versus the old 200-char cap.
+    static func split(_ text: String, maxChars: Int = 350) -> [String] {
         guard maxChars > 0 else { return [] }
 
         // Normalize whitespace runs to single spaces so piece lengths are

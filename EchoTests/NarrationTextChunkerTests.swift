@@ -11,6 +11,26 @@ import Testing
         #expect(pieces == ["Hello there."])
     }
 
+    @Test func defaultBudgetIsLargerThanTheOldFluidAudioCap() {
+        // The 200-char cap was a FluidAudio/CoreML-era guard against a BNNS vocoder
+        // trap; that engine is gone (ONNX CPU EP, no trap). The live ceiling is
+        // Kokoro's ~510-phoneme context, which 200 chars under-uses ~2x. A larger
+        // default means a multi-sentence paragraph that *used* to split into
+        // separate synth calls (each ending with sentence-final prosody → an
+        // audible "period") is now one utterance — fewer seams, less choppiness.
+        let p = String(
+            repeating: "The quick brown fox jumps over the lazy dog. ", count: 6
+        ).trimmingCharacters(in: .whitespaces)
+        #expect(p.count == 269)  // 6 sentences; would split at the old 200 cap
+
+        let atOldCap = NarrationTextChunker.split(p, maxChars: 200)
+        let atDefault = NarrationTextChunker.split(p)  // new, larger default
+        #expect(atOldCap.count > atDefault.count)  // fewer synth calls now
+        #expect(atDefault == [p])  // the whole paragraph is one utterance
+        // Still safely under the ~510-phoneme model ceiling (~1.1-1.3 phonemes/char).
+        #expect(atDefault.allSatisfy { $0.count <= 380 })
+    }
+
     @Test func emptyAndWhitespaceYieldNoPieces() {
         #expect(NarrationTextChunker.split("", maxChars: 200).isEmpty)
         #expect(NarrationTextChunker.split("   \n\t  ", maxChars: 200).isEmpty)
