@@ -132,6 +132,15 @@ final class ReaderFeedViewModel {
     /// Last auto-alignment error message for the failure alert.
     var autoAlignmentErrorMessage: String?
 
+    /// Scopes the feed to a reconstructed session's audio window. `.wholeBook`
+    /// = no filter (default). Set this then call `reload()`.
+    var sessionScope: SessionScope = .wholeBook {
+        didSet {
+            guard oldValue != sessionScope else { return }
+            reload()
+        }
+    }
+
     /// Current search query. nil = show all blocks.
     var searchQuery: String? {
         didSet { reload() }
@@ -788,10 +797,50 @@ final class ReaderFeedViewModel {
         // Inject notes/memos after filtering so injected items don't influence
         // the content-type filter (notes are not audio/text blocks), and after
         // the display builder so collapsed chapters keep only their header row.
-        displaySections = FeedItemInjector.inject(
+        let injected = FeedItemInjector.inject(
             into: filtered,
             notesByBlockID: notesByBlockID,
             memosByBlockID: memosByBlockID)
+
+        // Phase 5: restrict to a session's audio window when scoped.
+        // Uses allAudioStartTimeByBlockID (fully populated by the time
+        // rebuildDisplaySections is called from reload()) so the filter is
+        // not gated to a single track. Returns nil for .wholeBook (no-op).
+        if let allowed = SessionScopeReducer.blockIDsInScope(
+            audioStartTimeByBlockID: allAudioStartTimeByBlockID,
+            scope: sessionScope
+        ) {
+            // Build the set of chapter indices that have at least one in-scope
+            // block, so that collapsed header-only rows are also correctly gated.
+            var chaptersInScope = Set<Int>()
+            for section in sections {
+                for item in section.items {
+                    if case .block(let record) = item, allowed.contains(record.id),
+                        let chIdx = chapterIndexByBlockID[record.id] ?? nil
+                    {
+                        chaptersInScope.insert(chIdx)
+                    }
+                }
+            }
+            displaySections = injected.compactMap { section in
+                let keptItems = section.items.filter { item in
+                    switch item {
+                    case .block(let record):
+                        return allowed.contains(record.id)
+                    case .chapterHeader(_, let chapterIndex):
+                        // Keep the header only if this chapter has in-scope blocks.
+                        return chaptersInScope.contains(chapterIndex)
+                    default:
+                        return true  // notes, memos, bookmarks, cards always visible
+                    }
+                }
+                guard !keptItems.isEmpty else { return nil }
+                return ReaderCardSection(
+                    id: section.id, headingStack: section.headingStack, items: keptItems)
+            }
+        } else {
+            displaySections = injected
+        }
     }
 
     /// User tapped a chapter header: open it (collapsing any other), or collapse
