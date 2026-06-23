@@ -16,7 +16,7 @@ struct UnifiedTopHeader: View {
 
     /// Total height of Row 1. Every tab that overlays this header in the
     /// `RootTabView` Z-stack must reserve exactly this much top clearance
-    /// (`ReaderTab`, `PlaylistView`, `NowPlayingTab`) — otherwise their content
+    /// (`ReaderTab`, `NowPlayingTab`) — otherwise their content
     /// slides up underneath the glass. Deriving it from the same constants the
     /// body lays out with keeps the reservation and the real height from
     /// drifting apart again: they did on 2026-06-20, when the chips grew 40→48

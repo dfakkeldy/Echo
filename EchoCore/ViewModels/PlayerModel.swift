@@ -110,11 +110,6 @@ final class PlayerModel {
         }
     }
 
-    /// Backward-compatible accessor — reads `true` when the Timeline tab is active.
-    var showingTimeline: Bool {
-        selectedTab == .timeline
-    }
-
     /// When true, the timeline feed is frozen so the user can browse the EPUB
     /// column independently without the feed chasing playback position.
     var isTimelineFrozen: Bool = false
@@ -1176,8 +1171,8 @@ final class PlayerModel {
             selectedTab = .read
             pendingNavigationDestination = .chapter(index)
         case .navigateToBookmark:
-            selectedTab = .timeline
-        // Bookmarks are visible on the timeline tab by default.
+            selectedTab = .read
+        // Bookmarks are visible in the Read & Study feed.
         }
     }
 

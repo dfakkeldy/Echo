@@ -25,7 +25,7 @@ struct BottomToolbarView: View {
             Spacer()
             markPassageButton
             Spacer()
-            timelineButton
+            readToggleButton
             Spacer()
             addBookmarkButton
         }
@@ -115,38 +115,23 @@ struct BottomToolbarView: View {
         // double-announce (and fire while the chip is hidden behind the sheet).
     }
 
-    // MARK: - Timeline / View Toggle
+    // MARK: - Read & Study Toggle
 
-    private var timelineButton: some View {
+    // Was timelineButton — now a 2-state toggle: nowPlaying ↔ read.
+    private var readToggleButton: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                switch model.selectedTab {
-                case .nowPlaying:
-                    model.selectedTab = .timeline
-                case .timeline:
-                    model.selectedTab = .read
-                case .read:
-                    model.selectedTab = .timeline
-                }
+                model.selectedTab = (model.selectedTab == .read) ? .nowPlaying : .read
             }
             Haptic.play(.medium)
         } label: {
-            utilityChip(isActive: model.selectedTab == .timeline || model.selectedTab == .read) {
-                Image(systemName: "list.bullet")
+            utilityChip(isActive: model.selectedTab == .read) {
+                Image(systemName: model.selectedTab == .read ? "book.pages.fill" : "book.pages")
                     .font(.title2)
             }
         }
-        .accessibilityLabel(Text("Toggle chapters list"))
-        .accessibilityValue(
-            Text(
-                model.selectedTab == .nowPlaying
-                    ? String(localized: "Player")
-                    : model.selectedTab == .timeline
-                        ? String(localized: "Timeline") : String(localized: "Reader"))
-        )
-        .accessibilityAddTraits(
-            (model.selectedTab == .timeline || model.selectedTab == .read) ? .isSelected : []
-        )
+        .accessibilityLabel(Text(model.selectedTab == .read ? "Now Playing" : "Read & Study"))
+        .accessibilityAddTraits(model.selectedTab == .read ? .isSelected : [])
         .disabled(model.tracks.isEmpty)
     }
 
