@@ -30,6 +30,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     var forceScrollTrigger: Int = 0
     var onTapBlock: ((String) -> Void)?
     var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+    var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
+    var offState: ((Int) -> ChapterOffState)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -74,6 +76,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             ImageCardCell.self, forCellWithReuseIdentifier: ImageCardCell.reuseIdentifier)
         collectionView.register(
             ChapterDividerCell.self, forCellWithReuseIdentifier: ChapterDividerCell.reuseIdentifier)
+        collectionView.register(
+            BookmarkFeedCell.self, forCellWithReuseIdentifier: BookmarkFeedCell.reuseIdentifier)
+        collectionView.register(
+            AnkiCardFeedCell.self, forCellWithReuseIdentifier: AnkiCardFeedCell.reuseIdentifier)
 
         context.coordinator.dataSource = makeDataSource(for: collectionView)
         return collectionView
@@ -82,6 +88,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
         context.coordinator.onTapBlock = onTapBlock
         context.coordinator.onContextMenu = onContextMenu
+        context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
+        context.coordinator.offState = offState
         context.coordinator.settings = settings
         context.coordinator.onToggleChapter = onToggleChapter
         context.coordinator.chapterHasAudio = chapterHasAudio
@@ -220,6 +228,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     class Coordinator: NSObject, UICollectionViewDelegate {
         var onTapBlock: ((String) -> Void)?
         var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+        var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
+        var offState: ((Int) -> ChapterOffState)?
         var isHeaderVisible: Binding<Bool>
         var autoScrollEnabled: Binding<Bool>
         var topPartTitle: Binding<String?>
@@ -291,12 +301,29 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 else { return UICollectionViewCell() }
                 cell.configure(
                     title: title, hasAudio: chapterHasAudio[chapterIndex] ?? false,
-                    isExpanded: openChapterKey == chapterIndex)
+                    isExpanded: openChapterKey == chapterIndex,
+                    offState: offState?(chapterIndex) ?? .allOn)
                 return cell
 
-            case .bookmark, .ankiCard:
-                // Task 5 will replace these stubs with real bookmark/card cells.
-                return UICollectionViewCell()
+            case .bookmark(let record):
+                let tint =
+                    UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                let cell =
+                    collectionView.dequeueReusableCell(
+                        withReuseIdentifier: BookmarkFeedCell.reuseIdentifier, for: indexPath
+                    ) as? BookmarkFeedCell ?? BookmarkFeedCell()
+                cell.configure(with: record, tint: tint)
+                return cell
+
+            case .ankiCard(let card):
+                let tint =
+                    UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
+                let cell =
+                    collectionView.dequeueReusableCell(
+                        withReuseIdentifier: AnkiCardFeedCell.reuseIdentifier, for: indexPath
+                    ) as? AnkiCardFeedCell ?? AnkiCardFeedCell()
+                cell.configure(with: card, tint: tint)
+                return cell
 
             case .block(let block):
                 switch block.blockKind {
@@ -648,10 +675,157 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         ) -> UIContextMenuConfiguration? {
             guard let indexPath = indexPaths.first,
                 let itemID = dataSource?.itemIdentifier(for: indexPath),
-                case .block(let block) = card(for: itemID)
+                let item = card(for: itemID)
             else { return nil }
-            return onContextMenu?(block)
+            switch item {
+            case .chapterHeader(_, let chapterIndex):
+                return onChapterHeaderContextMenu?(chapterIndex)
+            case .block(let block):
+                return onContextMenu?(block)
+            default:
+                return nil
+            }
         }
+    }
+}
+
+// MARK: - Bookmark cell
+
+private final class BookmarkFeedCell: UICollectionViewCell {
+    static let reuseIdentifier = "BookmarkFeedCell"
+
+    private let icon = UIImageView()
+    private let titleLabel = UILabel()
+    private let noteLabel = UILabel()
+    private let container = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.layer.cornerRadius = 10
+        container.layer.cornerCurve = .continuous
+        contentView.addSubview(container)
+
+        icon.image = UIImage(systemName: "bookmark.fill")
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.numberOfLines = 2
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        noteLabel.font = .preferredFont(forTextStyle: .subheadline)
+        noteLabel.textColor = .secondaryLabel
+        noteLabel.numberOfLines = 3
+        noteLabel.adjustsFontForContentSizeCategory = true
+        noteLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, noteLabel])
+        stack.axis = .vertical
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(icon)
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            container.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            container.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            icon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            icon.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(with record: BookmarkRecord, tint: UIColor) {
+        titleLabel.text = record.title
+        noteLabel.text = record.note
+        noteLabel.isHidden = (record.note ?? "").isEmpty
+        icon.tintColor = tint
+        container.backgroundColor = tint.withAlphaComponent(0.08)
+        accessibilityLabel = [record.title, record.note].compactMap { $0 }.joined(separator: ": ")
+    }
+}
+
+// MARK: - Anki card cell
+
+private final class AnkiCardFeedCell: UICollectionViewCell {
+    static let reuseIdentifier = "AnkiCardFeedCell"
+
+    private let icon = UIImageView()
+    private let frontLabel = UILabel()
+    private let backLabel = UILabel()
+    private let container = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.layer.cornerRadius = 10
+        container.layer.cornerCurve = .continuous
+        contentView.addSubview(container)
+
+        icon.image = UIImage(systemName: "rectangle.on.rectangle.angled")
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        frontLabel.font = .preferredFont(forTextStyle: .headline)
+        frontLabel.numberOfLines = 3
+        frontLabel.adjustsFontForContentSizeCategory = true
+        frontLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        backLabel.font = .preferredFont(forTextStyle: .subheadline)
+        backLabel.textColor = .secondaryLabel
+        backLabel.numberOfLines = 4
+        backLabel.adjustsFontForContentSizeCategory = true
+        backLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [frontLabel, backLabel])
+        stack.axis = .vertical
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(icon)
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            container.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            container.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            icon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            icon.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(with card: Flashcard, tint: UIColor) {
+        frontLabel.text = card.frontText
+        backLabel.text = card.backText
+        backLabel.isHidden = card.backText.isEmpty
+        icon.tintColor = tint
+        container.backgroundColor = tint.withAlphaComponent(0.10)
+        container.layer.borderWidth = 1
+        container.layer.borderColor = tint.withAlphaComponent(0.25).cgColor
+        accessibilityLabel = card.frontText
     }
 }
 
@@ -699,7 +873,12 @@ private final class ChapterDividerCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    func configure(title: String, hasAudio: Bool, isExpanded: Bool) {
+    func configure(
+        title: String,
+        hasAudio: Bool,
+        isExpanded: Bool,
+        offState: ChapterOffState = .allOn
+    ) {
         titleLabel.text = title
         chevron.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
         if hasAudio {
@@ -711,8 +890,13 @@ private final class ChapterDividerCell: UICollectionViewCell {
             audioIcon.tintColor = .tertiaryLabel
             titleLabel.textColor = .secondaryLabel
         }
+        // Phase 2: dim the whole row when anything is off.
+        let dimmed = offState.isDimmed
+        contentView.alpha = dimmed ? 0.45 : 1.0
+        titleLabel.textColor = dimmed ? .secondaryLabel : titleLabel.textColor
         accessibilityLabel = title
         accessibilityValue =
             (hasAudio ? "Has audio" : "Text only") + ", " + (isExpanded ? "expanded" : "collapsed")
+            + (dimmed ? ", off" : "")
     }
 }
