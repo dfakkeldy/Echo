@@ -294,6 +294,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     isExpanded: openChapterKey == chapterIndex)
                 return cell
 
+            case .bookmark, .ankiCard:
+                // Task 5 will replace these stubs with real bookmark/card cells.
+                return UICollectionViewCell()
+
             case .block(let block):
                 switch block.blockKind {
                 case EPubBlockRecord.Kind.heading.rawValue:
@@ -605,6 +609,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         resolvedTheme = block.chapterThemeColor
                     case .chapterHeader(_, let chapterIndex):
                         resolvedTheme = chapterThemeColorByKey[chapterIndex]
+                    case .bookmark, .ankiCard:
+                        break  // Task 5 will wire theme propagation for inline items.
                     }
                 } else if let firstBlock = section.items.compactMap({ item -> EPubBlockRecord? in
                     if case .block(let b) = item { return b }
@@ -631,6 +637,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 onToggleChapter?(chapterIndex)
             case .block(let block):
                 onTapBlock?(block.id)
+            case .bookmark, .ankiCard:
+                break  // Task 5 will wire tap handlers for inline items.
             }
         }
 
