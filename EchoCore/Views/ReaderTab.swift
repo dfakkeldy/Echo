@@ -218,7 +218,7 @@ struct ReaderTab: View {
     var body: some View {
         @Bindable var model = model
         Group {
-            if viewModel != nil {
+            if let vm = viewModel {
                 // The collection fills the screen and scrolls behind the translucent
                 // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
                 //   1. the reader's own header (self-measuring),
@@ -227,16 +227,23 @@ struct ReaderTab: View {
                 // (2) must match the header's real height, or the reader's own
                 // header tucks under the glass — hence `rowOneHeight`, not a
                 // hard-coded constant that goes stale when the chips resize.
-                feedCollectionView
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        readerHeaderOverlay
+                VStack(spacing: 0) {
+                    filterBar(vm)
+                    if let recap = vm.recap {
+                        recapCard(recap)
+                            .padding(.bottom, 8)
                     }
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
-                    }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        Color.clear.frame(height: model.bottomInset)
-                    }
+                    feedCollectionView
+                }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    readerHeaderOverlay
+                }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: model.bottomInset)
+                }
             } else {
                 VStack {
                     Spacer()
@@ -426,6 +433,119 @@ struct ReaderTab: View {
             viewModel?.autoAlignmentTask?.cancel()
         }
         .background(Color.clear)
+    }
+
+    // MARK: - Phase-3 filter bar + recap card
+
+    /// Phase-3 content-type chips + scope selector. Sits directly above the feed.
+    @ViewBuilder
+    private func filterBar(_ vm: ReaderFeedViewModel) -> some View {
+        VStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(FeedContentType.allCases, id: \.self) { type in
+                        let disabled = (type == .bookmarks || type == .cards)  // fork 3: Phase 2 dep
+                        Button {
+                            vm.filter.contentType = type
+                        } label: {
+                            Text(Self.chipLabel(type))
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule().fill(
+                                        vm.filter.contentType == type
+                                            ? Color.accentColor.opacity(0.2)
+                                            : Color.secondary.opacity(0.12))
+                                )
+                                .overlay(
+                                    Capsule().stroke(
+                                        vm.filter.contentType == type
+                                            ? Color.accentColor : .clear, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(disabled)
+                        .opacity(disabled ? 0.4 : 1)
+                        .accessibilityLabel(Self.chipLabel(type))
+                        .accessibilityAddTraits(vm.filter.contentType == type ? [.isSelected] : [])
+                    }
+                }
+                .padding(.horizontal)
+            }
+
+            Picker(
+                "Scope",
+                selection: Binding(
+                    get: { vm.filter.scope == .wholeBook ? 0 : 1 },
+                    set: { vm.filter.scope = ($0 == 0) ? .wholeBook : .lastSession }
+                )
+            ) {
+                Text("Whole book").tag(0)
+                Text("Last session").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private static func chipLabel(_ type: FeedContentType) -> String {
+        switch type {
+        case .everything: return "Everything"
+        case .audio: return "Audio"
+        case .text: return "Text"
+        case .pics: return "Pics"
+        case .picsAndAudio: return "Pics + Audio"
+        case .bookmarks: return "Bookmarks"
+        case .cards: return "Cards"
+        }
+    }
+
+    /// Phase-3 recap card shown atop a scoped feed (only when `.lastSession` resolves).
+    @ViewBuilder
+    private func recapCard(_ recap: SessionRecap) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Last session")
+                .font(.headline)
+            HStack(spacing: 16) {
+                recapLabel("clock", Self.minutesText(recap.listenedSeconds))
+                if !recap.coveredChapterIndices.isEmpty {
+                    recapLabel("book", Self.chaptersText(recap.coveredChapterIndices))
+                }
+                if recap.bookmarkCount > 0 {
+                    recapLabel("bookmark", "\(recap.bookmarkCount)")
+                }
+                if recap.cardCount > 0 {
+                    recapLabel("rectangle.on.rectangle", "\(recap.cardCount)")
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            Text(recap.startedAt, style: .date)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            // GPS ("where") deferred to Phase 5 — session_location has no writer yet.
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.1)))
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private func recapLabel(_ symbol: String, _ text: String) -> some View {
+        Label(text, systemImage: symbol).labelStyle(.titleAndIcon)
+    }
+
+    private static func minutesText(_ seconds: TimeInterval) -> String {
+        let mins = Int((seconds / 60).rounded())
+        return "\(mins) min"
+    }
+
+    private static func chaptersText(_ indices: [Int]) -> String {
+        guard let first = indices.first, let last = indices.last else { return "" }
+        // chapter index is 0-based; show 1-based to the reader.
+        return first == last ? "Ch \(first + 1)" : "Ch \(first + 1)–\(last + 1)"
     }
 
     // MARK: - Helpers
