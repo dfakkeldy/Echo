@@ -44,7 +44,15 @@ extension PlayerModel {
             id: serverID, baseURL: baseURL.absoluteString, username: username,
             defaultLibraryId: defaultLib,
             addedAt: ISO8601DateFormatter().string(from: Date()))
-        try dao.save(record)
+        do {
+            try dao.save(record)
+        } catch {
+            // Symmetric with the login-failure rollback above: don't leave a Keychain pin
+            // (or a live delegate session) behind for a server whose record never persisted.
+            service.invalidate()
+            if pinnedSHA256 != nil { tokens.clear() }
+            throw error
+        }
         absService?.invalidate()  // release any previously-cached delegate session
         absService = service  // cache the warm instance (access token + refresh serialization)
         absServiceServerID = serverID

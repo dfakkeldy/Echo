@@ -15,7 +15,10 @@ final class ABSServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sen
 
     init(evaluator: ABSServerTrustEvaluator) { self.evaluator = evaluator }
 
-    /// The leaf SHA-256 of the most recent UNtrusted cert seen for the expected host, if any.
+    /// The leaf SHA-256 of the most recently seen UNtrusted cert for the expected host, if any.
+    /// This is last-seen probe state: it's read once during the connect probe to offer the
+    /// fingerprint for pinning. Nothing reads it after connect (post-connect a cert mismatch
+    /// simply fails closed), so the single-field design is intentional, not per-request.
     var lastUntrustedLeafSHA256: String? {
         lock.lock()
         defer { lock.unlock() }
