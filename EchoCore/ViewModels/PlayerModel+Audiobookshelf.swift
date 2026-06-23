@@ -9,32 +9,52 @@ extension PlayerModel {
         return ABSServerDAO(db: writer)
     }
 
-    /// Connect + persist the server (non-secret) and tokens (Keychain). Caches the warm,
-    /// logged-in service instance.
+    /// Connect + persist the server (non-secret) and tokens (Keychain). Always uses a delegate-backed
+    /// session so self-signed certs can be pinned. On first connect to a self-signed host (no pin
+    /// yet) `login()` throws `ABSError.untrustedCertificate` — the connect UI shows the fingerprint
+    /// and, on approval, calls this again with `trustingCertificate:` set. CA-trusted and `http://`
+    /// servers succeed on the first call with `pinnedSHA256 == nil` (the delegate just defers to
+    /// default handling).
     @discardableResult
-    func connectAudiobookshelf(baseURL: URL, username: String, password: String) async throws
-        -> ABSServerRecord
-    {
+    func connectAudiobookshelf(
+        baseURL: URL, username: String, password: String,
+        trustingCertificate pinnedSHA256: String? = nil
+    ) async throws -> ABSServerRecord {
         guard let dao = absServerDAO else { throw ABSError.notConnected }
         let serverID = UUID().uuidString
+        let host = baseURL.host?.lowercased() ?? ""
         let tokens = ABSTokenStore(serverID: serverID)
-        let service = AudiobookshelfService(baseURL: baseURL, tokens: tokens, session: .shared)
-        let defaultLib = try await service.login(username: username, password: password)
+        if let pinnedSHA256 { tokens.pinnedCertificateSHA256 = pinnedSHA256 }
+        let (session, delegate) = ABSURLSession.make(expectedHost: host, pinnedSHA256: pinnedSHA256)
+        let service = AudiobookshelfService(
+            baseURL: baseURL, tokens: tokens, session: session, trustDelegate: delegate)
+
+        let defaultLib: String?
+        do {
+            defaultLib = try await service.login(username: username, password: password)
+        } catch {
+            service.invalidate()
+            // Roll back the pin we optimistically wrote if a *trust* connect failed for some other
+            // reason (wrong password, etc.), so a stale pin can't linger for an unsaved server.
+            if pinnedSHA256 != nil { tokens.clear() }
+            throw error
+        }
+
         let record = ABSServerRecord(
-            id: serverID,
-            baseURL: baseURL.absoluteString,
-            username: username,
+            id: serverID, baseURL: baseURL.absoluteString, username: username,
             defaultLibraryId: defaultLib,
             addedAt: ISO8601DateFormatter().string(from: Date()))
         try dao.save(record)
-        absService = service  // cache the warm instance (keeps access token + refresh serialization)
+        absService?.invalidate()  // release any previously-cached delegate session
+        absService = service  // cache the warm instance (access token + refresh serialization)
         absServiceServerID = serverID
         return record
     }
 
     func disconnectAudiobookshelf(_ server: ABSServerRecord) async {
         let service = makeAudiobookshelfService()  // reuse cached instance if present
-        await service?.signOut()
+        await service?.signOut()  // clears access/refresh + the pinned cert
+        service?.invalidate()  // release the delegate-backed session
         try? absServerDAO?.delete(server.id)
         absService = nil
         absServiceServerID = nil
@@ -54,8 +74,12 @@ extension PlayerModel {
             let server = try? dao.current(),
             let url = URL(string: server.baseURL)
         else { return nil }
+        let tokens = ABSTokenStore(serverID: server.id)
+        let host = url.host?.lowercased() ?? ""
+        let (session, delegate) = ABSURLSession.make(
+            expectedHost: host, pinnedSHA256: tokens.pinnedCertificateSHA256)
         let service = AudiobookshelfService(
-            baseURL: url, tokens: ABSTokenStore(serverID: server.id), session: .shared)
+            baseURL: url, tokens: tokens, session: session, trustDelegate: delegate)
         absService = service
         absServiceServerID = server.id
         return service
