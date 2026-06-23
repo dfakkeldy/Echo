@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import AVFoundation
 import GRDB
 import SwiftUI
 import UIKit
@@ -22,6 +23,16 @@ struct ReaderTab: View {
     @State var pulseBlockID: String? = nil
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
+
+    /// AVAudioPlayer for voice memo playback (Phase 4). Retained so playback
+    /// continues until the user taps a different memo or leaves the screen.
+    @State private var memoPlayer: AVAudioPlayer?
+    /// Recorder for capturing standalone voice memos (Phase 4). Destination is
+    /// the book folder's `voice-memos/` subdirectory so relative `filePath` rows
+    /// survive across relaunches when re-joined with `folderURL`.
+    @State private var memoRecorder = VoiceMemoRecorder(
+        destinationDirectory: FileLocations.applicationSupportDirectory
+            .appendingPathComponent("voice-memos-tmp", isDirectory: true))
 
     /// Coalesces per-chapter `.timelineItemsIngested` posts during a narration
     /// render into a single trailing `reload()` (reload re-reads the whole book on
@@ -172,7 +183,18 @@ struct ReaderTab: View {
                         return UIMenu(title: "", children: [everywhere, granular])
                     }
                 },
-                offState: { chapterIndex in vm.chapterOffState(chapterIndex) }
+                offState: { chapterIndex in vm.chapterOffState(chapterIndex) },
+                onPlayMemo: { memo in
+                    // Re-join the stored relative filePath with the book's voice-memos
+                    // subfolder so the file is found correctly after relaunch.
+                    let memoDir =
+                        folderURL
+                        .appendingPathComponent("voice-memos", isDirectory: true)
+                    let fileURL = memoDir.appendingPathComponent(memo.filePath)
+                    memoPlayer?.stop()
+                    memoPlayer = try? AVAudioPlayer(contentsOf: fileURL)
+                    memoPlayer?.play()
+                }
             )
         }
     }
@@ -234,6 +256,26 @@ struct ReaderTab: View {
                             .padding(.bottom, 8)
                     }
                     feedCollectionView
+                        .overlay(alignment: .bottom) {
+                            FeedCaptureBar(
+                                anchorBlockID: vm.activeBlockID,
+                                onAddNote: { text, blockID in
+                                    vm.addNote(text: text, atBlockID: blockID)
+                                },
+                                onStartRecording: {
+                                    try? memoRecorder.start()
+                                },
+                                onStopRecording: { blockID in
+                                    if let result = memoRecorder.stop() {
+                                        vm.addVoiceMemo(
+                                            fileURL: result.url,
+                                            duration: result.duration,
+                                            atBlockID: blockID)
+                                    }
+                                }
+                            )
+                            .padding(.bottom, 12)
+                        }
                 }
                 .safeAreaInset(edge: .top, spacing: 0) {
                     readerHeaderOverlay
@@ -613,6 +655,13 @@ struct ReaderTab: View {
             audiobookID: audiobookID, db: db.writer, playlistFolderURL: folderURL)
         vm.reload()
         self.viewModel = vm
+
+        // Point the recorder at the book's own voice-memos subfolder so relative
+        // filePath rows survive relaunches when re-joined with `folderURL`.
+        memoRecorder = VoiceMemoRecorder(
+            destinationDirectory:
+                folderURL
+                .appendingPathComponent("voice-memos", isDirectory: true))
 
         // Check if alignment is entirely auto-estimated (no user-created anchors yet).
         // Only show the alignment banner after the one-time context-menu hint has been dismissed.
