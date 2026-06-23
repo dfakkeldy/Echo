@@ -94,6 +94,31 @@ enum NarrationSilenceGuard {
         return nil
     }
 
+    /// Prosody-neutral first line of silence recovery: runs `run` at each speed in
+    /// `speeds` until one yields a non-silent result. A small speed change keeps the
+    /// fragment as ONE utterance — unlike `splitForRetry`, which re-synthesizes the
+    /// halves separately and so adds an audible mid-fragment seam — so if the model's
+    /// all-zero output is specific to its `speed` input, the fragment recovers with
+    /// no prosody cost. Lead `speeds` with the real playback speed (typically `1.0`)
+    /// so an already-audible fragment incurs no extra synthesis.
+    ///
+    /// Returns the first non-silent result, or the last attempt if every speed is
+    /// silent — so the caller can escalate to the text perturb/split ladder in
+    /// `synthesize`. (Whether a speed nudge actually dodges the deterministic zero is
+    /// a property of the real model, confirmed on device, not of this pure routing.)
+    static func synthesizeWithSpeedNudge(
+        speeds: [Float],
+        floor: Float = defaultSilenceFloor,
+        run: (Float) async throws -> [Float]
+    ) async throws -> [Float] {
+        var samples: [Float] = []
+        for speed in speeds {
+            samples = try await run(speed)
+            if !isEffectivelySilent(samples, floor: floor) { return samples }
+        }
+        return samples
+    }
+
     /// Synthesizes `text` via `run`, guarding against silent (all-zero) output.
     /// - Parameters:
     ///   - run: synthesizes one text fragment into PCM samples (empty == nothing).

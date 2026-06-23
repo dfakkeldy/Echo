@@ -143,25 +143,43 @@
             }
         }
 
+        /// Speeds tried, in order, when a fragment comes back silent — the
+        /// prosody-neutral first recovery step. Leads with `1.0` (the real playback
+        /// speed → no extra synthesis for the ~90% of chunks that aren't silent); the
+        /// ±3% nudges are inaudible but change the duration predictor's output enough
+        /// to (hopefully) dodge an input-specific all-zero before the guard resorts to
+        /// splitting the text. Tunable; efficacy is a model property, confirmed on
+        /// device. See `NarrationSilenceGuard.synthesizeWithSpeedNudge`.
+        static let silenceRecoverySpeeds: [Float] = [1.0, 1.03, 0.97]
+
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             try await prepare()
             guard session != nil else { throw NarrationError.engineUnavailable }
 
             // The ONNX model occasionally returns a full-length but all-zero
-            // waveform (digital silence) for a non-empty input. Guard it: retry,
-            // then re-split the text, so a real word is never dropped to silence.
+            // waveform (digital silence) for a non-empty input. Recover in order of
+            // increasing prosody cost: a small speed nudge on the whole fragment
+            // (one utterance, no seam) first, then — if every speed is still silent —
+            // the guard's text perturb/split ladder. The speed nudge applies to each
+            // fragment the guard tries, including split halves.
             let samples = try await NarrationSilenceGuard.synthesize(text) { piece in
-                try await self.runModel(piece, voice: voice)
+                try await NarrationSilenceGuard.synthesizeWithSpeedNudge(
+                    speeds: Self.silenceRecoverySpeeds
+                ) { speed in
+                    try await self.runModel(piece, voice: voice, speed: speed)
+                }
             }
             let audioS = Double(samples.count) / 24_000
             return TTSChunk(samples: samples, sampleRate: 24_000, duration: audioS)
         }
 
-        /// One encode + ONNX run for a single text fragment → PCM samples (an
-        /// empty array means "nothing to synthesize", e.g. an all-punctuation
-        /// fragment). Wrapped by `NarrationSilenceGuard`, which retries / re-splits
-        /// when the model returns a silent (all-zero) waveform.
-        private func runModel(_ text: String, voice: VoiceID) async throws -> [Float] {
+        /// One encode + ONNX run for a single text fragment at a given `speed` → PCM
+        /// samples (an empty array means "nothing to synthesize", e.g. an
+        /// all-punctuation fragment). Wrapped by `NarrationSilenceGuard`, which
+        /// speed-nudges / retries / re-splits when the model returns a silent
+        /// (all-zero) waveform.
+        private func runModel(_ text: String, voice: VoiceID, speed: Float) async throws -> [Float]
+        {
             guard let session else { throw NarrationError.engineUnavailable }
 
             // Reuse Echo's verified front-half: G2P → vocab ids (BOS/EOS-wrapped)
@@ -180,7 +198,7 @@
 
             // Widen ids to Int64 for the ONNX `input_ids` tensor.
             let ids64 = ids32.map { Int64($0) }
-            let speed: [Float] = [1.0]
+            let speedInput: [Float] = [speed]
 
             let inputIds = try ORTValue(
                 tensorData: Self.tensorData(ids64),
@@ -191,7 +209,7 @@
                 elementType: .float,
                 shape: [NSNumber(value: 1), NSNumber(value: refS.count)])
             let speedValue = try ORTValue(
-                tensorData: Self.tensorData(speed),
+                tensorData: Self.tensorData(speedInput),
                 elementType: .float,
                 shape: [NSNumber(value: 1)])
 
