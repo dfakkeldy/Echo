@@ -44,6 +44,12 @@ final class VoiceMemoRecorder {
         let fileName = "memo-\(UUID().uuidString).m4a"
         let url = resolveRecordingURL(fileName: fileName)
 
+        // `resolveRecordingURL` may have acquired a security scope. Release it on
+        // any error path out of `start()` (AVAudioRecorder init throwing, record()
+        // failing); on success the scope is intentionally held until stop()/cancel().
+        var recordingStarted = false
+        defer { if !recordingStarted { releaseScope() } }
+
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: 44_100.0,
@@ -58,6 +64,7 @@ final class VoiceMemoRecorder {
         }
         self.recorder = recorder
         self.currentURL = url
+        recordingStarted = true
     }
 
     /// Stops recording and returns the file URL + measured duration, or nil if
