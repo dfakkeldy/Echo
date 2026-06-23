@@ -6,6 +6,15 @@
 	<string>Fonts/</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.books</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Echo connects to user-provided, self-hosted Audiobookshelf servers (LAN,
+		     Tailscale/CGNAT 100.64.0.0/10, VPN, reverse proxies) the developer does not
+		     control and that commonly run over plaintext HTTP. NSAllowsLocalNetworking is
+		     insufficient: the Tailscale shared range is not an ATS "local" range. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSLocationWhenInUseUsageDescription</key>
