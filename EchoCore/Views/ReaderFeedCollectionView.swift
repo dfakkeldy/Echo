@@ -306,22 +306,22 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 return cell
 
             case .bookmark(let record):
-                let tint =
-                    UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
-                let cell =
-                    collectionView.dequeueReusableCell(
+                guard
+                    let cell = collectionView.dequeueReusableCell(
                         withReuseIdentifier: BookmarkFeedCell.reuseIdentifier, for: indexPath
-                    ) as? BookmarkFeedCell ?? BookmarkFeedCell()
+                    ) as? BookmarkFeedCell
+                else { return UICollectionViewCell() }
+                let tint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
                 cell.configure(with: record, tint: tint)
                 return cell
 
             case .ankiCard(let card):
-                let tint =
-                    UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
-                let cell =
-                    collectionView.dequeueReusableCell(
+                guard
+                    let cell = collectionView.dequeueReusableCell(
                         withReuseIdentifier: AnkiCardFeedCell.reuseIdentifier, for: indexPath
-                    ) as? AnkiCardFeedCell ?? AnkiCardFeedCell()
+                    ) as? AnkiCardFeedCell
+                else { return UICollectionViewCell() }
+                let tint = UIColor(hex: settings.cardTintHex) ?? UIColor.systemBackground
                 cell.configure(with: card, tint: tint)
                 return cell
 
