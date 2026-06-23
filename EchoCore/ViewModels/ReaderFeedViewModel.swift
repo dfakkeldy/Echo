@@ -77,6 +77,23 @@ final class ReaderFeedViewModel {
     /// resolves while scrolling collapsed (header-only) rows. Absent key = no
     /// theme (neutral) — which also clears a stale tint from a closed chapter.
     private(set) var chapterThemeColorByKey: [Int: String] = [:]
+    /// Phase-3 two-axis filter (content type × scope). Setting it re-derives the feed.
+    var filter: FeedFilter = FeedFilter() {
+        didSet {
+            guard filter != oldValue else { return }
+            if filter.scope != oldValue.scope {
+                resolveScope()
+            }
+            rebuildDisplaySections()
+        }
+    }
+
+    /// The resolved window for the current scope (nil under `.wholeBook`).
+    private(set) var scopeWindow: FeedScopeWindow?
+
+    /// The recap card metadata for the current scoped window (nil under `.wholeBook`).
+    private(set) var recap: SessionRecap?
+
     /// The single expanded chapter (accordion). `nil` = all collapsed.
     private(set) var openChapterKey: Int?
     /// Chapter of the most recent active block, so auto-expand only fires on a
@@ -444,6 +461,11 @@ final class ReaderFeedViewModel {
                 // Recompute reconciled off-state per chapter.
                 refreshOffState()
                 rebuildDisplaySections()
+                // Phase 3: re-resolve scope after a reload (covered range depends on freshly
+                // loaded blocks; whole-book is a no-op).
+                if filter.scope != .wholeBook {
+                    resolveScope()
+                }
             }
 
             // Re-publish the track-gated badge dictionaries for the existing scope
@@ -608,12 +630,77 @@ final class ReaderFeedViewModel {
         reload()
     }
 
+    // MARK: - Phase 3: scope resolution
+
+    /// Resolves the current `filter.scope` to a `scopeWindow` + `recap`, off the
+    /// stored `audiobookID` (the GRDB UUID used by `playback_event`). Synchronous
+    /// GRDB reads on a few rows — within smooth-scroll budget (Phase-3 Trap B).
+    private func resolveScope() {
+        switch filter.scope {
+        case .wholeBook:
+            scopeWindow = nil
+            recap = nil
+        case .lastSession:
+            let resolver = FeedScopeResolver(db: db)
+            let window = (try? resolver.lastSessionWindow(audiobookID: audiobookID)) ?? nil
+            scopeWindow = window
+            if let window {
+                recap = try? SessionRecapViewModel(db: db).recap(
+                    audiobookID: audiobookID, window: window)
+                expandChapter(forSessionStart: window.coveredStartPosition)
+            } else {
+                recap = nil
+            }
+        case .session(let id, _, _):
+            let resolver = FeedScopeResolver(db: db)
+            let window = (try? resolver.sessionWindow(id: id, audiobookID: audiobookID)) ?? nil
+            scopeWindow = window
+            if let window {
+                recap = try? SessionRecapViewModel(db: db).recap(
+                    audiobookID: audiobookID, window: window)
+                expandChapter(forSessionStart: window.coveredStartPosition)
+            } else {
+                recap = nil
+            }
+        }
+    }
+
+    /// Auto-expands the chapter that contains `position` (book seconds), mapping the
+    /// position to a chapter index via timeline_item → epub_block, then opening it
+    /// (Phase-3 Trap H — a new auto-expand trigger beyond Phase-1's isPlaying one).
+    func expandChapter(forSessionStart position: TimeInterval) {
+        let key: Int? =
+            (try? db.read { db in
+                try Int.fetchOne(
+                    db,
+                    sql: """
+                        SELECT eb.chapter_index
+                        FROM timeline_item ti
+                        JOIN epub_block eb ON eb.id = ti.epub_block_id
+                        WHERE ti.audiobook_id = ?
+                          AND ti.audio_start_time <= ?
+                          AND eb.chapter_index IS NOT NULL
+                        ORDER BY ti.audio_start_time DESC
+                        LIMIT 1
+                        """, arguments: [audiobookID, position])
+            }) ?? nil
+        if let key {
+            openChapterKey = key
+            rebuildDisplaySections()
+        }
+    }
+
     // MARK: - Display sections
 
     /// Recompute `displaySections` from the current groups + accordion state.
     private func rebuildDisplaySections() {
-        displaySections = ReaderFeedDisplayBuilder.displaySections(
-            groups: chapterGroups, openChapterKey: openChapterKey)
+        let grouped = ReaderFeedDisplayBuilder.displaySections(
+            groups: chapterGroups,
+            openChapterKey: openChapterKey)
+        displaySections = ReaderFeedDisplayBuilder.applyFilter(
+            filter.contentType,
+            to: grouped,
+            chapterHasAudio: chapterHasAudio)
     }
 
     /// User tapped a chapter header: open it (collapsing any other), or collapse
