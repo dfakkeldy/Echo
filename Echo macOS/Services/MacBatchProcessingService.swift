@@ -369,6 +369,51 @@ final class MacBatchProcessingService {
                         .transcribing, 0.97,
                         "Narrated — \(skipped) chapter(s) skipped (synthesis failed).")
                 }
+
+                // Write the read-along sidecar next to the EPUB so a book narrated
+                // on the Mac gets read-along on the device on import. Narration's
+                // synthesized anchor times are per-chapter-relative; convert to
+                // ABSOLUTE using the summed track durations in sort-order (== chapter
+                // index, the same order the m4b exporter concatenates), and store the
+                // portable `s<i>-b<j>` suffix. Best-effort: never fail the book on it.
+                do {
+                    let chapterOfBlock: [String: Int] = chapters.reduce(into: [:]) { acc, ch in
+                        for b in ch.blocks { acc[b.id] = ch.index }
+                    }
+                    let tracks =
+                        ((try? TrackDAO(db: dbService.writer).tracks(for: audiobookID)) ?? [])
+                        .sorted { $0.sortOrder < $1.sortOrder }
+                    var offset: [Int: TimeInterval] = [:]
+                    var running: TimeInterval = 0
+                    for t in tracks {
+                        offset[t.sortOrder] = running
+                        running += t.duration
+                    }
+                    let sidecar: [AlignmentSidecar.Anchor] =
+                        ((try? AlignmentAnchorDAO(db: dbService.writer).anchors(for: audiobookID))
+                        ?? [])
+                        .filter { $0.source == AlignmentAnchorRecord.Source.synthesized.rawValue }
+                        .compactMap { a in
+                            guard let ci = chapterOfBlock[a.epubBlockID], let off = offset[ci]
+                            else { return nil }
+                            return AlignmentSidecar.Anchor(
+                                blockId: AlignmentSidecar.portableSuffix(of: a.epubBlockID),
+                                timestamp: a.audioTime + off, confidence: 1.0)
+                        }
+                    if !sidecar.isEmpty {
+                        let scURL = AlignmentSidecar.url(forEPUB: epubURL)
+                        let enc = JSONEncoder()
+                        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+                        try enc.encode(sidecar).write(to: scURL, options: .atomic)
+                        logger.info(
+                            "Wrote narration sidecar: \(scURL.lastPathComponent, privacy: .public)")
+                    }
+                } catch {
+                    logger.error(
+                        "Failed to write narration sidecar: \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+
                 self?.refresh()
                 return
             }
@@ -527,16 +572,23 @@ final class MacBatchProcessingService {
                 fileCount: 0,
                 addedAt: Date().ISO8601Format()))
 
-        // Import in place. Passing the EPUB file itself as the import target makes
-        // the coordinator key blocks off the EPUB's own URL (`epubURL.absoluteString`),
-        // so multiple EPUBs in one folder don't collide on a shared parent-dir id,
-        // while the same-file copy is still skipped.
-        await EPUBImportCoordinator.importEPUB(
-            from: epubURL,
-            to: epubURL,
-            databaseService: dbService,
-            chapters: [],
-            duration: nil)
+        // Import in place under the per-file `audiobookID`. Text files
+        // (.md/.markdown/.txt/.text) are handled by `TextAutoImportScanner`;
+        // EPUBs are handled by `EPUBImportCoordinator` (same-file copy skipped).
+        // Both paths key blocks off the file's own URL so multiple files in one
+        // folder don't collide on a shared parent-dir id.
+        let ext = epubURL.pathExtension.lowercased()
+        if ["md", "markdown", "txt", "text"].contains(ext) {
+            _ = await TextAutoImportScanner.importTextFile(
+                textURL: epubURL, audiobookID: audiobookID, databaseService: dbService, force: true)
+        } else {
+            await EPUBImportCoordinator.importEPUB(
+                from: epubURL,
+                to: epubURL,
+                databaseService: dbService,
+                chapters: [],
+                duration: nil)
+        }
         let blockCount = (try? EPubBlockDAO(db: dbService.writer).count(for: audiobookID)) ?? 0
         guard blockCount > 0 else {
             throw BatchProcessingError.emptyImport(epubURL.lastPathComponent)

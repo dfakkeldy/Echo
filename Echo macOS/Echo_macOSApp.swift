@@ -266,16 +266,22 @@ struct Echo_macOSApp: App {
         return panel.url
     }
 
-    /// Presents an NSOpenPanel to select EPUB files and/or folders of EPUBs to
+    /// Presents an NSOpenPanel to select EPUB or text files and/or folders to
     /// narrate on-device. Returns the chosen URLs (empty if cancelled). Folders
-    /// are scanned for EPUBs; individual `.epub` files are enqueued directly.
+    /// are scanned for EPUBs; individual `.epub`, `.md`, `.markdown`, `.txt`, or
+    /// `.text` files are enqueued directly.
     private func chooseEPUBsToNarrate() -> [URL] {
         let panel = NSOpenPanel()
         panel.title = String(localized: "Narrate EPUB(s)")
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [UTType(filenameExtension: "epub") ?? .data]
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "epub") ?? .data,
+            UTType(filenameExtension: "md") ?? .plainText,
+            UTType(filenameExtension: "markdown") ?? .plainText,
+            .plainText,
+        ]
         panel.message = String(
             localized: "Choose EPUB files (or a folder of them) to narrate on-device overnight.")
 
@@ -294,13 +300,15 @@ struct Echo_macOSApp: App {
     }
 
     /// Enqueues a selected URL for narration: a folder is scanned for EPUBs, an
-    /// `.epub` file is enqueued directly. Anything else is ignored.
+    /// `.epub`, `.md`, `.markdown`, `.txt`, or `.text` file is enqueued directly;
+    /// anything else is ignored.
     private func narrateSelection(_ url: URL) {
         let isDirectory =
             (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
         if isDirectory {
             try? FolderAudioScanner.enqueueEPUBsForNarration(url, into: batchService)
-        } else if url.pathExtension.lowercased() == "epub" {
+        } else if ["epub", "md", "markdown", "txt", "text"].contains(url.pathExtension.lowercased())
+        {
             try? batchService.enqueueNarration(epubURL: url)
         }
     }

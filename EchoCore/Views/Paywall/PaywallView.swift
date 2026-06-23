@@ -6,7 +6,6 @@ struct PaywallView: View {
     let context: PaywallContext
     @Environment(StoreManager.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var trialEligible = false
     @State private var purchasing = false
 
     private func product(_ id: String) -> Product? {
@@ -26,24 +25,18 @@ struct PaywallView: View {
                     benefits
 
                     // Plan options — ALWAYS render product.displayPrice (sale-safe), never hardcode.
-                    if let yearly = product(ProductIDs.yearly) {
-                        planButton(yearly, badge: "Best value")
-                    }
-                    if let monthly = product(ProductIDs.monthly) {
-                        planButton(monthly)
-                    }
+                    // Echo Pro is a one-time unlock — no subscription.
                     if let lifetime = product(ProductIDs.lifetime) {
-                        planButton(lifetime, oneTime: true)
+                        planButton(lifetime, oneTime: true, badge: "One-time — no subscription")
                     }
                     if FoundersWindow.isOpen, let founders = product(ProductIDs.founders) {
                         planButton(founders, oneTime: true, badge: "Founders — limited time")
                     }
 
-                    if trialEligible {
-                        Text("7 days free, then renews. Cancel anytime in Settings.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("Pay once, unlock forever. No subscription, no account.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
 
                     Button("Restore Purchases") {
                         Task {
@@ -84,18 +77,16 @@ struct PaywallView: View {
             }
             .task {
                 if store.products.isEmpty { await store.requestProducts() }
-                trialEligible = await store.isEligibleForFreeTrial()
             }
         }
     }
 
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 8) {
-            benefitLabel("♾️", "Unlimited flashcards with SM-2 spaced repetition")
+            benefitLabel("♾️", "Unlimited flashcards with FSRS spaced repetition")
             benefitLabel("🗣️", "Unlimited on-device AI narration (coming in 1.0)")
             benefitLabel("📊", "Insights — listening & study streaks")
-            benefitLabel("📤", "Study export — Markdown, Anki, JSON")
-            benefitLabel("🔗", "AudiobookShelf offline & sync")
+            benefitLabel("📤", "Export any book as a chaptered .m4b audiobook")
             benefitLabel("🔒", "No account, no servers, no tracking")
         }
     }

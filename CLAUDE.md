@@ -23,6 +23,21 @@ You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo dev
 * Whenever we add a feature, change the architecture, or modify the Python pipeline, **you must explicitly remind me** that the documentation needs updating, and proactively offer to update `README.md` or `ARCHITECTURE.md`.
 * Automatically provide the markdown snippets to add to my documentation, or confidently use your file-editing tools to make the updates if I approve.
 
+## Branching & Release Workflow (CRITICAL)
+Echo ships on a **promotion-ladder** release model. Code flows one direction only:
+
+```
+feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
+            (integrate)  (promote)  (promote + tag → App Store)
+```
+
+* **Feature work is based on `nightly`, NOT `main`.** Before starting work in a fresh worktree, check the base: `git merge-base --is-ancestor origin/nightly HEAD || (git fetch origin nightly && git reset --hard origin/nightly)`. The worktree tooling may cut a branch from `main` (the repo's default branch) — if so, rebase/reset it onto `origin/nightly` first, so the work builds on the integration line (which carries the latest engine/migrations) instead of the stale stable line. Do this *before* any edits, while the branch has no commits of its own.
+* **Default PR target is `nightly`, NOT `main`.** When you finish a feature or fix, open the PR against **`nightly`** — that is the integration branch where day-to-day work lands (`gh pr create --base nightly …`; gh/GitHub default to `main`). Do **not** open PRs against `main` (or push to it directly); `main` is the stable App Store line and is only ever reached by promotion from `weekly`. Targeting `main` bypasses the entire ladder.
+* **Promotions are their own PRs:** `nightly → weekly` (weekly), then `weekly → main` (release). These are normally done by the maintainer; only open one if explicitly asked.
+* **Never push directly** to `main`, `weekly`, or `nightly` — all three are protected and changed only through PRs (the one exception is the maintainer's release tagging on `main`).
+* **Hotfixes** are the lone upstream exception: branch from `main`, fix, PR back into `main`, then merge `main` *down* into `weekly` and `nightly` so the fix survives the next promotion.
+* CI (`Build gate + tests`) gates all three branches; scheduled `release-trains.yml` builds `nightly` daily and `weekly` Mondays to TestFlight. Full detail lives in **ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder**; read it before doing anything release- or branch-related.
+
 ## Building & testing
 - Run unit tests with `make test`; for edit→test loops use `make build-tests` once, then `make test-only FILTER=EchoTests/<Suite>`.
 - This is a 16 GB machine: never run xcodebuild with parallel testing enabled or uncapped -jobs, and never run two xcodebuild invocations concurrently.

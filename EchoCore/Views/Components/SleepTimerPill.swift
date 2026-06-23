@@ -25,7 +25,9 @@ struct SleepTimerPill: View {
         Menu {
             menuItems
         } label: {
-            if let label = SleepTimerPillState.labelText(mode: model.sleepTimerMode, remainingSeconds: model.sleepTimerRemainingSeconds) {
+            if let label = SleepTimerPillState.labelText(
+                mode: model.sleepTimerMode, remainingSeconds: model.sleepTimerRemainingSeconds)
+            {
                 HStack(spacing: 6) {
                     Image(systemName: "moon.zzz.fill")
                         .font(.subheadline.bold())
@@ -45,7 +47,8 @@ struct SleepTimerPill: View {
                     .font(.body.bold())
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
-                    .foregroundStyle(.secondary)
+                    // Cover accent like the sibling header chips (was .secondary).
+                    .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
             }
         }
         .accessibilityLabel(Text("Sleep Timer"))
@@ -57,30 +60,42 @@ struct SleepTimerPill: View {
         Button {
             model.setSleepTimer(.minutes(15))
             Haptic.play(.light)
-        } label: { Label("15 Minutes", systemImage: "15.circle") }
+        } label: {
+            Label("15 Minutes", systemImage: "15.circle")
+        }
         Button {
             model.setSleepTimer(.minutes(30))
             Haptic.play(.light)
-        } label: { Label("30 Minutes", systemImage: "30.circle") }
+        } label: {
+            Label("30 Minutes", systemImage: "30.circle")
+        }
         Button {
             model.setSleepTimer(.minutes(45))
             Haptic.play(.light)
-        } label: { Label("45 Minutes", systemImage: "45.circle") }
+        } label: {
+            Label("45 Minutes", systemImage: "45.circle")
+        }
         Button {
             model.setSleepTimer(.minutes(60))
             Haptic.play(.light)
-        } label: { Label("1 Hour", systemImage: "1.circle") }
+        } label: {
+            Label("1 Hour", systemImage: "1.circle")
+        }
         Divider()
         Button {
             model.setSleepTimer(.endOfChapter)
             Haptic.play(.light)
-        } label: { Label("End of Chapter", systemImage: "book.closed") }
+        } label: {
+            Label("End of Chapter", systemImage: "book.closed")
+        }
         if model.sleepTimerMode.isActive {
             Divider()
             Button(role: .destructive) {
                 model.cancelSleepTimer()
                 Haptic.play(.light)
-            } label: { Label("Off", systemImage: "xmark.circle") }
+            } label: {
+                Label("Off", systemImage: "xmark.circle")
+            }
         }
     }
 
@@ -88,7 +103,8 @@ struct SleepTimerPill: View {
         switch model.sleepTimerMode {
         case .off: return String(localized: "Off")
         case .minutes(let m):
-            return String(localized: "\(m) minutes, \(model.sleepTimerRemainingSeconds) seconds remaining")
+            return String(
+                localized: "\(m) minutes, \(model.sleepTimerRemainingSeconds) seconds remaining")
         case .endOfChapter: return String(localized: "End of Chapter")
         }
     }

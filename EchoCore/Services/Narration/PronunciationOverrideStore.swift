@@ -33,10 +33,12 @@
 
         /// Test/overridable initializer: persists to `directory/global.json`.
         init(directory: URL) {
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
             self.fileURL = directory.appendingPathComponent("global.json")
             if let data = try? Data(contentsOf: fileURL),
-               let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+                let decoded = try? JSONDecoder().decode([String: String].self, from: data)
+            {
                 self.entries = decoded
             }
         }
@@ -52,8 +54,10 @@
         }
 
         /// The override map `NarrationService` applies before G2P. v1: global only.
+        /// Echo's built-in defaults (e.g. the author's surname) are layered
+        /// underneath the user's entries — a user override of the same word wins.
         func overrides() -> PronunciationOverrides {
-            PronunciationOverrides(entries: entries)
+            PronunciationOverrides.withBuiltInDefaults(entries)
         }
 
         /// Per-book overrides — v1 returns empty (global map covers the common case;

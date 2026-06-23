@@ -6,15 +6,15 @@ Built neurodivergent-first for ADHD, dyslexia, and attention that comes and goes
 
 WHAT MAKES ECHO DIFFERENT
 - Read along while you listen: each word lights up in time with the narration, aligned fully on-device with WhisperKit. No cloud, no account, no tracking.
-- No audiobook? Echo narrates a text-only EPUB on-device in a natural voice (no cloud, no account), then reads along and turns it into study like any other book.
+- No audiobook? Echo narrates a text-only EPUB on-device — pick from 28 built-in voices (American and British, female and male), no cloud and no account — then reads along and turns it into study like any other book. Narration runs on every supported iPhone and Mac (no newest-chip requirement), and a custom pronunciation dictionary teaches it proper nouns and technical terms.
 - Full-text search with tap-to-seek: find any sentence and jump straight to that moment in the audio.
 - Smart rewind: lose the thread? Echo eases you back a few seconds so an interruption never costs you the chapter.
 
 TURN LISTENING INTO LEARNING
 - Highlight a passage and Echo makes a flashcard from it.
-- SM-2 spaced repetition schedules each card so the right one resurfaces at the right time.
+- FSRS-4.5 spaced repetition — the modern scheduler Anki now uses — surfaces each card right before you'd forget it.
 - Review hands-free on Apple Watch: tap to recall while you walk, commute, or work.
-- Export your study notes as Markdown and your flashcard decks as JSON.
+- Import Anki-style flashcard decks from JSON, so your existing study material comes along.
 
 SEE YOUR PROGRESS
 - An Insights screen tracks listening time, daily streaks, chapter coverage, and retention, so motivation stays visible.
@@ -23,13 +23,17 @@ BUILT FOR FOCUS
 - Voice-memo and photo bookmarks pinned to the exact spot.
 - Chapter looping to replay a tough passage until it lands.
 - Speed control with pitch kept natural, plus a sleep timer for winding down.
+- Boost quiet recordings above the system maximum so soft narration stays clear.
 - Dyslexia-friendly fonts (Lexend and OpenDyslexic) with full Dynamic Type support.
 
 WORKS WHERE YOU DO
-- Bring your own M4B audiobooks and EPUB or PDF companion text.
-- iPhone, Mac, and Apple Watch, sharing the same library and progress.
+- Import your own DRM-free M4B or MP3 audiobooks, plus EPUB or PDF companion text — read in place, never modified.
+- Export the other way too: turn a narrated EPUB, or an audiobook you imported, into a single chaptered .m4b — cover art, metadata, and chapter markers included — playable in any audiobook app.
+- Connect to your self-hosted Audiobookshelf server: browse, search, download to your device, and play, with two-way progress sync.
+- Import a plain Markdown or .txt file and Echo narrates it as a chaptered audiobook — the same read-along and study tools as an EPUB.
+- iPhone, Mac, and Apple Watch, sharing the same library and progress. On Mac, narrate a whole folder of EPUBs overnight, then play or export the results.
 
-OPEN, PRIVATE, FREE
-Alignment runs entirely on your device. Nothing is uploaded, nothing is sold, no account required. Echo is free and open-source under the GPL-3.0 license, with no ads and no subscription.
+OPEN, PRIVATE, NO ADS
+Everything runs on your device — alignment and narration included. No account, no tracking, no ads, and your files are never uploaded or modified. Echo is free and open-source under the GPL-3.0 license: import your books, align them, read along, and study. Echo Pro is an optional one-time unlock — no subscription, ever — that adds power features like whole-library narration and study export, supporting a solo developer without ever costing you your privacy.
 
 Bring your own audiobook and book file, press play, and start turning listening into learning.

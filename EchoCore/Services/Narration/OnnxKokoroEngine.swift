@@ -39,7 +39,33 @@
         /// sub-chunk (~6 MB lexicon parse + voice-blob read each). See KokoroFrontEnd.
         private let frontEnd = KokoroFrontEnd()
 
-        init() {}
+        /// Resolves the local model URL (downloading once if absent). Injected so a
+        /// test can exercise the failure path of `prepare()` without a network or
+        /// the 163 MB model; defaults to the real `ensureModel`.
+        private let modelProvider: @Sendable (@Sendable (Double) -> Void) async throws -> URL
+
+        /// Intra-op thread count for the CPU EP. The A14 has 2 performance cores;
+        /// pinning intra-op parallelism to them is the throughput lever measured on
+        /// device. Injectable so the on-device spike can compare 1/2/4.
+        private let intraOpThreads: Int32
+
+        /// Test seam: surface the configured thread count without exposing internals.
+        var intraOpThreadsForTesting: Int32 { intraOpThreads }
+
+        init(intraOpThreads: Int32 = 2) {
+            self.modelProvider = { progress in try await Self.ensureModel(progress: progress) }
+            self.intraOpThreads = intraOpThreads
+        }
+
+        /// Test seam: inject a custom model provider (e.g. one that throws) to drive
+        /// the no-cache-on-failure retry path.
+        init(
+            modelProvider: @escaping @Sendable (@Sendable (Double) -> Void) async throws -> URL,
+            intraOpThreads: Int32 = 2
+        ) {
+            self.modelProvider = modelProvider
+            self.intraOpThreads = intraOpThreads
+        }
 
         // MARK: - Model location
 
@@ -78,9 +104,9 @@
             let fan = ProgressFanOut()
             fan.add(progress)
             progressFanOut = fan
-            let task = Task<Void, Error> { [logger] in
+            let task = Task<Void, Error> { [logger, modelProvider, intraOpThreads] in
                 defer { fan.clear() }
-                let modelURL = try await Self.ensureModel { f in
+                let modelURL = try await modelProvider { f in
                     fan.emit(.downloadingModels(fraction: f))
                 }
                 // No Espresso/AOT compile — session-create is the whole cost, and
@@ -89,23 +115,53 @@
                 let loadStart = Date()
                 let env = try ORTEnv(loggingLevel: ORTLoggingLevel.warning)
                 let options = try ORTSessionOptions()
-                // CPU EP only (ORT's CoreML EP can't run Kokoro's dynamic shapes,
-                // and routing to the ANE is the exact path that traps on A14).
+                // Tuning (behavior-preserving): op fusion + pin intra-op parallelism to the
+                // A14 performance cores. CPU EP only — no ANE (the A14 trap path).
+                try options.setGraphOptimizationLevel(.all)
+                try options.setIntraOpNumThreads(intraOpThreads)
                 let session = try ORTSession(
                     env: env, modelPath: modelURL.path, sessionOptions: options)
                 let loadMs = Int(Date().timeIntervalSince(loadStart) * 1000)
                 logger.notice(
-                    "ONNX session created in \(loadMs, privacy: .public) ms (no AOT compile).")
+                    "ONNX session created in \(loadMs, privacy: .public) ms (no AOT compile), intraOp=\(intraOpThreads, privacy: .public)."
+                )
                 await self.store(env: env, session: session)
                 fan.emit(.compilingModels(done: 1, total: 1))
                 fan.emit(.ready)
             }
             initializationTask = task
-            try await task.value
+            do {
+                try await task.value
+            } catch {
+                // §5.11: a failed initialization must not stay cached, or every
+                // later prepare() re-awaits the same failure forever (a transient
+                // network/disk error would brick narration until app relaunch).
+                // Joiners only ever re-await this task — they never replace it — so
+                // clearing here cannot drop a newer attempt.
+                initializationTask = nil
+                throw error
+            }
         }
 
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             try await prepare()
+            guard session != nil else { throw NarrationError.engineUnavailable }
+
+            // The ONNX model occasionally returns a full-length but all-zero
+            // waveform (digital silence) for a non-empty input. Guard it: retry,
+            // then re-split the text, so a real word is never dropped to silence.
+            let samples = try await NarrationSilenceGuard.synthesize(text) { piece in
+                try await self.runModel(piece, voice: voice)
+            }
+            let audioS = Double(samples.count) / 24_000
+            return TTSChunk(samples: samples, sampleRate: 24_000, duration: audioS)
+        }
+
+        /// One encode + ONNX run for a single text fragment → PCM samples (an
+        /// empty array means "nothing to synthesize", e.g. an all-punctuation
+        /// fragment). Wrapped by `NarrationSilenceGuard`, which retries / re-splits
+        /// when the model returns a silent (all-zero) waveform.
+        private func runModel(_ text: String, voice: VoiceID) async throws -> [Float] {
             guard let session else { throw NarrationError.engineUnavailable }
 
             // Reuse Echo's verified front-half: G2P → vocab ids (BOS/EOS-wrapped)
@@ -114,8 +170,12 @@
             // every ≤200-char sub-chunk (which is what NarrationService feeds us).
             let (ids32, refS) = try frontEnd.encode(text: text, voice: voice)
 
-            guard !ids32.isEmpty else {
-                return TTSChunk(samples: [], sampleRate: 24_000, duration: 0)
+            // Boundary-only ids ([BOS, EOS]) mean every phoneme was dropped — there
+            // is nothing to say. Treat it as empty (a legit zero-length fragment the
+            // guard won't retry) rather than feeding it to the model, which would
+            // return unrecoverable digital silence.
+            guard ids32.contains(where: { $0 != KokoroPhonemeVocab.boundaryTokenId }) else {
+                return []
             }
 
             // Widen ids to Int64 for the ONNX `input_ids` tensor.
@@ -155,7 +215,15 @@
                 "\(tag, privacy: .public): \(ids32.count, privacy: .public) tokens → \(String(format: "%.2f", audioS), privacy: .public)s audio in \(String(format: "%.2f", computeS), privacy: .public)s compute (RTF \(String(format: "%.2f", rtf), privacy: .public))"
             )
 
-            return TTSChunk(samples: samples, sampleRate: 24_000, duration: audioS)
+            // The model sometimes returns a full-length all-zero waveform; flag it
+            // so the guard's retry/re-split is visible and the rate is monitorable.
+            if NarrationSilenceGuard.isEffectivelySilent(samples) {
+                logger.warning(
+                    "Silent (all-zero) waveform for \(ids32.count, privacy: .public) tokens — retrying/splitting."
+                )
+            }
+
+            return samples
         }
 
         // MARK: - Private

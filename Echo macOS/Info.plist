@@ -4,8 +4,6 @@
 <dict>
 	<key>ATSApplicationFontsPath</key>
 	<string>Fonts/</string>
-	<key>CFBundleDisplayName</key>
-	<string>Echo: Learn Audiobooks</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.books</string>
 	<key>NSHumanReadableCopyright</key>

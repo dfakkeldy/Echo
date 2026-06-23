@@ -24,7 +24,7 @@ struct KokoroPhonemeVocab {
     /// Loads the bundled `_kokoro_vocab.json` (`{"vocab": {char: id}}`).
     init() throws {
         guard
-            let url = Bundle.main.url(
+            let url = NarrationResources.url(
                 forResource: "_kokoro_vocab", withExtension: "json")
         else {
             throw NarrationError.modelDownloadFailed(

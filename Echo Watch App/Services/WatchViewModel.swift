@@ -575,7 +575,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-    /// Sends a flashcard grade back to iPhone for SM-2 processing and persistence.
+    /// Sends a flashcard grade back to iPhone for FSRS processing and persistence.
     func gradeFlashcard(cardID: String, grade: Int) {
         dueCards.removeAll { $0.id == cardID }
         _ = sendCommand("gradeFlashcard", params: ["cardID": cardID, "grade": grade])

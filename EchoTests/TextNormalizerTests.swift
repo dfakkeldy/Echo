@@ -10,10 +10,18 @@ import Testing
         ("It cost 1,200 dollars.", "It cost 1200 dollars."),
         ("See e.g. chapter 3.", "See for example chapter 3."),
         ("A pause — then silence.", "A pause, then silence."),
+        ("A pause – then silence.", "A pause, then silence."),  // spaced en dash
+        ("A pause - then silence.", "A pause, then silence."),  // spaced ASCII hyphen
         ("Chapter IV begins.", "Chapter 4 begins."),
     ])
     func normalizes(_ input: String, _ expected: String) {
         #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test func leavesIntraWordHyphenForTheG2P() {
+        // A hyphenated compound (no surrounding spaces) is NOT a sentence pause —
+        // it must pass through untouched so the G2P reads it as a word break.
+        #expect(TextNormalizer.normalize("a rough-and-ready fix") == "a rough-and-ready fix")
     }
 
     @Test func stripsThousandsSeparatorInNumbers() {

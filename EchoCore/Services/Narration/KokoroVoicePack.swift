@@ -30,14 +30,15 @@ struct KokoroVoicePack {
     /// Loads `<name>.f32` (+ `<name>.rows`) from the app bundle.
     init(named name: String) throws {
         guard
-            let f32URL = Bundle.main.url(forResource: name, withExtension: "f32"),
-            let rowsURL = Bundle.main.url(forResource: name, withExtension: "rows")
+            let f32URL = NarrationResources.url(forResource: name, withExtension: "f32"),
+            let rowsURL = NarrationResources.url(forResource: name, withExtension: "rows")
         else {
             throw NarrationError.modelDownloadFailed(name: name, underlying: nil)
         }
         let data = try Data(contentsOf: f32URL)
         let rowCountText = try String(contentsOf: rowsURL, encoding: .utf8)
-        guard let rowCount = Int(rowCountText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        guard let rowCount = Int(rowCountText.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
             throw NarrationError.modelDownloadFailed(name: "\(name).rows", underlying: nil)
         }
         // Reinterpret raw little-endian Float32 bytes as [Float]. iOS/macOS are

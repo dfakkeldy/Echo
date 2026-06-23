@@ -19,10 +19,11 @@ struct PronunciationOverrides {
         let escaped = entries.keys
             .filter { !$0.isEmpty }
             .map { NSRegularExpression.escapedPattern(for: $0) }
-            .sorted { $0.count > $1.count } // longest-first so "Postgres" beats "Post"
+            .sorted { $0.count > $1.count }  // longest-first so "Postgres" beats "Post"
         guard !escaped.isEmpty else { return text }
         let pattern = "\\b(?:" + escaped.joined(separator: "|") + ")\\b"
-        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        else {
             return text
         }
         // Process matches right-to-left so index offsets stay valid.
@@ -33,7 +34,10 @@ struct PronunciationOverrides {
             guard let range = Range(m.range, in: result) else { continue }
             let matched = String(result[range])
             // Lowercased lookup (case-insensitive match).
-            guard let ipa = entries.first(where: { $0.key.lowercased() == matched.lowercased() })?.value else {
+            guard
+                let ipa = entries.first(where: { $0.key.lowercased() == matched.lowercased() })?
+                    .value
+            else {
                 continue
             }
             // Skip if this word is already inside a link "[...](/.../)": look back
@@ -50,14 +54,36 @@ struct PronunciationOverrides {
         var i = index
         while i > s.startIndex {
             i = s.index(before: i)
-            if s[i] == "]" { return false } // closed before us → not in a link
-            if s[i] == "[" { return true } // open bracket → we're inside display text
+            if s[i] == "]" { return false }  // closed before us → not in a link
+            if s[i] == "[" { return true }  // open bracket → we're inside display text
         }
         return false
     }
 
     /// Merge two maps; `book` wins on key conflict.
-    static func merging(global: [String: String], book: [String: String]) -> PronunciationOverrides {
+    static func merging(global: [String: String], book: [String: String]) -> PronunciationOverrides
+    {
         PronunciationOverrides(entries: global.merging(book) { _, b in b })
+    }
+
+    /// Pronunciations Echo always knows, independent of the user's dictionary.
+    /// These cover names/terms the bundled English lexicon doesn't have — most
+    /// importantly the app author's surname, which a generic OOV approximation
+    /// would otherwise mangle or (on older builds) skip entirely. IPA only, no
+    /// surrounding slashes — `apply` wraps them in Misaki `[word](/ipa/)` syntax.
+    static let builtInDefaults: [String: String] = [
+        // "Fakkeldy" → FAK-uhl-dee. Tweakable any time via Settings ▸ Pronunciation
+        // (a user entry for the same word always wins — see `withBuiltInDefaults`).
+        "Fakkeldy": "fˈækəldi"
+    ]
+
+    /// The built-in defaults with the user's `entries` layered on top. Matching
+    /// is case-insensitive, so a user entry for a word fully replaces the
+    /// built-in for that word — no duplicate or ambiguous keys reach `apply`.
+    static func withBuiltInDefaults(_ user: [String: String]) -> PronunciationOverrides {
+        let userKeysLower = Set(user.keys.map { $0.lowercased() })
+        var merged = builtInDefaults.filter { !userKeysLower.contains($0.key.lowercased()) }
+        for (word, ipa) in user { merged[word] = ipa }
+        return PronunciationOverrides(entries: merged)
     }
 }

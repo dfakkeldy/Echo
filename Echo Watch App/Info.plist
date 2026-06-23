@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDisplayName</key>
-	<string>Echo: Learn Audiobooks</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Echo records short voice memos so you can attach narrated notes to your audiobook bookmarks.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

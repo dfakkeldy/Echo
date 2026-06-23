@@ -69,7 +69,7 @@ See honest insights & export your second brain   →   Own what you learned
 - **Chapter Looping.** Put a single chapter on repeat until the concepts are fully absorbed. Loop between bookmarks for targeted review sessions.
 - **Voice Memo Bookmarks.** Instantly save your thoughts without fumbling with your phone. Perfect for driving, walking, or when your hands are full. Memos can play back inline when the narration reaches them.
 - **Photo Bookmarks.** Attach a photo (from camera or library) to any bookmark; the player artwork dynamically switches to your photo as playback passes that moment. Built on *context-dependent memory* — your brain encodes where you were alongside what you heard, and the photo becomes a retrieval cue. [The science →](https://dfakkeldy.github.io/Echo/learn.html)
-- **Spaced Repetition (SRS).** Built-in flashcard system using the SM-2 algorithm to help you memorize crucial facts, languages, or concepts permanently — with audio snippets on cards, Anki-style deck import, review stats, daily reminders, and hands-free review on Apple Watch.
+- **Spaced Repetition (SRS).** Built-in flashcard system using the **FSRS** algorithm (the modern free-spaced-repetition scheduler) to help you memorize crucial facts, languages, or concepts permanently — with audio snippets on cards, Anki-style deck import, review stats, daily reminders, and hands-free review on Apple Watch.
 - **Mark Now, Card Later.** 🚧 One tap (phone or watch) marks a passage without pausing playback; the **Card Inbox** turns marks into flashcards when you have the bandwidth. Retires mid-playback popups for good.
 - **Decks, Tags & Real Anki Import.** 🚧 Organize cards into decks with tags, edit any card, review per deck — and import genuine `.apkg` Anki decks with scheduling history preserved. JSON deck export round-trips losslessly.
 - **Brain Dump / Book Notes.** 🚧 A frictionless mental inbox: park any thought — text or voice, even dictated from the watch — without pausing the book, then promote keepers to bookmarks or flashcards. Built for leaky working memory.
@@ -79,7 +79,7 @@ See honest insights & export your second brain   →   Own what you learned
 - **iCloud Study Sync.** 🚧 Flashcards, decks, bookmarks, and playback position across iPhone, Mac, and Watch via your personal iCloud — Echo runs no servers.
 - **On-Device EPUB Alignment (+ PDF companion).** Seamlessly scroll through the EPUB text and view diagrams exactly when the audio reaches that section. On-device auto-alignment ([WhisperKit](https://dfakkeldy.github.io/Echo/glossary.html#whisperkit) + [CoreML](https://dfakkeldy.github.io/Echo/glossary.html#coreml)) maps every paragraph of the **EPUB** to the narration — no cloud API calls, no privacy concerns. **PDF** is supported as a read-only companion with **page-level** alignment (pin a page to a timestamp) and per-page screenshot bookmarks — not the word-level auto-pipeline EPUB gets.
 - **Word-by-Word Read-Along (Karaoke).** As the narration plays, the current word lights up in the text — on iPhone *and* Mac. Built on the same on-device alignment, refined to the narrator's actual word timings wherever speech recognition is confident. (Existing books need a one-time re-align to light up.)
-- **On-Device Narration for text-only books.** Got an EPUB with no audiobook? Echo can speak it in a natural voice (Kokoro, the same on-device model on iPhone and Mac, run via ONNX Runtime on the CPU) — no cloud, no account, no API keys. On iPhone it narrates as you listen (every device — no Neural-Engine requirement); on Mac you can queue EPUBs to synthesize overnight, then play them back like any audiobook, with full read-along. The playlist shows the book's **full chapter outline** up front, and you can tap any chapter to **skip narrating it** — handy for cutting front matter, appendices, or chapters you don't need spoken.
+- **On-Device Narration for text-only books.** Got an EPUB with no audiobook? Echo can speak it in a natural voice (Kokoro, the same on-device model on iPhone and Mac, run via ONNX Runtime on the CPU) — no cloud, no account, no API keys. **Choose from 28 built-in voices** (American & British, female & male). On iPhone it narrates as you listen (every device — no Neural-Engine requirement); on Mac you can queue EPUBs to synthesize overnight, then play them back like any audiobook, with full read-along. The playlist shows the book's **full chapter outline** up front, and you can tap any chapter to **skip narrating it** — handy for cutting front matter, appendices, or chapters you don't need spoken. **Markdown (`.md`/`.markdown`) and plain text (`.txt`) files are also supported** — imported as standalone narratable books on both iOS and macOS, with the same narration, read-along, and chaptered playback as EPUBs. Markdown chapters follow the heading hierarchy; plain text uses heuristic chapter detection ("Chapter N", prominent ALL-CAPS titles) and falls back to a single chapter.
 - **Teach the narrator how to say names.** Invented character names, brands, and niche jargon trip up any text-to-speech. A built-in **Pronunciation** dictionary (Settings) lets you spell a word out in IPA once, and the narrator says it your way everywhere it appears.
 - **Overnight Batch Processing (Mac).** Point the Mac app at a folder of audiobooks and it imports, transcribes, and aligns them one by one, unattended — and picks up where it left off if you quit and relaunch. The same queue can also **narrate text-only EPUBs** overnight (Batch ▸ “Narrate EPUB(s)…”).
 - **Chaptered M4B Export.** Export any book — AI-narrated or already-imported — as a single `.m4b` with real chapter markers and embedded metadata, playable in any chapter-aware player. Works on both iPhone and Mac; one tap on iOS (player More menu → share sheet), File menu → Save on Mac.
@@ -100,13 +100,13 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 | **1 · Study Moat** *(lead)* | nobody has it | FSRS + **Chapter Study Mode** (each chapter an Anki-style card) + narrator-voice flashcards + watch review + align-*or*-narrate + deep on-device analytics |
 | **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — a real crash-free + no-lost-progress bar |
 | **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; obvious from first launch |
-| **4 · Trust** | ads, paywalls, hidden fees | free, open-source, ad-free, **verifiably** private (you can read the code) |
-| **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — built on branch, pending merge + device verify), no lost progress |
+| **4 · Trust** | ads, hidden fees, subscriptions | free core + a **one-time** Pro unlock (never a subscription), open-source, ad-free, **verifiably** private (you can read the code) |
+| **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — **shipped** (PR #102); live-sync device-verify + macOS UI are fast-follows), no lost progress |
 | **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
 
 **macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)**.
 
-**Deferred to 1.x:** photo-of-a-page → audio jump · multi-voice narration · AI-generated Q&A cards · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
+**Deferred to 1.x:** photo-of-a-page → audio jump · AI-generated Q&A cards · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -265,6 +265,9 @@ secrets are configured, compile-only until then). See **Release Engineering —
 Promotion Ladder** in [`ARCHITECTURE.md`](ARCHITECTURE.md) for branch-protection
 settings and the full rhythm.
 
+Nightly builds auto-draft their TestFlight "What to Test" copy from the commit
+history (`make whats-new`); weekly/external builds keep the human-curated copy.
+
 ---
 
 ## Agentic Workflows
@@ -289,4 +292,6 @@ When extending or modifying the project with autonomous tooling, future agents M
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+Echo is licensed under the [GNU General Public License v3.0 or later](LICENSE) (`GPL-3.0-or-later`) — the source stays free and open, and any derivative app must stay open source too.
+
+For distribution through Apple's App Store (and comparable platforms), the copyright holder grants an [**App Store Distribution Exception**](LICENSE-APP-STORE-EXCEPTION.md) — an additional permission under GPLv3 §7 that resolves the known GPL-vs-App-Store incompatibility, on the condition that the complete corresponding source remains available under the GPL through this repository.

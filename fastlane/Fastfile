@@ -68,6 +68,15 @@ platform :ios do
   lane :beta do |options|
     require_api_key!
 
+    # ── CI: non-interactive code-signing keychain ─────────────────────
+    # Create a dedicated temporary keychain with its partition list set so
+    # codesign can use the match-installed signing key WITHOUT a GUI prompt.
+    # Without this, the archive's *signing* step hangs forever on a headless
+    # runner waiting for a keychain-access dialog that no one can click (the
+    # multi-hour stall at "Signing …appex"). No-op locally — local dev signs
+    # against the login keychain. Must run BEFORE match so it installs there.
+    setup_ci if is_ci
+
     # ── Release-train channel → TestFlight group routing ──────────────
     # release-trains.yml passes channel:nightly|weekly. Map each channel to its
     # tester group + distribution mode:
@@ -82,8 +91,42 @@ platform :ios do
                             end
     UI.message("Release channel: #{channel.empty? ? '(none)' : channel} → group: #{tf_group || '(none)'}, external: #{tf_external}")
 
-    # ── iOS Code Signing ─────────────────────────────
-    # Syncs certificates and profiles for main app, watch app, and widget extension
+    # ── Nightly only: auto-draft "What to Test" from the commit delta ──────
+    # Internal/nightly testers should always see fresh copy. Weekly/external
+    # builds intentionally skip this and ship the human-curated committed file.
+    # Fail-safe: the generator leaves the committed file untouched on empty
+    # delta or any error, so this can never break a build.
+    if channel == "nightly"
+      UI.message("Nightly channel → regenerating testflight/what_to_test.txt from commit delta")
+      sh(
+        "cd .. && git fetch --no-tags --quiet origin weekly:refs/remotes/origin/weekly || true && " \
+        "PYTHONPATH=Scripts python3 -m doc_automation.whats_new " \
+        "--template fastlane/testflight/what_to_test.template.txt " \
+        "--out fastlane/testflight/what_to_test.txt"
+      )
+    end
+
+    # ── Build number (computed once; used by both iOS and macOS archives) ──
+    # TestFlight requires each upload's build number (CFBundleVersion) to be
+    # unique and higher than the previous. MARKETING_VERSION is left alone —
+    # bump that only for real releases. Query TestFlight's latest build and add
+    # one (starts at 1 when the app has no builds). Applied via xcargs so
+    # CURRENT_PROJECT_VERSION is overridden without mutating the project.
+    next_build = latest_testflight_build_number(
+      api_key: @api_key,
+      app_identifier: "com.echo.audiobooks",
+      initial_build_number: 0
+    ) + 1
+    UI.message("Build number for this run: #{next_build}")
+
+    # ── iOS: sync → (CI) manual-sign → archive ────────────────────────────
+    # IMPORTANT: iOS is signed *and archived* fully BEFORE the macOS sync. The
+    # macOS app is universal — it shares the iOS bundle id (com.echo.audiobooks)
+    # under the `macos` platform — so its Mac App Store profile would overwrite
+    # the iOS profile in match's bundle-id-keyed MATCH_PROVISIONING_PROFILE_MAPPING.
+    # Building iOS first keeps the live mapping correct for the iOS archive/export.
+    # (On CI the project's Automatic signing can't mint profiles headlessly, so we
+    # switch each target to the match profile manually; local dev keeps Automatic.)
     sync_code_signing(
       api_key: @api_key,
       type: "appstore",
@@ -94,34 +137,67 @@ platform :ios do
       ],
       readonly: is_ci
     )
-
-    # ── macOS Code Signing ───────────────────────────
-    sync_code_signing(
-      api_key: @api_key,
-      type: "appstore",
-      platform: "macos", # native macOS target needs a Mac App Store profile (not ios)
-      app_identifier: ["com.echo.audiobooks.macos"],
-      readonly: is_ci
-    )
-
-    # ── Build iOS + watchOS ──────────────────────────
-    # Note: Xcode automatically embeds the watch app and widget inside the iOS wrapper
+    if is_ci
+      mapping = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {}
+      {
+        "Echo"                 => "com.echo.audiobooks",
+        "Echo Watch App"       => "com.echo.audiobooks.watchkitapp",
+        "Echo WidgetExtension" => "com.echo.audiobooks.watchkitapp.widget"
+      }.each do |target, bundle_id|
+        profile = mapping[bundle_id]
+        next if profile.nil?
+        update_code_signing_settings(
+          path: "Echo.xcodeproj",
+          use_automatic_signing: false,
+          targets: [target],
+          team_id: "8AXNA5B37R",
+          code_sign_identity: "Apple Distribution",
+          profile_name: profile
+        )
+      end
+    end
     build_app(
       project: "Echo.xcodeproj",
       scheme: "Echo",
       export_method: "app-store",
-      output_directory: "build"
+      output_directory: "build",
+      xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
     )
 
-    # ── Build macOS (if scheme exists) ───────────────
-    # Wrapped in a rescue so a macOS failure doesn't block the iOS upload
+    # ── macOS: sync → (CI) manual-sign → archive (rescue-wrapped) ─────────
+    # Universal app: the Mac App Store profile is under the SAME bundle id
+    # (com.echo.audiobooks) but the `macos` platform. Synced AFTER the iOS build
+    # so it doesn't clobber the iOS profile mapping. Wrapped in a rescue so a
+    # macOS failure (e.g. the still-manual Mac Installer Distribution cert, or the
+    # App Store record not yet having a macOS platform) never blocks the iOS upload.
     if scheme_exists?("Echo macOS")
       begin
+        sync_code_signing(
+          api_key: @api_key,
+          type: "appstore",
+          platform: "macos",
+          app_identifier: ["com.echo.audiobooks"],
+          readonly: is_ci
+        )
+        if is_ci
+          macos_profile = (lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING] || {})["com.echo.audiobooks"]
+          unless macos_profile.nil?
+            update_code_signing_settings(
+              path: "Echo.xcodeproj",
+              use_automatic_signing: false,
+              targets: ["Echo macOS"],
+              team_id: "8AXNA5B37R",
+              code_sign_identity: "Apple Distribution",
+              profile_name: macos_profile
+            )
+          end
+        end
         build_app(
           project: "Echo.xcodeproj",
           scheme: "Echo macOS",
           export_method: "app-store",
-          output_directory: "build"
+          output_directory: "build",
+          xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
         )
       rescue => e
         UI.error("macOS build failed: #{e.message}")
@@ -138,17 +214,28 @@ platform :ios do
     #   testflight/beta_app_description.txt  → Test Information description (≤4000 chars)
     tf_options = {
       api_key: @api_key,
+      # pilot needs a single bundle id; the Appfile's for_lane(:beta) sets
+      # app_identifier to an ARRAY (for match), which upload_to_testflight rejects.
+      app_identifier: "com.echo.audiobooks",
       skip_waiting_for_build_processing: false,
       notify_external_testers: tf_external,
       changelog: File.read("testflight/what_to_test.txt"),
-      beta_app_description: File.read("testflight/beta_app_description.txt")
-      # TODO: set beta_app_feedback_email once a dedicated support address exists
+      beta_app_description: File.read("testflight/beta_app_description.txt"),
+      # Where TestFlight's "Send Beta Feedback" emails land. Reuses the App Store
+      # review contact for now; swap for a dedicated support address if one exists.
+      beta_app_feedback_email: File.read("metadata/review_information/email_address.txt").strip
     }
-    # Route the build to the channel's tester group. distribute_external triggers
-    # the (required) Beta App Review submission for the external Weekly group.
-    if tf_group
+    # Only EXTERNAL channels need explicit group distribution. Internal testers
+    # (the Nightly group) AUTOMATICALLY receive every processed (VALID) build — no
+    # distribution call needed. Worse, pilot's distribute_build treats any `groups`
+    # assignment as an external submission and demands full Beta App Review data
+    # (demo account, contact, notes), so passing the internal group makes the lane
+    # fail with "Missing required information to submit for external testing". The
+    # external Weekly group genuinely submits for review, so it keeps the groups +
+    # distribute_external path.
+    if tf_group && tf_external
       tf_options[:groups] = [tf_group]
-      tf_options[:distribute_external] = tf_external
+      tf_options[:distribute_external] = true
     end
     upload_to_testflight(tf_options)
   end

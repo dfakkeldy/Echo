@@ -119,6 +119,18 @@ final class MacAlignmentService {
         alignmentProgress = 0.95
         try alignmentService.insertAnchors(records)
 
+        // Emit the portable `alignment.json` sidecar next to the EPUB so this
+        // Mac-produced alignment travels to the user's device (via their synced
+        // library) and resolves there on import — block ids are stored as the
+        // content-stable `s<i>-b<j>` suffix and re-prefixed on the importing
+        // device. Best-effort: a sidecar write must not fail the alignment.
+        do {
+            let sidecarURL = try AlignmentSidecar.write(records, forEPUB: epubURL)
+            logger.info("Wrote alignment sidecar: \(sidecarURL.lastPathComponent)")
+        } catch {
+            logger.error("Failed to write alignment sidecar: \(error.localizedDescription)")
+        }
+
         alignmentStatus =
             "Alignment complete — \(selected.count) anchors across \(epubTokens.count) blocks."
         alignmentProgress = 1.0

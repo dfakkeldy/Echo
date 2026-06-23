@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Testing
+
 @testable import Echo
 
 @Suite struct LexiconOnlyG2PTests {
@@ -8,15 +9,26 @@ import Testing
         // "hello" is in the gold lexicon.
         let p = KokoroG2P().phonemes(for: "hello")
         #expect(!p.isEmpty)
-        #expect(!p.contains("❓")) // no OOV marker on a known word
+        #expect(!p.contains("❓"))  // no OOV marker on a known word
     }
 
-    @Test func oovWordDegradesGracefullyDoesNotCrash() {
-        // An invented proper noun that's in no lexicon and (now) has no BART
-        // fallback. It must not crash; it emits the ❓ unk marker.
+    @Test func oovProperNounIsPronouncedNotSilent() {
+        // The reported bug: an OOV name like "Jacqui" used to emit the ❓ unk
+        // marker, which KokoroPhonemeVocab drops → silence. It must now be voiced
+        // by the grapheme→IPA fallback (≈ ʤˈækɪ): non-empty, no ❓, and it must
+        // contain the "J" affricate ʤ to prove it is actually pronounced.
+        let p = KokoroG2P().phonemes(for: "Jacqui")
+        #expect(!p.isEmpty)
+        #expect(!p.contains("❓"))
+        #expect(p.contains("ʤ"))
+    }
+
+    @Test func inventedWordIsPronouncedNotSilent() {
+        // A made-up token in no lexicon must still produce vocab-safe phonemes,
+        // never the dropped ❓.
         let p = KokoroG2P().phonemes(for: "Xyzqwf")
-        // The unk glyph appears somewhere in the output (the word slot).
-        #expect(p.contains("❓"))
+        #expect(!p.isEmpty)
+        #expect(!p.contains("❓"))
     }
 
     @Test func mixedLexiconAndOovDoesNotCrash() {

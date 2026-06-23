@@ -355,6 +355,9 @@ Database/Migrations/Schema_V17.swift
 Database/Migrations/Schema_V18.swift
 Database/Migrations/Schema_V19.swift
 Database/Migrations/Schema_V20.swift
+Database/Migrations/Schema_V21.swift
+Database/Migrations/Schema_V22.swift
+Database/Migrations/Schema_V23.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
@@ -432,7 +435,16 @@ Views/Echo_WidgetControl.swift
 
 Alignment is now performed entirely in-app, without any external tools or API calls:
 
-1. **EPUB Import:** When the user adds an EPUB file alongside their audiobook, `EPUBImportService` parses it into `epub_block` records (headings, paragraphs, images) stored in the database. The spine walk, heuristic block classification, and stable block-ID assignment (`epub-<audiobookID>-s<i>-b<j>`) live in the shared `parseEPUBBlocks` driver (`Shared/EPUBBlockParser.swift`), consumed by **both** this importer and the macOS aligner so a Mac-produced alignment anchor's block IDs match the iOS database (CODE_AUDIT.md §5.1). Parsing applies three correctness passes:
+1. **EPUB / Text-Document Import:** When the user adds a companion document, the appropriate parser produces an `EPUBBlockParse` value consumed by a shared persist phase:
+
+   - **EPUB** (`EPUBImportService`) parses the file into `epub_block` records (headings, paragraphs, images) stored in the database.
+   - **Markdown / plain text** (`TextDocumentParser`, `Shared/`) — `.md`/`.markdown`/`.txt` files are parsed into the same `EPUBBlockParse` that the EPUB parser emits, producing one synthetic spine entry per chapter. Markdown chapter breaks follow the heading hierarchy (chapter level = shallowest repeating heading level; a lone leading `#` is front matter; deeper headings are in-chapter section headings). Plain text uses heuristic detection ("Chapter N", multi-word or ≥6-letter ALL-CAPS title lines) and falls back to a single chapter. Bold, italic, and strikethrough are preserved as `TextFormat` spans; code blocks, tables, and images are omitted from narration output. A `TextAutoImportScanner` drives the text import path, analogous to `EPUBAutoImportScanner` for EPUBs.
+
+   Both paths share a **`EPUBImportService.import(parse:audiobookID:chapters:bookDuration:assetBaseURL:)`** persist phase (writes `epub_block` rows) and a **`DocumentImportFinalizer.finalize(...)`** tail (writes alignment anchors and the timeline tail). This seam means the narrate, read-along, and chaptered-playback pipeline is reused unchanged. No schema migration is needed — text-document blocks use the existing `epub_block` table (schema head V23).
+
+   **Out of scope (future work):** attaching a text file to an existing audio book for read-along; rendering-but-not-speaking code blocks; image resolution; multi-file (folder-of-`.md`) books.
+
+   The spine walk, heuristic block classification, and stable block-ID assignment (`epub-<audiobookID>-s<i>-b<j>`) live in the shared `parseEPUBBlocks` driver (`Shared/EPUBBlockParser.swift`), consumed by **both** this importer and the macOS aligner so the content-stable block-ID **suffix** (`s<i>-b<j>`) is identical across devices (CODE_AUDIT.md §5.1); the device-local `epub-<audiobookID>-` prefix differs per install and is re-applied on import (see **Mac → device alignment handoff** below). Parsing applies three correctness passes:
    - **Whitespace normalization:** XHTML text accumulates with collapsing whitespace (`collapsedWhitespace()` / entity-split-safe chunk joining in `XHTMLBlockDelegate`), so pretty-printed source line breaks never reach `epub_block.text`, and words split by XML entity references (`it&#8217;s`) stay intact. Structural element boundaries (`<br>`, table cells, divs — anything not an inline formatting tag) inject a collapsible space, so titles split across child elements (`<span>Chapter 1</span><br/><span>A Pragmatic Philosophy</span>`, `<td>Topic 3</td><td>Software Entropy</td>`) read as separate words while mid-word inline markup (`<em>un</em>do`) stays glued. NCX/nav TOC labels and document titles are normalized the same way.
    - **Front-matter classification:** the importer reads the EPUB's structural metadata — spine `linear="no"`, the EPUB 2 `<guide>` (`type="text"` = body start), and EPUB 3 nav landmarks (`epub:type="bodymatter"`) — to flag blocks before body matter as `is_front_matter` (Schema V12). Heading-less spines whose only available title is non-content per `HeadingClassifier` (cover, praise, printed TOC, …) are also flagged when no content heading has appeared yet. Front-matter spines never receive synthesized fallback headings, so cover/praise pages no longer become junk chapters. `HeadingClassifier` is the single source of truth for junk-heading rules shared by import, the reader feed, and the TOC sheet.
    - **TOC hierarchy (Schema V13):** `TOCParserDelegate` preserves the publisher's declared TOC tree — NCX `navPoint` nesting (EPUB 2) or nav `<ol>` nesting (EPUB 3) — as `TOCEntryNode` values instead of flattening to per-file labels. At import, `EPUBImportService.resolveTOCEntries` maps each entry to a concrete block (fragment anchor → first heading → first block; `XHTMLBlockDelegate` records element `id`s per block as `anchorIDs` for the fragment step) and persists the tree as `epub_toc_entry` rows. Fragment-resolved targets that aren't `<h1>`–`<h6>` (e.g. The Pragmatic Programmer's table-marked "Topic N" titles) are promoted to heading blocks when their text essentially matches the TOC label (normalized + Levenshtein ≥ 0.85 gate so body prose is never promoted). `TOCTreeBuilder.build(from:tocEntries:)` renders the TOC sheet from these entries (publisher titles + nesting) and falls back to heading inference only when a book declares no TOC; the reader breadcrumb (`ReaderFeedViewModel`) likewise derives ancestry from the entry path at the block's sequence position, appending deeper in-file headings, with the heading-level cascade as fallback.
@@ -443,6 +455,7 @@ Alignment is now performed entirely in-app, without any external tools or API ca
    - **Memory guard:** `alignWithBisection` recursively bisects the audio at the largest inter-word gap (≈ a paragraph pause) whenever the DTW matrix would exceed ~48 M cells, with overlapping EPUB seams — so single-chapter or multi-hour tracks can't exhaust memory.
    - **Fine-Tuning:** `fineTuneManualAlignment(blockID:around:)` captures a 10 s window (±5 s) around a user-specified time, matches it against the target block, and back-projects the block's first-word time from real word timestamps (`AlignmentTranscript.projectBlockStart`).
 3. **Global flat interpolation:** `AlignmentService.recalculateTimeline()` uses dynamic CPS (characters-per-second) computed from existing locked anchors to project synthetic boundary positions, rather than hardcoding time 0.0 and total duration. This produces more accurate extrapolation when anchors exist near but not at the book's edges.
+4. **Mac → device alignment handoff (`alignment.json` sidecar):** `audiobookID` — and therefore the full block-ID prefix `epub-<audiobookID>-` — is device-local (`folderURL.absoluteString` differs per install), so a Mac-aligned anchor cannot carry its raw block ID to another device. Instead **both** `MacAlignmentService` (after DTW alignment) and `MacBatchProcessingService` (after on-device narration — where the per-block synthesized anchors are *exact*, converted from per-chapter-relative to absolute m4b times) write an `alignment.json` sidecar next to the EPUB holding each anchor's content-stable **portable suffix** (`s<i>-b<j>`) plus its audio time (`AlignmentSidecar`, the shared contract). When the same EPUB is later imported elsewhere (e.g. pulled from Audiobookshelf), `EPUBAutoImportScanner` → `DocumentImportFinalizer` re-prefixes each suffix with the importing device's local `audiobookID`, drops any that don't resolve to a local block, and ingests the rest — so batch alignment done once on the Mac becomes read-along on the phone. This sidecar is the only cross-device path that resolves; the public-CloudKit community-anchor route cannot, because it matches on device-local block IDs.
 4. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", "Align to Chapter Start", or "Align to Chapter End" to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
 5. **Timeline recalculation:** `AlignmentService.recalculateTimeline()` runs in a single DB transaction, updating all affected `timeline_item` rows with new interpolated timestamps, including `audioEndTime` computed from the next visible block's start time.
 6. **Block/chapter hiding:** Users can mark individual blocks ("Not in Audio (This Paragraph)") or entire chapters ("Not in Audio (Whole Chapter)") as hidden when the EPUB contains content not present in the audiobook narration. Hidden blocks get `alignment_status = omitted`, `is_enabled = false`. The `hideChapter(chapterIndex:reason:)` method on `AlignmentService` batch-hides all blocks in a chapter.
@@ -518,6 +531,10 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 
 > **Update (2026-06-20 — render-loop perf + chapter outline).** A performance pass on the render loop plus a user-facing chapter outline (a multi-agent adversarial review drove the findings; design: `docs/superpowers/specs/2026-06-20-narration-chapter-outline-design.md`). **(a) Engine front-half cached.** `OnnxKokoroEngine.synthesize` previously rebuilt its whole front end — `KokoroG2P` (which parses ~6 MB of `us_gold`/`us_silver` lexicon JSON), `KokoroPhonemeVocab`, and `KokoroVoicePack` — on **every ≤200-char sub-chunk**. They are now loaded once into a cached **`KokoroFrontEnd`** held on the engine actor (voice packs memoized by id); `synthesize` calls `frontEnd.encode(text:voice:)`. Behavior-preserving (same `(ids, refS)`); this per-chunk churn — not a retain-cycle leak (the render `Task` is `[weak self]`, audio streams to disk) — was the "memory grows" symptom. **(b) Chapter-scoped word timings.** `NarrationService.renderChapter` no longer triggers the whole-book `word_timing` rebuild every chapter (O(chapters²) across a render run): it passes `recalculateTimeline(materializeWordTimings: false)` and materializes only the just-rendered chapter's words via the new block-scoped **`WordTimingMaterializer.materializeChapter`** (+ `WordTimingDAO.deleteAll(forAudiobook:blockIDs:)`), so incremental per-word read-along still lights up per chapter. The reader's `.timelineItemsIngested` handler (`ReaderTab`) now coalesces its per-chapter whole-book reloads into one trailing reload. **(c) Chapter outline + tap-to-exclude (iOS).** The playlist surfaces the **full EPUB chapter outline** for a narration book — every narratable chapter, independent of render progress — built by the pure **`NarrationOutlineBuilder`** (→ `NarrationOutlineChapter`) from all blocks + an injected file-exists check. Tapping a chapter excludes it from narration by hiding its blocks (the existing `is_hidden` axis; new `EPubBlockDAO.unhideChapter` / `AlignmentService.unhideChapter`), so it drops from `NarrationChapterPlanner.plan(from: visibleBlocks)` — never synthesized or queued — while its rendered file is kept on disk for instant re-include. `PlayerModel.isNarrationBook` / `narrationOutline` / `toggleNarrationChapterExcluded` drive `PlaylistView`. **No schema change.**
 
+> **Update (2026-06-21 — all 28 English voices + voiced OOV fallback).** **Voices (supersedes the "Ava only" note above):** the catalog now ships **all 28 English Kokoro voices** — American (`af_*`/`am_*`) + British (`bf_*`/`bm_*`). Their `[510,256]` fp32 style packs are bundled at `EchoCore/Resources/<id>.f32` (~14.6 MB total), fetched verbatim from `onnx-community/Kokoro-82M-v1.0-ONNX` by **`Tools/fetch_kokoro_voices.py`** — the Hub `.bin` files are byte-identical to Echo's `.f32` format (af_heart sha256 matches), so it is download + rename, no PyTorch. Non-English Kokoro voices are excluded because the G2P is English-only. `VoiceCatalog` now carries `accent`/`gender`/`grade` per voice, orders best-first by Kokoro's published grade (`af_heart`/Ava stays the default and first entry), and exposes a `sections` helper grouping voices into American/British × Female/Male for the grouped pickers — `VoicePickerView` (iOS) and the narration `Picker` in `MacSettingsView` (macOS). Voice id is already part of the render-cache key (`NarrationFileNaming.chapterFileName`), so switching voices regenerates audio correctly and `staleVoiceFiles` sweeps the rest. **OOV fallback (supersedes the "graceful stub → silent" note above):** `EnglishFallbackNetwork` is now a deterministic, **vocab-safe grapheme→IPA approximator**. An out-of-vocabulary word (e.g. the name "Jacqui" → `ʤˈækɪ`) is voiced with a best-effort pronunciation instead of emitting the `❓` glyph that `KokoroPhonemeVocab` drops to silence. It folds diacritics (café→cafe), spells ALL-CAPS initialisms (FAQ, JSON), expands digits, applies 101 ordered grapheme rules, and falls back to a schwa `ə` — so a letter-bearing word never goes silent. Every emitted symbol is in the Kokoro vocab by construction (unmapped characters are dropped, never passed through); verified over a 160-word adversarial corpus + 10 golden cases, runnable sim-free via **`Tools/oov_check.swift`**. The user `PronunciationOverrides` dictionary remains the precise escape hatch (rating 5, above the fallback).
+
+> **Update (2026-06-21 — read-along + player-chrome UX fixes).** **Read-along:** the karaoke retint (`ReaderFeedCollectionView`) now clears the previously-highlighted card when the active word crosses a paragraph boundary (pure `KaraokeHighlightTransition`; block changes bypass the 12 Hz throttle), and the highlight is **color/background only — no font-weight swap** — on iOS (`ParagraphCardCell`/`HeadingCardCell`) and macOS (`MacReaderFeedView`), so glyph metrics stay stable. Tapping a paragraph card seeks to it **and** starts playing via the canonical `PlayerModel.seek(toSeconds:)` + `play()` (pure `CardTapDecision`; iOS + macOS), with a no-time fallback; TOC navigation stays seek-only. **Player chrome:** the sleep-timer icon and every bottom-toolbar chip use the cover-derived accent (`PlayerModel.artworkAccentColor ?? .accentColor`); the active state is carried by the filled-chip shape, not color.
+
 **Data model (reuses existing tables):** A standalone EPUB is an `AudiobookRecord` with `epub_block` rows and **no tracks** (the natural empty state). Generating narration renders **one lossless ALAC `.m4a` file per chapter** (each block split into ~200-char sub-chunks before synthesis, then concatenated — see the upstream-chunking note above), inserted as a `TrackRecord` (`sort_order = chapterIndex`) carrying the voice in the new `narration_voice` column (**Schema V17**; non-null marks a synthesized track). Each text block gets one `AlignmentAnchorRecord` with the new **`source = .synthesized`** written at synthesis time — so read-along highlighting and the study layer work for free, and re-alignment never confuses generated anchors for recovered ones.
 
 **Key types (engine core):**
@@ -542,7 +559,13 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 
 **Compose + transcode.** `AudioExportService` is the shared spine: it gaplessly composes the chapter URLs into an `AVMutableComposition`, transcodes once via `AVAssetExportSession` (AAC / `.m4b`), and hands the result to the metadata writer.
 
-**Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, now linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with title, author, and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover from the book's database record.
+**Writer seam (chapter markers + metadata).** A single in-place pass via the `swift-audio-marker` package (`AudioMarker` product, now linked on **both iOS and macOS**) writes Nero `chpl` + QuickTime `chap` chapter atoms together with title, author, and cover art in one operation — no container rebuild, so chapters and metadata coexist. `ExportMetadata` + `ExportMetadataResolver` supply title/author/cover.
+
+**Cover-art resolution (source-aware).** `ExportMetadataResolver.resolveCoverArt` walks the same cascade the app uses to *display* a book's cover, so the exported file carries whatever artwork the user already sees — "from the EPUB, or the mp3's, whatever the source was":
+
+1. **Embedded artwork** in the first source file (`commonKeyArtwork` → MP4 `covr` / ID3 `APIC`) — covers an imported m4b/mp3 that tags its own cover.
+2. Failing that, branch on the source: a **narrated EPUB** reads the EPUB's stored front-matter cover image block (`EPubBlockDAO.allBlocks` → first front-matter `image` block's `imagePath`; the narration cache files carry no embedded art), and an **imported** book reads a `cover.*` sidecar beside the source file (the same sidecar `ArtworkCache.folderArtworkImage` surfaces at runtime).
+3. Whatever is found is normalised to JPEG/PNG via ImageIO, because `swift-audio-marker` embeds only those two formats — JPEG/PNG pass through byte-for-byte, anything else (HEIC/WEBP/GIF/TIFF) is transcoded to JPEG so it isn't silently dropped.
 
 **Entry points.** iOS: player More menu (`UnifiedTopHeader`) → share sheet (one tap; a pre-filled confirm sheet appears only when author or cover art is missing). macOS: File menu command → `NSSavePanel`.
 
@@ -572,6 +595,7 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V14–V19 | Capture & context (`session_location`, bookmark/note columns), Anki decks, FSRS + cloze/transcript, `track.narration_voice` (V17, marks synthesized tracks), Audiobookshelf server, and the `word_timing` table (V19) — see CHANGELOG.md for each |
 | V20 | `batch_queue` table — the persistent macOS overnight processing queue (queue position, status, nullable security-scoped bookmarks) |
 | V21 | `batch_queue.kind` (TEXT, default `'align'`) — discriminates audiobook-alignment items from text-only EPUB narration items (additive; no re-import) |
+| V22 | FSRS memory-state seed (`v22_fsrs_seed`) — one-time, idempotent data migration seeding `stability`/`difficulty` from each legacy SM-2 card's `(interval_days, ease_factor)` so its first FSRS review evolves existing memory instead of restarting (only rows where `stability IS NULL`; the FSRS columns themselves shipped in V16) |
 | V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
@@ -1025,3 +1049,56 @@ so the fix is not lost at the next promotion.
 3. **Release:** when a weekly build is solid, open a `weekly → main` PR, merge,
    then bump the version (see `.clinerules/workflows/release.md`) and tag
    `vX.Y.Z` — the tag is what the App Store `fastlane` lane keys off.
+
+### Getting builds & testers into TestFlight
+
+The trains map one-to-one onto TestFlight tester groups; the `fastlane beta` lane
+routes each channel to its group (see `fastlane/Fastfile`):
+
+| Channel | TestFlight group | Type | Beta App Review? | How testers join |
+|---|---|---|---|---|
+| `nightly` | **Nightly** | Internal | No — builds appear instantly | Added as App Store Connect users (Users and Access), then to the group. Max 100. |
+| `weekly`  | **Weekly**  | External | Yes — first build of each version | Email invite **or a public link**. Max 10,000. |
+
+**Internal vs external — the practical difference.** Internal testers must be
+members of the App Store Connect team (any role), so they're for *you and a
+handful of trusted people*. Builds reach them within minutes of upload, no
+review. External testers are the general public; the **first build of a given
+marketing version** must clear Beta App Review (a lighter, faster pass than full
+App Store review — usually hours) before any external tester can install it.
+
+**The shareable link.** "Send me a link" = a TestFlight **public link**
+(`https://testflight.apple.com/join/XXXXXXXX`). It is a property of an *external*
+group (Weekly), not internal, and it only goes live once that group has a build
+that has passed Beta App Review. There is no fastlane/MCP action for it — enable
+it once, by hand, in **App Store Connect ▸ Echo ▸ TestFlight ▸ Weekly ▸ Public
+Link ▸ Enable**, then share the URL anywhere. Testers must install Apple's
+**TestFlight** app first; the link opens the app to a one-tap *Install*.
+
+**Per-build "What to Test" copy** lives in version control, not the ASC web UI:
+`fastlane/testflight/what_to_test.txt` (the changelog) and
+`beta_app_description.txt` (the group's Test Information). Edit those, not the
+dashboard — the lane reads them on every upload.
+
+**Nightly "What to Test" auto-draft.** On the `nightly` channel only, the
+`fastlane beta` lane regenerates `what_to_test.txt` in the working tree (never
+committed) from the commit delta since the last weekly promotion
+(`merge-base(origin/weekly, HEAD)..HEAD`). It is a deterministic transform of
+Conventional-Commit subjects — `feat`/`fix`/`perf` grouped into New/Fixed/Improved,
+plus `Tester-note:` / `skip-changelog` trailer overrides — with no LLM, capped at
+TestFlight's 4000 characters; on an empty delta or any error it leaves the
+committed file untouched, so it can never break a build. The weekly/external
+channel skips regeneration and ships the human-curated committed file (seed it
+with `make whats-new` when you open the `nightly → weekly` promotion PR). The
+generator lives in `Scripts/doc_automation/`, and its pure `changes.py` is the
+shared change-extractor that later doc-automation phases reuse.
+
+**Shipping the first build.** The release-train cron only uploads when the
+signing secrets are present (`APP_STORE_CONNECT_API_KEY_JSON`, `MATCH_PASSWORD`,
+`MATCH_GIT_SSH_KEY`); before they exist, runs degrade to compile-only. To ship
+on demand without waiting for the 07:00 UTC nightly / Monday weekly cron, run the
+workflow manually: **Actions ▸ Release Trains ▸ Run workflow ▸ channel:**, or
+`gh workflow run release-trains.yml -f channel=nightly`. The lane auto-assigns a
+unique, monotonic build number from TestFlight's latest + 1, so `MARKETING_VERSION`
+only moves for real releases. A purely local upload is `bundle exec fastlane beta
+channel:weekly` (needs `fastlane/api_key.json` and `MATCH_PASSWORD`).

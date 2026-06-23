@@ -47,6 +47,10 @@ jobs:
   ship:
     name: Build & ship train
     runs-on: macos-15
+    # Fail fast on a hang (e.g. a headless codesign keychain prompt) instead of
+    # silently burning the 6-hour default. A real run is archive + upload + Apple
+    # processing ≈ 40–60 min, so 90 leaves headroom without masking a stall.
+    timeout-minutes: 90
 
     env:
       # Surfaced as env so the credential check below can test for them; empty

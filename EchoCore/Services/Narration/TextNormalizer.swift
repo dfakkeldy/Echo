@@ -56,8 +56,14 @@ enum TextNormalizer {
     }
 
     private static func normalizeDashes(_ s: String) -> String {
-        // Em dash used as a pause → comma.
-        s.replacingOccurrences(of: " — ", with: ", ")
+        // A *spaced* dash used as a sentence-level pause → comma, so it reads as a
+        // real pause. Covers em (—), en (–), and a spaced ASCII hyphen (common in
+        // plain-text/Markdown imports). Intra-word hyphens (no surrounding spaces,
+        // e.g. "rough-and-ready") are left for the G2P to read as a word break.
+        var out = s.replacingOccurrences(of: " — ", with: ", ")
+        out = out.replacingOccurrences(of: " – ", with: ", ")
+        out = out.replacingOccurrences(of: " - ", with: ", ")
+        return out
     }
 
     private static func romanToInt(_ roman: String) -> Int? {

@@ -35,7 +35,7 @@ final class PlaylistManager {
 
     /// Document types that open as an audio-less study book (reader + narration)
     /// rather than as a playable track.
-    static let documentExtensions: Set<String> = ["epub", "pdf"]
+    static let documentExtensions: Set<String> = ["epub", "pdf", "md", "markdown", "txt", "text"]
 
     /// Whether `url` is a study document opened directly (vs an audio file).
     /// Used so a picked EPUB/PDF becomes an audio-less book while every other

@@ -1,33 +1,44 @@
-This build: TokenDTW word-level alignment repair, richer EPUB rendering (bold/italic, images, links), photo bookmarks polish, hardened watch sync, Pomodoro timer, and alternate app icons.
+This build brings Echo's second half online: on-device NARRATION (no audiobook required), a PDF read-along companion, study EXPORT (.m4b audiobook, Markdown notes, Anki decks), and ECHO PRO — alongside everything from the alignment era. Each section says where to aim.
 
 PLEASE FOCUS ON
 
-1) AUTO-ALIGNMENT (biggest ask)
-• Add an ePub next to an audiobook and tap Auto-Align Chapters.
-• Watch the tiers run (snap → drift detection → repair). Did chapters land in the right place?
-• Find a misaligned paragraph, long-press → Align to Now. Does everything around it snap into shape?
-• Report the book title + narrator + ePub source for any book that aligns badly — bad books are gold for us.
+1) NARRATION (biggest new ask)
+• Import a text-only EPUB (one with no matching audiobook) and tap Narrate. Echo voices it on-device — no cloud, no account. Note your device + how long the first words took (the model warms up once).
+• Try a plain .md / .markdown / .txt file too — does it import and narrate, with chapter breaks in sensible places?
+• Read along while it narrates: do the words light up in time? Scrub, then tap a paragraph — does the voice follow?
+• Switch narrator voice and re-narrate a chapter.
+• Free covers one chapter per book; Echo Pro unlocks the whole library (see #4).
 
-2) EPUB READER
-• Do bold/italic text, images, and block quotes render correctly in the reader feed?
-• Search for a phrase and tap a result — do text AND audio jump together?
+2) PDF COMPANION
+• Add a PDF next to (or instead of) an audiobook. Reader tab: continuous scroll + pinch-zoom smooth? If it has matching audio, does tap-to-seek / read-along behave?
 
-3) PHOTO BOOKMARKS
-• Attach a photo to a bookmark (library or camera). When playback passes it, does the player artwork switch to your photo — on phone, watch, and lock screen — then switch back?
+3) EXPORT
+• Export an audiobook as .m4b — do chapters and cover survive in another player?
+• Export study notes (Markdown) and a flashcard deck (Anki .apkg) — counts and formatting right? (Export is an Echo Pro feature.)
 
-4) APPLE WATCH
-• Rearrange your button layout from the phone — does it appear on the wrist immediately?
-• Leave the watch off overnight, then resume in the morning. Correct book, correct position, no phantom pause?
-• Try the Pomodoro timer: set it, lower your wrist, wait for the alarm.
+4) ECHO PRO (in-app purchase — TestFlight sandbox)
+• Trip a Pro gate (narrate past chapter 1, or Study Export). Does the paywall explain the value clearly and state the free limits honestly?
+• Buy monthly, yearly, and the lifetime / founders unlock in the sandbox. Then force-quit and Restore Purchases — does Pro come back without re-paying?
 
-5) EVERYDAY PLAYBACK
-• Pull out your headphones / aux mid-sentence — playback should pause, not blast the room.
-• Pause for seconds / minutes / hours and resume — does Smart Rewind back up a sensible amount each time?
-• Loop one chapter for a stretch — any hiccup at the boundary?
+5) AUTO-ALIGNMENT (still core)
+• Add an ePub next to an audiobook, tap Auto-Align Chapters, watch the tiers run. Misaligned paragraph → long-press → Align to Now.
+• Report book title + narrator + ePub source for any book that aligns badly — bad books are gold.
+
+6) APPLE WATCH
+• Rearrange the button layout from the phone — appears on the wrist immediately? Pomodoro alarm unmissable? Resume correct after the watch sits overnight?
+
+7) MAC (if you test on macOS)
+• Import a book, use "Narrate EPUB(s)…" from the menu, run the batch queue, read along, export. Anything Mac-only broken?
+
+8) AUDIOBOOKSHELF (if you self-host)
+• Settings → Add Audiobookshelf Server → connect, browse, download/stream a book, and check two-way progress sync.
+
+9) EVERYDAY PLAYBACK
+• Pull headphones mid-sentence — pause, not blast. Smart Rewind after short / long pauses. Loop one chapter across the boundary.
 
 KNOWN THIS BUILD
-• First auto-align run downloads the on-device speech model (~40 MB) and works the Neural Engine hard — plug in for your first full book.
+• First narration and first auto-align each warm an on-device model — plug in for the first run.
+• iCloud sync currently covers alignment anchors; full bookmark / flashcard / position sync is 1.0 work.
 • CarPlay is intentionally minimal (browse + transport).
-• iCloud sync currently covers alignment anchors; full bookmark/flashcard sync is on the roadmap.
 
-Send feedback via TestFlight screenshots (screenshot → Share → Send Beta Feedback) or github.com/dfakkeldy/Echo/issues. Thank you!
+Send feedback via TestFlight (screenshot → Share → Send Beta Feedback) or github.com/dfakkeldy/Echo/issues. Thank you!
