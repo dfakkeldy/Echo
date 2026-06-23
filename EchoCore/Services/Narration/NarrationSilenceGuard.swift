@@ -41,25 +41,56 @@ enum NarrationSilenceGuard {
         return peak < floor
     }
 
-    /// Splits `text` at the space nearest its midpoint, for a re-synthesis retry.
-    /// Returns `nil` if the text is shorter than `minLength` or has no interior
-    /// space to split on (so recursion always terminates).
+    /// Splits `text` for a re-synthesis retry, preferring a clause or sentence
+    /// boundary nearest the midpoint — a space immediately following `, ; : . ! ?`
+    /// — so the seam between the two separately-synthesized halves (each of which
+    /// carries sentence-final prosody) lands where a pause sounds natural rather
+    /// than dropped mid-clause. Falls back to the nearest plain interior space.
+    ///
+    /// Never splits at a space inside a pronunciation-override link `[word](/ipa/)`
+    /// — a multi-word override has interior spaces — mirroring the link-awareness in
+    /// `NarrationTextChunker`. Returns `nil` when the text is shorter than
+    /// `minLength` or has no splittable interior space, so the recursion in
+    /// `synthesize` always terminates.
     static func splitForRetry(_ text: String, minLength: Int) -> (String, String)? {
         let chars = Array(text)
         guard chars.count >= minLength else { return nil }
-        let mid = chars.count / 2
-        var lo = mid
-        var hi = mid
-        while lo > 0 || hi < chars.count {
-            if hi < chars.count, chars[hi] == " " {
-                return (String(chars[0..<hi]), String(chars[(hi + 1)...]))
-            }
-            if lo > 0, chars[lo] == " " {
-                return (String(chars[0..<lo]), String(chars[(lo + 1)...]))
-            }
-            lo -= 1
-            hi += 1
+
+        // Mark every index inside a `[word](/ipa/)` link so we never split there.
+        var inLink = [Bool](repeating: false, count: chars.count)
+        var open = false
+        for i in chars.indices {
+            if chars[i] == "[" { open = true }
+            inLink[i] = open
+            if chars[i] == ")" { open = false }
         }
+
+        let terminators: Set<Character> = [",", ";", ":", ".", "!", "?"]
+        func splittableSpace(_ i: Int) -> Bool {
+            i > 0 && i < chars.count && chars[i] == " " && !inLink[i]
+        }
+        func clauseSpace(_ i: Int) -> Bool {
+            splittableSpace(i) && terminators.contains(chars[i - 1])
+        }
+        func split(at i: Int) -> (String, String) {
+            (String(chars[0..<i]), String(chars[(i + 1)...]))
+        }
+        // The index nearest the midpoint that satisfies `accept`, searching outward.
+        func nearestToMid(_ accept: (Int) -> Bool) -> Int? {
+            let mid = chars.count / 2
+            var lo = mid
+            var hi = mid
+            while lo > 0 || hi < chars.count {
+                if hi < chars.count, accept(hi) { return hi }
+                if lo > 0, accept(lo) { return lo }
+                lo -= 1
+                hi += 1
+            }
+            return nil
+        }
+
+        if let i = nearestToMid(clauseSpace) { return split(at: i) }
+        if let i = nearestToMid(splittableSpace) { return split(at: i) }
         return nil
     }
 

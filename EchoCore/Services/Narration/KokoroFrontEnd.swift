@@ -7,8 +7,8 @@
     /// across every `synthesize` call.
     ///
     /// Why this exists: `OnnxKokoroEngine.synthesize` previously rebuilt all three on
-    /// every call, and `NarrationService` calls `synthesize` once per ≤200-char
-    /// sub-chunk — dozens to hundreds of times per chapter. Each rebuild re-parsed
+    /// every call, and `NarrationService` calls `synthesize` once per text sub-chunk
+    /// — dozens to hundreds of times per chapter. Each rebuild re-parsed
     /// ~6 MB of MisakiSwift lexicon JSON (`us_gold.json` + `us_silver.json`, each
     /// run through `growDictionary`) and re-read the 510×256 voice blob, of which
     /// only one 256-float row is used. That was pure per-sub-chunk CPU + allocator

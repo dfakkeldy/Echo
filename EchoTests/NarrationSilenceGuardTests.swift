@@ -50,9 +50,32 @@ import Testing
         #expect(parts?.1 == "brown fox")
     }
 
+    @Test func prefersAClauseBoundaryOverAnArbitraryMidpointSpace() {
+        // When a silent chunk must be split, the two halves are synthesized as
+        // separate utterances, so the seam carries sentence-final prosody. Landing
+        // it after a comma makes that unavoidable pause sound natural rather than a
+        // full stop dropped mid-clause. Here the only comma is left of the midpoint;
+        // the guard should still prefer it over the nearer plain space.
+        let parts = NarrationSilenceGuard.splitForRetry(
+            "alpha beta, gamma delta epsilon zeta", minLength: 16)
+        #expect(parts?.0 == "alpha beta,")
+        #expect(parts?.1 == "gamma delta epsilon zeta")
+    }
+
     @Test func doesNotSplitShortOrSpacelessText() {
         #expect(NarrationSilenceGuard.splitForRetry("hi", minLength: 16) == nil)
         #expect(NarrationSilenceGuard.splitForRetry("supercalifragilistic", minLength: 16) == nil)
+    }
+
+    @Test func doesNotSplitInsideAPronunciationOverrideLink() {
+        // A multi-word override `[New York](/ipa/)` contains an interior space that
+        // here sits nearest the midpoint. A naive nearest-space split would tear the
+        // link apart and corrupt the pronunciation; the guard must skip in-link
+        // spaces and split at a real word boundary outside the link.
+        let parts = NarrationSilenceGuard.splitForRetry(
+            "go to [New York](/nuˈjɔɹk/) now", minLength: 16)
+        #expect(parts?.0 == "go to")
+        #expect(parts?.1 == "[New York](/nuˈjɔɹk/) now")
     }
 
     // MARK: - Orchestration
