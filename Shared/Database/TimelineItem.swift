@@ -8,6 +8,8 @@ enum TimelineItemType: String, Codable {
     case imageAsset
     case bookmark
     case ankiCard
+    case voiceMemo
+    case note
 }
 
 enum GranularityLevel: Int, Codable {
@@ -162,7 +164,7 @@ extension TimelineItemType {
         case "bookmark": self = .bookmark
         case "flashcard": self = .ankiCard
         case "transcription": self = .textSegment
-        case "note": self = .bookmark
+        case "note": self = .note
         default: return nil
         }
     }
