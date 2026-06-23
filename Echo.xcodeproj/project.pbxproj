@@ -224,6 +224,7 @@
 				Views/ListeningProgressModuleView.swift,
 				Views/ManualAlignmentSheet.swift,
 				Views/NoteEditorView.swift,
+				Views/NoteFeedCell.swift,
 				Views/NowPlayingLayout.swift,
 				Views/NowPlayingTab.swift,
 				Views/OnboardingView.swift,
@@ -262,6 +263,7 @@
 				Views/Visualizer/VisualizerPickerView.swift,
 				Views/Visualizer/VisualizerStyle.swift,
 				Views/Visualizer/VisualizerView.swift,
+				Views/VoiceMemoFeedCell.swift,
 				Views/VoiceMemoOverlayView.swift,
 				Views/WatchAppSettingsView.swift,
 			);
@@ -336,6 +338,7 @@
 				Views/ListeningProgressModuleView.swift,
 				Views/ManualAlignmentSheet.swift,
 				Views/NoteEditorView.swift,
+				Views/NoteFeedCell.swift,
 				Views/NowPlayingLayout.swift,
 				Views/NowPlayingTab.swift,
 				Views/OnboardingView.swift,
@@ -374,6 +377,7 @@
 				Views/Visualizer/VisualizerPickerView.swift,
 				Views/Visualizer/VisualizerStyle.swift,
 				Views/Visualizer/VisualizerView.swift,
+				Views/VoiceMemoFeedCell.swift,
 				Views/VoiceMemoOverlayView.swift,
 				Views/WatchAppSettingsView.swift,
 			);
