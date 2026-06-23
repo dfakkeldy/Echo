@@ -32,6 +32,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
     var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
     var offState: ((Int) -> ChapterOffState)?
+    var onPlayMemo: ((VoiceMemoRecord) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -80,6 +81,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             BookmarkFeedCell.self, forCellWithReuseIdentifier: BookmarkFeedCell.reuseIdentifier)
         collectionView.register(
             AnkiCardFeedCell.self, forCellWithReuseIdentifier: AnkiCardFeedCell.reuseIdentifier)
+        collectionView.register(
+            NoteFeedCell.self, forCellWithReuseIdentifier: NoteFeedCell.reuseIdentifier)
+        collectionView.register(
+            VoiceMemoFeedCell.self,
+            forCellWithReuseIdentifier: VoiceMemoFeedCell.reuseIdentifier)
 
         context.coordinator.dataSource = makeDataSource(for: collectionView)
         return collectionView
@@ -89,6 +95,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onTapBlock = onTapBlock
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
+        context.coordinator.onPlayMemo = onPlayMemo
         context.coordinator.offState = offState
         context.coordinator.settings = settings
         context.coordinator.onToggleChapter = onToggleChapter
@@ -230,6 +237,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
         var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
         var offState: ((Int) -> ChapterOffState)?
+        var onPlayMemo: ((VoiceMemoRecord) -> Void)?
         var isHeaderVisible: Binding<Bool>
         var autoScrollEnabled: Binding<Bool>
         var topPartTitle: Binding<String?>
@@ -325,9 +333,34 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 cell.configure(with: card, tint: tint)
                 return cell
 
-            case .note, .voiceMemo:
-                // Tasks 7/8 will wire dedicated cells for note and voice memo items.
-                return UICollectionViewCell()
+            case .note(let note):
+                guard
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: NoteFeedCell.reuseIdentifier, for: indexPath
+                    ) as? NoteFeedCell
+                else { return UICollectionViewCell() }
+                cell.configure(text: note.text)
+                return cell
+
+            case .voiceMemo(let memo):
+                guard
+                    let cell = collectionView.dequeueReusableCell(
+                        withReuseIdentifier: VoiceMemoFeedCell.reuseIdentifier, for: indexPath
+                    ) as? VoiceMemoFeedCell
+                else { return UICollectionViewCell() }
+                let durationText: String
+                if let d = memo.duration {
+                    durationText =
+                        "Voice memo · "
+                        + Duration.seconds(d)
+                        .formatted(.time(pattern: .minuteSecond))
+                } else {
+                    durationText = "Voice memo"
+                }
+                cell.configure(durationText: durationText) { [weak self] in
+                    self?.onPlayMemo?(memo)
+                }
+                return cell
 
             case .block(let block):
                 switch block.blockKind {
