@@ -82,32 +82,61 @@ import Testing
             #expect(outputBytes.range(of: Data("RoundTripTitle".utf8)) != nil)
             #expect(outputBytes.range(of: Data("RoundTripAuthor".utf8)) != nil)
             #expect(sourceBytes.range(of: Data("RoundTripTitle".utf8)) == nil)
+
+            // (c) The book metadata is actually READABLE, not just present: the `meta`
+            //     box leads with the iTunes handler (`mdir`) or players ignore the
+            //     whole `ilst`. The derived album-artist (`aART`) and genre tags are
+            //     written too.
+            #expect(outputBytes.range(of: Data("mdir".utf8)) != nil)
+            #expect(outputBytes.range(of: Data("aART".utf8)) != nil)
+            #expect(outputBytes.range(of: Data("Audiobook".utf8)) != nil)
+
+            // (d) The chapter text track is AVFoundation-conformant: it carries an
+            //     edit list (`elst`) and an `ftab`-bearing text `stsd`. (Apple's
+            //     reader is exercised directly in `titleAndChaptersVisibleToAVFoundation`.)
+            #expect(outputBytes.range(of: Data("elst".utf8)) != nil)
+            #expect(outputBytes.range(of: Data("ftab".utf8)) != nil)
         }
 
-        /// MANUAL: AVFoundation's `commonMetadata` does not surface the title that
-        /// `swift-audio-marker` writes into the `ilst` atom (the same reason
-        /// `loadChapterMetadataGroups` does not surface the package's chapters — see
-        /// `ChapterMarkerWriterTests`). Kept as an executable, explicitly disabled
-        /// case so the intended round-trip is documented and re-checkable against a
-        /// future package/OS change — verify real exports by opening the produced
-        /// `.m4b` in Books.app or another tag-aware player.
-        @Test(
-            .disabled(
-                "manual: AVFoundation.commonMetadata does not expose swift-audio-marker's ilst title atom; verify title in Books.app"
-            ))
-        func titleVisibleToAVFoundation() async throws {
+        /// The definitive proof: Apple's own AVFoundation reader (the Books / iOS /
+        /// macOS engine) surfaces the book title, artist AND the chapters from a real
+        /// export. This previously could NOT pass — upstream `swift-audio-marker`
+        /// omitted the iTunes `mdir` handler (so `commonMetadata` was empty) and wrote
+        /// a non-conformant chapter track (so `availableChapterLocales` was empty).
+        /// Echo's fork fixes both, so this is now an enforced, automated guarantee.
+        @Test func titleAndChaptersVisibleToAVFoundation() async throws {
             let a = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
-            defer { try? FileManager.default.removeItem(at: a) }
+            let b = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            defer {
+                try? FileManager.default.removeItem(at: a)
+                try? FileManager.default.removeItem(at: b)
+            }
             let out = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
             defer { try? FileManager.default.removeItem(at: out) }
             try await AudioExportService().exportM4B(
-                items: [ExportItem(title: "One", url: a, timeRange: nil)], outputURL: out,
+                items: [
+                    ExportItem(title: "One", url: a, timeRange: nil),
+                    ExportItem(title: "Two", url: b, timeRange: nil),
+                ],
+                outputURL: out,
                 metadata: ExportMetadata(title: "Round Trip", author: "Tester", coverArt: nil))
 
-            let meta = try await AVURLAsset(url: out).load(.commonMetadata)
-            let titleItem = meta.first { $0.commonKey == .commonKeyTitle }
-            #expect((try? await titleItem?.load(.stringValue)) == "Round Trip")
+            let asset = AVURLAsset(url: out)
+
+            // Book-level tags via Apple's common-metadata reader.
+            let meta = try await asset.load(.commonMetadata)
+            let title = meta.first { $0.commonKey == .commonKeyTitle }
+            let artist = meta.first { $0.commonKey == .commonKeyArtist }
+            #expect((try? await title?.load(.stringValue)) == "Round Trip")
+            #expect((try? await artist?.load(.stringValue)) == "Tester")
+
+            // Chapters via Apple's chapter API.
+            let locales = try await asset.load(.availableChapterLocales)
+            #expect(!locales.isEmpty)
+            let groups = try await asset.loadChapterMetadataGroups(
+                bestMatchingPreferredLanguages: locales.map(\.identifier))
+            #expect(groups.count == 2)
         }
     #endif
 }

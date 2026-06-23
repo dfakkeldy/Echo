@@ -61,9 +61,17 @@ struct ChapterMarkerWriter {
                     PackageChapter(start: .seconds(atom.startTime), title: atom.title)
                 })
             if let metadata {
+                // Map the book onto the audiobook tags players expect: title/album
+                // both carry the book title; artist/albumArtist both carry the
+                // author (Audiobookshelf reads aART for the author); genre marks the
+                // file as an audiobook. These land in the `ilst` atoms ©nam/©alb/
+                // ©ART/aART/©gen.
                 info.metadata.title = metadata.title
+                info.metadata.album = metadata.title
+                info.metadata.genre = "Audiobook"
                 if let author = metadata.author, !author.isEmpty {
                     info.metadata.artist = author
+                    info.metadata.albumArtist = author
                 }
                 if let coverArt = metadata.coverArt {
                     info.metadata.artwork = try? Artwork(data: coverArt)
