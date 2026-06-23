@@ -75,9 +75,25 @@ struct AlignmentAnchorDAO {
         }
     }
 
+    /// Whether any anchor exists for `audiobookID` on any of `epubBlockIDs`.
+    /// Used to answer "does this chapter have audio?" over a whole block range,
+    /// since anchors usually land on content blocks rather than the heading block.
+    func hasAnchor(for audiobookID: String, anyOf epubBlockIDs: [String]) throws -> Bool {
+        guard !epubBlockIDs.isEmpty else { return false }
+        return try db.read { db in
+            try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(epubBlockIDs.contains(Column("epub_block_id")))
+                .limit(1)
+                .fetchOne(db) != nil
+        }
+    }
+
     /// Anchors within a time window, ordered by audio time.
-    func anchors(for audiobookID: String,
-                in timeRange: ClosedRange<TimeInterval>) throws -> [AlignmentAnchorRecord] {
+    func anchors(
+        for audiobookID: String,
+        in timeRange: ClosedRange<TimeInterval>
+    ) throws -> [AlignmentAnchorRecord] {
         try db.read { db in
             try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
@@ -90,17 +106,21 @@ struct AlignmentAnchorDAO {
 
     /// The two anchors that bracket a given time, for interpolation.
     /// Returns (previousAnchor, nextAnchor) — either may be nil at edges.
-    func bracketingAnchors(for audiobookID: String,
-                           around time: TimeInterval) throws -> (AlignmentAnchorRecord?, AlignmentAnchorRecord?) {
+    func bracketingAnchors(
+        for audiobookID: String,
+        around time: TimeInterval
+    ) throws -> (AlignmentAnchorRecord?, AlignmentAnchorRecord?) {
         try db.read { db in
-            let before = try AlignmentAnchorRecord
+            let before =
+                try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
                 .filter(Column("audio_time") <= time)
                 .order(Column("audio_time").desc)
                 .limit(1)
                 .fetchOne(db)
 
-            let after = try AlignmentAnchorRecord
+            let after =
+                try AlignmentAnchorRecord
                 .filter(Column("audiobook_id") == audiobookID)
                 .filter(Column("audio_time") > time)
                 .order(Column("audio_time"))
