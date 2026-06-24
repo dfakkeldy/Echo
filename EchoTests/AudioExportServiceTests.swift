@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 
 @testable import Echo
@@ -153,6 +155,42 @@ import Testing
             // First chapter starts at 0; second starts at ~1s (the first clip's length).
             #expect(abs(groups[0].timeRange.start.seconds - 0) < 0.05)
             #expect(abs(groups[1].timeRange.start.seconds - 1) < 0.2)
+        }
+
+        /// The cover image survives the export and is READABLE by Apple's own
+        /// metadata reader — the `commonKeyArtwork` cascade `ExportMetadataResolver`
+        /// uses to re-source a cover and the path Books / Music / the lock screen use
+        /// to show it. The fork writes `covr` inside an `mdir`-led `ilst`, so unlike
+        /// the early pre-fork state there is no AVFoundation-blind caveat: Apple
+        /// surfaces the artwork. The decoded image is asserted to be the *same*
+        /// 240×240 picture, not merely "some bytes", so a truncated or wrong-typed
+        /// `covr` (a cover players silently drop) fails the test.
+        @Test func coverArtSurvivesAndIsReadableByAVFoundation() async throws {
+            let a = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            defer { try? FileManager.default.removeItem(at: a) }
+            let cover = CoverArtFixture.makeJPEG(width: 240, height: 240)
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer { try? FileManager.default.removeItem(at: out) }
+            try await AudioExportService().exportM4B(
+                items: [ExportItem(title: "One", url: a, timeRange: nil)],
+                outputURL: out,
+                metadata: ExportMetadata(title: "Cover Book", author: "Tester", coverArt: cover))
+
+            // (a) A `covr` atom landed in the output and the source silence had none.
+            let outputBytes = try Data(contentsOf: out)
+            #expect(outputBytes.range(of: Data("covr".utf8)) != nil)
+
+            // (b) Apple's reader returns the artwork and it decodes to the original
+            //     240×240 image — proving the embedded `covr` is intact and readable.
+            let asset = AVURLAsset(url: out)
+            let meta = try await asset.load(.commonMetadata)
+            let artworkItem = try #require(meta.first { $0.commonKey == .commonKeyArtwork })
+            let data = try await #require(artworkItem.load(.dataValue))
+            let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+            let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            #expect(image.width == 240)
+            #expect(image.height == 240)
         }
     #endif
 }
