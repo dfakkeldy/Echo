@@ -10,7 +10,7 @@ import Testing
     private func seed() throws -> DatabaseService {
         let db = try DatabaseService(inMemory: ())
         try db.write { db in
-            // D2 fix: `duration` is NOT NULL with no default in Schema_V1.
+            // D2 fix: `duration` is NOT NULL with no default in the baseline schema.
             try db.execute(
                 sql: """
                     INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Book One', 0)

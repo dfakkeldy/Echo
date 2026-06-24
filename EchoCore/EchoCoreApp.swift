@@ -39,9 +39,6 @@ struct EchoCoreApp: App {
         do {
             let db = try DatabaseService()
             initialModel.databaseService = db
-            #if os(iOS)
-                MigrationService.migrateIfNeeded(database: db)
-            #endif
         } catch {
             initialError = error
             // Attempt in-memory fallback so the app remains functional.

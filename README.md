@@ -162,7 +162,7 @@ Shared models and utilities used across targets include:
 	- **`FileLocations`** — Centralized directory access (`documentsDirectory`, `cachesDirectory`, `applicationSupportDirectory`, `epubUnpackedDirectory(safeID:)`) replacing ad-hoc `FileManager.default.urls(for:in:)` calls across the codebase.
 	- **`KeychainStore`** — Thin Keychain wrapper for storing security-scoped bookmark data and other sensitive blobs that should not live in unencrypted `UserDefaults`.
 	- **`Logger+Subsystem`** — Single `"com.echo.audiobooks"` subsystem constant used by every logger in the project — prevents log fragmentation from typos in repeated string literals.
-	- **`Schema_V11`** — Database migration adding `pdf_view_state_json` (TEXT) columns to `bookmark` and `timeline_item` tables for PDF page/zoom/scroll state persistence.
+	- **`Schema_V1`** — Fresh-install GRDB baseline schema. This is the post-reset source of truth for Echo's current database shape; future TestFlight changes should be additive migrations again.
 		- **`AnimationDurations`** — Named animation timing constants (`.micro`, `.standard`, `.emphasized`, `.slow`) to replace magic-number literals scattered across view bodies.
 	- **`AudioSnippetPlayer`** — Lightweight, single-use audio player for voice-memo previews and bookmark playback. Eliminates the ad-hoc `AVAudioEngine` setup duplicated across `BookmarkStore`, `Bookmarks`, and `SnippetPlayer`.
 

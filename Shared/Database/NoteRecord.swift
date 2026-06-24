@@ -12,7 +12,7 @@ struct NoteRecord: Codable, Equatable, Hashable, FetchableRecord, MutablePersist
     var playlistPosition: Double?
     var createdAt: String
     var modifiedAt: String
-    /// FK to `epub_block.id` (V24) for document-order feed positioning; nil →
+    /// FK to `epub_block.id` for document-order feed positioning; nil →
     /// positioned by `mediaTimestamp` only (legacy notes).
     var epubBlockID: String? = nil
 

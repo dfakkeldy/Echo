@@ -5,8 +5,8 @@ import Testing
 @testable import Echo
 
 @MainActor
-@Suite struct SchemaV24Tests {
-    @Test func v24AddsEpubBlockIDColumnToNote() throws {
+@Suite struct FeedContentSchemaBaselineTests {
+    @Test func baselineIncludesEpubBlockIDColumnOnNote() throws {
         let db = try DatabaseService(inMemory: ())
         let columns = Set(
             try db.read { db in
@@ -17,7 +17,7 @@ import Testing
         #expect(columns.contains("epub_block_id"))
     }
 
-    @Test func v24CreatesVoiceMemoTable() throws {
+    @Test func baselineCreatesVoiceMemoTable() throws {
         let db = try DatabaseService(inMemory: ())
         let columns = Set(
             try db.read { db in
@@ -36,7 +36,7 @@ import Testing
         #expect(columns.contains("modified_at"))
     }
 
-    @Test func v24CreatesVoiceMemoIndex() throws {
+    @Test func baselineCreatesVoiceMemoIndex() throws {
         let db = try DatabaseService(inMemory: ())
         let indexNames = try db.read { db in
             try Row.fetchAll(db, sql: "PRAGMA index_list(voice_memo)").map {

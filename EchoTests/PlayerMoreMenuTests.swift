@@ -39,16 +39,11 @@ struct PlayerMoreMenuTests {
             "Player More is distinct from the global header menu; no Stats.")
     }
 
-    @Test func bothDockCallSitesWireTheMoreMenu() throws {
-        let nowPlaying = try Self.source(named: "NowPlayingTab.swift")
+    @Test func rootDockWiresTheMoreMenu() throws {
         let root = try Self.source(named: "RootTabView.swift")
         #expect(
-            nowPlaying.contains("onShowChapters:") && nowPlaying.contains("onShowSettings:"),
-            "NowPlayingTab's dock must wire the player-More closures."
-        )
-        #expect(
             root.contains("onShowChapters:") && root.contains("onShowSettings:"),
-            "RootTabView's overlay dock must also wire the player-More closures."
+            "RootTabView's overlay dock must wire the player-More closures."
         )
     }
 

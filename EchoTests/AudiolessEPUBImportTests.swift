@@ -96,7 +96,7 @@ private final class AudiolessFixtureLocator {}
     /// In `loadFolder`, when the user opens an EPUB *file* directly, the audiobook
     /// row was keyed off the raw picked `url` (the FILE) while blocks are keyed off
     /// the normalised parent directory (`state.folderURL`). `epub_block.audiobook_id`
-    /// has a NOT NULL cascade FK to `audiobook(id)` (Schema_V5), so when the only
+    /// has a NOT NULL cascade FK to `audiobook(id)`, so when the only
     /// audiobook row is at the FILE key, the block INSERT under the PARENT key has
     /// no parent row and the FK rejects it — zero blocks import and narration falls
     /// back to a sample. This asserts that pre-fix split fails.
