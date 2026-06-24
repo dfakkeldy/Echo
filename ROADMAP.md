@@ -12,7 +12,7 @@ This roadmap has two layers:
 - **Part B — Original blueprint (Phases 1–9, historical).** The foundational hardening/feature phases that predate the wedge model. Phases 1–7 are complete and kept as engineering history; the forward-looking items in Phases 8–9 are now tracked under the wedges in Part A (cross-referenced).
 
 > [!IMPORTANT]
-> Keep this file in sync with `README.md`'s "Road to v1.0" section. When a wedge item's status changes, update both. **Current schema version: V23** (see `ARCHITECTURE.md` for the full migration ledger).
+> Keep this file in sync with `README.md`'s "Road to v1.0" section. When a wedge item's status changes, update both. **Current schema baseline: V1** after the pre-external-TestFlight reset; future database changes should be additive migrations again.
 
 ---
 
@@ -29,7 +29,7 @@ Rebuilt 2026-06-19 around **six competitive wedges**. Each turns a recurring com
 
 The fused study system no sync-app and no TTS-app has. **This is the "deep" the launch gate holds for** — the study layer is the differentiator we lead with.
 
-- [x] **FSRS scheduling** *(was post-1.0 → now shipped 1.0)* — canonical FSRS-4.5 (`FSRSScheduler`) is the **live default** scheduler across every grading path (daily review, in-player, watch→iPhone); the legacy SM-2 hybrid was dropped (PR #97, on `main`). A one-time `Schema_V22` (`v22_fsrs_seed`) migration seeds every previously-reviewed SM-2 card into FSRS `(stability, difficulty)` so history carries over. `SM2Scheduler` survives behind the `SchedulingAlgorithm` seam for tests only; there is no user toggle. *(Remaining for the moat: the items below — Chapter Study Mode, Insights, etc.)*
+- [x] **FSRS scheduling** *(was post-1.0 → now shipped 1.0)* — canonical FSRS-4.5 (`FSRSScheduler`) is the **live default** scheduler across every grading path (daily review, in-player, watch→iPhone); the legacy SM-2 hybrid was dropped (PR #97, on `main`). Fresh installs create the FSRS columns directly from the reset schema baseline. `SM2Scheduler` survives behind the `SchedulingAlgorithm` seam for tests only; there is no user toggle. *(Remaining for the moat: the items below — Chapter Study Mode, Insights, etc.)*
 - [ ] **Chapter Study Mode ("Anki mode" — chapter-as-card)** — book = deck; auto one chapter-card per chapter; listen → grade **Again / Good** (Again auto-default on no tap = hands-free); a due chapter with no cards = a **skippable re-listen**, and creating a flashcard inside a chapter prompts *"retire the chapter card and review with your cards?"*; **one interleaved FSRS queue**; **per-book + global** new-cards/day limits. *(Net-new — see spec Wedge 1 for the full design.)*
 - [ ] **Card Inbox / mark-later**, full **card editor**, **decks & tags** (retire mid-playback popups). *(was WS6)*
 - [ ] **Narrator-audio-snippet cards** + **watchOS haptic review** — core shipped; harden against eviction/relaunch.

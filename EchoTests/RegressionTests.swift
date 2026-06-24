@@ -9,17 +9,17 @@ import Testing
 @MainActor
 struct RegressionTests {
 
-    // MARK: - MigrationService is called on startup
+    // MARK: - Database schema is available on startup
 
     @Test func databaseServiceRunsMigrationsOnInit() throws {
-        // DatabaseService(inMemory:) initializes and runs all migrations (V1-V5).
+        // DatabaseService(inMemory:) initializes the current baseline schema.
         let db = try DatabaseService(inMemory: ())
 
         let tables = try db.read { db in
             try String.fetchAll(
                 db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         }
-        // V5 tables must exist after migration.
+        // Reader tables must exist after schema initialization.
         #expect(tables.contains("epub_block"))
         #expect(tables.contains("alignment_anchor"))
         #expect(tables.contains("timeline_item"))
@@ -88,13 +88,13 @@ struct RegressionTests {
         #expect(dir.path.hasPrefix("/"))
     }
 
-    // MARK: - Schema V5 migration is idempotent
+    // MARK: - Database initialization is repeatable
 
-    @Test func v5MigrationIsIdempotent() throws {
-        // Running migrations twice should not fail (DatabaseService already runs them).
+    @Test func databaseInitializationCreatesReaderTables() throws {
+        // DatabaseService applies the baseline schema before returning.
         let db = try DatabaseService(inMemory: ())
 
-        // Verify tables exist after initial migration.
+        // Verify reader tables exist after initialization.
         let tables = try db.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table'")
         }

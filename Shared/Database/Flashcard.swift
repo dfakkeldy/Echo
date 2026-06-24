@@ -33,7 +33,7 @@ struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord {
     var createdAt: String?
     var modifiedAt: String?
 
-    // MARK: FSRS fields (V16)
+    // MARK: FSRS fields
     var stability: Double?
     var difficulty: Double?
     /// Defaults to "normal" so callers that omit it never insert an explicit

@@ -15,27 +15,9 @@ import Testing
 @MainActor
 struct EchoCoreTests {
 
-    /// Creates an in-memory database with all schema migrations applied.
+    /// Creates an in-memory database with the current baseline schema applied.
     private func makeTestDB() throws -> DatabaseWriter {
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        let queue = try DatabaseQueue(path: ":memory:", configuration: config)
-        var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in try Schema_V1.migrate(db) }
-        migrator.registerMigration("v2") { db in try Schema_V2.migrate(db) }
-        migrator.registerMigration("v3") { db in try Schema_V3.migrate(db) }
-        migrator.registerMigration("v4") { db in try Schema_V4.migrate(db) }
-        migrator.registerMigration("v5") { db in try Schema_V5.migrate(db) }
-        migrator.registerMigration("v6") { db in try Schema_V6.migrate(db) }
-        migrator.registerMigration("v7") { db in try Schema_V7.migrate(db) }
-        migrator.registerMigration("v8") { db in try Schema_V8.migrate(db) }
-        migrator.registerMigration("v9") { db in try Schema_V9.migrate(db) }
-        migrator.registerMigration("v10") { db in try Schema_V10.migrate(db) }
-        migrator.registerMigration("v11") { db in try Schema_V11.migrate(db) }
-        try migrator.migrate(queue)
-        return queue
+        try DatabaseService(inMemory: ()).writer
     }
 
     @Test func playerDeepLinkParsesPlayURLWithoutTime() throws {
@@ -241,7 +223,7 @@ struct EchoCoreTests {
 
     // MARK: - Database Tests
 
-    @Test func databaseV1SchemaCreatesAllTables() throws {
+    @Test func databaseBaselineSchemaCreatesAllTables() throws {
         let db = try DatabaseService(inMemory: ())
         let tables = try db.read { db in
             try String.fetchAll(

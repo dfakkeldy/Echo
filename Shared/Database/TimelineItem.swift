@@ -38,7 +38,7 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
     var sourceRowid: String?
     var metadataJSON: String?
     var pdfViewStateJSON: String?
-    // MARK: - V5 EPUB Alignment Fields
+    // MARK: - EPUB Alignment Fields
 
     /// FK to `epub_block.id` when this timeline item was materialized from an EPUB block.
     var epubBlockID: String?

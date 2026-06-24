@@ -150,8 +150,8 @@ connect probe.
   `clear()` (so sign-out un-pins).
 
 Rationale: the fingerprint is not secret, but reusing the existing per-server Keychain namespace
-avoids a `Schema_V25` migration (latest is `v24_feed_note_position_voice_memo`) and the
-cross-branch version-collision risk this project has repeatedly hit. It also keeps the trust
+avoids a database migration and the cross-branch version-collision risk this project has
+repeatedly hit. It also keeps the trust
 artifact paired with the refresh token it secures.
 
 ## 5. Data flow

@@ -8,32 +8,9 @@ import Testing
 @MainActor
 struct StandaloneTranscriptionServiceTests {
 
-    /// Creates an in-memory database with all schema migrations applied.
+    /// Creates an in-memory database with the current baseline schema applied.
     private func makeTestDB() throws -> DatabaseWriter {
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA foreign_keys=ON")
-        }
-        let queue = try DatabaseQueue(path: ":memory:", configuration: config)
-        var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in try Schema_V1.migrate(db) }
-        migrator.registerMigration("v2") { db in try Schema_V2.migrate(db) }
-        migrator.registerMigration("v3") { db in try Schema_V3.migrate(db) }
-        migrator.registerMigration("v4") { db in try Schema_V4.migrate(db) }
-        migrator.registerMigration("v5") { db in try Schema_V5.migrate(db) }
-        migrator.registerMigration("v6") { db in try Schema_V6.migrate(db) }
-        migrator.registerMigration("v7") { db in try Schema_V7.migrate(db) }
-        migrator.registerMigration("v8") { db in try Schema_V8.migrate(db) }
-        migrator.registerMigration("v9") { db in try Schema_V9.migrate(db) }
-        migrator.registerMigration("v10") { db in try Schema_V10.migrate(db) }
-        migrator.registerMigration("v11") { db in try Schema_V11.migrate(db) }
-        migrator.registerMigration("v12") { db in try Schema_V12.migrate(db) }
-        migrator.registerMigration("v13") { db in try Schema_V13.migrate(db) }
-        migrator.registerMigration("v14") { db in try Schema_V14.migrate(db) }
-        migrator.registerMigration("v15") { db in try Schema_V15.migrate(db) }
-        migrator.registerMigration("v16") { db in try Schema_V16.migrate(db) }
-        try migrator.migrate(queue)
-        return queue
+        try DatabaseService(inMemory: ()).writer
     }
 
     // MARK: - Record Persistence
@@ -43,7 +20,7 @@ struct StandaloneTranscriptionServiceTests {
 
         try db.write { db in
             // Seed the parent audiobook so standalone_transcript's NOT NULL
-            // audiobook_id foreign key (Schema_V16) is satisfied.
+            // audiobook_id foreign key is satisfied.
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             var record = StandaloneTranscriptRecord(
@@ -73,7 +50,7 @@ struct StandaloneTranscriptionServiceTests {
         let now = ISO8601DateFormatter().string(from: Date())
 
         try db.write { db in
-            // Parent audiobook for the standalone_transcript FK (Schema_V16).
+            // Parent audiobook for the standalone_transcript foreign key.
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
             for i in 0..<5 {
@@ -173,7 +150,7 @@ struct StandaloneTranscriptionServiceTests {
         let wordsJSON = String(data: wordsData, encoding: .utf8)
 
         try db.write { db in
-            // Parent audiobook for the standalone_transcript FK (Schema_V16).
+            // Parent audiobook for the standalone_transcript foreign key.
             try db.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-2', 'Test', 3600)")
             var record = StandaloneTranscriptRecord(

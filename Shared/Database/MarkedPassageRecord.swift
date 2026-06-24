@@ -2,7 +2,7 @@
 import Foundation
 import GRDB
 
-/// GRDB record for the `marked_passage` table (Schema_V15).
+/// GRDB record for the `marked_passage` table.
 /// Represents a timestamp range the user flagged for later flashcard conversion.
 struct MarkedPassageRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var id: String

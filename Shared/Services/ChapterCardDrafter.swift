@@ -96,7 +96,7 @@ struct ChapterCardDrafter {
                 playlistPosition: nil,
                 createdAt: Date().ISO8601Format(),
                 modifiedAt: Date().ISO8601Format(),
-                // Required: `card_type` is NOT NULL in schema V16. A nil here is
+                // Required: `card_type` is NOT NULL. A nil here is
                 // written as an explicit NULL (the column default only applies when
                 // the column is omitted), failing the insert. "normal" also matches
                 // the idempotency filter above (`Column("card_type") == "normal"`).
