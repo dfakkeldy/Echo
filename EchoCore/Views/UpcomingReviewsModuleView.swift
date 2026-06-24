@@ -41,6 +41,9 @@ struct UpcomingReviewsModuleView: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(.isButton)
         .onAppear { loadStats() }
+        .onReceive(NotificationCenter.default.publisher(for: .studyPlanDidChange)) { _ in
+            loadStats()
+        }
     }
 
     private func loadStats() {

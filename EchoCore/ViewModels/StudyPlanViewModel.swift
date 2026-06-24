@@ -29,7 +29,7 @@ final class StudyPlanViewModel {
     }
 
     var canEditImageInclusion: Bool {
-        existingPlan == nil
+        true
     }
 
     var selectedCandidateCount: Int {
@@ -102,12 +102,28 @@ final class StudyPlanViewModel {
                     planID: existingPlan.id,
                     cadenceUnit: cadenceUnit,
                     newChapterLimit: newChapterLimit,
-                    includeImages: existingPlan.includeImages,
+                    includeImages: includeImages,
                     queueMode: queueMode,
                     catchUpPolicy: .gentle,
                     now: now
                 )
                 try dao.setPaused(planID: existingPlan.id, isPaused: isPaused, now: now)
+                if let savedPlan = try dao.plan(for: audiobookID) {
+                    var imageCandidates = [StudyPlanCandidate]()
+                    if includeImages {
+                        imageCandidates = try StudyPlanGenerator(db: db).preview(
+                            audiobookID: audiobookID,
+                            bookTitle: bookTitle,
+                            includeImages: true
+                        ).candidates.filter { $0.kind == .image }
+                    }
+                    try dao.syncImageItems(
+                        for: savedPlan,
+                        candidates: imageCandidates,
+                        includeImages: includeImages,
+                        now: now
+                    )
+                }
                 self.existingPlan = try dao.plan(for: audiobookID)
                 if let savedPlan = self.existingPlan {
                     apply(savedPlan)
@@ -135,6 +151,7 @@ final class StudyPlanViewModel {
                 selectedCandidateIDs = []
             }
 
+            NotificationCenter.default.post(name: .studyPlanDidChange, object: nil)
             return true
         } catch {
             errorMessage = error.localizedDescription

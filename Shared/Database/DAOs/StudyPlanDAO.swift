@@ -187,6 +187,83 @@ struct StudyPlanDAO {
         }
     }
 
+    @discardableResult
+    func syncImageItems(
+        for plan: StudyPlan,
+        candidates: [StudyPlanCandidate],
+        includeImages: Bool,
+        now: Date = Date()
+    ) throws -> [StudyPlanItem] {
+        let nowString = now.ISO8601Format()
+
+        return try db.write { db in
+            let imageItems = try StudyPlanItem
+                .filter(Column("plan_id") == plan.id)
+                .filter(Column("kind") == StudyPlanItemKind.image.rawValue)
+                .fetchAll(db)
+            let flashcardIDs = imageItems.compactMap(\.flashcardID)
+
+            _ = try StudyPlanItem
+                .filter(Column("plan_id") == plan.id)
+                .filter(Column("kind") == StudyPlanItemKind.image.rawValue)
+                .updateAll(db, [
+                    Column("is_enabled").set(to: includeImages),
+                    Column("modified_at").set(to: nowString),
+                ])
+
+            if !flashcardIDs.isEmpty {
+                _ = try Flashcard
+                    .filter(flashcardIDs.contains(Column("id")))
+                    .updateAll(db, [
+                        Column("is_enabled").set(to: includeImages),
+                        Column("modified_at").set(to: nowString),
+                    ])
+            }
+
+            guard includeImages else {
+                return []
+            }
+
+            let existingSources = Set(imageItems.compactMap(\.sourceBlockID))
+            let missingCandidates = candidates
+                .filter { $0.kind == .image && $0.defaultIncluded }
+                .filter { !existingSources.contains($0.sourceBlockID) }
+            var createdItems: [StudyPlanItem] = []
+
+            for candidate in missingCandidates {
+                if try existingItemCount(sourceBlockID: candidate.sourceBlockID, kind: candidate.kind, db: db) > 0 {
+                    continue
+                }
+
+                var card = makeFlashcard(
+                    audiobookID: plan.audiobookID,
+                    candidate: candidate,
+                    deckID: plan.deckID,
+                    nowString: nowString
+                )
+                try card.insert(db)
+
+                var item = StudyPlanItem(
+                    id: UUID().uuidString,
+                    planID: plan.id,
+                    flashcardID: card.id,
+                    kind: candidate.kind.rawValue,
+                    chapterIndex: candidate.chapterIndex,
+                    sourceBlockID: candidate.sourceBlockID,
+                    ordinal: candidate.ordinal,
+                    introducedAt: nil,
+                    isEnabled: true,
+                    createdAt: nowString,
+                    modifiedAt: nowString
+                )
+                try item.insert(db)
+                createdItems.append(item)
+            }
+
+            return createdItems
+        }
+    }
+
     private func latestPlan(for audiobookID: String, db: Database) throws -> StudyPlan? {
         try StudyPlan
             .filter(Column("audiobook_id") == audiobookID)
@@ -227,6 +304,20 @@ struct StudyPlanDAO {
         deckID: String,
         nowString: String
     ) -> Flashcard {
+        makeFlashcard(
+            audiobookID: request.audiobookID,
+            candidate: candidate,
+            deckID: deckID,
+            nowString: nowString
+        )
+    }
+
+    private func makeFlashcard(
+        audiobookID: String,
+        candidate: StudyPlanCandidate,
+        deckID: String?,
+        nowString: String
+    ) -> Flashcard {
         let isImage = candidate.kind == .image
         let cardType = isImage
             ? StudyFlashcardType.imageAssignment
@@ -238,7 +329,7 @@ struct StudyPlanDAO {
 
         return Flashcard(
             id: UUID().uuidString,
-            audiobookID: request.audiobookID,
+            audiobookID: audiobookID,
             frontText: candidate.title,
             backText: backText,
             mediaTimestamp: candidate.mediaTimestamp,

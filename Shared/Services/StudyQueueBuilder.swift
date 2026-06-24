@@ -13,35 +13,40 @@ struct StudyQueueBuilder {
         let dueCards = try FlashcardDAO(db: db).allDueCards(now: now)
         let plans = try StudyPlanDAO(db: db).plansForQueue()
         let planOrder = Dictionary(uniqueKeysWithValues: plans.enumerated().map { ($0.element.id, $0.offset) })
+        let itemRowsByPlanID = try Dictionary(
+            uniqueKeysWithValues: plans.map { plan in
+                (plan.id, try itemCardRows(planID: plan.id))
+            }
+        )
 
-        let dueEntries = dueCards.map { card in
-            StudyQueueEntry(
-                id: "due-\(card.id)",
-                category: .dueReview,
-                plan: nil,
-                item: nil,
-                flashcard: card
+        let dueEntries = dueEntries(
+            for: dueCards,
+            plans: plans,
+            itemRowsByPlanID: itemRowsByPlanID
+        )
+        let assignmentQueueEntries = plans.flatMap { plan in
+            assignmentEntries(
+                for: plan,
+                rows: itemRowsByPlanID[plan.id] ?? [],
+                now: now,
+                calendar: calendar
             )
-        }
-
-        let assignmentQueueEntries = try plans.flatMap { plan in
-            try assignmentEntries(for: plan, now: now, calendar: calendar)
         }
         let modeSourcePlan = plans.first { !$0.isPaused } ?? plans.first
         let mode = modeOverride
             ?? modeSourcePlan.flatMap { StudyPlanQueueMode(rawValue: $0.queueModeDefault) }
             ?? .bookByBook
-        let orderedAssignments = ordered(entries: assignmentQueueEntries, mode: mode, planOrder: planOrder)
+        let orderedEntries = ordered(entries: dueEntries + assignmentQueueEntries, mode: mode, planOrder: planOrder)
 
-        return StudyQueue(entries: dueEntries + orderedAssignments)
+        return StudyQueue(entries: orderedEntries)
     }
 
     private func assignmentEntries(
         for plan: StudyPlan,
+        rows: [ItemCardRow],
         now: Date,
         calendar: Calendar
-    ) throws -> [StudyQueueEntry] {
-        let rows = try itemCardRows(planID: plan.id)
+    ) -> [StudyQueueEntry] {
         let inProgress = rows
             .filter { row in
                 row.item.introducedAt != nil
@@ -97,6 +102,42 @@ struct StudyQueueBuilder {
             }
 
         return inProgress + newEntries
+    }
+
+    private func dueEntries(
+        for dueCards: [Flashcard],
+        plans: [StudyPlan],
+        itemRowsByPlanID: [String: [ItemCardRow]]
+    ) -> [StudyQueueEntry] {
+        let plansByID = Dictionary(uniqueKeysWithValues: plans.map { ($0.id, $0) })
+        let plansByAudiobookID = Dictionary(plans.map { ($0.audiobookID, $0) }, uniquingKeysWith: { first, _ in first })
+        let plansByDeckID = Dictionary(
+            plans.compactMap { plan in plan.deckID.map { ($0, plan) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let rowsByFlashcardID = Dictionary(
+            itemRowsByPlanID.flatMap { planID, rows in
+                rows.compactMap { row in
+                    row.item.flashcardID.map { ($0, (planID: planID, row: row)) }
+                }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return dueCards.map { card in
+            let linkedRow = rowsByFlashcardID[card.id]
+            let linkedPlan = linkedRow.flatMap { plansByID[$0.planID] }
+            let fallbackPlan = plansByAudiobookID[card.audiobookID]
+                ?? card.deckID.flatMap { plansByDeckID[$0] }
+
+            return StudyQueueEntry(
+                id: "due-\(card.id)",
+                category: .dueReview,
+                plan: linkedPlan ?? fallbackPlan,
+                item: linkedRow?.row.item,
+                flashcard: card
+            )
+        }
     }
 
     private func releaseBudget(
@@ -202,22 +243,43 @@ struct StudyQueueBuilder {
                 if left.category != right.category {
                     return left.category.rawValue < right.category.rawValue
                 }
-                return (left.item?.ordinal ?? 0) < (right.item?.ordinal ?? 0)
+                return orderedWithinCategory(left, before: right)
 
             case .mixed:
                 if left.category != right.category {
                     return left.category.rawValue < right.category.rawValue
                 }
-                let leftOrdinal = left.item?.ordinal ?? 0
-                let rightOrdinal = right.item?.ordinal ?? 0
-                if leftOrdinal != rightOrdinal {
-                    return leftOrdinal < rightOrdinal
+                if orderedWithinCategory(left, before: right) {
+                    return true
+                }
+                if orderedWithinCategory(right, before: left) {
+                    return false
                 }
                 let leftPlanOrder = left.plan.map { planOrder[$0.id] ?? Int.max } ?? Int.max
                 let rightPlanOrder = right.plan.map { planOrder[$0.id] ?? Int.max } ?? Int.max
                 return leftPlanOrder < rightPlanOrder
             }
         }
+    }
+
+    private func orderedWithinCategory(_ left: StudyQueueEntry, before right: StudyQueueEntry) -> Bool {
+        if left.category == .dueReview {
+            let leftDate = left.flashcard.nextReviewDate ?? ""
+            let rightDate = right.flashcard.nextReviewDate ?? ""
+            if leftDate != rightDate {
+                return leftDate < rightDate
+            }
+        }
+
+        let leftOrdinal = left.item?.ordinal ?? Int.max
+        let rightOrdinal = right.item?.ordinal ?? Int.max
+        if leftOrdinal != rightOrdinal {
+            return leftOrdinal < rightOrdinal
+        }
+
+        let leftFallback = left.flashcard.createdAt ?? left.flashcard.id
+        let rightFallback = right.flashcard.createdAt ?? right.flashcard.id
+        return leftFallback < rightFallback
     }
 
     private struct ItemCardRow {

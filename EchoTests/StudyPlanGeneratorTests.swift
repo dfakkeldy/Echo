@@ -50,6 +50,66 @@ import Testing
         #expect(preview.candidates.map(\.sourceBlockID) == ["h1", "h2"])
     }
 
+    @Test func previewUsesOneCanonicalHeadingPerChapter() throws {
+        let service = try seededService()
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (
+                        id, audiobook_id, spine_href, spine_index, block_index, sequence_index,
+                        block_kind, text, image_path, chapter_index, is_hidden, is_front_matter, created_at
+                    ) VALUES
+                    ('h1-subtitle', 'book', 'ch1.xhtml', 1, 3, 3, 'heading', 'A Subtitle', NULL, 0, 0, 0, '2026-06-01T00:00:00Z')
+                    """
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO timeline_item (
+                        id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                        granularity_level, playlist_position, is_enabled, epub_block_id
+                    ) VALUES
+                    ('t-h1-subtitle', 'book', 'textSegment', 'A Subtitle', 35, 55, 1, 35, 1, 'h1-subtitle')
+                    """
+            )
+        }
+        let generator = StudyPlanGenerator(db: service.writer, fileExists: { _ in true })
+
+        let preview = try generator.preview(
+            audiobookID: "book",
+            bookTitle: "Study Book",
+            includeImages: false
+        )
+
+        #expect(preview.candidates.map(\.sourceBlockID) == ["h1", "h2"])
+        #expect(preview.candidates.map(\.chapterIndex) == [0, 1])
+    }
+
+    @Test func previewSkipsCandidatesWithoutUsableAudioMapping() throws {
+        let service = try seededService()
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block (
+                        id, audiobook_id, spine_href, spine_index, block_index, sequence_index,
+                        block_kind, text, image_path, chapter_index, is_hidden, is_front_matter, created_at
+                    ) VALUES
+                    ('h3', 'book', 'ch3.xhtml', 3, 0, 5, 'heading', 'Chapter 3', NULL, 2, 0, 0, '2026-06-01T00:00:00Z'),
+                    ('img2', 'book', 'ch3.xhtml', 3, 1, 6, 'image', NULL, '/tmp/unmapped.png', 2, 0, 0, '2026-06-01T00:00:00Z')
+                    """
+            )
+        }
+        let generator = StudyPlanGenerator(db: service.writer, fileExists: { _ in true })
+
+        let preview = try generator.preview(
+            audiobookID: "book",
+            bookTitle: "Study Book",
+            includeImages: true
+        )
+
+        #expect(preview.candidates.map(\.sourceBlockID) == ["h1", "img1", "h2"])
+        #expect(!preview.candidates.contains { $0.mediaTimestamp == 0 })
+    }
+
     @Test func previewCarriesTimelineAudioRange() throws {
         let service = try seededService()
         let generator = StudyPlanGenerator(db: service.writer, fileExists: { _ in true })

@@ -82,6 +82,83 @@ import Testing
         ])
     }
 
+    @Test func bookByBookInterleavesDueReviewsWithAssignmentsPerPlan() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        try StudyQueueFixtures.seedDueCard(
+            id: "due-b",
+            audiobookID: "book-b",
+            frontText: "Book B Due Review",
+            nextReviewDate: StudyQueueFixtures.mondayNoon.addingTimeInterval(-7_200),
+            isEnabled: true,
+            in: service
+        )
+        try StudyQueueFixtures.seedDueCard(
+            id: "due-a",
+            audiobookID: "book-a",
+            frontText: "Book A Due Review",
+            nextReviewDate: StudyQueueFixtures.mondayNoon.addingTimeInterval(-3_600),
+            isEnabled: true,
+            in: service
+        )
+        let builder = StudyQueueBuilder(db: service.writer)
+
+        let queue = try builder.build(
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar,
+            modeOverride: .bookByBook
+        )
+
+        #expect(queue.entries.map(\.flashcard.frontText) == [
+            "Book A Due Review",
+            "Book A Chapter 1",
+            "Book A Chapter 2",
+            "Book B Due Review",
+            "Book B Chapter 1",
+            "Book B Chapter 2",
+        ])
+        #expect(queue.entries.map { $0.plan?.audiobookID } == [
+            "book-a",
+            "book-a",
+            "book-a",
+            "book-b",
+            "book-b",
+            "book-b",
+        ])
+    }
+
+    @Test func mixedModeKeepsDueReviewsGloballyFirst() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        try StudyQueueFixtures.seedDueCard(
+            id: "due-b",
+            audiobookID: "book-b",
+            frontText: "Book B Due Review",
+            nextReviewDate: StudyQueueFixtures.mondayNoon.addingTimeInterval(-7_200),
+            isEnabled: true,
+            in: service
+        )
+        try StudyQueueFixtures.seedDueCard(
+            id: "due-a",
+            audiobookID: "book-a",
+            frontText: "Book A Due Review",
+            nextReviewDate: StudyQueueFixtures.mondayNoon.addingTimeInterval(-3_600),
+            isEnabled: true,
+            in: service
+        )
+        let builder = StudyQueueBuilder(db: service.writer)
+
+        let queue = try builder.build(
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar,
+            modeOverride: .mixed
+        )
+
+        #expect(queue.entries.prefix(2).map(\.flashcard.frontText) == [
+            "Book B Due Review",
+            "Book A Due Review",
+        ])
+        #expect(queue.entries.prefix(2).allSatisfy { $0.category == .dueReview })
+    }
+
     @Test func dueReviewsExcludeDisabledAndUnscheduledCards() throws {
         let service = try StudyQueueFixtures.serviceWithPlan()
         try StudyQueueFixtures.seedDueCard(

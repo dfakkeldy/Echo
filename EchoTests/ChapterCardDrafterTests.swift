@@ -240,5 +240,22 @@ struct ChapterCardDrafterTests {
                 isHidden,
             ]
         )
+        try db.execute(
+            sql: """
+                INSERT INTO timeline_item (
+                    id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                    granularity_level, playlist_position, is_enabled, epub_block_id
+                ) VALUES (?, ?, 'textSegment', ?, ?, ?, 1, ?, 1, ?)
+                """,
+            arguments: [
+                "t-\(id)",
+                audiobookID,
+                title,
+                Double(sequenceIndex) * 100,
+                Double(sequenceIndex + 1) * 100,
+                Double(sequenceIndex) * 100,
+                id,
+            ]
+        )
     }
 }

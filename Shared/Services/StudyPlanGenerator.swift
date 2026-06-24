@@ -46,7 +46,7 @@ struct StudyPlanGenerator {
                         eb.image_path,
                         eb.chapter_index,
                         eb.sequence_index,
-                        COALESCE(ti.audio_start_time, 0) AS media_timestamp,
+                        ti.audio_start_time AS media_timestamp,
                         ti.audio_end_time,
                         ti.playlist_position
                     FROM epub_block eb
@@ -67,15 +67,25 @@ struct StudyPlanGenerator {
             )
         }
 
+        var seenChapterIndexes: Set<Int> = []
         let candidates = rows.enumerated().compactMap { offset, row -> StudyPlanCandidate? in
             let blockKind: String = row["block_kind"]
             let sourceBlockID: String = row["id"]
             let chapterIndex: Int? = row["chapter_index"]
-            let mediaTimestamp: TimeInterval = row["media_timestamp"]
             let endTimestamp: TimeInterval? = row["audio_end_time"]
             let playlistPosition: TimeInterval? = row["playlist_position"]
+            let mediaTimestamp: TimeInterval? = row["media_timestamp"]
+
+            guard let mediaTimestamp, mediaTimestamp >= 0 else {
+                return nil
+            }
 
             if blockKind == EPubBlockRecord.Kind.heading.rawValue {
+                guard let chapterIndex,
+                      seenChapterIndexes.insert(chapterIndex).inserted else {
+                    return nil
+                }
+
                 let trimmedTitle = ((row["text"] as String?) ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
