@@ -38,9 +38,45 @@ struct ChapterCardDrafterTests {
         let cardTypes = try service.read { db in
             try String.fetchAll(db, sql: "SELECT card_type FROM flashcard ORDER BY source_block_id")
         }
+        let studyPlanCount = try service.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM study_plan WHERE audiobook_id = ?",
+                arguments: [bookID]
+            ) ?? 0
+        }
+        let studyPlanItemSources = try service.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT spi.source_block_id
+                    FROM study_plan_item spi
+                    JOIN study_plan sp ON sp.id = spi.plan_id
+                    WHERE sp.audiobook_id = ?
+                    ORDER BY spi.ordinal
+                    """,
+                arguments: [bookID]
+            )
+        }
+        let studyPlanItemKinds = try service.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT spi.kind
+                    FROM study_plan_item spi
+                    JOIN study_plan sp ON sp.id = spi.plan_id
+                    WHERE sp.audiobook_id = ?
+                    ORDER BY spi.ordinal
+                    """,
+                arguments: [bookID]
+            )
+        }
 
         #expect(count == 3)
         #expect(cardTypes == Array(repeating: StudyFlashcardType.listeningAssignment, count: 3))
+        #expect(studyPlanCount == 1)
+        #expect(studyPlanItemSources == ["h0", "h1", "h2"])
+        #expect(studyPlanItemKinds == Array(repeating: StudyPlanItemKind.chapter.rawValue, count: 3))
     }
 
     @Test func skipsFrontMatter() async throws {

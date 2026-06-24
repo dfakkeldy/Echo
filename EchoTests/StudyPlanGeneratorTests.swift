@@ -66,6 +66,35 @@ import Testing
         #expect(first.playlistPosition == 10)
     }
 
+    @Test func previewDeduplicatesTimelineRowsAndPrefersEnabledSelection() throws {
+        let service = try seededService()
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO timeline_item (
+                        id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                        granularity_level, playlist_position, is_enabled, epub_block_id
+                    ) VALUES
+                    ('t-h1-disabled-stale', 'book', 'textSegment', 'Stale Chapter 1', 1, 2, 1, 1, 0, 'h1'),
+                    ('t-h1-enabled-later', 'book', 'textSegment', 'Later Chapter 1', 20, 120, 1, 20, 1, 'h1')
+                    """
+            )
+        }
+        let generator = StudyPlanGenerator(db: service.writer, fileExists: { _ in true })
+
+        let preview = try generator.preview(
+            audiobookID: "book",
+            bookTitle: "Study Book",
+            includeImages: false
+        )
+        let first = try #require(preview.candidates.first)
+
+        #expect(preview.candidates.map(\.sourceBlockID) == ["h1", "h2"])
+        #expect(first.mediaTimestamp == 10)
+        #expect(first.endTimestamp == 100)
+        #expect(first.playlistPosition == 10)
+    }
+
     private func seededService() throws -> DatabaseService {
         let service = try DatabaseService(inMemory: ())
         try service.write { db in

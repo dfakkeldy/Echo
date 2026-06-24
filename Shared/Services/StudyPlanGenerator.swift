@@ -19,6 +19,26 @@ struct StudyPlanGenerator {
             try Row.fetchAll(
                 db,
                 sql: """
+                    WITH ranked_timeline AS (
+                        SELECT
+                            ti.audiobook_id,
+                            ti.epub_block_id,
+                            ti.audio_start_time,
+                            ti.audio_end_time,
+                            ti.playlist_position,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY ti.audiobook_id, ti.epub_block_id
+                                ORDER BY
+                                    ti.is_enabled DESC,
+                                    CASE WHEN ti.playlist_position IS NULL THEN 1 ELSE 0 END,
+                                    ti.playlist_position,
+                                    ti.audio_start_time,
+                                    ti.id
+                            ) AS timeline_rank
+                        FROM timeline_item ti
+                        WHERE ti.audiobook_id = ?
+                          AND ti.epub_block_id IS NOT NULL
+                    )
                     SELECT
                         eb.id,
                         eb.block_kind,
@@ -30,9 +50,10 @@ struct StudyPlanGenerator {
                         ti.audio_end_time,
                         ti.playlist_position
                     FROM epub_block eb
-                    LEFT JOIN timeline_item ti
+                    LEFT JOIN ranked_timeline ti
                       ON ti.epub_block_id = eb.id
                      AND ti.audiobook_id = eb.audiobook_id
+                     AND ti.timeline_rank = 1
                     WHERE eb.audiobook_id = ?
                       AND eb.is_front_matter = 0
                       AND eb.is_hidden = 0
@@ -40,9 +61,9 @@ struct StudyPlanGenerator {
                         eb.block_kind = 'heading'
                         OR (? = 1 AND eb.block_kind = 'image')
                       )
-                    ORDER BY eb.sequence_index
+                    ORDER BY eb.sequence_index, eb.id
                     """,
-                arguments: [audiobookID, includeImages ? 1 : 0]
+                arguments: [audiobookID, audiobookID, includeImages ? 1 : 0]
             )
         }
 
