@@ -112,7 +112,7 @@ import Testing
     }
 }
 
-private enum StudyQueueFixtures {
+enum StudyQueueFixtures {
     static let mondayNoon = Date(timeIntervalSince1970: 1_782_129_600)
     static let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -200,12 +200,33 @@ private enum StudyQueueFixtures {
         return service
     }
 
+    static func serviceWithDueCard() throws -> DatabaseService {
+        let service = try DatabaseService(inMemory: ())
+        try seedBook(id: "book-a", title: "Book A", in: service)
+        try seedDueCard(
+            id: "due-card",
+            audiobookID: "book-a",
+            frontText: "Due Review",
+            nextReviewDate: mondayNoon.addingTimeInterval(-3_600),
+            isEnabled: true,
+            repetitions: 0,
+            lastReviewedAt: nil,
+            lastGrade: nil,
+            in: service
+        )
+
+        return service
+    }
+
     static func seedDueCard(
         id: String,
         audiobookID: String,
         frontText: String,
         nextReviewDate: Date,
         isEnabled: Bool,
+        repetitions: Int = 1,
+        lastReviewedAt: String? = nil,
+        lastGrade: Int? = 3,
         in service: DatabaseService
     ) throws {
         let stamp = mondayNoon.ISO8601Format()
@@ -221,9 +242,9 @@ private enum StudyQueueFixtures {
                 nextReviewDate: nextReviewDate.ISO8601Format(),
                 intervalDays: 1,
                 easeFactor: 2.5,
-                repetitions: 1,
-                lastReviewedAt: mondayNoon.addingTimeInterval(-172_800).ISO8601Format(),
-                lastGrade: 3,
+                repetitions: repetitions,
+                lastReviewedAt: lastReviewedAt,
+                lastGrade: lastGrade,
                 isEnabled: isEnabled,
                 deckID: nil,
                 tags: nil,
