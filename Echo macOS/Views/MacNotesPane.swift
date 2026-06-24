@@ -2,11 +2,11 @@
 import SwiftUI
 import GRDB
 
-/// Right pane — transcript + notes in a vertical split view.
+/// Right pane — transcript + study tools in a vertical split view.
 ///
 /// The top half shows the existing `TranscriptPane` for live transcription
-/// segments. The bottom half lists per-book notes (Brain Dump style) with
-/// inline editing, timestamp display, and create/delete support.
+/// segments. The bottom half keeps review bookmarks and per-book notes together
+/// so the macOS workflow mirrors the iOS listening/review loop.
 struct MacNotesPane: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
@@ -16,6 +16,7 @@ struct MacNotesPane: View {
     @State private var notes: [NoteRecord] = []
     @State private var newNoteText = ""
     @State private var isCreatingNote = false
+    @State private var selectedStudyTab: MacStudyTab = .review
 
     var body: some View {
         VSplitView {
@@ -23,27 +24,13 @@ struct MacNotesPane: View {
             TranscriptPane(searchText: $searchText)
                 .frame(minHeight: 150, idealHeight: 300)
 
-            // Bottom: Notes list
-            VStack(spacing: 0) {
-                notesHeader
-
-                Divider()
-
-                if notes.isEmpty && !isCreatingNote {
-                    Spacer()
-                    ContentUnavailableView(
-                        "No Notes",
-                        systemImage: "note.text",
-                        description: Text("Press ⌘N or tap below to add a note.")
-                    )
-                    Spacer()
-                } else {
-                    notesList
+            TabView(selection: $selectedStudyTab) {
+                Tab("Review", systemImage: "bookmark", value: MacStudyTab.review) {
+                    MacBookmarkReviewView()
                 }
 
-                if isCreatingNote {
-                    Divider()
-                    newNoteField
+                Tab("Notes", systemImage: "note.text", value: MacStudyTab.notes) {
+                    notesPane
                 }
             }
             .frame(minHeight: 100, idealHeight: 200)
@@ -56,6 +43,7 @@ struct MacNotesPane: View {
             Task { await loadNotes() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestNewNote)) { _ in
+            selectedStudyTab = .notes
             isCreatingNote = true
             newNoteText = ""
         }
@@ -66,6 +54,36 @@ struct MacNotesPane: View {
     }
 
     // MARK: - Notes Header
+
+    private enum MacStudyTab: Hashable {
+        case review
+        case notes
+    }
+
+    private var notesPane: some View {
+        VStack(spacing: 0) {
+            notesHeader
+
+            Divider()
+
+            if notes.isEmpty && !isCreatingNote {
+                Spacer()
+                ContentUnavailableView(
+                    "No Notes",
+                    systemImage: "note.text",
+                    description: Text("Press ⌘N or tap below to add a note.")
+                )
+                Spacer()
+            } else {
+                notesList
+            }
+
+            if isCreatingNote {
+                Divider()
+                newNoteField
+            }
+        }
+    }
 
     private var notesHeader: some View {
         HStack {

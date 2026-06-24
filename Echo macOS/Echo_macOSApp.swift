@@ -116,7 +116,7 @@ struct Echo_macOSApp: App {
             }
 
             CommandMenu("View") {
-                Button("Toggle Notes Pane") {
+                Button("Toggle Review Pane") {
                     NotificationCenter.default.post(name: .requestToggleDetailPane, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command])
@@ -381,7 +381,7 @@ extension Notification.Name {
     static let requestNewNote = Notification.Name("com.echo.requestNewNote")
     /// Posted when the user presses "Find in Book".
     static let requestFocusSearch = Notification.Name("com.echo.requestFocusSearch")
-    /// Posted when the user presses "Toggle Notes Pane".
+    /// Posted when the user presses "Toggle Review Pane".
     static let requestToggleDetailPane = Notification.Name("com.echo.requestToggleDetailPane")
     /// Posted when the user presses "Export Transcript".
     static let requestExportTranscript = Notification.Name("com.echo.requestExportTranscript")

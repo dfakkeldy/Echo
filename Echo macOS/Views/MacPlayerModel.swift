@@ -684,19 +684,20 @@ final class MacPlayerModel {
             bookmarkStore.bookmarks.indices.contains(idx) ? bookmarkStore.bookmarks[idx] : nil
         }
         for bm in toDelete {
-            bookmarkStore.deleteBookmark(id: bm.id)
+            bookmarkStore.deleteBookmark(id: bm.id, folderURL: folderURL)
         }
     }
 
     func deleteBookmark(_ bookmark: Bookmark) {
-        bookmarkStore.deleteBookmark(id: bookmark.id)
+        bookmarkStore.deleteBookmark(id: bookmark.id, folderURL: folderURL)
     }
 
     func updateBookmark(_ bookmark: Bookmark) {
         bookmarkStore.updateBookmark(
             id: bookmark.id, title: bookmark.title,
             timestamp: bookmark.timestamp, note: bookmark.note,
-            voiceMemoFileName: bookmark.voiceMemoFileName)
+            voiceMemoFileName: bookmark.voiceMemoFileName,
+            bookmarkImageFileName: bookmark.bookmarkImageFileName)
     }
 
     /// Seeks playback to the given bookmark's timestamp. If the bookmark
