@@ -21,7 +21,9 @@ struct StudyPlanSheet: View {
                 }
             }
             .navigationTitle("Study Plan")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

@@ -23,7 +23,9 @@ struct StudySessionView: View {
                 }
             }
             .navigationTitle("Study")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -80,6 +82,13 @@ private struct StudySessionCardView: View {
                 onGrade: { viewModel.gradeCurrent($0) }
             )
         } else {
+            #if os(macOS)
+            StudyInlineReviewCard(
+                frontText: entry.flashcard.frontText,
+                backText: entry.flashcard.backText,
+                onGrade: { viewModel.gradeCurrent($0) }
+            )
+            #else
             FlashcardReviewCard(
                 frontText: entry.flashcard.frontText,
                 backText: entry.flashcard.backText,
@@ -89,6 +98,61 @@ private struct StudySessionCardView: View {
                     }
                 }
             )
+            #endif
+        }
+    }
+}
+
+private struct StudyInlineReviewCard: View {
+    let frontText: String
+    let backText: String
+    let onGrade: (ReviewGrade) -> Void
+
+    @State private var isRevealed = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isRevealed.toggle()
+                }
+            } label: {
+                Text(isRevealed ? backText : frontText)
+                    .font(isRevealed ? .body : .headline)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, minHeight: 140)
+                    .padding(20)
+                    .background(
+                        isRevealed ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.08),
+                        in: .rect(cornerRadius: 12)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(isRevealed ? "Answer" : "Question"))
+            .accessibilityValue(Text(isRevealed ? backText : frontText))
+            .accessibilityHint(Text(isRevealed ? "Press to show question" : "Press to reveal answer"))
+
+            if isRevealed {
+                StudyInlineReviewGradeButtons(onGrade: onGrade)
+            }
+        }
+        .padding(16)
+    }
+}
+
+private struct StudyInlineReviewGradeButtons: View {
+    let onGrade: (ReviewGrade) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(ReviewGrade.allCases, id: \.self) { grade in
+                Button(grade.label) {
+                    onGrade(grade)
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+            }
         }
     }
 }
