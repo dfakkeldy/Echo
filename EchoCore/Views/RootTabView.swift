@@ -65,9 +65,7 @@ struct RootTabView: View {
                             showsBookSettings: model.folderURL != nil,
                             openFolder: { showingFolderPicker = true },
                             showHelp: { model.showingHelp = true },
-                            showBookSettings: { showingBookSettings = true },
-                            showSettings: { showingSettings = true },
-                            onCreateBookmark: { draft in newBookmarkDraft = draft }
+                            showBookSettings: { showingBookSettings = true }
                         )
                         .toolbarVisibility(.hidden, for: .navigationBar)
                         .navigationDestination(for: NavigationDestination.self) { dest in
@@ -115,9 +113,9 @@ struct RootTabView: View {
                     ? { showingExport = true } : nil
             )
 
-            // UnifiedBottomDock is only overlaid on non-NowPlaying views.
-            // In NowPlayingTab, it is placed at the bottom of the VStack.
-            if model.selectedTab != .nowPlaying && !model.isPlayingVoiceMemo {
+            // The bottom deck is root-owned so Now Playing and Reader share the
+            // exact same bottom edge during tab transitions.
+            if !model.isPlayingVoiceMemo {
                 VStack {
                     Spacer()
                     UnifiedBottomDock(
@@ -130,7 +128,9 @@ struct RootTabView: View {
                         onShowBookmarks: { model.selectedTab = .read },
                         onShowSettings: { showingSettings = true }
                     )
+                    .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
+                .ignoresSafeArea(.container, edges: .bottom)
             }
         }
         // NOTE: the player/background layers ignore the safe area themselves

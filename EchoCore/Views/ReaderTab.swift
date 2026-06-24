@@ -33,6 +33,10 @@ struct ReaderTab: View {
     @State private var memoRecorder = VoiceMemoRecorder(
         destinationDirectory: FileLocations.applicationSupportDirectory
             .appendingPathComponent("voice-memos-tmp", isDirectory: true))
+    @State private var isComposingReaderNote = false
+    @State private var readerNoteText = ""
+    @State private var composingNoteBlockID: String?
+    @State private var recordingMemoBlockID: String?
 
     /// Coalesces per-chapter `.timelineItemsIngested` posts during a narration
     /// render into a single trailing `reload()` (reload re-reads the whole book on
@@ -51,37 +55,68 @@ struct ReaderTab: View {
 
     @ViewBuilder
     private var topChapterHeaderView: some View {
-        VStack(spacing: 4) {
-            if let part = topPartTitle, !part.isEmpty {
-                Text(part)
+        HStack(spacing: 0) {
+            Button {
+                model.previousSectionOrRestart()
+                Haptic.play(.light)
+            } label: {
+                Image(systemName: "chevron.left")
                     .font(.headline)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-            }
-            if let title = topChapterTitle, !title.isEmpty {
-                let isTop = topPartTitle?.isEmpty ?? true
-                Text(title)
-                    .font(isTop ? .headline : .subheadline)
-                    .foregroundStyle(isTop ? .primary : .secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.top, isTop ? 8 : 0)
-            }
-            if let section = topSectionTitle, !section.isEmpty {
-                Text(section)
-                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-            } else {
-                Spacer().frame(height: 4)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(model.tracks.isEmpty)
+            .accessibilityLabel(Text("Previous section"))
+
+            VStack(spacing: 4) {
+                if let part = topPartTitle, !part.isEmpty {
+                    Text(part)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                }
+                if let title = topChapterTitle, !title.isEmpty {
+                    let isTop = topPartTitle?.isEmpty ?? true
+                    Text(title)
+                        .font(isTop ? .headline : .subheadline)
+                        .foregroundStyle(isTop ? .primary : .secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                        .padding(.top, isTop ? 8 : 0)
+                }
+                if let section = topSectionTitle, !section.isEmpty {
+                    Text(section)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
+                } else {
+                    Spacer().frame(height: 4)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Button {
+                model.nextSection()
+                Haptic.play(.light)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.tracks.isEmpty)
+            .accessibilityLabel(Text("Next section"))
         }
         // Audit D2: the header floats in the same tonal world as the rest of
         // the app — chapter theme color when set, else the cover accent.
@@ -206,10 +241,12 @@ struct ReaderTab: View {
     /// Hosted via `.safeAreaInset` so the collection reserves exactly this view's
     /// measured height — replacing the old hard-coded `topInset: 110`.
     @ViewBuilder
-    private var readerHeaderOverlay: some View {
+    private func readerHeaderOverlay(vm: ReaderFeedViewModel) -> some View {
         VStack(spacing: 0) {
             if isHeaderVisible {
                 localUtilitiesRow
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                filterBar(vm)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
@@ -251,35 +288,14 @@ struct ReaderTab: View {
                 // header tucks under the glass — hence `rowOneHeight`, not a
                 // hard-coded constant that goes stale when the chips resize.
                 VStack(spacing: 0) {
-                    filterBar(vm)
                     if let recap = vm.recap {
                         recapCard(recap)
                             .padding(.bottom, 8)
                     }
                     feedCollectionView
-                        .overlay(alignment: .bottom) {
-                            FeedCaptureBar(
-                                anchorBlockID: vm.activeBlockID,
-                                onAddNote: { text, blockID in
-                                    vm.addNote(text: text, atBlockID: blockID)
-                                },
-                                onStartRecording: {
-                                    try? memoRecorder.start()
-                                },
-                                onStopRecording: { blockID in
-                                    if let result = memoRecorder.stop() {
-                                        vm.addVoiceMemo(
-                                            fileURL: result.url,
-                                            duration: result.duration,
-                                            atBlockID: blockID)
-                                    }
-                                }
-                            )
-                            .padding(.bottom, 12)
-                        }
                 }
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    readerHeaderOverlay
+                    readerHeaderOverlay(vm: vm)
                 }
                 .safeAreaInset(edge: .top, spacing: 0) {
                     Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
@@ -327,6 +343,9 @@ struct ReaderTab: View {
         }
         .onChange(of: model.epubSearchText) { _, newValue in
             viewModel?.searchQuery = newValue.isEmpty ? nil : newValue
+        }
+        .onChange(of: viewModel?.activeBlockID) { _, newValue in
+            model.readerCaptureAnchorBlockID = newValue
         }
         .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
             autoScrollEnabled = true
@@ -385,6 +404,13 @@ struct ReaderTab: View {
                         }
                     }
             }
+        }
+        .sheet(isPresented: $isComposingReaderNote) {
+            ReaderNoteComposerSheet(
+                text: $readerNoteText,
+                onCancel: cancelReaderNote,
+                onSave: saveReaderNote
+            )
         }
         .sheet(isPresented: $model.showReaderTOC) {
             if let vm = viewModel {
@@ -484,6 +510,7 @@ struct ReaderTab: View {
         }
         .onDisappear {
             viewModel?.autoAlignmentTask?.cancel()
+            clearReaderCaptureActions()
         }
         .background(Color.clear)
     }
@@ -677,6 +704,7 @@ struct ReaderTab: View {
         // Check if alignment is entirely auto-estimated (no user-created anchors yet).
         // Only show the alignment banner after the one-time context-menu hint has been dismissed.
         showAlignmentBanner = !vm.hasUserAlignmentAnchors(audiobookID: audiobookID)
+        configureReaderCaptureActions()
     }
 
     /// Tapping a paragraph card seeks to it AND starts playing (the user wants to
@@ -694,6 +722,7 @@ struct ReaderTab: View {
             Haptic.play(.light)  // un-narrated / un-aligned block — acknowledge the tap
         }
         viewModel?.activeBlockID = blockID  // highlight + scroll the tapped card either way
+        model.readerCaptureAnchorBlockID = blockID
     }
 
     /// Seek-only (no auto-play) — used by TOC navigation, which should jump without
@@ -714,6 +743,88 @@ struct ReaderTab: View {
         // Immediately set the active block ID so the UI scrolls to it
         // even if the block doesn't have an audio timestamp yet.
         viewModel?.activeBlockID = blockID
+        model.readerCaptureAnchorBlockID = blockID
+    }
+
+    private func configureReaderCaptureActions() {
+        model.readerCaptureAnchorBlockID = viewModel?.activeBlockID
+        model.readerAddNoteAction = { beginReaderNote() }
+        model.readerToggleVoiceMemoAction = { toggleReaderVoiceMemo() }
+    }
+
+    private func clearReaderCaptureActions() {
+        cancelReaderMemoIfNeeded()
+        model.readerCaptureAnchorBlockID = nil
+        model.readerAddNoteAction = nil
+        model.readerToggleVoiceMemoAction = nil
+    }
+
+    private func currentReaderCaptureBlockID() -> String? {
+        viewModel?.activeBlockID ?? model.readerCaptureAnchorBlockID
+    }
+
+    private func beginReaderNote() {
+        guard let blockID = currentReaderCaptureBlockID() else { return }
+        composingNoteBlockID = blockID
+        readerNoteText = ""
+        isComposingReaderNote = true
+    }
+
+    private func cancelReaderNote() {
+        readerNoteText = ""
+        composingNoteBlockID = nil
+        isComposingReaderNote = false
+    }
+
+    private func saveReaderNote() {
+        let text = readerNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let blockID = composingNoteBlockID, !text.isEmpty else {
+            cancelReaderNote()
+            return
+        }
+        viewModel?.addNote(text: text, atBlockID: blockID)
+        cancelReaderNote()
+    }
+
+    private func toggleReaderVoiceMemo() {
+        if model.isReaderVoiceMemoRecording {
+            stopReaderMemo()
+        } else {
+            startReaderMemo()
+        }
+    }
+
+    private func startReaderMemo() {
+        guard let blockID = currentReaderCaptureBlockID() else { return }
+        do {
+            try memoRecorder.start()
+            recordingMemoBlockID = blockID
+            model.readerCaptureAnchorBlockID = blockID
+            model.isReaderVoiceMemoRecording = true
+        } catch {
+            recordingMemoBlockID = nil
+            model.isReaderVoiceMemoRecording = false
+            logger.error("Failed to start reader memo: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func stopReaderMemo() {
+        defer {
+            recordingMemoBlockID = nil
+            model.isReaderVoiceMemoRecording = false
+        }
+        guard let result = memoRecorder.stop(),
+            let blockID = recordingMemoBlockID ?? currentReaderCaptureBlockID()
+        else { return }
+        viewModel?.addVoiceMemo(fileURL: result.url, duration: result.duration, atBlockID: blockID)
+    }
+
+    private func cancelReaderMemoIfNeeded() {
+        if memoRecorder.isRecording {
+            memoRecorder.cancel()
+        }
+        recordingMemoBlockID = nil
+        model.isReaderVoiceMemoRecording = false
     }
 
     /// Renders a compact instructional banner.
@@ -835,6 +946,34 @@ struct ReaderTab: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+}
+
+private struct ReaderNoteComposerSheet: View {
+    @Binding var text: String
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    private var canSave: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $text)
+                .padding()
+                .navigationTitle("New Note")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", action: onCancel)
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save", action: onSave)
+                            .disabled(!canSave)
+                    }
+                }
+        }
     }
 }
 

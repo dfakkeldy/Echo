@@ -93,6 +93,10 @@ final class PlayerModel {
     var showReaderSettings: Bool = false
     var showReaderTOC: Bool = false
     var epubScrollToActiveTrigger: Int = 0
+    var readerCaptureAnchorBlockID: String?
+    var isReaderVoiceMemoRecording: Bool = false
+    @ObservationIgnored var readerAddNoteAction: (@MainActor () -> Void)?
+    @ObservationIgnored var readerToggleVoiceMemoAction: (@MainActor () -> Void)?
 
     var showChapters: Bool = true
     var showBookmarks: Bool = true
@@ -102,6 +106,9 @@ final class PlayerModel {
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
     var bottomInset: CGFloat {
+        if selectedTab == .nowPlaying && folderURL != nil && !tracks.isEmpty {
+            return 230.0
+        }
         if folderURL != nil && !tracks.isEmpty {
             return 170.0
         } else {
