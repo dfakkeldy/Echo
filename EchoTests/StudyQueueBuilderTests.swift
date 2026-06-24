@@ -57,6 +57,31 @@ import Testing
         #expect(newCards == ["Book A Chapter 1", "Book B Chapter 1"])
     }
 
+    @Test func bookByBookKeepsInProgressAndNewAssignmentsTogetherPerPlan() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        let builder = StudyQueueBuilder(db: service.writer)
+
+        let queue = try builder.build(
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar,
+            modeOverride: .bookByBook
+        )
+        let assignments = queue.entries.filter { $0.category != .dueReview }
+
+        #expect(assignments.map(\.category) == [
+            .inProgressAssignment,
+            .newAssignment,
+            .inProgressAssignment,
+            .newAssignment,
+        ])
+        #expect(assignments.map(\.flashcard.frontText) == [
+            "Book A Chapter 1",
+            "Book A Chapter 2",
+            "Book B Chapter 1",
+            "Book B Chapter 2",
+        ])
+    }
+
     @Test func dueReviewsExcludeDisabledAndUnscheduledCards() throws {
         let service = try StudyQueueFixtures.serviceWithPlan()
         try StudyQueueFixtures.seedDueCard(
@@ -137,6 +162,24 @@ private enum StudyQueueFixtures {
         _ = try StudyPlanDAO(db: service.writer).createPlan(
             makeRequest(audiobookID: "book-b", bookTitle: "Book B", chapterLimit: 1)
         )
+
+        return service
+    }
+
+    static func serviceWithTwoPlansIncludingProgress() throws -> DatabaseService {
+        let service = try DatabaseService(inMemory: ())
+        try seedBook(id: "book-a", title: "Book A", in: service)
+        try seedBook(id: "book-b", title: "Book B", in: service)
+
+        let bookA = try StudyPlanDAO(db: service.writer).createPlan(
+            makeRequest(audiobookID: "book-a", bookTitle: "Book A", chapterLimit: 1)
+        )
+        let bookB = try StudyPlanDAO(db: service.writer).createPlan(
+            makeRequest(audiobookID: "book-b", bookTitle: "Book B", chapterLimit: 1)
+        )
+
+        try markIntroduced(bookA.createdItems[0], at: mondayNoon.addingTimeInterval(-86_400), in: service)
+        try markIntroduced(bookB.createdItems[0], at: mondayNoon.addingTimeInterval(-86_400), in: service)
 
         return service
     }

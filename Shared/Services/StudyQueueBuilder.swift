@@ -187,10 +187,6 @@ struct StudyQueueBuilder {
         planOrder: [String: Int]
     ) -> [StudyQueueEntry] {
         entries.sorted { left, right in
-            if left.category != right.category {
-                return left.category.rawValue < right.category.rawValue
-            }
-
             switch mode {
             case .bookByBook:
                 let leftPlanOrder = left.plan.map { planOrder[$0.id] ?? Int.max } ?? Int.max
@@ -198,9 +194,15 @@ struct StudyQueueBuilder {
                 if leftPlanOrder != rightPlanOrder {
                     return leftPlanOrder < rightPlanOrder
                 }
+                if left.category != right.category {
+                    return left.category.rawValue < right.category.rawValue
+                }
                 return (left.item?.ordinal ?? 0) < (right.item?.ordinal ?? 0)
 
             case .mixed:
+                if left.category != right.category {
+                    return left.category.rawValue < right.category.rawValue
+                }
                 let leftOrdinal = left.item?.ordinal ?? 0
                 let rightOrdinal = right.item?.ordinal ?? 0
                 if leftOrdinal != rightOrdinal {
