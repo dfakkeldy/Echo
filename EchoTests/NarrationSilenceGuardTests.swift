@@ -101,47 +101,33 @@ import Testing
         #expect(await stub.calls.count == 1)
     }
 
-    @Test func recoversZeroByPerturbedRetry() async throws {
-        // Zero on the first call, real audio on the (perturbed) retry → recovered,
-        // no split. The retry text is the same word plus a trailing space.
-        let stub = RunStub { _, callIndex in callIndex == 0 ? Self.zeros() : Self.tone() }
-        let out = try await NarrationSilenceGuard.synthesize("hello world") { await stub.run($0) }
-        #expect(!NarrationSilenceGuard.isEffectivelySilent(out))
-        let calls = await stub.calls
-        #expect(calls.count == 2)
-        #expect(calls[1].trimmingCharacters(in: .whitespaces) == "hello world")  // perturbed, not split
-    }
-
-    @Test func recoversShortUnsplittableWordByPerturbing() async throws {
-        // A short word with no interior space can't be split — the deterministic
-        // engine would reproduce the zero forever. The perturbed retry ("Git ")
-        // changes the input so it can recover. This is the gap the perturbation closes.
-        let stub = RunStub { text, _ in text == "Git" ? Self.zeros() : Self.tone() }
-        let out = try await NarrationSilenceGuard.synthesize("Git") { await stub.run($0) }
-        #expect(!NarrationSilenceGuard.isEffectivelySilent(out))
-        #expect(await stub.calls.count == 2)
-    }
-
-    @Test func recoversLongInputZeroBySplitting() async throws {
-        // The full string and its perturbations always zero (length > 18); only a
-        // shorter fragment is fine → the guard must split and concatenate the halves.
+    @Test func silentSplittableSplitsWithoutPerturbing() async throws {
+        // A long input that is silent as a whole but fine in smaller pieces. The guard
+        // must go STRAIGHT to splitting: a trailing-space text perturbation can't help
+        // because the G2P trims trailing whitespace before tokenizing
+        // (EnglishG2P.preprocess), so a perturbed retry feeds identical token ids and a
+        // deterministic engine reproduces the same zero. Expect exactly three runs —
+        // the full string, then the two halves — and never a whitespace-padded variant
+        // of the input.
         let full = "the quick brown fox jumps over"
         let stub = RunStub { text, _ in text.count > 18 ? Self.zeros() : Self.tone() }
         let out = try await NarrationSilenceGuard.synthesize(full) { await stub.run($0) }
         #expect(!NarrationSilenceGuard.isEffectivelySilent(out))
-        #expect(out.count == 200)  // two non-silent halves concatenated (perturbation alone → 100)
-        #expect(await stub.calls.contains { $0.count <= 18 })  // it actually split
+        #expect(out.count == 200)  // two non-silent halves concatenated
+        let calls = await stub.calls
+        #expect(calls.count == 3)  // full + 2 halves — no wasted perturbation runs
+        #expect(calls.allSatisfy { $0 == $0.trimmingCharacters(in: .whitespaces) })
     }
 
-    @Test func terminatesWhenAlwaysSilentAndUnsplittable() async throws {
-        // Pathological: every call is silent and the text can't be split. Must
-        // return (silent) in bounded calls, never loop forever.
+    @Test func silentUnsplittableIsAcceptedInOneCall() async throws {
+        // A short, spaceless fragment that always comes back silent can't be split and
+        // can't be recovered by a trailing-space perturbation (trimmed before
+        // tokenization). The guard must accept it after EXACTLY ONE run rather than
+        // burning extra deterministic runs that cannot change the output.
         let stub = RunStub { _, _ in Self.zeros() }
-        let out = try await NarrationSilenceGuard.synthesize("hi", maxRetries: 2) {
-            await stub.run($0)
-        }
+        let out = try await NarrationSilenceGuard.synthesize("hi") { await stub.run($0) }
         #expect(NarrationSilenceGuard.isEffectivelySilent(out))
-        #expect(await stub.calls.count == 3)  // initial + 2 retries, then give up
+        #expect(await stub.calls.count == 1)
     }
 
     // MARK: - Speed nudge

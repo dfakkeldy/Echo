@@ -4,8 +4,8 @@
     import OnnxRuntimeBindings  // SPM module of the "onnxruntime" product
     import os.log
 
-    /// Spike engine: Kokoro narration via **ONNX Runtime (CPU)** instead of the
-    /// fixed-shape CoreML pipeline.
+    /// Kokoro narration via **ONNX Runtime (CPU)** — the default on-device engine
+    /// (it replaced the fixed-shape CoreML pipeline).
     ///
     /// Why this exists: the CoreML path AOT-compiles its model graphs on-device on
     /// first run (~20 min on an A14 — the LSTM duration predictor is O(n²) to
@@ -73,9 +73,14 @@
         /// narration cache, parallel to the CoreML `kokoro-fixed-v5` set.
         private static let modelSubdir = "Models/kokoro-onnx-v6"
         private static let modelFileName = "model_fp16.onnx"
+        /// Immutable commit pin for onnx-community/Kokoro-82M-v1.0-ONNX. Pinning a
+        /// revision (not the moving `main` ref) means a future upstream re-upload can't
+        /// silently change the model behind renderVersion 6. Validated at pin time:
+        /// 163_234_740 B · sha256 ba4527a8…35c334a (onnx/model_fp16.onnx).
+        private static let modelRevision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
         private static let hfModelURL = URL(
             string:
-                "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model_fp16.onnx"
+                "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/\(modelRevision)/onnx/model_fp16.onnx"
         )!
 
         nonisolated static func modelDirectory() -> URL {
@@ -83,6 +88,28 @@
         }
         nonisolated static func modelURL() -> URL {
             modelDirectory().appendingPathComponent(modelFileName)
+        }
+
+        /// Exact LFS byte length of `model_fp16.onnx` at the pinned revision. A pinned,
+        /// content-addressed download is either exactly this size or corrupt/truncated,
+        /// so an exact-size match is a cheap, sufficient integrity check.
+        nonisolated static let expectedModelBytes = 163_234_740
+
+        /// Test seam: the immutable remote model URL, so a unit test can assert it is
+        /// pinned to a commit revision rather than the moving `main` branch ref.
+        nonisolated static var remoteModelURLForTesting: URL { hfModelURL }
+
+        /// True iff a file exists at `url` whose byte length is exactly `expectedBytes`.
+        /// A pinned, content-addressed download is either exactly this size or corrupt/
+        /// truncated, so an exact-size match is a cheap, sufficient integrity check that
+        /// also self-heals an interrupted prior download (wrong size ⇒ re-fetch). Cheap:
+        /// a single stat, no hashing.
+        nonisolated static func fileHasExpectedSize(at url: URL, expectedBytes: Int) -> Bool {
+            guard
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                let size = attrs[.size] as? Int
+            else { return false }
+            return size == expectedBytes
         }
 
         // MARK: - TTSEngine
@@ -260,24 +287,70 @@
             }
         }
 
-        /// Returns the local model URL, downloading the single `.onnx` once if
-        /// absent. A USB-sideloaded model short-circuits the download (file exists).
+        /// Returns the local model URL, downloading the single `.onnx` once if absent.
+        /// An on-disk file (including a USB-sideloaded one) short-circuits the download
+        /// only when its byte length matches the pinned model exactly — a truncated,
+        /// partial, or stale file is discarded and re-fetched. A fresh download streams
+        /// to a temp file with byte-level progress, and is size-validated before its
+        /// path is handed to ORT (which would otherwise fail later with an opaque
+        /// session-create error).
         private static func ensureModel(progress: @Sendable (Double) -> Void) async throws -> URL {
             let dest = modelURL()
             let fm = FileManager.default
             if fm.fileExists(atPath: dest.path) {
-                progress(1.0)
-                return dest
+                if fileHasExpectedSize(at: dest, expectedBytes: expectedModelBytes) {
+                    progress(1.0)
+                    return dest
+                }
+                try? fm.removeItem(at: dest)  // corrupt / partial / stale — re-fetch
             }
             try? fm.createDirectory(at: modelDirectory(), withIntermediateDirectories: true)
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForResource = 3_600
-            let (tempURL, response) = try await URLSession(configuration: config).download(
+            let (byteStream, response) = try await URLSession(configuration: config).bytes(
                 from: hfModelURL)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                throw NarrationError.modelDownloadFailed(name: modelFileName, underlying: nil)
+            }
+
+            // Stream the body to a temp file in 64 KB chunks — so the 163 MB model never
+            // sits in memory — reporting progress against the known pinned size. The
+            // `progress` closure is called inline (never stored), so this needs no
+            // escaping closure; the per-byte loop overhead is hidden behind network I/O.
+            let tempURL = modelDirectory().appendingPathComponent("\(modelFileName).download")
+            try? fm.removeItem(at: tempURL)
+            fm.createFile(atPath: tempURL.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: tempURL)
+            let total = Double(expectedModelBytes)
+            var received = 0
+            var chunk = [UInt8]()
+            chunk.reserveCapacity(1 << 16)
+            do {
+                for try await byte in byteStream {
+                    chunk.append(byte)
+                    if chunk.count == (1 << 16) {
+                        try handle.write(contentsOf: Data(chunk))
+                        received += chunk.count
+                        chunk.removeAll(keepingCapacity: true)
+                        progress(min(1.0, Double(received) / total))
+                    }
+                }
+                if !chunk.isEmpty {
+                    try handle.write(contentsOf: Data(chunk))
+                    received += chunk.count
+                }
+                try handle.close()
+            } catch {
+                try? handle.close()
+                try? fm.removeItem(at: tempURL)
+                throw NarrationError.modelDownloadFailed(name: modelFileName, underlying: error)
+            }
+
+            guard fileHasExpectedSize(at: tempURL, expectedBytes: expectedModelBytes) else {
                 try? fm.removeItem(at: tempURL)
                 throw NarrationError.modelDownloadFailed(name: modelFileName, underlying: nil)
             }
+            try? fm.removeItem(at: dest)  // clear any stale file before the atomic move
             try fm.moveItem(at: tempURL, to: dest)
             progress(1.0)
             return dest

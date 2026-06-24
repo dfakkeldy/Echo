@@ -7,16 +7,21 @@ import Foundation
 /// runs clustering 2–3 in a row into multi-second gaps). The model's own RTF logs
 /// look normal because the sample *count* is right; only the *values* are zero.
 ///
-/// Strategy, in order:
-///   1. Re-run with a slightly perturbed input — a trailing space, then two. The
-///      ONNX Runtime CPU EP is deterministic, so re-running the *identical* string
-///      reproduces the same zero; appending whitespace changes the token ids (a
-///      harmless tiny gap at the chunk tail) so an input-specific zero can recover
-///      even when the fragment is too short to split.
-///   2. If still silent, split the text at a word boundary and synthesize each
-///      half (recovers a zero specific to a longer input string).
+/// Strategy, in order of increasing prosody cost:
+///   1. A small speed nudge over the whole fragment — `speed` is a separate model
+///      input (not text), so re-running at a slightly different speed can dodge an
+///      input-specific zero while keeping the fragment as ONE utterance (no seam).
+///      The caller wraps `run` with `synthesizeWithSpeedNudge` to sweep speeds.
+///   2. If every speed is still silent, split the text at a word boundary and
+///      synthesize each half — a genuinely different input string can recover a
+///      zero specific to a longer input.
 ///   3. If a fragment is too short to split and still silent, accept it rather than
 ///      loop forever (bounded — better a tiny gap than a hang).
+///
+/// A trailing-space text perturbation is deliberately NOT used: the G2P trims
+/// whitespace before tokenizing (EnglishG2P.preprocess), so a padded retry feeds
+/// identical token ids and a deterministic engine reproduces the same zero — wasted
+/// runs that change nothing.
 ///
 /// Pure and deterministic given `run`; `OnnxKokoroEngine` injects the real
 /// encode-and-run closure, tests inject a stub. Empty output is treated as a
@@ -122,39 +127,33 @@ enum NarrationSilenceGuard {
     /// Synthesizes `text` via `run`, guarding against silent (all-zero) output.
     /// - Parameters:
     ///   - run: synthesizes one text fragment into PCM samples (empty == nothing).
+    ///     The caller is expected to apply the speed nudge inside `run` (see
+    ///     `synthesizeWithSpeedNudge`); this routine handles only the split/accept
+    ///     escalation for a fragment that stays silent at every speed.
     /// - Returns: non-silent samples when recoverable; the concatenation of
     ///   re-synthesized halves; or, as a last resort, the final (possibly silent)
     ///   attempt for an unsplittable fragment.
     static func synthesize(
         _ text: String,
         floor: Float = defaultSilenceFloor,
-        maxRetries: Int = 2,
         minSplitLength: Int = 16,
         run: (String) async throws -> [Float]
     ) async throws -> [Float] {
-        var samples = try await run(text)
+        let samples = try await run(text)
         if !isEffectivelySilent(samples, floor: floor) { return samples }
 
-        // Perturb the input on each retry (trailing spaces) so a deterministic
-        // engine doesn't just reproduce the same zero — the extra space tokens
-        // are a negligible tail gap but change the model input.
-        for attempt in 0..<maxRetries {
-            let perturbed = text + String(repeating: " ", count: attempt + 1)
-            samples = try await run(perturbed)
-            if !isEffectivelySilent(samples, floor: floor) { return samples }
-        }
-
+        // Still silent. A trailing-space perturbation can't help — the G2P trims
+        // whitespace before tokenizing, so it yields identical token ids and the
+        // deterministic engine reproduces the same zero. The only text-level recovery
+        // is a genuinely different input: split at a word boundary and synthesize each
+        // half, or accept an unsplittable fragment rather than loop forever.
         if let (left, right) = splitForRetry(text, minLength: minSplitLength) {
             let leftSamples = try await synthesize(
-                left, floor: floor, maxRetries: maxRetries, minSplitLength: minSplitLength, run: run
-            )
+                left, floor: floor, minSplitLength: minSplitLength, run: run)
             let rightSamples = try await synthesize(
-                right, floor: floor, maxRetries: maxRetries, minSplitLength: minSplitLength,
-                run: run)
+                right, floor: floor, minSplitLength: minSplitLength, run: run)
             return leftSamples + rightSamples
         }
-
-        // Unsplittable and still silent — accept rather than loop forever.
         return samples
     }
 }

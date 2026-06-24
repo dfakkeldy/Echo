@@ -8,19 +8,18 @@
     /// audit). Returns an IPA phoneme string that `KokoroPhonemeVocab` maps to
     /// the Kokoro-82M token ids.
     ///
-    /// v1 accepts MisakiSwift's MLX dependency (the BART OOV fallback runs on
-    /// MLX); there is no MLX-free path without a fork. The metallib bundles
-    /// correctly inside a real app target (the Phase 0 bare-CLI quirk does not
-    /// apply here). Fast-follow: a lexicon-only G2P to drop MLX — deferred.
+    /// G2P is lexicon-only: MisakiSwift's MLX-backed BART OOV-fallback network was
+    /// removed (see MisakiSwift/Package.swift), so there is no MLX dependency — an
+    /// out-of-vocabulary word falls back to Misaki's rule-based pronunciation.
     ///
     /// US English only (Echo ships no `gb_*` resources).
     struct KokoroG2P {
         private let engine: EnglishG2P
 
         init() {
-            // US English. Initialization loads the BART OOV model + lexicons
-            // (~12 MB us-only), so construct this on the narration background
-            // path, never the playback path.
+            // US English. Initialization loads the Misaki lexicons (~12 MB us-only),
+            // so construct this on the narration background path, never the playback
+            // path.
             self.engine = EnglishG2P(british: false)
         }
 
