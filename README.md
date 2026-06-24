@@ -63,6 +63,10 @@ Review with spaced repetition   →   Retain what you learned, on your schedule
 See honest insights & export your second brain   →   Own what you learned
 ```
 
+### Auto Study Plans
+
+For EPUB-backed books, Echo can create a Study Plan from Book Settings. A plan generates one listening-assignment card per included chapter, can include image cards for EPUB pictures, and releases new chapter work on a daily or weekly cadence. After the first grade, the existing FSRS review scheduler controls future due dates.
+
 ### Features Built for Focus
 
 - **Intermittent Attention Support.** Smart rewind ensures you never lose context when you hit play after a pause. The longer you've been away, the further it rewinds — perfect for delivery drivers, commuters, and anyone with an interrupted day.

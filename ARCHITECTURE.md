@@ -582,6 +582,10 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 
+### Study Plans (Schema V25)
+
+`study_plan` stores a book-level generated study configuration: cadence, chapter limit, image inclusion, queue mode, catch-up policy, pause state, and the generated deck. `study_plan_item` stores ordered generated assignments and introduction state. Existing `flashcard` rows remain the review unit; generated assignment cards keep `next_review_date` nil until first grade, then `FlashcardDAO.grade` schedules future reviews through FSRS.
+
 **Alignment pipeline:**
 
 ```
