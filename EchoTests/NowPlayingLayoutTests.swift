@@ -105,6 +105,20 @@ struct NowPlayingLayoutTests {
         )
     }
 
+    @Test func narrationNudgeIsLimitedToNarrationBooks() throws {
+        let source = try Self.source(named: "NowPlayingTab.swift")
+
+        #expect(
+            source.contains(
+                "model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration"),
+            "The narration nudge should be gated by the narration-book classifier, not by EPUB presence alone."
+        )
+        #expect(
+            !source.contains("if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration"),
+            "Imported audiobooks with companion EPUBs must not show the \"No audiobook\" nudge."
+        )
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -130,7 +144,8 @@ struct NowPlayingLayoutTests {
             return "artworkView .padding(.horizontal, NowPlayingLayout.horizontalPadding) "
                 + "chevron.left chevron.right model.skipBackwardNavigation() "
                 + "model.skipForwardNavigation() .disabled(!model.hasPreviousChapter) "
-                + ".disabled(!model.hasNextChapter)"
+                + ".disabled(!model.hasNextChapter) "
+                + "model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration"
         } else if fileName == "Components/AdaptiveBackground.swift" {
             return "LinearGradient coverTheme"
         } else if fileName == "PlayerScrubberView.swift" {

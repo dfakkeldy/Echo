@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A wrapper to make UUID Identifiable for use with `.sheet(item:)`.
 struct IdentifiableUUID: Identifiable, Hashable {
@@ -111,6 +112,8 @@ struct RootTabView: View {
                 onHelpTap: { model.showingHelp = true },
                 onStatsTap: { showingStats = true },
                 onFidgetTap: { showingFidget = true },
+                onAddEPUBTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                    ? { model.showingDocumentImporter = true } : nil,
                 onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
                     ? { showingExport = true } : nil
             )
@@ -218,6 +221,14 @@ struct RootTabView: View {
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
+        .fileImporter(
+            isPresented: $model.showingDocumentImporter,
+            allowedContentTypes: companionEPUBTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            guard let url = try? result.get().first else { return }
+            model.importEPUB(from: url)
+        }
         .onAppear {
             model.setSettingsManager(settings)
             model.setDisplayScale(displayScale)
@@ -284,6 +295,10 @@ struct RootTabView: View {
         case "Dark": return .dark
         default: return nil
         }
+    }
+
+    private var companionEPUBTypes: [UTType] {
+        [UTType(filenameExtension: "epub") ?? .data]
     }
 
     private func launchReview() {

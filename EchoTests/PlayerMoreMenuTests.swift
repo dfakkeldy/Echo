@@ -52,6 +52,20 @@ struct PlayerMoreMenuTests {
         )
     }
 
+    @Test func globalMoreMenuCanAttachCompanionEPUB() throws {
+        let header = try Self.source(named: "Components/UnifiedTopHeader.swift")
+        let root = try Self.source(named: "RootTabView.swift")
+
+        #expect(
+            header.contains("onAddEPUBTap") && header.contains("Add EPUB"),
+            "The global More menu should expose a discoverable companion-EPUB attach action."
+        )
+        #expect(
+            root.contains(".fileImporter(") && root.contains("model.importEPUB(from: url)"),
+            "RootTabView should import the selected EPUB into the currently loaded book."
+        )
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -80,7 +94,10 @@ struct PlayerMoreMenuTests {
         } else if fileName == "NowPlayingTab.swift" {
             return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet"
         } else if fileName == "RootTabView.swift" {
-            return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet"
+            return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet "
+                + ".fileImporter( model.importEPUB(from: url)"
+        } else if fileName == "Components/UnifiedTopHeader.swift" {
+            return "onAddEPUBTap Add EPUB"
         }
         throw CocoaError(.fileNoSuchFile)
     }

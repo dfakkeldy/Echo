@@ -45,11 +45,11 @@ struct NowPlayingTab: View {
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                     .padding(.top, 16)
 
-                // C2. On-device narration — shown whenever the book has EPUB text.
-                // The ONNX (CPU) engine runs on every supported device, so
-                // `supportsOnDeviceNarration` is always true; it stays in the
-                // condition as the single named capability seam (see NarrationCapability).
-                if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration {
+                // C2. On-device narration — only for audio-less EPUB books, or
+                // books whose tracks are rendered narration cache files. Imported
+                // audiobooks with a companion EPUB already have audio, so the
+                // "No audiobook" nudge must stay hidden.
+                if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
                     VStack(spacing: 8) {
                         NarrationStatusView(state: model.narrationPlaybackState)
                         if !model.narrationPlaybackState.isRunning {
@@ -142,7 +142,7 @@ struct NowPlayingTab: View {
         .task(id: model.folderURL) {
             // Pre-warm the ANE model compile so the first Listen tap isn't a long
             // stall — only where narration is actually supported (A15+).
-            if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration {
+            if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
                 try? await model.narrationTTS.prepare()
             }
         }
