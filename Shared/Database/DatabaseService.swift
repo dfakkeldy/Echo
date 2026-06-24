@@ -83,6 +83,9 @@ final class DatabaseService {
     private nonisolated func runMigrations(writer: DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_create_schema") { db in try Schema_V1.migrate(db) }
+        migrator.registerMigration("v25_study_plans") { db in
+            try Schema_V25.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }
