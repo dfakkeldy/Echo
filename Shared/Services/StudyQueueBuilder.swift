@@ -11,7 +11,7 @@ struct StudyQueueBuilder {
         modeOverride: StudyPlanQueueMode? = nil
     ) throws -> StudyQueue {
         let dueCards = try FlashcardDAO(db: db).allDueCards(now: now)
-        let plans = try StudyPlanDAO(db: db).activePlans()
+        let plans = try StudyPlanDAO(db: db).plansForQueue()
         let planOrder = Dictionary(uniqueKeysWithValues: plans.enumerated().map { ($0.element.id, $0.offset) })
 
         let dueEntries = dueCards.map { card in
@@ -27,8 +27,9 @@ struct StudyQueueBuilder {
         let assignmentQueueEntries = try plans.flatMap { plan in
             try assignmentEntries(for: plan, now: now, calendar: calendar)
         }
+        let modeSourcePlan = plans.first { !$0.isPaused } ?? plans.first
         let mode = modeOverride
-            ?? plans.first.flatMap { StudyPlanQueueMode(rawValue: $0.queueModeDefault) }
+            ?? modeSourcePlan.flatMap { StudyPlanQueueMode(rawValue: $0.queueModeDefault) }
             ?? .bookByBook
         let orderedAssignments = ordered(entries: assignmentQueueEntries, mode: mode, planOrder: planOrder)
 
@@ -56,6 +57,10 @@ struct StudyQueueBuilder {
                     flashcard: row.card
                 )
             }
+
+        guard !plan.isPaused else {
+            return inProgress
+        }
 
         let budget = releaseBudget(plan: plan, rows: rows, now: now, calendar: calendar)
         guard budget > 0 else {

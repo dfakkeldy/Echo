@@ -242,12 +242,23 @@ struct StatsRepository: Sendable {
                 WHERE event_type = 'flashcard_reviewed' AND started_at >= ?
                 """, arguments: [todayStr]) ?? 0
 
+            let scheduledOrReviewedPredicate = """
+                is_enabled = 1
+                AND (
+                    next_review_date IS NOT NULL
+                    OR repetitions > 0
+                    OR last_reviewed_at IS NOT NULL
+                )
+                """
+
             let totalCards = try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM flashcard WHERE is_enabled = 1
+                SELECT COUNT(*) FROM flashcard
+                WHERE \(scheduledOrReviewedPredicate)
                 """) ?? 0
 
             let avgEase = try Double.fetchOne(db, sql: """
-                SELECT AVG(ease_factor) FROM flashcard WHERE is_enabled = 1
+                SELECT AVG(ease_factor) FROM flashcard
+                WHERE \(scheduledOrReviewedPredicate)
                 """) ?? 2.5
 
             let totalReviews = try Int.fetchOne(db, sql: """
@@ -256,7 +267,8 @@ struct StatsRepository: Sendable {
 
             let retainedCount = try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM flashcard
-                WHERE is_enabled = 1 AND ease_factor >= 2.0
+                WHERE \(scheduledOrReviewedPredicate)
+                  AND ease_factor >= 2.0
                 """) ?? 0
 
             let retentionRate = totalCards > 0

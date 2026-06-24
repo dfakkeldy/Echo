@@ -100,6 +100,20 @@ import Testing
         #expect(dueCards == ["Due Review"])
     }
 
+    @Test func pausedPlansKeepInProgressAssignmentsButReleaseNoNewAssignments() throws {
+        let service = try StudyQueueFixtures.serviceWithPlan(chapterLimit: 1)
+        let dao = StudyPlanDAO(db: service.writer)
+        let plan = try #require(try dao.plan(for: "book-a"))
+        try dao.setPaused(planID: plan.id, isPaused: true, now: StudyQueueFixtures.mondayNoon)
+        let builder = StudyQueueBuilder(db: service.writer)
+
+        let queue = try builder.build(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+
+        #expect(queue.entries.map(\.category) == [.dueReview, .inProgressAssignment])
+        #expect(queue.inProgressAssignmentCount == 1)
+        #expect(queue.newAssignmentCount == 0)
+    }
+
     @Test func imageAssignmentsReleaseWithContainingChapterWithoutConsumingChapterBudget() throws {
         let service = try StudyQueueFixtures.serviceWithImagePlan(chapterLimit: 1)
         let builder = StudyQueueBuilder(db: service.writer)

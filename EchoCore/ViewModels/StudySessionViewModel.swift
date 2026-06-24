@@ -55,7 +55,7 @@ final class StudySessionViewModel {
             .filter { $0.category == .newAssignment }
             .compactMap { $0.item?.id }
         try StudyPlanDAO(db: db).markIntroduced(itemIDs: newItemIDs, now: now)
-        updateReviewNotification(queue.dueReviewCount + queue.inProgressAssignmentCount)
+        updateReviewNotification(remainingReviewNotificationCount())
     }
 
     func reveal() {
@@ -79,7 +79,7 @@ final class StudySessionViewModel {
             try FlashcardDAO(db: db).grade(cardID: entry.flashcard.id, grade: grade.rawValue, now: now)
             logFlashcardReviewed(card: entry.flashcard, grade: grade.rawValue, now: now)
             advance()
-            updateReviewNotification(max(0, queue.entries.count - currentIndex))
+            updateReviewNotification(remainingReviewNotificationCount())
         } catch {
             errorMessage = error.localizedDescription
             logger.error("Failed to grade card \(entry.flashcard.id): \(error.localizedDescription)")
@@ -112,5 +112,13 @@ final class StudySessionViewModel {
         } catch {
             logger.error("Failed to log flashcard review: \(error.localizedDescription)")
         }
+    }
+
+    private func remainingReviewNotificationCount() -> Int {
+        guard currentIndex < queue.entries.count else { return 0 }
+
+        return queue.entries[currentIndex...].filter { entry in
+            entry.category == .dueReview || entry.category == .inProgressAssignment
+        }.count
     }
 }

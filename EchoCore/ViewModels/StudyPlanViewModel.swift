@@ -28,6 +28,10 @@ final class StudyPlanViewModel {
         existingPlan == nil && !selectedCandidateIDs.isEmpty
     }
 
+    var canEditImageInclusion: Bool {
+        existingPlan == nil
+    }
+
     var selectedCandidateCount: Int {
         selectedCandidateIDs.count
     }
@@ -98,13 +102,16 @@ final class StudyPlanViewModel {
                     planID: existingPlan.id,
                     cadenceUnit: cadenceUnit,
                     newChapterLimit: newChapterLimit,
-                    includeImages: includeImages,
+                    includeImages: existingPlan.includeImages,
                     queueMode: queueMode,
                     catchUpPolicy: .gentle,
                     now: now
                 )
                 try dao.setPaused(planID: existingPlan.id, isPaused: isPaused, now: now)
                 self.existingPlan = try dao.plan(for: audiobookID)
+                if let savedPlan = self.existingPlan {
+                    apply(savedPlan)
+                }
             } else {
                 let selectedCandidates = candidatesForCreation()
                 guard !selectedCandidates.isEmpty else { return false }

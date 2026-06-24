@@ -61,9 +61,11 @@ import Testing
         #expect(didSave)
         #expect(viewModel.existingPlan?.id == original.plan.id)
         #expect(viewModel.candidates.isEmpty)
+        #expect(!viewModel.canEditImageInclusion)
         #expect(updated.cadenceUnit == StudyPlanCadenceUnit.week.rawValue)
         #expect(updated.newChapterLimit == 3)
-        #expect(updated.includeImages)
+        #expect(!updated.includeImages)
+        #expect(!viewModel.includeImages)
         #expect(updated.queueModeDefault == StudyPlanQueueMode.mixed.rawValue)
         #expect(updated.isPaused)
     }

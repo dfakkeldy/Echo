@@ -210,13 +210,27 @@ import Testing
                 INSERT INTO flashcard (id, audiobook_id, front_text, back_text, media_timestamp, ease_factor, is_enabled, next_review_date)
                 VALUES ('c3', 'b1', 'front', 'back', 0, 2.5, 0, ?)
                 """, arguments: [formatter.string(from: now)])
+            try db.execute(sql: """
+                INSERT INTO flashcard (
+                    id, audiobook_id, front_text, back_text, media_timestamp,
+                    ease_factor, is_enabled, next_review_date, repetitions, last_reviewed_at, card_type
+                )
+                VALUES ('fresh-assignment', 'b1', 'chapter', 'prompt', 0, 2.5, 1, NULL, 0, NULL, 'listening_assignment')
+                """)
+            try db.execute(sql: """
+                INSERT INTO flashcard (
+                    id, audiobook_id, front_text, back_text, media_timestamp,
+                    ease_factor, is_enabled, next_review_date, repetitions, last_reviewed_at, card_type
+                )
+                VALUES ('reviewed-unscheduled', 'b1', 'reviewed', 'prompt', 0, 3.0, 1, NULL, 1, ?, 'listening_assignment')
+                """, arguments: [formatter.string(from: now.addingTimeInterval(-3_600))])
         }
 
         let stats = try await repo.fetchSRSStats(now: now, calendar: cal)
         #expect(stats.dueCount == 1)
-        #expect(stats.totalCards == 2)
-        #expect(abs(stats.averageEase - 2.15) < 0.01)
-        #expect(stats.retentionRate == 0.5)
+        #expect(stats.totalCards == 3)
+        #expect(abs(stats.averageEase - 2.43) < 0.01)
+        #expect(abs(stats.retentionRate - 0.67) < 0.01)
     }
 
     // MARK: - Alignment Coverage

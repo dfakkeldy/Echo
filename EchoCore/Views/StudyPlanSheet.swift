@@ -68,10 +68,12 @@ private struct StudyPlanPacingSection: View {
                 Text(viewModel.chapterLimitText)
             }
 
-            Toggle("Create picture cards from EPUB images", isOn: $viewModel.includeImages)
-                .onChange(of: viewModel.includeImages) { _, _ in
-                    viewModel.refreshPreviewForImageInclusionChange()
-                }
+            if viewModel.canEditImageInclusion {
+                Toggle("Create picture cards from EPUB images", isOn: $viewModel.includeImages)
+                    .onChange(of: viewModel.includeImages) { _, _ in
+                        viewModel.refreshPreviewForImageInclusionChange()
+                    }
+            }
 
             Picker("Queue Mode", selection: $viewModel.queueMode) {
                 ForEach(StudyPlanQueueMode.allCases, id: \.self) { mode in

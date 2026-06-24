@@ -91,6 +91,22 @@ import Testing
         #expect(metadata["grade"] as? Int == ReviewGrade.good.rawValue)
     }
 
+    @Test func gradeCurrentUpdatesNotificationCountUsingOnlyDueAndInProgressRemaining() throws {
+        let service = try StudyQueueFixtures.serviceWithPlan(chapterLimit: 1)
+        var notificationCounts: [Int] = []
+        let viewModel = StudySessionViewModel(
+            db: service.writer,
+            updateReviewNotification: { notificationCounts.append($0) }
+        )
+        try viewModel.loadQueue(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+
+        viewModel.gradeCurrent(.good, now: StudyQueueFixtures.mondayNoon)
+
+        #expect(viewModel.queue.entries.map(\.category) == [.dueReview, .inProgressAssignment, .newAssignment])
+        #expect(viewModel.currentIndex == 1)
+        #expect(notificationCounts == [2, 1])
+    }
+
     @Test func playAssignmentCallsPlaybackClosureForListeningAndImageAssignments() throws {
         let service = try StudyQueueFixtures.serviceWithImagePlan(chapterLimit: 1)
         let viewModel = StudySessionViewModel(db: service.writer, updateReviewNotification: { _ in })

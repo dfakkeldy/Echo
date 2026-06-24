@@ -39,6 +39,14 @@ struct StudyPlanDAO {
         }
     }
 
+    func plansForQueue() throws -> [StudyPlan] {
+        try db.read { db in
+            try StudyPlan
+                .order(Column("start_date"), Column("created_at"))
+                .fetchAll(db)
+        }
+    }
+
     func items(for planID: String) throws -> [StudyPlanItem] {
         try db.read { db in
             try StudyPlanItem
