@@ -161,10 +161,10 @@ struct ChapterCardDrafterTests {
 
         _ = try await drafter.draftCards(for: bookID, bookTitle: "The Scarlet Letter", db: db)
         let deckName = try await db.read { db in
-            try Row.fetchOne(
+            try String.fetchOne(
                 db, sql: "SELECT name FROM deck WHERE name = ?", arguments: ["The Scarlet Letter"])
         }
-        #expect(deckName != nil)
+        #expect(deckName == "The Scarlet Letter")
     }
 
     @Test func emptyBookReturnsZero() async throws {
