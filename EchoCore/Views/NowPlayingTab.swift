@@ -52,7 +52,16 @@ struct NowPlayingTab: View {
                 if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration {
                     VStack(spacing: 8) {
                         NarrationStatusView(state: model.narrationPlaybackState)
-                        if !model.narrationPlaybackState.isRunning {
+                        // Offer narration only when the book has NO audio loaded yet.
+                        // Gating on `!isRunning` alone re-showed "No audiobook" on a
+                        // fully-rendered narration (isRunning flips false on completion);
+                        // `tracks.isEmpty` keeps the offer for a fresh EPUB but hides it
+                        // once any audio is queued (mid-render or completed). See
+                        // NarrationNudgePolicy.
+                        if NarrationNudgePolicy.showsNudge(
+                            tracksEmpty: model.tracks.isEmpty,
+                            isRunning: model.narrationPlaybackState.isRunning)
+                        {
                             NarrationNudgeView {
                                 // Save the voice preference and start narration
                                 // directly — no voice picker on the primary path.
