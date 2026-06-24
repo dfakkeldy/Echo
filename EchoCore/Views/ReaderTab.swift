@@ -276,243 +276,321 @@ struct ReaderTab: View {
     }
 
     var body: some View {
-        @Bindable var model = model
-        Group {
-            if let vm = viewModel {
-                // The collection fills the screen and scrolls behind the translucent
-                // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
-                //   1. the reader's own header (self-measuring),
-                //   2. Row 1 of UnifiedTopHeader (overlaid in RootTabView),
-                //   3. the floating bottom dock.
-                // (2) must match the header's real height, or the reader's own
-                // header tucks under the glass — hence `rowOneHeight`, not a
-                // hard-coded constant that goes stale when the chips resize.
-                VStack(spacing: 0) {
-                    if let recap = vm.recap {
-                        recapCard(recap)
-                            .padding(.bottom, 8)
-                    }
-                    feedCollectionView
-                }
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    readerHeaderOverlay(vm: vm)
-                }
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: model.bottomInset)
-                }
-            } else {
-                VStack {
-                    Spacer()
-                    ProgressView("Loading EPUB...")
-                    Spacer()
-                }
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: isHeaderVisible)
+        readerPresentationContent()
+    }
 
-        .onAppear {
-            let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
-            readerSettings = ReaderSettings.resolved(
-                fontSizeOverride: nil,
-                lineSpacingOverride: nil,
-                cardTintOverride: nil,
-                appFontOverride: overrides.font,
-                globalFontSize: settingsManager.readerFontSize,
-                globalLineSpacing: settingsManager.readerLineSpacing,
-                globalCardTint: settingsManager.readerCardTint,
-                globalAppFont: settingsManager.appFont
-            )
-            loadViewModel()
-        }
-        .onChange(of: settingsManager.appFont) { _, newFont in
-            let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
-            readerSettings.appFont = BookPreferencesService.resolveAppFont(
-                override: overrides.font, globalFont: newFont)
-        }
-        .onChange(of: readerSettings.fontSize) { _, newSize in
-            settingsManager.readerFontSize = newSize
-        }
-        .onChange(of: readerSettings.lineSpacing) { _, newLineSpacing in
-            settingsManager.readerLineSpacing = newLineSpacing
-        }
-        .onChange(of: readerSettings.cardTintHex) { _, newHex in
-            settingsManager.readerCardTint = newHex
-        }
-        .onChange(of: model.epubSearchText) { _, newValue in
-            viewModel?.searchQuery = newValue.isEmpty ? nil : newValue
-        }
-        .onChange(of: viewModel?.activeBlockID) { _, newValue in
-            model.readerCaptureAnchorBlockID = newValue
-        }
-        .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
-            autoScrollEnabled = true
-            if let activeID = viewModel?.activeBlockID {
-                viewModel?.expandChapter(containingBlockID: activeID)
-                forceScrollBlockID = activeID
-                forceScrollTrigger += 1
+    private func readerPresentationContent() -> some View {
+        readerAuxiliarySheetContent()
+            .alert(
+                "Auto-Alignment Failed",
+                isPresented: Binding(
+                    get: { viewModel?.showAutoAlignmentFailedAlert ?? false },
+                    set: { viewModel?.showAutoAlignmentFailedAlert = $0 }
+                )
+            ) {
+                Button("OK") {}
+            } message: {
+                Text(viewModel?.autoAlignmentErrorMessage ?? "An unknown error occurred.")
             }
+            .background(Color.clear)
+    }
+
+    private func readerAuxiliarySheetContent() -> some View {
+        readerPickerSheetContent()
+            .sheet(
+                isPresented: Binding(
+                    get: { viewModel?.showAutoAlignmentProgress ?? false },
+                    set: { viewModel?.showAutoAlignmentProgress = $0 }
+                )
+            ) {
+                if let vm = viewModel {
+                    AutoAlignmentProgressView(
+                        sharedState: vm.autoAlignmentState,
+                        onCancel: { vm.autoAlignmentTask?.cancel() }
+                    )
+                }
+            }
+    }
+
+    private func readerPickerSheetContent() -> some View {
+        @Bindable var model = model
+
+        return readerPrimarySheetContent()
+            .sheet(item: chapterPickerBinding) { ident in
+                let blockID = ident.id
+                ChapterPickerSheet(
+                    chapters: model.alignmentPickerChapters,
+                    onSelect: { selectedChapter in
+                        alignBlock(
+                            blockID,
+                            to: selectedChapter.startSeconds,
+                            source: .chapterBoundary
+                        )
+                        showChapterPickerForBlockID = nil
+                    }
+                )
+            }
+            .sheet(item: cardColorPickerBinding) { ident in
+                cardColorPickerSheet(blockID: ident.id)
+            }
+            .sheet(item: chapterThemePickerBinding) { ident in
+                chapterThemePickerSheet(blockID: ident.id)
+            }
+    }
+
+    private func readerPrimarySheetContent() -> some View {
+        @Bindable var model = model
+
+        return readerLifecycleContent()
+            .sheet(isPresented: $model.showReaderSettings) {
+                ReaderSettingsSheet(settings: $readerSettings)
+            }
+            .sheet(isPresented: $showSessions) {
+                readerSessionsSheet()
+            }
+            .sheet(isPresented: $isComposingReaderNote) {
+                ReaderNoteComposerSheet(
+                    text: $readerNoteText,
+                    onCancel: cancelReaderNote,
+                    onSave: saveReaderNote
+                )
+            }
+            .sheet(isPresented: $model.showReaderTOC) {
+                readerTOCSheet()
+            }
+    }
+
+    private func readerLifecycleContent() -> some View {
+        readerRootContent()
+            .animation(.easeInOut(duration: 0.25), value: isHeaderVisible)
+            .onAppear(perform: prepareReader)
+            .onChange(of: settingsManager.appFont) { _, newFont in
+                updateReaderAppFont(newFont)
+            }
+            .onChange(of: readerSettings.fontSize) { _, newSize in
+                settingsManager.readerFontSize = newSize
+            }
+            .onChange(of: readerSettings.lineSpacing) { _, newLineSpacing in
+                settingsManager.readerLineSpacing = newLineSpacing
+            }
+            .onChange(of: readerSettings.cardTintHex) { _, newHex in
+                settingsManager.readerCardTint = newHex
+            }
+            .onChange(of: model.epubSearchText) { _, newValue in
+                viewModel?.searchQuery = newValue.isEmpty ? nil : newValue
+            }
+            .onChange(of: viewModel?.activeBlockID) { _, newValue in
+                model.readerCaptureAnchorBlockID = newValue
+            }
+            .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
+                scrollReaderToActiveBlock()
+            }
+            .onChange(of: model.currentPlaybackTime) { _, newPos in
+                updateActiveReaderBlock(time: newPos)
+            }
+            .onChange(of: model.currentIndex) { _, _ in
+                updateActiveReaderBlockForCurrentTrack()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
+                handleTimelineItemsIngested($0)
+            }
+            .task(id: readerReloadToken) {
+                await reloadReaderAfterTimelineIngestion()
+            }
+            .onDisappear(perform: tearDownReader)
+    }
+
+    @ViewBuilder
+    private func readerRootContent() -> some View {
+        if let vm = viewModel {
+            readerLoadedContent(vm: vm)
+        } else {
+            readerLoadingContent()
         }
-        .onChange(of: model.currentPlaybackTime) { _, newPos in
-            viewModel?.updateActiveBlock(
-                time: newPos, currentTrackChapterIndices: currentTrackChapterIndices,
-                isPlaying: model.isPlaying)
+    }
+
+    @ViewBuilder
+    private func readerLoadedContent(vm: ReaderFeedViewModel) -> some View {
+        // The collection fills the screen and scrolls behind the translucent
+        // headers. Each `.safeAreaInset` reserves native top/bottom clearance:
+        //   1. the reader's own header (self-measuring),
+        //   2. Row 1 of UnifiedTopHeader (overlaid in RootTabView),
+        //   3. the floating bottom dock.
+        // (2) must match the header's real height, or the reader's own
+        // header tucks under the glass — hence `rowOneHeight`, not a
+        // hard-coded constant that goes stale when the chips resize.
+        VStack(spacing: 0) {
+            if let recap = vm.recap {
+                recapCard(recap)
+                    .padding(.bottom, 8)
+            }
+            feedCollectionView
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            readerHeaderOverlay(vm: vm)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: model.bottomInset)
+        }
+    }
+
+    private func readerLoadingContent() -> some View {
+        VStack {
+            Spacer()
+            ProgressView("Loading EPUB...")
+            Spacer()
+        }
+    }
+
+    private func readerSessionsSheet() -> some View {
+        NavigationStack {
+            SessionsListView(audiobookID: folderURL.absoluteString)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showSessions = false }
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func readerTOCSheet() -> some View {
+        @Bindable var model = model
+
+        if let vm = viewModel {
+            EPUBTOCSheet(
+                sections: vm.sections,
+                tocEntries: vm.tocEntries,
+                activeBlockID: vm.activeBlockID,
+                onSelect: { blockID in
+                    seekToBlockAndScroll(blockID)
+                    forceScrollBlockID = blockID
+                    forceScrollTrigger += 1
+                    model.showReaderTOC = false
+                }
+            )
+        }
+    }
+
+    private func cardColorPickerSheet(blockID: String) -> some View {
+        CardColorPickerSheet(blockID: blockID) { blockID, colorHex in
+            if let db = model.databaseService {
+                let blockDAO = EPubBlockDAO(db: db.writer)
+                do {
+                    try blockDAO.setCardColor(colorHex, blockID: blockID)
+                    viewModel?.reload()
+                } catch {
+                    // Best-effort
+                }
+            }
+            showCardColorPickerForBlockID = nil
+        }
+    }
+
+    private func chapterThemePickerSheet(blockID: String) -> some View {
+        CardColorPickerSheet(blockID: blockID) { blockID, colorHex in
+            if let db = model.databaseService {
+                let blockDAO = EPubBlockDAO(db: db.writer)
+                do {
+                    let allBlocks = allReaderBlocks()
+
+                    if let block = allBlocks.first(where: { $0.id == blockID }),
+                        let chapterIndex = block.chapterIndex
+                    {
+                        try blockDAO.setChapterThemeColor(
+                            colorHex, chapterIndex: chapterIndex, audiobookID: block.audiobookID
+                        )
+                        viewModel?.reload()
+                        // Update the header theme before the collection scrolls again.
+                        topChapterThemeColor = colorHex
+                    }
+                } catch {
+                    // Best-effort
+                }
+            }
+            showChapterThemePickerForBlockID = nil
+        }
+    }
+
+    private func prepareReader() {
+        let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
+        readerSettings = ReaderSettings.resolved(
+            fontSizeOverride: nil,
+            lineSpacingOverride: nil,
+            cardTintOverride: nil,
+            appFontOverride: overrides.font,
+            globalFontSize: settingsManager.readerFontSize,
+            globalLineSpacing: settingsManager.readerLineSpacing,
+            globalCardTint: settingsManager.readerCardTint,
+            globalAppFont: settingsManager.appFont
+        )
+        loadViewModel()
+    }
+
+    private func updateReaderAppFont(_ newFont: String) {
+        let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
+        readerSettings.appFont = BookPreferencesService.resolveAppFont(
+            override: overrides.font,
+            globalFont: newFont
+        )
+    }
+
+    private func scrollReaderToActiveBlock() {
+        autoScrollEnabled = true
+        if let activeID = viewModel?.activeBlockID {
+            viewModel?.expandChapter(containingBlockID: activeID)
+            forceScrollBlockID = activeID
+            forceScrollTrigger += 1
+        }
+    }
+
+    private func updateActiveReaderBlock(time: TimeInterval) {
+        viewModel?.updateActiveBlock(
+            time: time,
+            currentTrackChapterIndices: currentTrackChapterIndices,
+            isPlaying: model.isPlaying
+        )
+    }
+
+    private func updateActiveReaderBlockForCurrentTrack() {
         // Re-scope + re-resolve at a track boundary: the per-track playback time
         // can be identical across tracks, so without re-scoping the highlight
         // would stay stuck in the previous track's chapter.
-        .onChange(of: model.currentIndex) { _, _ in
-            viewModel?.updateActiveBlock(
-                time: model.currentPlaybackTime,
-                currentTrackChapterIndices: currentTrackChapterIndices,
-                isPlaying: model.isPlaying
-            )
-        }
-        // Narration renders chapter-by-chapter, posting this after each chapter's
-        // timeline_item rows are materialized. Reload so read-along lights up
-        // incrementally. Gate on the audiobookID so a just-switched book doesn't
-        // trigger a spurious reload. Mirrors PDFDocumentView.
-        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
-            notification in
-            guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
-                ingestedID == folderURL.absoluteString
-            else { return }
-            // Coalesce instead of reloading synchronously per post: narration posts
-            // this once per rendered chapter, and reload() re-reads the whole book
-            // on the main thread. Bump a token so a burst (e.g. the cached-chapter
-            // backfill) collapses into one trailing reload.
-            readerReloadToken &+= 1
-        }
-        .task(id: readerReloadToken) {
-            guard readerReloadToken > 0 else { return }
-            // Quiet window; a newer post cancels this task and restarts the wait,
-            // so only the last post in a burst actually triggers the reload.
-            try? await Task.sleep(for: .milliseconds(250))
-            viewModel?.reload()
-        }
-        .sheet(isPresented: $model.showReaderSettings) {
-            ReaderSettingsSheet(settings: $readerSettings)
-        }
-        .sheet(isPresented: $showSessions) {
-            NavigationStack {
-                SessionsListView(audiobookID: folderURL.absoluteString)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showSessions = false }
-                        }
-                    }
-            }
-        }
-        .sheet(isPresented: $isComposingReaderNote) {
-            ReaderNoteComposerSheet(
-                text: $readerNoteText,
-                onCancel: cancelReaderNote,
-                onSave: saveReaderNote
-            )
-        }
-        .sheet(isPresented: $model.showReaderTOC) {
-            if let vm = viewModel {
-                EPUBTOCSheet(
-                    sections: vm.sections,
-                    tocEntries: vm.tocEntries,
-                    activeBlockID: vm.activeBlockID,
-                    onSelect: { blockID in
-                        seekToBlockAndScroll(blockID)
-                        forceScrollBlockID = blockID
-                        forceScrollTrigger += 1
-                        model.showReaderTOC = false
-                    }
-                )
-            }
-        }
-        .sheet(item: chapterPickerBinding) { ident in
-            let blockID = ident.id
-            ChapterPickerSheet(
-                chapters: model.alignmentPickerChapters,
-                onSelect: { selectedChapter in
-                    alignBlock(blockID, to: selectedChapter.startSeconds, source: .chapterBoundary)
-                    showChapterPickerForBlockID = nil
-                }
-            )
-        }
+        updateActiveReaderBlock(time: model.currentPlaybackTime)
+    }
 
-        .sheet(item: cardColorPickerBinding) { ident in
-            let blockID = ident.id
-            CardColorPickerSheet(blockID: blockID) { blockID, colorHex in
-                if let db = model.databaseService {
-                    let blockDAO = EPubBlockDAO(db: db.writer)
-                    do {
-                        try blockDAO.setCardColor(colorHex, blockID: blockID)
-                        viewModel?.reload()
-                    } catch {
-                        // Best-effort
-                    }
-                }
-                showCardColorPickerForBlockID = nil
-            }
-        }
-        .sheet(item: chapterThemePickerBinding) { ident in
-            let blockID = ident.id
-            CardColorPickerSheet(blockID: blockID) { blockID, colorHex in
-                if let db = model.databaseService {
-                    let blockDAO = EPubBlockDAO(db: db.writer)
-                    do {
-                        // Find the chapterIndex of the selected block
-                        let allBlocks =
-                            viewModel?.sections.flatMap(\.items).compactMap {
-                                item -> EPubBlockRecord? in
-                                if case .block(let b) = item { return b }
-                                return nil
-                            } ?? []
+    private func handleTimelineItemsIngested(_ notification: Notification) {
+        guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
+            ingestedID == folderURL.absoluteString
+        else { return }
+        // Coalesce instead of reloading synchronously per post: narration posts
+        // this once per rendered chapter, and reload() re-reads the whole book
+        // on the main thread. Bump a token so a burst (e.g. the cached-chapter
+        // backfill) collapses into one trailing reload.
+        readerReloadToken &+= 1
+    }
 
-                        if let block = allBlocks.first(where: { $0.id == blockID }),
-                            let chapterIndex = block.chapterIndex
-                        {
-                            try blockDAO.setChapterThemeColor(
-                                colorHex, chapterIndex: chapterIndex, audiobookID: block.audiobookID
-                            )
-                            viewModel?.reload()
-                            // Immediately update the top theme color so the screen background changes without scrolling
-                            topChapterThemeColor = colorHex
-                        }
-                    } catch {
-                        // Best-effort
-                    }
-                }
-                showChapterThemePickerForBlockID = nil
-            }
-        }
-        .sheet(
-            isPresented: Binding(
-                get: { viewModel?.showAutoAlignmentProgress ?? false },
-                set: { viewModel?.showAutoAlignmentProgress = $0 }
-            )
-        ) {
-            if let vm = viewModel {
-                AutoAlignmentProgressView(
-                    sharedState: vm.autoAlignmentState,
-                    onCancel: { vm.autoAlignmentTask?.cancel() }
-                )
-            }
-        }
-        .alert(
-            "Auto-Alignment Failed",
-            isPresented: Binding(
-                get: { viewModel?.showAutoAlignmentFailedAlert ?? false },
-                set: { viewModel?.showAutoAlignmentFailedAlert = $0 }
-            )
-        ) {
-            Button("OK") {}
-        } message: {
-            Text(viewModel?.autoAlignmentErrorMessage ?? "An unknown error occurred.")
-        }
-        .onDisappear {
-            viewModel?.autoAlignmentTask?.cancel()
-            clearReaderCaptureActions()
-        }
-        .background(Color.clear)
+    private func reloadReaderAfterTimelineIngestion() async {
+        guard readerReloadToken > 0 else { return }
+        // Quiet window; a newer post cancels this task and restarts the wait,
+        // so only the last post in a burst actually triggers the reload.
+        try? await Task.sleep(for: .milliseconds(250))
+        viewModel?.reload()
+    }
+
+    private func tearDownReader() {
+        viewModel?.autoAlignmentTask?.cancel()
+        clearReaderCaptureActions()
+    }
+
+    private func allReaderBlocks() -> [EPubBlockRecord] {
+        viewModel?.sections.flatMap(\.items).compactMap { item -> EPubBlockRecord? in
+            if case .block(let block) = item { return block }
+            return nil
+        } ?? []
     }
 
     // MARK: - Phase-3 filter bar + recap card
