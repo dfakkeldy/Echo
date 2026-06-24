@@ -71,14 +71,14 @@
 
         /// renderVersion-keyed subdir (v6 = the ONNX engine) under the shared
         /// narration cache, parallel to the CoreML `kokoro-fixed-v5` set.
-        private static let modelSubdir = "Models/kokoro-onnx-v6"
-        private static let modelFileName = "model_fp16.onnx"
+        private nonisolated static let modelSubdir = "Models/kokoro-onnx-v6"
+        private nonisolated static let modelFileName = "model_fp16.onnx"
         /// Immutable commit pin for onnx-community/Kokoro-82M-v1.0-ONNX. Pinning a
         /// revision (not the moving `main` ref) means a future upstream re-upload can't
         /// silently change the model behind renderVersion 6. Validated at pin time:
         /// 163_234_740 B · sha256 ba4527a8…35c334a (onnx/model_fp16.onnx).
-        private static let modelRevision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
-        private static let hfModelURL = URL(
+        private nonisolated static let modelRevision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
+        private nonisolated static let hfModelURL = URL(
             string:
                 "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/\(modelRevision)/onnx/model_fp16.onnx"
         )!
@@ -152,7 +152,7 @@
                 logger.notice(
                     "ONNX session created in \(loadMs, privacy: .public) ms (no AOT compile), intraOp=\(intraOpThreads, privacy: .public)."
                 )
-                await self.store(env: env, session: session)
+                self.store(env: env, session: session)
                 fan.emit(.compilingModels(done: 1, total: 1))
                 fan.emit(.ready)
             }
@@ -177,7 +177,7 @@
         /// to (hopefully) dodge an input-specific all-zero before the guard resorts to
         /// splitting the text. Tunable; efficacy is a model property, confirmed on
         /// device. See `NarrationSilenceGuard.synthesizeWithSpeedNudge`.
-        static let silenceRecoverySpeeds: [Float] = [1.0, 1.03, 0.97]
+        nonisolated static let silenceRecoverySpeeds: [Float] = [1.0, 1.03, 0.97]
 
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             try await prepare()
@@ -281,7 +281,7 @@
         /// Copies a numeric array's raw bytes into `NSMutableData` for an ORTValue
         /// tensor — via `withUnsafeBufferPointer` so there's no array-to-pointer
         /// lifetime ambiguity. `NSMutableData(bytes:length:)` copies the bytes.
-        private static func tensorData<T>(_ array: [T]) -> NSMutableData {
+        private nonisolated static func tensorData<T>(_ array: [T]) -> NSMutableData {
             array.withUnsafeBufferPointer { buf in
                 NSMutableData(bytes: buf.baseAddress, length: buf.count * MemoryLayout<T>.stride)
             }
@@ -294,7 +294,7 @@
         /// to a temp file with byte-level progress, and is size-validated before its
         /// path is handed to ORT (which would otherwise fail later with an opaque
         /// session-create error).
-        private static func ensureModel(progress: @Sendable (Double) -> Void) async throws -> URL {
+        private nonisolated static func ensureModel(progress: @Sendable (Double) -> Void) async throws -> URL {
             let dest = modelURL()
             let fm = FileManager.default
             if fm.fileExists(atPath: dest.path) {
@@ -360,7 +360,7 @@
     extension NSData {
         /// Reinterprets raw tensor bytes as a Float32 array (the ONNX `waveform`
         /// output is fp32 even though the model's weights are fp16).
-        fileprivate func toFloatArray() -> [Float] {
+        nonisolated fileprivate func toFloatArray() -> [Float] {
             let count = length / MemoryLayout<Float>.stride
             guard count > 0 else { return [] }
             var out = [Float](repeating: 0, count: count)

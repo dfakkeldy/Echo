@@ -38,8 +38,12 @@ import Testing
         }
     }
 
-    private static func zeros(_ n: Int = 100) -> [Float] { Array(repeating: 0, count: n) }
-    private static func tone(_ n: Int = 100) -> [Float] { Array(repeating: 0.5, count: n) }
+    private nonisolated static func zeros(_ n: Int = 100) -> [Float] {
+        Array(repeating: 0, count: n)
+    }
+    private nonisolated static func tone(_ n: Int = 100) -> [Float] {
+        Array(repeating: 0.5, count: n)
+    }
 
     // MARK: - Detection
 

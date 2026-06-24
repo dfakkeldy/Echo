@@ -237,7 +237,7 @@ struct Echo_macOSApp: App {
     private func markPassage() {
         guard let audiobookID = player.audiobookID, player.hasMedia else { return }
         let dao = MarkedPassageDAO(db: dbService.writer)
-        try? dao.insert(
+        _ = try? dao.insert(
             audiobookID: audiobookID,
             mediaTimestamp: player.currentTime,
             endTimestamp: nil,

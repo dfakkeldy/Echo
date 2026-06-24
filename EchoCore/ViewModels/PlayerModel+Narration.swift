@@ -172,22 +172,22 @@
                     // "Downloading… %" / "Loading voice models… N of M" instead of a
                     // silent "Preparing narration…" spinner.
                     try await self.narrationTTS.prepare(progress: { [weak self] p in
+                        guard let model = self else { return }
                         Task { @MainActor in
-                            guard let self else { return }
                             switch p {
                             case .downloadingModels(let f):
-                                self.narrationPlaybackState.update(
+                                model.narrationPlaybackState.update(
                                     phase: .preparingEngine, progress: 0.5 * f,
                                     statusMessage:
                                         "Downloading voice models… \(Int(min(max(f, 0), 1) * 100))%"
                                 )
                             case .compilingModels(let done, let total):
                                 let frac = total > 0 ? Double(done) / Double(total) : 0
-                                self.narrationPlaybackState.update(
+                                model.narrationPlaybackState.update(
                                     phase: .preparingEngine, progress: 0.5 + 0.5 * frac,
                                     statusMessage: "Loading voice models… \(done) of \(total)")
                             case .ready:
-                                self.narrationPlaybackState.update(
+                                model.narrationPlaybackState.update(
                                     phase: .preparingEngine, progress: 1.0,
                                     statusMessage: "Voice models ready")
                             }

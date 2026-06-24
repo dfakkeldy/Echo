@@ -31,11 +31,11 @@ enum NarrationSilenceGuard {
     /// Peak-amplitude floor below which a non-empty chunk is considered silent.
     /// Real speech peaks near full scale; a bugged chunk is exact zeros — so any
     /// reasonable floor well under speech and above fp denormals separates them.
-    static let defaultSilenceFloor: Float = 1e-3
+    nonisolated static let defaultSilenceFloor: Float = 1e-3
 
     /// True when `samples` is non-empty yet effectively silent (the zero-output
     /// bug). Empty is NOT silent — it's a legitimately empty fragment.
-    static func isEffectivelySilent(_ samples: [Float], floor: Float = defaultSilenceFloor) -> Bool
+    nonisolated static func isEffectivelySilent(_ samples: [Float], floor: Float = defaultSilenceFloor) -> Bool
     {
         guard !samples.isEmpty else { return false }
         var peak: Float = 0
@@ -57,7 +57,7 @@ enum NarrationSilenceGuard {
     /// `NarrationTextChunker`. Returns `nil` when the text is shorter than
     /// `minLength` or has no splittable interior space, so the recursion in
     /// `synthesize` always terminates.
-    static func splitForRetry(_ text: String, minLength: Int) -> (String, String)? {
+    nonisolated static func splitForRetry(_ text: String, minLength: Int) -> (String, String)? {
         let chars = Array(text)
         guard chars.count >= minLength else { return nil }
 
@@ -111,7 +111,7 @@ enum NarrationSilenceGuard {
     /// silent — so the caller can escalate to the text perturb/split ladder in
     /// `synthesize`. (Whether a speed nudge actually dodges the deterministic zero is
     /// a property of the real model, confirmed on device, not of this pure routing.)
-    static func synthesizeWithSpeedNudge(
+    nonisolated static func synthesizeWithSpeedNudge(
         speeds: [Float],
         floor: Float = defaultSilenceFloor,
         run: (Float) async throws -> [Float]
@@ -133,7 +133,7 @@ enum NarrationSilenceGuard {
     /// - Returns: non-silent samples when recoverable; the concatenation of
     ///   re-synthesized halves; or, as a last resort, the final (possibly silent)
     ///   attempt for an unsplittable fragment.
-    static func synthesize(
+    nonisolated static func synthesize(
         _ text: String,
         floor: Float = defaultSilenceFloor,
         minSplitLength: Int = 16,

@@ -212,7 +212,7 @@ struct MacNotesPane: View {
     private func deleteNote(_ note: NoteRecord) {
         do {
             try dbService.writer.write { db in
-                try NoteRecord.deleteOne(db, key: note.id)
+                _ = try NoteRecord.deleteOne(db, key: note.id)
             }
             Task { await loadNotes() }
         } catch {

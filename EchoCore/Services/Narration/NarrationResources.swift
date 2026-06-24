@@ -5,7 +5,7 @@ import Foundation
 /// environment override so a bare command-line tool (no `.app` bundle) can find
 /// the lexicon / phoneme vocab / voice-pack files. The override wins only when it
 /// is set AND the file exists there; otherwise this is exactly `Bundle.main`.
-enum NarrationResources {
+nonisolated enum NarrationResources {
     static func url(forResource name: String, withExtension ext: String) -> URL? {
         if let dir = ProcessInfo.processInfo.environment["ECHO_RESOURCE_DIR"], !dir.isEmpty {
             let candidate = URL(fileURLWithPath: dir).appendingPathComponent("\(name).\(ext)")

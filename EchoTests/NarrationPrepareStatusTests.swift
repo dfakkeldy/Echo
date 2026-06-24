@@ -1,9 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Synchronization
 import Testing
 
 @testable import Echo
 
 @Suite struct NarrationPrepareStatusTests {
+    private nonisolated final class ProgressBox: Sendable {
+        private let itemsStore = Mutex<[NarrationPrepareProgress]>([])
+
+        var items: [NarrationPrepareProgress] {
+            itemsStore.withLock { $0 }
+        }
+
+        func append(_ item: NarrationPrepareProgress) {
+            itemsStore.withLock { items in
+                items.append(item)
+            }
+        }
+    }
+
     @Test func mapsMonotonicallyIntoTheReservedFirstBand() {
         let d0 = NarrationPrepareStatus.batch(for: .downloadingModels(fraction: 0))
         let d1 = NarrationPrepareStatus.batch(for: .downloadingModels(fraction: 1))
@@ -33,7 +48,6 @@ import Testing
     /// feedback even though the engine is busy downloading + compiling.
     @Test func prepareProgressReachesConcreteOverrideThroughExistential() async throws {
         final class Recorder: TTSEngine, @unchecked Sendable {
-            final class Box: @unchecked Sendable { var items: [NarrationPrepareProgress] = [] }
             func prepare() async throws {}
             func prepare(
                 progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
@@ -44,9 +58,9 @@ import Testing
                 TTSChunk(samples: [], sampleRate: 24_000, duration: 0)
             }
         }
-        let box = Recorder.Box()
+        let box = ProgressBox()
         let engine: any TTSEngine = Recorder()
-        try await engine.prepare(progress: { box.items.append($0) })
+        try await engine.prepare(progress: { box.append($0) })
         #expect(box.items == [.ready])
     }
 
@@ -55,13 +69,12 @@ import Testing
     /// events, in order. Without this the iOS Listen tap that arrives after the
     /// NowPlayingTab pre-warm started the download saw no download/compile feedback.
     @Test func fanOutDeliversInOrderAndToLateJoiners() {
-        final class Box: @unchecked Sendable { var items: [NarrationPrepareProgress] = [] }
         let fan = ProgressFanOut()
-        let early = Box()
-        let late = Box()
-        fan.add { early.items.append($0) }
+        let early = ProgressBox()
+        let late = ProgressBox()
+        fan.add { early.append($0) }
         fan.emit(.downloadingModels(fraction: 0.5))
-        fan.add { late.items.append($0) }  // joins after the first event
+        fan.add { late.append($0) }  // joins after the first event
         fan.emit(.compilingModels(done: 1, total: 2))
         fan.emit(.ready)
         #expect(

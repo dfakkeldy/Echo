@@ -21,7 +21,7 @@ import Foundation
 /// verbatim to `EchoCore/Resources/af_heart.f32`. The row count lives in a
 /// sidecar `af_heart.rows` text file so the loader is self-describing.
 /// sha256(af_heart.f32) = d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b
-struct KokoroVoicePack {
+nonisolated struct KokoroVoicePack {
     static let embeddingDim = 256
 
     private let values: [Float]
