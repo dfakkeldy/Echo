@@ -19,7 +19,7 @@
     /// id, so the same `(text, voice)` always yields the same `(ids, refS)`. Held on
     /// the `OnnxKokoroEngine` actor, so every access is actor-isolated — no Sendable
     /// concern despite the mutable cache.
-    final class KokoroFrontEnd {
+    nonisolated final class KokoroFrontEnd {
         private var g2p: KokoroG2P?
         private var vocab: KokoroPhonemeVocab?
         private var voicePacks: [String: KokoroVoicePack] = [:]

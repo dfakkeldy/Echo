@@ -9,7 +9,7 @@ import Foundation
 ///
 /// (Originally defined alongside the CoreML `KokoroFixedShapeEngine`; lifted into
 /// its own file when that engine was removed, since `OnnxKokoroEngine` still uses it.)
-final class ProgressFanOut: @unchecked Sendable {
+nonisolated final class ProgressFanOut: @unchecked Sendable {
     private let lock = NSLock()
     private var subscribers: [@Sendable (NarrationPrepareProgress) -> Void] = []
 

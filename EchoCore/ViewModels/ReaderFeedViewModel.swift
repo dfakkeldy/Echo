@@ -5,6 +5,28 @@ import Observation
 import UIKit
 import os.log
 
+private nonisolated final class ObserverTokenBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var token: (any NSObjectProtocol)?
+
+    func set(_ newToken: any NSObjectProtocol) {
+        lock.lock()
+        defer { lock.unlock() }
+        token = newToken
+    }
+
+    func removeObserver() {
+        lock.lock()
+        let currentToken = token
+        token = nil
+        lock.unlock()
+
+        if let currentToken {
+            NotificationCenter.default.removeObserver(currentToken)
+        }
+    }
+}
+
 /// View model for the EPUB reader feed. Loads blocks, builds the card array,
 /// tracks the active block for playback sync, and handles search.
 @MainActor
@@ -146,14 +168,8 @@ final class ReaderFeedViewModel {
         didSet { reload() }
     }
 
-    /// Token returned by `NotificationCenter.addObserver(forName:object:queue:block:)`.
-    /// Retained so the observer can be removed in `deinit` and doesn't leak for the
-    /// whole process lifetime (I1 fix). Marked `nonisolated(unsafe)` because `deinit`
-    /// is nonisolated on `@MainActor` classes, but access is safe: the token is written
-    /// only during `init` (before any other code can see the instance) and read only in
-    /// `deinit` (after the last reference has been dropped — both on the main actor in
-    /// practice). The `NSObjectProtocol` value itself is thread-safe to call `removeObserver` on.
-    nonisolated(unsafe) private var timelineObserverToken: (any NSObjectProtocol)?
+    /// Retains the timeline observer so it can be removed from nonisolated `deinit`.
+    @ObservationIgnored private nonisolated let timelineObserverToken = ObserverTokenBox()
 
     init(audiobookID: String, db: DatabaseWriter, playlistFolderURL: URL? = nil) {
         self.audiobookID = audiobookID
@@ -167,18 +183,16 @@ final class ReaderFeedViewModel {
         self.playlistFolderURL = playlistFolderURL
         self.offResolver = OffStateResolver(db: db, folderURL: playlistFolderURL)
         self.db = db
-        timelineObserverToken = NotificationCenter.default.addObserver(
+        timelineObserverToken.set(NotificationCenter.default.addObserver(
             forName: .timelineItemsIngested,
             object: nil, queue: .main
         ) { [weak self] _ in
             self?.reload()
-        }
+        })
     }
 
     deinit {
-        if let token = timelineObserverToken {
-            NotificationCenter.default.removeObserver(token)
-        }
+        timelineObserverToken.removeObserver()
     }
 
     /// Load blocks from the database and build the card array.

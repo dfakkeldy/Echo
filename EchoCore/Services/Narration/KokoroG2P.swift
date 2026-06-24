@@ -13,7 +13,7 @@
     /// out-of-vocabulary word falls back to Misaki's rule-based pronunciation.
     ///
     /// US English only (Echo ships no `gb_*` resources).
-    struct KokoroG2P {
+    nonisolated struct KokoroG2P {
         private let engine: EnglishG2P
 
         init() {

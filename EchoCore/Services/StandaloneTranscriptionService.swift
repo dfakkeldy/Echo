@@ -2,6 +2,7 @@
 import Foundation
 import GRDB
 import Observation
+import Synchronization
 @preconcurrency import WhisperKit
 import os.log
 
@@ -17,7 +18,7 @@ final class StandaloneTranscriptionService {
     var progress = StandaloneProgressState()
 
     private weak var db: DatabaseWriter?
-    private nonisolated(unsafe) var currentTask: Task<Void, Never>?
+    @ObservationIgnored private nonisolated let currentTask = StandaloneTranscriptionTaskHandle()
     private let logger = Logger(category: "StandaloneTranscription")
     private static let isoFormatter = ISO8601DateFormatter()
 
@@ -26,7 +27,7 @@ final class StandaloneTranscriptionService {
     }
 
     nonisolated deinit {
-        currentTask?.cancel()
+        currentTask.cancel()
     }
 
     /// Begins the transcription pipeline.
@@ -61,7 +62,7 @@ final class StandaloneTranscriptionService {
         }
 
         // Remaining chapters: background, one at a time.
-        currentTask = Task.detached(priority: .background) { [weak self] in
+        currentTask.set(Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
             defer {
                 Task { @MainActor in
@@ -78,17 +79,17 @@ final class StandaloneTranscriptionService {
                 )
                 await MainActor.run { self.progress.chaptersComplete = i + 1 }
             }
-        }
+        })
     }
 
     /// Pauses (cancels) any background transcription still in progress.
     func pause() {
-        currentTask?.cancel()
+        currentTask.cancel()
     }
 
     /// Cancels the entire pipeline and resets progress state.
     func cancel() {
-        currentTask?.cancel()
+        currentTask.cancel()
         progress.isCancelled = true
         progress.isRunning = false
     }
@@ -227,6 +228,23 @@ final class StandaloneTranscriptionService {
     private static func clean(_ raw: String) -> String {
         raw.replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private nonisolated final class StandaloneTranscriptionTaskHandle: Sendable {
+    private let task = Mutex<Task<Void, Never>?>(nil)
+
+    func set(_ newTask: Task<Void, Never>) {
+        task.withLock { currentTask in
+            currentTask = newTask
+        }
+    }
+
+    func cancel() {
+        let currentTask = task.withLock { currentTask in
+            currentTask
+        }
+        currentTask?.cancel()
     }
 }
 

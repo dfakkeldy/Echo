@@ -191,7 +191,7 @@ struct ApkgExportServiceTests {
         )
 
         try writer.write { db in
-            var d = deck
+            let d = deck
             try d.insert(db)
         }
 

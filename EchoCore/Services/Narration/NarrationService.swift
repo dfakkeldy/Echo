@@ -192,10 +192,11 @@ final class NarrationService {
         // + every anchor so a re-render (e.g. a voice change) updates in place
         // instead of throwing on a duplicate primary key, and a failure can't
         // leave a half-written chapter.
+        let anchorsToSave = anchors
         try await db.write { db in
             var savedTrack = track
             try savedTrack.save(db)
-            for var anchor in anchors { try anchor.save(db) }
+            for var anchor in anchorsToSave { try anchor.save(db) }
         }
 
         // Propagate the just-saved `.synthesized` anchors into `timeline_item`:

@@ -2,7 +2,7 @@
 import Foundation
 
 /// Identifier for a narration voice (e.g. a Kokoro voicepack key).
-struct VoiceID: RawRepresentable, Hashable, Sendable, Codable {
+nonisolated struct VoiceID: RawRepresentable, Hashable, Sendable, Codable {
     let rawValue: String
     init(rawValue: String) { self.rawValue = rawValue }
     init(_ rawValue: String) { self.rawValue = rawValue }
@@ -11,7 +11,7 @@ struct VoiceID: RawRepresentable, Hashable, Sendable, Codable {
 /// A rendered span of speech audio for one block of text.
 /// Samples are mono Float PCM at `sampleRate`. `Sendable` so it can cross
 /// the actor→main boundary safely (no non-Sendable AVAudioPCMBuffer).
-struct TTSChunk: Sendable, Equatable {
+nonisolated struct TTSChunk: Sendable, Equatable {
     let samples: [Float]
     let sampleRate: Double
     let duration: TimeInterval
@@ -46,7 +46,7 @@ protocol TTSEngine: Sendable {
 /// One step of the engine's one-time `prepare()` — surfaced so the UI can show
 /// real progress instead of sitting on "Narrating chapter 1" while the model set
 /// downloads and the CoreML graphs compile.
-enum NarrationPrepareProgress: Sendable, Equatable {
+nonisolated enum NarrationPrepareProgress: Sendable, Equatable {
     case downloadingModels(fraction: Double)  // 0…1
     case compilingModels(done: Int, total: Int)
     case ready

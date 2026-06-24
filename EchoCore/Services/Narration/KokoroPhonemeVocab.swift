@@ -14,7 +14,7 @@ import Foundation
 /// The vocab's id space is 0…177 inclusive (178 ids), though only 114
 /// characters are mapped (1…177 has gaps). `tokenCount` reports the id space so
 /// callers can range-check ids.
-struct KokoroPhonemeVocab {
+nonisolated struct KokoroPhonemeVocab {
     /// BOS / EOS token id (the Kokoro vocab's pad/boundary token).
     static let boundaryTokenId: Int32 = 0
 
