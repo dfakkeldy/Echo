@@ -123,10 +123,18 @@ struct BookOverridesSections: View {
 struct BookSettingsView: View {
     @Bindable var model: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showingStudyPlan = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Study") {
+                    Button("Study Plan", systemImage: "rectangle.stack.badge.play") {
+                        showingStudyPlan = true
+                    }
+                    .disabled(model.databaseService == nil || model.folderURL == nil)
+                }
+
                 BookOverridesSections(model: model)
             }
             .navigationTitle("Book Settings")
@@ -135,6 +143,18 @@ struct BookSettingsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
+            }
+        }
+        .sheet(isPresented: $showingStudyPlan) {
+            if let db = model.databaseService?.writer,
+               let audiobookID = model.folderURL?.absoluteString {
+                StudyPlanSheet(
+                    viewModel: StudyPlanViewModel(
+                        audiobookID: audiobookID,
+                        bookTitle: model.currentTitle.isEmpty ? "Book" : model.currentTitle,
+                        db: db
+                    )
+                )
             }
         }
         .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
