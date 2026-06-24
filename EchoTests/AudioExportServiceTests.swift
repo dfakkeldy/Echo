@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 
 @testable import Echo
@@ -22,22 +24,22 @@ import Testing
         /// feature, so any container rebuild that drops chapters in service of
         /// stamping metadata is a regression.
         ///
-        /// ## Why the oracle is byte-level for *both* chapters and title
+        /// ## Why the oracle is byte-level here (and AVFoundation in the sibling test)
         ///
         /// Both are written by `swift-audio-marker` in a single container-preserving
         /// `modify` pass (chapters as Nero `chpl`/QuickTime `chap`; title/artist as
-        /// `ilst` `©nam`/`©ART`). AVFoundation does not surface either: just as
-        /// `loadChapterMetadataGroups` reports zero chapters for these files (see
-        /// `ChapterMarkerWriterTests`), `load(.commonMetadata)` reports a nil title —
-        /// AVFoundation reads only the `chpl` atom and ignores the package's `ilst`
-        /// layout. (Empirically confirmed during this fix: with the title genuinely
-        /// in the bytes, `commonMetadata`'s title item is nil.) So the assertions
-        /// below verify the bytes we control — the title/author/chapter strings are
-        /// present in the raw output and absent from the silent source fixtures —
-        /// rather than round-tripping through an AVFoundation reader that does not
-        /// expose these atoms. The AVFoundation-title expectation is captured as an
-        /// explicitly disabled manual case below, mirroring
-        /// `ChapterMarkerWriterTests.chaptersVisibleToAVFoundation`.
+        /// `ilst` `©nam`/`©ART`). This test's oracle is deliberately *low-level*: it
+        /// asserts the title/author/chapter strings (and the `mdir`/`aART`/`elst`/
+        /// `ftab` marker atoms) are physically present in the output bytes and absent
+        /// from the silent source fixtures — proving the atoms reached the file and
+        /// were not stripped by a post-chapter container rebuild, independent of any
+        /// reader. The *high-level* oracle — that Apple's own AVFoundation reader
+        /// surfaces the title, artist and chapters — lives in the companion
+        /// `titleAndChaptersVisibleToAVFoundation` test (mirrored by
+        /// `ChapterMarkerWriterTests.chaptersVisibleToAVFoundation`). That used to
+        /// come back empty (upstream `swift-audio-marker` omitted the `mdir` handler
+        /// and wrote a non-conformant chapter track); Echo's fork fixed both, so the
+        /// AVFoundation assertions are now enforced rather than disabled.
         ///
         /// REGRESSION GUARD: this previously *failed* because a Phase-2 passthrough
         /// `AVAssetExportSession` re-export (added only to stamp metadata) rebuilt
@@ -153,6 +155,46 @@ import Testing
             // First chapter starts at 0; second starts at ~1s (the first clip's length).
             #expect(abs(groups[0].timeRange.start.seconds - 0) < 0.05)
             #expect(abs(groups[1].timeRange.start.seconds - 1) < 0.2)
+        }
+
+        /// The cover image survives the export and is READABLE by Apple's own
+        /// metadata reader — the `commonKeyArtwork` cascade `ExportMetadataResolver`
+        /// uses to re-source a cover and the path Books / Music / the lock screen use
+        /// to show it. The fork writes `covr` inside an `mdir`-led `ilst`, so unlike
+        /// the early pre-fork state there is no AVFoundation-blind caveat: Apple
+        /// surfaces the artwork. The decoded image is asserted to be the *same*
+        /// 240×240 picture, not merely "some bytes", so a truncated or wrong-typed
+        /// `covr` (a cover players silently drop) fails the test.
+        @Test func coverArtSurvivesAndIsReadableByAVFoundation() async throws {
+            let a = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            defer { try? FileManager.default.removeItem(at: a) }
+            let cover = CoverArtFixture.makeJPEG(width: 240, height: 240)
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer { try? FileManager.default.removeItem(at: out) }
+            try await AudioExportService().exportM4B(
+                items: [ExportItem(title: "One", url: a, timeRange: nil)],
+                outputURL: out,
+                metadata: ExportMetadata(title: "Cover Book", author: "Tester", coverArt: cover))
+
+            // (a) A `covr` atom landed in the output and the source silence had none.
+            let outputBytes = try Data(contentsOf: out)
+            #expect(outputBytes.range(of: Data("covr".utf8)) != nil)
+
+            // (b) Apple's reader returns the artwork and it decodes to the original
+            //     240×240 image — proving the embedded `covr` is intact and readable.
+            let asset = AVURLAsset(url: out)
+            let meta = try await asset.load(.commonMetadata)
+            let artworkItem = try #require(meta.first { $0.commonKey == .commonKeyArtwork })
+            // Evaluate the async/throwing load in the test body (which supports
+            // concurrency), then unwrap synchronously — `#require`'s autoclosure is
+            // neither `async` nor `throws`, so `await`/`try` must not live inside it.
+            let loadedArtwork = try await artworkItem.load(.dataValue)
+            let data = try #require(loadedArtwork)
+            let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+            let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            #expect(image.width == 240)
+            #expect(image.height == 240)
         }
     #endif
 }
