@@ -98,7 +98,7 @@ struct ABSBrowseView: View {
             return
         }
         do {
-            let result = try await service.items(libraryID: lib.id).results
+            let result = try await service.allItems(libraryID: lib.id)
             try Task.checkCancellation()  // bail if the selection already moved on
             items = result
         } catch is CancellationError {

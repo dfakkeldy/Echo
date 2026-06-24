@@ -164,9 +164,88 @@ struct ABSLibraryItem: Decodable, Identifiable {
         var authorName: String? { author }
 
         enum CodingKeys: String, CodingKey {
-            case title, author, narrator, series, description, genres, publisher, isbn, asin,
-                language, explicit
+            case title, author, authors, narrator, narrators, series, description, genres,
+                publisher,
+                isbn, asin, language, explicit
+            case authorName = "authorName"
+            case narratorName = "narratorName"
+            case seriesName = "seriesName"
             case publishedYear = "publishedYear"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            title = Self.string(in: container, forKey: .title)
+            author =
+                Self.string(in: container, forKey: .author)
+                ?? Self.string(in: container, forKey: .authorName)
+                ?? Self.joined(Self.namedValues(in: container, forKey: .authors))
+            narrator =
+                Self.string(in: container, forKey: .narrator)
+                ?? Self.string(in: container, forKey: .narratorName)
+                ?? Self.joined(Self.namedValues(in: container, forKey: .narrators))
+            series =
+                Self.string(in: container, forKey: .series)
+                ?? Self.string(in: container, forKey: .seriesName)
+                ?? Self.joined(Self.namedValues(in: container, forKey: .series))
+            description = Self.string(in: container, forKey: .description)
+            genres = Self.stringArray(in: container, forKey: .genres)
+            publishedYear = Self.string(in: container, forKey: .publishedYear)
+            publisher = Self.string(in: container, forKey: .publisher)
+            isbn = Self.string(in: container, forKey: .isbn)
+            asin = Self.string(in: container, forKey: .asin)
+            language = Self.string(in: container, forKey: .language)
+            explicit = try? container.decodeIfPresent(Bool.self, forKey: .explicit)
+        }
+
+        private struct NamedValue: Decodable {
+            let name: String?
+        }
+
+        private static func string(
+            in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+        ) -> String? {
+            guard let value = try? container.decodeIfPresent(String.self, forKey: key) else {
+                return nil
+            }
+            return normalized(value)
+        }
+
+        private static func stringArray(
+            in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+        ) -> [String]? {
+            if let values = try? container.decodeIfPresent([String].self, forKey: key) {
+                let normalizedValues = values.compactMap(normalized)
+                return normalizedValues.isEmpty ? nil : normalizedValues
+            }
+            if let value = string(in: container, forKey: key) { return [value] }
+            return nil
+        }
+
+        private static func namedValues(
+            in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys
+        ) -> [String] {
+            if let values = stringArray(in: container, forKey: key) { return values }
+            if let values = try? container.decodeIfPresent([NamedValue].self, forKey: key) {
+                return values.compactMap { normalized($0.name) }
+            }
+            if let value = try? container.decodeIfPresent(NamedValue.self, forKey: key),
+                let name = normalized(value.name)
+            {
+                return [name]
+            }
+            return []
+        }
+
+        private static func joined(_ values: [String]) -> String? {
+            values.isEmpty ? nil : values.joined(separator: ", ")
+        }
+
+        private static func normalized(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
     }
 
@@ -203,6 +282,19 @@ struct ABSLibraryItem: Decodable, Identifiable {
 
 struct ABSSearchResponse: Decodable {
     let book: [ABSSearchBookResult]
+    let podcast: [ABSSearchBookResult]
+
+    var libraryItems: [ABSLibraryItem] { book.map(\.libraryItem) + podcast.map(\.libraryItem) }
+
+    enum CodingKeys: String, CodingKey {
+        case book, podcast
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        book = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .book) ?? []
+        podcast = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .podcast) ?? []
+    }
 }
 
 struct ABSSearchBookResult: Decodable {

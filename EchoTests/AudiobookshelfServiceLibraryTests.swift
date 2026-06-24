@@ -44,6 +44,40 @@ import Testing
         #expect(page.results.first?.duration == 3600)
     }
 
+    @Test func fetchAllItemsRequestsPagesUntilTotalIsReached() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "0", "limit": "2"],
+            json: """
+                {"total":3,"limit":2,"page":0,"results":[
+                  {"id":"itA","libraryId":"lib1","media":{"metadata":{"title":"A Book"}}},
+                  {"id":"itB","libraryId":"lib1","media":{"metadata":{"title":"B Book"}}}
+                ]}
+                """)
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "2"],
+            json: """
+                {"total":3,"limit":2,"page":1,"results":[
+                  {"id":"itC","libraryId":"lib1","media":{"metadata":{"title":"C Book"}}}
+                ]}
+                """)
+
+        let items = try await service.allItems(libraryID: "lib1", pageSize: 2)
+        let requestedPages = URLProtocolStub.requests.compactMap { request -> String? in
+            guard request.url?.path.hasSuffix("/items") == true,
+                let url = request.url,
+                let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "page" })?.value
+            else { return nil }
+            return page
+        }
+
+        #expect(items.map(\.id) == ["itA", "itB", "itC"])
+        #expect(requestedPages == ["0", "1"])
+    }
+
     @Test func fetchItemDetailDecodes() async throws {
         let service = makeService()
         URLProtocolStub.stub(

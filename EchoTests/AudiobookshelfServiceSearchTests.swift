@@ -30,6 +30,34 @@ import Testing
         #expect(results.first?.title == "The Wakeful Body")
     }
 
+    @Test func searchDecodesExpandedMetadataArraysFromCurrentABSResponses() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/search",
+            json: """
+                {"book":[
+                  {"libraryItem":{"id":"it1","libraryId":"lib1","media":{"duration":43200,
+                   "tags":["Relationships"],
+                   "metadata":{"title":"High Conflict",
+                    "authors":[{"id":"aut1","name":"Amanda Ripley"}],
+                    "narrators":["Amanda Ripley"],
+                    "series":[{"id":"ser1","name":"Conflict Studies","sequence":"1"}],
+                    "genres":["Psychology"],
+                    "publishedYear":"2021"}}},
+                   "matchKey":"title","matchText":"High Conflict"}
+                ],"tags":[],"authors":[],"series":[]}
+                """)
+
+        let results = try await service.search(libraryID: "lib1", query: "High Conflict")
+
+        #expect(results.map(\.id) == ["it1"])
+        #expect(results.first?.title == "High Conflict")
+        #expect(results.first?.author == "Amanda Ripley")
+        #expect(results.first?.media?.metadata?.narrator == "Amanda Ripley")
+        #expect(results.first?.media?.metadata?.series == "Conflict Studies")
+        #expect(results.first?.topics == ["Conflict Studies", "Psychology", "Relationships"])
+    }
+
     @Test func emptyBookArrayReturnsEmpty() async throws {
         let service = makeService()
         URLProtocolStub.stub(
