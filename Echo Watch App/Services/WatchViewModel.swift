@@ -110,6 +110,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var playbackSpeed: Double { availableSpeeds[currentSpeedIndex] }
 
     @ObservationIgnored private let defaults = AppGroupDefaults.shared
+    @ObservationIgnored private var wakeRefreshPolicy = WatchWakeRefreshPolicy()
 
     /// Debounce widget timeline reloads to at most once per 30 seconds,
     /// instead of firing on every `applyState` call (which can happen
@@ -591,6 +592,13 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }, errorHandler: { [weak self] error in
             self?.logger.error("Error requesting state: \(error)")
         })
+    }
+
+    func refreshAfterWake() {
+        appWillEnterForeground()
+
+        guard wakeRefreshPolicy.shouldRefresh() else { return }
+        requestCurrentState()
     }
 
     private static func isDirectionalCommand(_ command: String) -> Bool {

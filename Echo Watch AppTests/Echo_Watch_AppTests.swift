@@ -51,4 +51,16 @@ struct Echo_Watch_AppTests {
         #expect(decoded == padded)
     }
 
+    @Test func wakeRefreshPolicyAllowsInitialRefreshAndThrottlesDuplicates() {
+        var policy = WatchWakeRefreshPolicy(minimumInterval: 1.0)
+        let start = Date(timeIntervalSinceReferenceDate: 100)
+        let firstRefresh = policy.shouldRefresh(now: start)
+        let duplicateRefresh = policy.shouldRefresh(now: start.addingTimeInterval(0.5))
+        let laterRefresh = policy.shouldRefresh(now: start.addingTimeInterval(1.0))
+
+        #expect(firstRefresh)
+        #expect(!duplicateRefresh)
+        #expect(laterRefresh)
+    }
+
 }
