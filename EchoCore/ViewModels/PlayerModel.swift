@@ -1462,7 +1462,9 @@ final class PlayerModel {
             skipBackward: { [weak self] in self?.skipBackward30() },
             skipForward: { [weak self] in self?.skipForward30() },
             previousTrack: { [weak self] in self?.skipBackwardNavigation() },
-            seek: { [weak self] position in self?.seek(toSeconds: position) },
+            seek: { [weak self] position in
+                self?.playbackController.seekFromRemoteCommand(positionTime: position)
+            },
             skipBackwardInterval: settingsManager?.seekBackwardDuration
                 ?? SettingsManager.Defaults.seekBackwardDuration,
             skipForwardInterval: settingsManager?.seekForwardDuration
