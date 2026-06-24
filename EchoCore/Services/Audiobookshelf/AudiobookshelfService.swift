@@ -95,6 +95,29 @@ final class AudiobookshelfService {
         return try await authorized(request, decode: ABSLibraryItemsResponse.self)
     }
 
+    func allItems(libraryID: String, pageSize: Int = 100, filter: String? = nil)
+        async throws -> [ABSLibraryItem]
+    {
+        let limit = max(1, pageSize)
+        var page = 0
+        var results: [ABSLibraryItem] = []
+
+        while true {
+            let response = try await items(
+                libraryID: libraryID, page: page, limit: limit, filter: filter)
+            guard !response.results.isEmpty else { return results }
+
+            results.append(contentsOf: response.results)
+            if let total = response.total, results.count >= total { return results }
+            if let numPages = response.numPages, page + 1 >= numPages { return results }
+            if response.total == nil, response.numPages == nil, response.results.count < limit {
+                return results
+            }
+
+            page += 1
+        }
+    }
+
     func item(id: String) async throws -> ABSLibraryItem {
         let request = URLRequest(url: endpoints.item(id))
         return try await authorized(request, decode: ABSLibraryItem.self)
@@ -106,7 +129,7 @@ final class AudiobookshelfService {
     {
         let request = URLRequest(
             url: endpoints.search(libraryID: libraryID, query: query, limit: limit))
-        return try await authorized(request, decode: ABSSearchResponse.self).book.map(\.libraryItem)
+        return try await authorized(request, decode: ABSSearchResponse.self).libraryItems
     }
 
     /// Self-contained cover URL for `AsyncImage` (token in query). nil if not logged in.
