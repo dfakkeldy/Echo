@@ -4,12 +4,18 @@ import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 import os.log
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 
 struct SettingsView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     @Environment(StoreManager.self) private var storeManager
     @Environment(\.dismiss) private var dismiss
+    private let buildMetadata = AppBuildMetadata()
     @State private var showingDeckImporter = false
     @State private var importAlert: (title: String, message: String)?
 
@@ -86,28 +92,13 @@ struct SettingsView: View {
                             dismiss()
                         }
                         Button("🔊 Narrate Ch. 1 (Kokoro test)") {
-                            Task {
-                                do {
-                                    guard let writer = model.databaseService?.writer,
-                                        let audiobookID = model.folderURL?.absoluteString
-                                    else { return }
-                                    let player =
-                                        try await NarrationService
-                                        .testRenderAndPlayChapterOne(
-                                            databaseWriter: writer, audiobookID: audiobookID)
-                                    self.debugNarrationPlayer = player
-                                } catch {
-                                    Logger(category: "NarrationTest").error(
-                                        "Narration test failed: \(error.localizedDescription)")
-                                }
-                            }
+                            runNarrationTest()
                         }
                     } header: {
                         Text("Debug Menu")
                     } footer: {
                         Text(
-                            "Loads audio files from Development Assets into the player, "
-                                + "and renders chapter 1 through the on-device ONNX narration engine."
+                            "Loads audio files from Development Assets into the player and renders chapter 1 through the on-device ONNX narration engine."
                         )
                     }
                 #endif
@@ -118,6 +109,8 @@ struct SettingsView: View {
                             .navigationTitle("Help")
                     }
                 }
+
+                BuildMetadataSection(buildMetadata: buildMetadata)
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -189,6 +182,30 @@ struct SettingsView: View {
             importAlert = ("Import Failed", error.localizedDescription)
         }
     }
+
+    #if DEBUG
+        private func runNarrationTest() {
+            Task {
+                do {
+                    guard let writer = model.databaseService?.writer,
+                        let audiobookID = model.folderURL?.absoluteString
+                    else { return }
+                    let player =
+                        try await NarrationService.testRenderAndPlayChapterOne(
+                            databaseWriter: writer, audiobookID: audiobookID)
+                    self.debugNarrationPlayer = player
+                } catch {
+                    logNarrationTestFailure(error)
+                }
+            }
+        }
+
+        private func logNarrationTestFailure(_ error: Error) {
+            let logger = Logger(category: "NarrationTest")
+            logger.error("Narration test failed.")
+            logger.error("\(error.localizedDescription, privacy: .public)")
+        }
+    #endif
 }
 
 private struct SettingsSilenceDetectionSection: View {
@@ -213,6 +230,54 @@ private struct SettingsSilenceDetectionSection: View {
             Text(
                 "How far back to scan for silence when locating playback position during reverse playback. For testing."
             )
+        }
+    }
+}
+
+private struct BuildMetadataSection: View {
+    let buildMetadata: AppBuildMetadata
+    @State private var copiedCommit = false
+
+    var body: some View {
+        Section {
+            LabeledContent("Version", value: buildMetadata.versionString)
+            LabeledContent {
+                HStack {
+                    Text(buildMetadata.commitString)
+                        .textSelection(.enabled)
+                    Button("Copy", systemImage: copiedCommit ? "checkmark" : "doc.on.doc") {
+                        copyCommitHash()
+                    }
+                    .disabled(buildMetadata.gitCommitHash == nil)
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Copy commit hash")
+                }
+            } label: {
+                Text("Commit")
+            }
+        } header: {
+            Text("Build")
+        } footer: {
+            Text(
+                "Use these details when comparing installs or reporting a bug. The commit hash is stamped into the app at build time."
+            )
+        }
+    }
+
+    private func copyCommitHash() {
+        guard let gitCommitHash = buildMetadata.gitCommitHash else { return }
+
+        #if canImport(UIKit)
+            UIPasteboard.general.string = gitCommitHash
+        #elseif canImport(AppKit)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(gitCommitHash, forType: .string)
+        #endif
+
+        copiedCommit = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedCommit = false
         }
     }
 }

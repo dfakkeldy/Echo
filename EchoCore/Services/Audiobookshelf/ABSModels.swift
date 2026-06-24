@@ -16,7 +16,12 @@ enum ABSError: Error, LocalizedError {
         switch self {
         case .notConnected: return "No Audiobookshelf server connected."
         case .unauthorized: return "Authentication failed. Sign in again."
-        case .network(let e): return e.localizedDescription
+        case .network(let e):
+            if (e as? URLError)?.code == .appTransportSecurityRequiresSecureConnection {
+                return
+                    "App Transport Security blocked plain HTTP. Reinstall the latest app build, or use an HTTPS Audiobookshelf URL."
+            }
+            return e.localizedDescription
         case .http(let code, _): return "Server returned HTTP \(code)."
         case .serverMessage(let m): return m
         case .missingField(let f): return "Response missing required field: \(f)."

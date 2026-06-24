@@ -44,4 +44,12 @@ import Testing
             return
         }
     }
+
+    @Test func describesATSBlocksClearly() {
+        let error = ABSError.network(
+            URLError(.appTransportSecurityRequiresSecureConnection))
+        #expect(
+            error.errorDescription
+                == "App Transport Security blocked plain HTTP. Reinstall the latest app build, or use an HTTPS Audiobookshelf URL.")
+    }
 }

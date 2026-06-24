@@ -701,6 +701,7 @@
 				AA0100000000000000000032 /* Sources */,
 				AA0100000000000000000030 /* Frameworks */,
 				AA0100000000000000000031 /* Resources */,
+				E5A6C9D01A2B3C4D5E6F7081 /* Stamp build metadata */,
 				CDA03CF93AED9EFAEE46964E /* Strip statically-linked onnxruntime frameworks (ITMS-90208) */,
 			);
 			buildRules = (
@@ -754,6 +755,7 @@
 				CC08EC562F9522F600206D2F /* Frameworks */,
 				CC08EC572F9522F600206D2F /* Resources */,
 				CCC48E8D2FA6AAC30003458B /* Embed Watch Content */,
+				E5A6C9D01A2B3C4D5E6F7082 /* Stamp build metadata */,
 				3DC862EA53BF2F601B0D1733 /* Strip statically-linked onnxruntime frameworks (ITMS-90208) */,
 			);
 			buildRules = (
@@ -1010,6 +1012,44 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		E5A6C9D01A2B3C4D5E6F7081 /* Stamp build metadata */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp build metadata";
+				outputFileListPaths = (
+				);
+				outputPaths = (
+					"$(DERIVED_FILE_DIR)/build-metadata.stamp",
+				);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "sh \"${SRCROOT}/Scripts/stamp_build_metadata.sh\"";
+		};
+		E5A6C9D01A2B3C4D5E6F7082 /* Stamp build metadata */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp build metadata";
+				outputFileListPaths = (
+				);
+				outputPaths = (
+					"$(DERIVED_FILE_DIR)/build-metadata.stamp",
+				);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "sh \"${SRCROOT}/Scripts/stamp_build_metadata.sh\"";
+		};
 		3DC862EA53BF2F601B0D1733 /* Strip statically-linked onnxruntime frameworks (ITMS-90208) */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
