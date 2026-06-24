@@ -92,6 +92,29 @@ final class PlaybackController {
         return globalTime < chapters[0].startSeconds ? 0 : nil
     }
 
+    static func remoteCommandSeekTarget(
+        positionTime: TimeInterval,
+        chapters: [Chapter],
+        currentChapterIndex: Int?,
+        durationSeconds: TimeInterval?
+    ) -> TimeInterval {
+        let safePosition = max(0, positionTime)
+        // Now Playing publishes chapter-relative duration/elapsed when chapter metadata is active.
+        if chapters.count >= 2,
+           let currentChapterIndex,
+           chapters.indices.contains(currentChapterIndex) {
+            let chapter = chapters[currentChapterIndex]
+            let chapterDuration = max(0, chapter.endSeconds - chapter.startSeconds)
+            let chapterRelativePosition = min(safePosition, chapterDuration)
+            return chapter.startSeconds + chapterRelativePosition
+        }
+
+        guard let durationSeconds, durationSeconds.isFinite, durationSeconds > 0 else {
+            return safePosition
+        }
+        return min(safePosition, durationSeconds)
+    }
+
     /// Jumps to the next enabled chapter or track when the current one is disabled.
     /// Called on each time update tick from the delegate.
     func enforceEnabledState() {
@@ -783,6 +806,16 @@ final class PlaybackController {
                 seek(toSeconds: targetSeconds)
             }
         }
+    }
+
+    func seekFromRemoteCommand(positionTime: TimeInterval) {
+        let targetSeconds = Self.remoteCommandSeekTarget(
+            positionTime: positionTime,
+            chapters: state.chapters,
+            currentChapterIndex: state.currentChapterIndex,
+            durationSeconds: state.durationSeconds
+        )
+        seek(toSeconds: targetSeconds)
     }
 
     // MARK: - Bookmark Jump
