@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import SwiftUI
+
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+struct StudyAssignmentCardView: View {
+    let entry: StudyQueueEntry
+    let isRevealed: Bool
+    let onPlay: () -> Void
+    let onReveal: () -> Void
+    let onGrade: (ReviewGrade) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            AssignmentHeaderView(entry: entry, title: labelTitle, icon: labelIcon)
+
+            if entry.flashcard.cardType == StudyFlashcardType.imageAssignment {
+                StudyLocalImageView(path: imagePath, accessibilityLabel: entry.flashcard.frontText)
+                    .frame(maxHeight: 260)
+            }
+
+            Button("Play Assignment", systemImage: "play.circle.fill", action: onPlay)
+                .buttonStyle(.borderedProminent)
+
+            if isRevealed {
+                Text(entry.flashcard.backText)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                StudyAssignmentGradeButtons(onGrade: onGrade)
+            } else {
+                Button("Review Retention", systemImage: "checkmark.circle", action: onReveal)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(16)
+    }
+
+    private var labelTitle: String {
+        entry.flashcard.cardType == StudyFlashcardType.imageAssignment
+            ? "Image Assignment"
+            : "Listening Assignment"
+    }
+
+    private var labelIcon: String {
+        entry.flashcard.cardType == StudyFlashcardType.imageAssignment ? "photo" : "headphones"
+    }
+
+    private var imagePath: String? {
+        guard entry.flashcard.cardType == StudyFlashcardType.imageAssignment else { return nil }
+        guard let mediaJSON = entry.flashcard.mediaJSON,
+              let data = mediaJSON.data(using: .utf8),
+              let media = try? JSONDecoder().decode(StudyCardMedia.self, from: data) else {
+            return nil
+        }
+        return media.imagePath
+    }
+}
+
+private struct AssignmentHeaderView: View {
+    let entry: StudyQueueEntry
+    let title: String
+    let icon: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(entry.flashcard.frontText)
+                .font(.title3)
+                .bold()
+                .multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct StudyAssignmentGradeButtons: View {
+    let onGrade: (ReviewGrade) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(ReviewGrade.allCases, id: \.self) { grade in
+                Button(grade.label) {
+                    onGrade(grade)
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private struct StudyLocalImageView: View {
+    let path: String?
+    let accessibilityLabel: String
+
+    var body: some View {
+        #if canImport(UIKit)
+        if let path, let image = UIImage(contentsOfFile: path) {
+            StudyDecoratedImageView(image: Image(uiImage: image), accessibilityLabel: accessibilityLabel)
+        } else {
+            StudyUnavailableImagePlaceholder()
+        }
+        #elseif canImport(AppKit)
+        if let path, let image = NSImage(contentsOfFile: path) {
+            StudyDecoratedImageView(image: Image(nsImage: image), accessibilityLabel: accessibilityLabel)
+        } else {
+            StudyUnavailableImagePlaceholder()
+        }
+        #else
+        StudyUnavailableImagePlaceholder()
+        #endif
+    }
+}
+
+private struct StudyDecoratedImageView: View {
+    let image: Image
+    let accessibilityLabel: String
+
+    var body: some View {
+        image
+            .resizable()
+            .scaledToFit()
+            .clipShape(.rect(cornerRadius: 8))
+            .accessibilityLabel(Text(accessibilityLabel))
+    }
+}
+
+private struct StudyUnavailableImagePlaceholder: View {
+    var body: some View {
+        Image(systemName: "photo")
+            .font(.largeTitle)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 160)
+            .background(.secondary.opacity(0.08))
+            .clipShape(.rect(cornerRadius: 8))
+            .accessibilityLabel(Text("Image unavailable"))
+    }
+}
