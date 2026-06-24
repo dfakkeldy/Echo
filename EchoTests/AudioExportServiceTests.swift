@@ -24,22 +24,22 @@ import Testing
         /// feature, so any container rebuild that drops chapters in service of
         /// stamping metadata is a regression.
         ///
-        /// ## Why the oracle is byte-level for *both* chapters and title
+        /// ## Why the oracle is byte-level here (and AVFoundation in the sibling test)
         ///
         /// Both are written by `swift-audio-marker` in a single container-preserving
         /// `modify` pass (chapters as Nero `chpl`/QuickTime `chap`; title/artist as
-        /// `ilst` `©nam`/`©ART`). AVFoundation does not surface either: just as
-        /// `loadChapterMetadataGroups` reports zero chapters for these files (see
-        /// `ChapterMarkerWriterTests`), `load(.commonMetadata)` reports a nil title —
-        /// AVFoundation reads only the `chpl` atom and ignores the package's `ilst`
-        /// layout. (Empirically confirmed during this fix: with the title genuinely
-        /// in the bytes, `commonMetadata`'s title item is nil.) So the assertions
-        /// below verify the bytes we control — the title/author/chapter strings are
-        /// present in the raw output and absent from the silent source fixtures —
-        /// rather than round-tripping through an AVFoundation reader that does not
-        /// expose these atoms. The AVFoundation-title expectation is captured as an
-        /// explicitly disabled manual case below, mirroring
-        /// `ChapterMarkerWriterTests.chaptersVisibleToAVFoundation`.
+        /// `ilst` `©nam`/`©ART`). This test's oracle is deliberately *low-level*: it
+        /// asserts the title/author/chapter strings (and the `mdir`/`aART`/`elst`/
+        /// `ftab` marker atoms) are physically present in the output bytes and absent
+        /// from the silent source fixtures — proving the atoms reached the file and
+        /// were not stripped by a post-chapter container rebuild, independent of any
+        /// reader. The *high-level* oracle — that Apple's own AVFoundation reader
+        /// surfaces the title, artist and chapters — lives in the companion
+        /// `titleAndChaptersVisibleToAVFoundation` test (mirrored by
+        /// `ChapterMarkerWriterTests.chaptersVisibleToAVFoundation`). That used to
+        /// come back empty (upstream `swift-audio-marker` omitted the `mdir` handler
+        /// and wrote a non-conformant chapter track); Echo's fork fixed both, so the
+        /// AVFoundation assertions are now enforced rather than disabled.
         ///
         /// REGRESSION GUARD: this previously *failed* because a Phase-2 passthrough
         /// `AVAssetExportSession` re-export (added only to stamp metadata) rebuilt
