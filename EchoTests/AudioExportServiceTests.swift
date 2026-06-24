@@ -186,7 +186,11 @@ import Testing
             let asset = AVURLAsset(url: out)
             let meta = try await asset.load(.commonMetadata)
             let artworkItem = try #require(meta.first { $0.commonKey == .commonKeyArtwork })
-            let data = try await #require(artworkItem.load(.dataValue))
+            // Evaluate the async/throwing load in the test body (which supports
+            // concurrency), then unwrap synchronously — `#require`'s autoclosure is
+            // neither `async` nor `throws`, so `await`/`try` must not live inside it.
+            let loadedArtwork = try await artworkItem.load(.dataValue)
+            let data = try #require(loadedArtwork)
             let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
             let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
             #expect(image.width == 240)
