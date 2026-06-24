@@ -119,8 +119,11 @@ struct RootTabView: View {
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
             if !model.isPlayingVoiceMemo {
-                VStack {
+                VStack(spacing: 0) {
                     Spacer()
+                    if model.folderURL != nil {
+                        DashboardShelf(onReviewTap: launchStudySession)
+                    }
                     UnifiedBottomDock(
                         onCreateBookmark: { draft in newBookmarkDraft = draft },
                         onShowPlaybackOptions: { showingPlaybackOptions = true },

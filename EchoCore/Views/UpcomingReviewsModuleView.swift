@@ -5,7 +5,7 @@ struct UpcomingReviewsModuleView: View {
     @Environment(PlayerModel.self) private var model
     @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 140
 
-    @State private var dueCount: Int = 0
+    @State private var queueCount: Int = 0
     @State private var reviewedToday: Int = 0
     var onTap: (() -> Void)?
 
@@ -18,17 +18,17 @@ struct UpcomingReviewsModuleView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("\(dueCount)")
+                Text("\(queueCount)")
                     .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundStyle(dueCount > 0 ? .purple : .secondary)
+                    .bold()
+                    .foregroundStyle(queueCount > 0 ? .purple : .secondary)
 
                 if reviewedToday > 0 {
                     Text("^[\(reviewedToday) reviewed today](inflect: true)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(dueCount == 0 ? "all caught up" : "tap to review")
+                    Text(queueCount == 0 ? "all caught up" : "tap to study")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -46,13 +46,15 @@ struct UpcomingReviewsModuleView: View {
     private func loadStats() {
         guard let db = model.databaseService else { return }
         do {
-            let dao = FlashcardDAO(db: db.writer)
-            let stats = try dao.reviewStats()
-            dueCount = stats.dueCount
+            let stats = try FlashcardDAO(db: db.writer).reviewStats()
+            let queue = try StudyQueueBuilder(db: db.writer).build()
+            queueCount = queue.totalCount
             reviewedToday = stats.reviewedToday
-            ReviewNotificationService.updateNotification(dueCount: stats.dueCount)
+            ReviewNotificationService.updateNotification(
+                dueCount: queue.dueReviewCount + queue.inProgressAssignmentCount
+            )
         } catch {
-            dueCount = 0
+            queueCount = 0
             reviewedToday = 0
         }
     }
