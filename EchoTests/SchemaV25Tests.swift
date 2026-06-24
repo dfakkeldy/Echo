@@ -54,8 +54,8 @@ import Testing
         #expect(itemIndexes.contains("idx_study_plan_item_source"))
     }
 
-    @Test func migratingFromV24PreservesDecksAndFlashcards() throws {
-        let queue = try makeV24Database()
+    @Test func migratingFromBaselinePreservesDecksAndFlashcards() throws {
+        let queue = try makePreStudyPlanDatabase()
         try seedLegacyStudyData(in: queue)
 
         try makeMigrator(includeV25: true).migrate(queue)
@@ -77,7 +77,7 @@ import Testing
         #expect(snapshot.3.contains("flashcard_id"))
     }
 
-    private func makeV24Database() throws -> DatabaseQueue {
+    private func makePreStudyPlanDatabase() throws -> DatabaseQueue {
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys=ON")
@@ -90,37 +90,6 @@ import Testing
     private func makeMigrator(includeV25: Bool) -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_create_schema") { db in try Schema_V1.migrate(db) }
-        migrator.registerMigration("v2_timeline_support") { db in try Schema_V2.migrate(db) }
-        migrator.registerMigration("v3_missing_indexes") { db in try Schema_V3.migrate(db) }
-        migrator.registerMigration("v4_materialized_timeline") { db in try Schema_V4.migrate(db) }
-        migrator.registerMigration("v5_epub_alignment") { db in try Schema_V5.migrate(db) }
-        migrator.registerMigration("v6_indexes_and_fixes") { db in try Schema_V6.migrate(db) }
-        migrator.registerMigration("v7_epub_reader_columns") { db in try Schema_V7.migrate(db) }
-        migrator.registerMigration("v8_epub_block_word_count") { db in try Schema_V8.migrate(db) }
-        migrator.registerMigration("v9_epub_block_markers") { db in try Schema_V9.migrate(db) }
-        migrator.registerMigration("v10_epub_block_chapter_theme") { db in
-            try Schema_V10.migrate(db)
-        }
-        migrator.registerMigration("v11_bookmark_pdf_state") { db in try Schema_V11.migrate(db) }
-        migrator.registerMigration("v12_epub_block_front_matter") { db in
-            try Schema_V12.migrate(db)
-        }
-        migrator.registerMigration("v13_epub_toc_entries") { db in try Schema_V13.migrate(db) }
-        migrator.registerMigration("v14_capture_and_context") { db in try Schema_V14.migrate(db) }
-        migrator.registerMigration("v15_anki_decks") { db in try Schema_V15.migrate(db) }
-        migrator.registerMigration("v16_fsrs_cloze_transcript") { db in try Schema_V16.migrate(db) }
-        migrator.registerMigration("v17_track_narration_voice") { db in try Schema_V17.migrate(db) }
-        migrator.registerMigration("v18_abs_server") { db in try Schema_V18.migrate(db) }
-        migrator.registerMigration("v19_word_timing") { db in try Schema_V19.migrate(db) }
-        migrator.registerMigration("v20_batch_queue") { db in try Schema_V20.migrate(db) }
-        migrator.registerMigration("v21_batch_kind") { db in try Schema_V21.migrate(db) }
-        migrator.registerMigration("v22_fsrs_seed") { db in try Schema_V22.migrate(db) }
-        migrator.registerMigration("v23_audiobook_abs_provenance") { db in
-            try Schema_V23.migrate(db)
-        }
-        migrator.registerMigration("v24_feed_note_position_voice_memo") { db in
-            try Schema_V24.migrate(db)
-        }
         if includeV25 {
             migrator.registerMigration("v25_study_plans") { db in
                 try Schema_V25.migrate(db)

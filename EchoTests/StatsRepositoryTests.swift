@@ -19,7 +19,7 @@ import Testing
 
         let now = Date()
         let formatter = ISO8601DateFormatter()
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'Book 1', 3600, ?)",
                            arguments: [formatter.string(from: now)])
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b2', 'Book 2', 7200, ?)",
@@ -58,7 +58,7 @@ import Testing
 
         let now = Date()
         let formatter = ISO8601DateFormatter()
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'B1', 3600, ?)",
                            arguments: [formatter.string(from: now)])
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b2', 'B2', 3600, ?)",
@@ -92,7 +92,7 @@ import Testing
 
         let now = Date()
         let formatter = ISO8601DateFormatter()
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'B1', 3600, ?)",
                            arguments: [formatter.string(from: now)])
             try db.execute(sql: """
@@ -119,7 +119,7 @@ import Testing
         let today = cal.startOfDay(for: now)
         let formatter = ISO8601DateFormatter()
 
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'Book 1', 3600, ?)",
                            arguments: [formatter.string(from: now)])
 
@@ -158,7 +158,7 @@ import Testing
 
         let now = Date()
         let formatter = ISO8601DateFormatter()
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'Most Listened', 3600, ?)",
                            arguments: [formatter.string(from: now)])
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b2', 'Least Listened', 3600, ?)",
@@ -195,7 +195,7 @@ import Testing
         let cal = Calendar.current
         let formatter = ISO8601DateFormatter()
 
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'B1', 3600, ?)",
                            arguments: [formatter.string(from: now)])
             try db.execute(sql: """
@@ -241,7 +241,7 @@ import Testing
 
         let now = Date()
         let formatter = ISO8601DateFormatter()
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'B1', 3600, ?)",
                            arguments: [formatter.string(from: now)])
             for i in 0..<3 {
@@ -275,7 +275,7 @@ import Testing
         let now = Date()
         let formatter = ISO8601DateFormatter()
 
-        try await db.write { db in
+        try db.write { db in
             try db.execute(sql: "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1', 'B1', 3600, ?)",
                            arguments: [formatter.string(from: now)])
             try db.execute(sql: """

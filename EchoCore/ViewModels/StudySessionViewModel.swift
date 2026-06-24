@@ -14,7 +14,7 @@ final class StudySessionViewModel {
 
     @ObservationIgnored private let db: DatabaseWriter
     @ObservationIgnored private let logger = Logger(category: "StudySessionViewModel")
-    @ObservationIgnored private let updateReviewNotification: (Int) -> Void
+    @ObservationIgnored private let updateReviewNotification: @MainActor (Int) -> Void
     @ObservationIgnored var onRequestAssignmentPlayback: ((Flashcard) -> Void)?
 
     var currentEntry: StudyQueueEntry? {
@@ -32,7 +32,7 @@ final class StudySessionViewModel {
 
     init(
         db: DatabaseWriter,
-        updateReviewNotification: @escaping (Int) -> Void = {
+        updateReviewNotification: @escaping @MainActor (Int) -> Void = {
             ReviewNotificationService.updateNotification(dueCount: $0)
         }
     ) {
