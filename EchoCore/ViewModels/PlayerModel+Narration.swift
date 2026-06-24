@@ -30,10 +30,12 @@
         /// Safe to call right after `loadFolder` for a book that has no audio: it
         /// renders nothing and returns if the book has no narratable EPUB text.
         func startNarrationPlayback(voice: NarrationVoice = VoiceCatalog.default) {
-            // The A14 (and older) ANE traps on the Kokoro vocoder for real-book input
-            // (§3.1, device-confirmed) — an uncatchable BNNS SIGTRAP that recurs on
-            // certain shapes. Gate synthesis to A15+ here so every entry point (Listen,
-            // the Play button, CarPlay) is covered; the reader stays fully functional.
+            // History: the A14 (and older) ANE trapped on the Kokoro vocoder for real-
+            // book input (§3.1, device-confirmed) — an uncatchable BNNS SIGTRAP on
+            // certain shapes. The current engine runs on ONNX Runtime's CPU EP and never
+            // touches the ANE, so on-device narration is universally available; this
+            // capability check stays as the one gate every entry point (Listen, the Play
+            // button, CarPlay) shares.
             guard NarrationCapability.supportsOnDeviceNarration else { return }
             guard let audiobookID = folderURL?.absoluteString,
                 let db = databaseService?.writer
@@ -165,10 +167,10 @@
                         earlierChapters = []
                     }
 
-                    // Pay the one-time ANE model compile before the first chapter,
-                    // reporting real download + compile progress so the user sees
-                    // "Downloading… %" / "Compiling… N of M" instead of a silent
-                    // "Preparing narration…" spinner.
+                    // Pay the one-time model download + ONNX session load before the
+                    // first chapter, reporting real progress so the user sees
+                    // "Downloading… %" / "Loading voice models… N of M" instead of a
+                    // silent "Preparing narration…" spinner.
                     try await self.narrationTTS.prepare(progress: { [weak self] p in
                         Task { @MainActor in
                             guard let self else { return }
@@ -202,7 +204,7 @@
                                 voice: voice.id))
 
                         // Persistence: a chapter already rendered for this voice is
-                        // reused as-is. Re-synthesising it would burn seconds of ANE
+                        // reused as-is. Re-synthesising it would burn seconds of CPU
                         // time + battery + heat per chapter and defeat the durable
                         // cache (and make export / per-item narration pointlessly
                         // expensive). So we only render — and only apply look-ahead
