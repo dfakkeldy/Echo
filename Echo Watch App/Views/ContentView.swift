@@ -10,6 +10,7 @@ import WidgetKit
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     @State private var viewModel = WatchViewModel()
     @State private var crownAccumulator: Double = 0.0
     @State private var previousCrownOffset: Double = 0.0
@@ -180,12 +181,15 @@ struct ContentView: View {
             PomodoroTimerPickerView(viewModel: viewModel)
         }
         .onAppear {
-            viewModel.requestCurrentState()
+            viewModel.refreshAfterWake()
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
-            viewModel.requestCurrentState()
-            viewModel.appWillEnterForeground()
+            viewModel.refreshAfterWake()
+        }
+        .onChange(of: isLuminanceReduced) { _, newValue in
+            guard !newValue else { return }
+            viewModel.refreshAfterWake()
         }
     }
 
