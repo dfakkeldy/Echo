@@ -6,8 +6,6 @@ struct NowPlayingTab: View {
     let openFolder: () -> Void
     let showHelp: () -> Void
     let showBookSettings: () -> Void
-    let showSettings: () -> Void
-    let onCreateBookmark: (BookmarkDraft) -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     @Environment(PlayerModel.self) private var model
@@ -15,10 +13,6 @@ struct NowPlayingTab: View {
 
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
-    @State private var showingPlaybackOptions = false
-    /// Owns the player-More chapter-navigation sheet binding (WS-C). Kept here,
-    /// not on RootTabView, so it cannot collide with the global header sheets.
-    @State private var showingChapterPicker = false
 
     /// The saved voice preference, or the system default on first launch.
     private var preferredVoice: NarrationVoice {
@@ -101,26 +95,13 @@ struct NowPlayingTab: View {
                 // against the screen edges.
                 PlayerScrubberView()
                     .containerRelativeFrame(.horizontal) { width, _ in
-                        width - 2 * NowPlayingLayout.horizontalPadding
+                        max(0, width - 2 * NowPlayingLayout.horizontalPadding)
                     }
                     .tint(model.artworkAccentColor ?? .accentColor)
                     .padding(.vertical, 16)
 
-                // Flexible gap: pins the dock to the bottom and keeps the
-                // scrubber clearly above the dock capsule.
+                // Flexible gap above the root-owned bottom deck.
                 Spacer(minLength: 0)
-
-                // E. Unified Bottom Dock
-                if !model.isPlayingVoiceMemo {
-                    UnifiedBottomDock(
-                        onCreateBookmark: onCreateBookmark,
-                        onShowPlaybackOptions: { showingPlaybackOptions = true },
-                        onShowChapters: { showingChapterPicker = true },
-                        onShowBookmarks: { model.selectedTab = .read },
-                        onShowSettings: showSettings
-                    )
-                    .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
-                }
             }
             .ignoresSafeArea(.keyboard)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -129,6 +110,9 @@ struct NowPlayingTab: View {
             // Must equal the header's real height (see `rowOneHeight`).
             .safeAreaInset(edge: .top, spacing: 0) {
                 Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: model.bottomInset)
             }
             .environment(
                 \.font,
@@ -159,17 +143,6 @@ struct NowPlayingTab: View {
             VoicePickerView(selectedVoice: $selectedVoice) {
                 settings.narrationVoiceID = selectedVoice.id.rawValue
                 model.startNarrationPlayback(voice: selectedVoice)
-            }
-        }
-        .sheet(isPresented: $showingPlaybackOptions) {
-            PlaybackOptionsSheet()
-        }
-        // Player-More "Chapters" → jump-to-chapter. Reuses the existing
-        // ChapterPickerSheet, supplying a seek closure (seek to startSeconds + 0.05
-        // to land inside the chapter).
-        .sheet(isPresented: $showingChapterPicker) {
-            ChapterPickerSheet(chapters: model.chapters) { chapter in
-                model.seek(toSeconds: chapter.startSeconds + 0.05)
             }
         }
     }

@@ -3,6 +3,8 @@ import SwiftUI
 
 struct UnifiedBottomDock: View {
     @Environment(PlayerModel.self) private var model
+    static let bottomEdgePadding: CGFloat = 4
+
     var onCreateBookmark: (BookmarkDraft) -> Void
     var onShowPlaybackOptions: () -> Void
     /// Player-More menu closures (WS-C), forwarded to BottomToolbarView.
@@ -69,7 +71,11 @@ struct UnifiedBottomDock: View {
                 onShowChapters: onShowChapters,
                 onShowBookmarks: onShowBookmarks,
                 onShowSettings: onShowSettings,
-                onShowPlaybackOptions: onShowPlaybackOptions
+                onShowPlaybackOptions: onShowPlaybackOptions,
+                canCreateReaderCapture: model.readerCaptureAnchorBlockID != nil,
+                isReaderVoiceMemoRecording: model.isReaderVoiceMemoRecording,
+                onAddReaderNote: model.readerAddNoteAction,
+                onToggleReaderMemo: model.readerToggleVoiceMemoAction
             )
             .padding(.horizontal, 16)
         }
@@ -86,7 +92,7 @@ struct UnifiedBottomDock: View {
             // are greedy (Spacers, `maxWidth: .infinity`) and overflow a
             // padding-reduced proposal back to full bleed, which pushed the
             // capsule's rounded side edges off-screen. A fixed width can't overflow.
-            .containerRelativeFrame(.horizontal) { width, _ in width - 32 }
+            .containerRelativeFrame(.horizontal) { width, _ in max(0, width - 32) }
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(
@@ -100,6 +106,6 @@ struct UnifiedBottomDock: View {
                     .opacity(0.08)
             )
             .shadow(color: Color.black.opacity(0.25), radius: 15, x: 0, y: 5)
-            .padding(.bottom, 12)
+            .padding(.bottom, Self.bottomEdgePadding)
     }
 }

@@ -11,6 +11,10 @@ struct BottomToolbarView: View {
     var onShowBookmarks: () -> Void
     var onShowSettings: () -> Void
     var onShowPlaybackOptions: () -> Void
+    var canCreateReaderCapture: Bool = false
+    var isReaderVoiceMemoRecording: Bool = false
+    var onAddReaderNote: (@MainActor () -> Void)?
+    var onToggleReaderMemo: (@MainActor () -> Void)?
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     var body: some View {
@@ -27,7 +31,7 @@ struct BottomToolbarView: View {
             Spacer()
             readToggleButton
             Spacer()
-            addBookmarkButton
+            bookmarkCaptureMenu
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -137,20 +141,49 @@ struct BottomToolbarView: View {
 
     // MARK: - Bookmark
 
-    private var addBookmarkButton: some View {
-        Button {
-            if let draft = model.bookmarkDraftAtCurrentTime() {
-                onCreateBookmark?(draft)
-                Haptic.play(.medium)
+    private var bookmarkCaptureMenu: some View {
+        Menu {
+            Button {
+                createBookmarkDraft()
+            } label: {
+                Label("Add bookmark", systemImage: "bookmark.fill")
             }
+            .disabled(model.tracks.isEmpty)
+
+            Button {
+                onAddReaderNote?()
+                Haptic.play(.light)
+            } label: {
+                Label("Add note", systemImage: "note.text.badge.plus")
+            }
+            .disabled(!canCreateReaderCapture || onAddReaderNote == nil)
+
+            Button {
+                onToggleReaderMemo?()
+                Haptic.play(isReaderVoiceMemoRecording ? .light : .medium)
+            } label: {
+                if isReaderVoiceMemoRecording {
+                    Label("Stop memo", systemImage: "stop.circle.fill")
+                } else {
+                    Label("Record memo", systemImage: "mic.circle")
+                }
+            }
+            .disabled(!canCreateReaderCapture || onToggleReaderMemo == nil)
         } label: {
-            utilityChip(isActive: false) {
-                Image(systemName: "bookmark.fill")
+            utilityChip(isActive: isReaderVoiceMemoRecording) {
+                Image(systemName: isReaderVoiceMemoRecording ? "mic.circle.fill" : "bookmark.fill")
                     .font(.title2)
             }
         }
-        .accessibilityLabel(Text("Add bookmark at current time"))
-        .disabled(model.tracks.isEmpty)
+        .accessibilityLabel(Text("Bookmark, note, or memo"))
+        .disabled(model.tracks.isEmpty && !canCreateReaderCapture)
+    }
+
+    private func createBookmarkDraft() {
+        if let draft = model.bookmarkDraftAtCurrentTime() {
+            onCreateBookmark?(draft)
+            Haptic.play(.medium)
+        }
     }
 
     // MARK: - EPUB Player Controls

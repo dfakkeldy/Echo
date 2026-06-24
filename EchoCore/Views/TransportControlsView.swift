@@ -9,16 +9,16 @@ struct TransportControlsView: View {
     private var isCompact: Bool { settings.playerLayoutStyle == "compact" }
 
     var body: some View {
-        HStack(alignment: .center) {
-            Spacer()
+        HStack(alignment: .center, spacing: isCompact ? 2 : 4) {
             ForEach(0..<5, id: \.self) { index in
                 let action = actionAt(index)
                 let longPressAction = longPressActionAt(index)
                 buttonForAction(action, longPressAction: longPressAction, isCompact: isCompact)
-                Spacer()
+                    .frame(maxWidth: .infinity)
             }
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, isCompact ? 4 : 8)
         .padding(.vertical, isCompact ? 8 : 12)
     }
 
@@ -261,12 +261,12 @@ struct TransportControlsView: View {
             .disabled(model.tracks.isEmpty)
 
         case .pomodoro:
-            Spacer()
-                .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+            Color.clear
+                .frame(height: isCompact ? 50 : 64)
 
         case .empty:
-            Spacer()
-                .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+            Color.clear
+                .frame(height: isCompact ? 50 : 64)
         }
     }
 
@@ -278,7 +278,7 @@ struct TransportControlsView: View {
         case 1.5: return String(localized: "1.5×")
         case 1.75: return String(localized: "1.75×")
         case 2.0: return String(localized: "2.0×")
-        default: return String(format: "%g×", model.speed)
+        default: return model.speed.formatted(.number.precision(.fractionLength(1))) + "×"
         }
     }
 
