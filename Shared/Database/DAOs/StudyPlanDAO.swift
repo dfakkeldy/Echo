@@ -26,10 +26,7 @@ struct StudyPlanDAO {
 
     func plan(for audiobookID: String) throws -> StudyPlan? {
         try db.read { db in
-            try StudyPlan
-                .filter(Column("audiobook_id") == audiobookID)
-                .order(Column("created_at").desc)
-                .fetchOne(db)
+            try latestPlan(for: audiobookID, db: db)
         }
     }
 
@@ -58,6 +55,14 @@ struct StudyPlanDAO {
         let startString = request.startDate.ISO8601Format()
 
         return try db.write { db in
+            if let existingPlan = try latestPlan(for: request.audiobookID, db: db) {
+                return StudyPlanCreationResult(
+                    plan: existingPlan,
+                    createdCards: [],
+                    createdItems: []
+                )
+            }
+
             let deckID = try findOrCreateDeck(named: request.bookTitle, nowString: nowString, db: db)
             var plan = StudyPlan(
                 id: UUID().uuidString,
@@ -119,7 +124,7 @@ struct StudyPlanDAO {
 
         let nowString = now.ISO8601Format()
         try db.write { db in
-            try StudyPlanItem
+            _ = try StudyPlanItem
                 .filter(itemIDs.contains(Column("id")))
                 .filter(Column("introduced_at") == nil)
                 .updateAll(db, [
@@ -139,7 +144,7 @@ struct StudyPlanDAO {
         now: Date = Date()
     ) throws {
         try db.write { db in
-            try StudyPlan
+            _ = try StudyPlan
                 .filter(Column("id") == planID)
                 .updateAll(db, [
                     Column("cadence_unit").set(to: cadenceUnit.rawValue),
@@ -154,7 +159,7 @@ struct StudyPlanDAO {
 
     func setPaused(planID: String, isPaused: Bool, now: Date = Date()) throws {
         try db.write { db in
-            try StudyPlan
+            _ = try StudyPlan
                 .filter(Column("id") == planID)
                 .updateAll(db, [
                     Column("is_paused").set(to: isPaused),
@@ -165,13 +170,20 @@ struct StudyPlanDAO {
 
     func setItemEnabled(itemID: String, isEnabled: Bool, now: Date = Date()) throws {
         try db.write { db in
-            try StudyPlanItem
+            _ = try StudyPlanItem
                 .filter(Column("id") == itemID)
                 .updateAll(db, [
                     Column("is_enabled").set(to: isEnabled),
                     Column("modified_at").set(to: now.ISO8601Format()),
                 ])
         }
+    }
+
+    private func latestPlan(for audiobookID: String, db: Database) throws -> StudyPlan? {
+        try StudyPlan
+            .filter(Column("audiobook_id") == audiobookID)
+            .order(Column("created_at").desc)
+            .fetchOne(db)
     }
 
     private func findOrCreateDeck(named name: String, nowString: String, db: Database) throws -> String {

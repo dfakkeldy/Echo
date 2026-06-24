@@ -22,18 +22,37 @@ import Testing
         #expect(result.createdCards.allSatisfy { $0.cardType == StudyFlashcardType.listeningAssignment })
         #expect(result.createdItems.map(\.ordinal) == [0, 1])
 
-        let counts = try service.read { db in
-            (
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") ?? 0,
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM study_plan") ?? 0,
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") ?? 0,
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM study_plan_item") ?? 0
-            )
-        }
-        #expect(counts.0 == 1)
-        #expect(counts.1 == 1)
-        #expect(counts.2 == 2)
-        #expect(counts.3 == 2)
+        let firstCard = try #require(result.createdCards.first)
+        let secondCard = try #require(result.createdCards.dropFirst().first)
+        let firstItem = try #require(result.createdItems.first)
+        let secondItem = try #require(result.createdItems.dropFirst().first)
+        let nowString = now.ISO8601Format()
+        #expect(firstCard.deckID == result.plan.deckID)
+        #expect(secondCard.deckID == result.plan.deckID)
+        #expect(firstCard.sourceBlockID == "book-h1")
+        #expect(secondCard.sourceBlockID == "book-h2")
+        #expect(firstCard.createdAt == nowString)
+        #expect(firstCard.modifiedAt == nowString)
+        #expect(firstCard.frontText == "Chapter 1")
+        #expect(secondCard.frontText == "Chapter 2")
+        #expect(firstCard.backText == "Review what you retained from this chapter.")
+        #expect(secondCard.backText == "Review what you retained from this chapter.")
+        #expect(firstCard.mediaTimestamp == 10)
+        #expect(secondCard.mediaTimestamp == 100)
+        #expect(firstCard.endTimestamp == 100)
+        #expect(secondCard.endTimestamp == 200)
+        #expect(firstItem.flashcardID == firstCard.id)
+        #expect(secondItem.flashcardID == secondCard.id)
+        #expect(firstItem.sourceBlockID == "book-h1")
+        #expect(secondItem.sourceBlockID == "book-h2")
+        #expect(firstItem.createdAt == nowString)
+        #expect(firstItem.modifiedAt == nowString)
+
+        let counts = try rowCounts(in: service)
+        #expect(counts.decks == 1)
+        #expect(counts.studyPlans == 1)
+        #expect(counts.flashcards == 2)
+        #expect(counts.studyPlanItems == 2)
     }
 
     @Test func fetchesPlanByBook() throws {
@@ -115,15 +134,31 @@ import Testing
         #expect(result.createdItems.first?.kind == StudyPlanItemKind.image.rawValue)
     }
 
-    @Test func skipsExcludedAndDuplicateCandidates() throws {
+    @Test func retriesExistingBookWithoutCreatingEmptyDuplicatePlan() throws {
         let service = try seededService()
         let dao = StudyPlanDAO(db: service.writer)
-        _ = try dao.createPlan(makeRequest())
+        let original = try dao.createPlan(makeRequest())
+        let countsAfterCreate = try rowCounts(in: service)
 
-        let result = try dao.createPlan(makeRequest(includeSecondChapterByDefault: false))
+        let retryNow = Date(timeIntervalSince1970: 1_750_000_600)
+        let result = try dao.createPlan(
+            makeRequest(includeSecondChapterByDefault: false, now: retryNow)
+        )
+        let countsAfterRetry = try rowCounts(in: service)
+        let currentPlan = try #require(try dao.plan(for: "book"))
+        let currentItems = try dao.items(for: currentPlan.id)
+        let activePlans = try dao.activePlans()
 
+        #expect(result.plan == original.plan)
         #expect(result.createdCards.isEmpty)
         #expect(result.createdItems.isEmpty)
+        #expect(countsAfterRetry.studyPlans == countsAfterCreate.studyPlans)
+        #expect(countsAfterRetry.decks == countsAfterCreate.decks)
+        #expect(countsAfterRetry.flashcards == countsAfterCreate.flashcards)
+        #expect(countsAfterRetry.studyPlanItems == countsAfterCreate.studyPlanItems)
+        #expect(currentPlan.id == original.plan.id)
+        #expect(currentItems.map(\.id) == original.createdItems.map(\.id))
+        #expect(activePlans.map(\.id) == [original.plan.id])
     }
 
     @Test func rollsBackPlanDeckCardsAndItemsWhenItemInsertFails() throws {
@@ -135,7 +170,17 @@ import Testing
             try dao.createPlan(request)
         }
 
-        let counts = try service.read { db in
+        let counts = try rowCounts(in: service)
+        #expect(counts.decks == 0)
+        #expect(counts.studyPlans == 0)
+        #expect(counts.flashcards == 0)
+        #expect(counts.studyPlanItems == 0)
+    }
+
+    private func rowCounts(
+        in service: DatabaseService
+    ) throws -> (decks: Int, studyPlans: Int, flashcards: Int, studyPlanItems: Int) {
+        try service.read { db in
             (
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") ?? 0,
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM study_plan") ?? 0,
@@ -143,10 +188,6 @@ import Testing
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM study_plan_item") ?? 0
             )
         }
-        #expect(counts.0 == 0)
-        #expect(counts.1 == 0)
-        #expect(counts.2 == 0)
-        #expect(counts.3 == 0)
     }
 
     private func seededService() throws -> DatabaseService {
