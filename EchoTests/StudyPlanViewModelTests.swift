@@ -68,6 +68,50 @@ import Testing
         #expect(updated.isPaused)
     }
 
+    @Test func bookTitleResolverUsesStoredAudiobookTitle() throws {
+        let service = try DatabaseService(inMemory: ())
+        let folderURL = URL(fileURLWithPath: "/tmp/Folder Title")
+        let audiobookID = folderURL.absoluteString
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO audiobook (id, title, duration, added_at)
+                    VALUES (?, 'Database Title', 3600, ?)
+                    """,
+                arguments: [audiobookID, Self.testDate.ISO8601Format()]
+            )
+        }
+
+        let title = StudyPlanBookTitleResolver.resolve(
+            audiobookID: audiobookID,
+            folderURL: folderURL,
+            db: service.writer,
+            currentTitle: "Current Track Title"
+        )
+
+        #expect(title == "Database Title")
+    }
+
+    @Test func bookTitleResolverFallsBackToFolderBeforeCurrentTitle() {
+        let title = StudyPlanBookTitleResolver.resolve(
+            storedTitle: nil,
+            folderTitle: "Folder Title",
+            currentTitle: "Current Track Title"
+        )
+
+        #expect(title == "Folder Title")
+    }
+
+    @Test func bookTitleResolverUsesCurrentTitleOnlyAfterEmptyStoredAndFolderTitles() {
+        let title = StudyPlanBookTitleResolver.resolve(
+            storedTitle: " ",
+            folderTitle: "\n",
+            currentTitle: "Current Book Title"
+        )
+
+        #expect(title == "Current Book Title")
+    }
+
     private static let testDate = Date(timeIntervalSince1970: 1_780_000_000)
 
     private func seededService(imagePath: String? = nil) throws -> DatabaseService {
