@@ -10,4 +10,7 @@ extension Notification.Name {
 
     /// Posted after a study plan is created or its settings/items change.
     static let studyPlanDidChange = Notification.Name("StudyPlanDidChange")
+
+    /// Posted after the daily study queue or review counts change.
+    static let studyQueueDidChange = Notification.Name("StudyQueueDidChange")
 }

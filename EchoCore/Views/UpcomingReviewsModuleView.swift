@@ -44,6 +44,9 @@ struct UpcomingReviewsModuleView: View {
         .onReceive(NotificationCenter.default.publisher(for: .studyPlanDidChange)) { _ in
             loadStats()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .studyQueueDidChange)) { _ in
+            loadStats()
+        }
     }
 
     private func loadStats() {

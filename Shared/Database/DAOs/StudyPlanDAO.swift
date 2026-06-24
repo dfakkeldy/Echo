@@ -96,13 +96,13 @@ struct StudyPlanDAO {
                     continue
                 }
 
-                var card = makeFlashcard(
+                let card = makeFlashcard(
                     request: request,
                     candidate: candidate,
                     deckID: deckID,
                     nowString: nowString
                 )
-                try card.insert(db)
+                try FlashcardDAO.insert(card, in: db)
 
                 var item = StudyPlanItem(
                     id: UUID().uuidString,
@@ -235,13 +235,13 @@ struct StudyPlanDAO {
                     continue
                 }
 
-                var card = makeFlashcard(
+                let card = makeFlashcard(
                     audiobookID: plan.audiobookID,
                     candidate: candidate,
                     deckID: plan.deckID,
                     nowString: nowString
                 )
-                try card.insert(db)
+                try FlashcardDAO.insert(card, in: db)
 
                 var item = StudyPlanItem(
                     id: UUID().uuidString,

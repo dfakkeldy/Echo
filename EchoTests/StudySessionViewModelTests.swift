@@ -47,6 +47,15 @@ import Testing
     @Test func gradeCurrentUsesFSRSLogsReviewAndAdvances() throws {
         let service = try StudyQueueFixtures.serviceWithDueCard()
         var notificationCounts: [Int] = []
+        var queueChangePostCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .studyQueueDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            queueChangePostCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
         let viewModel = StudySessionViewModel(
             db: service.writer,
             updateReviewNotification: { notificationCounts.append($0) }
@@ -82,6 +91,7 @@ import Testing
         #expect(viewModel.isRevealed == false)
         #expect(viewModel.isComplete)
         #expect(notificationCounts == [1, 0])
+        #expect(queueChangePostCount == 2)
         #expect(event["event_type"] as String == RealTimeEventType.flashcardReviewed.rawValue)
         #expect(event["started_at"] as String == StudyQueueFixtures.mondayNoon.ISO8601Format())
         #expect(event["ended_at"] as String == StudyQueueFixtures.mondayNoon.ISO8601Format())

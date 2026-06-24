@@ -56,6 +56,7 @@ final class StudySessionViewModel {
             .compactMap { $0.item?.id }
         try StudyPlanDAO(db: db).markIntroduced(itemIDs: newItemIDs, now: now)
         updateReviewNotification(remainingReviewNotificationCount())
+        NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
     }
 
     func reveal() {
@@ -80,6 +81,7 @@ final class StudySessionViewModel {
             logFlashcardReviewed(card: entry.flashcard, grade: grade.rawValue, now: now)
             advance()
             updateReviewNotification(remainingReviewNotificationCount())
+            NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
         } catch {
             errorMessage = error.localizedDescription
             logger.error("Failed to grade card \(entry.flashcard.id): \(error.localizedDescription)")

@@ -49,10 +49,15 @@ import Testing
         #expect(firstItem.modifiedAt == nowString)
 
         let counts = try rowCounts(in: service)
+        let timelineRows = try generatedTimelineRows(in: service)
         #expect(counts.decks == 1)
         #expect(counts.studyPlans == 1)
         #expect(counts.flashcards == 2)
         #expect(counts.studyPlanItems == 2)
+        #expect(timelineRows == [
+            "ankiCard-\(firstCard.id)|\(firstCard.id)|true",
+            "ankiCard-\(secondCard.id)|\(secondCard.id)|true",
+        ])
     }
 
     @Test func fetchesPlanByBook() throws {
@@ -187,6 +192,26 @@ import Testing
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") ?? 0,
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM study_plan_item") ?? 0
             )
+        }
+    }
+
+    private func generatedTimelineRows(in service: DatabaseService) throws -> [String] {
+        try service.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT id, source_rowid, is_enabled
+                    FROM timeline_item
+                    WHERE source_table = 'flashcard'
+                    ORDER BY audio_start_time, source_rowid
+                    """
+            )
+            .map { row in
+                let id = row["id"] as String
+                let sourceRowID = row["source_rowid"] as String
+                let isEnabled = row["is_enabled"] as Bool
+                return "\(id)|\(sourceRowID)|\(isEnabled)"
+            }
         }
     }
 

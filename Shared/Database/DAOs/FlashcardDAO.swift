@@ -75,10 +75,8 @@ nonisolated struct FlashcardDAO {
     }
 
     func insert(_ card: Flashcard) throws {
-        var copy = card
         try db.write { db in
-            try copy.insert(db)
-            try syncToTimeline(db, card: copy)
+            try Self.insert(card, in: db)
         }
     }
 
@@ -86,7 +84,7 @@ nonisolated struct FlashcardDAO {
         let copy = card
         try db.write { db in
             try copy.update(db)
-            try syncToTimeline(db, card: copy)
+            try Self.syncToTimeline(db, card: copy)
         }
     }
 
@@ -98,11 +96,17 @@ nonisolated struct FlashcardDAO {
             guard let card = try Flashcard.fetchOne(db, key: cardID) else { return }
             let updated = scheduler.review(card: card, grade: grade, now: now)
             try updated.update(db)
-            try syncToTimeline(db, card: updated)
+            try Self.syncToTimeline(db, card: updated)
         }
     }
 
-    private func syncToTimeline(_ db: Database, card: Flashcard) throws {
+    static func insert(_ card: Flashcard, in db: Database) throws {
+        var copy = card
+        try copy.insert(db)
+        try syncToTimeline(db, card: copy)
+    }
+
+    private static func syncToTimeline(_ db: Database, card: Flashcard) throws {
         let item = TimelineItem(
             id: "ankiCard-\(card.id)",
             audiobookID: card.audiobookID,
@@ -127,7 +131,7 @@ nonisolated struct FlashcardDAO {
         try mutable.save(db)
     }
 
-    private func encodeSM2(_ card: Flashcard) -> String? {
+    private static func encodeSM2(_ card: Flashcard) -> String? {
         let dict: [String: Any] = [
             "nextReviewDate": card.nextReviewDate as Any,
             "intervalDays": card.intervalDays,
