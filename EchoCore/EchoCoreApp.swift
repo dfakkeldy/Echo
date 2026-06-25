@@ -12,7 +12,7 @@ import SwiftUI
 @main
 struct EchoCoreApp: App {
     @State private var model: PlayerModel
-    @State private var settings = SettingsManager()
+    @State private var settings: SettingsManager
     @State private var storeManager = StoreManager()
     @State private var freeTierGate: FreeTierGate!
     @State private var pendingDeepLink: PlayerDeepLink?
@@ -33,7 +33,9 @@ struct EchoCoreApp: App {
             MockMediaProvider.seedSampleAudiobookIfNeeded()
         #endif
 
+        let initialSettings = SettingsManager()
         let initialModel = PlayerModel()
+        initialModel.setSettingsManager(initialSettings)
         var initialError: Error? = nil
 
         do {
@@ -46,6 +48,7 @@ struct EchoCoreApp: App {
         }
 
         _model = State(wrappedValue: initialModel)
+        _settings = State(wrappedValue: initialSettings)
         _databaseError = State(wrappedValue: initialError)
         _freeTierGate = State(wrappedValue: FreeTierGate(entitlement: storeManager))
         Self.playerModel = initialModel

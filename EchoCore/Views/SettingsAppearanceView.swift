@@ -36,16 +36,17 @@ struct SettingsAppearanceView: View {
                 NavigationLink {
                     ThemeSelectionView()
                 } label: {
+                    let selectedTheme =
+                        ThemeColor(rawValue: settings.themeColor) ?? .artwork
                     HStack {
                         Text("Accent Color")
                         Spacer()
-                        if let color = ThemeColor(rawValue: settings.themeColor)?.color {
+                        if let color = summarySwatchColor(for: selectedTheme) {
                             Image(systemName: "circle.fill")
                                 .foregroundStyle(color)
-                        } else {
-                            Text("System")
-                                .foregroundStyle(.secondary)
                         }
+                        Text(selectedTheme.settingsSummaryTitle)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -83,6 +84,17 @@ struct SettingsAppearanceView: View {
             }
         }
         .navigationTitle("Appearance")
+    }
+
+    private func summarySwatchColor(for theme: ThemeColor) -> Color? {
+        switch theme {
+        case .artwork:
+            return model.resolvedTint(for: .artwork)
+        case .system:
+            return nil
+        default:
+            return theme.color
+        }
     }
 
     #if os(iOS)

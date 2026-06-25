@@ -109,7 +109,7 @@ struct TransportPrimitiveButtonStyle: PrimitiveButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
             .opacity(isPressed ? 0.5 : 1.0)
             .contentShape(Rectangle())
             .onTapGesture {

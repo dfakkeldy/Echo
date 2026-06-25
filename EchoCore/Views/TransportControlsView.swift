@@ -76,7 +76,7 @@ struct TransportControlsView: View {
                         forDuration: settings.seekBackwardDuration)
                 )
                 .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
                 .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
                 .background(Circle().fill(model.coverTheme.chip))
                 .contentShape(Rectangle())
@@ -97,7 +97,7 @@ struct TransportControlsView: View {
                         forDuration: settings.seekForwardDuration)
                 )
                 .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
                 .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
                 .background(Circle().fill(model.coverTheme.chip))
                 .contentShape(Rectangle())
@@ -335,7 +335,7 @@ struct TransportControlsView: View {
                             ? "EOC" : sleepTimerCountdownText(model.sleepTimerRemainingSeconds)
                     )
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                     .monospacedDigit()
                 }
             }
