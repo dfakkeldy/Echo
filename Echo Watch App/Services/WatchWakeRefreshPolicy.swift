@@ -9,17 +9,21 @@ struct WatchWakeRefreshPolicy {
         self.minimumInterval = minimumInterval
     }
 
-    mutating func shouldRefresh(now: Date = .now) -> Bool {
+    func canRefresh(now: Date = .now) -> Bool {
         guard let lastRefreshDate else {
-            self.lastRefreshDate = now
             return true
         }
 
-        guard now.timeIntervalSince(lastRefreshDate) >= minimumInterval else {
-            return false
-        }
+        return now.timeIntervalSince(lastRefreshDate) >= minimumInterval
+    }
 
+    mutating func recordRefresh(now: Date = .now) {
         self.lastRefreshDate = now
+    }
+
+    mutating func shouldRefresh(now: Date = .now) -> Bool {
+        guard canRefresh(now: now) else { return false }
+        recordRefresh(now: now)
         return true
     }
 }
