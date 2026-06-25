@@ -189,9 +189,10 @@ final class PlayerLoadingCoordinator {
     /// and bumps `documentIngestionTrigger` so the reader and narration nudge
     /// appear without playback churn driving the re-render.
     ///
-    /// When the user opened an EPUB *file* directly, the picked file is imported
-    /// using its own security scope, rather than enumerating the parent folder —
-    /// a document-picker file grant does not extend to its parent directory, so a
+    /// When the user opened an EPUB/PDF/text *file* directly, the picked file is
+    /// imported using its own security scope, rather than enumerating the parent
+    /// folder — a document-picker file grant does not extend to its parent
+    /// directory, so a
     /// parent scan would be denied. `audiobookID` stays the normalised folder so
     /// the reader and narration (which key off `folderURL`) find the blocks.
     private func importDocumentForAudiolessBook(
@@ -201,6 +202,7 @@ final class PlayerLoadingCoordinator {
         let ext = pickedURL.pathExtension.lowercased()
         let importedEPUBFile = !isDirectory && ext == "epub"
         let importedTextFile = !isDirectory && ["md", "markdown", "txt", "text"].contains(ext)
+        let importedPDFFile = !isDirectory && ext == "pdf"
         documentImportTask = Task { @MainActor in
             let didImport: Bool
             if importedEPUBFile {
@@ -210,9 +212,19 @@ final class PlayerLoadingCoordinator {
             } else if importedTextFile {
                 didImport = await TextAutoImportScanner.importTextFile(
                     textURL: pickedURL, audiobookID: audiobookID, databaseService: db, force: false)
+            } else if importedPDFFile {
+                didImport = await PDFAutoImportScanner.importPDFFile(
+                    pdfURL: pickedURL, audiobookID: audiobookID, databaseService: db,
+                    chapters: [], duration: nil, force: false)
             } else {
-                didImport = await EPUBAutoImportScanner.scanAndImportIfNeeded(
+                let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
                     folderURL: folderURL, databaseService: db, chapters: [], duration: nil)
+                if didImportEPUB {
+                    didImport = true
+                } else {
+                    didImport = await PDFAutoImportScanner.scanAndImportIfNeeded(
+                        folderURL: folderURL, databaseService: db, chapters: [], duration: nil)
+                }
             }
             // Title the book only when it genuinely has a document — import
             // succeeded, or blocks already exist from a prior open. Otherwise

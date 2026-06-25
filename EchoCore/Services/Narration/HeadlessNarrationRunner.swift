@@ -6,7 +6,9 @@ import GRDB
 
 /// Input parameters for one narration run.
 struct NarrationRunConfig {
-    /// Path to the expanded EPUB directory (or .epub archive).
+    /// Path to an EPUB/PDF source: expanded EPUB directory, .epub archive, or PDF
+    /// file. A parent folder may also be provided; runners prefer EPUB over PDF
+    /// when both exist.
     var epubURL: URL
     /// Destination for the chaptered .m4b export.
     var outM4BURL: URL
@@ -70,6 +72,39 @@ struct NarrationRunResult {
 /// synthesis begins, so it is re-rendered cleanly.
 @MainActor final class HeadlessNarrationRunner {
 
+    private enum SourceKind {
+        case epubFile(URL)
+        case expandedEPUB(URL)
+        case pdf(URL)
+
+        var sourceURL: URL {
+            switch self {
+            case .epubFile(let sourceURL), .expandedEPUB(let sourceURL), .pdf(let sourceURL):
+                sourceURL
+            }
+        }
+    }
+
+    private enum NarrationRunError: LocalizedError {
+        case unsupportedInput(URL)
+        case missingSource(URL)
+        case noSourceImported(String)
+        case noBlocksImported(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unsupportedInput(let sourceURL):
+                return "Unsupported narration source: \(sourceURL.path)"
+            case .missingSource:
+                return "No EPUB or PDF source found in the given path."
+            case .noSourceImported(let name):
+                return "No blocks were imported for \(name)."
+            case .noBlocksImported(let name):
+                return "No readable text blocks were produced for \(name)."
+            }
+        }
+    }
+
     // MARK: Private helpers
 
     private struct ChapterCapture: Codable {
@@ -125,18 +160,21 @@ struct NarrationRunResult {
     func run(
         _ config: NarrationRunConfig,
         tts: TTSEngine? = nil,
-        progress: @MainActor (NarrationRunProgress) -> Void = { _ in }
+        progress: @escaping @MainActor (NarrationRunProgress) -> Void = { _ in }
     ) async throws -> NarrationRunResult {
         let fm = FileManager.default
         let engine = tts ?? NarrationEngineFactory.make()
 
+        let source = try resolveNarrationSource(at: config.epubURL)
+        let sourceURL = source.sourceURL
+
         // Ensure work directory exists.
         try fm.createDirectory(at: config.workDir, withIntermediateDirectories: true)
 
-        // 1. Import EPUB → blocks with chapter indices.
+        // 1. Import source (EPUB/PDF) → blocks with chapter indices.
         progress(.importing)
         let stem = config.outM4BURL.deletingPathExtension().lastPathComponent
-        let audiobookID = "runner-\(stem)-\(config.epubURL.lastPathComponent)"
+        let audiobookID = "runner-\(stem)-\(sourceURL.lastPathComponent)"
         let db = try DatabaseService(inMemory: ())
         try db.write { db in
             try db.execute(
@@ -144,10 +182,11 @@ struct NarrationRunResult {
                     "INSERT INTO audiobook (id, title, duration, added_at) VALUES (?, ?, 0, '2026-01-01T00:00:00Z')",
                 arguments: [audiobookID, config.title])
         }
-        let importer = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: db))
-        let blocks = try await importer.import(
-            audiobookID: audiobookID, epubURL: config.epubURL,
-            chapters: [], bookDuration: nil)
+        let blocks = try await importBlocks(
+            source: source, into: db, audiobookID: audiobookID)
+        guard !blocks.isEmpty else {
+            throw NarrationRunError.noBlocksImported(sourceURL.lastPathComponent)
+        }
 
         let byChapter = Dictionary(
             grouping: blocks.filter { $0.chapterIndex != nil },
@@ -188,7 +227,16 @@ struct NarrationRunResult {
 
             try await svc.renderChapter(
                 chapterIndex: idx, chapterNumber: displayNumber,
-                blocks: chapterBlocks, voice: config.voice)
+                blocks: chapterBlocks, voice: config.voice
+            ) { _, blockFraction in
+                let batchFraction = (Double(batchPos) + blockFraction)
+                    / Double(max(batch.count, 1))
+                progress(
+                    .chapter(
+                        index: batchPos,
+                        of: batch.count,
+                        fraction: batchFraction))
+            }
 
             // Capture anchors + track duration for this chapter.
             let blockIDs = chapterBlocks.map(\.id)
@@ -261,9 +309,27 @@ struct NarrationRunResult {
 
         // Cover art: prefer the OPF-declared cover (where EPUB covers actually live);
         // fall back to a front-matter inline image block.
-        let coverData: Data? =
-            EpubCoverResolver.coverData(expandedEPUBDir: config.epubURL)
-            ?? {
+        let coverData: Data? = {
+            switch source {
+            case .expandedEPUB(let epubURL):
+                return EpubCoverResolver.coverData(expandedEPUBDir: epubURL)
+                    ?? {
+                        let images = blocks.filter {
+                            $0.blockKind == EPubBlockRecord.Kind.image.rawValue
+                        }
+                        let front = images.filter(\.isFrontMatter)
+                        for b in (front.isEmpty ? images : front).sorted(by: {
+                            $0.sequenceIndex < $1.sequenceIndex
+                        }) {
+                            if let p = b.imagePath, fm.fileExists(atPath: p),
+                                let d = try? Data(contentsOf: URL(fileURLWithPath: p))
+                            {
+                                return d
+                            }
+                        }
+                        return nil
+                    }()
+            case .epubFile, .pdf:
                 let images = blocks.filter { $0.blockKind == EPubBlockRecord.Kind.image.rawValue }
                 let front = images.filter(\.isFrontMatter)
                 for b in (front.isEmpty ? images : front).sorted(by: {
@@ -276,7 +342,8 @@ struct NarrationRunResult {
                     }
                 }
                 return nil
-            }()
+            }
+        }()
 
         try await AudioExportService().exportM4B(
             items: items, outputURL: config.outM4BURL,
@@ -324,5 +391,104 @@ struct NarrationRunResult {
             durationSeconds: totalDuration,
             capturedThisRun: batch.count,
             complete: true)
+    }
+
+    private func importBlocks(
+        source: SourceKind,
+        into db: DatabaseService,
+        audiobookID: String
+    ) async throws -> [EPubBlockRecord] {
+        let importer = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: db))
+
+        switch source {
+        case .expandedEPUB(let epubURL):
+            return try await importer.import(
+                audiobookID: audiobookID,
+                epubURL: epubURL,
+                chapters: [],
+                bookDuration: nil)
+        case .epubFile(let epubURL):
+            let didImport = await EPUBAutoImportScanner.importEPUBFile(
+                epubURL: epubURL,
+                audiobookID: audiobookID,
+                databaseService: db,
+                chapters: [],
+                duration: nil,
+                force: true)
+            guard didImport else {
+                throw NarrationRunError.noSourceImported(epubURL.lastPathComponent)
+            }
+            do {
+                return try EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID)
+            } catch {
+                return []
+            }
+        case .pdf(let pdfURL):
+            let imported = await PDFAutoImportScanner.importPDFFile(
+                pdfURL: pdfURL,
+                audiobookID: audiobookID,
+                databaseService: db,
+                chapters: [],
+                duration: nil,
+                force: true)
+            guard imported else {
+                throw NarrationRunError.noSourceImported(pdfURL.lastPathComponent)
+            }
+            do {
+                return try EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID)
+            } catch {
+                return []
+            }
+        }
+    }
+
+    private func resolveNarrationSource(at sourceURL: URL) throws -> SourceKind {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+
+        if fm.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            if isExpandedEPUB(sourceURL) {
+                return .expandedEPUB(sourceURL)
+            }
+
+            let entries = try fm.contentsOfDirectory(
+                at: sourceURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: .skipsHiddenFiles)
+            if let epubURL = entries
+                .filter({ $0.pathExtension.lowercased() == "epub" })
+                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+                .first
+            {
+                return .epubFile(epubURL)
+            }
+
+            if let pdfURL = entries
+                .filter({ $0.pathExtension.lowercased() == "pdf" })
+                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+                .first
+            {
+                return .pdf(pdfURL)
+            }
+
+            throw NarrationRunError.missingSource(sourceURL)
+        }
+
+        let ext = sourceURL.pathExtension.lowercased()
+        switch ext {
+        case "epub":
+            return .epubFile(sourceURL)
+        case "pdf":
+            return .pdf(sourceURL)
+        default:
+            throw NarrationRunError.unsupportedInput(sourceURL)
+        }
+    }
+
+    private func isExpandedEPUB(_ sourceURL: URL) -> Bool {
+        let containerPath = sourceURL.appendingPathComponent("META-INF/container.xml").path
+        let mimetypePath = sourceURL.appendingPathComponent("mimetype").path
+        return FileManager.default.fileExists(atPath: containerPath)
+            && FileManager.default.fileExists(atPath: mimetypePath)
     }
 }
