@@ -1094,7 +1094,7 @@ shared change-extractor that later doc-automation phases reuse.
 **Shipping the first build.** The release-train cron only uploads when the
 signing secrets are present (`APP_STORE_CONNECT_API_KEY_JSON`, `MATCH_PASSWORD`,
 `MATCH_GIT_SSH_KEY`); before they exist, runs degrade to compile-only. To ship
-on demand without waiting for the 07:00 UTC nightly / Monday weekly cron, run the
+on demand without waiting for the 09:30 America/Halifax nightly / Monday weekly cron, run the
 workflow manually: **Actions ▸ Release Trains ▸ Run workflow ▸ channel:**, or
 `gh workflow run release-trains.yml -f channel=nightly`. The lane auto-assigns a
 unique, monotonic build number from TestFlight's latest + 1, so `MARKETING_VERSION`
