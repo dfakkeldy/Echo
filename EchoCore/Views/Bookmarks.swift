@@ -36,7 +36,7 @@ import os.log
 
             @State private var recorder: VoiceMemoRecorder?
             @State private var elapsed: TimeInterval = 0
-            @State private var elapsedTimer: Timer?
+            @State private var elapsedTask: Task<Void, Never>?
             @State private var previewPlayer: SnippetPlayer? = nil
             @State private var isPreviewPlaying: Bool = false
             /// Tracks whether the main audiobook player was playing when we started
@@ -272,11 +272,16 @@ import os.log
                     try r.start()
                     recorder = r
                     elapsed = 0
-                    elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) {
-                        _ in
-                        Task { @MainActor in
-                            guard self.recorder?.isRecording == true else { return }
-                            self.elapsed += 0.2
+                    elapsedTask?.cancel()
+                    elapsedTask = Task { @MainActor in
+                        while !Task.isCancelled {
+                            do {
+                                try await Task.sleep(for: .milliseconds(200))
+                            } catch {
+                                return
+                            }
+                            guard recorder?.isRecording == true else { return }
+                            elapsed += 0.2
                         }
                     }
                 } catch {
@@ -285,8 +290,8 @@ import os.log
             }
 
             private func stopElapsedTimer() {
-                elapsedTimer?.invalidate()
-                elapsedTimer = nil
+                elapsedTask?.cancel()
+                elapsedTask = nil
             }
 
             private func saveVoiceMemo() {
