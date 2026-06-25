@@ -36,6 +36,11 @@ extension PlayerModel {
         return bookmarkStore.trackBookmarks(for: trackId)
     }
 
+    /// Bookmark looping needs two enabled, finite bookmarks to define a segment.
+    var canBookmarkLoop: Bool {
+        currentTrackBookmarks.filter { $0.isEnabled && $0.timestamp.isFinite }.count >= 2
+    }
+
     /// Creates a new bookmark at the current playback position with an
     /// auto-numbered title. Persists the bookmark list immediately.
     /// - Returns: The newly created bookmark, or `nil` if playback is unavailable.

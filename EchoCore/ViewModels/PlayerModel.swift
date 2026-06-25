@@ -46,6 +46,7 @@ final class PlayerModel {
 
     var audioEngine: AudioEngine { playbackController.audioEngine }
     @ObservationIgnored weak var settingsManager: SettingsManager?
+    @ObservationIgnored var freeTierGate: FreeTierGate?
     let bookSettingsOverrideStore = BookSettingsOverrideStore()
 
     /// Convenience accessor for the shared playback state owned by PlaybackController.
@@ -106,10 +107,10 @@ final class PlayerModel {
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
     var bottomInset: CGFloat {
-        if selectedTab == .nowPlaying && folderURL != nil && !tracks.isEmpty {
+        if selectedTab == .nowPlaying && folderURL != nil && hasPlaybackContent {
             return 230.0
         }
-        if folderURL != nil && !tracks.isEmpty {
+        if folderURL != nil && hasPlaybackContent {
             return 170.0
         } else {
             return 90.0
@@ -473,7 +474,6 @@ final class PlayerModel {
     let bookmarkStore = BookmarkStore()
     let sleepTimerManager = SleepTimerManager()
     let artworkCoordinator = BookmarkArtworkCoordinator()
-    let flashcardTriggerController = InlineFlashcardTriggerController()
     let progressPresenter = PlaybackProgressPresenter()
     let chapterLoadingCoordinator = ChapterLoadingCoordinator()
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
@@ -500,9 +500,6 @@ final class PlayerModel {
     /// 0...1 progress of the currently playing voice memo, for the overlay UI.
     var voiceMemoProgress: Double { bookmarkStore.voiceMemoProgress }
 
-    /// The currently triggered inline flashcard, shown as an overlay during playback.
-    /// Whether an inline flashcard overlay is currently presented.
-
     /// Active playback session event ID for timeline logging.
     @ObservationIgnored var currentPlaybackEventID: String?
     /// UUID of the most recently triggered bookmark, used to prevent retrigger loops.
@@ -528,6 +525,10 @@ final class PlayerModel {
 
     func setSettingsManager(_ settingsManager: SettingsManager) {
         self.settingsManager = settingsManager
+    }
+
+    func setFreeTierGate(_ gate: FreeTierGate) {
+        freeTierGate = gate
     }
 
     // MARK: - Playback infrastructure
@@ -650,7 +651,7 @@ final class PlayerModel {
             guard let self else { return }
             artworkCoordinator.invalidateCache()
             artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
-            if loopMode == .bookmark && currentTrackBookmarks.isEmpty {
+            if loopMode == .bookmark && !canBookmarkLoop {
                 setLoopMode(.off)
             }
         }
@@ -721,19 +722,6 @@ final class PlayerModel {
         artworkCoordinator.onSyncToWatch = { [weak self] in
             self?.syncToWatch()
         }
-
-        // Wire flashcard trigger controller dependencies.
-        flashcardTriggerController.databaseServiceProvider = { [weak self] in self?.databaseService
-        }
-        flashcardTriggerController.trackKeyProvider = { [weak self] in
-            guard let self, self.state.tracks.indices.contains(self.currentIndex) else { return "" }
-            return self.state.tracks[self.currentIndex].url.lastPathComponent
-        }
-        flashcardTriggerController.isPlayingProvider = { [weak self] in self?.isPlaying ?? false }
-        flashcardTriggerController.isManualSeekingProvider = { [weak self] in
-            self?.isManualSeeking ?? false
-        }
-        flashcardTriggerController.loopModeProvider = { [weak self] in self?.loopMode ?? .off }
 
         // Wire progress presenter dependencies.
         progressPresenter.state = state
@@ -815,7 +803,6 @@ final class PlayerModel {
         playerLoadingCoordinator.bookSettingsOverrideStore = bookSettingsOverrideStore
         playerLoadingCoordinator.securityScope = securityScope
         playerLoadingCoordinator.artworkCoordinator = artworkCoordinator
-        playerLoadingCoordinator.flashcardTriggerController = flashcardTriggerController
         playerLoadingCoordinator.bookmarkStore = bookmarkStore
         playerLoadingCoordinator.progressPresenter = progressPresenter
         playerLoadingCoordinator.chapterLoadingCoordinator = chapterLoadingCoordinator
@@ -891,8 +878,8 @@ final class PlayerModel {
         playbackController.coordinator_persistLoopMode = { [weak self] key, mode in
             self?.persistence.saveLoopMode(for: key, loopMode: mode)
         }
-        playbackController.coordinator_hasBookmarks = { [weak self] in
-            !(self?.bookmarkStore.bookmarks.isEmpty ?? true)
+        playbackController.coordinator_canBookmarkLoop = { [weak self] in
+            self?.canBookmarkLoop ?? false
         }
         playbackController.coordinator_refreshProgress = { [weak self] in
             self?.updateNowPlayingElapsedTime()
@@ -1239,7 +1226,11 @@ final class PlayerModel {
     }
 
     func togglePlayPause() {
-        playbackController.togglePlayPause()
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
     }
 
     func play() {
@@ -1588,12 +1579,6 @@ final class PlayerModel {
             bookmarkStore.startVoiceMemoPlayback(url: memoURL)
         }
     }
-
-    // MARK: - Inline Flashcard wrappers
-
-    /// Grades the currently shown inline flashcard and resumes playback.
-
-    /// Dismisses the inline flashcard overlay without grading, resuming playback.
 
     private func persistSelection(url: URL) {
         // Refresh security scope for the new selection.

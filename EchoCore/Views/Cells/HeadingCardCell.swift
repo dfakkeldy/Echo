@@ -75,6 +75,21 @@ final class HeadingCardCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
+    func configureAccessibility(
+        label accessibilityLabel: String,
+        hint accessibilityHint: String,
+        actions: [UIAccessibilityCustomAction]
+    ) {
+        isAccessibilityElement = true
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
+        accessibilityTraits = [.button]
+        accessibilityCustomActions = actions
+        label.isAccessibilityElement = false
+        activeBar.isAccessibilityElement = false
+        anchorLabel.isAccessibilityElement = false
+    }
+
     func configure(
         with block: EPubBlockRecord, font: UIFont, tint: UIColor, isExplicitHighlight: Bool,
         searchQuery: String? = nil,

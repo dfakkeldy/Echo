@@ -29,6 +29,14 @@ struct MacPlaybackOptionsSheetTests {
         #expect(src.contains(".pickerStyle(.segmented)"))
     }
 
+    @Test("MacPlaybackOptionsSheet explains unavailable bookmark looping")
+    func bookmarkLoopUnavailableStateIsVisible() throws {
+        let src = try MacSource.read("Views/MacPlaybackOptionsSheet.swift")
+        #expect(src.contains("bookmarkLoopUnavailable"))
+        #expect(src.contains("!player.canBookmarkLoop"))
+        #expect(src.contains("Add at least two enabled bookmarks to use bookmark looping."))
+    }
+
     @Test("MacTriPaneView removed the inline speed Picker and routes to the popover")
     func triPaneRoutesToPopover() throws {
         let src = try MacSource.read("Views/MacTriPaneView.swift")

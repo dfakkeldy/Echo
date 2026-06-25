@@ -24,6 +24,11 @@ struct MacSettingsView: View {
                 .tabItem {
                     Label("Playback", systemImage: "play.circle")
                 }
+
+            MacSupportSettingsPane()
+                .tabItem {
+                    Label("Support", systemImage: "questionmark.circle")
+                }
         }
         .frame(width: 460)
         .scenePadding()
@@ -173,6 +178,39 @@ private struct MacPlaybackSettingsPane: View {
             return "\(Int(value))×"
         }
         return "\(value)×"
+    }
+}
+
+// MARK: - Support Pane
+
+private struct MacSupportSettingsPane: View {
+    private let buildMetadata = AppBuildMetadata()
+
+    var body: some View {
+        Form {
+            Section {
+                Link(destination: FeedbackSupport.emailURL(buildMetadata: buildMetadata)) {
+                    Label("Email Support", systemImage: "envelope")
+                }
+
+                Link(destination: FeedbackSupport.githubIssuesURL) {
+                    Label("Open GitHub Issues", systemImage: "ladybug")
+                }
+
+                Link(destination: FeedbackSupport.manualURL) {
+                    Label("Open Manual", systemImage: "book")
+                }
+            } header: {
+                Text("Feedback & Support")
+            } footer: {
+                Text(
+                    "Email opens with Echo's version and commit already filled in. No logs, book paths, or listening data are attached."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

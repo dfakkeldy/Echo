@@ -168,6 +168,16 @@ final class ReaderFeedViewModel {
         didSet { reload() }
     }
 
+    var showsNoResults: Bool {
+        hasActiveFeedConstraint && !displaySections.contains { !$0.items.isEmpty }
+    }
+
+    private var hasActiveFeedConstraint: Bool {
+        let hasSearch = searchQuery?.isEmpty == false
+        return hasSearch || filter.contentType != .everything || filter.scope != .wholeBook
+            || sessionScope != .wholeBook
+    }
+
     /// Retains the timeline observer so it can be removed from nonisolated `deinit`.
     @ObservationIgnored private nonisolated let timelineObserverToken = ObserverTokenBox()
 
@@ -187,7 +197,10 @@ final class ReaderFeedViewModel {
             forName: .timelineItemsIngested,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.reload()
+            guard let viewModel = self else { return }
+            Task { @MainActor in
+                viewModel.reload()
+            }
         })
     }
 
@@ -398,7 +411,7 @@ final class ReaderFeedViewModel {
                     db,
                     sql: """
                         SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id,
-                               ti.alignment_status, eb.chapter_index
+                               ti.segment_key, ti.alignment_status, eb.chapter_index
                         FROM timeline_item ti
                         LEFT JOIN epub_block eb ON eb.id = ti.epub_block_id
                         WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
@@ -426,7 +439,8 @@ final class ReaderFeedViewModel {
                     end = start + 3600  // Large fallback for the last item
                 }
                 let chapterIndex: Int? = row["chapter_index"]
-                newTimeline.append((start, end, blockID, chapterIndex))
+                let segmentKey: String? = row["segment_key"]
+                newTimeline.append((start, end, blockID, chapterIndex, segmentKey))
                 newAudioStartTime[blockID] = start
                 newChapterIndex[blockID] = chapterIndex
                 if let status: String = row["alignment_status"] {
@@ -971,10 +985,14 @@ final class ReaderFeedViewModel {
     ///
     /// - Parameters:
     ///   - time: The current **per-track** playback time (`PlayerModel.currentPlaybackTime`).
+    ///   - currentTrackSegmentKey: Segment scope for segment-local narration tracks.
     ///   - currentTrackChapterIndices: EPUB chapter indices in the playing track.
     ///     `nil` = no scoping (single-track books — strict legacy behavior).
     func updateActiveBlock(
-        time: TimeInterval, currentTrackChapterIndices: Set<Int>?, isPlaying: Bool = false
+        time: TimeInterval,
+        currentTrackSegmentKey: String? = nil,
+        currentTrackChapterIndices: Set<Int>?,
+        isPlaying: Bool = false
     ) {
         if currentTrackScope != currentTrackChapterIndices {
             applyTrackScope(currentTrackChapterIndices)
@@ -982,6 +1000,7 @@ final class ReaderFeedViewModel {
         let foundBlockID = ReaderActiveBlockResolver.activeBlockID(
             in: timelineCache,
             time: time,
+            currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices
         )
         if activeBlockID != foundBlockID {

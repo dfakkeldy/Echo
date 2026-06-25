@@ -260,6 +260,24 @@ struct TransportControlsView: View {
             .accessibilityLabel(Text("Add bookmark"))
             .disabled(model.tracks.isEmpty)
 
+        case .markPassage:
+            TransportButton(
+                tapAction: {
+                    model.markPassageAtCurrentTime()
+                    Haptic.play(.light)
+                },
+                longPressAction: longPressAction,
+                model: model
+            ) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Mark passage for later"))
+            .disabled(model.tracks.isEmpty)
+
         case .pomodoro:
             Color.clear
                 .frame(height: isCompact ? 50 : 64)

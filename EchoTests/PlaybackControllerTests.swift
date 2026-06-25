@@ -43,4 +43,24 @@ import Testing
         // ...and the gap path did pause playback.
         #expect(c.state.isPlaying == false)
     }
+
+    @Test func cycleSkipsBookmarkLoopWhenUnavailable() {
+        let c = PlaybackController()
+        c.loopMode = .chapter
+        c.coordinator_canBookmarkLoop = { false }
+
+        c.cycleLoopMode()
+
+        #expect(c.loopMode == .off)
+    }
+
+    @Test func cycleEntersBookmarkLoopWhenAvailable() {
+        let c = PlaybackController()
+        c.loopMode = .chapter
+        c.coordinator_canBookmarkLoop = { true }
+
+        c.cycleLoopMode()
+
+        #expect(c.loopMode == .bookmark)
+    }
 }

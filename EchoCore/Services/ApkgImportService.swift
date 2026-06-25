@@ -73,17 +73,28 @@ nonisolated struct ApkgImportService {
         logger.info("Detected Anki format: \(formatName) at \(collectionURL.lastPathComponent)")
 
         // 3. Open the collection database read-only
-        let collection: CollectionData
+        let loadedCollection: CollectionData
         do {
             var config = Configuration()
             config.readonly = true
             let queue = try DatabaseQueue(path: collectionURL.path, configuration: config)
-            collection = try await queue.read { db in
+            loadedCollection = try await queue.read { db in
                 try readCollection(db, format: formatName)
             }
         } catch {
             throw ImportError.dbOpenFailed(error)
         }
+        var collectionWithMedia = loadedCollection
+        collectionWithMedia.mediaMap = readMediaMap(in: tmpDir)
+        let collection = collectionWithMedia
+        let referencedMediaNames = mediaReferences(
+            in: collection.notes.map(\.flds).joined(separator: "\u{1f}")
+        )
+        let importedMedia = importMediaFiles(
+            from: tmpDir,
+            mediaMap: collection.mediaMap,
+            referencedFileNames: referencedMediaNames
+        )
 
         guard !collection.notes.isEmpty else {
             logger.info("No notes found in collection.")
@@ -92,7 +103,7 @@ nonisolated struct ApkgImportService {
 
         // 4. Insert into Echo database in one transaction
         let imported = try await writer.write { db in
-            try importCards(collection: collection, db: db)
+            try importCards(collection: collection, importedMedia: importedMedia, db: db)
         }
 
         logger.info("Imported \(imported) flashcards from .apkg")
@@ -253,16 +264,17 @@ nonisolated struct ApkgImportService {
             )
         }
 
-        // --- Read media map ---
-        let mediaMap = [String: String]()  // Media import will be added in a future pass
-
-        return CollectionData(notes: notes, cards: cards, deckName: deckName, mediaMap: mediaMap)
+        return CollectionData(notes: notes, cards: cards, deckName: deckName)
     }
 
     // MARK: - Mapping & Insertion
 
     /// Maps Anki notes+cards to Echo flashcards and inserts in one transaction.
-    private func importCards(collection: CollectionData, db: Database) throws -> Int {
+    private func importCards(
+        collection: CollectionData,
+        importedMedia: [String: String],
+        db: Database
+    ) throws -> Int {
         // Build a tolerant note lookup (last wins on duplicate IDs).
         var noteMap: [Int64: AnkiNote] = [:]
         for note in collection.notes {
@@ -325,7 +337,7 @@ nonisolated struct ApkgImportService {
                 isEnabled: true,
                 deckID: deckID,
                 tags: note.tags.isEmpty ? nil : note.tags,
-                mediaJSON: nil,
+                mediaJSON: mediaJSON(for: note, importedMedia: importedMedia),
                 sourceBlockID: nil,
                 playlistPosition: nil,
                 createdAt: Date().ISO8601Format(),
@@ -340,6 +352,180 @@ nonisolated struct ApkgImportService {
 
     private func findDeck(named name: String, db: Database) throws -> String? {
         try String.fetchOne(db, sql: "SELECT id FROM deck WHERE name = ?", arguments: [name])
+    }
+
+    // MARK: - Media
+
+    /// Reads Anki's root-level `media` manifest (`"0": "image.png"`, etc.).
+    private func readMediaMap(in directory: URL) -> [String: String] {
+        let mediaURL = directory.appendingPathComponent("media")
+        guard let data = try? Data(contentsOf: mediaURL), !data.isEmpty else { return [:] }
+        guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            logger.warning("Ignoring invalid Anki media manifest")
+            return [:]
+        }
+
+        var mediaMap: [String: String] = [:]
+        for (entryName, fileNameValue) in raw {
+            guard let fileName = fileNameValue as? String, !fileName.isEmpty else { continue }
+            mediaMap[entryName] = fileName
+        }
+        return mediaMap
+    }
+
+    /// Copies extracted media to durable Echo-owned storage and returns
+    /// `originalFilename -> durablePath`, matching `ApkgExportService`'s
+    /// existing `mediaJSON` payload shape.
+    private func importMediaFiles(
+        from extractedDirectory: URL,
+        mediaMap: [String: String],
+        referencedFileNames: Set<String>
+    ) -> [String: String] {
+        guard !mediaMap.isEmpty, !referencedFileNames.isEmpty else { return [:] }
+
+        let destinationRoot = URL.applicationSupportDirectory
+            .appending(path: "AnkiMedia", directoryHint: .isDirectory)
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(
+                at: destinationRoot,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            logger.warning("Could not create Anki media directory: \(error.localizedDescription)")
+            return [:]
+        }
+
+        var imported: [String: String] = [:]
+        var usedDestinationNames = Set<String>()
+        for (entryName, originalFileName) in mediaMap {
+            guard referencedFileNames.contains(originalFileName) else { continue }
+            guard let source = try? Self.safeDestination(for: entryName, within: extractedDirectory),
+                  FileManager.default.fileExists(atPath: source.path) else {
+                continue
+            }
+
+            let destinationName = uniqueMediaFileName(
+                for: originalFileName,
+                entryName: entryName,
+                usedNames: &usedDestinationNames
+            )
+            let destination = destinationRoot.appending(path: destinationName)
+            do {
+                try FileManager.default.copyItem(at: source, to: destination)
+                imported[originalFileName] = destination.path
+            } catch {
+                logger.warning(
+                    "Could not import Anki media '\(originalFileName)': \(error.localizedDescription)"
+                )
+            }
+        }
+
+        if imported.isEmpty {
+            try? FileManager.default.removeItem(at: destinationRoot)
+        }
+        return imported
+    }
+
+    private func mediaJSON(for note: AnkiNote, importedMedia: [String: String]) -> String? {
+        guard !importedMedia.isEmpty else { return nil }
+        let references = mediaReferences(in: note.flds)
+        let media = importedMedia.filter { fileName, _ in references.contains(fileName) }
+        guard !media.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: media, options: [.sortedKeys])
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func mediaReferences(in fields: String) -> Set<String> {
+        var references = Set<String>()
+        collectSoundReferences(in: fields, into: &references)
+        collectImageSourceReferences(in: fields, into: &references)
+        return references
+    }
+
+    private func collectSoundReferences(in fields: String, into references: inout Set<String>) {
+        var searchRange = fields.startIndex..<fields.endIndex
+        while let tagRange = fields.range(of: "[sound:", range: searchRange) {
+            let valueStart = tagRange.upperBound
+            guard let valueEnd = fields[valueStart...].firstIndex(of: "]") else { break }
+            let value = String(fields[valueStart..<valueEnd])
+            if !value.isEmpty {
+                references.insert(value)
+            }
+            let nextStart = fields.index(after: valueEnd)
+            searchRange = nextStart..<fields.endIndex
+        }
+    }
+
+    private func collectImageSourceReferences(in fields: String, into references: inout Set<String>) {
+        var searchStart = fields.startIndex
+        while let srcRange = fields.range(
+            of: "src=",
+            options: [.caseInsensitive],
+            range: searchStart..<fields.endIndex
+        ) {
+            var valueStart = srcRange.upperBound
+            while valueStart < fields.endIndex, fields[valueStart].isWhitespace {
+                valueStart = fields.index(after: valueStart)
+            }
+            guard valueStart < fields.endIndex else { break }
+
+            let quote = fields[valueStart]
+            if quote == "\"" || quote == "'" {
+                let quotedValueStart = fields.index(after: valueStart)
+                guard let valueEnd = fields[quotedValueStart...].firstIndex(of: quote) else {
+                    break
+                }
+                let value = String(fields[quotedValueStart..<valueEnd])
+                if !value.isEmpty {
+                    references.insert(value)
+                }
+                searchStart = fields.index(after: valueEnd)
+            } else {
+                var valueEnd = valueStart
+                while valueEnd < fields.endIndex,
+                      !fields[valueEnd].isWhitespace,
+                      fields[valueEnd] != ">" {
+                    valueEnd = fields.index(after: valueEnd)
+                }
+                let value = String(fields[valueStart..<valueEnd])
+                if !value.isEmpty {
+                    references.insert(value)
+                }
+                searchStart = valueEnd
+            }
+        }
+    }
+
+    private func uniqueMediaFileName(
+        for originalFileName: String,
+        entryName: String,
+        usedNames: inout Set<String>
+    ) -> String {
+        let readableName = URL(fileURLWithPath: originalFileName).lastPathComponent
+        let sanitized = sanitizeMediaFileName(readableName)
+        let fallbackName = "media-\(sanitizeMediaFileName(entryName))"
+        let baseName = sanitized.isEmpty ? fallbackName : sanitized
+        var candidate = baseName
+        var suffix = 2
+        while usedNames.contains(candidate) {
+            let stem = (baseName as NSString).deletingPathExtension
+            let ext = (baseName as NSString).pathExtension
+            candidate = ext.isEmpty ? "\(stem)-\(suffix)" : "\(stem)-\(suffix).\(ext)"
+            suffix += 1
+        }
+        usedNames.insert(candidate)
+        return candidate
+    }
+
+    private func sanitizeMediaFileName(_ name: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\?%*:|\"<>")
+        let sanitized = name.components(separatedBy: invalid).joined(separator: "_")
+            .trimmingCharacters(in: .whitespaces)
+        return sanitized.isEmpty ? "media" : sanitized
     }
 
     // MARK: - JSON Parsing

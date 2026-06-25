@@ -16,9 +16,14 @@ struct ApkgImportServiceTests {
     // MARK: - Fixture creation
 
     /// Builds a minimal valid .apkg file at `destURL` with a single note + card.
-    private func createFixtureApkg(destURL: URL, deckName: String = "Test Deck",
-                                   front: String = "Hello", back: String = "World",
-                                   format: String = "collection.anki21") async throws {
+    private func createFixtureApkg(
+        destURL: URL,
+        deckName: String = "Test Deck",
+        front: String = "Hello",
+        back: String = "World",
+        format: String = "collection.anki21",
+        mediaFiles: [(name: String, data: Data)] = []
+    ) async throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("apkg_fixture_\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
@@ -98,8 +103,15 @@ struct ApkgImportServiceTests {
                 """, arguments: [noteID + 1, noteID, now])
         }
 
-        // Write empty media file
-        try "{}".write(to: tmpDir.appendingPathComponent("media"), atomically: true, encoding: .utf8)
+        // Write Anki's media manifest and numbered media files.
+        var mediaMap: [String: String] = [:]
+        for (index, file) in mediaFiles.enumerated() {
+            let key = "\(index)"
+            mediaMap[key] = file.name
+            try file.data.write(to: tmpDir.appendingPathComponent(key))
+        }
+        let mediaData = try JSONSerialization.data(withJSONObject: mediaMap, options: [.sortedKeys])
+        try mediaData.write(to: tmpDir.appendingPathComponent("media"))
 
         // ZIP (entries at root, no directory prefix)
         try? FileManager.default.removeItem(at: destURL)
@@ -136,6 +148,65 @@ struct ApkgImportServiceTests {
         #expect(cards.count == 1)
         #expect(cards[0].frontText == "Question")
         #expect(cards[0].backText == "Answer")
+    }
+
+    @Test func importedMediaRoundTripsThroughApkgExport() async throws {
+        let apkgURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_media_roundtrip.apkg")
+        let soundData = Data("sound-bytes".utf8)
+        let imageData = Data("image-bytes".utf8)
+        try await createFixtureApkg(
+            destURL: apkgURL,
+            front: "Listen [sound:ding.mp3]",
+            back: "<img src=\"diagram.png\">",
+            mediaFiles: [
+                (name: "ding.mp3", data: soundData),
+                (name: "diagram.png", data: imageData),
+                (name: "unused.png", data: Data("unused".utf8)),
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: apkgURL) }
+
+        let writer = try makeTestDB()
+        let importService = ApkgImportService()
+        let count = try await importService.import(from: apkgURL, into: writer)
+        #expect(count == 1)
+
+        let card = try await writer.read { db in
+            try Flashcard.fetchOne(db)
+        }
+        let mediaJSON = try #require(card?.mediaJSON)
+        let importedMediaObject = try JSONSerialization.jsonObject(with: Data(mediaJSON.utf8))
+        let importedMedia = try #require(importedMediaObject as? [String: String])
+        #expect(Set(importedMedia.keys) == ["ding.mp3", "diagram.png"])
+        #expect(importedMedia["unused.png"] == nil)
+
+        let importedMediaDirectory = URL(
+            fileURLWithPath: try #require(importedMedia["ding.mp3"])
+        )
+        .deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: importedMediaDirectory) }
+        #expect(try Data(contentsOf: URL(fileURLWithPath: try #require(importedMedia["ding.mp3"]))) == soundData)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: try #require(importedMedia["diagram.png"]))) == imageData)
+
+        let deckID = try await writer.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM deck LIMIT 1")
+        }
+        let exportedURL = try ApkgExportService().export(deckID: try #require(deckID), db: writer)
+        defer { try? FileManager.default.removeItem(at: exportedURL) }
+
+        let exportedDirectory = try extractApkg(exportedURL)
+        defer { try? FileManager.default.removeItem(at: exportedDirectory) }
+        let manifestData = try Data(
+            contentsOf: exportedDirectory.appendingPathComponent("media")
+        )
+        let manifestObject = try JSONSerialization.jsonObject(with: manifestData)
+        let manifest = try #require(manifestObject as? [String: String])
+        let soundEntry = try #require(manifest.first { $0.value == "ding.mp3" }?.key)
+        let imageEntry = try #require(manifest.first { $0.value == "diagram.png" }?.key)
+
+        #expect(try Data(contentsOf: exportedDirectory.appendingPathComponent(soundEntry)) == soundData)
+        #expect(try Data(contentsOf: exportedDirectory.appendingPathComponent(imageEntry)) == imageData)
     }
 
     // MARK: - anki21b import
@@ -309,5 +380,22 @@ struct ApkgImportServiceTests {
         await #expect(throws: ApkgImportService.ImportError.self) {
             try await service.import(from: apkgURL, into: writer)
         }
+    }
+
+    private func extractApkg(_ apkgURL: URL) throws -> URL {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("apkg_extract_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        let archive = try Archive(url: apkgURL, accessMode: .read)
+        for entry in archive where entry.type == .file {
+            let entryURL = destination.appendingPathComponent(entry.path)
+            try FileManager.default.createDirectory(
+                at: entryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            _ = try archive.extract(entry, to: entryURL)
+        }
+        return destination
     }
 }

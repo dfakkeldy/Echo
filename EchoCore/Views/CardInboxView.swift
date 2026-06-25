@@ -1,20 +1,33 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
 import GRDB
-import SwiftUI
-/// Mark-later inbox: passages flagged for flashcard conversion, grouped by book.
 import os.log
+import SwiftUI
 
+/// Mark-later inbox: passages flagged for flashcard conversion, grouped by book.
 struct CardInboxView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(FreeTierGate.self) private var freeTierGate
     @Environment(\.dismiss) private var dismiss
     @State private var passages: [MarkedPassage] = []
+    @State private var passageBeingConverted: MarkedPassage?
+    @State private var loadError: String?
     private let logger = Logger(category: "CardInboxView")
 
     var body: some View {
         NavigationStack {
             Group {
-                if passages.isEmpty {
+                if let loadError {
+                    ContentUnavailableView {
+                        Label("Could Not Load Card Inbox", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(loadError)
+                    } actions: {
+                        Button("Try Again") {
+                            Task { await load() }
+                        }
+                    }
+                } else if passages.isEmpty {
                     ContentUnavailableView(
                         "Card Inbox Empty",
                         systemImage: "tray",
@@ -70,27 +83,41 @@ struct CardInboxView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .sheet(item: $passageBeingConverted) { passage in
+                FlashcardCreationSheet(
+                    sourceText: frontText(for: passage),
+                    mediaTimestamp: passage.mediaTimestamp,
+                    audiobookID: passage.audiobookID,
+                    endTimestamp: passage.endTimestamp
+                ) { cardID in
+                    markConverted(passage, cardID: cardID)
+                }
+            }
             .task { await load() }
             .refreshable { await load() }
         }
     }
 
     private func load() async {
-        guard let db = model.databaseService else { return }
+        loadError = nil
+        guard let db = model.databaseService else {
+            passages = []
+            loadError = String(localized: "The app database is unavailable. Reopen the book and try again.")
+            return
+        }
         do {
             let dao = MarkedPassageDAO(db: db.writer)
-            let records = (try? dao.fetchAllInbox()) ?? []
+            let records = try dao.fetchAllInbox()
 
             // Build display models with book titles
             var result: [MarkedPassage] = []
             for r in records {
-                let title = try? await db.writer.read { db in
+                let title = try await db.writer.read { db in
                     try String.fetchOne(
                         db, sql: "SELECT title FROM audiobook WHERE id = ?",
                         arguments: [r.audiobookID])
                 }
-                let formatter = ISO8601DateFormatter()
-                let created = formatter.date(from: r.createdAt) ?? Date()
+                let created = (try? Date(r.createdAt, strategy: .iso8601)) ?? Date()
                 result.append(
                     MarkedPassage(
                         id: r.id,
@@ -106,58 +133,41 @@ struct CardInboxView: View {
                     ))
             }
             passages = result
+        } catch {
+            logger.error("Failed to load card inbox: \(error.localizedDescription)")
+            passages = []
+            loadError = String(localized: "The Card Inbox could not be loaded. Try again.")
         }
     }
 
     private func convertToFlashcard(_ passage: MarkedPassage) {
         if freeTierGate.canCreateFlashcards(adding: 1) {
-            insertFlashcard(passage)
+            passageBeingConverted = passage
         } else {
             model.paywallContext = .flashcardCap
             model.showPaywall = true
         }
     }
 
-    private func insertFlashcard(_ passage: MarkedPassage) {
-        guard let db = model.databaseService else { return }
-        let cardID = UUID().uuidString
-        let frontText =
-            passage.transcriptSnippet ?? "Marked at \(formatTimestamp(passage.mediaTimestamp))"
-        var card = Flashcard(
-            id: cardID,
-            audiobookID: passage.audiobookID,
-            frontText: frontText,
-            backText: "",
-            mediaTimestamp: passage.mediaTimestamp,
-            endTimestamp: passage.endTimestamp,
-            triggerTiming: .manualOnly,
-            nextReviewDate: nil,
-            intervalDays: 0,
-            easeFactor: 2.5,
-            repetitions: 0,
-            lastReviewedAt: nil,
-            lastGrade: nil,
-            isEnabled: true,
-            deckID: nil,
-            tags: nil,
-            mediaJSON: nil,
-            sourceBlockID: nil,
-            playlistPosition: nil,
-            createdAt: Date().ISO8601Format(),
-            modifiedAt: Date().ISO8601Format()
-        )
+    private func markConverted(_ passage: MarkedPassage, cardID: String) {
+        guard let db = model.databaseService else {
+            loadError = String(localized: "The app database is unavailable. Reopen the book and try again.")
+            return
+        }
         do {
-            try db.writer.write { db in try card.insert(db) }
             let dao = MarkedPassageDAO(db: db.writer)
             try dao.markConverted(id: passage.id, cardID: cardID)
             Task { await load() }
         } catch {
-            logger.error("Failed to save/dismiss passage: \(error.localizedDescription)")
+            logger.error("Failed to mark passage converted: \(error.localizedDescription)")
         }
     }
 
     private func dismissPassage(_ passage: MarkedPassage) {
-        guard let db = model.databaseService else { return }
+        guard let db = model.databaseService else {
+            loadError = String(localized: "The app database is unavailable. Reopen the book and try again.")
+            return
+        }
         do {
             let dao = MarkedPassageDAO(db: db.writer)
             try dao.dismiss(id: passage.id)
@@ -168,10 +178,10 @@ struct CardInboxView: View {
     }
 
     private func formatTimestamp(_ seconds: TimeInterval) -> String {
-        let h = Int(seconds) / 3600
-        let m = (Int(seconds) % 3600) / 60
-        let s = Int(seconds) % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
+        formatHMS(seconds)
+    }
+
+    private func frontText(for passage: MarkedPassage) -> String {
+        passage.transcriptSnippet ?? "Marked at \(formatTimestamp(passage.mediaTimestamp))"
     }
 }

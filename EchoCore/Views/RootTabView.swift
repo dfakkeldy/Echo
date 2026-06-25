@@ -16,6 +16,8 @@ struct RootTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
 
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
     @State private var showingPlaybackOptions = false
@@ -32,6 +34,7 @@ struct RootTabView: View {
     /// Unified ".m4b export" sheet, presented from the global More menu. The
     /// resolver auto-detects narrated-vs-imported, so one action covers both.
     @State private var showingExport = false
+    @State private var showingStudyNotesExport = false
     @State private var editingIdentifiableUUID: IdentifiableUUID?
 
     @State private var nowPlayingPath = NavigationPath()
@@ -87,7 +90,12 @@ struct RootTabView: View {
                                     db: db.writer
                                 )
                             } else {
-                                ReaderEmptyState()
+                                ReaderEmptyState(
+                                    hasLoadedBook: model.folderURL != nil,
+                                    canAddEPUB: !model.narrationPlaybackState.isRunning,
+                                    onImportBook: { showingFolderPicker = true },
+                                    onAddEPUB: { model.showingDocumentImporter = true }
+                                )
                             }
                         }
                         .toolbarVisibility(.hidden, for: .navigationBar)
@@ -108,10 +116,12 @@ struct RootTabView: View {
                 onHelpTap: { model.showingHelp = true },
                 onStatsTap: { showingStats = true },
                 onFidgetTap: { showingFidget = true },
-                onAddEPUBTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                onAddDocumentTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
                     ? { model.showingDocumentImporter = true } : nil,
                 onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
-                    ? { showingExport = true } : nil
+                    ? { showingExport = true } : nil,
+                onStudyNotesExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                    ? { showingStudyNotesExport = true } : nil
             )
 
             // The bottom deck is root-owned so Now Playing and Reader share the
@@ -147,6 +157,9 @@ struct RootTabView: View {
                 // through the same loader; an EPUB opens as an audio-less book.
                 model.loadFolder(url)
             }
+        }
+        .sheet(isPresented: firstLaunchOnboardingBinding) {
+            OnboardingView()
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
@@ -211,16 +224,33 @@ struct RootTabView: View {
                     databaseWriter: writer)
             }
         }
+        .sheet(isPresented: $showingStudyNotesExport) {
+            if let folderURL = model.folderURL,
+                let writer = model.databaseService?.writer
+            {
+                StudyNotesExportView(
+                    audiobookID: folderURL.absoluteString,
+                    bookTitle: model.currentTitle,
+                    sourceFolderURL: folderURL,
+                    databaseWriter: writer,
+                    chapters: model.chapters
+                )
+            }
+        }
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
         .fileImporter(
             isPresented: $model.showingDocumentImporter,
-            allowedContentTypes: companionEPUBTypes,
+            allowedContentTypes: companionDocumentTypes,
             allowsMultipleSelection: false
         ) { result in
             guard let url = try? result.get().first else { return }
-            model.importEPUB(from: url)
+            if url.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame {
+                model.importPDF(from: url)
+            } else {
+                model.importEPUB(from: url)
+            }
         }
         .onAppear {
             model.setSettingsManager(settings)
@@ -290,8 +320,19 @@ struct RootTabView: View {
         }
     }
 
-    private var companionEPUBTypes: [UTType] {
-        [UTType(filenameExtension: "epub") ?? .data]
+    private var companionDocumentTypes: [UTType] {
+        [UTType(filenameExtension: "epub") ?? .data, .pdf]
+    }
+
+    private var firstLaunchOnboardingBinding: Binding<Bool> {
+        Binding(
+            get: { !hasSeenOnboarding },
+            set: { isPresented in
+                if !isPresented {
+                    hasSeenOnboarding = true
+                }
+            }
+        )
     }
 
     private func applyPendingDeepLinkIfNeeded() {

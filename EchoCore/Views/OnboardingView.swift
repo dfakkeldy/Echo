@@ -1,104 +1,69 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
-/// Simple first-launch welcome sheet explaining Echo's three core loops.
+/// First-launch guide for Echo's core study workflow.
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
-    /// Hero icon size that scales with the user's Dynamic Type setting (audit §8.3).
-    @ScaledMetric private var heroIconSize: CGFloat = 60
 
     var body: some View {
         NavigationStack {
             TabView {
-                welcomePage
-                listenPage
-                studyPage
-                privacyPage
+                ForEach(Self.workflowSteps) { step in
+                    OnboardingStepPage(step: step)
+                }
             }
             .tabViewStyle(.page)
             .navigationTitle("Welcome to Echo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Skip", action: finish)
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Get Started") {
-                        hasSeenOnboarding = true
-                        dismiss()
-                    }
+                    Button("Get Started", action: finish)
                 }
             }
         }
     }
 
-    private var welcomePage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "headphones")
-                .font(.system(size: heroIconSize))
-                .accessibilityHidden(true)
-                .foregroundStyle(.tint)
-            Text("Your Audiobook Study Player")
-                .font(.title)
-                .fontWeight(.bold)
-            Text(
-                "Listen, reflect, and remember — with tools designed for deep focus and distraction-free study."
-            )
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.secondary)
-        }
-        .padding(40)
+    private func finish() {
+        hasSeenOnboarding = true
+        dismiss()
     }
 
-    private var listenPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "bookmark.fill")
-                .font(.system(size: heroIconSize))
-                .accessibilityHidden(true)
-                .foregroundStyle(.orange)
-            Text("Capture as You Listen")
-                .font(.title2)
-                .fontWeight(.bold)
-            Text(
-                "Bookmark moments, record voice memos, and save photos — all without stopping playback."
-            )
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.secondary)
-        }
-        .padding(40)
-    }
-
-    private var studyPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "brain")
-                .font(.system(size: heroIconSize))
-                .accessibilityHidden(true)
-                .foregroundStyle(.purple)
-            Text("Study with Spaced Repetition")
-                .font(.title2)
-                .fontWeight(.bold)
-            Text(
-                "Create flashcards from your bookmarks and review them daily. Import Anki decks to practice on the go."
-            )
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.secondary)
-        }
-        .padding(40)
-    }
-
-    private var privacyPage: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "lock.shield.fill")
-                .font(.system(size: heroIconSize))
-                .accessibilityHidden(true)
-                .foregroundStyle(.green)
-            Text("Private by Design")
-                .font(.title2)
-                .fontWeight(.bold)
-            Text(
-                "Everything stays on your device. No accounts, no tracking, no analytics. Your study data is yours alone."
-            )
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.secondary)
-        }
-        .padding(40)
-    }
+    private static let workflowSteps: [OnboardingStep] = [
+        .init(
+            id: "import",
+            title: "Import",
+            detail:
+                "Choose an audiobook or standalone EPUB. Add the matching EPUB to unlock searchable text.",
+            systemImage: "square.and.arrow.down",
+            tint: .blue
+        ),
+        .init(
+            id: "align",
+            title: "Align",
+            detail:
+                "Search for a paragraph, play the narration, then align the text when the words match.",
+            systemImage: "link",
+            tint: .green
+        ),
+        .init(
+            id: "capture",
+            title: "Capture",
+            detail:
+                "Bookmark important moments, attach notes or voice memos, and save passages for later.",
+            systemImage: "bookmark.fill",
+            tint: .orange
+        ),
+        .init(
+            id: "review",
+            title: "Review",
+            detail:
+                "Turn saved passages into flashcards and review them with spaced repetition.",
+            systemImage: "brain",
+            tint: .teal
+        ),
+    ]
 }

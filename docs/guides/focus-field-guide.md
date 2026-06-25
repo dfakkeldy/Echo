@@ -57,7 +57,7 @@ The ADHD organization problem is usually not messiness — it's *cue-dependence*
 
 **∞ How Echo helps:**
 - **The folder-per-book convention IS the organization system:** drop the files in, and Echo finds the audio, the cover, and the EPUB by itself. The structure does the remembering.
-- **The Timeline tab is a self-presenting inbox** — everything you've captured from a book scrolls past in one feed.
+- **Read & Study plus Stats are self-presenting study surfaces** — aligned passages, bookmarks, cards, decks, and review queues have visible homes instead of hiding behind memory.
 - **Brain Dump and the Card Inbox** (🚧 Coming in 1.0) are one-inbox designs with badges — they present themselves instead of waiting to be remembered.
 - **Second-Brain Export** (🚧 Coming in 1.0) lands your study record in plain Markdown files you can't lose to a proprietary app.
 

@@ -43,10 +43,16 @@ final class StudySessionViewModel {
     func loadQueue(
         now: Date = Date(),
         calendar: Calendar = .current,
-        modeOverride: StudyPlanQueueMode? = nil
+        modeOverride: StudyPlanQueueMode? = nil,
+        globalNewChapterLimit: Int? = nil
     ) throws {
         let builder = StudyQueueBuilder(db: db)
-        queue = try builder.build(now: now, calendar: calendar, modeOverride: modeOverride)
+        queue = try builder.build(
+            now: now,
+            calendar: calendar,
+            modeOverride: modeOverride,
+            globalNewChapterLimit: globalNewChapterLimit
+        )
         currentIndex = 0
         isRevealed = false
         errorMessage = nil
@@ -96,8 +102,7 @@ final class StudySessionViewModel {
     private func logFlashcardReviewed(card: Flashcard, grade: Int, now: Date) {
         let dao = RealTimeEventDAO(db: db)
         do {
-            let metadata = try JSONSerialization.data(withJSONObject: ["cardId": card.id, "grade": grade])
-            let metadataJSON = String(data: metadata, encoding: .utf8)
+            let metadataJSON = try FlashcardReviewMetadata(card: card, grade: grade).encodedJSONString()
             try dao.log(
                 id: UUID().uuidString,
                 eventType: RealTimeEventType.flashcardReviewed.rawValue,

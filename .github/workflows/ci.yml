@@ -14,33 +14,23 @@ concurrency:
 jobs:
   ci:
     name: Build gate + tests
-    runs-on: macos-15
-
-    env:
-      # The shared "Echo" scheme builds the iOS app + embedded watch app + widget.
-      # IOS_DESTINATION is used by build-for-testing below; both destinations are
-      # also where tests will run once CI test execution is re-enabled (see the
-      # BUILD GATE note about the iOS 26.x simulator runtime bug).
-      IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
-      WATCH_DESTINATION: "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)"
+    runs-on: macos-26
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       # Pin the toolchain to Xcode 26.x so CI compiles against the same SDK the
-      # project is developed and shipped with (the maintainer's machine runs
-      # Xcode 26 / iOS 26 SDK). The macos-15 runner installs several Xcodes but
-      # DEFAULTS to 16.4 (iOS 18 / watchOS 11.5 SDK), whose AVFoundation lacks
-      # 26-era symbols such as `AVAudioSession.CategoryOptions.allowBluetoothHFP`
-      # — so a tree that builds locally fails the gate here. Building with the
-      # newest SDK and deploying down to the iOS 18 / watchOS 11 floor is the
-      # standard arrangement. '26' resolves to the newest installed 26.x
-      # (resilient to runner-image updates) without ever jumping to a future major.
+      # project is developed and shipped with. The macos-26 runner defaults to
+      # Xcode 26.x today, and this explicit selection keeps future image updates
+      # from silently jumping to a new major.
       - name: Select Xcode 26
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26'
+
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
@@ -63,6 +53,33 @@ jobs:
           echo "=== available devices ==="
           xcrun simctl list devices available | grep -E "iPhone|Watch" || true
 
+      - name: Select iOS 26.4 test simulator
+        id: ios-sim
+        run: |
+          set -euo pipefail
+          IOS_SIM_UDID="$(
+            xcrun simctl list devices available --json |
+              jq -r '
+                .devices
+                | to_entries[]
+                | select(.key | test("iOS-26-4"))
+                | .value[]
+                | select(.name | test("^iPhone 17( \\(|$)"))
+                | .udid
+              ' |
+              head -n 1
+          )"
+
+          if [ -z "$IOS_SIM_UDID" ]; then
+            echo "::error title=iOS 26.4 iPhone 17 simulator missing::The CI runner no longer exposes the pinned test runtime. Update ci.yml after checking the runner image inventory."
+            xcrun simctl list runtimes
+            xcrun simctl list devices available
+            exit 1
+          fi
+
+          echo "destination=platform=iOS Simulator,id=$IOS_SIM_UDID" >> "$GITHUB_OUTPUT"
+          echo "Selected iOS test destination: platform=iOS Simulator,id=$IOS_SIM_UDID"
+
       - name: Resolve package dependencies
         run: xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 
@@ -73,26 +90,27 @@ jobs:
       # uncaught (CODE_AUDIT.md §10 rec. 5; §5.1). `build-for-testing` compiles
       # app + widget + embedded watch app + EchoTests without booting a simulator,
       # so it fails fast and clearly on compile errors.
-      #
-      # NOTE: test EXECUTION is intentionally not run on CI right now. Every iOS
-      # simulator runtime the macos-15 runner ships (26.0/26.1/26.2) has a bad-free
-      # in libswift_Concurrency's isolated-deinit back-deploy shim
-      # (swift_task_deinitOnExecutorMainActorBackDeploy) that crashes the test
-      # process whenever a @MainActor object such as PlayerModel is deallocated —
-      # an Apple runtime bug fixed in iOS 26.3+ (not yet on the runner), confirmed
-      # via an on-CI AddressSanitizer run. It does not affect the shipping app (one
-      # long-lived PlayerModel) and does not reproduce on iOS 26.4/26.5. The full
-      # suite runs locally via `make test`; re-add the test-execution steps (in this
-      # file's git history) once the runner offers an iOS 26.3+ runtime. The job
-      # name stays "Build gate + tests" — branch protection requires that exact
-      # check, so renaming it would silently un-gate main.
       - name: Build for testing — Echo (iOS app + widget + watch + tests)
         run: |
           set -o pipefail
           xcodebuild build-for-testing \
             -project Echo.xcodeproj \
             -scheme Echo \
-            -destination "$IOS_DESTINATION" \
+            -destination "${{ steps.ios-sim.outputs.destination }}" \
+            -parallel-testing-enabled NO \
+            -jobs 5 \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+
+      - name: Test — EchoTests
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project Echo.xcodeproj \
+            -scheme Echo \
+            -destination "${{ steps.ios-sim.outputs.destination }}" \
+            -only-testing:EchoTests \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 

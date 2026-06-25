@@ -35,6 +35,7 @@ struct EchoCoreApp: App {
 
         let initialSettings = SettingsManager()
         let initialModel = PlayerModel()
+        let initialStoreManager = StoreManager()
         initialModel.setSettingsManager(initialSettings)
         var initialError: Error? = nil
 
@@ -47,31 +48,32 @@ struct EchoCoreApp: App {
             // The error is presented to the user in the view hierarchy.
         }
 
+        let initialFreeTierGate = FreeTierGate(entitlement: initialStoreManager)
+        initialModel.setFreeTierGate(initialFreeTierGate)
+
         _model = State(wrappedValue: initialModel)
         _settings = State(wrappedValue: initialSettings)
+        _storeManager = State(wrappedValue: initialStoreManager)
         _databaseError = State(wrappedValue: initialError)
-        _freeTierGate = State(wrappedValue: FreeTierGate(entitlement: storeManager))
+        _freeTierGate = State(wrappedValue: initialFreeTierGate)
         Self.playerModel = initialModel
 
         // Wire the live DB counts into the free-tier gate so cap enforcement
         // reflects real user data after database init.
         if let db = initialModel.databaseService {
-            freeTierGate.wireCounts(
+            initialFreeTierGate.wireCounts(
                 flashcardCount: {
                     (try? FlashcardDAO(db: db.writer).count()) ?? 0
                 },
                 narratedChapters: { audiobookID in
-                    (try? db.writer.read { db in
-                        try TrackRecord.filter(
-                            sql: "id LIKE ?",
-                            arguments: ["syn-\(audiobookID)-ch%"]
-                        ).fetchCount(db)
-                    }) ?? 0
+                    let tracks = (try? TrackDAO(db: db.writer).tracks(for: audiobookID)) ?? []
+                    return NarrationEntitlementCounter.renderedChapterCount(in: tracks)
                 }
             )
         }
 
         ReviewNotificationService.requestAuthorization()
+        MetricKitDiagnosticsController.shared.start()
     }
 
     var body: some Scene {

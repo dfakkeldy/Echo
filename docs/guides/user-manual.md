@@ -26,7 +26,7 @@ New to Echo? Read [Getting the Most Out of Echo](getting-the-most-out-of-echo.md
 14. [Insights](#14-insights--coming-in-10)
 15. [Context Memory](#15-context-memory-location--coming-in-10)
 16. [Exports & Your Data](#16-exports--your-data)
-17. [Playlist & Timeline](#17-the-playlist--timeline)
+17. [Playlist & Study Library](#17-playlist--study-library)
 18. [Apple Watch](#18-apple-watch)
 19. [Widgets & Control Center](#19-widgets--control-center)
 20. [CarPlay](#20-carplay)
@@ -138,9 +138,9 @@ iCloud Drive/
 |---|---|
 | **Now Playing** | The player: artwork, scrubber, transport controls, speed, sleep timer, bookmarks, quick capture. |
 | **Read** | The synced EPUB/PDF reader: read along, search, align, highlight, bookmark from text. |
-| **Timeline** | Your study feed: chapters, bookmarks, flashcards, notes, and aligned text in one scrollable history, plus the review queue and dashboard modules. |
+| **Stats** | Insights, decks, Card Inbox, daily review, and study-library entry points. |
 
-A mini-player bar stays visible on the Timeline tab so transport controls are never more than one tap away.
+The compact bottom dock keeps playback controls available while you move between Now Playing and Read & Study.
 
 ---
 
@@ -244,7 +244,7 @@ A complete spaced-repetition system — think Anki, built into your audiobook pl
 - **From a bookmark:** any bookmark becomes a card.
 - **From a mark** 🚧 — via the Card Inbox, below.
 - **From a note** 🚧 — promote a Brain Dump entry.
-- **From scratch:** in the Timeline tab.
+- **From scratch:** from the Decks screen in Stats.
 - **Import a deck:** Anki-style JSON today; real .apkg with 1.0.
 
 Cards carry a front, a back, and optionally: an **audio snippet**, a **photo**, a **deck and tags** (🚧), and a **trigger timing** (or manual-review-only).
@@ -252,7 +252,7 @@ Cards carry a front, a back, and optionally: an **audio snippet**, a **photo**, 
 ### The Card Inbox — mark now, card later 🚧 Coming in 1.0
 
 1. **Mark:** one tap on the transport bar (or a watch button) captures the passage just heard — context either side, transcript snippet when aligned. Playback never stops.
-2. **Inbox:** marks collect grouped by book, with a badge on the dashboard and Timeline toolbar.
+2. **Inbox:** marks collect grouped by book, with a badge in Stats and the Card Inbox.
 3. **Convert:** tap a mark → pre-filled card editor (adjust clip, write the front as a question, pick a deck) — or swipe to dismiss.
 
 When the Card Inbox arrives, inline flashcard popups retire — capture stops competing with listening.
@@ -265,7 +265,7 @@ Cards with a trigger timing surface as you listen — a micro-review in context.
 
 ### Editing cards 🚧 Coming in 1.0
 
-Full editor on every card: front/back, audio snippet range ("use current position"), deck, tags, enabled toggle, delete-with-confirmation. Reachable from the Timeline, review sessions, and the deck browser.
+Full editor on every card: front/back, audio snippet range ("use current position"), deck, tags, enabled toggle, delete-with-confirmation. Reachable from review sessions, Card Inbox, and the deck browser.
 
 ### Decks & tags 🚧 Coming in 1.0
 
@@ -287,7 +287,7 @@ Pick a `.apkg` from the deck list's import button — **scheduling history inclu
 
 - **FSRS-4.5 scheduling** (the modern Anki scheduler): grades **Again / Hard / Good / Easy** drive each card's next appearance.
 - Cards with audio play their snippet.
-- Due / reviewed-today / total show on the Timeline review module; the full picture lives in Insights 🚧.
+- Due / reviewed-today / total show in Stats; the full picture lives in Insights 🚧.
 - Optional **daily local notification** (generated on-device; Echo has no servers).
 
 ### Review on Apple Watch
@@ -312,8 +312,8 @@ Bookmarks pin thoughts to a *moment*; flashcards pin them to a *question*. Book 
 
 - Per-book **Book Notes** view: newest first, text + voice entries, inline memo playback, swipe to delete.
 - **Promote** any note → *bookmark* (at capture position) or → *flashcard* (pre-filled editor).
-- Entry points: note icon with count on the Timeline toolbar; a dashboard module when anything's waiting.
-- Notes appear in the Timeline feed and join the study-notes export.
+- Entry points: the book notes surface and a dashboard module when anything's waiting.
+- Notes join the study-notes export alongside bookmarks and flashcards.
 
 > 📸 *Screenshot coming soon — Book Notes inbox with a voice memo entry and promote actions.*
 
@@ -330,9 +330,9 @@ Drop the `.epub` in the book's folder (auto-import) or use **Import Document**. 
 - **Table of contents** + sticky position header (Part → Chapter → Section).
 - **Highlights:** long-press → Change Color.
 - **Typography:** size, spacing, card tint; **Lexend** and **OpenDyslexic** built in.
-- **Reader speed controls** 🚧 Coming in 1.0 — adjust playback speed without leaving the Read tab.
+- **Reader speed controls:** adjust playback speed from the Read tab using the speed chip presets, with Playback Options still available for loop and skip settings.
 
-The bottom toolbar switches to reader-optimized controls while the Read tab is active.
+The bottom dock keeps playback and study controls nearby while the Read tab is active: mini-player controls, inline speed presets, Mark Passage, the Read/Now Playing toggle, and bookmark, note, or memo capture.
 
 ---
 
@@ -373,7 +373,7 @@ Import like an EPUB — the Import button routes automatically.
 
 ## 14. Insights 🚧 Coming in 1.0
 
-Computed entirely on your device from your own history. Open from the dashboard modules or the Timeline toolbar.
+Computed entirely on your device from your own history. Open from Stats or the dashboard modules.
 
 | Section | Contents |
 |---|---|
@@ -416,7 +416,7 @@ Your data is yours, in formats you can read, forever. The database schema is ope
 
 ---
 
-## 17. The Playlist & Timeline
+## 17. Playlist & Study Library
 
 ### Playlist
 
@@ -425,9 +425,9 @@ Your data is yours, in formats you can read, forever. The database schema is ope
 - Hierarchical titles render nested structure with indentation.
 - Edits persist per book; a portable manifest file keeps ordering across devices.
 
-### Timeline
+### Study Library
 
-Your study history as a feed: chapters, bookmarks (photos/memo indicators), flashcards, notes, aligned excerpts. Dashboard modules (due cards, streak, listened today, inbox badges) live here. **Freeze** while browsing; sync-and-resume when ready.
+Study history now lives across the dedicated study surfaces instead of a separate tab: Read & Study for aligned text and capture, Stats for dashboard modules and Insights, Card Inbox for marks waiting to become cards, and Decks for browsing or editing saved cards.
 
 ---
 

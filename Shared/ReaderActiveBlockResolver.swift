@@ -26,11 +26,17 @@ import Foundation
 enum ReaderActiveBlockResolver {
 
     /// One timeline row: an audio `[start, end)` range mapped to an EPUB block,
-    /// carrying the block's `chapterIndex` so resolution can be track-scoped.
+    /// carrying the block's `chapterIndex` and optional `segmentKey` so
+    /// resolution can be track-scoped, then segment-scoped when segment files
+    /// reset the same chapter's local clock.
     /// `chapterIndex == nil` denotes front-matter blocks (the importer leaves the
     /// chapter index null); those belong to track 0 only.
     typealias TimelineRow = (
-        start: TimeInterval, end: TimeInterval, blockID: String, chapterIndex: Int?
+        start: TimeInterval,
+        end: TimeInterval,
+        blockID: String,
+        chapterIndex: Int?,
+        segmentKey: String?
     )
 
     /// One word's audio `[start, end)` within a block, for karaoke highlighting.
@@ -54,6 +60,11 @@ enum ReaderActiveBlockResolver {
         return nil
     }
 
+    /// Shared durable key used by segment writers and reader call sites.
+    static func segmentKey(forChapter chapter: Int, segment: Int) -> String {
+        "\(chapter)-\(segment)"
+    }
+
     /// Resolves the block whose audio range contains `time`, considering only the
     /// rows that belong to the current track.
     ///
@@ -74,8 +85,18 @@ enum ReaderActiveBlockResolver {
     static func activeBlockID(
         in cache: [TimelineRow],
         time: TimeInterval,
+        currentTrackSegmentKey: String? = nil,
         currentTrackChapterIndices: Set<Int>?
     ) -> String? {
+        if let segmentKey = currentTrackSegmentKey {
+            for row in cache where row.segmentKey == segmentKey {
+                if time >= row.start && time < row.end {
+                    return row.blockID
+                }
+            }
+            return nil
+        }
+
         if let scope = currentTrackChapterIndices {
             // Track-scoped: filter to the current track, then linear-scan by time.
             // The scoped slice is small (one chapter's worth of blocks for the

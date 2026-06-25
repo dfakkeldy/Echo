@@ -143,4 +143,29 @@ import Testing
             )
         }
     }
+
+    @Test func unmatchedSearchShowsNoResultsRecoveryState() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        #expect(!vm.showsNoResults)
+
+        vm.searchQuery = "not in this book"
+
+        #expect(vm.displaySections.count == 1)
+        #expect(vm.displaySections.flatMap(\.items).isEmpty)
+        #expect(vm.showsNoResults)
+    }
+
+    @Test func activeFilterWithNoItemsShowsNoResultsRecoveryState() throws {
+        let db = try seed()
+        let vm = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        vm.reload()
+
+        vm.filter.contentType = .pics
+
+        #expect(vm.displaySections.isEmpty)
+        #expect(vm.showsNoResults)
+    }
 }

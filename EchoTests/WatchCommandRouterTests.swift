@@ -79,12 +79,13 @@ struct WatchCommandRouterTests {
         #expect(facade.toggleSleepTimerCalled == true)
     }
 
-    @Test("bookmark and flashcard commands are forwarded without changing payloads")
-    func bookmarkAndFlashcardCommandsForwardPayloads() {
+    @Test("bookmark, mark-passage, and flashcard commands are forwarded")
+    func studyCaptureCommandsForwardPayloads() {
         let facade = FakeWatchCommandFacade()
         let router = WatchCommandRouter(facade: facade)
 
         _ = self.reply(from: router, message: ["command": "addBookmark"])
+        _ = self.reply(from: router, message: ["command": "markPassage"])
         _ = self.reply(from: router, message: [
             "command": "addWatchTextBookmark",
             "bookmarkStorageKey": "book-1",
@@ -98,6 +99,7 @@ struct WatchCommandRouterTests {
         ])
 
         #expect(facade.calls.contains("addBookmarkFromWatchCommand"))
+        #expect(facade.calls.contains("markPassageFromWatchCommand"))
         #expect(facade.addedWatchBookmarkPayloads.count == 1)
         #expect(facade.addedWatchBookmarkPayloads.first?["bookmarkStorageKey"] as? String == "book-1")
         #expect(facade.gradedFlashcards.count == 1)
@@ -119,7 +121,8 @@ struct WatchCommandRouterTests {
             "skipForward", "skipBackward",
             "seek", "scrubDelta", "volumeDelta",
             "cycleSpeed", "cycleLoopMode",
-            "setSleepTimer", "cancelSleepTimer", "toggleSleepTimer"
+            "setSleepTimer", "cancelSleepTimer", "toggleSleepTimer",
+            "markPassage"
         ]
         for command in staleCommands {
             router.route(queuedMessage: ["command": command])
@@ -254,6 +257,10 @@ private final class FakeWatchCommandFacade: WatchCommandRoutingFacade {
     func addWatchBookmark(from payload: [String: Any]) {
         calls.append("addWatchBookmark")
         addedWatchBookmarkPayloads.append(payload)
+    }
+
+    func markPassageFromWatchCommand() {
+        calls.append("markPassageFromWatchCommand")
     }
 
     func gradeFlashcard(cardID: String, grade: Int) {

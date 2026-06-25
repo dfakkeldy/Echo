@@ -7,7 +7,7 @@
 
     /// M5 — the ONNX Kokoro model download must be pinned to an immutable revision and
     /// integrity-checked. A `resolve/main` URL lets a future upstream re-upload
-    /// silently swap the model behind renderVersion 6; trusting any file already on
+    /// silently swap Echo's ONNX narration model; trusting any file already on
     /// disk lets a truncated/interrupted download be reused forever. These lock in the
     /// pin and the exact-size check that closes both holes.
     @Suite struct OnnxKokoroEngineModelDeliveryTests {

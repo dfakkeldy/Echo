@@ -32,6 +32,7 @@ protocol WatchCommandRoutingFacade: AnyObject {
     func toggleSleepTimer()
     func addBookmarkFromWatchCommand()
     func addWatchBookmark(from payload: [String: Any])
+    func markPassageFromWatchCommand()
     func gradeFlashcard(cardID: String, grade: Int)
     func watchStateContext() -> [String: Any]
 }
@@ -118,6 +119,8 @@ final class WatchCommandRouter {
                 facade.toggleSleepTimer()
             case "addBookmark":
                 facade.addBookmarkFromWatchCommand()
+            case "markPassage":
+                facade.markPassageFromWatchCommand()
             case "addWatchTextBookmark":
                 facade.addWatchBookmark(from: message)
             case "addWatchVoiceBookmark":

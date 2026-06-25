@@ -501,7 +501,7 @@ extension TimelineDAO {
         alignmentStatus: String,
         isEnabled: Bool
     ) throws {
-        try db.write { db in
+        _ = try db.write { db in
             try Self.writeAlignment(
                 db: db,
                 epubBlockID: epubBlockID,

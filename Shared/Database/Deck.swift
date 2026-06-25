@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 
 /// GRDB record for the `deck` table.
-struct Deck: Codable, FetchableRecord, PersistableRecord {
+struct Deck: Codable, FetchableRecord, PersistableRecord, Sendable {
     var id: String
     var name: String
     var source: String

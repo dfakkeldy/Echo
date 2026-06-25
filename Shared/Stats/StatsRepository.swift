@@ -346,21 +346,30 @@ struct StatsRepository: Sendable {
         }
     }
 
-    func fetchRetentionCurve() async throws -> [(intervalDays: Int, retentionRate: Double)] {
+    func fetchRetentionCurve() async throws -> [RetentionCurvePoint] {
         try await reader.read { db in
             let rows = try Row.fetchCursor(db, sql: """
-                SELECT metadata_json FROM real_time_event
+                SELECT metadata_json, source_item_id FROM real_time_event
                 WHERE event_type = 'flashcard_reviewed'
                 """)
 
             var reviews: [(intervalDays: Int, grade: Int)] = []
             while let row = try rows.next() {
-                if let jsonStr: String = row["metadata_json"],
-                   let data = jsonStr.data(using: .utf8),
-                   let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let grade = dict["grade"] as? Int,
-                   let intervalDays = dict["intervalDays"] as? Int {
-                    reviews.append((intervalDays: intervalDays, grade: grade))
+                let metadata = FlashcardReviewMetadata.decode(row["metadata_json"])
+                guard let metadata else { continue }
+
+                if let intervalDays = metadata.intervalDays {
+                    reviews.append((intervalDays: intervalDays, grade: metadata.grade))
+                    continue
+                }
+
+                let sourceItemID: String? = row["source_item_id"]
+                let fallbackCardID = metadata.cardId ?? sourceItemID
+                if let cardID = fallbackCardID,
+                   let intervalDays = try Int.fetchOne(db, sql: """
+                    SELECT interval_days FROM flashcard WHERE id = ?
+                    """, arguments: [cardID]) {
+                    reviews.append((intervalDays: intervalDays, grade: metadata.grade))
                 }
             }
             return StatsAggregator.retentionCurve(reviews: reviews)
@@ -376,11 +385,8 @@ struct StatsRepository: Sendable {
 
             var grades: [Int] = []
             while let row = try rows.next() {
-                if let jsonStr: String = row["metadata_json"],
-                   let data = jsonStr.data(using: .utf8),
-                   let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let grade = dict["grade"] as? Int {
-                    grades.append(grade)
+                if let metadata = FlashcardReviewMetadata.decode(row["metadata_json"]) {
+                    grades.append(metadata.grade)
                 }
             }
             return StatsAggregator.gradeDistribution(reviews: grades)

@@ -82,7 +82,7 @@ struct MacTOCTreeView: View {
 
     /// Recursively filters the tree keeping only nodes matching the search.
     private func filter(node: TOCNode) -> TOCNode? {
-        let matchingChildren = (node.children ?? []).compactMap { filter(node: $0) }
+        let matchingChildren = node.children.compactMap { filter(node: $0) }
         let selfMatches = node.title.localizedCaseInsensitiveContains(searchText)
         if selfMatches || !matchingChildren.isEmpty {
             return TOCNode(

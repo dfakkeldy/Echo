@@ -62,11 +62,13 @@ import Testing
             let out = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
             defer { try? FileManager.default.removeItem(at: out) }
+            let versionStamp =
+                "Echo narration — 2026-06-23 · ONNX rv\(NarrationFileNaming.renderVersion)"
             try await AudioExportService().exportM4B(
                 items: items, outputURL: out,
                 metadata: ExportMetadata(
                     title: "RoundTripTitle", author: "RoundTripAuthor", coverArt: nil,
-                    comment: "Echo narration — 2026-06-23 · ONNX rv6"))
+                    comment: versionStamp))
 
             let outputBytes = try Data(contentsOf: out)
             let sourceBytes = try Data(contentsOf: a)
@@ -101,8 +103,7 @@ import Testing
             #expect(outputBytes.range(of: Data("ftab".utf8)) != nil)
 
             // (e) The version stamp lands in the `©cmt` comment atom.
-            #expect(
-                outputBytes.range(of: Data("Echo narration — 2026-06-23 · ONNX rv6".utf8)) != nil)
+            #expect(outputBytes.range(of: Data(versionStamp.utf8)) != nil)
         }
 
         /// The definitive proof: Apple's own AVFoundation reader (the Books / iOS /
@@ -155,6 +156,51 @@ import Testing
             // First chapter starts at 0; second starts at ~1s (the first clip's length).
             #expect(abs(groups[0].timeRange.start.seconds - 0) < 0.05)
             #expect(abs(groups[1].timeRange.start.seconds - 1) < 0.2)
+        }
+
+        /// Segment-layout narration exports concatenate every segment file, but only
+        /// the first segment of a chapter should stamp a chapter atom. Otherwise a
+        /// two-segment Chapter 1 appears as two chapters in Books/AVFoundation.
+        @Test func continuationItemsDoNotCreateExtraChapterMarkers() async throws {
+            let firstSegment = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            let secondSegment = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            let nextChapter = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+            defer {
+                try? FileManager.default.removeItem(at: firstSegment)
+                try? FileManager.default.removeItem(at: secondSegment)
+                try? FileManager.default.removeItem(at: nextChapter)
+            }
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer { try? FileManager.default.removeItem(at: out) }
+
+            try await AudioExportService().exportM4B(
+                items: [
+                    ExportItem(title: "Chapter One", url: firstSegment, timeRange: nil),
+                    ExportItem(
+                        title: "Chapter One", url: secondSegment, timeRange: nil,
+                        emitsChapterMarker: false),
+                    ExportItem(title: "Chapter Two", url: nextChapter, timeRange: nil),
+                ],
+                outputURL: out)
+
+            let asset = AVURLAsset(url: out)
+            let locales = try await asset.load(.availableChapterLocales)
+            #expect(!locales.isEmpty)
+            let groups = try await asset.loadChapterMetadataGroups(
+                bestMatchingPreferredLanguages: locales.map(\.identifier))
+            #expect(groups.count == 2)
+
+            var chapterTitles: [String] = []
+            for group in groups {
+                let item = group.items.first { $0.commonKey == .commonKeyTitle }
+                if let value = try? await item?.load(.stringValue) {
+                    chapterTitles.append(value)
+                }
+            }
+            #expect(chapterTitles == ["Chapter One", "Chapter Two"])
+            #expect(abs(groups[0].timeRange.start.seconds - 0) < 0.05)
+            #expect(abs(groups[1].timeRange.start.seconds - 2) < 0.25)
         }
 
         /// The cover image survives the export and is READABLE by Apple's own

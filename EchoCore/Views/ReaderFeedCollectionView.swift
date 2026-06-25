@@ -30,6 +30,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     var forceScrollTrigger: Int = 0
     var onTapBlock: ((String) -> Void)?
     var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+    var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
     var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
     var offState: ((Int) -> ChapterOffState)?
     var onPlayMemo: ((VoiceMemoRecord) -> Void)?
@@ -38,6 +39,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         Coordinator(
             onTapBlock: onTapBlock,
             onContextMenu: onContextMenu,
+            onAccessibilityActions: onAccessibilityActions,
             isHeaderVisible: $isHeaderVisible,
             autoScrollEnabled: $autoScrollEnabled,
             topPartTitle: $topPartTitle,
@@ -94,6 +96,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
         context.coordinator.onTapBlock = onTapBlock
         context.coordinator.onContextMenu = onContextMenu
+        context.coordinator.onAccessibilityActions = onAccessibilityActions
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
         context.coordinator.onPlayMemo = onPlayMemo
         context.coordinator.offState = offState
@@ -235,6 +238,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     class Coordinator: NSObject, UICollectionViewDelegate {
         var onTapBlock: ((String) -> Void)?
         var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+        var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
         var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
         var offState: ((Int) -> ChapterOffState)?
         var onPlayMemo: ((VoiceMemoRecord) -> Void)?
@@ -273,12 +277,14 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         init(
             onTapBlock: ((String) -> Void)?,
             onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?,
+            onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?,
             isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>,
             topPartTitle: Binding<String?>, topChapterTitle: Binding<String?>,
             topSectionTitle: Binding<String?>, topChapterThemeColor: Binding<String?>
         ) {
             self.onTapBlock = onTapBlock
             self.onContextMenu = onContextMenu
+            self.onAccessibilityActions = onAccessibilityActions
             self.isHeaderVisible = isHeaderVisible
             self.autoScrollEnabled = autoScrollEnabled
             self.topPartTitle = topPartTitle
@@ -391,6 +397,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         } ?? "None"
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     headingCell.setManuallyAligned(isAnchored, timeString: timeString)
+                    headingCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .heading),
+                        hint: accessibilityHint(for: block),
+                        actions: onAccessibilityActions?(block) ?? []
+                    )
                     return headingCell
 
                 case EPubBlockRecord.Kind.image.rawValue:
@@ -404,6 +415,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
                         ?? UIColor.systemBackground
                     imageCell.configure(with: block, tint: cardTint)
+                    imageCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .image),
+                        hint: accessibilityHint(for: block),
+                        actions: onAccessibilityActions?(block) ?? []
+                    )
                     return imageCell
 
                 default:
@@ -431,9 +447,48 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         } ?? "None"
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     paraCell.setManuallyAligned(isAnchored, timeString: timeString)
+                    paraCell.configureAccessibility(
+                        label: accessibilityLabel(for: block, kind: .paragraph),
+                        hint: accessibilityHint(for: block),
+                        actions: onAccessibilityActions?(block) ?? []
+                    )
                     return paraCell
                 }
             }
+        }
+
+        private func accessibilityLabel(
+            for block: EPubBlockRecord, kind: EPubBlockRecord.Kind
+        ) -> String {
+            let text = (block.text ?? "").collapsedWhitespace()
+            let clippedText =
+                text.count > 240
+                ? String(text.prefix(240)).trimmingCharacters(in: .whitespaces) + "..." : text
+            switch kind {
+            case .heading:
+                return clippedText.isEmpty
+                    ? String(localized: "Heading")
+                    : String(localized: "Heading. \(clippedText)")
+            case .image:
+                return clippedText.isEmpty
+                    ? String(localized: "Image")
+                    : String(localized: "Image. \(clippedText)")
+            case .paragraph, .sentence:
+                return clippedText.isEmpty ? String(localized: "Text passage") : clippedText
+            }
+        }
+
+        private func accessibilityHint(for block: EPubBlockRecord) -> String {
+            if audioStartTimeByBlockID[block.id] != nil {
+                return String(
+                    localized:
+                        "Double-tap to seek to this passage. Use Actions for alignment, bookmarks, and more options."
+                )
+            }
+            return String(
+                localized:
+                    "Double-tap to select this passage. Use Actions for alignment, bookmarks, and more options."
+            )
         }
 
         func applySnapshot(

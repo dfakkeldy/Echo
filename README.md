@@ -74,13 +74,13 @@ For EPUB-backed books, Echo can create a Study Plan from Book Settings. A plan g
 - **Voice Memo Bookmarks.** Instantly save your thoughts without fumbling with your phone. Perfect for driving, walking, or when your hands are full. Memos can play back inline when the narration reaches them.
 - **Sessions history.** Review when and where you listened — GPS route and distance, minutes, the chapters you covered, and the bookmarks, cards, and notes you made — then tap any session to jump back into that exact slice of the book.
 - **Photo Bookmarks.** Attach a photo (from camera or library) to any bookmark; the player artwork dynamically switches to your photo as playback passes that moment. Built on *context-dependent memory* — your brain encodes where you were alongside what you heard, and the photo becomes a retrieval cue. [The science →](https://dfakkeldy.github.io/Echo/learn.html)
-- **Spaced Repetition (SRS).** Built-in flashcard system using the **FSRS** algorithm (the modern free-spaced-repetition scheduler) to help you memorize crucial facts, languages, or concepts permanently — with audio snippets on cards, Anki-style deck import, review stats, daily reminders, and hands-free review on Apple Watch.
-- **Mark Now, Card Later.** 🚧 One tap (phone or watch) marks a passage without pausing playback; the **Card Inbox** turns marks into flashcards when you have the bandwidth. Retires mid-playback popups for good.
-- **Decks, Tags & Real Anki Import.** 🚧 Organize cards into decks with tags, edit any card, review per deck — and import genuine `.apkg` Anki decks with scheduling history preserved. JSON deck export round-trips losslessly.
+- **Spaced Repetition (SRS).** Built-in flashcard system using the **FSRS** algorithm (the modern free-spaced-repetition scheduler) to help you memorize crucial facts, languages, or concepts permanently — with audio snippets on cards, Anki-style deck import, review stats, daily reminders, and resilient hands-free review on Apple Watch.
+- **Mark Now, Card Later.** One tap (phone or watch) marks a passage without pausing playback; the **Card Inbox** turns marks into flashcards when you have the bandwidth. Retires mid-playback popups for good.
+- **Decks, Tags & Real Anki Import.** 🚧 Organize cards into decks with tags, edit any card, review per deck — and import genuine `.apkg` Anki decks with scheduling history and referenced media preserved. JSON deck export round-trips losslessly.
 - **Brain Dump / Book Notes.** 🚧 A frictionless mental inbox: park any thought — text or voice, even dictated from the watch — without pausing the book, then promote keepers to bookmarks or flashcards. Built for leaky working memory.
-- **Context Memory (opt-in).** 🚧 Echo can tag bookmarks, sessions, and chapter starts with an approximate place name ("Chapter 3 started at Oak Street") — context-dependent memory, automated. Off by default, reduced accuracy, deletable in one tap, session history never syncs.
-- **Insights.** 🚧 A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, per-chapter coverage heatmaps ("Ch 7 — 86%, listened 3×"), speed trends, time-of-day patterns, retention curves, grade distributions, and a 30-day review forecast.
-- **Second-Brain Export.** 🚧 Per-book Markdown bundles — bookmarks, notes, flashcards, voice memos, photos — that drop straight into Obsidian, Logseq, or Notion. Plain files, relative links, no accounts, no lock-in. (Bookmark Markdown export ships today.)
+- **Context Memory (opt-in).** 🚧 Echo can tag new bookmarks with an approximate place name — context-dependent memory, automated. Off by default, reduced accuracy, and deletable in one tap; session and chapter-start tagging are the remaining 1.0 scope decision.
+- **Insights.** 🚧 A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, playback-speed trends, time-of-day patterns, Study review charts with retention curves and grade distributions, a 30-day review forecast, plus upcoming per-chapter coverage heatmaps ("Ch 7 — 86%, listened 3×") and session-length views.
+- **Second-Brain Export.** Per-book Markdown `.zip` bundles from the iOS More menu, plus full-library study-notes export from Settings — bookmarks, notes, flashcards, chapters, voice memos, photos, and imported card media — that drop straight into Obsidian, Logseq, or Notion. Plain files, relative links, no accounts, no lock-in.
 - **iCloud Study Sync.** 🚧 Flashcards, decks, bookmarks, and playback position across iPhone, Mac, and Watch via your personal iCloud — Echo runs no servers.
 - **On-Device EPUB Alignment (+ PDF companion).** Seamlessly scroll through the EPUB text and view diagrams exactly when the audio reaches that section. On-device auto-alignment ([WhisperKit](https://dfakkeldy.github.io/Echo/glossary.html#whisperkit) + [CoreML](https://dfakkeldy.github.io/Echo/glossary.html#coreml)) maps every paragraph of the **EPUB** to the narration — no cloud API calls, no privacy concerns. **PDF** is supported as a read-only companion with **page-level** alignment (pin a page to a timestamp) and per-page screenshot bookmarks — not the word-level auto-pipeline EPUB gets.
 - **Word-by-Word Read-Along (Karaoke).** As the narration plays, the current word lights up in the text — on iPhone *and* Mac. Built on the same on-device alignment, refined to the narrator's actual word timings wherever speech recognition is confident. (Existing books need a one-time re-align to light up.)
@@ -102,12 +102,12 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 
 | Wedge | Competitors fail at… | …so Echo ships |
 |---|---|---|
-| **1 · Study Moat** *(lead)* | nobody has it | FSRS + **Chapter Study Mode** (each chapter an Anki-style card) + narrator-voice flashcards + watch review + align-*or*-narrate + deep on-device analytics |
-| **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — a real crash-free + no-lost-progress bar |
-| **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; obvious from first launch |
+| **1 · Study Moat** *(lead)* | nobody has it | FSRS + **Chapter Study Mode** (partial: chapter assignment grade policy + global daily cap wired; hands-free Again/re-listen/retire prompts remain) + narrator-voice flashcards + resilient watch review + align-*or*-narrate + deep on-device analytics |
+| **2 · Rock-Solid** | crashes, freezes, lost progress | never crashes, never loses your place — MetricKit diagnostics capture and macOS relaunch resume are wired; App Store Connect crash-free data and broader no-lost-progress verification remain |
+| **3 · Clarity** | confusing UI, poor onboarding | a genuine UI overhaul + <60s onboarding; first-launch workflow guide, action-led empty/recovery states, Reader search/filter recovery, Reader card VoiceOver actions, inline Reader speed presets, ABS browse/Card Inbox/study-review recovery, current help/manual/settings/architecture copy, EPUB/PDF companion import, visible Bookmark Loop unavailable states, non-drag phone/watch control customization, and 44pt reader/player utility targets are in place; full interactive tutorial/UI overhaul still pending |
 | **4 · Trust** | ads, hidden fees, subscriptions | free core + a **one-time** Pro unlock (never a subscription), open-source, ad-free, **verifiably** private (you can read the code) |
 | **5 · Sync Done Right** | losing progress across devices | full iCloud study-state sync **and** a self-hosted Audiobookshelf library (connect/browse/download-to-local/two-way progress sync — **shipped** (PR #102); live-sync device-verify + macOS UI are fast-follows), no lost progress |
-| **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback |
+| **6 · Support** | slow, unhelpful support | responsive, open, in-app feedback via email, GitHub Issues, and the manual |
 
 **macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)**.
 
@@ -263,7 +263,9 @@ feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
 Hotfixes branch from `main`, then merge back *down* into `weekly`/`nightly`.
 
 CI (`.github/workflows/ci.yml`) gates pushes/PRs to all three branches with the
-**`Build gate + tests`** check. Scheduled TestFlight builds live in
+**`Build gate + tests`** check: the workflow compiles the shared Echo scheme,
+runs `EchoTests` on a pinned iOS 26.4 simulator destination, and smoke-builds the
+macOS target. Scheduled TestFlight builds live in
 `.github/workflows/release-trains.yml` (it runs from `main` and checks out the
 train branch; uploads via `fastlane beta` once the App Store Connect / match
 secrets are configured, compile-only until then). See **Release Engineering —

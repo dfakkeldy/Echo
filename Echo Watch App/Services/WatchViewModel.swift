@@ -124,6 +124,21 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         WKInterfaceDevice.current().play(type)
     }
 
+    func playReviewRevealHaptic() {
+        playHaptic(Self.hapticType(for: .reveal))
+    }
+
+    private static func hapticType(for feedback: WatchReviewFeedback) -> WKHapticType {
+        switch feedback {
+        case .reveal:
+            return .click
+        case .again:
+            return .retry
+        case .remembered:
+            return .success
+        }
+    }
+
     // MARK: Optimistic update rollback
 
     @ObservationIgnored private var pendingSnapshot: PlaybackSnapshot?
@@ -249,6 +264,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         bookmarkStorageKey = defaults.string(forKey: "bookmarkStorageKey")
         folderKey = defaults.string(forKey: "folderKey")
         trackId = defaults.string(forKey: "trackId")
+        dueCards = WatchReviewQueueStore.load(from: defaults)
         crownAction = defaults.string(forKey: "crownAction") ?? "volume"
         seekBackwardDuration = defaults.integer(forKey: "seekBackwardDuration")
         if seekBackwardDuration == 0 { seekBackwardDuration = 30 }
@@ -559,9 +575,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             }
 
             if let dueCardsJSON = state["dueCardsJSON"] as? String,
-               let jsonData = dueCardsJSON.data(using: .utf8),
-               let cards = try? JSONDecoder().decode([WatchFlashcard].self, from: jsonData) {
+               let cards = WatchReviewQueueStore.decode(dueCardsJSON) {
                 self.dueCards = cards
+                WatchReviewQueueStore.save(cards, to: self.defaults)
             }
 
             if state["commandResult"] as? String == "bookmarkJump" {
@@ -578,8 +594,22 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
     /// Sends a flashcard grade back to iPhone for FSRS processing and persistence.
     func gradeFlashcard(cardID: String, grade: Int) {
+        guard WCSession.isSupported() else { return }
+
+        let session = WCSession.default
+        guard session.activationState == .activated else {
+            requestCurrentState()
+            return
+        }
+
+        session.transferUserInfo([
+            WatchMessageKey.command: "gradeFlashcard",
+            "cardID": cardID,
+            "grade": grade
+        ])
         dueCards.removeAll { $0.id == cardID }
-        _ = sendCommand("gradeFlashcard", params: ["cardID": cardID, "grade": grade])
+        WatchReviewQueueStore.save(dueCards, to: defaults)
+        playHaptic(Self.hapticType(for: WatchReviewFeedbackPolicy.feedback(forGrade: grade)))
     }
 
     func requestCurrentState() {

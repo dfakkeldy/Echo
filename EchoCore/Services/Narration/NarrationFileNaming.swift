@@ -5,7 +5,7 @@ import Foundation
 /// (`NarrationService`) and the exporter (`NarrationCacheSource`) always agree —
 /// and so a `file://`-URL `audiobookID` (which contains slashes/colons) becomes a
 /// valid filename instead of breaking the write.
-enum NarrationFileNaming {
+nonisolated enum NarrationFileNaming {
     /// Bump whenever the *rendered audio* changes (DSP, sample rate, lead-out…),
     /// so a cached chapter from an older render misses the cache and regenerates
     /// once, while everything else stays persisted. v1 = the original un-versioned
@@ -21,7 +21,10 @@ enum NarrationFileNaming {
     /// pipeline on iOS (instant load, RTF ≈ 0.5 on A14, off-ANE) — different
     /// acoustic model, so cached v5 audio regenerates once. (macOS still renders
     /// via CoreML until the ONNX port; the shared version means it re-renders too.)
-    static let renderVersion = 6
+    /// v7 = segment-render cache layout groundwork. The renderer still writes
+    /// chapter files until segment orchestration lands, but the cache version
+    /// changes so v6 per-chapter files are swept when the segment layout takes over.
+    static let renderVersion = 7
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {
@@ -31,6 +34,12 @@ enum NarrationFileNaming {
 
     static func chapterFileName(audiobookID: String, chapterIndex: Int, voice: VoiceID) -> String {
         "\(safeToken(audiobookID))-ch\(chapterIndex)-\(voice.rawValue)-v\(renderVersion).m4a"
+    }
+
+    static func segmentFileName(
+        audiobookID: String, chapterIndex: Int, segmentIndex: Int, voice: VoiceID
+    ) -> String {
+        "\(safeToken(audiobookID))-ch\(chapterIndex)-s\(segmentIndex)-\(voice.rawValue)-v\(renderVersion).m4a"
     }
 
     /// Prefix matching every chapter file for a book (any chapter, any voice).
@@ -46,10 +55,25 @@ enum NarrationFileNaming {
         let digits = fileName[marker.upperBound...].prefix { $0.isNumber }
         return digits.isEmpty ? nil : Int(digits)
     }
+
+    static func segmentLocation(fromFileName fileName: String) -> (
+        chapterIndex: Int, segmentIndex: Int
+    )? {
+        guard let chapterMarker = fileName.range(of: "-ch") else { return nil }
+        let chapterDigits = fileName[chapterMarker.upperBound...].prefix { $0.isNumber }
+        guard let chapterIndex = Int(chapterDigits) else { return nil }
+        guard
+            let segmentMarker = fileName.range(
+                of: "-s", range: chapterMarker.upperBound..<fileName.endIndex)
+        else { return nil }
+        let segmentDigits = fileName[segmentMarker.upperBound...].prefix { $0.isNumber }
+        guard let segmentIndex = Int(segmentDigits) else { return nil }
+        return (chapterIndex, segmentIndex)
+    }
 }
 
 /// Pure helpers for keeping the rendered-narration directory tidy.
-enum NarrationCacheStore {
+nonisolated enum NarrationCacheStore {
     /// File names belonging to `bookPrefix` that don't match the current voice
     /// *and* current render version — safe to delete when (re)rendering. This
     /// sweeps both stale-voice files and orphaned older-version renders (e.g. the

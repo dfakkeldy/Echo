@@ -72,7 +72,7 @@
                     <li><a href="#insights">14 · Insights</a></li>
                     <li><a href="#places">15 · Context Memory</a></li>
                     <li><a href="#exports">16 · Exports &amp; Your Data</a></li>
-                    <li><a href="#playlist">17 · Playlist &amp; Timeline</a></li>
+                    <li><a href="#playlist">17 · Playlist &amp; Study Library</a></li>
                     <li><a href="#watch">18 · Apple Watch</a></li>
                     <li><a href="#widgets">19 · Widgets &amp; Control Center</a></li>
                     <li><a href="#carplay">20 · CarPlay</a></li>
@@ -184,10 +184,10 @@ iCloud Drive/
                     <tbody>
                         <tr><td><strong>Now Playing</strong></td><td>The player: artwork, scrubber, transport controls, speed, sleep timer, bookmarks, quick capture.</td></tr>
                         <tr><td><strong>Read</strong></td><td>The synced EPUB/PDF reader: read along, search, align, highlight, bookmark from text.</td></tr>
-                        <tr><td><strong>Timeline</strong></td><td>Your study feed: chapters, bookmarks, flashcards, notes, and aligned text in one scrollable history, plus the review queue and dashboard modules (due cards, streak, listened-today, inboxes).</td></tr>
+                        <tr><td><strong>Stats</strong></td><td>Insights, decks, Card Inbox, daily review, and study-library entry points.</td></tr>
                     </tbody>
                 </table>
-                <p>A mini-player bar stays visible on the Timeline tab so transport controls are never more than one tap away.</p>
+                <p>The compact bottom dock keeps playback controls available while you move between Now Playing and Read &amp; Study.</p>
 
                 <h2 id="playback"><span class="sec-num">04</span>Playback</h2>
                 <h3>Transport controls</h3>
@@ -297,7 +297,7 @@ iCloud Drive/
                     <li><strong>From a bookmark:</strong> any bookmark — note, voice memo, photo and all — becomes a card.</li>
                     <li><strong>From a mark</strong> <span class="tag-soon">🚧 Coming in 1.0</span> — via the Card Inbox, below.</li>
                     <li><strong>From a note</strong> <span class="tag-soon">🚧 Coming in 1.0</span> — promote a <a href="#notes">Brain Dump entry</a> into a card.</li>
-                    <li><strong>From scratch:</strong> in the Timeline tab.</li>
+                    <li><strong>From scratch:</strong> from the Decks screen in Stats.</li>
                     <li><strong>Import a deck:</strong> Anki-style JSON decks import with validation today; real .apkg files arrive with 1.0 (below).</li>
                 </ul>
                 <p>Every card has a <strong>front</strong> (your prompt — write it as a question) and a <strong>back</strong> (the answer), and can carry:</p>
@@ -312,7 +312,7 @@ iCloud Drive/
                 <p>The flow designed for not interrupting yourself:</p>
                 <ol>
                     <li><strong>Mark:</strong> one tap on the transport bar (or a watch button) captures the passage you just heard — a few seconds of context either side, with the transcript snippet when the book is aligned. Playback never stops.</li>
-                    <li><strong>Inbox:</strong> marks collect in the Card Inbox, grouped by book, with a badge on the dashboard and Timeline toolbar.</li>
+                    <li><strong>Inbox:</strong> marks collect in the Card Inbox, grouped by book, with a badge in Stats and the Card Inbox.</li>
                     <li><strong>Convert:</strong> tap a mark to open the card editor pre-filled — adjust the clip range, write the front as a question, pick a deck, save. Or swipe to dismiss marks that didn't age well.</li>
                 </ol>
                 <p>When the Card Inbox arrives, the old inline flashcard popups retire with honor — capture stops competing with listening. Cards you create default to manual-review-only.</p>
@@ -326,7 +326,7 @@ iCloud Drive/
                 <p>Cards with a trigger timing surface as you listen: reach the moment in the book and Echo quizzes you on the related card — a micro-review in context. Cards set to <em>manual only</em> never interrupt playback. (With 1.0's Card Inbox, new cards default to manual-only and the popup mechanism is retired — your review then lives entirely in Daily Review.)</p>
 
                 <h3>Editing cards <span class="tag-soon">🚧 Coming in 1.0</span></h3>
-                <p>Every card opens in a full editor: front and back text, the audio snippet range (with "use current position"), deck, tags, enabled toggle, and delete-with-confirmation. Edit from the Timeline, from a review session's toolbar, or from the deck browser.</p>
+                <p>Every card opens in a full editor: front and back text, the audio snippet range (with "use current position"), deck, tags, enabled toggle, and delete-with-confirmation. Edit from review sessions, Card Inbox, and the deck browser.</p>
 
                 <h3>Decks &amp; tags <span class="tag-soon">🚧 Coming in 1.0</span></h3>
                 <ul>
@@ -350,7 +350,7 @@ iCloud Drive/
                     <li>Echo schedules every card with <strong>FSRS-4.5</strong> (the modern scheduler Anki now ships): grade a card and its next appearance is computed from your history — tomorrow if you missed it, weeks out if it was easy.</li>
                     <li>The <strong>review queue</strong> shows everything due today. Grade each card <strong>Again / Hard / Good / Easy</strong>.</li>
                     <li>Cards with audio play their snippet — review with your ears.</li>
-                    <li><strong>Stats:</strong> due count, reviewed-today, and total cards show on the Timeline tab's review module — and the full picture lives in <a href="#insights">Insights</a> <span class="tag-soon">🚧</span>.</li>
+                    <li><strong>Stats:</strong> due count, reviewed-today, and total cards show in Stats — and the full picture lives in <a href="#insights">Insights</a> <span class="tag-soon">🚧</span>.</li>
                     <li><strong>Notifications:</strong> an optional daily local notification reminds you when cards are due. (Local = generated on your device; Echo has no servers.)</li>
                 </ul>
 
@@ -374,8 +374,8 @@ iCloud Drive/
                 <ul>
                     <li>Each book has a <strong>Book Notes</strong> view — newest first, text and voice entries together, inline playback for memos, swipe to delete.</li>
                     <li><strong>Promote</strong> any note: → <em>bookmark</em> (pinned at its capture position) or → <em>flashcard</em> (opens the card editor pre-filled). Promotion is how a brain-dump entry graduates once you have bandwidth.</li>
-                    <li>Entry points: a note icon (with count) on the book's Timeline toolbar, and a dashboard module when anything's waiting.</li>
-                    <li>Notes appear in the Timeline feed alongside bookmarks and cards, and join the <a href="#exports">study-notes export</a>.</li>
+                    <li>Entry points: the book notes surface and a dashboard module when anything's waiting.</li>
+                    <li>Notes join the <a href="#exports">study-notes export</a> alongside bookmarks and flashcards.</li>
                 </ul>
 
                 <figure class="shot-placeholder">
@@ -398,11 +398,11 @@ iCloud Drive/
                     <li><strong>Table of contents:</strong> the chapter picker navigates the book's structure; the sticky header shows your position as Part → Chapter → Section.</li>
                     <li><strong>Highlights:</strong> long-press → <strong>Change Color</strong> to tint passages — build your own color system.</li>
                     <li><strong>Typography:</strong> font size, line spacing, and card background are adjustable; <strong>Lexend</strong> and <strong>OpenDyslexic</strong> (dyslexia-friendly) fonts are built in.</li>
-                    <li><strong>Reader speed controls</strong> <span class="tag-soon">🚧 Coming in 1.0</span> — adjust playback speed without leaving the Read tab.</li>
+                    <li><strong>Reader speed controls:</strong> adjust playback speed from the Read tab using the speed chip presets, with Playback Options still available for loop and skip settings.</li>
                 </ul>
 
                 <h3>The reader toolbar</h3>
-                <p>While the Read tab is active, the bottom toolbar switches to reader-optimized controls: skip back / play–pause / skip forward, timeline, and bookmark — so you can drive playback without leaving the text.</p>
+                <p>While the Read tab is active, the bottom dock keeps playback and study controls nearby: mini-player controls, inline speed presets, Mark Passage, the Read/Now Playing toggle, and bookmark, note, or memo capture.</p>
 
                 <h2 id="alignment"><span class="sec-num">12</span>Audio–Text Alignment</h2>
                 <p><a class="gloss" href="glossary.html#alignment" data-term="alignment">Alignment</a> is what binds the reader to the narration: every paragraph gets a timestamp. Echo builds this map for you and lets you correct it anywhere.</p>
@@ -439,7 +439,7 @@ iCloud Drive/
                 </ul>
 
                 <h2 id="insights"><span class="sec-num">14</span>Insights <span class="tag-soon">🚧 Coming in 1.0</span></h2>
-                <p>Insights is Echo's honest mirror: everything it shows is computed on your device from your own listening and review history. No server ever sees a number. Open it from the dashboard modules or the Timeline toolbar.</p>
+                <p>Insights is Echo's honest mirror: everything it shows is computed on your device from your own listening and review history. No server ever sees a number. Open it from Stats or the dashboard modules.</p>
                 <h3>What you'll see</h3>
                 <table>
                     <thead><tr><th scope="col">Section</th><th scope="col">Contents</th></tr></thead>
@@ -498,7 +498,7 @@ iCloud Drive/
                     </tbody>
                 </table>
 
-                <h2 id="playlist"><span class="sec-num">17</span>The Playlist &amp; Timeline</h2>
+                <h2 id="playlist"><span class="sec-num">17</span>Playlist &amp; Study Library</h2>
                 <h3>Playlist</h3>
                 <ul>
                     <li>Chapters list in playback order with duration and progress; logical chapters expand to show their sections.</li>
@@ -507,8 +507,8 @@ iCloud Drive/
                     <li>Hierarchical titles render nested structure (Part 1 → Chapter 1 → Section A) with visual indentation.</li>
                     <li>Playlist edits persist per book, and a portable manifest file keeps your ordering if you move the folder between devices.</li>
                 </ul>
-                <h3>Timeline</h3>
-                <p>The Timeline tab is your study history as a feed: chapters, bookmarks (with photos and memo indicators), flashcards, notes, and aligned text excerpts, in book order. It's where the dashboard modules live (due cards, streak, listened today, inbox badges) and the fastest place to skim everything you've captured from a book. <strong>Freeze</strong> the timeline while browsing so it stops following playback, then sync-and-resume when ready.</p>
+                <h3>Study Library</h3>
+                <p>Study history now lives across the dedicated study surfaces instead of a separate tab: Read &amp; Study for aligned text and capture, Stats for dashboard modules and Insights, Card Inbox for marks waiting to become cards, and Decks for browsing or editing saved cards.</p>
 
                 <h2 id="watch"><span class="sec-num">18</span>Apple Watch</h2>
                 <p>Echo's watch app is a full remote — designed so you <em>never</em> need the phone in your hand (or out of the aux cable).</p>

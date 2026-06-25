@@ -201,6 +201,51 @@ import Testing
         #expect(newCards == ["Book A Chapter 1", "Book A Image 1"])
         #expect(queue.newAssignmentCount == 2)
     }
+
+    @Test func globalNewChapterLimitCapsNewChaptersAcrossPlans() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlans()
+        let builder = StudyQueueBuilder(db: service.writer)
+
+        let queue = try builder.build(
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar,
+            modeOverride: .bookByBook,
+            globalNewChapterLimit: 1
+        )
+        let newCards = queue.entries.filter { $0.category == .newAssignment }.map(\.flashcard.frontText)
+
+        #expect(newCards == ["Book A Chapter 1"])
+        #expect(queue.newAssignmentCount == 1)
+    }
+
+    @Test func globalNewChapterLimitPreservesDueReviewsAndInProgressAssignments() throws {
+        let service = try StudyQueueFixtures.serviceWithPlan(chapterLimit: 1)
+        let builder = StudyQueueBuilder(db: service.writer)
+
+        let queue = try builder.build(
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar,
+            globalNewChapterLimit: 0
+        )
+
+        #expect(queue.entries.map(\.category) == [.dueReview, .inProgressAssignment])
+        #expect(queue.newAssignmentCount == 0)
+    }
+
+    @Test func globalNewChapterLimitDoesNotChargeImageAssignmentsAgainstChapterBudget() throws {
+        let service = try StudyQueueFixtures.serviceWithImagePlan(chapterLimit: 1)
+        let builder = StudyQueueBuilder(db: service.writer)
+
+        let queue = try builder.build(
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar,
+            globalNewChapterLimit: 1
+        )
+        let newCards = queue.entries.filter { $0.category == .newAssignment }.map(\.flashcard.frontText)
+
+        #expect(newCards == ["Book A Chapter 1", "Book A Image 1"])
+        #expect(queue.newAssignmentCount == 2)
+    }
 }
 
 enum StudyQueueFixtures {

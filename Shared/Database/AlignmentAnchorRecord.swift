@@ -6,7 +6,7 @@ import GRDB
 /// to a specific audio timestamp. Anchors are the foundation of the manual
 /// alignment system — interpolation fills in timestamps between anchors.
 struct AlignmentAnchorRecord: Identifiable, Equatable, Codable, FetchableRecord,
-    MutablePersistableRecord
+    MutablePersistableRecord, Sendable
 {
     var id: String
     var audiobookID: String
@@ -38,13 +38,13 @@ struct AlignmentAnchorRecord: Identifiable, Equatable, Codable, FetchableRecord,
 // MARK: - Anchor Kind Constants
 
 extension AlignmentAnchorRecord {
-    enum AnchorKind: String {
+    enum AnchorKind: String, Sendable {
         case point = "point"
         case chapterStart = "chapterStart"
         case chapterEnd = "chapterEnd"
     }
 
-    enum Source: String {
+    enum Source: String, Sendable {
         case moveToNow = "moveToNow"
         case searchResult = "searchResult"
         case chapterBoundary = "chapterBoundary"

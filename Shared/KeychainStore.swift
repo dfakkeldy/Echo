@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Security
+#if DEBUG
+import Synchronization
+#endif
 
 /// Thin wrapper around the iOS / macOS Keychain for securely storing small
 /// blobs of data (security-scoped bookmark data, bookmark notes with private
@@ -19,6 +22,18 @@ enum KeychainStore {
         case absRefreshToken
         case absPinnedCertificate
     }
+
+    #if DEBUG
+    private struct FallbackKey: Hashable {
+        let service: String
+        let account: String
+    }
+
+    // Unsigned simulator test hosts can be denied Keychain writes when CI runs
+    // with CODE_SIGNING_ALLOWED=NO. Keep that path volatile and DEBUG-only:
+    // release builds never fall back from the Keychain.
+    private static let volatileFallback = Mutex<[FallbackKey: Data]>([:])
+    #endif
 
     @discardableResult
     static func set(_ data: Data, for key: Key, service: String = "com.echo.audiobooks") -> Bool {
@@ -39,9 +54,19 @@ enum KeychainStore {
         // data entirely if SecItemAdd failed after a successful delete (§6.3).
         let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess { return true }
-        guard updateStatus == errSecItemNotFound else { return false }
+        guard updateStatus == errSecItemNotFound else {
+            #if DEBUG
+            storeVolatileFallback(data, for: key, service: service)
+            #endif
+            return false
+        }
         let addQuery = baseQuery.merging(attributes) { _, new in new }
-        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        if addStatus == errSecSuccess { return true }
+        #if DEBUG
+        storeVolatileFallback(data, for: key, service: service)
+        #endif
+        return false
     }
 
     /// Reads `Data` from the Keychain for the given key.
@@ -55,7 +80,13 @@ enum KeychainStore {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess else { return nil }
+        guard status == errSecSuccess else {
+            #if DEBUG
+            return volatileFallbackData(for: key, service: service)
+            #else
+            return nil
+            #endif
+        }
         return result as? Data
     }
 
@@ -67,5 +98,31 @@ enum KeychainStore {
             kSecAttrService as String: service,
         ]
         SecItemDelete(query as CFDictionary)
+        #if DEBUG
+        removeVolatileFallback(for: key, service: service)
+        #endif
     }
+
+    #if DEBUG
+    private static func storeVolatileFallback(_ data: Data, for key: Key, service: String) {
+        let fallbackKey = FallbackKey(service: service, account: key.rawValue)
+        volatileFallback.withLock { storage in
+            storage[fallbackKey] = data
+        }
+    }
+
+    private static func volatileFallbackData(for key: Key, service: String) -> Data? {
+        let fallbackKey = FallbackKey(service: service, account: key.rawValue)
+        return volatileFallback.withLock { storage in
+            storage[fallbackKey]
+        }
+    }
+
+    private static func removeVolatileFallback(for key: Key, service: String) {
+        let fallbackKey = FallbackKey(service: service, account: key.rawValue)
+        volatileFallback.withLock { storage in
+            _ = storage.removeValue(forKey: fallbackKey)
+        }
+    }
+    #endif
 }

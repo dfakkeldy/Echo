@@ -9,8 +9,10 @@ public func formatHMS(_ seconds: TimeInterval) -> String {
     let h = total / 3600
     let m = (total % 3600) / 60
     let s = total % 60
+    let paddedMinute = m.formatted(.number.precision(.integerLength(2)))
+    let paddedSecond = s.formatted(.number.precision(.integerLength(2)))
     if h > 0 {
-        return String(format: "%d:%02d:%02d", h, m, s)
+        return "\(h):\(paddedMinute):\(paddedSecond)"
     }
-    return String(format: "%02d:%02d", m, s)
+    return "\(paddedMinute):\(paddedSecond)"
 }
