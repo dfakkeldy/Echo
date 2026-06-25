@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
 import GRDB
 import Testing
 
@@ -261,6 +262,53 @@ struct ReaderFeedViewModelAccordionTests {
             })
         #expect(keys.contains(1))
         #expect(keys.contains(0))
+    }
+
+    @Test
+    func anchoredFlashcardAppearsAfterSourceBlock() throws {
+        let db = try seed()
+        let stamp = Date(timeIntervalSince1970: 1_750_000_000).ISO8601Format()
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO deck (id, name, source, created_at, modified_at)
+                    VALUES ('deck-a', 'Deck', 'test', ?, ?)
+                    """,
+                arguments: [stamp, stamp])
+            try db.execute(
+                sql: """
+                    INSERT INTO flashcard
+                      (id, audiobook_id, front_text, back_text, media_timestamp,
+                       end_timestamp, trigger_timing, interval_days, ease_factor,
+                       repetitions, is_enabled, deck_id, source_block_id,
+                       created_at, modified_at, card_type)
+                    VALUES ('anchored-card', 'bk', 'Front', 'Back', 9999,
+                            NULL, 'manualOnly', 0, 2.5,
+                            0, 1, 'deck-a', 'c0-p',
+                            ?, ?, 'normal')
+                    """,
+                arguments: [stamp, stamp])
+        }
+
+        let viewModel = ReaderFeedViewModel(audiobookID: "bk", db: db.writer)
+        viewModel.reload()
+        viewModel.toggleChapter(0)
+
+        let items = viewModel.displaySections.flatMap(\.items)
+        let blockIndex = try #require(
+            items.firstIndex { item in
+                if case .block(let block) = item {
+                    return block.id == "c0-p"
+                }
+                return false
+            })
+
+        #expect(blockIndex + 1 < items.count)
+        if case .ankiCard(let card) = items[blockIndex + 1] {
+            #expect(card.id == "anchored-card")
+        } else {
+            Issue.record("Expected anchored flashcard immediately after its source block")
+        }
     }
 
     @Test func wholeBookScopeHasNoRecap() throws {

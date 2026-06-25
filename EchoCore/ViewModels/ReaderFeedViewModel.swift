@@ -193,15 +193,16 @@ final class ReaderFeedViewModel {
         self.playlistFolderURL = playlistFolderURL
         self.offResolver = OffStateResolver(db: db, folderURL: playlistFolderURL)
         self.db = db
-        timelineObserverToken.set(NotificationCenter.default.addObserver(
-            forName: .timelineItemsIngested,
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            guard let viewModel = self else { return }
-            Task { @MainActor in
-                viewModel.reload()
-            }
-        })
+        timelineObserverToken.set(
+            NotificationCenter.default.addObserver(
+                forName: .timelineItemsIngested,
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                guard let viewModel = self else { return }
+                Task { @MainActor in
+                    viewModel.reload()
+                }
+            })
     }
 
     deinit {
@@ -666,26 +667,26 @@ final class ReaderFeedViewModel {
         if let sourceBlockID {
             let looked: Int? =
                 (chapterIndexByBlockID[sourceBlockID] ?? nil)
-                ?? lookupChapter(ofBlock: sourceBlockID)
+                ?? lookupChapter(ofBlock: sourceBlockID, audiobookID: audiobookID)
             if let idx = looked {
                 return (idx, sourceBlockID)
             }
         }
         if let block = anchorDAO.block(at: mediaTimestamp, audiobookID: audiobookID),
-            let idx = lookupChapter(ofBlock: block)
+            let idx = lookupChapter(ofBlock: block, audiobookID: audiobookID)
         {
             return (idx, block)
         }
         return (-1, nil)
     }
 
-    private func lookupChapter(ofBlock blockID: String) -> Int? {
+    private func lookupChapter(ofBlock blockID: String, audiobookID: String) -> Int? {
         if let cached = chapterIndexByBlockID[blockID] { return cached ?? nil }
         let idx = try? db.read { db in
             try Int.fetchOne(
                 db,
-                sql: "SELECT chapter_index FROM epub_block WHERE id = ?",
-                arguments: [blockID])
+                sql: "SELECT chapter_index FROM epub_block WHERE id = ? AND audiobook_id = ?",
+                arguments: [blockID, audiobookID])
         }
         return idx ?? nil
     }
