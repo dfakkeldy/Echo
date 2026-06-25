@@ -15,6 +15,9 @@ struct StatsView: View {
     @State private var srsStats: SRSStats?
     @State private var dueForecast: [DueForecastPoint] = []
     @State private var plannerAdherence: PlannerAdherence?
+    @State private var showingStudySession = false
+    @State private var studySessionViewModel: StudySessionViewModel?
+    @State private var studySessionLaunchError: String?
 
     var body: some View {
         ScrollView {
@@ -31,6 +34,22 @@ struct StatsView: View {
         .background(Color(uiColor: .systemBackground))
         .task { await loadAll() }
         .onChange(of: selectedBucket) { _, _ in Task { await loadBucketed() } }
+        .sheet(isPresented: $showingStudySession) {
+            if let vm = studySessionViewModel {
+                StudySessionView(viewModel: vm)
+            }
+        }
+        .alert(
+            "Could Not Start Study",
+            isPresented: Binding(
+                get: { studySessionLaunchError != nil },
+                set: { if !$0 { studySessionLaunchError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(studySessionLaunchError ?? "")
+        }
     }
 
     // MARK: - Bucket Picker
@@ -119,6 +138,8 @@ struct StatsView: View {
     private var srsSection: some View {
         if let s = srsStats {
             Section("Study (SRS)") {
+                Button("Review Queue", systemImage: "rectangle.stack.fill", action: launchStudySession)
+
                 LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                     StatCardView(title: "Due", value: "\(s.dueCount)",
                                  systemImage: "bell", tint: .red)
@@ -211,6 +232,46 @@ struct StatsView: View {
             plannerAdherence = try await repo.fetchPlannerAdherence()
         } catch {
             logger.error("Failed to load stats: \(error.localizedDescription)")
+        }
+    }
+
+    private func launchStudySession() {
+        guard let db = model.databaseService else {
+            studySessionLaunchError = String(
+                localized: "The app database is unavailable. Reopen the book and try again.")
+            return
+        }
+        let vm = StudySessionViewModel(db: db.writer)
+        vm.onRequestAssignmentPlayback = { [weak model] card in
+            guard let model else { return }
+            playStudyAssignment(card, model: model)
+        }
+
+        do {
+            try vm.loadQueue()
+            studySessionViewModel = vm
+            showingStudySession = true
+        } catch {
+            studySessionViewModel = nil
+            showingStudySession = false
+            studySessionLaunchError = String(
+                localized: "The study queue could not be loaded. Try again.")
+            logger.error("Failed to launch study session: \(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
+    private func playStudyAssignment(_ card: Flashcard, model: PlayerModel) {
+        let bookURL = URL(string: card.audiobookID) ?? URL(fileURLWithPath: card.audiobookID)
+        if model.folderURL?.absoluteString != card.audiobookID {
+            model.loadFolder(bookURL, autoplay: false)
+        }
+        model.selectedTab = .nowPlaying
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            model.seek(toSeconds: max(0, card.mediaTimestamp + 0.05))
+            model.play()
         }
     }
 

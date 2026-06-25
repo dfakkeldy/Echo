@@ -32,8 +32,6 @@ struct RootTabView: View {
     /// Unified ".m4b export" sheet, presented from the global More menu. The
     /// resolver auto-detects narrated-vs-imported, so one action covers both.
     @State private var showingExport = false
-    @State private var showingReview = false
-    @State private var studySessionViewModel: StudySessionViewModel?
     @State private var editingIdentifiableUUID: IdentifiableUUID?
 
     @State private var nowPlayingPath = NavigationPath()
@@ -119,11 +117,8 @@ struct RootTabView: View {
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
             if !model.isPlayingVoiceMemo {
-                VStack(spacing: 0) {
+                VStack {
                     Spacer()
-                    if model.folderURL != nil {
-                        DashboardShelf(onReviewTap: launchStudySession)
-                    }
                     UnifiedBottomDock(
                         onCreateBookmark: { draft in newBookmarkDraft = draft },
                         onShowPlaybackOptions: { showingPlaybackOptions = true },
@@ -187,11 +182,6 @@ struct RootTabView: View {
         }
         .sheet(item: $model.activeBookmarkDraft) { draft in
             EditBookmarkView(bookmarkID: nil, draft: draft)
-        }
-        .sheet(isPresented: $showingReview) {
-            if let vm = studySessionViewModel {
-                StudySessionView(viewModel: vm)
-            }
         }
         .sheet(isPresented: $showingFidget) {
             FidgetOverlayView(
@@ -302,39 +292,6 @@ struct RootTabView: View {
 
     private var companionEPUBTypes: [UTType] {
         [UTType(filenameExtension: "epub") ?? .data]
-    }
-
-    private func launchStudySession() {
-        guard let db = model.databaseService else { return }
-        let vm = StudySessionViewModel(db: db.writer)
-        vm.onRequestAssignmentPlayback = { [weak model] card in
-            guard let model else { return }
-            playStudyAssignment(card, model: model)
-        }
-
-        do {
-            try vm.loadQueue()
-            studySessionViewModel = vm
-            showingReview = true
-        } catch {
-            studySessionViewModel = nil
-            showingReview = false
-        }
-    }
-
-    @MainActor
-    private func playStudyAssignment(_ card: Flashcard, model: PlayerModel) {
-        let bookURL = URL(string: card.audiobookID) ?? URL(fileURLWithPath: card.audiobookID)
-        if model.folderURL?.absoluteString != card.audiobookID {
-            model.loadFolder(bookURL, autoplay: false)
-        }
-        model.selectedTab = .nowPlaying
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            model.seek(toSeconds: max(0, card.mediaTimestamp + 0.05))
-            model.play()
-        }
     }
 
     private func applyPendingDeepLinkIfNeeded() {
