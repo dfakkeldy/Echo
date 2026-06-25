@@ -92,8 +92,7 @@ final class DailyReviewViewModel {
     private func logFlashcardReviewed(card: Flashcard, grade: Int) {
         let dao = RealTimeEventDAO(db: db)
         do {
-            let meta = try JSONSerialization.data(withJSONObject: ["cardId": card.id, "grade": grade])
-            let metaJSON = String(data: meta, encoding: .utf8)
+            let metaJSON = try FlashcardReviewMetadata(card: card, grade: grade).encodedJSONString()
             let now = Date()
             try dao.log(
                 id: UUID().uuidString,

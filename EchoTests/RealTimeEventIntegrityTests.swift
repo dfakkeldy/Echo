@@ -70,5 +70,13 @@ struct RealTimeEventIntegrityTests {
         #expect(startedAt != nil)
         #expect(endedAt != nil)
         #expect(startedAt == endedAt)
+
+        let metadataJSON: String = try #require(event["metadata_json"])
+        let metadata = try #require(
+            JSONSerialization.jsonObject(with: Data(metadataJSON.utf8)) as? [String: Any]
+        )
+        #expect(metadata["cardId"] as? String == "card_1")
+        #expect(metadata["grade"] as? Int == 5)
+        #expect(metadata["intervalDays"] as? Int == 1)
     }
 }

@@ -28,6 +28,27 @@ import Testing
         #expect(notificationCounts == [2])
     }
 
+    @Test func loadQueueAppliesGlobalNewChapterLimitBeforeMarkingIntroducedItems() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlans()
+        let viewModel = StudySessionViewModel(db: service.writer, updateReviewNotification: { _ in })
+
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar,
+            modeOverride: .bookByBook,
+            globalNewChapterLimit: 1
+        )
+
+        let newCards = viewModel.queue.entries
+            .filter { $0.category == .newAssignment }
+            .map(\.flashcard.frontText)
+        let introducedCards = try introducedAssignmentFrontTexts(in: service)
+
+        #expect(newCards == ["Book A Chapter 1"])
+        #expect(viewModel.queue.newAssignmentCount == 1)
+        #expect(introducedCards == ["Book A Chapter 1"])
+    }
+
     @Test func loadQueueResetsSessionState() throws {
         let service = try StudyQueueFixtures.serviceWithPlan(chapterLimit: 1)
         let viewModel = StudySessionViewModel(db: service.writer, updateReviewNotification: { _ in })
@@ -99,6 +120,7 @@ import Testing
         #expect(event["source_item_type"] as String == "flashcard")
         #expect(metadata["cardId"] as? String == "due-card")
         #expect(metadata["grade"] as? Int == ReviewGrade.good.rawValue)
+        #expect(metadata["intervalDays"] as? Int == 1)
     }
 
     @Test func gradeCurrentUpdatesNotificationCountUsingOnlyDueAndInProgressRemaining() throws {
@@ -159,6 +181,21 @@ import Testing
                 sql: "SELECT introduced_at FROM study_plan_item ORDER BY ordinal"
             )
             .map { row in row["introduced_at"] as String? }
+        }
+    }
+
+    private func introducedAssignmentFrontTexts(in service: DatabaseService) throws -> [String] {
+        try service.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT flashcard.front_text
+                    FROM study_plan_item
+                    JOIN flashcard ON flashcard.id = study_plan_item.flashcard_id
+                    WHERE study_plan_item.introduced_at IS NOT NULL
+                    ORDER BY study_plan_item.introduced_at, flashcard.front_text
+                    """
+            )
         }
     }
 }

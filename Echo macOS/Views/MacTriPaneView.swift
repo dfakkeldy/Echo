@@ -92,7 +92,7 @@ struct MacTriPaneView: View {
                         .disabled(player.currentChapterIndex <= 0)
 
                         Text(macChapterTitle)
-                            .font(.caption)
+                            .customFont(.caption, appFont: settings.appFont)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .center)
 
@@ -110,11 +110,11 @@ struct MacTriPaneView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(player.currentTitle)
-                            .font(.caption)
+                            .customFont(.caption, appFont: settings.appFont)
                             .lineLimit(1)
                         if player.hasMultipleTracks {
                             Text("Track \(player.currentTrackIndex + 1) of \(player.tracks.count)")
-                                .font(.caption2)
+                                .customFont(.caption2, appFont: settings.appFont)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -186,7 +186,7 @@ struct MacTriPaneView: View {
         } else {
             HStack {
                 Text("No audiobook loaded — press ⌘O to open one.")
-                    .font(.caption)
+                    .customFont(.caption, appFont: settings.appFont)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -202,7 +202,7 @@ struct MacTriPaneView: View {
         {
             guard let audiobookID = player.audiobookID, player.hasMedia else { return }
             let dao = MarkedPassageDAO(db: dbService.writer)
-            try? dao.insert(
+            _ = try? dao.insert(
                 audiobookID: audiobookID,
                 mediaTimestamp: player.currentTime,
                 endTimestamp: nil,

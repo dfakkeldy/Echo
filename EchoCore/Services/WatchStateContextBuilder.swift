@@ -157,10 +157,9 @@ enum WatchStateContextBuilder {
             context["wordCloudChapterIndex"] = s.currentChapterIndex ?? 0
         }
 
-        // Due flashcards
-        if !s.dueFlashcards.isEmpty,
-           let data = try? JSONEncoder().encode(s.dueFlashcards),
-           let json = String(data: data, encoding: .utf8) {
+        // Due flashcards. Always include this key so the watch can distinguish
+        // "queue is empty" from "this context came from an older phone build."
+        if let json = WatchReviewQueueStore.encode(s.dueFlashcards) {
             context["dueCardsJSON"] = json
         }
 

@@ -46,6 +46,14 @@ struct NowPlayingLayoutTests {
             source.contains(".disabled(!model.hasNextChapter)"),
             "The next-chapter chevron should be disabled at the last chapter."
         )
+        #expect(
+            source.contains("chevronHitTarget: CGFloat = 44"),
+            "Chapter chevrons must keep a 44pt minimum touch-target height."
+        )
+        #expect(
+            source.contains(".frame(width: chevronWidth, height: chevronHitTarget)"),
+            "Chapter chevrons must use the shared 44pt hit-target frame."
+        )
     }
 
     @Test func adaptiveBackgroundUsesTonalRamp() throws {
@@ -117,6 +125,18 @@ struct NowPlayingLayoutTests {
             !source.contains("if model.hasEPUB && NarrationCapability.supportsOnDeviceNarration"),
             "Imported audiobooks with companion EPUBs must not show the \"No audiobook\" nudge."
         )
+    }
+
+    @Test func noBookStateIsActionLedInsteadOfPlayableChrome() throws {
+        let nowPlaying = try Self.source(named: "NowPlayingTab.swift")
+        let emptyState = try Self.source(named: "NowPlayingEmptyState.swift")
+        let dock = try Self.source(named: "Components/UnifiedBottomDock.swift")
+
+        #expect(nowPlaying.contains("if model.folderURL == nil"))
+        #expect(nowPlaying.contains("NowPlayingEmptyState("))
+        #expect(emptyState.contains("Button(\"Choose Book\", systemImage: \"folder\")"))
+        #expect(emptyState.contains("No Book Open"))
+        #expect(dock.contains("model.selectedTab == .nowPlaying && model.hasPlaybackContent"))
     }
 
     private static func source(named fileName: String) throws -> String {

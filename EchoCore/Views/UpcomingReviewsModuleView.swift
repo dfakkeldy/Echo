@@ -53,7 +53,10 @@ struct UpcomingReviewsModuleView: View {
         guard let db = model.databaseService else { return }
         do {
             let stats = try FlashcardDAO(db: db.writer).reviewStats()
-            let queue = try StudyQueueBuilder(db: db.writer).build()
+            let queue = try StudyQueueBuilder(db: db.writer).build(
+                globalNewChapterLimit: model.settingsManager?.studyGlobalNewChapterLimit
+                    ?? SettingsManager.Defaults.studyGlobalNewChapterLimit
+            )
             queueCount = queue.totalCount
             reviewedToday = stats.reviewedToday
             ReviewNotificationService.updateNotification(

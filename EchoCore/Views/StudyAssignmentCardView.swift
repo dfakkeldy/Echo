@@ -31,7 +31,9 @@ struct StudyAssignmentCardView: View {
                     .font(.body)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                StudyAssignmentGradeButtons(onGrade: onGrade)
+                StudyAssignmentGradeButtons(
+                    grades: StudyAssignmentGradePolicy.choices(for: entry.flashcard.cardType),
+                    onGrade: onGrade)
             } else {
                 Button("Review Retention", systemImage: "checkmark.circle", action: onReveal)
                     .buttonStyle(.bordered)
@@ -81,11 +83,12 @@ private struct AssignmentHeaderView: View {
 }
 
 private struct StudyAssignmentGradeButtons: View {
+    let grades: [ReviewGrade]
     let onGrade: (ReviewGrade) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            ForEach(ReviewGrade.allCases, id: \.self) { grade in
+            ForEach(grades, id: \.self) { grade in
                 Button(grade.label) {
                     onGrade(grade)
                 }

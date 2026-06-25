@@ -272,13 +272,16 @@ struct WatchStateContextBuilderTests {
         #expect(json!.contains("Fremen"))
     }
 
-    @Test("due flashcards are omitted when array is empty")
-    func dueFlashcardsEmpty() {
+    @Test("empty due flashcards are JSON-encoded to clear stale watch queues")
+    func dueFlashcardsEmpty() throws {
         var snap = WatchStateSnapshot()
         snap.dueFlashcards = []
 
         let ctx = WatchStateContextBuilder.build(from: snap)
+        let json = try #require(ctx["dueCardsJSON"] as? String)
+        let data = try #require(json.data(using: .utf8))
+        let cards = try JSONDecoder().decode([WatchFlashcard].self, from: data)
 
-        #expect(ctx["dueCardsJSON"] == nil)
+        #expect(cards.isEmpty)
     }
 }

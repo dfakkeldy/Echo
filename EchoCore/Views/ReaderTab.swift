@@ -136,102 +136,111 @@ struct ReaderTab: View {
             let query: String? = model.epubSearchText.isEmpty ? nil : model.epubSearchText
             let bindableVM = Bindable(vm)
 
-            ReaderFeedCollectionView(
-                sections: vm.displaySections,
-                activeBlockID: bindableVM.activeBlockID,
-                activeWord: vm.activeWord,
-                isHeaderVisible: $isHeaderVisible,
-                autoScrollEnabled: $autoScrollEnabled,
-                topPartTitle: $topPartTitle,
-                topChapterTitle: $topChapterTitle,
-                topSectionTitle: $topSectionTitle,
-                topChapterThemeColor: $topChapterThemeColor,
-                settings: readerSettings,
-                alignmentStatusByBlockID: vm.alignmentStatusByBlockID,
-                audioStartTimeByBlockID: vm.audioStartTimeByBlockID,
-                chapterHasAudio: vm.chapterHasAudio,
-                chapterThemeColorByKey: vm.chapterThemeColorByKey,
-                openChapterKey: vm.openChapterKey,
-                onToggleChapter: { (chapterKey: Int) -> Void in
-                    vm.toggleChapter(chapterKey)
-                },
-                searchQuery: query,
-                pulseBlockID: pulseBlockID,
-                forceScrollBlockID: forceScrollBlockID,
-                forceScrollTrigger: forceScrollTrigger,
-                onTapBlock: { (blockID: String) -> Void in
-                    tapBlock(blockID)
-                },
-                onContextMenu: { (block: EPubBlockRecord) -> UIContextMenuConfiguration? in
-                    buildContextMenu(block: block)
-                },
-                onChapterHeaderContextMenu: { (chapterIndex: Int) -> UIContextMenuConfiguration? in
-                    let state = vm.chapterOffState(chapterIndex)
-                    let hasAudio = vm.chapterHasAudio[chapterIndex] ?? false
+            ZStack {
+                ReaderFeedCollectionView(
+                    sections: vm.displaySections,
+                    activeBlockID: bindableVM.activeBlockID,
+                    activeWord: vm.activeWord,
+                    isHeaderVisible: $isHeaderVisible,
+                    autoScrollEnabled: $autoScrollEnabled,
+                    topPartTitle: $topPartTitle,
+                    topChapterTitle: $topChapterTitle,
+                    topSectionTitle: $topSectionTitle,
+                    topChapterThemeColor: $topChapterThemeColor,
+                    settings: readerSettings,
+                    alignmentStatusByBlockID: vm.alignmentStatusByBlockID,
+                    audioStartTimeByBlockID: vm.audioStartTimeByBlockID,
+                    chapterHasAudio: vm.chapterHasAudio,
+                    chapterThemeColorByKey: vm.chapterThemeColorByKey,
+                    openChapterKey: vm.openChapterKey,
+                    onToggleChapter: { (chapterKey: Int) -> Void in
+                        vm.toggleChapter(chapterKey)
+                    },
+                    searchQuery: query,
+                    pulseBlockID: pulseBlockID,
+                    forceScrollBlockID: forceScrollBlockID,
+                    forceScrollTrigger: forceScrollTrigger,
+                    onTapBlock: { (blockID: String) -> Void in
+                        tapBlock(blockID)
+                    },
+                    onContextMenu: { (block: EPubBlockRecord) -> UIContextMenuConfiguration? in
+                        buildContextMenu(block: block)
+                    },
+                    onAccessibilityActions: { (block: EPubBlockRecord) -> [UIAccessibilityCustomAction] in
+                        buildAccessibilityActions(block: block)
+                    },
+                    onChapterHeaderContextMenu: { (chapterIndex: Int) -> UIContextMenuConfiguration? in
+                        let state = vm.chapterOffState(chapterIndex)
+                        let hasAudio = vm.chapterHasAudio[chapterIndex] ?? false
 
-                    return UIContextMenuConfiguration(
-                        identifier: nil, previewProvider: nil
-                    ) { _ in
-                        // Turn off/on everywhere (toggles whole chapter).
-                        let everywhereOn = (state == .allOn)
-                        let everywhere = UIAction(
-                            title: everywhereOn ? "Turn off everywhere" : "Turn on everywhere",
-                            image: UIImage(systemName: everywhereOn ? "eye.slash" : "eye")
+                        return UIContextMenuConfiguration(
+                            identifier: nil, previewProvider: nil
                         ) { _ in
-                            vm.setChapterOff(.all, on: everywhereOn, chapterIndex: chapterIndex)
-                        }
+                            // Turn off/on everywhere (toggles whole chapter).
+                            let everywhereOn = (state == .allOn)
+                            let everywhere = UIAction(
+                                title: everywhereOn ? "Turn off everywhere" : "Turn on everywhere",
+                                image: UIImage(systemName: everywhereOn ? "eye.slash" : "eye")
+                            ) { _ in
+                                vm.setChapterOff(.all, on: everywhereOn, chapterIndex: chapterIndex)
+                            }
 
-                        // Granular: Listen (audio).
-                        let listen = UIAction(
-                            title: state.isAudioOff ? "Turn on listening" : "Turn off listening",
-                            image: UIImage(systemName: "headphones"),
-                            attributes: hasAudio ? [] : .disabled
-                        ) { _ in
-                            vm.setChapterOff(
-                                .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
-                        }
+                            // Granular: Listen (audio).
+                            let listen = UIAction(
+                                title: state.isAudioOff ? "Turn on listening" : "Turn off listening",
+                                image: UIImage(systemName: "headphones"),
+                                attributes: hasAudio ? [] : .disabled
+                            ) { _ in
+                                vm.setChapterOff(
+                                    .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
+                            }
 
-                        // Granular: Narrate (shares the same manifest audio flag in v1).
-                        // v1 limitation: narration and listening map to the same `isEnabled`
-                        // flag; a distinct narration off-switch requires separately-addressable
-                        // narration tracks (future work).
-                        let narrate = UIAction(
-                            title: state.isAudioOff ? "Turn on narration" : "Turn off narration",
-                            image: UIImage(systemName: "waveform"),
-                            attributes: hasAudio ? [] : .disabled
-                        ) { _ in
-                            vm.setChapterOff(
-                                .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
-                        }
+                            // Granular: Narrate (shares the same manifest audio flag in v1).
+                            // v1 limitation: narration and listening map to the same `isEnabled`
+                            // flag; a distinct narration off-switch requires separately-addressable
+                            // narration tracks (future work).
+                            let narrate = UIAction(
+                                title: state.isAudioOff ? "Turn on narration" : "Turn off narration",
+                                image: UIImage(systemName: "waveform"),
+                                attributes: hasAudio ? [] : .disabled
+                            ) { _ in
+                                vm.setChapterOff(
+                                    .audio, on: !state.isAudioOff, chapterIndex: chapterIndex)
+                            }
 
-                        // Granular: Cards/text (epub off flag).
-                        let cards = UIAction(
-                            title: state.isEpubOff
-                                ? "Turn on reading & cards" : "Turn off reading & cards",
-                            image: UIImage(systemName: "text.book.closed")
-                        ) { _ in
-                            vm.setChapterOff(
-                                .epub, on: !state.isEpubOff, chapterIndex: chapterIndex)
-                        }
+                            // Granular: Cards/text (epub off flag).
+                            let cards = UIAction(
+                                title: state.isEpubOff
+                                    ? "Turn on reading & cards" : "Turn off reading & cards",
+                                image: UIImage(systemName: "text.book.closed")
+                            ) { _ in
+                                vm.setChapterOff(
+                                    .epub, on: !state.isEpubOff, chapterIndex: chapterIndex)
+                            }
 
-                        let granular = UIMenu(
-                            title: "", options: .displayInline, children: [listen, narrate, cards])
-                        return UIMenu(title: "", children: [everywhere, granular])
+                            let granular = UIMenu(
+                                title: "", options: .displayInline, children: [listen, narrate, cards])
+                            return UIMenu(title: "", children: [everywhere, granular])
+                        }
+                    },
+                    offState: { chapterIndex in vm.chapterOffState(chapterIndex) },
+                    onPlayMemo: { memo in
+                        // Re-join the stored relative filePath with the book's voice-memos
+                        // subfolder so the file is found correctly after relaunch.
+                        let memoDir =
+                            folderURL
+                            .appendingPathComponent("voice-memos", isDirectory: true)
+                        let fileURL = memoDir.appendingPathComponent(memo.filePath)
+                        memoPlayer?.stop()
+                        memoPlayer = try? AVAudioPlayer(contentsOf: fileURL)
+                        memoPlayer?.play()
                     }
-                },
-                offState: { chapterIndex in vm.chapterOffState(chapterIndex) },
-                onPlayMemo: { memo in
-                    // Re-join the stored relative filePath with the book's voice-memos
-                    // subfolder so the file is found correctly after relaunch.
-                    let memoDir =
-                        folderURL
-                        .appendingPathComponent("voice-memos", isDirectory: true)
-                    let fileURL = memoDir.appendingPathComponent(memo.filePath)
-                    memoPlayer?.stop()
-                    memoPlayer = try? AVAudioPlayer(contentsOf: fileURL)
-                    memoPlayer?.play()
+                )
+
+                if vm.showsNoResults {
+                    readerNoResultsView(vm)
                 }
-            )
+            }
         }
     }
 
@@ -445,6 +454,35 @@ struct ReaderTab: View {
         }
     }
 
+    @ViewBuilder
+    private func readerNoResultsView(_ vm: ReaderFeedViewModel) -> some View {
+        let hasSearch = !model.epubSearchText.isEmpty
+        let hasFilter = vm.filter.contentType != .everything || vm.filter.scope != .wholeBook
+            || vm.sessionScope != .wholeBook
+
+        ContentUnavailableView {
+            Label("No Results", systemImage: "magnifyingglass")
+        } description: {
+            Text("Try a different search or loosen the Reader filters.")
+        } actions: {
+            HStack {
+                if hasSearch {
+                    Button("Clear Search") {
+                        model.epubSearchText = ""
+                        vm.searchQuery = nil
+                    }
+                }
+                if hasFilter {
+                    Button("Show Everything") {
+                        vm.filter = FeedFilter()
+                        vm.sessionScope = .wholeBook
+                    }
+                }
+            }
+        }
+        .padding()
+    }
+
     private func readerSessionsSheet() -> some View {
         NavigationStack {
             SessionsListView(audiobookID: folderURL.absoluteString)
@@ -550,6 +588,7 @@ struct ReaderTab: View {
     private func updateActiveReaderBlock(time: TimeInterval) {
         viewModel?.updateActiveBlock(
             time: time,
+            currentTrackSegmentKey: currentTrackSegmentKey,
             currentTrackChapterIndices: currentTrackChapterIndices,
             isPlaying: model.isPlaying
         )
@@ -735,6 +774,21 @@ struct ReaderTab: View {
             isMultiM4B: model.isMultiM4B,
             currentIndex: currentIndex,
             playingChapterIndex: playingChapterIndex)
+    }
+
+    /// Segment-scoped read-along key for segment narration tracks. Whole-chapter
+    /// narration, imported audio, and MP3/M4B files return nil and keep the
+    /// chapter/whole-book resolver paths.
+    private var currentTrackSegmentKey: String? {
+        let tracks = model.tracks
+        let currentIndex = model.currentIndex
+        guard tracks.indices.contains(currentIndex),
+            let location = NarrationFileNaming.segmentLocation(
+                fromFileName: tracks[currentIndex].url.lastPathComponent)
+        else { return nil }
+        return ReaderActiveBlockResolver.segmentKey(
+            forChapter: location.chapterIndex,
+            segment: location.segmentIndex)
     }
 
     private struct IdentifiableBlockID: Identifiable {
@@ -959,6 +1013,7 @@ struct ReaderTab: View {
     @ViewBuilder
     private var localUtilitiesRow: some View {
         @Bindable var model = model
+        let readerHeaderButtonSize: CGFloat = 44
         HStack(spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -988,7 +1043,7 @@ struct ReaderTab: View {
                     .font(.system(size: 16))
                     .foregroundStyle(Color.accentColor)
             }
-            .frame(width: 36, height: 36)
+            .frame(width: readerHeaderButtonSize, height: readerHeaderButtonSize)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Scroll to current playback position"))
 
@@ -998,7 +1053,7 @@ struct ReaderTab: View {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 16))
             }
-            .frame(width: 36, height: 36)
+            .frame(width: readerHeaderButtonSize, height: readerHeaderButtonSize)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Table of Contents"))
 
@@ -1008,7 +1063,7 @@ struct ReaderTab: View {
                 Image(systemName: "textformat.size")
                     .font(.system(size: 16))
             }
-            .frame(width: 36, height: 36)
+            .frame(width: readerHeaderButtonSize, height: readerHeaderButtonSize)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Reader settings"))
 
@@ -1018,7 +1073,7 @@ struct ReaderTab: View {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 16))
             }
-            .frame(width: 36, height: 36)
+            .frame(width: readerHeaderButtonSize, height: readerHeaderButtonSize)
             .background(Color(.secondarySystemBackground), in: Circle())
             .accessibilityLabel(Text("Listening sessions"))
         }

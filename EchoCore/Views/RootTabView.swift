@@ -16,6 +16,8 @@ struct RootTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
 
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
     @State private var showingPlaybackOptions = false
@@ -32,8 +34,7 @@ struct RootTabView: View {
     /// Unified ".m4b export" sheet, presented from the global More menu. The
     /// resolver auto-detects narrated-vs-imported, so one action covers both.
     @State private var showingExport = false
-    @State private var showingReview = false
-    @State private var studySessionViewModel: StudySessionViewModel?
+    @State private var showingStudyNotesExport = false
     @State private var editingIdentifiableUUID: IdentifiableUUID?
 
     @State private var nowPlayingPath = NavigationPath()
@@ -89,7 +90,12 @@ struct RootTabView: View {
                                     db: db.writer
                                 )
                             } else {
-                                ReaderEmptyState()
+                                ReaderEmptyState(
+                                    hasLoadedBook: model.folderURL != nil,
+                                    canAddEPUB: !model.narrationPlaybackState.isRunning,
+                                    onImportBook: { showingFolderPicker = true },
+                                    onAddEPUB: { model.showingDocumentImporter = true }
+                                )
                             }
                         }
                         .toolbarVisibility(.hidden, for: .navigationBar)
@@ -110,20 +116,19 @@ struct RootTabView: View {
                 onHelpTap: { model.showingHelp = true },
                 onStatsTap: { showingStats = true },
                 onFidgetTap: { showingFidget = true },
-                onAddEPUBTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                onAddDocumentTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
                     ? { model.showingDocumentImporter = true } : nil,
                 onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
-                    ? { showingExport = true } : nil
+                    ? { showingExport = true } : nil,
+                onStudyNotesExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                    ? { showingStudyNotesExport = true } : nil
             )
 
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
             if !model.isPlayingVoiceMemo {
-                VStack(spacing: 0) {
+                VStack {
                     Spacer()
-                    if model.folderURL != nil {
-                        DashboardShelf(onReviewTap: launchStudySession)
-                    }
                     UnifiedBottomDock(
                         onCreateBookmark: { draft in newBookmarkDraft = draft },
                         onShowPlaybackOptions: { showingPlaybackOptions = true },
@@ -152,6 +157,9 @@ struct RootTabView: View {
                 // through the same loader; an EPUB opens as an audio-less book.
                 model.loadFolder(url)
             }
+        }
+        .sheet(isPresented: firstLaunchOnboardingBinding) {
+            OnboardingView()
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
@@ -188,11 +196,6 @@ struct RootTabView: View {
         .sheet(item: $model.activeBookmarkDraft) { draft in
             EditBookmarkView(bookmarkID: nil, draft: draft)
         }
-        .sheet(isPresented: $showingReview) {
-            if let vm = studySessionViewModel {
-                StudySessionView(viewModel: vm)
-            }
-        }
         .sheet(isPresented: $showingFidget) {
             FidgetOverlayView(
                 audiobookID: model.folderURL?.lastPathComponent ?? "unknown",
@@ -221,16 +224,33 @@ struct RootTabView: View {
                     databaseWriter: writer)
             }
         }
+        .sheet(isPresented: $showingStudyNotesExport) {
+            if let folderURL = model.folderURL,
+                let writer = model.databaseService?.writer
+            {
+                StudyNotesExportView(
+                    audiobookID: folderURL.absoluteString,
+                    bookTitle: model.currentTitle,
+                    sourceFolderURL: folderURL,
+                    databaseWriter: writer,
+                    chapters: model.chapters
+                )
+            }
+        }
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
         .fileImporter(
             isPresented: $model.showingDocumentImporter,
-            allowedContentTypes: companionEPUBTypes,
+            allowedContentTypes: companionDocumentTypes,
             allowsMultipleSelection: false
         ) { result in
             guard let url = try? result.get().first else { return }
-            model.importEPUB(from: url)
+            if url.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame {
+                model.importPDF(from: url)
+            } else {
+                model.importEPUB(from: url)
+            }
         }
         .onAppear {
             model.setSettingsManager(settings)
@@ -300,41 +320,19 @@ struct RootTabView: View {
         }
     }
 
-    private var companionEPUBTypes: [UTType] {
-        [UTType(filenameExtension: "epub") ?? .data]
+    private var companionDocumentTypes: [UTType] {
+        [UTType(filenameExtension: "epub") ?? .data, .pdf]
     }
 
-    private func launchStudySession() {
-        guard let db = model.databaseService else { return }
-        let vm = StudySessionViewModel(db: db.writer)
-        vm.onRequestAssignmentPlayback = { [weak model] card in
-            guard let model else { return }
-            playStudyAssignment(card, model: model)
-        }
-
-        do {
-            try vm.loadQueue()
-            studySessionViewModel = vm
-            showingReview = true
-        } catch {
-            studySessionViewModel = nil
-            showingReview = false
-        }
-    }
-
-    @MainActor
-    private func playStudyAssignment(_ card: Flashcard, model: PlayerModel) {
-        let bookURL = URL(string: card.audiobookID) ?? URL(fileURLWithPath: card.audiobookID)
-        if model.folderURL?.absoluteString != card.audiobookID {
-            model.loadFolder(bookURL, autoplay: false)
-        }
-        model.selectedTab = .nowPlaying
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            model.seek(toSeconds: max(0, card.mediaTimestamp + 0.05))
-            model.play()
-        }
+    private var firstLaunchOnboardingBinding: Binding<Bool> {
+        Binding(
+            get: { !hasSeenOnboarding },
+            set: { isPresented in
+                if !isPresented {
+                    hasSeenOnboarding = true
+                }
+            }
+        )
     }
 
     private func applyPendingDeepLinkIfNeeded() {

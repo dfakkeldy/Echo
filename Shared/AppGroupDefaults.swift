@@ -8,7 +8,7 @@ public enum AppGroupDefaults {
 
     private static let migrationKey = "didMigrateWidgetDefaultsToAppGroup"
 
-    public static var shared: UserDefaults {
+    public nonisolated static var shared: UserDefaults {
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             #if DEBUG
             assertionFailure("Unable to open app-group UserDefaults suite: \(suiteName)")

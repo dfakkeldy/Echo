@@ -16,18 +16,20 @@ struct DeckDetailView: View {
     private let logger = Logger(category: "DeckDetailView")
 
     @State private var filteredCards: [Flashcard] = []
+    @State private var cardPendingEdit: Flashcard?
 
     /// Recomputes the filtered list when the search field or loaded cards change,
     /// rather than on every `body` evaluation (audit §8.2). Keeps
-    /// `localizedCaseInsensitiveContains` for correct locale/diacritic matching.
+    /// `localizedStandardContains` for user-entered search text.
     private func applyFilter() {
         guard !searchText.isEmpty else {
             filteredCards = cards
             return
         }
         filteredCards = cards.filter {
-            $0.frontText.localizedCaseInsensitiveContains(searchText) ||
-            $0.backText.localizedCaseInsensitiveContains(searchText)
+            $0.frontText.localizedStandardContains(searchText) ||
+            $0.backText.localizedStandardContains(searchText) ||
+            ($0.tags?.localizedStandardContains(searchText) ?? false)
         }
     }
 
@@ -36,33 +38,38 @@ struct DeckDetailView: View {
             if cards.isEmpty {
                 ContentUnavailableView("No Cards", systemImage: "rectangle.stack")
             } else {
-                List(filteredCards, id: \.id) { card in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(card.frontText)
-                            .font(.callout)
-                            .lineLimit(3)
-                        Text(card.backText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(3)
-                        HStack {
-                            if card.intervalDays > 0 {
-                                Text("Interval: \(card.intervalDays)d")
+                List(filteredCards) { card in
+                    Button {
+                        cardPendingEdit = card
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(card.frontText)
+                                .font(.callout)
+                                .lineLimit(3)
+                            Text(card.backText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                            HStack {
+                                if card.intervalDays > 0 {
+                                    Text("Interval: \(card.intervalDays)d")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text("Ease: \(card.easeFactor.formatted(.number.precision(.fractionLength(1))))")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                            }
-                            Text("Ease: \(String(format: "%.1f", card.easeFactor))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            if card.isEnabled {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                    .font(.caption)
+                                Spacer()
+                                if card.isEnabled {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                        .font(.caption)
+                                }
                             }
                         }
+                        .padding(.vertical, 2)
                     }
-                    .padding(.vertical, 2)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -70,6 +77,11 @@ struct DeckDetailView: View {
         .searchable(text: $searchText, prompt: "Search cards")
         .task { await load() }
         .onChange(of: searchText) { _, _ in applyFilter() }
+        .sheet(item: $cardPendingEdit) { card in
+            FlashcardCreationSheet(card: card) { _ in
+                Task { await load() }
+            }
+        }
     }
 
     private func load() async {

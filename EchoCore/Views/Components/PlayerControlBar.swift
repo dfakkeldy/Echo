@@ -116,6 +116,9 @@ struct PlayerControlBar: View {
                 model.activeBookmarkDraft = draft
                 Haptic.play(.medium)
             }
+        case .markPassage:
+            model.markPassageAtCurrentTime()
+            Haptic.play(.light)
         case .speed:
             let speeds = SettingsManager.Defaults.speedPresets
             if let index = speeds.firstIndex(of: model.speed) {
@@ -140,6 +143,7 @@ struct PlayerControlBar: View {
         case .nextSection: return String(localized: "Next section")
         case .loopMode: return String(localized: "Loop mode")
         case .bookmark: return String(localized: "Add bookmark")
+        case .markPassage: return String(localized: "Mark passage for later")
         case .speed: return String(localized: "Playback speed")
         case .sleepTimer, .pomodoro, .empty: return ""
         }

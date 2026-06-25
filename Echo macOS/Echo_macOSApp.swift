@@ -43,6 +43,7 @@ struct Echo_macOSApp: App {
         _settings = State(initialValue: settings)
         _batchService = State(
             initialValue: MacBatchProcessingService(dbService: db, settings: settings))
+        MetricKitDiagnosticsController.shared.start()
     }
 
     var body: some Scene {
@@ -55,6 +56,8 @@ struct Echo_macOSApp: App {
                 .environment(settings)
                 .environment(batchService)
                 .preferredColorScheme(Self.colorScheme(for: settings.appAppearance))
+                .tint(Self.tintColor(for: settings.themeColor))
+                .customFont(.body, appFont: settings.appFont)
                 .frame(minWidth: 900, minHeight: 560)
                 // Reset any items interrupted by a previous quit, then resume.
                 .task { batchService.resumeOnLaunch() }
@@ -353,6 +356,10 @@ struct Echo_macOSApp: App {
         case "Dark": return .dark
         default: return nil
         }
+    }
+
+    static func tintColor(for themeColor: String) -> Color {
+        ThemeColor(rawValue: themeColor)?.color ?? .accentColor
     }
 
     /// In-memory database used as a safe fallback when the shared App Group

@@ -147,6 +147,126 @@ import Testing
         #expect(abs((starts.first ?? -1) - 0.0) < 0.0001)
     }
 
+    @Test func renderSegmentFileWritesSegmentCacheWithoutPersistingPlaybackState() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["first", "second", "third"])
+        let writer = MockAudioWriter()
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: writer)
+        svc.state.update(
+            phase: .renderingAhead,
+            progress: 0.42,
+            statusMessage: "Rendering next chapter…")
+
+        let rendered = try await svc.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 2,
+            blocks: Array(blocks[1...2]),
+            voice: VoiceID("af_warm"))
+
+        let expectedName = NarrationFileNaming.segmentFileName(
+            audiobookID: "b1", chapterIndex: 0, segmentIndex: 2, voice: VoiceID("af_warm"))
+        #expect(rendered.fileURL.lastPathComponent == expectedName)
+        #expect(writer.writtenURLs.map(\.lastPathComponent) == [expectedName])
+        #expect(rendered.chapterIndex == 0)
+        #expect(rendered.chapterDisplayNumber == 1)
+        #expect(rendered.segmentIndex == 2)
+
+        let secondDuration = Double("second".count) * 0.1
+        let spokenDuration = secondDuration + Double("third".count) * 0.1
+        #expect(abs(rendered.duration - spokenDuration) < 0.0001)
+        #expect(writer.chunkCounts == [2])
+        #expect(rendered.anchors.map(\.epubBlockID) == ["blk1", "blk2"])
+        #expect(abs(rendered.anchors[0].audioTime - 0.0) < 0.0001)
+        #expect(abs(rendered.anchors[1].audioTime - secondDuration) < 0.0001)
+
+        let trackCount = try db.read { db in try TrackRecord.fetchCount(db) }
+        let persistedAnchorCount = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchCount(db)
+        }
+        let alignedTimelineRows = try db.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT COUNT(*) FROM timeline_item
+                    WHERE audiobook_id = 'b1' AND audio_start_time >= 0
+                    """) ?? -1
+        }
+        #expect(trackCount == 0)
+        #expect(persistedAnchorCount == 0)
+        #expect(alignedTimelineRows == 0)
+        #expect(svc.state.phase == .renderingAhead)
+        #expect(svc.state.progress == 0.42)
+        #expect(svc.state.statusMessage == "Rendering next chapter…")
+        #expect(svc.state.renderedChapterCount == 0)
+    }
+
+    @Test func renderSegmentPersistsTrackTimelineAndSegmentKey() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["first", "second", "third"])
+        let writer = MockAudioWriter()
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: writer)
+
+        try await svc.renderSegment(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: Array(blocks[0...1]),
+            voice: VoiceID("af_warm"))
+        try await svc.renderSegment(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 1,
+            blocks: [blocks[2]],
+            voice: VoiceID("af_warm"))
+
+        let tracks = try TrackDAO(db: db.writer).tracks(for: "b1")
+        #expect(tracks.map(\.id) == ["syn-b1-ch0-s0", "syn-b1-ch0-s1"])
+        #expect(tracks.map(\.title) == ["Chapter 1", "Chapter 1"])
+        #expect(tracks.map(\.sortOrder) == [0, 1])
+        #expect(tracks.map(\.narrationVoice) == ["af_warm", "af_warm"])
+        #expect(abs((tracks.first?.duration ?? -1) - 1.1) < 0.0001)
+        #expect(abs((tracks.last?.duration ?? -1) - 0.5) < 0.0001)
+
+        let expectedNames = [
+            NarrationFileNaming.segmentFileName(
+                audiobookID: "b1", chapterIndex: 0, segmentIndex: 0,
+                voice: VoiceID("af_warm")),
+            NarrationFileNaming.segmentFileName(
+                audiobookID: "b1", chapterIndex: 0, segmentIndex: 1,
+                voice: VoiceID("af_warm")),
+        ]
+        #expect(writer.writtenURLs.map(\.lastPathComponent) == expectedNames)
+
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == "b1")
+                .order(Column("epub_block_id"))
+                .fetchAll(db)
+        }
+        #expect(anchors.map(\.epubBlockID) == ["blk0", "blk1", "blk2"])
+        #expect(anchors.map(\.audioTime) == [0.0, 0.5, 0.0])
+
+        let rows = try db.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT epub_block_id, audio_start_time, audio_end_time, segment_key
+                    FROM timeline_item
+                    WHERE audiobook_id = 'b1'
+                      AND epub_block_id IS NOT NULL
+                      AND audio_start_time >= 0
+                    ORDER BY epub_block_id
+                    """)
+        }
+        #expect(rows.compactMap { $0["epub_block_id"] as String? } == ["blk0", "blk1", "blk2"])
+        #expect(rows.compactMap { $0["segment_key"] as String? } == ["0-0", "0-0", "0-1"])
+        #expect(rows.compactMap { $0["audio_start_time"] as Double? } == [0.0, 0.5, 0.0])
+        #expect(rows.compactMap { $0["audio_end_time"] as Double? } == [0.5, 1.1, 0.5])
+    }
+
     @Test func skipsBlocksWithNoText() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["hi", nil, ""])

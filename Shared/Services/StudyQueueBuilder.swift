@@ -8,7 +8,8 @@ struct StudyQueueBuilder {
     func build(
         now: Date = Date(),
         calendar: Calendar = .current,
-        modeOverride: StudyPlanQueueMode? = nil
+        modeOverride: StudyPlanQueueMode? = nil,
+        globalNewChapterLimit: Int? = nil
     ) throws -> StudyQueue {
         let dueCards = try FlashcardDAO(db: db).allDueCards(now: now)
         let plans = try StudyPlanDAO(db: db).plansForQueue()
@@ -37,8 +38,9 @@ struct StudyQueueBuilder {
             ?? modeSourcePlan.flatMap { StudyPlanQueueMode(rawValue: $0.queueModeDefault) }
             ?? .bookByBook
         let orderedEntries = ordered(entries: dueEntries + assignmentQueueEntries, mode: mode, planOrder: planOrder)
+        let cappedEntries = applyGlobalNewChapterLimit(globalNewChapterLimit, to: orderedEntries)
 
-        return StudyQueue(entries: orderedEntries)
+        return StudyQueue(entries: cappedEntries)
     }
 
     private func assignmentEntries(
@@ -280,6 +282,50 @@ struct StudyQueueBuilder {
         let leftFallback = left.flashcard.createdAt ?? left.flashcard.id
         let rightFallback = right.flashcard.createdAt ?? right.flashcard.id
         return leftFallback < rightFallback
+    }
+
+    private func applyGlobalNewChapterLimit(
+        _ limit: Int?,
+        to entries: [StudyQueueEntry]
+    ) -> [StudyQueueEntry] {
+        guard let limit else { return entries }
+
+        let effectiveLimit = max(0, limit)
+        var releasedChapterCount = 0
+        var releasedChapterKeys: Set<AssignmentChapterKey> = []
+
+        return entries.filter { entry in
+            guard entry.category == .newAssignment,
+                  let item = entry.item,
+                  let kind = StudyPlanItemKind(rawValue: item.kind) else {
+                return true
+            }
+
+            switch kind {
+            case .chapter:
+                guard releasedChapterCount < effectiveLimit else { return false }
+                releasedChapterCount += 1
+                if let key = AssignmentChapterKey(item: item) {
+                    releasedChapterKeys.insert(key)
+                }
+                return true
+
+            case .image:
+                guard let key = AssignmentChapterKey(item: item) else { return false }
+                return releasedChapterKeys.contains(key)
+            }
+        }
+    }
+
+    private struct AssignmentChapterKey: Hashable {
+        let planID: String
+        let chapterIndex: Int
+
+        init?(item: StudyPlanItem) {
+            guard let chapterIndex = item.chapterIndex else { return nil }
+            self.planID = item.planID
+            self.chapterIndex = chapterIndex
+        }
     }
 
     private struct ItemCardRow {

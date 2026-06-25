@@ -15,6 +15,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
     case speed
     case sleepTimer
     case bookmark
+    case markPassage
     case pomodoro
     case empty
 
@@ -33,6 +34,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .speed:         return "gauge.medium"
         case .sleepTimer:    return "moon.zzz.fill"
         case .bookmark:      return "bookmark.fill"
+        case .markPassage:   return "rectangle.stack.badge.plus"
         case .pomodoro:      return "timer"
         case .empty:         return "plus"
         }
@@ -71,6 +73,7 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
         case .speed:         return "cycleSpeed"
         case .sleepTimer:    return "toggleSleepTimer"
         case .bookmark:      return "addBookmark"
+        case .markPassage:   return "markPassage"
         case .pomodoro:      return "pomodoro"
         case .empty:         return ""
         }

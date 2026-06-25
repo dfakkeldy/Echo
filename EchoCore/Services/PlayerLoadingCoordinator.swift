@@ -25,7 +25,6 @@ final class PlayerLoadingCoordinator {
     @ObservationIgnored var bookSettingsOverrideStore: BookSettingsOverrideStore?
     @ObservationIgnored var securityScope: SecurityScopeManager?
     @ObservationIgnored var artworkCoordinator: BookmarkArtworkCoordinator?
-    @ObservationIgnored var flashcardTriggerController: InlineFlashcardTriggerController?
     @ObservationIgnored var bookmarkStore: BookmarkStore?
     @ObservationIgnored var progressPresenter: PlaybackProgressPresenter?
     @ObservationIgnored var chapterLoadingCoordinator: ChapterLoadingCoordinator?
@@ -373,7 +372,7 @@ final class PlayerLoadingCoordinator {
 
     func prepareToPlay(index: Int, autoplay: Bool) {
         guard let state, let audioEngine, let playbackController, let persistence,
-            let artworkCoordinator, let flashcardTriggerController,
+            let artworkCoordinator,
             let progressPresenter, let chapterLoadingCoordinator,
             let watchSyncManager, let transcriptService
         else { return }
@@ -385,8 +384,7 @@ final class PlayerLoadingCoordinator {
             state: state, index: index, persistence: persistence,
             playbackController: playbackController, audioEngine: audioEngine)
         resetPerTrackState(
-            state: state, flashcardTriggerController: flashcardTriggerController,
-            artworkCoordinator: artworkCoordinator, transcriptService: transcriptService)
+            state: state, artworkCoordinator: artworkCoordinator, transcriptService: transcriptService)
         setupAudioForTrack(
             state: state, index: index, audioEngine: audioEngine,
             playbackController: playbackController)
@@ -467,8 +465,8 @@ final class PlayerLoadingCoordinator {
     }
 
     private func resetPerTrackState(
-        state: PlaybackState, flashcardTriggerController: InlineFlashcardTriggerController,
-        artworkCoordinator: BookmarkArtworkCoordinator, transcriptService: TranscriptService
+        state: PlaybackState, artworkCoordinator: BookmarkArtworkCoordinator,
+        transcriptService: TranscriptService
     ) {
         state.thumbnailImage = nil
         state.chapters = []
@@ -477,7 +475,6 @@ final class PlayerLoadingCoordinator {
         state.isManualSeeking = false
         artworkCoordinator.invalidateCache()
         onResetBookmarkCheckSecond?()
-        flashcardTriggerController.resetForNewTrack()
 
         // Load transcript for the new track (async but fire-and-forget — data arrives
         // asynchronously in PlaybackState; the caller is not async).

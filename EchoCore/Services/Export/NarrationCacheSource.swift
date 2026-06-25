@@ -24,13 +24,17 @@ struct NarrationCacheSource: ExportSource {
             let tracks = try TrackDAO(db: databaseWriter).tracks(for: audiobookID)
             for track in tracks {
                 guard let voice = track.narrationVoice else { continue }
-                titlesByChapterIndex[track.sortOrder] = track.title
-                voiceByChapterIndex[track.sortOrder] = VoiceID(voice)
+                let fileName = URL(fileURLWithPath: track.filePath).lastPathComponent
+                let chapterIndex =
+                    NarrationFileNaming.segmentLocation(fromFileName: fileName)?.chapterIndex
+                    ?? track.sortOrder
+                titlesByChapterIndex[chapterIndex] = track.title
+                voiceByChapterIndex[chapterIndex] = VoiceID(voice)
             }
         }
-        // Collapse to one file per chapter before ordering: a re-render after a
-        // voice change or a renderVersion bump leaves two files for the same
-        // chapter index, and globbing every `-ch*.m4a` would export both (§5.12).
+        // Collapse stale chapter renders while preserving segment-only chapters:
+        // a full chapter file remains authoritative for its chapter, so stray or
+        // partial segment caches can't shadow a complete chapter export.
         let deduped = Self.currentVersionFiles(
             files: files, audiobookID: audiobookID, voiceByChapterIndex: voiceByChapterIndex)
         return Self.orderedItems(files: deduped, titlesByChapterIndex: titlesByChapterIndex)
@@ -42,25 +46,29 @@ struct NarrationCacheSource: ExportSource {
     /// current render version with the voice the DB recorded for that chapter — and
     /// falls back to a single deterministic file when that exact file isn't on disk,
     /// so a not-yet-re-rendered chapter is still exported rather than dropped.
-    static func currentVersionFiles(
+    nonisolated static func currentVersionFiles(
         files: [URL], audiobookID: String, voiceByChapterIndex: [Int: VoiceID]
     ) -> [URL] {
         var filesByChapterIndex: [Int: [URL]] = [:]
         for url in files {
-            guard let index = NarrationFileNaming.chapterIndex(fromFileName: url.lastPathComponent)
+            guard let index = Self.chapterLocation(for: url)?.chapterIndex
             else { continue }
             filesByChapterIndex[index, default: []].append(url)
         }
-        return filesByChapterIndex.compactMap { index, group in
-            if let voice = voiceByChapterIndex[index] {
-                let canonical = NarrationFileNaming.chapterFileName(
-                    audiobookID: audiobookID, chapterIndex: index, voice: voice)
-                if let match = group.first(where: { $0.lastPathComponent == canonical }) {
-                    return match
-                }
+        return filesByChapterIndex.flatMap { index, group in
+            let chapterFiles = group.filter {
+                NarrationFileNaming.segmentLocation(fromFileName: $0.lastPathComponent) == nil
             }
-            return group.min { $0.lastPathComponent < $1.lastPathComponent }
-        }
+            if !chapterFiles.isEmpty {
+                return Self.currentChapterFile(
+                    files: chapterFiles,
+                    audiobookID: audiobookID,
+                    chapterIndex: index,
+                    voice: voiceByChapterIndex[index]
+                ).map { [$0] } ?? []
+            }
+            return Self.currentSegmentFiles(files: group, voice: voiceByChapterIndex[index])
+        }.sorted(by: Self.isOrderedBefore)
     }
 
     /// Pure ordering+titling, unit-tested without generating audio. Files are
@@ -68,23 +76,93 @@ struct NarrationCacheSource: ExportSource {
     /// titles are looked up by that recovered index (== the narration track's
     /// `sortOrder`), never by file position, which diverges from chapter 10 on.
     /// A file whose index can't be recovered sorts last and gets a 1-based label.
-    static func orderedItems(files: [URL], titlesByChapterIndex: [Int: String]) -> [ExportItem] {
-        let sorted = files.sorted { lhs, rhs in
-            let l = NarrationFileNaming.chapterIndex(fromFileName: lhs.lastPathComponent)
-            let r = NarrationFileNaming.chapterIndex(fromFileName: rhs.lastPathComponent)
-            switch (l, r) {
-            case (let l?, let r?): return l < r
-            case (nil, _?): return false
-            case (_?, nil): return true
-            case (nil, nil): return lhs.lastPathComponent < rhs.lastPathComponent
-            }
-        }
+    nonisolated static func orderedItems(
+        files: [URL],
+        titlesByChapterIndex: [Int: String]
+    ) -> [ExportItem] {
+        let sorted = files.sorted(by: Self.isOrderedBefore)
+        var markedChapterIndices: Set<Int> = []
         return sorted.enumerated().map { position, fileURL in
-            let chapterIndex = NarrationFileNaming.chapterIndex(
-                fromFileName: fileURL.lastPathComponent)
+            let chapterIndex = Self.chapterLocation(for: fileURL)?.chapterIndex
             let title =
                 chapterIndex.flatMap { titlesByChapterIndex[$0] } ?? "Chapter \(position + 1)"
-            return ExportItem(title: title, url: fileURL, timeRange: nil)
+            let emitsMarker = chapterIndex.map { markedChapterIndices.insert($0).inserted } ?? true
+            return ExportItem(
+                title: title, url: fileURL, timeRange: nil, emitsChapterMarker: emitsMarker)
+        }
+    }
+
+    private nonisolated static func currentChapterFile(
+        files: [URL],
+        audiobookID: String,
+        chapterIndex: Int,
+        voice: VoiceID?
+    ) -> URL? {
+        if let voice {
+            let canonical = NarrationFileNaming.chapterFileName(
+                audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice)
+            if let match = files.first(where: { $0.lastPathComponent == canonical }) {
+                return match
+            }
+        }
+        return files.min { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private nonisolated static func currentSegmentFiles(files: [URL], voice: VoiceID?) -> [URL] {
+        let segmentFiles = files.filter {
+            NarrationFileNaming.segmentLocation(fromFileName: $0.lastPathComponent) != nil
+        }
+        if let voice {
+            let suffix = "-\(voice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"
+            let canonical = segmentFiles.filter { $0.lastPathComponent.hasSuffix(suffix) }
+            if !canonical.isEmpty {
+                return canonical.sorted(by: Self.isOrderedBefore)
+            }
+        }
+        let currentSuffix = "-v\(NarrationFileNaming.renderVersion).m4a"
+        let currentVersion = segmentFiles.filter { $0.lastPathComponent.hasSuffix(currentSuffix) }
+        return (currentVersion.isEmpty ? segmentFiles : currentVersion).sorted(
+            by: Self.isOrderedBefore)
+    }
+
+    private nonisolated static func chapterLocation(for url: URL) -> (
+        chapterIndex: Int,
+        segmentIndex: Int?
+    )? {
+        let fileName = url.lastPathComponent
+        if let segment = NarrationFileNaming.segmentLocation(fromFileName: fileName) {
+            return (segment.chapterIndex, segment.segmentIndex)
+        }
+        guard let chapterIndex = NarrationFileNaming.chapterIndex(fromFileName: fileName) else {
+            return nil
+        }
+        return (chapterIndex, nil)
+    }
+
+    private nonisolated static func isOrderedBefore(_ lhs: URL, _ rhs: URL) -> Bool {
+        let lhsLocation = Self.chapterLocation(for: lhs)
+        let rhsLocation = Self.chapterLocation(for: rhs)
+        switch (lhsLocation, rhsLocation) {
+        case (let lhsInfo?, let rhsInfo?):
+            if lhsInfo.chapterIndex != rhsInfo.chapterIndex {
+                return lhsInfo.chapterIndex < rhsInfo.chapterIndex
+            }
+            switch (lhsInfo.segmentIndex, rhsInfo.segmentIndex) {
+            case (let lhsSegment?, let rhsSegment?):
+                return lhsSegment < rhsSegment
+            case (nil, _?):
+                return true
+            case (_?, nil):
+                return false
+            case (nil, nil):
+                return lhs.lastPathComponent < rhs.lastPathComponent
+            }
+        case (nil, _?):
+            return false
+        case (_?, nil):
+            return true
+        case (nil, nil):
+            return lhs.lastPathComponent < rhs.lastPathComponent
         }
     }
 }

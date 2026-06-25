@@ -103,7 +103,7 @@ struct NarrationRunResult {
     }
 
     /// Provenance stamp embedded in the m4b comment (`©cmt`): render date + the
-    /// engine/render version, e.g. "Echo narration — 2026-06-23 · ONNX rv6".
+    /// engine/render version, e.g. "Echo narration — 2026-06-23 · ONNX rv7".
     static func narrationVersionStamp(date: Date = Date()) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

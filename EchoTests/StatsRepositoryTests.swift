@@ -185,6 +185,77 @@ import Testing
         #expect(totals[0].title == "Most Listened")
     }
 
+    @Test func fetchSpeedTrendUsesWeightedDailyPlaybackSpeed() async throws {
+        let db = try makeDB()
+        let repo = StatsRepository(reader: db.writer)
+
+        let cal = Calendar(identifier: .gregorian)
+        var components = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
+        components.year = 2026
+        components.month = 6
+        components.day = 25
+        components.hour = 8
+        let morning = try #require(cal.date(from: components))
+        components.hour = 10
+        let lateMorning = try #require(cal.date(from: components))
+        let formatter = ISO8601DateFormatter()
+
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO audiobook (id, title, duration, added_at)
+                VALUES ('b1', 'B1', 3600, ?)
+                """, arguments: [formatter.string(from: morning)])
+            try db.execute(sql: """
+                INSERT INTO playback_event (
+                    audiobook_id, started_at, ended_at,
+                    start_position, end_position, speed, event_type
+                )
+                VALUES
+                    ('b1', ?, ?, 0, 600, 1.0, 'play'),
+                    ('b1', ?, ?, 600, 1800, 2.0, 'play')
+                """, arguments: [
+                    formatter.string(from: morning),
+                    formatter.string(from: morning.addingTimeInterval(600)),
+                    formatter.string(from: lateMorning),
+                    formatter.string(from: lateMorning.addingTimeInterval(600)),
+                ])
+        }
+
+        let trend = try await repo.fetchSpeedTrend(calendar: cal)
+
+        #expect(trend.count == 1)
+        #expect(abs((trend.first?.averageSpeed ?? 0) - 1.67) < 0.01)
+    }
+
+    @Test func fetchTimeOfDayHistogramUsesPersistedPlaybackEvents() async throws {
+        let db = try makeDB()
+        let repo = StatsRepository(reader: db.writer)
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO audiobook (id, title, duration, added_at)
+                VALUES ('b1', 'B1', 3600, '2026-06-25T08:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO playback_event (
+                    audiobook_id, started_at, ended_at,
+                    start_position, end_position, speed, event_type
+                )
+                VALUES ('b1', '2026-06-25T08:00:00Z', '2026-06-25T08:30:00Z', 0, 1800, 1.0, 'play')
+                """)
+        }
+
+        let histogram = try await repo.fetchTimeOfDayHistogram(calendar: calendar)
+
+        #expect(histogram.count == 24)
+        #expect(histogram[8].totalAdjustedDuration == 1800)
+        #expect(histogram[7].totalAdjustedDuration == 0)
+        #expect(histogram[9].totalAdjustedDuration == 0)
+    }
+
     // MARK: - SRS Stats
 
     @Test func fetchSRSStatsComputesCorrectly() async throws {
@@ -231,6 +302,98 @@ import Testing
         #expect(stats.totalCards == 3)
         #expect(abs(stats.averageEase - 2.43) < 0.01)
         #expect(abs(stats.retentionRate - 0.67) < 0.01)
+    }
+
+    @Test func fetchReviewInsightsDecodeIntervalsGradesAndDailyCounts() async throws {
+        let db = try makeDB()
+        let repo = StatsRepository(reader: db.writer)
+
+        let cal = Calendar(identifier: .gregorian)
+        var components = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
+        components.year = 2026; components.month = 6; components.day = 25; components.hour = 12
+        let now = try #require(cal.date(from: components))
+        let yesterday = try #require(cal.date(byAdding: .day, value: -1, to: now))
+        let formatter = ISO8601DateFormatter()
+
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO audiobook (id, title, duration, added_at)
+                VALUES ('b1', 'B1', 3600, ?)
+                """, arguments: [formatter.string(from: now)])
+            try db.execute(sql: """
+                INSERT INTO flashcard (
+                    id, audiobook_id, front_text, back_text, media_timestamp,
+                    ease_factor, is_enabled, next_review_date, interval_days, repetitions
+                )
+                VALUES
+                    ('c1', 'b1', 'front 1', 'back', 0, 2.5, 1, ?, 7, 1),
+                    ('c2', 'b1', 'front 2', 'back', 0, 2.5, 1, ?, 30, 1)
+                """, arguments: [
+                    formatter.string(from: now),
+                    formatter.string(from: now),
+                ])
+            try db.execute(sql: """
+                INSERT INTO real_time_event (
+                    id, event_type, audiobook_id, media_timestamp, started_at, ended_at,
+                    title, subtitle, metadata_json, source_item_id, source_item_type
+                )
+                VALUES
+                    ('r1', 'flashcard_reviewed', 'b1', 0, ?, ?, 'front 1', 'Grade: 4',
+                     '{"cardId":"c1","grade":4,"intervalDays":7}', 'c1', 'flashcard'),
+                    ('r2', 'flashcard_reviewed', 'b1', 0, ?, ?, 'front 2', 'Grade: 2',
+                     '{"cardId":"c2","grade":2}', 'c2', 'flashcard')
+                """, arguments: [
+                    formatter.string(from: now),
+                    formatter.string(from: now),
+                    formatter.string(from: yesterday),
+                    formatter.string(from: yesterday),
+                ])
+        }
+
+        let retention = try await repo.fetchRetentionCurve()
+        let grades = try await repo.fetchGradeDistribution()
+        let daily = try await repo.fetchDailyReviewCounts(calendar: cal)
+
+        #expect(retention.count == 2)
+        #expect(retention.first { $0.intervalDays == 7 }?.retentionRate == 1.0)
+        #expect(retention.first { $0.intervalDays == 30 }?.retentionRate == 0.0)
+        #expect(grades.first { $0.grade == 4 }?.count == 1)
+        #expect(grades.first { $0.grade == 2 }?.count == 1)
+        #expect(daily.map(\.count).reduce(0, +) == 2)
+    }
+
+    // MARK: - Chapter Coverage
+
+    @Test func fetchChapterCoverageReturnsOrderedCoverageForPersistedChapters() async throws {
+        let db = try makeDB()
+        let repo = StatsRepository(reader: db.writer)
+
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO audiobook (id, title, duration, added_at)
+                VALUES ('b1', 'B1', 3600, '2026-06-25T08:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO chapter (audiobook_id, title, start_seconds, end_seconds, sort_order)
+                VALUES
+                    ('b1', 'Chapter Two', 100, 200, 1),
+                    ('b1', 'Chapter One', 0, 100, 0)
+                """)
+            try db.execute(sql: """
+                INSERT INTO playback_event (
+                    audiobook_id, started_at, ended_at,
+                    start_position, end_position, speed, event_type
+                )
+                VALUES ('b1', '2026-06-25T08:00:00Z', '2026-06-25T08:02:00Z', 25, 175, 1.0, 'play')
+                """)
+        }
+
+        let coverage = try await repo.fetchChapterCoverage(audiobookID: "b1")
+
+        #expect(coverage.map(\.chapterTitle) == ["Chapter One", "Chapter Two"])
+        #expect(abs((coverage.first?.coveredFraction ?? 0) - 0.75) < 0.01)
+        #expect(abs((coverage.last?.coveredFraction ?? 0) - 0.75) < 0.01)
+        #expect(coverage.map(\.listenPassCount) == [1, 1])
     }
 
     // MARK: - Alignment Coverage

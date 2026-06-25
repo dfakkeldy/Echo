@@ -26,82 +26,92 @@ struct NowPlayingTab: View {
             // 1. ADAPTIVE GRADIENT BACKGROUND (Rendered globally at RootTabView)
 
             // 2. MAIN LAYOUT STACK
-            VStack(spacing: 0) {
-                // Flexible top slack — balances the artwork block vertically.
-                Spacer(minLength: 0)
-
-                // B. Artwork Component
-                artworkView
-                    .frame(minHeight: 150, maxHeight: 330)
-
-                // C. Metadata & Typography Area
-                metadataArea
+            Group {
+                if model.folderURL == nil {
+                    NowPlayingEmptyState(
+                        onChooseBook: openFolder,
+                        onOpenHelp: showHelp
+                    )
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
-                    .padding(.top, 16)
+                } else {
+                    VStack(spacing: 0) {
+                        // Flexible top slack — balances the artwork block vertically.
+                        Spacer(minLength: 0)
 
-                // C2. On-device narration — only for audio-less EPUB books, or
-                // books whose tracks are rendered narration cache files. Imported
-                // audiobooks with a companion EPUB already have audio, so the
-                // "No audiobook" nudge must stay hidden.
-                if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
-                    VStack(spacing: 8) {
-                        NarrationStatusView(state: model.narrationPlaybackState)
-                        // Offer narration only when the book has NO audio loaded yet.
-                        // Gating on `!isRunning` alone re-showed "No audiobook" on a
-                        // fully-rendered narration (isRunning flips false on completion);
-                        // `tracks.isEmpty` keeps the offer for a fresh EPUB but hides it
-                        // once any audio is queued (mid-render or completed). See
-                        // NarrationNudgePolicy.
-                        if NarrationNudgePolicy.showsNudge(
-                            tracksEmpty: model.tracks.isEmpty,
-                            isRunning: model.narrationPlaybackState.isRunning)
-                        {
-                            NarrationNudgeView {
-                                // Save the voice preference and start narration
-                                // directly — no voice picker on the primary path.
-                                settings.narrationVoiceID = preferredVoice.id.rawValue
-                                model.startNarrationPlayback(voice: preferredVoice)
+                        // B. Artwork Component
+                        artworkView
+                            .frame(minHeight: 150, maxHeight: 330)
+
+                        // C. Metadata & Typography Area
+                        metadataArea
+                            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                            .padding(.top, 16)
+
+                        // C2. On-device narration — only for audio-less EPUB books, or
+                        // books whose tracks are rendered narration cache files. Imported
+                        // audiobooks with a companion EPUB already have audio, so the
+                        // "No audiobook" nudge must stay hidden.
+                        if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
+                            VStack(spacing: 8) {
+                                NarrationStatusView(state: model.narrationPlaybackState)
+                                // Offer narration only when the book has NO audio loaded yet.
+                                // Gating on `!isRunning` alone re-showed "No audiobook" on a
+                                // fully-rendered narration (isRunning flips false on completion);
+                                // `tracks.isEmpty` keeps the offer for a fresh EPUB but hides it
+                                // once any audio is queued (mid-render or completed). See
+                                // NarrationNudgePolicy.
+                                if NarrationNudgePolicy.showsNudge(
+                                    tracksEmpty: model.tracks.isEmpty,
+                                    isRunning: model.narrationPlaybackState.isRunning)
+                                {
+                                    NarrationNudgeView {
+                                        // Save the voice preference and start narration
+                                        // directly — no voice picker on the primary path.
+                                        settings.narrationVoiceID = preferredVoice.id.rawValue
+                                        model.startNarrationPlayback(voice: preferredVoice)
+                                    }
+                                    // Secondary path: choose a different narrator voice.
+                                    // (The picker's "Start Narration" saves the choice and
+                                    // re-renders with it.) Without this the picker sheet was
+                                    // unreachable — narration was locked to the default voice.
+                                    Button {
+                                        selectedVoice = preferredVoice
+                                        showingVoicePicker = true
+                                    } label: {
+                                        Label(
+                                            "Voice: \(preferredVoice.displayName)",
+                                            systemImage: "person.wave.2"
+                                        )
+                                        .font(.subheadline)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityHint("Choose the narrator voice")
+                                }
+                                // M4B export folded into the global More menu (UnifiedTopHeader)
+                                // so it works for imported books too, not just rendered narration.
                             }
-                            // Secondary path: choose a different narrator voice.
-                            // (The picker's "Start Narration" saves the choice and
-                            // re-renders with it.) Without this the picker sheet was
-                            // unreachable — narration was locked to the default voice.
-                            Button {
-                                selectedVoice = preferredVoice
-                                showingVoicePicker = true
-                            } label: {
-                                Label(
-                                    "Voice: \(preferredVoice.displayName)",
-                                    systemImage: "person.wave.2"
-                                )
-                                .font(.subheadline)
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
-                            .accessibilityHint("Choose the narrator voice")
+                            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                            .padding(.top, 12)
                         }
-                        // M4B export folded into the global More menu (UnifiedTopHeader)
-                        // so it works for imported books too, not just rendered narration.
+
+                        // D. Main Scrubber (completely exposed, floating over background)
+                        // `containerRelativeFrame` (not `.padding`) sets an explicit
+                        // width: the scrubber's greedy `Slider`/`maxWidth: .infinity`
+                        // content overflows a padding-reduced proposal back to full
+                        // bleed, so padding alone left the slider + time labels jammed
+                        // against the screen edges.
+                        PlayerScrubberView()
+                            .containerRelativeFrame(.horizontal) { width, _ in
+                                max(0, width - 2 * NowPlayingLayout.horizontalPadding)
+                            }
+                            .tint(model.artworkAccentColor ?? .accentColor)
+                            .padding(.vertical, 16)
+
+                        // Flexible gap above the root-owned bottom deck.
+                        Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, NowPlayingLayout.horizontalPadding)
-                    .padding(.top, 12)
                 }
-
-                // D. Main Scrubber (completely exposed, floating over background)
-                // `containerRelativeFrame` (not `.padding`) sets an explicit
-                // width: the scrubber's greedy `Slider`/`maxWidth: .infinity`
-                // content overflows a padding-reduced proposal back to full
-                // bleed, so padding alone left the slider + time labels jammed
-                // against the screen edges.
-                PlayerScrubberView()
-                    .containerRelativeFrame(.horizontal) { width, _ in
-                        max(0, width - 2 * NowPlayingLayout.horizontalPadding)
-                    }
-                    .tint(model.artworkAccentColor ?? .accentColor)
-                    .padding(.vertical, 16)
-
-                // Flexible gap above the root-owned bottom deck.
-                Spacer(minLength: 0)
             }
             .ignoresSafeArea(.keyboard)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -204,7 +214,7 @@ struct NowPlayingTab: View {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(.secondary)
-                            .frame(width: chevronWidth, height: 32)
+                            .frame(width: chevronWidth, height: chevronHitTarget)
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
@@ -228,7 +238,7 @@ struct NowPlayingTab: View {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(.secondary)
-                            .frame(width: chevronWidth, height: 32)
+                            .frame(width: chevronWidth, height: chevronHitTarget)
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
@@ -256,6 +266,7 @@ struct NowPlayingTab: View {
     /// MarqueeText container-width measurement stable as the bar's disabled
     /// state changes, so a short title is never shifted by a stale width.
     private let chevronWidth: CGFloat = 44
+    private let chevronHitTarget: CGFloat = 44
 
     private var titleText: String {
         model.chapters.count >= 2

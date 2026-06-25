@@ -65,6 +65,13 @@ struct SettingsExtractionTests {
         #expect(source.contains("playBookmarksInline"))
     }
 
+    @Test func advancedSubViewOwnsContextMemoryPrivacyControls() throws {
+        let source = try Self.source(named: "SettingsAdvancedView.swift")
+        #expect(source.contains("locationCaptureEnabled"))
+        #expect(source.contains("ContextMemoryDAO"))
+        #expect(source.contains("Delete Context Memory"))
+    }
+
     /// The Settings shell links out to its subscreens and keeps only app-level
     /// rows — no inline per-listen controls remain.
     @Test func settingsShellExposesSubscreenLinksOnly() throws {
@@ -74,8 +81,20 @@ struct SettingsExtractionTests {
         #expect(source.contains("PhonePlayerSettingsView()"))
         #expect(source.contains("WatchAppSettingsView()"))
         #expect(source.contains("SettingsAdvancedView()"))
+        #expect(source.contains("FeedbackSupportView()"))
+        #expect(source.contains("AllStudyNotesExportView"))
+        #expect(source.contains("Section(\"Data\")"))
+        #expect(source.contains("Export All Study Notes"))
+        #expect(source.contains("Section(\"Support\")"))
         // The Volume Boost toggle moved to the Playback Options sheet (WS-B).
         #expect(!source.contains("Toggle(\"Volume Boost\""))
+    }
+
+    @Test func settingsShellExposesStudyGlobalChapterCap() throws {
+        let source = try Self.source(named: "SettingsView.swift")
+        #expect(source.contains("SettingsStudySection()"))
+        #expect(source.contains("$settings.studyGlobalNewChapterLimit"))
+        #expect(source.contains("Global New Chapters"))
     }
 
     private static func source(named fileName: String) throws -> String {

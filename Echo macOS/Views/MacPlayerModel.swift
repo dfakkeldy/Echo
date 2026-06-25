@@ -155,6 +155,10 @@ final class MacPlayerModel {
     /// True when the open file exposes navigable M4B chapters.
     /// When false, callers fall back to across-file track navigation.
     var hasChapters: Bool { chapters.count >= 2 }
+    /// True when bookmark looping has at least one enabled A/B segment.
+    var canBookmarkLoop: Bool {
+        bookmarkStore.bookmarks.filter { $0.isEnabled && $0.timestamp.isFinite }.count >= 2
+    }
     /// True when a previous chapter exists for in-file navigation.
     var hasPreviousChapter: Bool { hasChapters && currentChapterIndex > 0 }
     /// True when a next chapter exists for in-file navigation.
@@ -178,6 +182,9 @@ final class MacPlayerModel {
     private let defaults = AppGroupDefaults.shared
     private let bookmarksKey = "mac.bookmarks.v1"
     private let lastFileKey = "mac.lastFileBookmark.v1"
+    private let resumeStateKey = MacPlaybackResumeState.storageKey
+    private let resumePersistInterval: TimeInterval = 5
+    private var lastResumePersistDate: Date?
 
     init() {
         migrateFromStandardUserDefaults()
@@ -221,6 +228,7 @@ final class MacPlayerModel {
         // AVPlayer observer cleanup — assumes the main actor is still valid
         // during deinit (which holds for @MainActor classes).
         MainActor.assumeIsolated {
+            persistResumeState()
             if let timeObserver, let player {
                 player.removeTimeObserver(timeObserver)
             }
@@ -320,6 +328,7 @@ final class MacPlayerModel {
                 self.handleChapterBoundary()
                 self.handleBookmarkLoop()
                 self.refreshCurrentChapter()
+                self.persistResumeStateThrottled()
             }
         }
 
@@ -332,6 +341,7 @@ final class MacPlayerModel {
                 guard let self = self else { return }
                 self.isPlaying = false
                 self.currentTime = self.duration
+                self.persistResumeState()
             }
         }
 
@@ -347,6 +357,7 @@ final class MacPlayerModel {
         loadBookmarksFromDB()
         migrateLegacyBookmarksIfNeeded()
         loadChapters(for: url)
+        restoreResumePositionIfNeeded()
     }
 
     /// Asynchronously parses M4B chapter markers for `url` and installs them.
@@ -413,8 +424,10 @@ final class MacPlayerModel {
 
         self.folderURL = folderURL
         tracks = audioFiles
-        currentTrackIndex = 0
-        open(url: audioFiles[0])
+        currentTrackIndex =
+            loadResumeState()?
+            .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
+        open(url: audioFiles[currentTrackIndex])
     }
 
     /// Loads a completed narrated book for playback by reading its rendered
@@ -435,8 +448,10 @@ final class MacPlayerModel {
         // Set before `open(url:)`, which only fills these when still nil/empty.
         folderURL = URL(string: audiobookID)
         tracks = urls
-        currentTrackIndex = 0
-        open(url: urls[0])
+        currentTrackIndex =
+            loadResumeState()?
+            .matchingTrackIndex(in: urls, audiobookID: audiobookID) ?? 0
+        open(url: urls[currentTrackIndex])
     }
 
     func nextTrack() {
@@ -545,10 +560,12 @@ final class MacPlayerModel {
         if isPlaying { pausedAt = Date() }
         player?.pause()
         isPlaying = false
+        persistResumeState()
         updateNowPlaying()
     }
 
     func stop() {
+        persistResumeState()
         if let timeObserver, let player {
             player.removeTimeObserver(timeObserver)
         }
@@ -590,9 +607,56 @@ final class MacPlayerModel {
         let target = CMTime(seconds: seconds, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.currentTime = seconds
+                guard let self else { return }
+                self.currentTime = seconds
+                self.persistResumeState()
             }
         }
+    }
+
+    private func persistResumeStateThrottled() {
+        let now = Date()
+        if let lastResumePersistDate,
+            now.timeIntervalSince(lastResumePersistDate) < resumePersistInterval
+        {
+            return
+        }
+        persistResumeState(updatedAt: now)
+    }
+
+    private func persistResumeState(updatedAt: Date = Date()) {
+        guard let currentURL else { return }
+        let bookID = audiobookID ?? currentURL.deletingLastPathComponent().absoluteString
+        let state = MacPlaybackResumeState(
+            audiobookID: bookID,
+            trackURL: currentURL.absoluteString,
+            trackIndex: currentTrackIndex,
+            position: currentTime,
+            updatedAt: updatedAt
+        )
+        state.save(to: defaults)
+        lastResumePersistDate = updatedAt
+    }
+
+    private func restoreResumePositionIfNeeded() {
+        guard
+            let state = loadResumeState(),
+            let currentURL,
+            state.matches(audiobookID: audiobookID, trackURL: currentURL)
+        else {
+            return
+        }
+
+        let knownDuration = duration > 0 ? duration : nil
+        let position = state.clampedPosition(duration: knownDuration)
+        guard position > 0 else { return }
+        currentTime = position
+        seek(to: position)
+    }
+
+    private func loadResumeState() -> MacPlaybackResumeState? {
+        guard defaults.data(forKey: resumeStateKey) != nil else { return nil }
+        return MacPlaybackResumeState.load(from: defaults)
     }
 
     /// Evaluates chapter-loop and end-of-chapter-sleep at the current instant.
@@ -622,12 +686,13 @@ final class MacPlayerModel {
     /// Enforces the `.bookmark` (A→B) loop on each time-observer tick. Pulls the
     /// enabled bookmark timestamps (ascending), delegates the seek-back decision
     /// to the pure `MacBookmarkLoopDecision`, and applies it. A no-op unless
-    /// `loopMode == .bookmark` and at least two bookmarks exist.
+    /// `loopMode == .bookmark` and at least two enabled bookmarks exist.
     private func handleBookmarkLoop() {
         guard loopMode == .bookmark else { return }
+        guard canBookmarkLoop else { return }
         let times =
             bookmarkStore.bookmarks
-            .filter { $0.isEnabled }
+            .filter { $0.isEnabled && $0.timestamp.isFinite }
             .map(\.timestamp)
             .sorted()
         if let target = MacBookmarkLoopDecision.seekBackTarget(

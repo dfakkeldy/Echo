@@ -145,26 +145,24 @@
                     // now that the EPUB blocks are committed, so the playlist shows
                     // every chapter, not just the ones about to render.
                     self.refreshNarrationOutline()
-                    // Resume at the last-played chapter, but keep the FULL book in the
-                    // queue (§5.3 / Phase 4B). `chapters` (the forward set, resume→end)
-                    // renders + plays first; `earlierChapters` (resume-1…0, descending)
-                    // renders afterwards and is prepended so the whole chapter list is
-                    // present without a cold re-render of the entire book before playback
-                    // starts. The pipeline's own position-restore seeks within the resume
-                    // chapter, because the narration Track.id is the per-chapter file URL.
-                    let chapters: [NarrationChapterPlanner.PlannedChapter]
-                    let earlierChapters: [NarrationChapterPlanner.PlannedChapter]
+                    // Segment plan: render/play the first small segment quickly, then
+                    // continue rendering ahead. Resume stays chapter-granular for v1:
+                    // a saved segment/chapter filename maps to its chapter, and playback
+                    // starts at that chapter's first segment.
+                    let segments = NarrationSegmentPlanner.plan(plan)
+                    let forwardSegments: [NarrationSegmentPlanner.PlannedSegment]
+                    let earlierSegments: [NarrationSegmentPlanner.PlannedSegment]
                     if let lastTrackID = self.persistence.getLastTrack(for: audiobookID),
                         let fileName = URL(string: lastTrackID)?.lastPathComponent,
                         let resumeIndex = NarrationFileNaming.chapterIndex(fromFileName: fileName)
                     {
-                        chapters = NarrationChapterPlanner.resume(
-                            plan, startingAtChapterIndex: resumeIndex)
-                        earlierChapters = NarrationChapterPlanner.beforeResume(
-                            plan, startingAtChapterIndex: resumeIndex)
+                        forwardSegments = NarrationSegmentPlanner.resume(
+                            segments, startingAtChapterIndex: resumeIndex)
+                        earlierSegments = NarrationSegmentPlanner.beforeResume(
+                            segments, startingAtChapterIndex: resumeIndex)
                     } else {
-                        chapters = plan
-                        earlierChapters = []
+                        forwardSegments = segments
+                        earlierSegments = []
                     }
 
                     // Pay the one-time model download + ONNX session load before the
@@ -195,21 +193,33 @@
                     })
 
                     let lookAhead = 2
-                    for (offset, chapter) in chapters.enumerated() {
+                    for (offset, segment) in forwardSegments.enumerated() {
                         try Task.checkCancellation()
 
                         let fileURL = cacheDirectory.appendingPathComponent(
-                            NarrationFileNaming.chapterFileName(
-                                audiobookID: audiobookID, chapterIndex: chapter.index,
+                            NarrationFileNaming.segmentFileName(
+                                audiobookID: audiobookID,
+                                chapterIndex: segment.chapterIndex,
+                                segmentIndex: segment.segmentIndex,
                                 voice: voice.id))
 
-                        // Persistence: a chapter already rendered for this voice is
+                        // Persistence: a segment already rendered for this voice is
                         // reused as-is. Re-synthesising it would burn seconds of CPU
-                        // time + battery + heat per chapter and defeat the durable
+                        // time + battery + heat per segment and defeat the durable
                         // cache (and make export / per-item narration pointlessly
                         // expensive). So we only render — and only apply look-ahead
                         // backpressure — when the file is actually missing.
                         if !FileManager.default.fileExists(atPath: fileURL.path) {
+                            let alreadyRenderedThisChapter = Self.narrationCacheContainsChapter(
+                                audiobookID: audiobookID,
+                                chapterIndex: segment.chapterIndex,
+                                voice: voice.id,
+                                cacheDirectory: cacheDirectory)
+                            guard
+                                self.allowNarrationRenderOrPresentPaywall(
+                                    audiobookID: audiobookID,
+                                    alreadyRenderedThisChapter: alreadyRenderedThisChapter)
+                            else { return }
                             // Render-ahead backpressure via NarrationRenderPolicy
                             // (extracted for testability — see NarrationRenderPolicyTests).
                             while NarrationRenderPolicy.shouldPauseRender(
@@ -238,11 +248,14 @@
                             // "Preparing narration…"). The per-block percent is refreshed in the cover
                             // callback below.
                             self.state.currentSubtitle = NarrationProgressText.subtitle(
-                                chapterDisplayNumber: chapter.displayNumber, fraction: 0)
+                                chapterDisplayNumber: segment.chapterDisplayNumber, fraction: 0)
                             self.progressPresenter.updateNowPlayingInfo(isPaused: true)
-                            try await service.renderChapter(
-                                chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                                blocks: chapter.blocks, voice: voice.id,
+                            try await service.renderSegment(
+                                chapterIndex: segment.chapterIndex,
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                blocks: segment.blocks,
+                                voice: voice.id,
                                 onBlockProgress: { [weak self] displayNumber, fraction in
                                     guard let self else { return }
                                     self.state.currentSubtitle = NarrationProgressText.subtitle(
@@ -266,10 +279,10 @@
 
                         let track = Track(
                             url: fileURL,
-                            title: String(localized: "Chapter \(chapter.displayNumber)"))
+                            title: String(localized: "Chapter \(segment.chapterDisplayNumber)"))
 
                         if offset == 0 {
-                            // First chapter: start playing through the pipeline.
+                            // First segment: start playing through the pipeline.
                             self.tracks = [track]
                             self.playerLoadingCoordinator.prepareToPlay(index: 0, autoplay: true)
                         } else {
@@ -293,24 +306,39 @@
                     // enter the queue, so the player can never hit a missing-file stall.
                     // These chapters are behind playback, so look-ahead backpressure
                     // doesn't apply; the book-switch + cancellation guards still do.
-                    for chapter in earlierChapters {
+                    for segment in earlierSegments {
                         try Task.checkCancellation()
                         let fileURL = cacheDirectory.appendingPathComponent(
-                            NarrationFileNaming.chapterFileName(
-                                audiobookID: audiobookID, chapterIndex: chapter.index,
+                            NarrationFileNaming.segmentFileName(
+                                audiobookID: audiobookID,
+                                chapterIndex: segment.chapterIndex,
+                                segmentIndex: segment.segmentIndex,
                                 voice: voice.id))
-                        // Reuse an already-rendered chapter (persistence) — only
+                        // Reuse an already-rendered segment (persistence) — only
                         // synthesise the ones missing from the cache.
                         if !FileManager.default.fileExists(atPath: fileURL.path) {
+                            let alreadyRenderedThisChapter = Self.narrationCacheContainsChapter(
+                                audiobookID: audiobookID,
+                                chapterIndex: segment.chapterIndex,
+                                voice: voice.id,
+                                cacheDirectory: cacheDirectory)
+                            guard
+                                self.allowNarrationRenderOrPresentPaywall(
+                                    audiobookID: audiobookID,
+                                    alreadyRenderedThisChapter: alreadyRenderedThisChapter)
+                            else { return }
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
                                     currentFolderURL: self.folderURL?.absoluteString,
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
-                            try await service.renderChapter(
-                                chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                                blocks: chapter.blocks, voice: voice.id)
+                            try await service.renderSegment(
+                                chapterIndex: segment.chapterIndex,
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                blocks: segment.blocks,
+                                voice: voice.id)
                             try Task.checkCancellation()
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
@@ -322,7 +350,7 @@
 
                         let track = Track(
                             url: fileURL,
-                            title: String(localized: "Chapter \(chapter.displayNumber)"))
+                            title: String(localized: "Chapter \(segment.chapterDisplayNumber)"))
                         self.tracks.insert(track, at: 0)
                         // The playing track shifted one slot right; keep currentIndex on it.
                         self.state.currentIndex += 1
@@ -364,6 +392,14 @@
                 narrationCachePath: Self.narrationCacheDirectory().path)
         }
 
+        /// True when playback chrome should be visible/enabled. Imported audio has
+        /// concrete tracks; audio-less EPUB narration books can create their tracks
+        /// on demand through `play()`.
+        var hasPlaybackContent: Bool {
+            !state.tracks.isEmpty
+                || (isNarrationBook && NarrationCapability.supportsOnDeviceNarration)
+        }
+
         /// The full EPUB chapter outline for the current narration book.
         var narrationOutline: [NarrationOutlineChapter] { state.narrationOutline }
 
@@ -372,6 +408,23 @@
         private var narrationVoiceForFiles: VoiceID {
             VoiceCatalog.voice(for: VoiceID(settingsManager?.narrationVoiceID ?? ""))?.id
                 ?? VoiceCatalog.default.id
+        }
+
+        private static func narrationCacheContainsChapter(
+            audiobookID: String,
+            chapterIndex: Int,
+            voice: VoiceID,
+            cacheDirectory: URL
+        ) -> Bool {
+            let prefix = NarrationFileNaming.chapterPrefix(audiobookID: audiobookID)
+            let suffix = "-\(voice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"
+            let names =
+                (try? FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path)) ?? []
+            return names.contains { name in
+                name.hasPrefix(prefix)
+                    && name.hasSuffix(suffix)
+                    && NarrationFileNaming.chapterIndex(fromFileName: name) == chapterIndex
+            }
         }
 
         /// Rebuilds `state.narrationOutline` from the book's EPUB blocks + which
@@ -388,10 +441,11 @@
             let cacheDir = Self.narrationCacheDirectory()
             let voice = narrationVoiceForFiles
             state.narrationOutline = NarrationOutlineBuilder.build(allBlocks: blocks) { idx in
-                let url = cacheDir.appendingPathComponent(
-                    NarrationFileNaming.chapterFileName(
-                        audiobookID: audiobookID, chapterIndex: idx, voice: voice))
-                return FileManager.default.fileExists(atPath: url.path)
+                Self.narrationCacheContainsChapter(
+                    audiobookID: audiobookID,
+                    chapterIndex: idx,
+                    voice: voice,
+                    cacheDirectory: cacheDir)
             }
         }
 
@@ -419,17 +473,37 @@
                 return
             }
             if !currentlyExcluded {
-                let fileName = NarrationFileNaming.chapterFileName(
-                    audiobookID: audiobookID, chapterIndex: chapterIndex,
-                    voice: narrationVoiceForFiles)
-                if let removeAt = state.tracks.firstIndex(where: {
-                    $0.url.lastPathComponent == fileName
-                }), removeAt != state.currentIndex {
+                let removableIndices = state.tracks.indices.reversed().filter { index in
+                    index != state.currentIndex
+                        && NarrationFileNaming.chapterIndex(
+                            fromFileName: state.tracks[index].url.lastPathComponent) == chapterIndex
+                }
+                for removeAt in removableIndices {
                     state.tracks.remove(at: removeAt)
                     if removeAt < state.currentIndex { state.currentIndex -= 1 }
                 }
             }
             refreshNarrationOutline()
+        }
+
+        func allowNarrationRenderOrPresentPaywall(
+            audiobookID: String,
+            alreadyRenderedThisChapter: Bool
+        ) -> Bool {
+            guard
+                freeTierGate?.canRenderNarration(
+                    audiobookID: audiobookID,
+                    alreadyRenderedThisChapter: alreadyRenderedThisChapter
+                ) == false
+            else { return true }
+
+            state.narrationRenderInFlight = false
+            state.awaitingNarrationChapter = false
+            paywallContext = .narrationCap
+            showPaywall = true
+            narrationPlaybackState.fail(PaywallContext.narrationCap.subheadline)
+            progressPresenter.updateNowPlayingInfo(isPaused: true)
+            return false
         }
 
         /// App-owned, durable location for rendered narration audio. The body now

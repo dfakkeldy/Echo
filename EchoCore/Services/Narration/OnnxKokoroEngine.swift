@@ -69,13 +69,14 @@
 
         // MARK: - Model location
 
-        /// renderVersion-keyed subdir (v6 = the ONNX engine) under the shared
-        /// narration cache, parallel to the CoreML `kokoro-fixed-v5` set.
+        /// ONNX model-asset subdir under the shared narration cache, parallel to
+        /// the legacy CoreML `kokoro-fixed-v5` set. The suffix is historical: the
+        /// audio cache render version can advance independently of the model file.
         private nonisolated static let modelSubdir = "Models/kokoro-onnx-v6"
         private nonisolated static let modelFileName = "model_fp16.onnx"
         /// Immutable commit pin for onnx-community/Kokoro-82M-v1.0-ONNX. Pinning a
         /// revision (not the moving `main` ref) means a future upstream re-upload can't
-        /// silently change the model behind renderVersion 6. Validated at pin time:
+        /// silently change the pinned ONNX narration model. Validated at pin time:
         /// 163_234_740 B · sha256 ba4527a8…35c334a (onnx/model_fp16.onnx).
         private nonisolated static let modelRevision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
         private nonisolated static let hfModelURL = URL(

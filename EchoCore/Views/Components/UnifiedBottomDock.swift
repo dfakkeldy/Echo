@@ -25,7 +25,8 @@ struct UnifiedBottomDock: View {
     }
 
     private var showsControls: Bool {
-        model.selectedTab == .nowPlaying || (model.folderURL != nil && !model.tracks.isEmpty)
+        model.hasPlaybackContent
+            && (model.selectedTab == .nowPlaying || model.folderURL != nil)
     }
 
     /// The stacked rows (controls/mini-player → divider → utility toolbar),
@@ -39,7 +40,7 @@ struct UnifiedBottomDock: View {
         // takes its natural, uncompressed height.
         VStack(spacing: 0) {
             // Upper layer: Large Controls (Now Playing) or Mini-player (other tabs)
-            if model.selectedTab == .nowPlaying {
+            if model.selectedTab == .nowPlaying && model.hasPlaybackContent {
                 TransportControlsView()
                     .padding(.horizontal, 16)
                     .transition(
@@ -47,7 +48,7 @@ struct UnifiedBottomDock: View {
                             insertion: .scale(scale: 0.95).combined(with: .opacity),
                             removal: .scale(scale: 0.95).combined(with: .opacity)
                         ))
-            } else if model.folderURL != nil && !model.tracks.isEmpty {
+            } else if model.folderURL != nil && model.hasPlaybackContent {
                 PlayerControlBar()
                     .padding(.horizontal, 16)
                     .transition(

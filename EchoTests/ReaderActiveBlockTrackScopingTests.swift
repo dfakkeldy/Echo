@@ -64,16 +64,17 @@ struct ReaderActiveBlockTrackScopingTests {
         blockID: String,
         start: TimeInterval,
         end: TimeInterval,
+        segmentKey: String? = nil,
         status: String = "auto"
     ) throws {
         try db.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO timeline_item
-                        (id, audiobook_id, item_type, title, audio_start_time, audio_end_time, epub_block_id, alignment_status)
-                    VALUES (?, 'book-1', 'paragraph', 'x', ?, ?, ?, ?)
+                        (id, audiobook_id, item_type, title, audio_start_time, audio_end_time, epub_block_id, segment_key, alignment_status)
+                    VALUES (?, 'book-1', 'paragraph', 'x', ?, ?, ?, ?, ?)
                     """,
-                arguments: [id, start, end, blockID, status]
+                arguments: [id, start, end, blockID, segmentKey, status]
             )
         }
     }
@@ -84,12 +85,11 @@ struct ReaderActiveBlockTrackScopingTests {
     /// the legacy binary search. Used for single-track books so they are a strict
     /// no-op.
     @Test func helperNilScopeResolvesWholeBook() {
-        let cache: [(start: TimeInterval, end: TimeInterval, blockID: String, chapterIndex: Int?)] =
-            [
-                (0, 5, "a", 0),
-                (5, 10, "b", 0),
-                (10, 15, "c", 0),
-            ]
+        let cache: [ReaderActiveBlockResolver.TimelineRow] = [
+            (0, 5, "a", 0, nil),
+            (5, 10, "b", 0, nil),
+            (10, 15, "c", 0, nil),
+        ]
         #expect(
             ReaderActiveBlockResolver.activeBlockID(
                 in: cache, time: 7, currentTrackChapterIndices: nil) == "b")
@@ -114,15 +114,14 @@ struct ReaderActiveBlockTrackScopingTests {
     @Test func helperScopedCollidingTimesResolveByTrack() {
         // Chapter 0 and chapter 1 both expose blocks at the *same* per-track
         // times {0,5,10}. On the global axis they are interleaved by start time.
-        let cache: [(start: TimeInterval, end: TimeInterval, blockID: String, chapterIndex: Int?)] =
-            [
-                (0, 5, "c0-a", 0),
-                (0, 5, "c1-a", 1),
-                (5, 10, "c0-b", 0),
-                (5, 10, "c1-b", 1),
-                (10, 15, "c0-c", 0),
-                (10, 15, "c1-c", 1),
-            ]
+        let cache: [ReaderActiveBlockResolver.TimelineRow] = [
+            (0, 5, "c0-a", 0, nil),
+            (0, 5, "c1-a", 1, nil),
+            (5, 10, "c0-b", 0, nil),
+            (5, 10, "c1-b", 1, nil),
+            (10, 15, "c0-c", 0, nil),
+            (10, 15, "c1-c", 1, nil),
+        ]
         // Track 0 playing at t=5 → a chapter-0 block.
         #expect(
             ReaderActiveBlockResolver.activeBlockID(
@@ -133,14 +132,36 @@ struct ReaderActiveBlockTrackScopingTests {
                 in: cache, time: 5, currentTrackChapterIndices: [1]) == "c1-b")
     }
 
+    /// Segment files reset their per-track time to 0 within the SAME chapter, so
+    /// chapter-only scoping is insufficient: segment 0 and segment 1 can both have
+    /// a block at t=2 in chapter 0. The segment key wins when present.
+    @Test func helperSegmentScopeResolvesSameChapterSegmentCollisions() {
+        let cache: [ReaderActiveBlockResolver.TimelineRow] = [
+            (0, 5, "seg0-block", 0, "0-0"),
+            (0, 5, "seg1-block", 0, "0-1"),
+        ]
+
+        #expect(
+            ReaderActiveBlockResolver.activeBlockID(
+                in: cache,
+                time: 2,
+                currentTrackSegmentKey: ReaderActiveBlockResolver.segmentKey(
+                    forChapter: 0,
+                    segment: 1),
+                currentTrackChapterIndices: [0]) == "seg1-block")
+    }
+
+    @Test func segmentKeyFormatIsSharedByWriterAndReader() {
+        #expect(ReaderActiveBlockResolver.segmentKey(forChapter: 12, segment: 3) == "12-3")
+    }
+
     /// `nil`-chapter rows (front matter) belong to track 0 only — never collide
     /// into a later track's scope.
     @Test func helperNullChapterBelongsToTrackZeroOnly() {
-        let cache: [(start: TimeInterval, end: TimeInterval, blockID: String, chapterIndex: Int?)] =
-            [
-                (0, 5, "front", nil),  // front matter, no chapter index
-                (0, 5, "c1-a", 1),
-            ]
+        let cache: [ReaderActiveBlockResolver.TimelineRow] = [
+            (0, 5, "front", nil, nil),  // front matter, no chapter index
+            (0, 5, "c1-a", 1, nil),
+        ]
         // Track 0 scope includes the nil-chapter front-matter block.
         #expect(
             ReaderActiveBlockResolver.activeBlockID(
@@ -205,12 +226,11 @@ struct ReaderActiveBlockTrackScopingTests {
     /// A multi-m4b style scope holding a *range* of chapter indices considers all
     /// of them.
     @Test func helperScopeWithMultipleChapters() {
-        let cache: [(start: TimeInterval, end: TimeInterval, blockID: String, chapterIndex: Int?)] =
-            [
-                (0, 5, "c2-a", 2),
-                (5, 10, "c3-a", 3),
-                (5, 10, "c5-a", 5),
-            ]
+        let cache: [ReaderActiveBlockResolver.TimelineRow] = [
+            (0, 5, "c2-a", 2, nil),
+            (5, 10, "c3-a", 3, nil),
+            (5, 10, "c5-a", 5, nil),
+        ]
         #expect(
             ReaderActiveBlockResolver.activeBlockID(
                 in: cache, time: 0, currentTrackChapterIndices: [2, 3]) == "c2-a")
@@ -276,6 +296,38 @@ struct ReaderActiveBlockTrackScopingTests {
 
         vm.updateActiveBlock(time: 5, currentTrackChapterIndices: [1])
         #expect(vm.activeBlockID == "c1-b")
+    }
+
+    @Test func segmentScopedSameChapterCollidingTimes() throws {
+        let db = try makeDatabase()
+        try EPubBlockDAO(db: db.writer).insertAll([
+            makeBlock(id: "seg0-block", seq: 0, chapterIndex: 0),
+            makeBlock(id: "seg1-block", seq: 1, chapterIndex: 0),
+        ])
+        try insertTimeline(
+            db,
+            id: "ti-seg0",
+            blockID: "seg0-block",
+            start: 0,
+            end: 5,
+            segmentKey: "0-0")
+        try insertTimeline(
+            db,
+            id: "ti-seg1",
+            blockID: "seg1-block",
+            start: 0,
+            end: 5,
+            segmentKey: "0-1")
+
+        let vm = ReaderFeedViewModel(audiobookID: "book-1", db: db.writer)
+        vm.reload()
+
+        vm.updateActiveBlock(
+            time: 2,
+            currentTrackSegmentKey: "0-1",
+            currentTrackChapterIndices: [0])
+
+        #expect(vm.activeBlockID == "seg1-block")
     }
 
     /// (c) Switching the current track re-resolves into the new track at the same

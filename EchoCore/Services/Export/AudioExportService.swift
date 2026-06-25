@@ -47,7 +47,9 @@ actor AudioExportService {
             guard let assetTrack = try await asset.loadTracks(withMediaType: .audio).first
             else { continue }
             try audioTrack.insertTimeRange(range, of: assetTrack, at: currentPosition)
-            chapters.append(ChapterAtom(startTime: currentPosition.seconds, title: item.title))
+            if item.emitsChapterMarker {
+                chapters.append(ChapterAtom(startTime: currentPosition.seconds, title: item.title))
+            }
             currentPosition = CMTimeAdd(currentPosition, range.duration)
         }
 
