@@ -229,7 +229,8 @@ struct NarrationRunResult {
                 chapterIndex: idx, chapterNumber: displayNumber,
                 blocks: chapterBlocks, voice: config.voice
             ) { _, blockFraction in
-                let batchFraction = (Double(batchPos) + blockFraction)
+                let batchFraction =
+                    (Double(batchPos) + blockFraction)
                     / Double(max(batch.count, 1))
                 progress(
                     .chapter(
@@ -408,13 +409,17 @@ struct NarrationRunResult {
                 chapters: [],
                 bookDuration: nil)
         case .epubFile(let epubURL):
+            // Headless: no iCloud entitlement, and narration creates synthesized
+            // anchors — so skip the community-CloudKit anchor query (it stalls /
+            // faults the process; see DocumentImportFinalizer).
             let didImport = await EPUBAutoImportScanner.importEPUBFile(
                 epubURL: epubURL,
                 audiobookID: audiobookID,
                 databaseService: db,
                 chapters: [],
                 duration: nil,
-                force: true)
+                force: true,
+                downloadCloudAnchors: false)
             guard didImport else {
                 throw NarrationRunError.noSourceImported(epubURL.lastPathComponent)
             }
@@ -455,7 +460,8 @@ struct NarrationRunResult {
                 at: sourceURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: .skipsHiddenFiles)
-            if let epubURL = entries
+            if let epubURL =
+                entries
                 .filter({ $0.pathExtension.lowercased() == "epub" })
                 .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
                 .first
@@ -463,7 +469,8 @@ struct NarrationRunResult {
                 return .epubFile(epubURL)
             }
 
-            if let pdfURL = entries
+            if let pdfURL =
+                entries
                 .filter({ $0.pathExtension.lowercased() == "pdf" })
                 .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
                 .first

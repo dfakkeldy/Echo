@@ -15,7 +15,8 @@ enum DocumentImportFinalizer {
         blocks: [EPubBlockRecord],
         fileURL: URL,
         duration: TimeInterval?,
-        databaseService: DatabaseService
+        databaseService: DatabaseService,
+        downloadCloudAnchors: Bool = true
     ) async -> Bool {
         // Create initial system anchors (first block → 0, last block → duration)
         // so every block gets an interpolated timestamp from the start.
@@ -81,18 +82,26 @@ enum DocumentImportFinalizer {
                     "Failed to ingest alignment.json sidecar: \(error.localizedDescription)")
             }
         } else {
-            // Try CloudKit sync
-            let syncService = CloudKitSyncService(db: databaseService.writer)
             let folderURL = fileURL.deletingLastPathComponent()
             let record = try? AudiobookDAO(db: databaseService.writer).get(audiobookID)
             let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
                 folderURL: folderURL, record: record)
             let durationVal = duration ?? 0.0
 
-            let downloadedAnchors =
-                (try? await syncService.downloadAnchors(
-                    audiobookID: audiobookID, title: title, author: author,
-                    duration: durationVal)) ?? []
+            // Community CloudKit anchors only exist for shared *audiobook*
+            // alignments, never for a freshly-narrated document — so the headless /
+            // CLI narration path (no iCloud entitlement, where the query stalls or
+            // faults the process) opts out via `downloadCloudAnchors: false`.
+            let downloadedAnchors: [AlignmentAnchorRecord]
+            if downloadCloudAnchors {
+                let syncService = CloudKitSyncService(db: databaseService.writer)
+                downloadedAnchors =
+                    (try? await syncService.downloadAnchors(
+                        audiobookID: audiobookID, title: title, author: author,
+                        duration: durationVal)) ?? []
+            } else {
+                downloadedAnchors = []
+            }
 
             if !downloadedAnchors.isEmpty {
                 try? anchorDAO.deleteAll(for: audiobookID)

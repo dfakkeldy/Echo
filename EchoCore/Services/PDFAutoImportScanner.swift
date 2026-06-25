@@ -143,7 +143,8 @@ enum PDFAutoImportScanner {
 
             return await DocumentImportFinalizer.finalize(
                 audiobookID: audiobookID, blocks: blocks, fileURL: pdfURL,
-                duration: duration, databaseService: databaseService)
+                duration: duration, databaseService: databaseService,
+                downloadCloudAnchors: false)
         } catch {
             logger.error("PDF auto-import failed: \(error.localizedDescription)")
             return false

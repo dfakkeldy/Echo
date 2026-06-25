@@ -115,7 +115,11 @@ import ZIPFoundation
         let expandedEPUB = try TestEPUBFixture.twoChapters(in: tmp)
         let epub = tmp.appendingPathComponent("fixture.epub")
         try? FileManager.default.removeItem(at: epub)
-        try FileManager.default.zipItem(at: expandedEPUB, to: epub)
+        // `shouldKeepParent: false` so the EPUB's contents (mimetype, META-INF/…)
+        // sit at the archive root — `parseEPUBBlocks` looks for
+        // `META-INF/container.xml` at the extracted root, not nested under the
+        // source directory's name, so the default (parent-keeping) zip is rejected.
+        try FileManager.default.zipItem(at: expandedEPUB, to: epub, shouldKeepParent: false)
 
         _ = try TestPDFFixture.singleChapter(in: tmp)
 

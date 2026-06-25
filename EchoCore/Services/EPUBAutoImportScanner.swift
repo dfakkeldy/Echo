@@ -90,7 +90,8 @@ enum EPUBAutoImportScanner {
         databaseService: DatabaseService,
         chapters: [Chapter],
         duration: TimeInterval?,
-        force: Bool = false
+        force: Bool = false,
+        downloadCloudAnchors: Bool = true
     ) async -> Bool {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
@@ -147,7 +148,8 @@ enum EPUBAutoImportScanner {
 
             return await DocumentImportFinalizer.finalize(
                 audiobookID: audiobookID, blocks: blocks, fileURL: epubURL,
-                duration: duration, databaseService: databaseService)
+                duration: duration, databaseService: databaseService,
+                downloadCloudAnchors: downloadCloudAnchors)
         } catch {
             logger.error("EPUB auto-import failed: \(error.localizedDescription)")
             return false
