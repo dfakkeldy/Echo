@@ -103,7 +103,7 @@ struct UnifiedBottomDock: View {
             // Tint the system material backdrop with dynamic artwork theme
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(model.artworkAccentColor ?? .accentColor)
+                    .fill(model.resolvedThemeTint ?? .accentColor)
                     .opacity(0.08)
             )
             .shadow(color: Color.black.opacity(0.25), radius: 15, x: 0, y: 5)

@@ -59,7 +59,7 @@ struct BottomToolbarView: View {
     /// header chips and the rest of the player). The *active* state is still
     /// carried by a filled chip (shape) so it stays distinguishable without
     /// relying on color alone. 44pt target either way.
-    private var chromeAccent: Color { model.artworkAccentColor ?? .accentColor }
+    private var chromeAccent: Color { model.resolvedThemeTint ?? .accentColor }
 
     private func utilityChip<Content: View>(isActive: Bool, @ViewBuilder content: () -> Content)
         -> some View

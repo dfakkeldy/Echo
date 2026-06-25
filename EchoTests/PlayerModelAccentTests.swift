@@ -7,6 +7,15 @@ import XCTest
 @MainActor
 final class PlayerModelAccentTests: XCTestCase {
 
+    private func settings(themeColor: ThemeColor) throws -> SettingsManager {
+        let suiteName = "PlayerModelAccentTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+        settings.themeColor = themeColor.rawValue
+        return settings
+    }
+
     func testNilAccentWithoutArtwork() {
         let model = PlayerModel()
         XCTAssertNil(model.artworkAccentColor)
@@ -33,5 +42,20 @@ final class PlayerModelAccentTests: XCTestCase {
         model.uiColorScheme = .dark
         let dark = model.coverTheme
         XCTAssertNotEqual(light, dark)
+    }
+
+    func testResolvedThemeTintUsesCoverThemeAccentWhenArtworkSelected() throws {
+        let model = PlayerModel()
+        let settings = try settings(themeColor: .artwork)
+        model.setSettingsManager(settings)
+
+        XCTAssertTrue(model.coverTheme.isNeutralFallback)
+        let tint = try XCTUnwrap(model.resolvedThemeTint)
+        XCTAssertEqual(ColorMetrics.rgb(tint), ColorMetrics.rgb(model.coverTheme.accent))
+    }
+
+    func testThemeColorSettingsSummaryKeepsArtworkDistinctFromSystem() {
+        XCTAssertEqual(ThemeColor.artwork.settingsSummaryTitle, "Artwork")
+        XCTAssertEqual(ThemeColor.system.settingsSummaryTitle, "System")
     }
 }

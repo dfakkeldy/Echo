@@ -316,10 +316,21 @@ final class PlayerModel {
     /// theme color, else nil (system default). Settings sheets must use this
     /// too — re-applying the static-only tint nils out the artwork accent.
     var resolvedThemeTint: Color? {
-        if settingsManager?.themeColor == ThemeColor.artwork.rawValue {
-            return artworkAccentColor
+        let theme =
+            ThemeColor(rawValue: settingsManager?.themeColor ?? SettingsManager.Defaults.themeColor)
+            ?? .artwork
+        return resolvedTint(for: theme)
+    }
+
+    func resolvedTint(for theme: ThemeColor) -> Color? {
+        switch theme {
+        case .artwork:
+            return artworkAccentColor ?? coverTheme.accent
+        case .system:
+            return nil
+        default:
+            return theme.color
         }
-        return ThemeColor(rawValue: settingsManager?.themeColor ?? "")?.color
     }
 
     /// Accent hex for the Watch, built with the DARK recipe — Watch surfaces

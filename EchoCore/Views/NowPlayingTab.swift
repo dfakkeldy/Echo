@@ -105,7 +105,7 @@ struct NowPlayingTab: View {
                             .containerRelativeFrame(.horizontal) { width, _ in
                                 max(0, width - 2 * NowPlayingLayout.horizontalPadding)
                             }
-                            .tint(model.artworkAccentColor ?? .accentColor)
+                            .tint(model.resolvedThemeTint)
                             .padding(.vertical, 16)
 
                         // Flexible gap above the root-owned bottom deck.

@@ -23,11 +23,11 @@ struct PlayerControlBar: View {
                         .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
                 } else {
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.accentColor.opacity(0.12))
+                        .fill((model.resolvedThemeTint ?? Color.accentColor).opacity(0.12))
                         .frame(width: 40, height: 40)
                         .overlay {
                             Image(systemName: "book.closed.fill")
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                                 .font(.system(size: 16))
                         }
                 }
