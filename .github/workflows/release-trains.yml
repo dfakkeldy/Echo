@@ -26,9 +26,13 @@ on:
   schedule:
     # Times are UTC. GitHub cron is best-effort (may lag at peak) and only runs
     # on the default branch; it is also auto-paused after 60 days of repo
-    # inactivity (a manual run or any push re-arms it).
-    - cron: '0 7 * * *'    # Nightly — every day 07:00 UTC → builds `nightly`
-    - cron: '0 8 * * 1'    # Weekly  — Mondays   08:00 UTC → builds `weekly`
+    # inactivity (a manual run or any push re-arms it). Halifax is UTC-3 during
+    # daylight time and UTC-4 during standard time, so both UTC candidates are
+    # listed; the resolver job skips whichever candidate is inactive.
+    - cron: '30 12 * * *'  # Nightly — every day 09:30 America/Halifax (ADT)
+    - cron: '30 13 * * *'  # Nightly — every day 09:30 America/Halifax (AST)
+    - cron: '30 12 * * 1'  # Weekly  — Mondays   09:30 America/Halifax (ADT)
+    - cron: '30 13 * * 1'  # Weekly  — Mondays   09:30 America/Halifax (AST)
   workflow_dispatch:
     inputs:
       channel:
@@ -44,7 +48,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    name: Resolve release train
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.train.outputs.should_run }}
+      channel: ${{ steps.train.outputs.channel }}
+      branch: ${{ steps.train.outputs.branch }}
+    steps:
+      # ── Map the trigger to a channel/branch ───────────────────────────────
+      # Scheduled runs identify themselves by their cron string; manual runs by
+      # the `channel` input. Channel name == branch name by design.
+      - name: Resolve channel → branch
+        id: train
+        shell: bash
+        run: |
+          schedule="${{ github.event.schedule }}"
+          input_channel="${{ github.event.inputs.channel }}"
+          should_run=true
+
+          case "$schedule" in
+            "30 12 * * *"|"30 13 * * *") CH=nightly ;;
+            "30 12 * * 1"|"30 13 * * 1") CH=weekly ;;
+            *)                            CH="$input_channel" ;;
+          esac
+
+          if [ -n "$schedule" ]; then
+            offset="$(TZ=America/Halifax date +%z)"
+            scheduled_hour="$(printf '%s\n' "$schedule" | awk '{ print $2 }')"
+
+            case "$offset" in
+              -0300) active_hour=12 ;;
+              -0400) active_hour=13 ;;
+              *)
+                echo "::error title=Unexpected Halifax UTC offset::America/Halifax reported offset $offset."
+                exit 1
+                ;;
+            esac
+
+            if [ "$scheduled_hour" != "$active_hour" ]; then
+              should_run=false
+              echo "Skipping inactive Halifax-time cron '$schedule' for current offset $offset."
+            fi
+          fi
+
+          CH="${CH:-nightly}"
+          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
+          echo "channel=$CH" >> "$GITHUB_OUTPUT"
+          echo "branch=$CH" >> "$GITHUB_OUTPUT"
+          echo "Resolved '$CH' train from branch '$CH' (should_run=$should_run)."
+
   ship:
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
     name: Build & ship train
     runs-on: macos-15
     # Fail fast on a hang (e.g. a headless codesign keychain prompt) instead of
@@ -63,26 +119,10 @@ jobs:
       IOS_DESTINATION: "platform=iOS Simulator,name=iPhone 16"
 
     steps:
-      # ── Map the trigger to a channel/branch ───────────────────────────────
-      # Scheduled runs identify themselves by their cron string; manual runs by
-      # the `channel` input. Channel name == branch name by design.
-      - name: Resolve channel → branch
-        id: train
-        run: |
-          case "${{ github.event.schedule }}" in
-            "0 7 * * *") CH=nightly ;;
-            "0 8 * * 1") CH=weekly ;;
-            *)           CH="${{ github.event.inputs.channel }}" ;;
-          esac
-          CH="${CH:-nightly}"
-          echo "channel=$CH" >> "$GITHUB_OUTPUT"
-          echo "branch=$CH"  >> "$GITHUB_OUTPUT"
-          echo "Building '$CH' train from branch '$CH'."
-
-      - name: Checkout ${{ steps.train.outputs.branch }}
+      - name: Checkout ${{ needs.resolve.outputs.branch }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.train.outputs.branch }}
+          ref: ${{ needs.resolve.outputs.branch }}
 
       # Pin Xcode 26.x to match ci.yml (newest installed 26.x; never a future
       # major). See ci.yml for why the macos-15 default of 16.4 is too old.
@@ -126,7 +166,7 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=TestFlight upload skipped::Signing secrets not configured (APP_STORE_CONNECT_API_KEY_JSON / MATCH_PASSWORD). The ${{ steps.train.outputs.channel }} branch was compiled but not uploaded."
+            echo "::notice title=TestFlight upload skipped::Signing secrets not configured (APP_STORE_CONNECT_API_KEY_JSON / MATCH_PASSWORD). The ${{ needs.resolve.outputs.channel }} branch was compiled but not uploaded."
           fi
 
       - name: Load match deploy key
@@ -156,6 +196,6 @@ jobs:
       # uploads every binary to TestFlight using fastlane/testflight/*.txt for
       # the "What to Test" copy. Tip: route the Nightly and Weekly builds to
       # separate TestFlight tester groups so testers self-select their risk.
-      - name: Upload ${{ steps.train.outputs.channel }} build to TestFlight
+      - name: Upload ${{ needs.resolve.outputs.channel }} build to TestFlight
         if: steps.creds.outputs.ready == 'true'
-        run: bundle exec fastlane beta channel:${{ steps.train.outputs.channel }}
+        run: bundle exec fastlane beta channel:${{ needs.resolve.outputs.channel }}

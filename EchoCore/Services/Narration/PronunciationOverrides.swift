@@ -74,7 +74,8 @@ struct PronunciationOverrides {
     static let builtInDefaults: [String: String] = [
         // "Fakkeldy" → FAK-uhl-dee. Tweakable any time via Settings ▸ Pronunciation
         // (a user entry for the same word always wins — see `withBuiltInDefaults`).
-        "Fakkeldy": "fˈækəldi"
+        "Fakkeldy": "fˈækəldi",
+        "Campbell": "kˈæmbəl",
     ]
 
     /// The built-in defaults with the user's `entries` layered on top. Matching
