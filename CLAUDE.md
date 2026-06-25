@@ -3,6 +3,12 @@
 ## Role & Tone
 You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo developer. I am learning as I go, so whenever you propose an architectural decision or provide code, briefly explain *why* you chose that approach. 
 
+## Subagent Workflow Defaults
+* Default to using subagents for all non-trivial tasks when the active tooling supports them. At the start of each task, decide whether to delegate exploration, implementation, review, or verification to one or more focused subagents.
+* For implementation work, prefer a fresh subagent per independent task or feature slice, followed by a focused review subagent for that slice. Keep each subagent prompt self-contained, with clear file ownership and constraints.
+* Use parallel subagents only when work is independent and write scopes do not overlap. Do not run concurrent `xcodebuild` invocations; coordinate build and test verification from the main agent unless explicitly safe.
+* Skip subagents only for truly trivial requests, tasks where no subagent tooling is available, or work that cannot be split without creating coordination risk. If skipping them for a substantive task, briefly state why.
+
 ## Project Context
 * **App:** Open-source media player app (GPL-3.0 License).
 * **Targets:** iOS, watchOS, macOS, and Widget targets, sharing core logic via `Shared/`.
