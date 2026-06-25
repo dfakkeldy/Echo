@@ -17,11 +17,14 @@ nonisolated struct FlashcardDAO {
         }
     }
 
-    func dueCards(for audiobookID: String) throws -> [Flashcard] {
-        try db.read { db in
+    func dueCards(for audiobookID: String, now: Date = Date()) throws -> [Flashcard] {
+        let nowString = now.ISO8601Format()
+        return try db.read { db in
             try Flashcard
                 .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("next_review_date") <= Date().ISO8601Format())
+                .filter(Column("is_enabled") == true)
+                .filter(Column("next_review_date") != nil)
+                .filter(Column("next_review_date") <= nowString)
                 .order(Column("next_review_date"))
                 .fetchAll(db)
         }
@@ -38,36 +41,42 @@ nonisolated struct FlashcardDAO {
         }
     }
 
-    func reviewStats() throws -> ReviewStats {
-        try db.read { db in
+    func reviewStats(now: Date = Date()) throws -> ReviewStats {
+        let nowString = now.ISO8601Format()
+        return try db.read { db in
+            let scheduledEnabledCards = Flashcard
+                .filter(Column("is_enabled") == true)
+                .filter(Column("next_review_date") != nil)
             let due =
-                try Flashcard
-                .filter(Column("next_review_date") <= Date().ISO8601Format())
+                try scheduledEnabledCards
+                .filter(Column("next_review_date") <= nowString)
                 .fetchCount(db)
-            let today = Date().ISO8601Format().prefix(10)  // YYYY-MM-DD
+            let today = nowString.prefix(10)  // YYYY-MM-DD
             let reviewed =
                 try Flashcard
+                .filter(Column("is_enabled") == true)
                 .filter(Column("last_reviewed_at") >= "\(today)T00:00:00")
                 .fetchCount(db)
-            let total = try Flashcard.fetchCount(db)
+            let total = try scheduledEnabledCards.fetchCount(db)
             return ReviewStats(dueCount: due, reviewedToday: reviewed, totalCards: total)
         }
     }
 
-    func allDueCards() throws -> [Flashcard] {
-        try db.read { db in
+    func allDueCards(now: Date = Date()) throws -> [Flashcard] {
+        let nowString = now.ISO8601Format()
+        return try db.read { db in
             try Flashcard
-                .filter(Column("next_review_date") <= Date().ISO8601Format())
+                .filter(Column("is_enabled") == true)
+                .filter(Column("next_review_date") != nil)
+                .filter(Column("next_review_date") <= nowString)
                 .order(Column("next_review_date"))
                 .fetchAll(db)
         }
     }
 
     func insert(_ card: Flashcard) throws {
-        var copy = card
         try db.write { db in
-            try copy.insert(db)
-            try syncToTimeline(db, card: copy)
+            try Self.insert(card, in: db)
         }
     }
 
@@ -75,7 +84,7 @@ nonisolated struct FlashcardDAO {
         let copy = card
         try db.write { db in
             try copy.update(db)
-            try syncToTimeline(db, card: copy)
+            try Self.syncToTimeline(db, card: copy)
         }
     }
 
@@ -87,11 +96,17 @@ nonisolated struct FlashcardDAO {
             guard let card = try Flashcard.fetchOne(db, key: cardID) else { return }
             let updated = scheduler.review(card: card, grade: grade, now: now)
             try updated.update(db)
-            try syncToTimeline(db, card: updated)
+            try Self.syncToTimeline(db, card: updated)
         }
     }
 
-    private func syncToTimeline(_ db: Database, card: Flashcard) throws {
+    static func insert(_ card: Flashcard, in db: Database) throws {
+        var copy = card
+        try copy.insert(db)
+        try syncToTimeline(db, card: copy)
+    }
+
+    private static func syncToTimeline(_ db: Database, card: Flashcard) throws {
         let item = TimelineItem(
             id: "ankiCard-\(card.id)",
             audiobookID: card.audiobookID,
@@ -116,7 +131,7 @@ nonisolated struct FlashcardDAO {
         try mutable.save(db)
     }
 
-    private func encodeSM2(_ card: Flashcard) -> String? {
+    private static func encodeSM2(_ card: Flashcard) -> String? {
         let dict: [String: Any] = [
             "nextReviewDate": card.nextReviewDate as Any,
             "intervalDays": card.intervalDays,

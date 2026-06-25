@@ -5,171 +5,257 @@ import Testing
 
 @testable import Echo
 
+@MainActor
 struct ChapterCardDrafterTests {
     let drafter = ChapterCardDrafter()
 
-    func makeDB() async throws -> DatabaseWriter {
-        let db = try DatabaseQueue()
-        try await db.write { db in
-            try db.create(table: "audiobook") { t in
-                t.column("id", .text).primaryKey()
-                t.column("title", .text)
-            }
-            try db.create(table: "deck") { t in
-                t.column("id", .text).primaryKey()
-                t.column("name", .text).notNull()
-                t.column("source", .text).notNull()
-                t.column("created_at", .text)
-                t.column("modified_at", .text)
-            }
-            try db.create(table: "flashcard") { t in
-                t.column("id", .text).primaryKey()
-                t.column("audiobook_id", .text).notNull()
-                t.column("front_text", .text).notNull()
-                t.column("back_text", .text).notNull()
-                t.column("media_timestamp", .double)
-                t.column("trigger_timing", .text).notNull()
-                t.column("interval_days", .integer)
-                t.column("ease_factor", .double)
-                t.column("repetitions", .integer)
-                t.column("is_enabled", .boolean)
-                t.column("card_type", .text).notNull().defaults(to: "normal")
-                t.column("source_block_id", .text)
-                t.column("deck_id", .text).references("deck")
-                t.column("next_review_date", .text)
-                t.column("last_reviewed_at", .text)
-                t.column("last_grade", .integer)
-                t.column("tags", .text)
-                t.column("media_json", .text)
-                t.column("stability", .double)
-                t.column("difficulty", .double)
-                t.column("cloze_index", .integer)
-                t.column("playlist_position", .double)
-                t.column("end_timestamp", .double)
-                t.column("created_at", .text)
-                t.column("modified_at", .text)
-            }
-            try db.create(table: "epub_block") { t in
-                t.column("id", .text).primaryKey()
-                t.column("audiobook_id", .text).notNull()
-                t.column("text", .text)
-                t.column("block_kind", .text).notNull()
-                t.column("chapter_index", .integer)
-                t.column("sequence_index", .integer)
-                t.column("is_front_matter", .boolean).defaults(to: false)
-                t.column("is_hidden", .boolean).defaults(to: false)
-            }
-        }
-        return db
+    func makeService() throws -> DatabaseService {
+        try DatabaseService(inMemory: ())
     }
 
     @Test func draftsCardsForHeadings() async throws {
-        let db = try await makeDB()
+        let service = try makeService()
         let bookID = "test-book"
-        try await db.write { db in
-            try db.execute(
-                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)",
-                arguments: [bookID, "Test Book"])
-            for i in 0..<3 {
-                try db.execute(
-                    sql: """
-                        INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
-                        VALUES (?, ?, ?, 'heading', ?, ?, 0)
-                        """, arguments: ["h\(i)", bookID, "Chapter \(i+1)", i, i])
+        try service.write { db in
+            try insertAudiobook(id: bookID, title: "Test Book", db: db)
+            for index in 0..<3 {
+                try insertHeading(
+                    id: "h\(index)",
+                    audiobookID: bookID,
+                    title: "Chapter \(index + 1)",
+                    chapterIndex: index,
+                    sequenceIndex: index,
+                    db: db
+                )
             }
         }
 
-        let count = try await drafter.draftCards(for: bookID, bookTitle: "Test Book", db: db)
+        let count = try await drafter.draftCards(
+            for: bookID,
+            bookTitle: "Test Book",
+            db: service.writer
+        )
+        let cardTypes = try service.read { db in
+            try String.fetchAll(db, sql: "SELECT card_type FROM flashcard ORDER BY source_block_id")
+        }
+        let studyPlanCount = try service.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM study_plan WHERE audiobook_id = ?",
+                arguments: [bookID]
+            ) ?? 0
+        }
+        let studyPlanItemSources = try service.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT spi.source_block_id
+                    FROM study_plan_item spi
+                    JOIN study_plan sp ON sp.id = spi.plan_id
+                    WHERE sp.audiobook_id = ?
+                    ORDER BY spi.ordinal
+                    """,
+                arguments: [bookID]
+            )
+        }
+        let studyPlanItemKinds = try service.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT spi.kind
+                    FROM study_plan_item spi
+                    JOIN study_plan sp ON sp.id = spi.plan_id
+                    WHERE sp.audiobook_id = ?
+                    ORDER BY spi.ordinal
+                    """,
+                arguments: [bookID]
+            )
+        }
+
         #expect(count == 3)
+        #expect(cardTypes == Array(repeating: StudyFlashcardType.listeningAssignment, count: 3))
+        #expect(studyPlanCount == 1)
+        #expect(studyPlanItemSources == ["h0", "h1", "h2"])
+        #expect(studyPlanItemKinds == Array(repeating: StudyPlanItemKind.chapter.rawValue, count: 3))
     }
 
     @Test func skipsFrontMatter() async throws {
-        let db = try await makeDB()
+        let service = try makeService()
         let bookID = "test-book2"
-        try await db.write { db in
-            try db.execute(
-                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
-            try db.execute(
-                sql: """
-                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
-                    VALUES ('h0', ?, 'Preface', 'heading', 0, 0, 1)
-                    """, arguments: [bookID])
-            try db.execute(
-                sql: """
-                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter)
-                    VALUES ('h1', ?, 'Chapter 1', 'heading', 1, 1, 0)
-                    """, arguments: [bookID])
+        try service.write { db in
+            try insertAudiobook(id: bookID, title: "Test", db: db)
+            try insertHeading(
+                id: "h0",
+                audiobookID: bookID,
+                title: "Preface",
+                chapterIndex: 0,
+                sequenceIndex: 0,
+                isFrontMatter: true,
+                db: db
+            )
+            try insertHeading(
+                id: "h1",
+                audiobookID: bookID,
+                title: "Chapter 1",
+                chapterIndex: 1,
+                sequenceIndex: 1,
+                db: db
+            )
         }
 
-        let count = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: db)
+        let count = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: service.writer)
+
         #expect(count == 1)
     }
 
     @Test func skipsHiddenHeadings() async throws {
-        let db = try await makeDB()
+        let service = try makeService()
         let bookID = "test-book-hidden"
-        try await db.write { db in
-            try db.execute(
-                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
-            try db.execute(
-                sql: """
-                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter, is_hidden)
-                    VALUES ('h0', ?, 'Visible Chapter', 'heading', 0, 0, 0, 0)
-                    """, arguments: [bookID])
-            try db.execute(
-                sql: """
-                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index, is_front_matter, is_hidden)
-                    VALUES ('h1', ?, 'Hidden Chapter', 'heading', 1, 1, 0, 1)
-                    """, arguments: [bookID])
+        try service.write { db in
+            try insertAudiobook(id: bookID, title: "Test", db: db)
+            try insertHeading(
+                id: "h0",
+                audiobookID: bookID,
+                title: "Visible Chapter",
+                chapterIndex: 0,
+                sequenceIndex: 0,
+                db: db
+            )
+            try insertHeading(
+                id: "h1",
+                audiobookID: bookID,
+                title: "Hidden Chapter",
+                chapterIndex: 1,
+                sequenceIndex: 1,
+                isHidden: true,
+                db: db
+            )
         }
 
-        let count = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: db)
-        #expect(count == 1)  // only the visible heading is drafted
+        let count = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: service.writer)
+
+        #expect(count == 1)
     }
 
     @Test func idempotentReRunDoesNotDuplicate() async throws {
-        let db = try await makeDB()
+        let service = try makeService()
         let bookID = "test-book3"
-        try await db.write { db in
-            try db.execute(
-                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)", arguments: [bookID, "Test"])
-            try db.execute(
-                sql: """
-                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index)
-                    VALUES ('h0', ?, 'Ch1', 'heading', 0, 0)
-                    """, arguments: [bookID])
+        try service.write { db in
+            try insertAudiobook(id: bookID, title: "Test", db: db)
+            try insertHeading(
+                id: "h0",
+                audiobookID: bookID,
+                title: "Ch1",
+                chapterIndex: 0,
+                sequenceIndex: 0,
+                db: db
+            )
         }
 
-        _ = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: db)
-        let second = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: db)
+        _ = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: service.writer)
+        let second = try await drafter.draftCards(for: bookID, bookTitle: "Test", db: service.writer)
+
         #expect(second == 0)
     }
 
     @Test func createsDeckNamedAfterBook() async throws {
-        let db = try await makeDB()
+        let service = try makeService()
         let bookID = "test-book4"
-        try await db.write { db in
-            try db.execute(
-                sql: "INSERT INTO audiobook (id, title) VALUES (?, ?)",
-                arguments: [bookID, "The Scarlet Letter"])
-            try db.execute(
-                sql: """
-                    INSERT INTO epub_block (id, audiobook_id, text, block_kind, chapter_index, sequence_index)
-                    VALUES ('h0', ?, 'The Prison Door', 'heading', 0, 0)
-                    """, arguments: [bookID])
+        try service.write { db in
+            try insertAudiobook(id: bookID, title: "The Scarlet Letter", db: db)
+            try insertHeading(
+                id: "h0",
+                audiobookID: bookID,
+                title: "The Prison Door",
+                chapterIndex: 0,
+                sequenceIndex: 0,
+                db: db
+            )
         }
 
-        _ = try await drafter.draftCards(for: bookID, bookTitle: "The Scarlet Letter", db: db)
-        let deckName = try await db.read { db in
+        _ = try await drafter.draftCards(
+            for: bookID,
+            bookTitle: "The Scarlet Letter",
+            db: service.writer
+        )
+        let deckName = try service.read { db in
             try String.fetchOne(
-                db, sql: "SELECT name FROM deck WHERE name = ?", arguments: ["The Scarlet Letter"])
+                db,
+                sql: "SELECT name FROM deck WHERE name = ?",
+                arguments: ["The Scarlet Letter"]
+            )
         }
+
         #expect(deckName == "The Scarlet Letter")
     }
 
     @Test func emptyBookReturnsZero() async throws {
-        let db = try await makeDB()
-        let count = try await drafter.draftCards(for: "no-book", bookTitle: "Nothing", db: db)
+        let service = try makeService()
+        let count = try await drafter.draftCards(
+            for: "no-book",
+            bookTitle: "Nothing",
+            db: service.writer
+        )
+
         #expect(count == 0)
+    }
+
+    private func insertAudiobook(id: String, title: String, db: Database) throws {
+        try db.execute(
+            sql: """
+                INSERT INTO audiobook (id, title, duration, added_at)
+                VALUES (?, ?, 3600, '2026-06-01T00:00:00Z')
+                """,
+            arguments: [id, title]
+        )
+    }
+
+    private func insertHeading(
+        id: String,
+        audiobookID: String,
+        title: String,
+        chapterIndex: Int,
+        sequenceIndex: Int,
+        isFrontMatter: Bool = false,
+        isHidden: Bool = false,
+        db: Database
+    ) throws {
+        try db.execute(
+            sql: """
+                INSERT INTO epub_block (
+                    id, audiobook_id, spine_href, spine_index, block_index, sequence_index,
+                    block_kind, text, chapter_index, is_front_matter, is_hidden
+                )
+                VALUES (?, ?, ?, ?, 0, ?, 'heading', ?, ?, ?, ?)
+                """,
+            arguments: [
+                id,
+                audiobookID,
+                "chapter-\(sequenceIndex).xhtml",
+                sequenceIndex,
+                sequenceIndex,
+                title,
+                chapterIndex,
+                isFrontMatter,
+                isHidden,
+            ]
+        )
+        try db.execute(
+            sql: """
+                INSERT INTO timeline_item (
+                    id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                    granularity_level, playlist_position, is_enabled, epub_block_id
+                ) VALUES (?, ?, 'textSegment', ?, ?, ?, 1, ?, 1, ?)
+                """,
+            arguments: [
+                "t-\(id)",
+                audiobookID,
+                title,
+                Double(sequenceIndex) * 100,
+                Double(sequenceIndex + 1) * 100,
+                Double(sequenceIndex) * 100,
+                id,
+            ]
+        )
     }
 }

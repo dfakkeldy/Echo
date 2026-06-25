@@ -136,6 +136,17 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 2. Browse and search your ABS library; download or stream a book and play it.
 3. Listen on one device, then confirm progress synced back to the server (and to Echo on another device). Report anything that double-counts or resets position.
 
+### Auto Study Plan Beta Pass
+
+1. Import or open an EPUB-backed book.
+2. Open Book Settings and tap Study Plan.
+3. Confirm front matter is not selected.
+4. Create a plan with 1 chapter per day and image cards enabled.
+5. Open the Reviews/Study dashboard card.
+6. Confirm due cards appear before new chapter assignments.
+7. Play a chapter assignment, reveal the retention prompt, and grade it.
+8. Reopen the queue and confirm the graded assignment is no longer shown as new.
+
 ---
 
 ## 4. Known limitations (current beta)

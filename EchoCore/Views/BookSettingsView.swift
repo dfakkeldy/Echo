@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import GRDB
 import SwiftUI
 
 /// The per-book override controls, reusable in two homes (audit E1):
@@ -123,10 +124,18 @@ struct BookOverridesSections: View {
 struct BookSettingsView: View {
     @Bindable var model: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    @State private var studyPlanPresentation: StudyPlanSheetPresentation?
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Study") {
+                    Button("Study Plan", systemImage: "rectangle.stack.badge.play") {
+                        studyPlanPresentation = StudyPlanSheetPresentation(model: model)
+                    }
+                    .disabled(model.databaseService == nil || model.folderURL == nil)
+                }
+
                 BookOverridesSections(model: model)
             }
             .navigationTitle("Book Settings")
@@ -137,6 +146,86 @@ struct BookSettingsView: View {
                 }
             }
         }
+        .sheet(item: $studyPlanPresentation) { presentation in
+            StudyPlanSheetHost(presentation: presentation)
+        }
         .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+    }
+}
+
+private struct StudyPlanSheetPresentation: Identifiable {
+    let audiobookID: String
+    let bookTitle: String
+    let db: DatabaseWriter
+
+    var id: String { audiobookID }
+
+    init?(model: PlayerModel) {
+        guard let db = model.databaseService?.writer,
+              let folderURL = model.folderURL else {
+            return nil
+        }
+
+        let audiobookID = folderURL.absoluteString
+        self.audiobookID = audiobookID
+        self.bookTitle = StudyPlanBookTitleResolver.resolve(
+            audiobookID: audiobookID,
+            folderURL: folderURL,
+            db: db,
+            currentTitle: model.currentTitle
+        )
+        self.db = db
+    }
+}
+
+private struct StudyPlanSheetHost: View {
+    @State private var viewModel: StudyPlanViewModel
+
+    init(presentation: StudyPlanSheetPresentation) {
+        _viewModel = State(
+            wrappedValue: StudyPlanViewModel(
+                audiobookID: presentation.audiobookID,
+                bookTitle: presentation.bookTitle,
+                db: presentation.db
+            )
+        )
+    }
+
+    var body: some View {
+        StudyPlanSheet(viewModel: viewModel)
+    }
+}
+
+enum StudyPlanBookTitleResolver {
+    static func resolve(
+        audiobookID: String,
+        folderURL: URL,
+        db: DatabaseWriter,
+        currentTitle: String
+    ) -> String {
+        let audiobook = try? AudiobookDAO(db: db).get(audiobookID)
+        return resolve(
+            storedTitle: audiobook?.title,
+            folderTitle: folderURL.lastPathComponent,
+            currentTitle: currentTitle
+        )
+    }
+
+    static func resolve(
+        storedTitle: String?,
+        folderTitle: String,
+        currentTitle: String
+    ) -> String {
+        normalizedTitle(storedTitle)
+            ?? normalizedTitle(folderTitle)
+            ?? normalizedTitle(currentTitle)
+            ?? "Book"
+    }
+
+    private static func normalizedTitle(_ title: String?) -> String? {
+        guard let title else { return nil }
+
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
