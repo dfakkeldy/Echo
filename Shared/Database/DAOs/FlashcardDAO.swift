@@ -44,7 +44,8 @@ nonisolated struct FlashcardDAO {
     func reviewStats(now: Date = Date()) throws -> ReviewStats {
         let nowString = now.ISO8601Format()
         return try db.read { db in
-            let scheduledEnabledCards = Flashcard
+            let scheduledEnabledCards =
+                Flashcard
                 .filter(Column("is_enabled") == true)
                 .filter(Column("next_review_date") != nil)
             let due =
@@ -124,6 +125,12 @@ nonisolated struct FlashcardDAO {
             sourceTable: "flashcard",
             sourceRowid: card.id,
             metadataJSON: encodeSM2(card),
+            pdfViewStateJSON: nil,
+            epubBlockID: card.sourceBlockID,
+            segmentKey: nil,
+            timestampSource: nil,
+            alignmentStatus: nil,
+            alignmentConfidence: nil,
             createdAt: nil,
             modifiedAt: nil
         )

@@ -4,6 +4,7 @@ import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 import os.log
+
 #if canImport(UIKit)
     import UIKit
 #elseif canImport(AppKit)
@@ -194,14 +195,23 @@ struct SettingsView: View {
             guard let url = urls.first, let db = model.databaseService else { return }
             let importer = DeckImportService()
             do {
-                let count = try importer.importDeck(from: url, db: db.writer)
-                importAlert = ("Import Complete", "Imported \(count) cards successfully.")
+                let result = try importer.importDeckVNext(from: url, db: db.writer)
+                importAlert = ("Import Complete", importCompletionMessage(for: result))
             } catch {
                 importAlert = ("Import Failed", error.localizedDescription)
             }
         case .failure(let error):
             importAlert = ("Import Failed", error.localizedDescription)
         }
+    }
+
+    private func importCompletionMessage(for result: ImportDeckResult) -> String {
+        if result.warningCount == 0 {
+            return
+                "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text."
+        }
+        return
+            "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text. \(result.warningCount) warnings."
     }
 
     #if DEBUG
