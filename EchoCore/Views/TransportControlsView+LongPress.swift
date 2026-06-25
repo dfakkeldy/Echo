@@ -67,6 +67,8 @@ private func executeAction(_ action: WatchAction, model: PlayerModel) {
         if let draft = model.bookmarkDraftAtCurrentTime() {
             model.activeBookmarkDraft = draft
         }
+    case .markPassage:
+        model.markPassageAtCurrentTime()
     case .pomodoro:
         break
     case .empty:
@@ -109,7 +111,7 @@ struct TransportPrimitiveButtonStyle: PrimitiveButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
             .opacity(isPressed ? 0.5 : 1.0)
             .contentShape(Rectangle())
             .onTapGesture {

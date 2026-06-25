@@ -15,8 +15,7 @@ enum DocumentImportFinalizer {
         blocks: [EPubBlockRecord],
         fileURL: URL,
         duration: TimeInterval?,
-        databaseService: DatabaseService,
-        downloadCloudAnchors: Bool = true
+        databaseService: DatabaseService
     ) async -> Bool {
         // Create initial system anchors (first block → 0, last block → duration)
         // so every block gets an interpolated timestamp from the start.
@@ -81,27 +80,18 @@ enum DocumentImportFinalizer {
                 logger.error(
                     "Failed to ingest alignment.json sidecar: \(error.localizedDescription)")
             }
-        } else {
+        } else if let duration {
+            // Try CloudKit sync
+            let syncService = CloudKitSyncService(db: databaseService.writer)
             let folderURL = fileURL.deletingLastPathComponent()
             let record = try? AudiobookDAO(db: databaseService.writer).get(audiobookID)
             let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
                 folderURL: folderURL, record: record)
-            let durationVal = duration ?? 0.0
 
-            // Community CloudKit anchors only exist for shared *audiobook*
-            // alignments, never for a freshly-narrated document — so the headless /
-            // CLI narration path (no iCloud entitlement, where the query stalls or
-            // faults the process) opts out via `downloadCloudAnchors: false`.
-            let downloadedAnchors: [AlignmentAnchorRecord]
-            if downloadCloudAnchors {
-                let syncService = CloudKitSyncService(db: databaseService.writer)
-                downloadedAnchors =
-                    (try? await syncService.downloadAnchors(
-                        audiobookID: audiobookID, title: title, author: author,
-                        duration: durationVal)) ?? []
-            } else {
-                downloadedAnchors = []
-            }
+            let downloadedAnchors =
+                (try? await syncService.downloadAnchors(
+                    audiobookID: audiobookID, title: title, author: author,
+                    duration: duration)) ?? []
 
             if !downloadedAnchors.isEmpty {
                 try? anchorDAO.deleteAll(for: audiobookID)
@@ -110,9 +100,7 @@ enum DocumentImportFinalizer {
                 }
                 try? alignmentService.recalculateTimeline()
                 logger.info("Ingested \(downloadedAnchors.count) anchors from CloudKit")
-            } else if let firstBlock = blocks.first, let lastBlock = blocks.last,
-                let bookDuration = duration
-            {
+            } else if let firstBlock = blocks.first, let lastBlock = blocks.last {
                 // Anchor first block to time 0
                 let firstAnchor = AlignmentAnchorRecord(
                     id: "anchor-init-first-\(audiobookID)",
@@ -131,7 +119,7 @@ enum DocumentImportFinalizer {
                     id: "anchor-init-last-\(audiobookID)",
                     audiobookID: audiobookID,
                     epubBlockID: lastBlock.id,
-                    audioTime: bookDuration,
+                    audioTime: duration,
                     audioEndTime: nil,
                     anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
                     source: AlignmentAnchorRecord.Source.imported.rawValue,
@@ -145,6 +133,8 @@ enum DocumentImportFinalizer {
                 try? alignmentService.recalculateTimeline()
                 logger.info("Created initial alignment anchors for \(audiobookID)")
             }
+        } else {
+            logger.info("Skipped CloudKit anchor lookup for audio-less document \(audiobookID)")
         }
 
         // Always recalculate timeline to ensure chapter-boundary virtual

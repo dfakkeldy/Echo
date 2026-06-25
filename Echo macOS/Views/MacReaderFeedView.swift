@@ -10,6 +10,7 @@ import SwiftUI
 struct MacReaderFeedView: View {
     @Environment(MacPlayerModel.self) private var player
     @Environment(DatabaseService.self) private var dbService
+    @Environment(SettingsManager.self) private var settings
     @State private var blocks: [EPubBlockRecord] = []
     @State private var currentBlockID: String?
     @State private var isLoading = true
@@ -110,12 +111,12 @@ struct MacReaderFeedView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         Text(group.title)
-                                            .font(.headline)
+                                            .customFont(.headline, appFont: settings.appFont)
                                             .foregroundStyle(
                                                 group.hasAudio ? .primary : .secondary)
                                         if !group.hasAudio {
                                             Text("Text only")
-                                                .font(.caption2)
+                                                .customFont(.caption2, appFont: settings.appFont)
                                                 .foregroundStyle(.tertiary)
                                         }
                                         Spacer()
@@ -131,6 +132,7 @@ struct MacReaderFeedView: View {
                                     ForEach(group.blocks, id: \.id) { block in
                                         MacBlockCardView(
                                             block: block,
+                                            appFont: settings.appFont,
                                             isActive: block.id == currentBlockID,
                                             activeWordIndex: block.id == currentBlockID
                                                 ? activeWord?.index : nil,
@@ -170,10 +172,10 @@ struct MacReaderFeedView: View {
     private var headerView: some View {
         HStack {
             Text("Reader")
-                .font(.headline)
+                .customFont(.headline, appFont: settings.appFont)
             Spacer()
             Text("\(blocks.count) blocks")
-                .font(.caption)
+                .customFont(.caption, appFont: settings.appFont)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)
@@ -232,11 +234,12 @@ struct MacReaderFeedView: View {
     private func loadTimelineCache(audiobookID: String) async throws
         -> [ReaderActiveBlockResolver.TimelineRow]
     {
-        let rows: [Row] = try await dbService.writer.read { db in
+        let rows: [Row] = try dbService.writer.read { db in
             return try Row.fetchAll(
                 db,
                 sql: """
-                    SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id, eb.chapter_index
+                    SELECT ti.audio_start_time, ti.audio_end_time, ti.epub_block_id,
+                           ti.segment_key, eb.chapter_index
                     FROM timeline_item ti
                     LEFT JOIN epub_block eb ON eb.id = ti.epub_block_id
                     WHERE ti.audiobook_id = ? AND ti.epub_block_id IS NOT NULL AND ti.audio_start_time >= 0
@@ -262,7 +265,8 @@ struct MacReaderFeedView: View {
                 end = start + 3600  // Large fallback for the last item
             }
             let chapterIndex: Int? = row["chapter_index"]
-            cache.append((start, end, blockID, chapterIndex))
+            let segmentKey: String? = row["segment_key"]
+            cache.append((start, end, blockID, chapterIndex, segmentKey))
         }
         return cache
     }
@@ -335,7 +339,7 @@ struct MacReaderFeedView: View {
             }
             // ~12 Hz while playing for smooth karaoke, 0.5 s when paused so the
             // block poll stays cheap when nothing is moving.
-            try? await Task.sleep(nanoseconds: player.isPlaying ? 80_000_000 : 500_000_000)
+            try? await Task.sleep(for: player.isPlaying ? .milliseconds(80) : .milliseconds(500))
         }
     }
 }
@@ -345,6 +349,7 @@ struct MacReaderFeedView: View {
 private struct MacBlockCardView: View, Equatable {
     @Environment(MacPlayerModel.self) private var player
     let block: EPubBlockRecord
+    let appFont: String
     let isActive: Bool
     /// Word index to karaoke-highlight, or nil when this card isn't the active
     /// block (the parent passes nil for inactive cards, so only the active card
@@ -357,7 +362,7 @@ private struct MacBlockCardView: View, Equatable {
     // highlighted word index, so a moving karaoke highlight updates only the
     // active card.
     nonisolated static func == (lhs: MacBlockCardView, rhs: MacBlockCardView) -> Bool {
-        lhs.block.id == rhs.block.id && lhs.isActive == rhs.isActive
+        lhs.block.id == rhs.block.id && lhs.appFont == rhs.appFont && lhs.isActive == rhs.isActive
             && lhs.activeWordIndex == rhs.activeWordIndex
     }
 
@@ -392,9 +397,8 @@ private struct MacBlockCardView: View, Equatable {
 
     private var headingCard: some View {
         Text(highlightedText(block.text ?? "", activeWordIndex: activeWordIndex))
-            .font(.title3)
-            .fontWeight(.semibold)
-            .foregroundColor(resolvedColor)
+            .customFont(.title3, weight: .semibold, appFont: appFont)
+            .foregroundStyle(resolvedColor ?? Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 12)
             .padding(.bottom, 4)
@@ -404,8 +408,8 @@ private struct MacBlockCardView: View, Equatable {
 
     private var paragraphCard: some View {
         Text(highlightedText(block.text ?? "", activeWordIndex: activeWordIndex))
-            .font(.body)
-            .foregroundColor(resolvedColor)
+            .customFont(.body, appFont: appFont)
+            .foregroundStyle(resolvedColor ?? Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .lineSpacing(4)
     }
@@ -425,12 +429,12 @@ private struct MacBlockCardView: View, Equatable {
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 } else {
                     Text("[Image: \(block.imagePath ?? "unknown")]")
-                        .font(.caption)
+                        .customFont(.caption, appFont: appFont)
                         .foregroundStyle(.secondary)
                 }
             } else {
                 Text("[Image]")
-                    .font(.caption)
+                    .customFont(.caption, appFont: appFont)
                     .foregroundStyle(.secondary)
             }
         }

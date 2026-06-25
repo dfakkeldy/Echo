@@ -30,12 +30,14 @@ struct UnifiedTopHeader: View {
     let onHelpTap: () -> Void
     let onStatsTap: () -> Void
     let onFidgetTap: () -> Void
-    /// Imports or replaces the current book's companion EPUB. `nil` when no book
+    /// Imports or replaces the current book's companion document. `nil` when no book
     /// is loaded or a narration render is in progress.
-    var onAddEPUBTap: (() -> Void)?
+    var onAddDocumentTap: (() -> Void)?
     /// Unified ".m4b export" action. `nil` when no book is loaded (nothing to
     /// export); when set, the resolver auto-detects narrated-vs-imported.
     var onExportTap: (() -> Void)?
+    /// Markdown study-notes export action. `nil` when no book is loaded.
+    var onStudyNotesExportTap: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,7 +55,7 @@ struct UnifiedTopHeader: View {
                 }
                 // Use the artwork-derived accent (matches the transport buttons),
                 // not the static system blue, so the chrome tints to the cover.
-                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                 .accessibilityLabel(Text("Open book or folder"))
 
                 Spacer()
@@ -73,10 +75,11 @@ struct UnifiedTopHeader: View {
                         Label("Fidget", systemImage: "circle.hexagongrid.fill")
                     }
                     .disabled(model.tracks.isEmpty)
-                    if let onAddEPUBTap {
-                        Button(action: onAddEPUBTap) {
+                    if let onAddDocumentTap {
+                        Button(action: onAddDocumentTap) {
                             Label(
-                                model.hasEPUB ? "Replace EPUB…" : "Add EPUB…",
+                                model.hasEPUB || model.hasPDF
+                                    ? "Replace Document…" : "Add Document…",
                                 systemImage: "book.pages"
                             )
                         }
@@ -84,6 +87,11 @@ struct UnifiedTopHeader: View {
                     if let onExportTap {
                         Button(action: onExportTap) {
                             Label("Export Audiobook (.m4b)…", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    if let onStudyNotesExportTap {
+                        Button(action: onStudyNotesExportTap) {
+                            Label("Export Study Notes…", systemImage: "doc.text")
                         }
                     }
                     Button(action: onSettingsTap) {
@@ -102,7 +110,7 @@ struct UnifiedTopHeader: View {
                                 .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                         }
                 }
-                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                 .accessibilityLabel(Text("More options"))
             }
             // A consistent 16pt inset on every tab. The earlier 32pt on Now

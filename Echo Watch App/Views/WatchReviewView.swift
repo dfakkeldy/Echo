@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import WatchKit
 
 /// Hands-free flashcard review view for Apple Watch. Uses Double Tap gesture
 /// (handGestureShortcut) for Reveal/Good actions so the user can review cards
@@ -43,7 +42,7 @@ struct WatchReviewView: View {
                             .padding(.horizontal)
                         } else {
                             Button {
-                                WKInterfaceDevice.current().play(.click)
+                                viewModel.playReviewRevealHaptic()
                                 withAnimation {
                                     isRevealed = true
                                 }
@@ -72,7 +71,6 @@ struct WatchReviewView: View {
     }
 
     private func gradeAndAdvance(grade: Int) {
-        WKInterfaceDevice.current().play(.notification)
         guard currentIndex < viewModel.dueCards.count else { return }
         let cardID = viewModel.dueCards[currentIndex].id
         viewModel.gradeFlashcard(cardID: cardID, grade: grade)

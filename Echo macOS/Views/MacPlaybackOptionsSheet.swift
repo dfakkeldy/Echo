@@ -31,14 +31,23 @@ struct MacPlaybackOptionsSheet: View {
                 .pickerStyle(.menu)
             }
 
-            Section("Loop") {
+            Section {
                 Picker("Loop Mode", selection: loopSelection) {
                     Text("Off").tag(LoopMode.off)
                     Text("Chapter").tag(LoopMode.chapter)
-                    Text("Bookmark").tag(LoopMode.bookmark)
+                    Text("Bookmark")
+                        .tag(LoopMode.bookmark)
+                        .disabled(bookmarkLoopUnavailable)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+            } header: {
+                Text("Loop")
+            } footer: {
+                if bookmarkLoopUnavailable {
+                    Text("Add at least two enabled bookmarks to use bookmark looping.")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Skip") {
@@ -70,16 +79,14 @@ struct MacPlaybackOptionsSheet: View {
         .padding(.vertical, 4)
     }
 
-    /// Routes loop selection through a demotion guard: choosing `.bookmark` on a
-    /// book with no bookmarks falls back to `.off`, mirroring the iOS
+    /// Routes loop selection through a demotion guard: choosing `.bookmark` without
+    /// a loopable bookmark segment falls back to `.off`, mirroring the iOS
     /// `PlaybackOptionsSheet` so the offered option never silently does nothing.
-    /// (The A→B loop itself needs ≥2 bookmarks; this just avoids arming it on an
-    /// empty book.)
     private var loopSelection: Binding<LoopMode> {
         Binding(
             get: { player.loopMode },
             set: { newMode in
-                if newMode == .bookmark && player.bookmarkStore.bookmarks.isEmpty {
+                if newMode == .bookmark && bookmarkLoopUnavailable {
                     player.loopMode = .off
                 } else {
                     player.loopMode = newMode
@@ -88,13 +95,15 @@ struct MacPlaybackOptionsSheet: View {
         )
     }
 
+    private var bookmarkLoopUnavailable: Bool {
+        !player.canBookmarkLoop
+    }
+
     /// Speed label formatter — "1×", "1.25×", "1.5×".
     static func speedLabel(_ rate: Float) -> String {
         if rate == rate.rounded() {
             return "\(Int(rate))×"
         }
-        let s = String(format: "%.2f", rate)
-        let trimmed = s.hasSuffix("0") ? String(s.dropLast()) : s
-        return "\(trimmed)×"
+        return rate.formatted(.number.precision(.fractionLength(0...2))) + "×"
     }
 }

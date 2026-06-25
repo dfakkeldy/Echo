@@ -144,6 +144,33 @@ struct EchoCoreTests {
         #expect(active?.title == "Later")
     }
 
+    @Test func bookmarkStoreClearLocationContextDropsVisiblePlaceDataAndPersists() throws {
+        let store = BookmarkStore()
+        let locatedID = UUID()
+        var persistedBookmarks: [Bookmark] = []
+        var changeCount = 0
+        store.onPersist = { persistedBookmarks = $0 }
+        store.onBookmarksChanged = { changeCount += 1 }
+
+        store.bookmarks = [
+            Bookmark(
+                id: locatedID, title: "Located", timestamp: 12,
+                latitude: 44.65, longitude: -63.57, placeName: "Halifax"),
+            Bookmark(title: "Plain", timestamp: 24),
+        ]
+
+        let clearedCount = store.clearLocationContext()
+
+        #expect(clearedCount == 1)
+        #expect(changeCount == 1)
+        #expect(store.bookmarks.count == 2)
+        let locatedBookmark = try #require(store.bookmarks.first { $0.id == locatedID })
+        #expect(locatedBookmark.latitude == nil)
+        #expect(locatedBookmark.longitude == nil)
+        #expect(locatedBookmark.placeName == nil)
+        #expect(persistedBookmarks == store.bookmarks)
+    }
+
     @Test func settingsRegisterLexendAsDefaultFont() {
         let suiteName = "settings-defaults-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -215,6 +242,32 @@ struct EchoCoreTests {
         #expect(settings.phonePresets.first?.name == "Test Phone Preset")
         #expect(settings.watchPresets.count == 1)
         #expect(settings.watchPresets.first?.name == "Test Watch Preset")
+    }
+
+    @Test func settingsPersistsStudyGlobalNewChapterLimit() {
+        let suiteName = "study-global-new-chapter-limit-\(UUID().uuidString)"
+        let appGroupName = "study-global-new-chapter-limit-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+
+        settings.studyGlobalNewChapterLimit = 4
+        #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 4)
+
+        settings.studyGlobalNewChapterLimit = 0
+        #expect(settings.studyGlobalNewChapterLimit == 1)
+        #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 1)
+
+        settings.studyGlobalNewChapterLimit = 99
+        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == SettingsManager.Defaults.studyGlobalNewChapterLimit)
     }
 
     @Test func settingsNormalizeLegacyHelveticaToSystemFont() {

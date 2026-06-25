@@ -38,6 +38,26 @@ struct PlaybackOptionsSheetTests {
         )
     }
 
+    @Test func bookmarkLoopShowsUnavailableStateUntilTwoBookmarksExist() throws {
+        let source = try Self.source(named: "PlaybackOptionsSheet.swift")
+        #expect(
+            source.contains("bookmarkLoopUnavailable"),
+            "The sheet must model bookmark-loop availability explicitly."
+        )
+        #expect(
+            source.contains("!model.canBookmarkLoop"),
+            "Bookmark loop availability must use the shared PlayerModel rule."
+        )
+        #expect(
+            source.contains(".disabled(bookmarkLoopUnavailable)"),
+            "The Bookmark segment must be disabled while bookmark looping is unavailable."
+        )
+        #expect(
+            source.contains("Add at least two enabled bookmarks on this track to use bookmark looping."),
+            "The sheet must explain why Bookmark loop is unavailable."
+        )
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

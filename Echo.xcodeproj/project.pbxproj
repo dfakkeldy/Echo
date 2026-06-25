@@ -10,6 +10,7 @@
 		048C9931BF4F80013AF7961E /* af_heart.f32 in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = 841D8CAEB031B6361813E665 /* af_heart.f32 */; };
 		0F35404A791CA6742909DBE8 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = 5C260A9D9E299B82E8D4B077 /* onnxruntime */; };
 		245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */; };
+		4B5F48A4E90D4AE5A7F0C231 /* RetagCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C06019800B44A10A3274334 /* RetagCommand.swift */; };
 		29039D80BE70D0549D63283A /* af_heart.rows in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = E3831A65448E14AF9E50D78F /* af_heart.rows */; };
 		52F95E253C26D7F3D649C553 /* us_silver.json in Copy Narration Resources */ = {isa = PBXBuildFile; fileRef = A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */; };
 		61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6243FBB0511F01F7F480630 /* NarrateCommand.swift */; };
@@ -129,6 +130,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1C06019800B44A10A3274334 /* RetagCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RetagCommand.swift; path = "Tools/echo-cli/RetagCommand.swift"; sourceTree = SOURCE_ROOT; };
 		486ED82EADFDDE51ED2283A1 /* us_gold.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_gold.json; path = EchoCore/Services/Narration/MisakiResources/us_gold.json; sourceTree = SOURCE_ROOT; };
 		739F167A96954DC602A63519 /* _kokoro_vocab.json */ = {isa = PBXFileReference; includeInIndex = 1; name = _kokoro_vocab.json; path = EchoCore/Services/Narration/_kokoro_vocab.json; sourceTree = SOURCE_ROOT; };
 		756754EC2DEBE3CB3DA81491 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
@@ -195,7 +197,6 @@
 				Views/Components/BookProgressTrack.swift,
 				Views/Components/CircularProgressPlayButton.swift,
 				Views/Components/FlashcardCreationSheet.swift,
-				Views/Components/FlashcardOverlayView.swift,
 				Views/Components/Haptic.swift,
 				Views/Components/InlineStepperRow.swift,
 				Views/Components/MarqueeText.swift,
@@ -313,7 +314,6 @@
 				Views/Components/BookProgressTrack.swift,
 				Views/Components/CircularProgressPlayButton.swift,
 				Views/Components/FlashcardCreationSheet.swift,
-				Views/Components/FlashcardOverlayView.swift,
 				Views/Components/Haptic.swift,
 				Views/Components/InlineStepperRow.swift,
 				Views/Components/MarqueeText.swift,
@@ -628,6 +628,7 @@
 				841D8CAEB031B6361813E665 /* af_heart.f32 */,
 				E3831A65448E14AF9E50D78F /* af_heart.rows */,
 				E6243FBB0511F01F7F480630 /* NarrateCommand.swift */,
+				1C06019800B44A10A3274334 /* RetagCommand.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -1083,6 +1084,7 @@
 			files = (
 				245A97E573FB572FF8FBB995 /* EchoCLI.swift in Sources */,
 				61C08841F4A90AEDEE1D5A5B /* NarrateCommand.swift in Sources */,
+				4B5F48A4E90D4AE5A7F0C231 /* RetagCommand.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

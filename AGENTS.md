@@ -85,7 +85,9 @@ If SwiftData is configured to use CloudKit:
 
 ## PR instructions
 
+- **Work in a worktree based on `nightly`, not `main`.** The worktree tooling may cut the branch from `main` (the default branch); rebase/reset it onto `origin/nightly` before any edits. See `CLAUDE.md ▸ Branching & Release Workflow` for the base-check one-liner.
 - **Open PRs against `nightly`, not `main`.** Echo uses a promotion ladder (`feature/* → nightly → weekly → main`); `main` is the stable App Store branch reached only by promotion. Targeting `main` bypasses the ladder. See `CLAUDE.md ▸ Branching & Release Workflow` and `ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder`.
+- **Commit at sensible checkpoints as you work**, not only when asked — keep commits coherent and Conventional-Commits-formatted. Flag a push or PR first, and never push directly to the protected branches (`main`/`weekly`/`nightly`).
 - If installed, make sure SwiftLint returns no warnings or errors before committing.
 
 

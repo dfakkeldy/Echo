@@ -108,7 +108,7 @@ enum HelpContent {
             body: """
             Echo includes a built-in spaced repetition system (SRS) — Anki-style flashcards scheduled with the FSRS algorithm, so each card comes back right before you'd forget it.
 
-            Creating cards: Long-press a paragraph in the Reader and choose "Create Flashcard" (the text seeds the card), promote any bookmark to a card, or create one from scratch in the Timeline tab. Every card has a front (write it as a question) and a back (the answer), and can carry an audio snippet from the book.
+            Creating cards: Long-press a paragraph in the Reader and choose "Create Flashcard" (the text seeds the card), promote any bookmark to a card, or create one from scratch from the Decks screen. Every card has a front (write it as a question) and a back (the answer), and can carry an audio snippet from the book.
 
             Trigger timing: Each card can surface at the beginning or end of its audio moment during playback — a quick quiz in context — or be set to manual-only so it never interrupts listening.
 
@@ -116,7 +116,7 @@ enum HelpContent {
 
             Review on Apple Watch: Full hands-free review sessions run on the watch — hear the card, think your answer, tap a grade.
 
-            Stats & reminders: The Timeline tab shows due count, reviewed-today, and total cards. Enable the daily review notification in Settings to get a local reminder when cards are due.
+            Stats & reminders: The Stats screen shows due count, reviewed-today, and total cards. Enable the daily review notification in Settings to get a local reminder when cards are due.
 
             Deck import: Anki-style JSON decks can be imported with validation, so existing decks come along.
             """
@@ -177,7 +177,7 @@ enum HelpContent {
 
             **Auto-scroll:** The reader can follow playback automatically. When auto-scroll is on, the current paragraph highlights with a blue bar and the view scrolls to keep it centered. Scroll manually to pause auto-follow; tap the scroll-to-active button (↓) in the header to re-enable it.
 
-            **Reader toolbar:** When the Reader tab is active, the bottom toolbar switches to reader-optimized controls: skip back, play/pause, skip forward (with your configured seek durations), timeline, and bookmark. This keeps essential playback controls at your fingertips while reading.
+            **Reader toolbar:** When the Reader tab is active, the bottom dock keeps playback and study controls nearby: mini-player controls, inline speed presets, Mark Passage, the Read/Now Playing toggle, and bookmark, note, or memo capture.
 
             **Card colors:** Long-press any card and choose "Change Color" to highlight it. Use this to color-code important passages, mark sections to revisit, or organize your study notes.
 

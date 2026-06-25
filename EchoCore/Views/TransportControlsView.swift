@@ -76,7 +76,7 @@ struct TransportControlsView: View {
                         forDuration: settings.seekBackwardDuration)
                 )
                 .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
                 .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
                 .background(Circle().fill(model.coverTheme.chip))
                 .contentShape(Rectangle())
@@ -97,7 +97,7 @@ struct TransportControlsView: View {
                         forDuration: settings.seekForwardDuration)
                 )
                 .font(.system(size: isCompact ? 22 : 26, weight: .semibold))
-                .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
                 .frame(width: isCompact ? 52 : 62, height: isCompact ? 52 : 62)
                 .background(Circle().fill(model.coverTheme.chip))
                 .contentShape(Rectangle())
@@ -260,6 +260,24 @@ struct TransportControlsView: View {
             .accessibilityLabel(Text("Add bookmark"))
             .disabled(model.tracks.isEmpty)
 
+        case .markPassage:
+            TransportButton(
+                tapAction: {
+                    model.markPassageAtCurrentTime()
+                    Haptic.play(.light)
+                },
+                longPressAction: longPressAction,
+                model: model
+            ) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.system(size: isCompact ? 20 : 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: isCompact ? 50 : 64, height: isCompact ? 50 : 64)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Mark passage for later"))
+            .disabled(model.tracks.isEmpty)
+
         case .pomodoro:
             Color.clear
                 .frame(height: isCompact ? 50 : 64)
@@ -335,7 +353,7 @@ struct TransportControlsView: View {
                             ? "EOC" : sleepTimerCountdownText(model.sleepTimerRemainingSeconds)
                     )
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                     .monospacedDigit()
                 }
             }

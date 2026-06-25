@@ -41,7 +41,7 @@ struct PlayerScrubberView: View {
                             chapters: model.chapters,
                             totalDuration: bookTotalDuration
                         ),
-                        accent: model.artworkAccentColor ?? .accentColor
+                        accent: model.resolvedThemeTint ?? .accentColor
                     )
                     .padding(.top, 9)
                     .padding(.horizontal, 4)

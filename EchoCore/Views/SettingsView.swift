@@ -4,6 +4,7 @@ import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 import os.log
+
 #if canImport(UIKit)
     import UIKit
 #elseif canImport(AppKit)
@@ -17,6 +18,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     private let buildMetadata = AppBuildMetadata()
     @State private var showingDeckImporter = false
+    @State private var showingAllStudyNotesExport = false
     @State private var importAlert: (title: String, message: String)?
 
     #if DEBUG
@@ -85,6 +87,17 @@ struct SettingsView: View {
                     }
                 }
 
+                SettingsStudySection()
+
+                Section("Data") {
+                    Button {
+                        showingAllStudyNotesExport = true
+                    } label: {
+                        Label("Export All Study Notes", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(model.databaseService == nil)
+                }
+
                 #if DEBUG
                     Section {
                         Button("Load Development Assets") {
@@ -103,7 +116,11 @@ struct SettingsView: View {
                     }
                 #endif
 
-                Section {
+                Section("Support") {
+                    NavigationLink("Feedback & Support") {
+                        FeedbackSupportView()
+                            .navigationTitle("Feedback & Support")
+                    }
                     NavigationLink("Help") {
                         HelpView()
                             .navigationTitle("Help")
@@ -130,6 +147,11 @@ struct SettingsView: View {
             allowsMultipleSelection: false,
             onCompletion: handleImportResult
         )
+        .sheet(isPresented: $showingAllStudyNotesExport) {
+            if let writer = model.databaseService?.writer {
+                AllStudyNotesExportView(databaseWriter: writer)
+            }
+        }
         .alert(importAlert?.title ?? "", isPresented: isShowingAlert) {
             Button("OK") { importAlert = nil }
         } message: {
@@ -173,14 +195,23 @@ struct SettingsView: View {
             guard let url = urls.first, let db = model.databaseService else { return }
             let importer = DeckImportService()
             do {
-                let count = try importer.importDeck(from: url, db: db.writer)
-                importAlert = ("Import Complete", "Imported \(count) cards successfully.")
+                let result = try importer.importDeckVNext(from: url, db: db.writer)
+                importAlert = ("Import Complete", importCompletionMessage(for: result))
             } catch {
                 importAlert = ("Import Failed", error.localizedDescription)
             }
         case .failure(let error):
             importAlert = ("Import Failed", error.localizedDescription)
         }
+    }
+
+    private func importCompletionMessage(for result: ImportDeckResult) -> String {
+        if result.warningCount == 0 {
+            return
+                "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text."
+        }
+        return
+            "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text. \(result.warningCount) warnings."
     }
 
     #if DEBUG
@@ -206,6 +237,29 @@ struct SettingsView: View {
             logger.error("\(error.localizedDescription, privacy: .public)")
         }
     #endif
+}
+
+private struct SettingsStudySection: View {
+    @Environment(SettingsManager.self) private var settings
+
+    var body: some View {
+        @Bindable var settings = settings
+
+        Section("Study") {
+            Stepper(value: $settings.studyGlobalNewChapterLimit, in: 1...12) {
+                LabeledContent("Global New Chapters") {
+                    Text(limitText)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var limitText: String {
+        let limit = settings.studyGlobalNewChapterLimit
+        let unit = limit == 1 ? "chapter" : "chapters"
+        return "\(limit) \(unit) per day"
+    }
 }
 
 private struct SettingsSilenceDetectionSection: View {

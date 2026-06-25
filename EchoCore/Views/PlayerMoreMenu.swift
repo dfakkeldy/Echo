@@ -109,6 +109,6 @@ struct PlayerMoreMenu: View {
             .contentShape(Rectangle())
             // Cover accent for all bottom-toolbar chrome; the filled chip (shape)
             // still carries the active state.
-            .foregroundStyle(model.artworkAccentColor ?? .accentColor)
+            .foregroundStyle(model.resolvedThemeTint ?? .accentColor)
     }
 }

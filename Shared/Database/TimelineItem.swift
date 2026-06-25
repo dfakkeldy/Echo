@@ -42,6 +42,8 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
 
     /// FK to `epub_block.id` when this timeline item was materialized from an EPUB block.
     var epubBlockID: String?
+    /// Segment narration scope (`"<chapter>-<segment>"`) when timestamps are segment-local.
+    var segmentKey: String?
     /// Source of the timestamp: none, estimated, interpolated, lockedAnchor, transcript.
     var timestampSource: String?
     /// Current alignment state: unaligned, estimated, interpolated, lockedAnchor, omitted.
@@ -71,6 +73,7 @@ struct TimelineItem: Identifiable, Equatable, Codable, FetchableRecord, MutableP
         case metadataJSON = "metadata_json"
         case pdfViewStateJSON = "pdf_view_state_json"
         case epubBlockID = "epub_block_id"
+        case segmentKey = "segment_key"
         case timestampSource = "timestamp_source"
         case alignmentStatus = "alignment_status"
         case alignmentConfidence = "alignment_confidence"

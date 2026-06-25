@@ -10,7 +10,7 @@ enum FlashcardTriggerTiming: String, Codable, Sendable, CaseIterable {
 }
 
 /// GRDB record for the `flashcard` table with SM-2 / FSRS scheduling support.
-struct Flashcard: Codable, FetchableRecord, MutablePersistableRecord, Sendable {
+struct Flashcard: Codable, FetchableRecord, Identifiable, MutablePersistableRecord, Sendable {
     var id: String
     var audiobookID: String
     var frontText: String

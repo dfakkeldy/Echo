@@ -149,6 +149,29 @@ final class BookmarkStore {
         // Don't fire postBookmarksDidChange — avoid spurious UI updates for background location
     }
 
+    @discardableResult
+    func clearLocationContext() -> Int {
+        var clearedCount = 0
+        for index in bookmarks.indices {
+            guard bookmarks[index].latitude != nil
+                    || bookmarks[index].longitude != nil
+                    || bookmarks[index].placeName != nil
+            else { continue }
+
+            bookmarks[index].latitude = nil
+            bookmarks[index].longitude = nil
+            bookmarks[index].placeName = nil
+            clearedCount += 1
+        }
+
+        if clearedCount > 0 {
+            onPersist?(bookmarks)
+            onBookmarksChanged?()
+            postBookmarksDidChange()
+        }
+        return clearedCount
+    }
+
     func toggleBookmarkEnabled(id: UUID) {
         guard let idx = bookmarks.firstIndex(where: { $0.id == id }) else { return }
         bookmarks[idx].isEnabled.toggle()

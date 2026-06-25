@@ -46,7 +46,7 @@ final class NarrationService {
     /// schedules the next track a hair before `duration` elapses; padding the
     /// file closes both gaps. Exposed `static` so the render-duration test can
     /// assert the exact padded length. ~0.75 s ≈ 0.4 s of dead air even at 2×.
-    static let leadOutPadSeconds: TimeInterval = 0.75
+    nonisolated static let leadOutPadSeconds: TimeInterval = 0.75
     /// Shared, reused across renders — allocating an `ISO8601DateFormatter` per
     /// `renderChapter` call is wasteful (§7.2). `@MainActor`-isolated via the
     /// class, so there's no Sendable concern around the non-Sendable formatter.
@@ -80,6 +80,16 @@ final class NarrationService {
         self.pronunciationOverrides = pronunciationOverrides
     }
 
+    struct RenderedNarrationFile: Sendable {
+        let chapterIndex: Int
+        let chapterDisplayNumber: Int
+        let segmentIndex: Int?
+        let fileURL: URL
+        let duration: TimeInterval
+        let anchors: [AlignmentAnchorRecord]
+        let spokenBlockIDs: [String]
+    }
+
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
     /// Idempotent: re-rendering the same chapter (e.g. a voice change) upserts in place.
     ///
@@ -96,30 +106,217 @@ final class NarrationService {
             nil
     ) async throws {
         let displayNumber = chapterNumber ?? (chapterIndex + 1)
-        state.update(
-            phase: .preparingChapter, progress: 0,
-            statusMessage: "Preparing chapter \(displayNumber)…")
+        let chapterStart = Date()
+        let fileURL = cacheDirectory.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
+        let rendered = try await renderNarrationFile(
+            chapterIndex: chapterIndex,
+            chapterDisplayNumber: displayNumber,
+            segmentIndex: nil,
+            blocks: blocks,
+            voice: voice,
+            fileURL: fileURL,
+            includeLeadOutPad: true,
+            reportsProgress: true,
+            onBlockProgress: onBlockProgress)
+        try await persistRenderedNarration(
+            rendered,
+            trackID: "syn-\(audiobookID)-ch\(chapterIndex)",
+            title: "Chapter \(displayNumber)",
+            sortOrder: chapterIndex,
+            voice: voice)
+
+        state.renderedChapterCount += 1
+        logger.notice(
+            "Chapter \(displayNumber) rendered: \(rendered.anchors.count) anchors, ~\(Int(rendered.duration))s audio, in \(Int(Date().timeIntervalSince(chapterStart)))s."
+        )
+    }
+
+    /// Render and persist one segment as a playable synthesized track. Anchors
+    /// remain segment-local (0-based) and the matching timeline rows are stamped
+    /// with `segment_key` so read-along can disambiguate same-chapter time
+    /// collisions when segment files are eventually queued for playback.
+    func renderSegment(
+        chapterIndex: Int,
+        chapterDisplayNumber: Int,
+        segmentIndex: Int,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
+            nil
+    ) async throws {
+        let rendered = try await renderSegmentFile(
+            chapterIndex: chapterIndex,
+            chapterDisplayNumber: chapterDisplayNumber,
+            segmentIndex: segmentIndex,
+            blocks: blocks,
+            voice: voice,
+            onBlockProgress: onBlockProgress)
+
+        try await persistRenderedNarration(
+            rendered,
+            trackID: "syn-\(audiobookID)-ch\(chapterIndex)-s\(segmentIndex)",
+            title: "Chapter \(chapterDisplayNumber)",
+            sortOrder: chapterIndex * 1000 + segmentIndex,
+            voice: voice,
+            segmentKey: ReaderActiveBlockResolver.segmentKey(
+                forChapter: chapterIndex,
+                segment: segmentIndex))
+    }
+
+    /// Render one complete segment file without mutating playback, alignment, or
+    /// chapter-render state. This is the safe primitive for the hybrid streaming
+    /// path: orchestration can prove segment files first, then opt into track,
+    /// read-along, and export semantics in later slices.
+    func renderSegmentFile(
+        chapterIndex: Int,
+        chapterDisplayNumber: Int,
+        segmentIndex: Int,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
+            nil
+    ) async throws -> RenderedNarrationFile {
+        let fileURL = cacheDirectory.appendingPathComponent(
+            NarrationFileNaming.segmentFileName(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                segmentIndex: segmentIndex,
+                voice: voice))
+        return try await renderNarrationFile(
+            chapterIndex: chapterIndex,
+            chapterDisplayNumber: chapterDisplayNumber,
+            segmentIndex: segmentIndex,
+            blocks: blocks,
+            voice: voice,
+            fileURL: fileURL,
+            includeLeadOutPad: false,
+            reportsProgress: false,
+            onBlockProgress: onBlockProgress)
+    }
+
+    private func persistRenderedNarration(
+        _ rendered: RenderedNarrationFile,
+        trackID: String,
+        title: String,
+        sortOrder: Int,
+        voice: VoiceID,
+        segmentKey: String? = nil
+    ) async throws {
+        try Task.checkCancellation()  // last gate before any DB write
+
+        let track = TrackRecord(
+            id: trackID,
+            audiobookID: audiobookID,
+            title: title,
+            duration: rendered.duration,
+            filePath: rendered.fileURL.path,
+            isEnabled: true,
+            sortOrder: sortOrder,
+            playlistPosition: nil,
+            narrationVoice: voice.rawValue)
+
+        // One atomic, idempotent transaction off the main thread: upsert the track
+        // + every anchor so a re-render (e.g. a voice change) updates in place
+        // instead of throwing on a duplicate primary key, and a failure can't
+        // leave a half-written render unit.
+        let anchorsToSave = rendered.anchors
+        try await db.write { db in
+            var savedTrack = track
+            try savedTrack.save(db)
+            for var anchor in anchorsToSave { try anchor.save(db) }
+        }
+
+        // Propagate the just-saved `.synthesized` anchors into `timeline_item`:
+        // that table — not `alignment_anchor` — is what the reader reads
+        // (`WHERE audio_start_time >= 0`), so without this the reader shows no
+        // timestamps and never highlights. Runs AFTER the anchor transaction
+        // (recalc opens its own `db.write`, so it must not be nested). A recalc
+        // failure must not fail the render — the audio is already on disk and the
+        // anchors persisted; log and continue.
+        do {
+            // `anchoredOnly`: only rendered blocks are anchored, so the global
+            // synthetic-boundary + interpolation pass must be skipped — otherwise
+            // un-narrated front matter gets a near-zero interpolated
+            // `audio_start_time`, passes the reader's `>= 0` filter, and the
+            // reader highlights front matter instead of the narrated unit.
+            //
+            // `materializeWordTimings: false`: the default would wipe & rebuild the
+            // WHOLE book's `word_timing` table here — run once per render unit is
+            // O(chapters²) over a render run. Instead we materialize just this
+            // unit's words below, so per-word read-along lights up incrementally.
+            try AlignmentService(db: db, audiobookID: audiobookID)
+                .recalculateTimeline(anchoredOnly: true, materializeWordTimings: false)
+            try WordTimingMaterializer.materializeChapter(
+                audiobookID: audiobookID, blockIDs: rendered.spokenBlockIDs, writer: db)
+            if let segmentKey {
+                let audioEndTimesByBlockID = Dictionary(
+                    uniqueKeysWithValues: rendered.anchors.compactMap { anchor in
+                        anchor.audioEndTime.map { (anchor.epubBlockID, $0) }
+                    })
+                try TimelineDAO(db: db).setSegmentKey(
+                    audiobookID: audiobookID,
+                    blockIDs: rendered.spokenBlockIDs,
+                    segmentKey: segmentKey,
+                    audioEndTimesByBlockID: audioEndTimesByBlockID)
+                try TimelineDAO(db: db).restoreSegmentAudioEndTimesFromAnchors(
+                    audiobookID: audiobookID)
+            }
+        } catch {
+            let unitLabel =
+                rendered.segmentIndex.map {
+                    "chapter \(rendered.chapterIndex) segment \($0)"
+                } ?? "chapter \(rendered.chapterIndex)"
+            logger.error(
+                "Timeline recalc after \(unitLabel) failed: \(error.localizedDescription)"
+            )
+        }
+
+        // Tell the reader to reload so the newly-materialized timeline rows
+        // light up read-along incrementally as each render unit lands. Mirrors
+        // EPUBAutoImportScanner's post; the reader gates on the audiobookID.
+        NotificationCenter.default.post(
+            name: .timelineItemsIngested,
+            object: nil,
+            userInfo: ["audiobookID": audiobookID]
+        )
+    }
+
+    private func renderNarrationFile(
+        chapterIndex: Int,
+        chapterDisplayNumber: Int,
+        segmentIndex: Int?,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        fileURL: URL,
+        includeLeadOutPad: Bool,
+        reportsProgress: Bool,
+        onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)?
+    ) async throws -> RenderedNarrationFile {
+        if reportsProgress {
+            state.update(
+                phase: .preparingChapter, progress: 0,
+                statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
+        }
 
         let spoken = blocks.filter { ($0.text?.isEmpty == false) }
-        let chapterStart = Date()
-        logger.notice("Chapter \(displayNumber): synthesizing \(spoken.count) block(s)…")
+        let unitLabel = segmentIndex.map {
+            "Chapter \(chapterDisplayNumber) segment \($0 + 1)"
+        } ?? "Chapter \(chapterDisplayNumber)"
+        logger.notice("\(unitLabel): synthesizing \(spoken.count) block(s)…")
         var anchors: [AlignmentAnchorRecord] = []
         var cursor: TimeInterval = 0
         let now = Self.iso8601.string(from: Date())
 
-        // Stream-to-sink: open the chapter's audio file up front and encode each
-        // synthesized sub-chunk straight to disk, so peak memory is one sub-chunk's
-        // PCM (~hundreds of KB) instead of the whole chapter's accumulated samples
-        // (tens of MB) — the difference that keeps long narration sessions under
-        // the A14 4 GB jetsam ceiling. Kokoro is fixed at 24 kHz.
-        let fileURL = cacheDirectory.appendingPathComponent(
-            NarrationFileNaming.chapterFileName(
-                audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
+        // Stream-to-sink: open the audio file up front and encode each synthesized
+        // sub-chunk straight to disk, so peak memory is one sub-chunk's PCM
+        // (~hundreds of KB) instead of a whole chapter's accumulated samples.
         let stream = try audioWriter.makeStream(to: fileURL, sampleRate: 24_000)
 
-        // Snapshot the override map once per chapter so a mid-render edit (the
+        // Snapshot the override map once per render unit so a mid-render edit (the
         // store is @MainActor, and this method awaits between blocks) can't change
-        // a word's pronunciation partway through the same chapter.
+        // a word's pronunciation partway through the same file.
         let overrides = pronunciationOverrides()
 
         for (i, block) in spoken.enumerated() {
@@ -141,7 +338,7 @@ final class NarrationService {
                     throw CancellationError()
                 } catch let error where Self.isLengthCapError(error) {
                     // A length-cap throw from one sub-chunk must not abort the
-                    // whole chapter — skip it and keep going.
+                    // whole render unit — skip it and keep going.
                     logger.error(
                         "Skipping over-long sub-chunk in block \(block.id): \(error.localizedDescription)"
                     )
@@ -158,90 +355,36 @@ final class NarrationService {
                     source: AlignmentAnchorRecord.Source.synthesized.rawValue,
                     note: nil, createdAt: now, modifiedAt: now))
             cursor += blockDuration
-            logger.notice("  chapter \(displayNumber): block \(i + 1)/\(spoken.count) synthesized")
-            state.update(
-                phase: .preparingChapter,
-                progress: Double(i + 1) / Double(spoken.count),
-                statusMessage: "Preparing chapter \(displayNumber)…")
-            onBlockProgress?(displayNumber, Double(i + 1) / Double(spoken.count))
+            logger.notice("  \(unitLabel): block \(i + 1)/\(spoken.count) synthesized")
+            if reportsProgress {
+                state.update(
+                    phase: .preparingChapter,
+                    progress: Double(i + 1) / Double(spoken.count),
+                    statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
+            }
+            onBlockProgress?(chapterDisplayNumber, Double(i + 1) / Double(spoken.count))
         }
 
         // Lead-out pad: append trailing silence so the last word has room to ring
-        // out and the player can't advance to the next chapter mid-word. Added
-        // AFTER the anchor loop, so the silence is unanchored dead air — read-along
-        // stops highlighting at the last spoken word. Guarded on `cursor > 0` so a
-        // chapter with nothing speakable (or all sub-chunks length-capped) creates
-        // no file and no spurious silence-only track.
-        if cursor > 0 {
+        // out and the player can't advance to the next file mid-word. Added AFTER
+        // the anchor loop, so the silence is unanchored dead air.
+        if includeLeadOutPad, cursor > 0 {
             try await stream.append(
                 .silence(seconds: Self.leadOutPadSeconds, sampleRate: 24_000))
         }
 
         try Task.checkCancellation()
         let duration = try await stream.finalize()
+        try Task.checkCancellation()
 
-        try Task.checkCancellation()  // last gate before any DB write
-
-        let track = TrackRecord(
-            id: "syn-\(audiobookID)-ch\(chapterIndex)", audiobookID: audiobookID,
-            title: "Chapter \(displayNumber)", duration: duration,
-            filePath: fileURL.path, isEnabled: true, sortOrder: chapterIndex,
-            playlistPosition: nil, narrationVoice: voice.rawValue)
-
-        // One atomic, idempotent transaction off the main thread: upsert the track
-        // + every anchor so a re-render (e.g. a voice change) updates in place
-        // instead of throwing on a duplicate primary key, and a failure can't
-        // leave a half-written chapter.
-        let anchorsToSave = anchors
-        try await db.write { db in
-            var savedTrack = track
-            try savedTrack.save(db)
-            for var anchor in anchorsToSave { try anchor.save(db) }
-        }
-
-        // Propagate the just-saved `.synthesized` anchors into `timeline_item`:
-        // that table — not `alignment_anchor` — is what the reader reads
-        // (`WHERE audio_start_time >= 0`), so without this the reader shows no
-        // timestamps and never highlights. Runs AFTER the anchor transaction
-        // (recalc opens its own `db.write`, so it must not be nested). A recalc
-        // failure must not fail the render — the chapter audio is already on
-        // disk and the anchors persisted; log and continue.
-        do {
-            // `anchoredOnly`: only the rendered chapter(s) are anchored, so the
-            // global synthetic-boundary + interpolation pass must be skipped —
-            // otherwise un-narrated front matter gets a near-zero interpolated
-            // `audio_start_time`, passes the reader's `>= 0` filter, and the
-            // reader highlights front matter instead of the narrated chapter.
-            //
-            // `materializeWordTimings: false`: the default would wipe & rebuild the
-            // WHOLE book's `word_timing` table here — run once per chapter that is
-            // O(chapters²) over a render run (the exact pitfall this method's doc
-            // warns about; AutoAlignmentService opts out the same way). Instead we
-            // materialize just this chapter's words below, so per-word read-along
-            // still lights up incrementally without the quadratic rebuild.
-            try AlignmentService(db: db, audiobookID: audiobookID)
-                .recalculateTimeline(anchoredOnly: true, materializeWordTimings: false)
-            try WordTimingMaterializer.materializeChapter(
-                audiobookID: audiobookID, blockIDs: spoken.map(\.id), writer: db)
-        } catch {
-            logger.error(
-                "Timeline recalc after chapter \(chapterIndex) failed: \(error.localizedDescription)"
-            )
-        }
-
-        // Tell the reader to reload so the newly-materialized timeline rows
-        // light up read-along incrementally as each chapter renders. Mirrors
-        // EPUBAutoImportScanner's post; the reader gates on the audiobookID.
-        NotificationCenter.default.post(
-            name: .timelineItemsIngested,
-            object: nil,
-            userInfo: ["audiobookID": audiobookID]
-        )
-
-        state.renderedChapterCount += 1
-        logger.notice(
-            "Chapter \(displayNumber) rendered: \(anchors.count) anchors, ~\(Int(duration))s audio, in \(Int(Date().timeIntervalSince(chapterStart)))s."
-        )
+        return RenderedNarrationFile(
+            chapterIndex: chapterIndex,
+            chapterDisplayNumber: chapterDisplayNumber,
+            segmentIndex: segmentIndex,
+            fileURL: fileURL,
+            duration: duration,
+            anchors: anchors,
+            spokenBlockIDs: spoken.map(\.id))
     }
 
     #if DEBUG && os(iOS)

@@ -9,6 +9,8 @@ struct ABSBrowseView: View {
     @State private var selectedLibrary: ABSLibrary?
     @State private var items: [ABSLibraryItem] = []
     @State private var isLoading = false
+    @State private var isLoadingItems = false
+    @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var searchQuery = ""
     @State private var searchResults: [ABSLibraryItem]? = nil
@@ -29,14 +31,43 @@ struct ABSBrowseView: View {
                                 ForEach(libraries) { lib in Text(lib.name).tag(Optional(lib)) }
                             }
                         }
-                        ForEach(searchResults ?? items) { item in
-                            NavigationLink {
-                                ABSItemDetailView(item: item, onImported: { dismiss() })
-                            } label: {
-                                ABSItemRow(
-                                    item: item,
-                                    coverURL: model.makeAudiobookshelfService()?.coverURL(
-                                        itemID: item.id))
+                        if libraries.isEmpty {
+                            ContentUnavailableView("No Libraries", systemImage: "books.vertical",
+                                description: Text(
+                                    "Audiobookshelf returned no libraries for this account."
+                                )
+                            )
+                            .listRowSeparator(.hidden)
+                        } else if isLoadingItems {
+                            ProgressView("Loading books...")
+                        } else if isSearching {
+                            ProgressView("Searching...")
+                        } else if displayedItems.isEmpty {
+                            if isShowingSearchResults {
+                                ContentUnavailableView("No Results", systemImage: "magnifyingglass",
+                                    description: Text(
+                                        "No books matched \"\(trimmedSearchQuery)\"."
+                                    )
+                                )
+                                .listRowSeparator(.hidden)
+                            } else {
+                                ContentUnavailableView("No Books", systemImage: "book.closed",
+                                    description: Text(
+                                        "This Audiobookshelf library does not contain any books yet."
+                                    )
+                                )
+                                .listRowSeparator(.hidden)
+                            }
+                        } else {
+                            ForEach(displayedItems) { item in
+                                NavigationLink {
+                                    ABSItemDetailView(item: item, onImported: { dismiss() })
+                                } label: {
+                                    ABSItemRow(
+                                        item: item,
+                                        coverURL: model.makeAudiobookshelfService()?.coverURL(
+                                            itemID: item.id))
+                                }
                             }
                         }
                     }
@@ -51,26 +82,34 @@ struct ABSBrowseView: View {
             // `.task(id:)` AUTO-CANCELS the prior item load when the selection changes —
             // prevents a slow older library's response from overwriting a newer one.
             // Do NOT replace with `.onChange { Task {} }`.
-            .task(id: selectedLibrary) { await loadItems() }
+            .task(id: selectedLibrary?.id) {
+                await loadItems()
+                await runSearch()
+            }
             .task(id: searchQuery) { await runSearch() }
         }
     }
 
     private func runSearch() async {
-        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let q = trimmedSearchQuery
         guard !q.isEmpty else {
             searchResults = nil
+            isSearching = false
             return
         }
         guard let service = model.makeAudiobookshelfService(), let lib = selectedLibrary else {
+            isSearching = false
             return
         }
         do {
+            isSearching = true
+            defer { isSearching = false }
             try await Task.sleep(for: .milliseconds(300))  // debounce keystrokes
             try Task.checkCancellation()
             let results = try await service.search(libraryID: lib.id, query: q)
             try Task.checkCancellation()
             searchResults = results
+            errorMessage = nil
         } catch is CancellationError {
             // superseded by a newer keystroke — ignore
         } catch {
@@ -88,6 +127,7 @@ struct ABSBrowseView: View {
         do {
             libraries = try await service.libraries()
             selectedLibrary = libraries.first
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -95,17 +135,33 @@ struct ABSBrowseView: View {
 
     private func loadItems() async {
         guard let service = model.makeAudiobookshelfService(), let lib = selectedLibrary else {
+            items = []
             return
         }
         do {
+            isLoadingItems = true
+            defer { isLoadingItems = false }
             let result = try await service.allItems(libraryID: lib.id)
             try Task.checkCancellation()  // bail if the selection already moved on
             items = result
+            errorMessage = nil
         } catch is CancellationError {
             // superseded by a newer selection — ignore
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var trimmedSearchQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var displayedItems: [ABSLibraryItem] {
+        searchResults ?? items
+    }
+
+    private var isShowingSearchResults: Bool {
+        !trimmedSearchQuery.isEmpty
     }
 }
 

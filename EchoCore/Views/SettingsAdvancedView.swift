@@ -7,6 +7,7 @@ import SwiftUI
 struct SettingsAdvancedView: View {
     @Environment(SettingsManager.self) private var settings
     @Environment(PlayerModel.self) private var model
+    @State private var contextMemoryStatus: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -30,6 +31,33 @@ struct SettingsAdvancedView: View {
             }
 
             Section {
+                Toggle(
+                    "Context Memory",
+                    isOn: Binding(
+                        get: { settings.locationCaptureEnabled },
+                        set: { isEnabled in
+                            settings.locationCaptureEnabled = isEnabled
+                            contextMemoryStatus =
+                                isEnabled
+                                ? "New bookmarks can receive approximate place names."
+                                : "Location capture is off."
+                        }
+                    ))
+
+                Button(role: .destructive, action: deleteContextMemory) {
+                    Label("Delete Context Memory", systemImage: "trash")
+                }
+                .disabled(model.databaseService == nil)
+            } header: {
+                Text("Context Memory")
+            } footer: {
+                Text(
+                    contextMemoryStatus
+                        ?? "Off by default. When enabled, Echo stores approximate place names for new bookmarks. Delete removes saved bookmark places and session location history from this device."
+                )
+            }
+
+            Section {
                 Toggle("Play Bookmarks Inline", isOn: $settings.playBookmarksInline)
             } footer: {
                 Text(
@@ -38,5 +66,24 @@ struct SettingsAdvancedView: View {
             }
         }
         .navigationTitle("Advanced")
+    }
+
+    private func deleteContextMemory() {
+        guard let writer = model.databaseService?.writer else {
+            contextMemoryStatus = "Open the app database before deleting Context Memory."
+            return
+        }
+
+        do {
+            let summary = try ContextMemoryDAO(db: writer).deleteAll()
+            let visibleBookmarkCount = model.bookmarkStore.clearLocationContext()
+            let locationCapture = model.locationCapture
+            Task { await locationCapture.flushCache() }
+            let totalBookmarks = max(summary.bookmarkCount, visibleBookmarkCount)
+            contextMemoryStatus =
+                "Deleted place data from \(totalBookmarks) bookmark(s) and \(summary.sessionLocationCount) session location(s)."
+        } catch {
+            contextMemoryStatus = "Could not delete Context Memory: \(error.localizedDescription)"
+        }
     }
 }

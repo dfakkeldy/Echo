@@ -14,6 +14,11 @@ struct StatsView: View {
     @State private var perBookTotals: [BookTotal] = []
     @State private var srsStats: SRSStats?
     @State private var dueForecast: [DueForecastPoint] = []
+    @State private var dailyReviews: [DailyReviewCount] = []
+    @State private var retentionCurve: [RetentionCurvePoint] = []
+    @State private var gradeDistribution: [GradeDistribution] = []
+    @State private var speedTrend: [SpeedTrendPoint] = []
+    @State private var timeOfDayHistogram: [HourBucket] = []
     @State private var plannerAdherence: PlannerAdherence?
     @State private var showingStudySession = false
     @State private var studySessionViewModel: StudySessionViewModel?
@@ -25,6 +30,12 @@ struct StatsView: View {
                 bucketPicker
                 overviewSection
                 if !bucketedTotals.isEmpty { listeningChart }
+                if !speedTrend.isEmpty || timeOfDayHistogram.contains(where: { $0.totalAdjustedDuration > 0 }) {
+                    ListeningInsightsSectionView(
+                        speedTrend: speedTrend,
+                        timeOfDayHistogram: timeOfDayHistogram
+                    )
+                }
                 if !perBookTotals.isEmpty { booksSection }
                 srsSection
                 if let p = plannerAdherence, p.totalPlannedSessions > 0 { plannerSection }
@@ -138,16 +149,16 @@ struct StatsView: View {
     private var srsSection: some View {
         if let s = srsStats {
             Section("Study (SRS)") {
-                Button("Review Queue", systemImage: "rectangle.stack.fill", action: launchStudySession)
+                StudyLibraryLinksView(onReviewTap: launchStudySession)
 
                 LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                     StatCardView(title: "Due", value: "\(s.dueCount)",
                                  systemImage: "bell", tint: .red)
                     StatCardView(title: "Cards", value: "\(s.totalCards)",
                                  systemImage: "rectangle.stack", tint: .indigo)
-                    StatCardView(title: "Retention", value: String(format: "%.0f%%", s.retentionRate * 100),
+                    StatCardView(title: "Retention", value: percentage(s.retentionRate),
                                  systemImage: "brain", tint: .teal)
-                    StatCardView(title: "Avg Ease", value: String(format: "%.1f", s.averageEase),
+                    StatCardView(title: "Avg Ease", value: oneDecimal(s.averageEase),
                                  systemImage: "gauge", tint: .mint)
                 }
 
@@ -162,6 +173,19 @@ struct StatsView: View {
                     .frame(height: 150)
                     .chartYAxisLabel("cards due")
                 }
+
+                if !dailyReviews.isEmpty {
+                    DailyReviewChartView(counts: dailyReviews)
+                }
+
+                if !retentionCurve.isEmpty {
+                    RetentionCurveChartView(points: retentionCurve)
+                }
+
+                let reviewedGrades = gradeDistribution.filter { $0.count > 0 }
+                if !reviewedGrades.isEmpty {
+                    GradeDistributionChartView(distribution: reviewedGrades)
+                }
             }
         }
     }
@@ -174,7 +198,7 @@ struct StatsView: View {
                 StatCardView(
                     title: "Completed",
                     value: "\(plannerAdherence?.completedSessions ?? 0)/\(plannerAdherence?.totalPlannedSessions ?? 0)",
-                    subtitle: String(format: "%.0f%%", (plannerAdherence?.completionRate ?? 0) * 100),
+                    subtitle: percentage(plannerAdherence?.completionRate ?? 0),
                     systemImage: "checklist", tint: .green)
                 StatCardView(
                     title: "In Session",
@@ -189,6 +213,7 @@ struct StatsView: View {
     private func loadAll() async {
         await loadOverview()
         await loadBucketed()
+        await loadListeningInsights()
         await loadSRS()
         await loadPlanner()
     }
@@ -214,12 +239,37 @@ struct StatsView: View {
         }
     }
 
+    private func loadListeningInsights() async {
+        guard let db = model.databaseService else { return }
+        do {
+            let repo = StatsRepository(reader: db.writer)
+            let calendar = Calendar.current
+            speedTrend = try await repo.fetchSpeedTrend(calendar: calendar)
+            timeOfDayHistogram = try await repo.fetchTimeOfDayHistogram(calendar: calendar)
+        } catch {
+            logger.error("Failed to load stats: \(error.localizedDescription)")
+        }
+    }
+
     private func loadSRS() async {
         guard let db = model.databaseService else { return }
         do {
             let repo = StatsRepository(reader: db.writer)
-            srsStats = try await repo.fetchSRSStats()
-            dueForecast = try await repo.fetchDueForecast(days: 30)
+            let calendar = Calendar.current
+            let now = Date()
+            let today = calendar.startOfDay(for: now)
+            let startDate = calendar.date(byAdding: .day, value: -30, to: today) ?? .distantPast
+            let endDate = calendar.date(byAdding: .day, value: 1, to: today) ?? now
+
+            srsStats = try await repo.fetchSRSStats(now: now, calendar: calendar)
+            dueForecast = try await repo.fetchDueForecast(days: 30, now: now, calendar: calendar)
+            dailyReviews = try await repo.fetchDailyReviewCounts(
+                from: startDate,
+                to: endDate,
+                calendar: calendar
+            )
+            retentionCurve = try await repo.fetchRetentionCurve()
+            gradeDistribution = try await repo.fetchGradeDistribution()
         } catch {
             logger.error("Failed to load stats: \(error.localizedDescription)")
         }
@@ -248,7 +298,10 @@ struct StatsView: View {
         }
 
         do {
-            try vm.loadQueue()
+            try vm.loadQueue(
+                globalNewChapterLimit: model.settingsManager?.studyGlobalNewChapterLimit
+                    ?? SettingsManager.Defaults.studyGlobalNewChapterLimit
+            )
             studySessionViewModel = vm
             showingStudySession = true
         } catch {
@@ -280,5 +333,170 @@ struct StatsView: View {
         let minutes = (Int(interval) % 3600) / 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
         return "\(minutes)m"
+    }
+
+    private func percentage(_ value: Double) -> String {
+        (value * 100).formatted(.number.precision(.fractionLength(0))) + "%"
+    }
+
+    private func oneDecimal(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(1)))
+    }
+}
+
+private struct ListeningInsightsSectionView: View {
+    let speedTrend: [SpeedTrendPoint]
+    let timeOfDayHistogram: [HourBucket]
+
+    var body: some View {
+        Section("Listening Patterns") {
+            if !speedTrend.isEmpty {
+                SpeedTrendChartView(points: speedTrend)
+            }
+
+            if timeOfDayHistogram.contains(where: { $0.totalAdjustedDuration > 0 }) {
+                TimeOfDayHistogramChartView(buckets: timeOfDayHistogram)
+            }
+        }
+    }
+}
+
+private struct SpeedTrendChartView: View {
+    let points: [SpeedTrendPoint]
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Playback Speed")
+                .bold()
+            Chart(points, id: \.date) { point in
+                LineMark(
+                    x: .value("Date", point.date, unit: .day),
+                    y: .value("Speed", point.averageSpeed)
+                )
+                .foregroundStyle(.cyan)
+                PointMark(
+                    x: .value("Date", point.date, unit: .day),
+                    y: .value("Speed", point.averageSpeed)
+                )
+                .foregroundStyle(.cyan)
+            }
+            .frame(height: 150)
+            .chartYAxisLabel("speed")
+        }
+    }
+}
+
+private struct TimeOfDayHistogramChartView: View {
+    let buckets: [HourBucket]
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Time of Day")
+                .bold()
+            Chart(buckets) { bucket in
+                BarMark(
+                    x: .value("Hour", hourLabel(bucket.id)),
+                    y: .value("Minutes", bucket.totalAdjustedDuration / 60)
+                )
+                .foregroundStyle(.blue.opacity(0.7))
+            }
+            .frame(height: 150)
+            .chartXAxisLabel("hour")
+            .chartYAxisLabel("minutes")
+        }
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        "\(hour):00"
+    }
+}
+
+private struct StudyLibraryLinksView: View {
+    let onReviewTap: () -> Void
+
+    var body: some View {
+        Group {
+            Button("Review Queue", systemImage: "rectangle.stack.fill", action: onReviewTap)
+
+            NavigationLink {
+                CardInboxView()
+            } label: {
+                Label("Card Inbox", systemImage: "tray")
+            }
+
+            NavigationLink {
+                DeckListView()
+            } label: {
+                Label("Decks", systemImage: "rectangle.stack")
+            }
+        }
+    }
+}
+
+private struct DailyReviewChartView: View {
+    let counts: [DailyReviewCount]
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Daily Reviews")
+                .bold()
+            Chart(counts) { point in
+                BarMark(
+                    x: .value("Date", point.date, unit: .day),
+                    y: .value("Reviews", point.count)
+                )
+                .foregroundStyle(.indigo.opacity(0.7))
+            }
+            .frame(height: 150)
+            .chartYAxisLabel("reviews")
+        }
+    }
+}
+
+private struct RetentionCurveChartView: View {
+    let points: [RetentionCurvePoint]
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Retention Curve")
+                .bold()
+            Chart(points) { point in
+                LineMark(
+                    x: .value("Interval", point.intervalDays),
+                    y: .value("Retention", point.retentionRate * 100)
+                )
+                .foregroundStyle(.teal)
+                PointMark(
+                    x: .value("Interval", point.intervalDays),
+                    y: .value("Retention", point.retentionRate * 100)
+                )
+                .foregroundStyle(.teal)
+            }
+            .frame(height: 150)
+            .chartXAxisLabel("days")
+            .chartYAxisLabel("remembered %")
+            .chartYScale(domain: 0...100)
+        }
+    }
+}
+
+private struct GradeDistributionChartView: View {
+    let distribution: [GradeDistribution]
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Grade Mix")
+                .bold()
+            Chart(distribution) { item in
+                BarMark(
+                    x: .value("Grade", item.grade),
+                    y: .value("Cards", item.count)
+                )
+                .foregroundStyle(.mint.opacity(0.7))
+            }
+            .frame(height: 150)
+            .chartXAxisLabel("grade")
+            .chartYAxisLabel("cards")
+        }
     }
 }

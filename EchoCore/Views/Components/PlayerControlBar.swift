@@ -23,11 +23,11 @@ struct PlayerControlBar: View {
                         .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
                 } else {
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.accentColor.opacity(0.12))
+                        .fill((model.resolvedThemeTint ?? Color.accentColor).opacity(0.12))
                         .frame(width: 40, height: 40)
                         .overlay {
                             Image(systemName: "book.closed.fill")
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                                 .font(.system(size: 16))
                         }
                 }
@@ -116,6 +116,9 @@ struct PlayerControlBar: View {
                 model.activeBookmarkDraft = draft
                 Haptic.play(.medium)
             }
+        case .markPassage:
+            model.markPassageAtCurrentTime()
+            Haptic.play(.light)
         case .speed:
             let speeds = SettingsManager.Defaults.speedPresets
             if let index = speeds.firstIndex(of: model.speed) {
@@ -140,6 +143,7 @@ struct PlayerControlBar: View {
         case .nextSection: return String(localized: "Next section")
         case .loopMode: return String(localized: "Loop mode")
         case .bookmark: return String(localized: "Add bookmark")
+        case .markPassage: return String(localized: "Mark passage for later")
         case .speed: return String(localized: "Playback speed")
         case .sleepTimer, .pomodoro, .empty: return ""
         }

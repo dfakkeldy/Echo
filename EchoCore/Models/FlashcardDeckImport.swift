@@ -30,6 +30,7 @@ struct FlashcardDeckImport: Codable, Sendable {
         let startTime: Double
         let endTime: Double
         let triggerTiming: FlashcardTriggerTiming
+        let sourceAnchor: String?
     }
 }
 

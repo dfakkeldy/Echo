@@ -80,7 +80,6 @@ Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
-Services/InlineFlashcardTriggerController.swift
 Services/LocationCaptureService.swift
 Services/M4BParser.swift
 Services/MacPlaybackLogic.swift
@@ -155,7 +154,6 @@ Views/Components/AlbumArtHeroView.swift
 Views/Components/BookProgressTrack.swift
 Views/Components/CircularProgressPlayButton.swift
 Views/Components/FlashcardCreationSheet.swift
-Views/Components/FlashcardOverlayView.swift
 Views/Components/Haptic.swift
 Views/Components/InlineStepperRow.swift
 Views/Components/MarqueeText.swift
@@ -216,7 +214,6 @@ Views/Stats/StatsView.swift
 Views/StatsModuleView.swift
 Views/StreakModuleView.swift
 Views/ThemeSelectionView.swift
-Views/TimelineTab.swift
 Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
@@ -262,7 +259,7 @@ The macOS app is rooted in `MacTriPaneView` (a `NavigationSplitView`/tri-pane la
 - **3-way loop + end-of-chapter sleep.** `loopMode: LoopMode`; the time observer calls `handleChapterBoundary()` **before** the active-chapter refresh (so the boundary is detected on the pre-advancement index), delegating to the pure, unit-tested `MacChapterLoopDecision.evaluate(...)` in `EchoCore/Services/MacPlaybackLogic.swift`. The `.bookmark` (A→B) loop is enforced on the same tick by `handleBookmarkLoop()`, delegating to the pure `MacBookmarkLoopDecision.seekBackTarget(...)` (mirrors iOS `PlaybackController.applyBookmarkLoopIfNeeded`: repeat the segment between the two bookmarks bracketing the playhead); the `MacPlaybackOptionsSheet` demotes `.bookmark` → `.off` when the book has no bookmarks.
 - **Configurable skip interval** (`skipInterval`, default 15) threaded through the player bar and Playback menu commands.
 - **Volume boost above unity** (which `AVAudioMix` volume cannot reach) via an `MTAudioProcessingTap` (`Services/MacAudioBoostTap.swift`) that multiplies samples by a linear gain read live from a shared box; an ASBD `prepare`-callback guard degrades to clean passthrough on non-float-PCM routes. The dB→linear math is the pure `MacVolumeBoost.linearGain` (also in `MacPlaybackLogic.swift`).
-- **Settings.** `Echo_macOSApp` injects a shared `SettingsManager` into both the main `WindowGroup` and the `Settings` scene and applies `.preferredColorScheme` from `settings.appAppearance`. `MacPlayerModel.settings` (injected once by `MacTriPaneView.task`, mirroring the `dbService` pattern) adopts the persisted skip interval and default speed. `MacSettingsView` is a native Preferences `TabView` (Appearance + Playback panes binding the shared `SettingsManager`; no Pro/StoreKit pane — macOS has none). Custom `appFont` / `themeColor` are persisted but not yet applied to the macOS UI (documented follow-up).
+- **Settings.** `Echo_macOSApp` injects a shared `SettingsManager` into both the main `WindowGroup` and the `Settings` scene, applies `.preferredColorScheme` from `settings.appAppearance`, applies static `themeColor` choices as the window tint, and installs the persisted `appFont` as the default body font. `MacPlayerModel.settings` (injected once by `MacTriPaneView.task`, mirroring the `dbService` pattern) adopts the persisted skip interval and default speed. `MacSettingsView` is a native Preferences `TabView` (Appearance + Playback panes binding the shared `SettingsManager`; no Pro/StoreKit pane — macOS has none). The main tri-pane chrome and Mac reader feed/card text also use the configured accessibility font.
 - **Player bar.** `MacTriPaneView`'s player bar replaced the track label with a `< Chapter Title >` chevron nav bar, the inline speed `Picker` with a button that opens `MacPlaybackOptionsSheet` (a `.popover` — speed / loop / skip / boost + a Smart Rewind `SettingsLink`), and relocated the inline sleep menu into `MacPlayerMoreMenu` (chapters / bookmarks / add-bookmark / mark-passage / sleep / Settings).
 
 ### macOS Batch Processing Queue (June 2026)
@@ -506,7 +503,7 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 
 > **Update (2026-06-18 — lexicon-only G2P + pronunciation overrides).** MisakiSwift's MLX-backed **BART out-of-vocabulary fallback** (and the transitive `mlx-swift` dependency) was **removed**, making English G2P (`KokoroG2P` → MisakiSwift's `EnglishG2P`) **lexicon-only** (`us_gold`/`us_silver`). This unblocks the iPhone-simulator test suite — `mlx-swift` 0.30.2 references Metal symbols undefined on the simulator ([mlx-swift#341](https://github.com/ml-explore/mlx-swift/issues/341)), which had transitively failed every sim test — and trims ~15 MB of `us_bart` weights from the bundle. `EnglishFallbackNetwork` is now a graceful stub: an OOV word emits the `unk` glyph (dropped by `KokoroPhonemeVocab` → silent) rather than crashing or guessing. To recover pronunciations for OOV words (proper nouns, tech terms), a user **pronunciation dictionary** — `PronunciationOverrideStore` (`@Observable`, JSON-persisted global map; **Settings ▸ Pronunciation**) feeding the pure `PronunciationOverrides` rewriter — wraps chosen words in MisakiSwift's `[word](/ipa/)` link syntax, which `EnglishG2P` injects at **rating 5** (above both the lexicon and the removed fallback). The rewrite runs in `NarrationService.renderChapter` **after `TextNormalizer` and before `NarrationTextChunker`**; the link token has no spaces or sentence terminators, so it survives chunking and reaches both the iOS and macOS render paths.
 
-> **Update (2026-06-19 — engine pivot to ONNX Runtime; CoreML stack removed).** The narration engine is now **`OnnxKokoroEngine`** (ONNX Runtime, CPU EP) on **both iOS and macOS**, replacing the entire CoreML stack. *Why:* the CoreML path AOT-compiled its model graphs on-device on first run — ~20 min on an A14, because the LSTM duration predictor's Espresso compile is O(n²) in token length — and routed the vocoder onto the ANE, which **trapped** (`libBNNS` `EXC_BREAKPOINT`) on A14. ONNX Runtime *interprets* the graph (no AOT compile, ≈0.7 s `ORTSession` load) and its CoreML EP can't run Kokoro's dynamic shapes, so it runs on the **CPU EP by construction — never touching the ANE**, which removes the trap entirely. On-device A14 (iPhone 12 Pro): ≈0.7 s load, RTF ≈ 0.5 (twice real-time), no crash. The engine loads the single `model_fp16.onnx` graph (~163 MB, `onnx-community/Kokoro-82M-v1.0-ONNX`; inputs `input_ids` i64 / `style` f32[1,256] / `speed` f32 → `waveform` f32 @ 24 kHz) and **reuses the existing front end verbatim** — MisakiSwift G2P (`KokoroG2P`), `KokoroPhonemeVocab` (BOS/EOS-wrapped ids, widened to Int64 for ORT), and `KokoroVoicePack` (the `af_heart` refS row); only the runtime changed. `NarrationFileNaming.renderVersion` is **6** (ONNX bytes differ from CoreML's, so cached audio regenerates once). The `model_fp16.onnx` download is pinned to an **immutable upstream commit** (not the moving `main` ref, so an upstream re-upload can't silently change the model behind renderVersion 6) and **integrity-checked by exact byte size** before the `ORTSession` loads it — a truncated or stale file is discarded and re-fetched — with byte-level download progress. **`NarrationCapability` now reports narration available on every iOS 18 / macOS 15 device** — the former A15+ gate existed only for the ANE trap. **Removed:** `KokoroFixedShapeEngine` (fixed-shape CoreML), `KokoroTTSEngine` (FluidAudio), `NarrationModelStore` (the 731 MB CoreML downloader), and FluidAudio's `KokoroAneError` handling in `NarrationService`. (The supersedes the four CoreML-era update notes above; they remain as history. Pivot decision: `docs/superpowers/research/2026-06-19-kokoro-onnx-pivot-decision.md`.)
+> **Update (2026-06-19 — engine pivot to ONNX Runtime; CoreML stack removed).** The narration engine is now **`OnnxKokoroEngine`** (ONNX Runtime, CPU EP) on **both iOS and macOS**, replacing the entire CoreML stack. *Why:* the CoreML path AOT-compiled its model graphs on-device on first run — ~20 min on an A14, because the LSTM duration predictor's Espresso compile is O(n²) in token length — and routed the vocoder onto the ANE, which **trapped** (`libBNNS` `EXC_BREAKPOINT`) on A14. ONNX Runtime *interprets* the graph (no AOT compile, ≈0.7 s `ORTSession` load) and its CoreML EP can't run Kokoro's dynamic shapes, so it runs on the **CPU EP by construction — never touching the ANE**, which removes the trap entirely. On-device A14 (iPhone 12 Pro): ≈0.7 s load, RTF ≈ 0.5 (twice real-time), no crash. The engine loads the single `model_fp16.onnx` graph (~163 MB, `onnx-community/Kokoro-82M-v1.0-ONNX`; inputs `input_ids` i64 / `style` f32[1,256] / `speed` f32 → `waveform` f32 @ 24 kHz) and **reuses the existing front end verbatim** — MisakiSwift G2P (`KokoroG2P`), `KokoroPhonemeVocab` (BOS/EOS-wrapped ids, widened to Int64 for ORT), and `KokoroVoicePack` (the `af_heart` refS row); only the runtime changed. `NarrationFileNaming.renderVersion` **6** captured the ONNX-byte transition; **7** reserves the segment-render cache layout for hybrid streaming. The `model_fp16.onnx` download is pinned to an **immutable upstream commit** (not the moving `main` ref, so an upstream re-upload can't silently change the model behind the pinned ONNX cache) and **integrity-checked by exact byte size** before the `ORTSession` loads it — a truncated or stale file is discarded and re-fetched — with byte-level download progress. **`NarrationCapability` now reports narration available on every iOS 18 / macOS 15 device** — the former A15+ gate existed only for the ANE trap. **Removed:** `KokoroFixedShapeEngine` (fixed-shape CoreML), `KokoroTTSEngine` (FluidAudio), `NarrationModelStore` (the 731 MB CoreML downloader), and FluidAudio's `KokoroAneError` handling in `NarrationService`. (The supersedes the four CoreML-era update notes above; they remain as history. Pivot decision: `docs/superpowers/research/2026-06-19-kokoro-onnx-pivot-decision.md`.)
 
 > **Update (2026-06-20 — render-loop perf + chapter outline).** A performance pass on the render loop plus a user-facing chapter outline (a multi-agent adversarial review drove the findings; design: `docs/superpowers/specs/2026-06-20-narration-chapter-outline-design.md`). **(a) Engine front-half cached.** `OnnxKokoroEngine.synthesize` previously rebuilt its whole front end — `KokoroG2P` (which parses ~6 MB of `us_gold`/`us_silver` lexicon JSON), `KokoroPhonemeVocab`, and `KokoroVoicePack` — on **every ≤200-char sub-chunk**. They are now loaded once into a cached **`KokoroFrontEnd`** held on the engine actor (voice packs memoized by id); `synthesize` calls `frontEnd.encode(text:voice:)`. Behavior-preserving (same `(ids, refS)`); this per-chunk churn — not a retain-cycle leak (the render `Task` is `[weak self]`, audio streams to disk) — was the "memory grows" symptom. **(b) Chapter-scoped word timings.** `NarrationService.renderChapter` no longer triggers the whole-book `word_timing` rebuild every chapter (O(chapters²) across a render run): it passes `recalculateTimeline(materializeWordTimings: false)` and materializes only the just-rendered chapter's words via the new block-scoped **`WordTimingMaterializer.materializeChapter`** (+ `WordTimingDAO.deleteAll(forAudiobook:blockIDs:)`), so incremental per-word read-along still lights up per chapter. The reader's `.timelineItemsIngested` handler (`ReaderTab`) now coalesces its per-chapter whole-book reloads into one trailing reload. **(c) Chapter outline + tap-to-exclude (iOS).** The playlist surfaces the **full EPUB chapter outline** for a narration book — every narratable chapter, independent of render progress — built by the pure **`NarrationOutlineBuilder`** (→ `NarrationOutlineChapter`) from all blocks + an injected file-exists check. Tapping a chapter excludes it from narration by hiding its blocks (the existing `is_hidden` axis; new `EPubBlockDAO.unhideChapter` / `AlignmentService.unhideChapter`), so it drops from `NarrationChapterPlanner.plan(from: visibleBlocks)` — never synthesized or queued — while its rendered file is kept on disk for instant re-include. `PlayerModel.isNarrationBook` / `narrationOutline` / `toggleNarrationChapterExcluded` drive `PlaylistView`. **No schema change.**
 
@@ -744,13 +741,11 @@ The iOS app uses a 3-tab layout managed by `RootTabView`:
 ```
 RootTabView
 ├── Tab 0: NowPlayingTab   ← pure media consumption (album art, scrubber, transport)
-├── Tab 1: ReaderTab        ← EPUB reader with search, alignment, and TOC (when EPUB is loaded)
-│                             falls back to PDFDocumentView (when PDF is loaded, no EPUB)
-│                             falls back to ReaderEmptyState (no companion document)
-└── Tab 2: TimelineTab      ← playlist, track/chapter list, bookmarks
+└── Tab 1: ReaderTab        ← Read & Study: EPUB/PDF reader, search, alignment, TOC,
+                              capture surfaces, review/library entry points, and empty states
 ```
 
-**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`, plus a `< Chapter Title >` chevron nav bar in `metadataArea` flanking the title marquee (gated by `PlayerModel.hasPreviousChapter` / `hasNextChapter`, reusing the chapter-aware `skipBackwardNavigation()` / `skipForwardNavigation()` the lock screen and CarPlay use). Per-listen controls live elsewhere (BookPlayer-style redesign, June 2026): **playback speed, the 3-way loop, seek/skip durations, Smart Rewind, and Volume Boost** moved into a presented `PlaybackOptionsSheet` (opened from the Now Playing speed indicator — both the static `BottomToolbarView` speed chip via an injected `onShowPlaybackOptions` closure threaded through `UnifiedBottomDock`, and the configurable `TransportControlsView` `.speed` slot via a `showPlaybackOptions` `EnvironmentKey` installed by `NowPlayingTab`). A player-scoped `PlayerMoreMenu` in the `BottomToolbarView` dock holds Chapters (presents `ChapterPickerSheet` as a jump-to-chapter navigator), Bookmarks (switches to the Study/Timeline tab), an inline Sleep-timer submenu, and Settings — distinct from the app-level `UnifiedTopHeader` ellipsis menu, and wired at both `UnifiedBottomDock` call sites (NowPlayingTab + the RootTabView overlay).
+**NowPlayingTab** focuses entirely on active playback: `AlbumArtHeroView`, `PlayerScrubberView`, and `TransportControlsView`, plus a `< Chapter Title >` chevron nav bar in `metadataArea` flanking the title marquee (gated by `PlayerModel.hasPreviousChapter` / `hasNextChapter`, reusing the chapter-aware `skipBackwardNavigation()` / `skipForwardNavigation()` the lock screen and CarPlay use). Per-listen controls live elsewhere (BookPlayer-style redesign, June 2026): **playback speed, the 3-way loop, seek/skip durations, Smart Rewind, and Volume Boost** moved into a presented `PlaybackOptionsSheet` (opened from the Now Playing speed indicator — both the static `BottomToolbarView` speed chip via an injected `onShowPlaybackOptions` closure threaded through `UnifiedBottomDock`, and the configurable `TransportControlsView` `.speed` slot via a `showPlaybackOptions` `EnvironmentKey` installed by `NowPlayingTab`). A player-scoped `PlayerMoreMenu` in the `BottomToolbarView` dock holds Chapters (presents `ChapterPickerSheet` as a jump-to-chapter navigator), Bookmarks (switches to Read & Study), an inline Sleep-timer submenu, and Settings — distinct from the app-level `UnifiedTopHeader` ellipsis menu, and wired at both `UnifiedBottomDock` call sites (NowPlayingTab + the RootTabView overlay).
 
 **ReaderTab** (available when `model.hasEPUB` is true; `model.hasPDF` provides a `PDFDocumentView` fallback) is the EPUB-backed reading surface. It renders the book as a feed of styled cards — headings, paragraphs, and images — aligned to the audio playback position. The header auto-hides on scroll-down and reveals on scroll-up. It includes:
 - A search bar for full-text search across the EPUB with inline match highlighting
@@ -759,7 +754,7 @@ RootTabView
 - Long-press context menus on every card for fixing alignment, changing card colors, creating bookmarks, and copying text
 - Per-card alignment anchors that lock EPUB blocks to exact audio timestamps
 
-**TimelineTab** currently hosts `PlaylistView` for track/chapter browsing and reordering (with `.onMove` drag handles and per-item toggle controls).
+`PlaylistView` is presented from the player-scoped menu for track/chapter browsing and reordering (with `.onMove` drag handles and per-item toggle controls).
 
 When a book is loaded, a `PlayerControlBar` mini-player appears above the `BottomToolbarView`,
 showing artwork, title/chapter metadata, and play/pause — tapping it opens the full NowPlaying view.
@@ -782,7 +777,6 @@ showing artwork, title/chapter metadata, and play/pause — tapping it opens the
 | `PlayerLoadingCoordinator` | Folder/track loading, audio session setup, persistence, seek-on-load |
 | `BookmarkArtworkCoordinator` | Artwork generation, caching, Now Playing artwork updates |
 | `PlayerTimelinePersistenceService` | Timeline item ingestion, EPUB presence checks |
-| `InlineFlashcardTriggerController` | SRS flashcard popover detection and trigger logic |
 | `EPUBImportCoordinator` | EPUB file import and block ingestion |
 | `BookSettingsOverrideStore` | Per-book font, volume boost, and bookmarks-inline overrides |
 | `BookPreferencesService` | Resolution logic for per-book + global preference merging |
@@ -848,7 +842,7 @@ The Reader uses a tap/long-press interaction model on card cells:
 
 **Bookmark lifecycle:** Bookmarks created via `BottomToolbarView.addBookmarkButton` flow through `BookmarkStore.appendBookmark` → `BookmarkDAO.syncToTimeline` → `timeline_item` table. The `.bookmarksDidChange` notification triggers a feed refresh, ensuring bookmarks appear inline immediately.
 
-**Playlist management:** `PlaylistView` (embedded in `TimelineTab`) provides track/chapter reordering via drag handles in edit mode, per-item enable/disable toggles, and bookmark browsing with swipe-to-edit. The backend is handled by `PlaylistManager` (track/chapter ordering and enabled-state persistence) and `PlaylistManifestService` (`.echoplaylist.json` manifest I/O).
+**Playlist management:** `PlaylistView` (opened from the player-scoped menu) provides track/chapter reordering via drag handles in edit mode, per-item enable/disable toggles, and bookmark browsing with swipe-to-edit. The backend is handled by `PlaylistManager` (track/chapter ordering and enabled-state persistence) and `PlaylistManifestService` (`.echoplaylist.json` manifest I/O).
 
 ### EPUB/PDF-to-Audio Data Model: Handling Mismatches
 
@@ -878,18 +872,20 @@ The ingestion layer (`TimelineIngestionFactory`) converts `nil` timestamps from 
 
 ### Reader-Specific Toolbar Controls
 
-When the user is on the Reader tab (`selectedTab == .read`), `BottomToolbarView` switches from the standard transport layout (loop, speed, sleep timer) to a simplified playback control set optimized for reading with audio:
+When the user is on the Reader tab (`selectedTab == .read`), `UnifiedBottomDock` keeps the `PlayerControlBar` visible above `BottomToolbarView` so reading, playback, and study capture stay close together:
 
 ```
-BottomToolbarView (Reader mode)
-├── skipBackwardButton  ← configurable duration (e.g., "gobackward.15")
-├── playPauseButton     ← centered play/pause toggle
-├── skipForwardButton   ← configurable duration (e.g., "goforward.30")
-├── timelineButton      ← quick access to full timeline
-└── addBookmarkButton   ← bookmark at current position
+UnifiedBottomDock (Reader mode)
+├── PlayerControlBar     ← mini-player seek/play controls
+└── BottomToolbarView
+    ├── PlayerMoreMenu
+    ├── speedMenu        ← inline speed presets
+    ├── markPassageButton
+    ├── readToggleButton ← Now Playing / Read toggle
+    └── bookmarkCaptureMenu
 ```
 
-The skip durations are read from `SettingsManager.seekBackwardDuration` / `seekForwardDuration` and displayed with dynamic SF Symbol naming (`gobackward.\(duration)` / `goforward.\(duration)`).
+The speed menu is backed by `SettingsManager.Defaults.speedPresets` and calls `PlayerModel.setSpeed(_:)` directly. Playback Options remains available from the same menu for loop and seek-duration settings.
 
 ### Anchor Status Indicators on Cards
 
@@ -897,9 +893,7 @@ The skip durations are read from `SettingsManager.seekBackwardDuration` / `seekF
 - `HeadingCardCell` and `ParagraphCardCell` include an `anchorLabel` (top-right corner) that always displays the block's audio timestamp (or "None" if unaligned). Locked-anchor timestamps render in **red** (`.systemRed`); estimated/interpolated timestamps render in **secondary label color**. The `setManuallyAligned(_:timeString:)` method controls both visibility and color.
 - The alignment status and audio start time caches are maintained in `ReaderFeedViewModel` (`alignmentStatusByBlockID`, `audioStartTimeByBlockID`) and passed through `ReaderFeedCollectionView` to the coordinator for cell configuration.
 
-**Timeline feed cells:**
-- `TextSegmentCell`, `ChapterMarkerCell`, and `ImageAssetCell` each include an `anchorIcon` (`UIImageView` with `link.circle` SF Symbol, tinted green) in their header stack. The icon is shown when `item.alignmentStatus == "lockedAnchor"`.
-- Context menus on locked-anchor items include "Erase Anchor" (destructive); all items offer "Reset Alignment" (destructive, clears all anchors).
+**Removed feed prototype:** Timeline-specific feed cells were removed with the old prototype; locked-anchor UI now lives in Reader feed cards and alignment context menus.
 
 ### Debug Development Assets
 
@@ -1017,11 +1011,12 @@ so the fix is not lost at the next promotion.
 
 ### CI wiring
 
-- **`.github/workflows/ci.yml`** — the existing build gate (`build-for-testing`
-  for the iOS app + widget + watch + tests, plus a macOS build) runs on every
-  push and PR to `main`, `weekly`, and `nightly`. The required status check is
-  named **`Build gate + tests`**; branch protection keys off that exact string,
-  so it must not be renamed.
+- **`.github/workflows/ci.yml`** — the existing gate runs on every push and PR
+  to `main`, `weekly`, and `nightly`: it resolves a pinned iOS 26.4 simulator,
+  runs `build-for-testing` for the iOS app + widget + watch + tests, executes
+  `EchoTests` with `test-without-building`, then smoke-builds the macOS target.
+  The required status check is named **`Build gate + tests`**; branch protection
+  keys off that exact string, so it must not be renamed.
 - **`.github/workflows/release-trains.yml`** — scheduled builds that give the
   train branches teeth. `schedule`/`workflow_dispatch` triggers only execute the
   copy of a workflow on the **default branch**, so this file lives on `main` and

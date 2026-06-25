@@ -90,8 +90,7 @@ enum EPUBAutoImportScanner {
         databaseService: DatabaseService,
         chapters: [Chapter],
         duration: TimeInterval?,
-        force: Bool = false,
-        downloadCloudAnchors: Bool = true
+        force: Bool = false
     ) async -> Bool {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
@@ -148,8 +147,7 @@ enum EPUBAutoImportScanner {
 
             return await DocumentImportFinalizer.finalize(
                 audiobookID: audiobookID, blocks: blocks, fileURL: epubURL,
-                duration: duration, databaseService: databaseService,
-                downloadCloudAnchors: downloadCloudAnchors)
+                duration: duration, databaseService: databaseService)
         } catch {
             logger.error("EPUB auto-import failed: \(error.localizedDescription)")
             return false
@@ -198,10 +196,6 @@ enum EPUBAutoImportScanner {
             "\(safeID)_\(UUID().uuidString)_content", isDirectory: true)
 
         try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-
-        // Apply data protection so extracted book text is encrypted at rest.
-        try (destDir as NSURL).setResourceValue(
-            URLFileProtection.complete, forKey: .fileProtectionKey)
 
         // Copy the EPUB into the cache directory so Archive opens a local file
         // rather than a file-provider-managed one. This avoids permission issues
@@ -282,8 +276,34 @@ enum EPUBAutoImportScanner {
             _ = try archive.extract(entry, to: destination)
         }
 
+        // Apply data protection after extraction. Setting it on the directory
+        // first can make simulator writes fail with EPERM, while device files
+        // still need explicit protection once ZIPFoundation has created them.
+        #if os(iOS) && !targetEnvironment(simulator)
+            try applyDataProtectionRecursively(to: destDir)
+        #endif
+
         logger.debug("Extracted EPUB to \(sanitizedPath(destDir.path))")
         return destDir
+    }
+
+    private static func applyDataProtectionRecursively(to root: URL) throws {
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey]
+            )
+        else { return }
+
+        let descendants = enumerator.compactMap { $0 as? URL }
+            .sorted { $0.path.count > $1.path.count }
+
+        for url in descendants {
+            try (url as NSURL).setResourceValue(
+                URLFileProtection.complete, forKey: .fileProtectionKey)
+        }
+        try (root as NSURL).setResourceValue(
+            URLFileProtection.complete, forKey: .fileProtectionKey)
     }
 
     /// Resolves a ZIP entry path to its on-disk destination, guaranteeing the

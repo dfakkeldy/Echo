@@ -82,4 +82,266 @@ struct DeckImportServiceTests {
         }
         #expect(title == "Real Title")
     }
+
+    // MARK: - vNext anchor resolution tests
+
+    @Test
+    func importDeckVNextResolvesSourceAnchor() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s1-b2"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Anchored Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "sourceAnchor": "s1-b2",
+                  "triggerTiming": "beginning"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 1)
+        #expect(result.warningCount == 0)
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.count == 1)
+        #expect(cards.first?.sourceBlockID == "epub-book-a-s1-b2")
+    }
+
+    @Test
+    func importDeckVNextRehomesFullLegacyBlockID() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-b", blockIDs: ["epub-book-b-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Rehomed Deck",
+              "targetMediaID": "book-b",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "epub-old-book-s0-b0"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.anchoredCount == 1)
+        #expect(result.importedCount == 1)
+        #expect(result.warnings.isEmpty)
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == "epub-book-b-s0-b0")
+    }
+
+    @Test
+    func importDeckVNextImportsUnresolvedAnchorWithWarning() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Partially Anchored Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "s9-b9"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .sourceAnchorUnresolved(cardReference: "json-card-0", sourceAnchor: "s9-b9")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == nil)
+    }
+
+    @Test
+    func importDeckVNextImportsMalformedAnchorWithWarning() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Malformed Anchor Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "chapter-1-paragraph-2"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .sourceAnchorMalformed(
+                    cardReference: "json-card-0", sourceAnchor: "chapter-1-paragraph-2")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == nil)
+    }
+
+    @Test
+    func importDeckVNextImportsWrongBookAnchorWithWarning() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        try seedBookWithBlocks(writer, targetID: "book-b", blockIDs: ["epub-book-b-s1-b1"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Wrong Book Anchor Deck",
+              "targetMediaID": "book-b",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "epub-book-a-s0-b0"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .sourceAnchorWrongBook(
+                    cardReference: "json-card-0", sourceAnchor: "epub-book-a-s0-b0")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == nil)
+    }
+
+    @Test
+    func importDeckVNextReportsTargetWithoutEPUBBlocksOnce() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedAudiobook(writer, id: "book-without-blocks")
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "No Blocks Deck",
+              "targetMediaID": "book-without-blocks",
+              "cards": [
+                { "frontText": "One", "backText": "Answer", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly", "sourceAnchor": "s0-b0" },
+                { "frontText": "Two", "backText": "Answer", "startTime": 5, "endTime": 10, "triggerTiming": "manualOnly", "sourceAnchor": "s0-b1" }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 2)
+        #expect(result.anchoredCount == 0)
+        #expect(
+            result.warnings == [
+                .targetAudiobookHasNoEPUBBlocks(targetMediaID: "book-without-blocks")
+            ])
+
+        let cards = try writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.map(\.sourceBlockID) == [nil, nil])
+    }
+
+    // MARK: - Seed helpers
+
+    private func seedAudiobook(_ writer: DatabaseWriter, id: String) throws {
+        try writer.write { db in
+            var audiobook = AudiobookRecord(
+                id: id,
+                title: id,
+                author: "Test Author",
+                duration: 0,
+                fileCount: nil,
+                addedAt: Date(timeIntervalSince1970: 1_750_000_000).ISO8601Format()
+            )
+            try audiobook.insert(db)
+        }
+    }
+
+    private func seedBookWithBlocks(_ writer: DatabaseWriter, targetID: String, blockIDs: [String])
+        throws
+    {
+        try writer.write { db in
+            var audiobook = AudiobookRecord(
+                id: targetID,
+                title: targetID,
+                author: "Test Author",
+                duration: 0,
+                fileCount: nil,
+                addedAt: Date(timeIntervalSince1970: 1_750_000_000).ISO8601Format()
+            )
+            try audiobook.insert(db)
+
+            for (index, blockID) in blockIDs.enumerated() {
+                var block = EPubBlockRecord(
+                    id: blockID,
+                    audiobookID: targetID,
+                    spineHref: "Text/chapter.xhtml",
+                    spineIndex: index,
+                    blockIndex: index,
+                    sequenceIndex: index,
+                    blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+                    text: "Block \(index)",
+                    htmlContent: nil,
+                    cardColor: nil,
+                    chapterThemeColor: nil,
+                    imagePath: nil,
+                    chapterIndex: index,
+                    isHidden: false,
+                    hiddenReason: nil,
+                    isFrontMatter: false,
+                    wordCount: nil,
+                    markers: nil,
+                    textFormats: nil,
+                    createdAt: nil,
+                    modifiedAt: nil
+                )
+                try block.insert(db)
+            }
+        }
+    }
 }

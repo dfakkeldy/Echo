@@ -312,7 +312,7 @@ enum StatsAggregator {
     /// "Remembered" = grade >= 3 (passing grade in SM-2).
     nonisolated static func retentionCurve(
         reviews: [(intervalDays: Int, grade: Int)]
-    ) -> [(intervalDays: Int, retentionRate: Double)] {
+    ) -> [RetentionCurvePoint] {
         var groups: [Int: (total: Int, remembered: Int)] = [:]
         for review in reviews {
             groups[review.intervalDays, default: (0, 0)].total += 1
@@ -321,7 +321,10 @@ enum StatsAggregator {
             }
         }
         return groups.map { interval, counts in
-            (intervalDays: interval, retentionRate: Double(counts.remembered) / Double(counts.total))
+            RetentionCurvePoint(
+                intervalDays: interval,
+                retentionRate: Double(counts.remembered) / Double(counts.total)
+            )
         }.sorted { $0.intervalDays < $1.intervalDays }
     }
 

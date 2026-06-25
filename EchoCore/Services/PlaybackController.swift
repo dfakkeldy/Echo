@@ -40,7 +40,7 @@ final class PlaybackController {
     @ObservationIgnored var coordinator_seekCompleted: ((_ isManual: Bool) -> Void)?
     @ObservationIgnored var coordinator_persistSpeed: ((_ key: String, _ speed: Float) -> Void)?
     @ObservationIgnored var coordinator_persistLoopMode: ((_ key: String, _ mode: String) -> Void)?
-    @ObservationIgnored var coordinator_hasBookmarks: (() -> Bool)?
+    @ObservationIgnored var coordinator_canBookmarkLoop: (() -> Bool)?
     @ObservationIgnored var coordinator_refreshProgress: (() -> Void)?
     @ObservationIgnored var coordinator_enabledBookmarks: (() -> [Bookmark])?
     @ObservationIgnored var coordinator_jumpToBookmark: ((Bookmark) -> Void)?
@@ -321,12 +321,12 @@ final class PlaybackController {
     }
 
     func cycleLoopMode() {
-        let hasBookmarks = coordinator_hasBookmarks?() ?? false
+        let canBookmarkLoop = coordinator_canBookmarkLoop?() ?? false
         switch loopMode {
         case .off:
             setLoopMode(.chapter)
         case .chapter:
-            setLoopMode(hasBookmarks ? .bookmark : .off)
+            setLoopMode(canBookmarkLoop ? .bookmark : .off)
         case .bookmark:
             setLoopMode(.off)
         }

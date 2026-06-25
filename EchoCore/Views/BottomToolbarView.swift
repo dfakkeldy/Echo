@@ -25,7 +25,7 @@ struct BottomToolbarView: View {
                 onShowSettings: onShowSettings
             )
             Spacer()
-            speedButton
+            speedMenu
             Spacer()
             markPassageButton
             Spacer()
@@ -59,7 +59,7 @@ struct BottomToolbarView: View {
     /// header chips and the rest of the player). The *active* state is still
     /// carried by a filled chip (shape) so it stays distinguishable without
     /// relying on color alone. 44pt target either way.
-    private var chromeAccent: Color { model.artworkAccentColor ?? .accentColor }
+    private var chromeAccent: Color { model.resolvedThemeTint ?? .accentColor }
 
     private func utilityChip<Content: View>(isActive: Bool, @ViewBuilder content: () -> Content)
         -> some View
@@ -89,39 +89,56 @@ struct BottomToolbarView: View {
 
     // MARK: - Speed
 
-    private var speedLabel: String {
-        switch model.speed {
+    private func speedLabel(_ speed: Float) -> String {
+        switch speed {
         case 0.75: return String(localized: "0.75×")
         case 1.0: return String(localized: "1.0×")
         case 1.25: return String(localized: "1.25×")
         case 1.5: return String(localized: "1.5×")
         case 1.75: return String(localized: "1.75×")
         case 2.0: return String(localized: "2.0×")
-        default: return model.speed.formatted(.number.precision(.fractionLength(1))) + "×"
+        case 3.0: return String(localized: "3.0×")
+        default: return speed.formatted(.number.precision(.fractionLength(1))) + "×"
         }
     }
 
-    private var speedButton: some View {
-        Button {
-            onShowPlaybackOptions()
-            Haptic.play(.light)
+    private var speedLabel: String {
+        speedLabel(model.speed)
+    }
+
+    private var speedMenu: some View {
+        Menu {
+            ForEach(SettingsManager.Defaults.speedPresets, id: \.self) { preset in
+                Button {
+                    model.setSpeed(preset)
+                    Haptic.play(.medium)
+                } label: {
+                    Label(
+                        speedLabel(preset),
+                        systemImage: model.speed == preset ? "checkmark" : "speedometer"
+                    )
+                }
+            }
+
+            Divider()
+
+            Button {
+                onShowPlaybackOptions()
+                Haptic.play(.light)
+            } label: {
+                Label("Playback Options", systemImage: "slider.horizontal.3")
+            }
         } label: {
             utilityTextChip(isActive: model.speed != 1.0, speedLabel)
         }
-        .accessibilityLabel(Text("Playback options"))
+        .accessibilityLabel(Text("Playback speed"))
         .accessibilityValue(Text(speedLabel))
-        .accessibilityHint(Text("Opens speed, loop, and skip settings"))
-        // No manual speed announcement here: this button now opens the Playback
-        // Options sheet rather than cycling speed inline, and the sheet's own
-        // segmented speed Picker announces the change. `accessibilityValue`
-        // above already voices the current speed when the chip is focused.
-        // A `UIAccessibility.post(.announcement)` on `model.speed` would
-        // double-announce (and fire while the chip is hidden behind the sheet).
+        .accessibilityHint(Text("Choose playback speed or open playback options"))
     }
 
     // MARK: - Read & Study Toggle
 
-    // Was timelineButton — now a 2-state toggle: nowPlaying ↔ read.
+    // Two-state toggle between Now Playing and Read.
     private var readToggleButton: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -136,7 +153,7 @@ struct BottomToolbarView: View {
         }
         .accessibilityLabel(Text(model.selectedTab == .read ? "Now Playing" : "Read & Study"))
         .accessibilityAddTraits(model.selectedTab == .read ? .isSelected : [])
-        .disabled(model.tracks.isEmpty)
+        .disabled(!model.hasPlaybackContent)
     }
 
     // MARK: - Bookmark
@@ -213,7 +230,7 @@ struct BottomToolbarView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(Text(model.isPlaying ? "Pause" : "Play"))
-        .disabled(model.tracks.isEmpty)
+        .disabled(!model.hasPlaybackContent)
     }
 
     private var skipForwardButton: some View {

@@ -138,7 +138,7 @@ struct NarrationRunResult {
     }
 
     /// Provenance stamp embedded in the m4b comment (`©cmt`): render date + the
-    /// engine/render version, e.g. "Echo narration — 2026-06-23 · ONNX rv6".
+    /// engine/render version, e.g. "Echo narration — 2026-06-23 · ONNX rv7".
     static func narrationVersionStamp(date: Date = Date()) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -409,17 +409,16 @@ struct NarrationRunResult {
                 chapters: [],
                 bookDuration: nil)
         case .epubFile(let epubURL):
-            // Headless: no iCloud entitlement, and narration creates synthesized
-            // anchors — so skip the community-CloudKit anchor query (it stalls /
-            // faults the process; see DocumentImportFinalizer).
+            // Headless narration imports with no book duration, so
+            // DocumentImportFinalizer skips the community-CloudKit anchor query
+            // (which would stall/fault with no iCloud entitlement).
             let didImport = await EPUBAutoImportScanner.importEPUBFile(
                 epubURL: epubURL,
                 audiobookID: audiobookID,
                 databaseService: db,
                 chapters: [],
                 duration: nil,
-                force: true,
-                downloadCloudAnchors: false)
+                force: true)
             guard didImport else {
                 throw NarrationRunError.noSourceImported(epubURL.lastPathComponent)
             }

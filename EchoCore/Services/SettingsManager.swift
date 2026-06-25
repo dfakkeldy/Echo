@@ -59,6 +59,7 @@ final class SettingsManager {
         static let readerFontSize: Double = 17.0
         static let readerLineSpacing: Double = 1.4
         static let readerCardTint: String = "#F5F0E8"
+        static let studyGlobalNewChapterLimit = 12
         static let autoAlignmentEnabled = true
         static let locationCaptureEnabled = false
         static let autoAlignmentModelSize = "base.en"
@@ -121,6 +122,7 @@ final class SettingsManager {
         static let readerFontSize = "readerFontSize"
         static let readerLineSpacing = "readerLineSpacing"
         static let readerCardTint = "readerCardTint"
+        static let studyGlobalNewChapterLimit = "studyGlobalNewChapterLimit"
         static let autoAlignmentEnabled = "autoAlignmentEnabled"
         static let locationCaptureEnabled = "locationCaptureEnabled"
         static let autoAlignmentModelSize = "autoAlignmentModelSize"
@@ -315,6 +317,19 @@ final class SettingsManager {
     var readerCardTint: String {
         get { defaults.string(forKey: Keys.readerCardTint) ?? Defaults.readerCardTint }
         set { defaults.set(newValue, forKey: Keys.readerCardTint) }
+    }
+
+    // MARK: - Study
+
+    var studyGlobalNewChapterLimit: Int {
+        didSet {
+            let boundedValue = Self.boundedStudyGlobalNewChapterLimit(studyGlobalNewChapterLimit)
+            guard studyGlobalNewChapterLimit == boundedValue else {
+                studyGlobalNewChapterLimit = boundedValue
+                return
+            }
+            defaults.set(boundedValue, forKey: Keys.studyGlobalNewChapterLimit)
+        }
     }
 
     // MARK: - Auto-Alignment
@@ -576,6 +591,10 @@ final class SettingsManager {
         continuousAutoAlignmentEnabled =
             defaults.object(forKey: Keys.continuousAutoAlignmentEnabled) as? Bool
             ?? Defaults.continuousAutoAlignmentEnabled
+        studyGlobalNewChapterLimit = Self.boundedStudyGlobalNewChapterLimit(
+            defaults.object(forKey: Keys.studyGlobalNewChapterLimit) as? Int
+                ?? Defaults.studyGlobalNewChapterLimit
+        )
 
         chimeInterval =
             defaults.object(forKey: Keys.chimeInterval) as? TimeInterval ?? Defaults.chimeInterval
@@ -623,6 +642,7 @@ final class SettingsManager {
             Keys.readerFontSize: Defaults.readerFontSize,
             Keys.readerLineSpacing: Defaults.readerLineSpacing,
             Keys.readerCardTint: Defaults.readerCardTint,
+            Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
             Keys.autoAlignmentEnabled: Defaults.autoAlignmentEnabled,
             Keys.locationCaptureEnabled: Defaults.locationCaptureEnabled,
             Keys.autoAlignmentModelSize: Defaults.autoAlignmentModelSize,
@@ -683,6 +703,10 @@ final class SettingsManager {
 
     static func normalizedAppFont(_ appFont: String) -> String {
         appFont == legacySystemFontName ? systemFontName : appFont
+    }
+
+    private static func boundedStudyGlobalNewChapterLimit(_ value: Int) -> Int {
+        min(max(1, value), 12)
     }
 }
 

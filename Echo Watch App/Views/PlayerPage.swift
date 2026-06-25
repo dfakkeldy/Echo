@@ -316,6 +316,7 @@ struct TopSlotButton: View {
         case .speed: return "Playback speed"
         case .sleepTimer: return "Sleep timer"
         case .bookmark: return "Bookmark"
+        case .markPassage: return "Mark passage for later"
         case .pomodoro: return "Pomodoro timer"
         case .empty: return ""
         }
@@ -563,6 +564,7 @@ struct SideTransportButton: View {
         case .speed: return "Playback speed"
         case .sleepTimer: return "Sleep timer"
         case .bookmark: return "Bookmark"
+        case .markPassage: return "Mark passage for later"
         case .pomodoro: return "Pomodoro timer"
         case .empty: return "Empty slot"
         }
@@ -689,6 +691,7 @@ struct CenterTransportButton: View {
         case .speed: return "Playback speed"
         case .sleepTimer: return "Sleep timer"
         case .bookmark: return "Bookmark"
+        case .markPassage: return "Mark passage for later"
         case .pomodoro: return "Pomodoro timer"
         case .empty: return ""
         }

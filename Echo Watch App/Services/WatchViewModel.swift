@@ -124,6 +124,21 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         WKInterfaceDevice.current().play(type)
     }
 
+    func playReviewRevealHaptic() {
+        playHaptic(Self.hapticType(for: .reveal))
+    }
+
+    private static func hapticType(for feedback: WatchReviewFeedback) -> WKHapticType {
+        switch feedback {
+        case .reveal:
+            return .click
+        case .again:
+            return .retry
+        case .remembered:
+            return .success
+        }
+    }
+
     // MARK: Optimistic update rollback
 
     @ObservationIgnored private var pendingSnapshot: PlaybackSnapshot?
@@ -227,7 +242,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         super.init()
         AppGroupDefaults.migrateStandardDefaultsIfNeeded()
         loadPersistedState()
-        if WCSession.isSupported() {
+        if WCSession.isSupported(),
+           ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             let session = WCSession.default
             session.delegate = self
             session.activate()
@@ -249,6 +265,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         bookmarkStorageKey = defaults.string(forKey: "bookmarkStorageKey")
         folderKey = defaults.string(forKey: "folderKey")
         trackId = defaults.string(forKey: "trackId")
+        dueCards = WatchReviewQueueStore.load(from: defaults)
         crownAction = defaults.string(forKey: "crownAction") ?? "volume"
         seekBackwardDuration = defaults.integer(forKey: "seekBackwardDuration")
         if seekBackwardDuration == 0 { seekBackwardDuration = 30 }
@@ -315,47 +332,59 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         return out
     }
 
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+    nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         guard activationState == .activated else {
             if let error {
-                logger.error("WatchConnectivity activation failed: \(error)")
+                Logger(category: "WatchViewModel").error("WatchConnectivity activation failed: \(error)")
             }
             return
         }
-        requestCurrentState()
+        Task { @MainActor [weak self] in
+            self?.requestCurrentState()
+        }
     }
 
-    func sessionReachabilityDidChange(_ session: WCSession) {
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         guard session.isReachable else { return }
-        requestCurrentState()
+        Task { @MainActor [weak self] in
+            self?.requestCurrentState()
+        }
     }
 
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
         guard session.activationState == .activated else { return }
-        applyState(applicationContext)
+        Task { @MainActor [weak self] in
+            self?.applyReceivedApplicationContext(applicationContext)
+        }
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
         guard session.activationState == .activated else { return }
-        applyState(message)
+        Task { @MainActor [weak self] in
+            self?.applyState(message)
+        }
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
         guard session.activationState == .activated else {
             replyHandler([:])
             return
         }
-        applyState(message)
-        replyHandler(["handled": true])
+        Task { @MainActor [weak self] in
+            self?.applyState(message)
+            replyHandler(["handled": true])
+        }
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
         guard session.activationState == .activated else { return }
-        applyState(userInfo)
-        // userInfo deliveries can be minutes stale (queued while unreachable).
-        // Request the phone's current state so the watch converges to the
-        // authoritative position instead of displaying an outdated snapshot.
-        requestCurrentState()
+        Task { @MainActor [weak self] in
+            self?.applyState(userInfo)
+            // userInfo deliveries can be minutes stale (queued while unreachable).
+            // Request the phone's current state so the watch converges to the
+            // authoritative position instead of displaying an outdated snapshot.
+            self?.requestCurrentState()
+        }
     }
 
     private func applyState(_ state: [String: Any]) {
@@ -559,9 +588,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             }
 
             if let dueCardsJSON = state["dueCardsJSON"] as? String,
-               let jsonData = dueCardsJSON.data(using: .utf8),
-               let cards = try? JSONDecoder().decode([WatchFlashcard].self, from: jsonData) {
+               let cards = WatchReviewQueueStore.decode(dueCardsJSON) {
                 self.dueCards = cards
+                WatchReviewQueueStore.save(cards, to: self.defaults)
             }
 
             if state["commandResult"] as? String == "bookmarkJump" {
@@ -578,27 +607,59 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
     /// Sends a flashcard grade back to iPhone for FSRS processing and persistence.
     func gradeFlashcard(cardID: String, grade: Int) {
-        dueCards.removeAll { $0.id == cardID }
-        _ = sendCommand("gradeFlashcard", params: ["cardID": cardID, "grade": grade])
-    }
-
-    func requestCurrentState() {
         guard WCSession.isSupported() else { return }
 
         let session = WCSession.default
-        guard session.activationState == .activated else { return }
+        guard session.activationState == .activated else {
+            requestCurrentState()
+            return
+        }
+
+        session.transferUserInfo([
+            WatchMessageKey.command: "gradeFlashcard",
+            "cardID": cardID,
+            "grade": grade
+        ])
+        dueCards.removeAll { $0.id == cardID }
+        WatchReviewQueueStore.save(dueCards, to: defaults)
+        playHaptic(Self.hapticType(for: WatchReviewFeedbackPolicy.feedback(forGrade: grade)))
+    }
+
+    @discardableResult
+    func applyReceivedApplicationContext(_ applicationContext: [String: Any]) -> Bool {
+        guard !applicationContext.isEmpty else { return false }
+        applyState(applicationContext)
+        return true
+    }
+
+    @discardableResult
+    func applyReceivedApplicationContext() -> Bool {
+        guard WCSession.isSupported() else { return false }
+        return applyReceivedApplicationContext(WCSession.default.receivedApplicationContext)
+    }
+
+    @discardableResult
+    func requestCurrentState() -> Bool {
+        guard WCSession.isSupported() else { return false }
+
+        let session = WCSession.default
+        applyReceivedApplicationContext(session.receivedApplicationContext)
+        guard session.activationState == .activated, session.isReachable else { return false }
         session.sendMessage([WatchMessageKey.command: "requestState"], replyHandler: { [weak self] reply in
             self?.applyState(reply)
         }, errorHandler: { [weak self] error in
             self?.logger.error("Error requesting state: \(error)")
         })
+        return true
     }
 
     func refreshAfterWake() {
         appWillEnterForeground()
+        applyReceivedApplicationContext()
 
-        guard wakeRefreshPolicy.shouldRefresh() else { return }
-        requestCurrentState()
+        guard wakeRefreshPolicy.canRefresh() else { return }
+        guard requestCurrentState() else { return }
+        wakeRefreshPolicy.recordRefresh()
     }
 
     private static func isDirectionalCommand(_ command: String) -> Bool {

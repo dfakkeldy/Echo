@@ -63,4 +63,36 @@ struct Echo_Watch_AppTests {
         #expect(laterRefresh)
     }
 
+    @Test func wakeRefreshPolicyDoesNotThrottleUntilRefreshIsRecorded() {
+        var policy = WatchWakeRefreshPolicy(minimumInterval: 1.0)
+        let start = Date(timeIntervalSinceReferenceDate: 100)
+
+        #expect(policy.canRefresh(now: start))
+        #expect(policy.canRefresh(now: start.addingTimeInterval(0.5)))
+
+        policy.recordRefresh(now: start.addingTimeInterval(0.5))
+
+        #expect(!policy.canRefresh(now: start.addingTimeInterval(1.0)))
+        #expect(policy.canRefresh(now: start.addingTimeInterval(1.5)))
+    }
+
+    @MainActor
+    @Test func receivedApplicationContextUpdatesWatchState() async {
+        let viewModel = WatchViewModel()
+        let applied = viewModel.applyReceivedApplicationContext([
+            "title": "Updated on iPhone",
+            "currentTime": 42.0,
+            "totalProgressFraction": 0.25,
+            "progressFraction": 0.5
+        ])
+
+        await Task.yield()
+
+        #expect(applied)
+        #expect(viewModel.title == "Updated on iPhone")
+        #expect(viewModel.currentTime == 42.0)
+        #expect(viewModel.totalProgressFraction == 0.25)
+        #expect(viewModel.progressFraction == 0.5)
+    }
+
 }

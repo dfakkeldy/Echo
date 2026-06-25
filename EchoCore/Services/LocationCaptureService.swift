@@ -14,7 +14,7 @@ actor LocationCaptureService {
 
         /// Two-decimal rounding key — used for cache deduplication.
         var cacheKey: String {
-            String(format: "%.2f,%.2f", latitude, longitude)
+            "\(latitude),\(longitude)"
         }
     }
 
@@ -38,9 +38,8 @@ actor LocationCaptureService {
     /// Fires once and returns nil on timeout, denial, or error.
     /// Never blocks the caller for more than ~10 seconds.
     func capture(description: String? = nil, timeout: TimeInterval = 10) async -> Place? {
-        // Check authorization first
         let status = manager.authorizationStatus
-        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+        guard status != .denied, status != .restricted else {
             return nil
         }
 
@@ -56,7 +55,7 @@ actor LocationCaptureService {
 
             let lat = round(coord.latitude * 100) / 100
             let lon = round(coord.longitude * 100) / 100
-            let key = String(format: "%.2f,%.2f", lat, lon)
+            let key = "\(lat),\(lon)"
 
             // Return cached place if we've been here before
             if let cached = await self.cached(key) {
@@ -115,7 +114,7 @@ private func withTaskTimeout<T: Sendable>(
     await withTaskGroup(of: T?.self) { group in
         group.addTask { await operation() }
         group.addTask {
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            try? await Task.sleep(for: .nanoseconds(Int64(seconds * 1_000_000_000)))
             return nil
         }
         let result = await group.next()

@@ -30,13 +30,25 @@ struct MacSettingsSceneTests {
         #expect(src.contains("preferredColorScheme"))
     }
 
-    @Test("MacSettingsView exists with Appearance and Playback panes")
+    @Test("Main window applies font and tint from settings")
+    func mainWindowAppliesFontAndTint() throws {
+        let src = try MacSource.read("Echo_macOSApp.swift")
+        #expect(src.contains(".tint(Self.tintColor(for: settings.themeColor))"))
+        #expect(src.contains(".customFont(.body, appFont: settings.appFont)"))
+        #expect(src.contains("ThemeColor(rawValue: themeColor)?.color ?? .accentColor"))
+    }
+
+    @Test("MacSettingsView exists with Appearance, Playback, and Support panes")
     func macSettingsViewHasPanes() throws {
         let src = try MacSource.read("Views/MacSettingsView.swift")
         #expect(src.contains("struct MacSettingsView: View"))
         #expect(src.contains("TabView"))
         #expect(src.contains("Appearance"))
         #expect(src.contains("Playback"))
+        #expect(src.contains("Support"))
+        #expect(src.contains("MacSupportSettingsPane"))
+        #expect(src.contains("FeedbackSupport.emailURL"))
+        #expect(src.contains("FeedbackSupport.githubIssuesURL"))
     }
 
     @Test("MacSettingsView binds appearance, font, theme, speed")

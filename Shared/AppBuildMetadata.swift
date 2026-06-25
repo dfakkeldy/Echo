@@ -6,7 +6,13 @@ struct AppBuildMetadata: Sendable {
     let buildNumber: String
     let gitCommitHash: String?
 
-    init(bundle: Bundle = .main) {
+    nonisolated init(marketingVersion: String, buildNumber: String, gitCommitHash: String?) {
+        self.marketingVersion = marketingVersion
+        self.buildNumber = buildNumber
+        self.gitCommitHash = gitCommitHash
+    }
+
+    nonisolated init(bundle: Bundle = .main) {
         marketingVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "Unknown"
         buildNumber = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
@@ -14,11 +20,11 @@ struct AppBuildMetadata: Sendable {
         gitCommitHash = bundle.object(forInfoDictionaryKey: "GitCommitHash") as? String
     }
 
-    var versionString: String {
+    nonisolated var versionString: String {
         "\(marketingVersion) (\(buildNumber))"
     }
 
-    var commitString: String {
+    nonisolated var commitString: String {
         gitCommitHash ?? "Unavailable"
     }
 }

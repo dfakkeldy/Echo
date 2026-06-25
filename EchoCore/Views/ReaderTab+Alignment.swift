@@ -159,6 +159,116 @@ extension ReaderTab {
 
     // MARK: Context Menu Builder
 
+    func buildAccessibilityActions(block: EPubBlockRecord) -> [UIAccessibilityCustomAction] {
+        let blockID = block.id
+        let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
+        let status = viewModel?.alignmentStatusByBlockID[blockID]
+
+        var actions: [UIAccessibilityCustomAction] = []
+
+        actions.append(
+            UIAccessibilityCustomAction(name: "Auto-Align Chapters") { [weak model] _ in
+                guard let model else { return false }
+                startAutoAlignment(model: model)
+                return true
+            })
+
+        actions.append(
+            UIAccessibilityCustomAction(name: "Change Color") { _ in
+                showCardColorPickerForBlockID = blockID
+                return true
+            })
+
+        if kind == .heading {
+            actions.append(
+                UIAccessibilityCustomAction(name: "Set Chapter Theme") { _ in
+                    showChapterThemePickerForBlockID = blockID
+                    return true
+                })
+        }
+
+        actions.append(
+            UIAccessibilityCustomAction(name: "Align to Now") { [weak model] _ in
+                guard let model else { return false }
+                alignBlock(blockID, to: model.currentPlaybackTime, source: .moveToNow)
+                return true
+            })
+
+        actions.append(
+            UIAccessibilityCustomAction(name: "Align to 5s Ago") { [weak model] _ in
+                guard let model else { return false }
+                alignBlock(blockID, to: max(0, model.currentPlaybackTime - 5.0), source: .moveToNow)
+                return true
+            })
+
+        actions.append(
+            UIAccessibilityCustomAction(name: "Align to Chapter Start") { _ in
+                showChapterPickerForBlockID = blockID
+                return true
+            })
+
+        if let chapterIndex = block.chapterIndex {
+            actions.append(
+                UIAccessibilityCustomAction(name: "Not in Audio, Whole Chapter") { _ in
+                    hideChapter(chapterIndex)
+                    return true
+                })
+        }
+
+        if block.isHidden {
+            actions.append(
+                UIAccessibilityCustomAction(name: "Include in Audio") { _ in
+                    unhideBlock(blockID)
+                    return true
+                })
+        } else {
+            actions.append(
+                UIAccessibilityCustomAction(name: "Not in Audio, This Paragraph") { _ in
+                    hideBlock(blockID)
+                    return true
+                })
+        }
+
+        if status == "lockedAnchor" {
+            actions.append(
+                UIAccessibilityCustomAction(name: "Erase Anchor") { _ in
+                    eraseAnchor(blockID)
+                    return true
+                })
+        }
+
+        actions.append(
+            UIAccessibilityCustomAction(name: "Reset Alignment") { _ in
+                resetAlignment()
+                return true
+            })
+
+        actions.append(
+            UIAccessibilityCustomAction(name: "Save Bookmark") { [weak model] _ in
+                guard let model else { return false }
+                saveBookmark(block: block, model: model)
+                return true
+            })
+
+        if let text = block.text, !text.isEmpty {
+            actions.append(
+                UIAccessibilityCustomAction(name: "Copy Text") { _ in
+                    UIPasteboard.general.string = text
+                    return true
+                })
+        }
+
+        if kind == .image {
+            actions.append(
+                UIAccessibilityCustomAction(name: "Save Image") { _ in
+                    saveImageToCameraRoll(block: block)
+                    return true
+                })
+        }
+
+        return actions
+    }
+
     func buildContextMenu(block: EPubBlockRecord) -> UIContextMenuConfiguration? {
         let blockID = block.id
         let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
@@ -178,7 +288,7 @@ extension ReaderTab {
             let changeColorAction = UIAction(
                 title: "Change Color", image: UIImage(systemName: "paintpalette")
             ) { _ in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     showCardColorPickerForBlockID = blockID
                 }
             }
@@ -188,7 +298,7 @@ extension ReaderTab {
                 let themeChapterAction = UIAction(
                     title: "Set Chapter Theme", image: UIImage(systemName: "paintpalette.fill")
                 ) { _ in
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         showChapterThemePickerForBlockID = blockID
                     }
                 }

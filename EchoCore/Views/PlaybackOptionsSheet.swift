@@ -31,14 +31,22 @@ struct PlaybackOptionsSheet: View {
                     .accessibilityLabel(Text("Playback speed"))
                 }
 
-                Section("Loop") {
+                Section {
                     Picker("Loop Mode", selection: loopSelection) {
                         Text("Off").tag(LoopMode.off)
                         Text("Chapter").tag(LoopMode.chapter)
-                        Text("Bookmark").tag(LoopMode.bookmark)
+                        Text("Bookmark")
+                            .tag(LoopMode.bookmark)
+                            .disabled(bookmarkLoopUnavailable)
                     }
                     .pickerStyle(.segmented)
                     .accessibilityLabel(Text("Loop mode"))
+                } header: {
+                    Text("Loop")
+                } footer: {
+                    if bookmarkLoopUnavailable {
+                        Text("Add at least two enabled bookmarks on this track to use bookmark looping.")
+                    }
                 }
 
                 Section("Skip") {
@@ -113,19 +121,23 @@ struct PlaybackOptionsSheet: View {
 
     // MARK: - Loop
 
-    /// Routes through `model.setLoopMode` and preserves the no-bookmarks demotion:
-    /// selecting `.bookmark` with no bookmarks falls back to `.off`.
+    /// Routes through `model.setLoopMode` and preserves unavailable-state demotion:
+    /// selecting `.bookmark` without a loopable bookmark segment falls back to `.off`.
     private var loopSelection: Binding<LoopMode> {
         Binding(
             get: { model.loopMode },
             set: { newMode in
-                if newMode == .bookmark && model.bookmarks.isEmpty {
+                if newMode == .bookmark && bookmarkLoopUnavailable {
                     model.setLoopMode(.off)
                 } else {
                     model.setLoopMode(newMode)
                 }
             }
         )
+    }
+
+    private var bookmarkLoopUnavailable: Bool {
+        !model.canBookmarkLoop
     }
 
     // MARK: - Volume Boost

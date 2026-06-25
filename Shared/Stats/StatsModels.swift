@@ -145,6 +145,13 @@ struct GradeDistribution: Identifiable, Equatable, Sendable {
     let count: Int
 }
 
+struct RetentionCurvePoint: Identifiable, Equatable, Sendable {
+    let intervalDays: Int
+    let retentionRate: Double
+
+    var id: Int { intervalDays }
+}
+
 struct DueForecastPoint: Identifiable, Equatable, Sendable {
     let id: String
     let date: Date

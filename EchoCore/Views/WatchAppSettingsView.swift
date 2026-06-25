@@ -20,8 +20,12 @@ struct WatchAppSettingsView: View {
     private let palette: [WatchAction] = [
         .playPause, .skipForward, .skipBackward, .nextTrack,
         .previousTrack, .nextSection, .previousSection,
-        .loopMode, .speed, .sleepTimer, .bookmark, .pomodoro
+        .loopMode, .speed, .sleepTimer, .bookmark, .markPassage, .pomodoro
     ]
+
+    private var watchSlotChoices: [WatchAction] {
+        palette + [.empty]
+    }
 
     var body: some View {
         @Bindable var settings = settings
@@ -294,6 +298,12 @@ struct WatchAppSettingsView: View {
                         .tabViewStyle(.page(indexDisplayMode: .always))
                         .frame(height: 320)
                         .indexViewStyle(.page(backgroundDisplayMode: .always))
+
+                        Text("Choose actions for this page below, or drag actions into the watch preview.")
+                            .customFont(.subheadline, appFont: settings.appFont)
+                            .foregroundStyle(.secondary)
+
+                        selectedPageSlotPickers
                     }
                     .padding(16)
                     .background(
@@ -304,7 +314,7 @@ struct WatchAppSettingsView: View {
 
                 // MARK: Available Actions
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Available Actions (Drag to slots)")
+                    Text("Available Actions")
                         .customFont(.subheadline, weight: .semibold, appFont: settings.appFont)
                         .foregroundStyle(.secondary)
 
@@ -428,6 +438,22 @@ struct WatchAppSettingsView: View {
         .onAppear { loadSlots() }
     }
 
+    @ViewBuilder
+    private var selectedPageSlotPickers: some View {
+        switch selectedPage {
+        case 0:
+            WatchSlotPickerGrid(slots: $page1Slots, choices: watchSlotChoices, onChange: saveSlots)
+        case 1:
+            WatchSlotPickerGrid(slots: $page2Slots, choices: watchSlotChoices, onChange: saveSlots)
+        case 2:
+            WatchSlotPickerGrid(slots: $page3Slots, choices: watchSlotChoices, onChange: saveSlots)
+        case 3:
+            WatchSlotPickerGrid(slots: $page4Slots, choices: watchSlotChoices, onChange: saveSlots)
+        default:
+            WatchSlotPickerGrid(slots: $page5Slots, choices: watchSlotChoices, onChange: saveSlots)
+        }
+    }
+
     private func loadSlots() {
         page1Slots = padded(settings.watchPage1)
         page2Slots = padded(settings.watchPage2)
@@ -457,6 +483,62 @@ struct WatchAppSettingsView: View {
         var out = s
         while out.count < 5 { out.append(.empty) }
         return Array(out.prefix(5))
+    }
+}
+
+private struct WatchSlotPickerGrid: View {
+    @Binding var slots: [WatchAction]
+    let choices: [WatchAction]
+    var onChange: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            ForEach(0..<5, id: \.self) { slot in
+                Picker(
+                    String(localized: "Slot \(slot + 1)"),
+                    selection: slotBinding(for: slot)
+                ) {
+                    ForEach(choices) { action in
+                        Label(actionName(action), systemImage: action.iconName)
+                            .tag(action)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func slotBinding(for slot: Int) -> Binding<WatchAction> {
+        Binding(
+            get: {
+                slots.indices.contains(slot) ? slots[slot] : .empty
+            },
+            set: { newAction in
+                while slots.count < 5 { slots.append(.empty) }
+                slots[slot] = newAction
+                onChange()
+            }
+        )
+    }
+
+    private func actionName(_ action: WatchAction) -> String {
+        switch action {
+        case .playPause: return String(localized: "Play / Pause")
+        case .skipForward: return String(localized: "Skip Forward")
+        case .skipBackward: return String(localized: "Skip Back")
+        case .nextTrack: return String(localized: "Next Chapter")
+        case .previousTrack: return String(localized: "Previous Chapter")
+        case .nextSection: return String(localized: "Next Section")
+        case .previousSection: return String(localized: "Previous Section")
+        case .loopMode: return String(localized: "Loop Mode")
+        case .speed: return String(localized: "Speed")
+        case .sleepTimer: return String(localized: "Sleep Timer")
+        case .bookmark: return String(localized: "Bookmark")
+        case .markPassage: return String(localized: "Mark Passage")
+        case .pomodoro: return String(localized: "Pomodoro")
+        case .empty: return String(localized: "Empty")
+        }
     }
 }
 
@@ -602,7 +684,7 @@ private struct DropSlot: View {
             provider.loadObject(ofClass: NSString.self) { string, _ in
                 if let raw = string as? String,
                    let action = WatchAction(rawValue: raw) {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         slot = action
                         onChange()
                     }

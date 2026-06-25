@@ -34,6 +34,14 @@ enum StudyFlashcardType {
     static let imageAssignment = "image_assignment"
 }
 
+enum StudyAssignmentGradePolicy {
+    static func choices(for cardType: String?) -> [ReviewGrade] {
+        cardType == StudyFlashcardType.listeningAssignment
+            ? [.again, .good]
+            : ReviewGrade.allCases
+    }
+}
+
 struct StudyCardMedia: Codable, Equatable, Sendable {
     let imagePath: String?
 }

@@ -7,7 +7,7 @@ import os.log
 #endif
 
 /// One chapter boundary for the exported m4b.
-struct ChapterAtom {
+nonisolated struct ChapterAtom: Sendable {
     let startTime: Double
     let title: String
 }
@@ -23,7 +23,7 @@ struct ChapterAtom {
 
 /// Writes real Nero (`chpl`) + QuickTime (`chap`) chapter atoms via the
 /// `swift-audio-marker` package. Replaces the former copy-only stub.
-struct ChapterMarkerWriter {
+nonisolated struct ChapterMarkerWriter {
     enum WriteError: Error { case unavailableOnPlatform }
 
     static let logger = Logger(subsystem: "com.echo.export", category: "ChapterMarkerWriter")

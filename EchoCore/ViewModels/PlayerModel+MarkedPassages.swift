@@ -20,11 +20,11 @@ extension PlayerModel {
 
         let start = max(0, t - 15)
         let end = t + 5
-        let snippet = resolveSnippet(at: t, bookID: bookID, db: db)
+        let snippet = resolveSnippet(at: t)
 
         let dao = MarkedPassageDAO(db: db.writer)
         do {
-            try dao.insert(
+            _ = try dao.insert(
                 audiobookID: bookID,
                 mediaTimestamp: start,
                 endTimestamp: end,
@@ -36,20 +36,16 @@ extension PlayerModel {
         }
     }
 
-    private func resolveSnippet(at timestamp: TimeInterval, bookID: String, db: DatabaseService) -> String? {
+    private func resolveSnippet(at timestamp: TimeInterval) -> String? {
         // Use the current chapter title as a fallback snippet
         if let ch = state.chapters.first(where: { $0.startSeconds <= timestamp && $0.endSeconds > timestamp }) {
-            return "Chapter: \(ch.title)"
+            return "Chapter: \(ch.title ?? "Untitled Chapter")"
         }
         return "Marked at \(formatTimestamp(timestamp))"
     }
 
     private func formatTimestamp(_ seconds: TimeInterval) -> String {
-        let h = Int(seconds) / 3600
-        let m = (Int(seconds) % 3600) / 60
-        let s = Int(seconds) % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
+        formatHMS(seconds)
     }
 }
 

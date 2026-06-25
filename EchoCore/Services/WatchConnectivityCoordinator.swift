@@ -41,6 +41,7 @@ final class WatchConnectivityCoordinator: WatchCommandRoutingFacade {
     func toggleSleepTimer() { playerModel?.toggleSleepTimer() }
     func addBookmarkFromWatchCommand() { playerModel?.addBookmarkFromWatchCommand() }
     func addWatchBookmark(from payload: [String: Any]) { playerModel?.addWatchBookmark(from: payload) }
+    func markPassageFromWatchCommand() { playerModel?.markPassageAtCurrentTime() }
     func gradeFlashcard(cardID: String, grade: Int) { playerModel?.gradeFlashcard(cardID: cardID, grade: grade) }
     func watchStateContext() -> [String: Any] { playerModel?.watchStateContext() ?? [:] }
 }

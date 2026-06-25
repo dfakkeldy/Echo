@@ -5,9 +5,7 @@ import SwiftUI
 ///
 /// Each case maps to a view that can be pushed onto a tab's `NavigationStack`
 /// via `NavigationStack(path:)` + `.navigationDestination(for:)` in
-/// `RootTabView`.  Use placeholders (simple `Text` views) for sub-views that
-/// are currently `private` inside `SettingsView`; those live in a follow-up
-/// extraction task (see also: `Task 2.2` report).
+/// `RootTabView`.
 enum NavigationDestination: Hashable, Codable {
     case settingsAppearance
     case settingsAudio
@@ -25,7 +23,7 @@ enum NavigationDestination: Hashable, Codable {
         case .settingsAppearance:
             SettingsAppearanceView()
         case .settingsAudio:
-            SettingsPlaceholder(title: "Audio Settings")
+            PlaybackOptionsSheet()
         case .settingsChimes:
             ChimeSettingsView(engine: nil)
         case .settingsSmartRewind:
@@ -59,19 +57,5 @@ private struct ChapterDestinationPlaceholder: View {
             }
         }
         .navigationTitle("Chapter \(chapterIndex + 1)")
-    }
-}
-
-private struct SettingsPlaceholder: View {
-    let title: String
-
-    var body: some View {
-        Form {
-            Section {
-                Text("\(title) — coming soon")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle(title)
     }
 }

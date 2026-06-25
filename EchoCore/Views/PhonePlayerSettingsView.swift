@@ -20,15 +20,19 @@ struct PhonePlayerSettingsView: View {
     private let palette: [WatchAction] = [
         .playPause, .skipForward, .skipBackward,
         .nextSection, .previousSection,
-        .speed, .sleepTimer, .bookmark,
+        .speed, .sleepTimer, .bookmark, .markPassage,
     ]
 
     /// Actions the mini-player slots can perform (no sleep timer — that lives
     /// in the top pill; no pomodoro yet).
     private let miniPlayerChoices: [WatchAction] = [
         .playPause, .skipBackward, .skipForward,
-        .previousSection, .nextSection, .speed, .bookmark, .empty,
+        .previousSection, .nextSection, .speed, .bookmark, .markPassage, .empty,
     ]
+
+    private var phoneSlotChoices: [WatchAction] {
+        palette + [.empty]
+    }
 
     private func miniPlayerChoiceName(_ action: WatchAction) -> String {
         switch action {
@@ -42,6 +46,7 @@ struct PhonePlayerSettingsView: View {
         case .loopMode: return String(localized: "Loop Mode")
         case .speed: return String(localized: "Speed")
         case .bookmark: return String(localized: "Bookmark")
+        case .markPassage: return String(localized: "Mark Passage")
         case .sleepTimer: return String(localized: "Sleep Timer")
         case .pomodoro: return String(localized: "Pomodoro")
         case .empty: return String(localized: "Empty")
@@ -109,7 +114,7 @@ struct PhonePlayerSettingsView: View {
                     }
 
                     Text(
-                        "The three buttons shown in the mini-player on the Timeline and Reader tabs."
+                        "The three buttons shown in the mini-player on Now Playing and Read surfaces."
                     )
                     .customFont(.subheadline, appFont: settings.appFont)
                     .foregroundStyle(.tertiary)
@@ -123,7 +128,7 @@ struct PhonePlayerSettingsView: View {
                 // MARK: Phone App Designer Info
                 VStack(alignment: .leading, spacing: 8) {
                     Text(
-                        "Customize your playback control layout by dragging actions into the slots on the phone preview below."
+                        "Customize your playback control layout by choosing actions for each slot, or drag actions into the phone preview below."
                     )
                     .customFont(.subheadline, appFont: settings.appFont)
                     .foregroundStyle(.secondary)
@@ -153,6 +158,11 @@ struct PhonePlayerSettingsView: View {
                             slots: configMode == .tap ? $slots : $longPressSlots,
                             onChange: saveSlots
                         )
+                        PhoneSlotPickerGrid(
+                            slots: configMode == .tap ? $slots : $longPressSlots,
+                            choices: phoneSlotChoices,
+                            onChange: saveSlots
+                        )
                     }
                     .frame(maxWidth: .infinity)
                     .padding(16)
@@ -164,7 +174,7 @@ struct PhonePlayerSettingsView: View {
 
                 // MARK: Available Actions
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Available Actions (Drag to slots)")
+                    Text("Available Actions")
                         .customFont(.subheadline, weight: .semibold, appFont: settings.appFont)
                         .foregroundStyle(.secondary)
 
@@ -352,6 +362,62 @@ struct PhonePlayerSettingsView: View {
     }
 }
 
+private struct PhoneSlotPickerGrid: View {
+    @Binding var slots: [WatchAction]
+    let choices: [WatchAction]
+    var onChange: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            ForEach(0..<5, id: \.self) { slot in
+                Picker(
+                    String(localized: "Slot \(slot + 1)"),
+                    selection: slotBinding(for: slot)
+                ) {
+                    ForEach(choices) { action in
+                        Label(actionName(action), systemImage: action.iconName)
+                            .tag(action)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func slotBinding(for slot: Int) -> Binding<WatchAction> {
+        Binding(
+            get: {
+                slots.indices.contains(slot) ? slots[slot] : .empty
+            },
+            set: { newAction in
+                while slots.count < 5 { slots.append(.empty) }
+                slots[slot] = newAction
+                onChange()
+            }
+        )
+    }
+
+    private func actionName(_ action: WatchAction) -> String {
+        switch action {
+        case .playPause: return String(localized: "Play / Pause")
+        case .skipForward: return String(localized: "Skip Forward")
+        case .skipBackward: return String(localized: "Skip Back")
+        case .nextTrack: return String(localized: "Next Chapter")
+        case .previousTrack: return String(localized: "Previous Chapter")
+        case .nextSection: return String(localized: "Next Section")
+        case .previousSection: return String(localized: "Previous Section")
+        case .loopMode: return String(localized: "Loop Mode")
+        case .speed: return String(localized: "Speed")
+        case .sleepTimer: return String(localized: "Sleep Timer")
+        case .bookmark: return String(localized: "Bookmark")
+        case .markPassage: return String(localized: "Mark Passage")
+        case .pomodoro: return String(localized: "Pomodoro")
+        case .empty: return String(localized: "Empty")
+        }
+    }
+}
+
 // A draggable palette chip showing the action icon + label.
 private struct PaletteItem: View {
     let action: WatchAction
@@ -489,7 +555,7 @@ private struct DropSlot: View {
                 if let raw = string as? String,
                     let action = WatchAction(rawValue: raw)
                 {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         slot = action
                         onChange()
                     }
