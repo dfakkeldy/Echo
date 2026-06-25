@@ -7,13 +7,13 @@ struct DeckImportService {
 
     let validTriggerTimings = Set(FlashcardTriggerTiming.allCases.map(\.rawValue))
 
-    /// Imports a deck from a JSON file URL, validates every card, and inserts
-    /// into the database via FlashcardDAO.
+    /// Imports a deck from a JSON file URL, resolves EPUB source anchors, and
+    /// inserts cards with their `sourceBlockID` populated where possible.
     /// - Parameters:
     ///   - url: The JSON file URL to import.
     ///   - db: A GRDB DatabaseWriter for FlashcardDAO.
-    /// - Returns: The number of cards successfully imported.
-    func importDeck(from url: URL, db: DatabaseWriter) throws -> Int {
+    /// - Returns: An `ImportDeckResult` with counts and any anchor warnings.
+    func importDeckVNext(from url: URL, db writer: DatabaseWriter) throws -> ImportDeckResult {
         let data: Data
         do {
             data = try Data(contentsOf: url)
@@ -32,25 +32,55 @@ struct DeckImportService {
             throw DeckImportError.emptyDeck
         }
 
-        for (i, card) in deck.cards.enumerated() {
+        for (index, card) in deck.cards.enumerated() {
             guard !card.frontText.isEmpty, !card.backText.isEmpty else {
-                throw DeckImportError.emptyCardText(cardIndex: i)
+                throw DeckImportError.emptyCardText(cardIndex: index)
             }
             guard card.startTime >= 0, card.endTime > card.startTime else {
-                throw DeckImportError.invalidTimeRange(cardIndex: i)
+                throw DeckImportError.invalidTimeRange(cardIndex: index)
             }
             guard validTriggerTimings.contains(card.triggerTiming.rawValue) else {
                 throw DeckImportError.invalidTriggerTiming(
-                    card.triggerTiming.rawValue, cardIndex: i)
+                    card.triggerTiming.rawValue, cardIndex: index)
+            }
+        }
+
+        var warnings: [ImportDeckWarning] = []
+        var anchoredCount = 0
+        var resolvedSourceBlockIDs = [String?](repeating: nil, count: deck.cards.count)
+
+        let resolver = EPUBSourceAnchorResolver(dbReader: writer)
+        let targetHasBlocks = try resolver.hasBlocks(for: deck.targetMediaID)
+        if !targetHasBlocks {
+            warnings.append(.targetAudiobookHasNoEPUBBlocks(targetMediaID: deck.targetMediaID))
+        }
+
+        if targetHasBlocks {
+            for (index, importedCard) in deck.cards.enumerated() {
+                let cardReference = "json-card-\(index)"
+                switch try resolver.resolve(
+                    sourceAnchor: importedCard.sourceAnchor,
+                    targetMediaID: deck.targetMediaID,
+                    cardReference: cardReference
+                ) {
+                case .none:
+                    resolvedSourceBlockIDs[index] = nil
+                case .resolved(let blockID):
+                    resolvedSourceBlockIDs[index] = blockID
+                    anchoredCount += 1
+                case .unresolved(let warning):
+                    resolvedSourceBlockIDs[index] = nil
+                    warnings.append(warning)
+                }
             }
         }
 
         let deckID: String
-        if let existingID = try findDeck(named: deck.deckName, db: db) {
+        if let existingID = try findDeck(named: deck.deckName, db: writer) {
             deckID = existingID
         } else {
             deckID = UUID().uuidString
-            try db.write { db in
+            try writer.write { db in
                 try db.execute(
                     sql: """
                         INSERT INTO deck (id, name, source, created_at, modified_at)
@@ -58,7 +88,8 @@ struct DeckImportService {
                         """,
                     arguments: [
                         deckID, deck.deckName, Date().ISO8601Format(), Date().ISO8601Format(),
-                    ])
+                    ]
+                )
             }
         }
 
@@ -66,17 +97,18 @@ struct DeckImportService {
         // NOT NULL FK, and an imported deck may target a book not yet on this
         // device. INSERT OR IGNORE is a no-op when the book already exists, so
         // it never clobbers a real title. (Mirrors ApkgImportService.)
-        try db.write { db in
+        try writer.write { db in
             try db.execute(
                 sql: """
                     INSERT OR IGNORE INTO audiobook (id, title, author, duration, added_at)
                     VALUES (?, ?, 'json_import', 0, ?)
                     """,
-                arguments: [deck.targetMediaID, deck.deckName, Date().ISO8601Format()])
+                arguments: [deck.targetMediaID, deck.deckName, Date().ISO8601Format()]
+            )
         }
 
-        let dao = FlashcardDAO(db: db)
-        for card in deck.cards {
+        let dao = FlashcardDAO(db: writer)
+        for (index, card) in deck.cards.enumerated() {
             let flashcard = Flashcard(
                 id: UUID().uuidString,
                 audiobookID: deck.targetMediaID,
@@ -95,7 +127,7 @@ struct DeckImportService {
                 deckID: deckID,
                 tags: nil,
                 mediaJSON: nil,
-                sourceBlockID: nil,
+                sourceBlockID: resolvedSourceBlockIDs[index],
                 playlistPosition: nil,
                 createdAt: Date().ISO8601Format(),
                 modifiedAt: Date().ISO8601Format()
@@ -103,7 +135,21 @@ struct DeckImportService {
             try dao.insert(flashcard)
         }
 
-        return deck.cards.count
+        return ImportDeckResult(
+            importedCount: deck.cards.count,
+            anchoredCount: anchoredCount,
+            warnings: warnings
+        )
+    }
+
+    /// Imports a deck from a JSON file URL, validates every card, and inserts
+    /// into the database via FlashcardDAO.
+    /// - Parameters:
+    ///   - url: The JSON file URL to import.
+    ///   - db: A GRDB DatabaseWriter for FlashcardDAO.
+    /// - Returns: The number of cards successfully imported.
+    func importDeck(from url: URL, db: DatabaseWriter) throws -> Int {
+        try importDeckVNext(from: url, db: db).importedCount
     }
 
     private func findDeck(named name: String, db: DatabaseWriter) throws -> String? {
