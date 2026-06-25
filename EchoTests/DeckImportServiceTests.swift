@@ -143,6 +143,8 @@ struct DeckImportServiceTests {
         let result = try DeckImportService().importDeckVNext(from: url, db: writer)
 
         #expect(result.anchoredCount == 1)
+        #expect(result.importedCount == 1)
+        #expect(result.warnings.isEmpty)
         let cards = try writer.read { db in try Flashcard.fetchAll(db) }
         #expect(cards.first?.sourceBlockID == "epub-book-b-s0-b0")
     }
