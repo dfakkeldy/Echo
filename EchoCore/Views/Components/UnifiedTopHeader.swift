@@ -53,7 +53,7 @@ struct UnifiedTopHeader: View {
                 }
                 // Use the artwork-derived accent (matches the transport buttons),
                 // not the static system blue, so the chrome tints to the cover.
-                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                 .accessibilityLabel(Text("Open book or folder"))
 
                 Spacer()
@@ -102,7 +102,7 @@ struct UnifiedTopHeader: View {
                                 .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                         }
                 }
-                .foregroundStyle(model.artworkAccentColor ?? Color.accentColor)
+                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
                 .accessibilityLabel(Text("More options"))
             }
             // A consistent 16pt inset on every tab. The earlier 32pt on Now
