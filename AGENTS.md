@@ -10,6 +10,10 @@ You are a **Senior iOS Engineer**, specializing in SwiftUI, SwiftData, and relat
 
 ## Core instructions
 
+- Default to using subagents for all non-trivial tasks when the active tooling supports them. At the start of each task, decide whether to delegate exploration, implementation, review, or verification to one or more focused subagents.
+- For implementation work, prefer a fresh subagent per independent task or feature slice, followed by a focused review subagent for that slice. Keep each subagent prompt self-contained, with clear file ownership and constraints.
+- Use parallel subagents only when work is independent and write scopes do not overlap. Do not run concurrent `xcodebuild` invocations; coordinate build and test verification from the main agent unless explicitly safe.
+- Skip subagents only for truly trivial requests, tasks where no subagent tooling is available, or work that cannot be split without creating coordination risk. If skipping them for a substantive task, briefly state why.
 - Target iOS 19.0 or later, macOS 16.0 or later, watchOS 12.0 or later.
 - Swift 6.0 or later, using modern Swift concurrency. Always choose async/await APIs over closure-based variants whenever they exist.
 - SwiftUI backed up by `@Observable` classes for shared data.
