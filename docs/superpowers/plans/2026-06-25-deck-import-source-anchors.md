@@ -60,7 +60,6 @@ enum ImportDeckWarning: Equatable, Sendable {
     case sourceAnchorMalformed(cardReference: String, sourceAnchor: String)
     case targetAudiobookHasNoEPUBBlocks(targetMediaID: String)
     case apkgSidecarMissingTargetMediaID
-    case apkgSidecarCardNotFound(cardReference: String)
     case apkgSidecarDecodeFailed(reason: String)
 }
 ```
@@ -1131,8 +1130,7 @@ private func makeImportOptions(
 - [ ] When a sidecar exists and target media ID is known:
   - Preflight `resolver.hasBlocks(for:)`.
   - Append `.targetAudiobookHasNoEPUBBlocks(targetMediaID:)` once if the target has no EPUB blocks.
-  - For each imported APKG card, look up sidecar metadata by `cardID`, then `noteGUID`.
-  - If sidecar has card entries but a given imported card is not found, append `.apkgSidecarCardNotFound(cardReference: "apkg-card-\(cardID)")`.
+  - For each imported APKG card, look up sidecar metadata by `cardID`, then `noteGUID`. The sidecar annotates a SUBSET of cards — a card with no sidecar entry (and a sidecar entry matching no card) is the normal case, NOT a warning.
   - Resolve `sourceAnchor` through `EPUBSourceAnchorResolver`.
   - Set imported `Flashcard.sourceBlockID` when resolved.
   - Allow sidecar `startTime`, `endTime`, and `triggerTiming` to override APKG defaults.
@@ -1182,10 +1180,8 @@ private func importCards(
         guard !frontText.isEmpty else { continue }
 
         let cardReference = "apkg-card-\(card.id)"
+        // Subset-annotation sidecar: a card with no entry is normal, not a warning.
         let sidecarCard = options.sidecarIndex?.metadata(cardID: card.id, noteGUID: note.guid)
-        if options.sidecarIndex != nil, sidecarCard == nil {
-            warnings.append(.apkgSidecarCardNotFound(cardReference: cardReference))
-        }
 
         var sourceBlockID: String?
         if let sidecarCard, options.canResolveAnchors {

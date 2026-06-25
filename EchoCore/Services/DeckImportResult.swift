@@ -21,6 +21,5 @@ enum ImportDeckWarning: Equatable, Sendable {
     case sourceAnchorMalformed(cardReference: String, sourceAnchor: String)
     case targetAudiobookHasNoEPUBBlocks(targetMediaID: String)
     case apkgSidecarMissingTargetMediaID
-    case apkgSidecarCardNotFound(cardReference: String)
     case apkgSidecarDecodeFailed(reason: String)
 }

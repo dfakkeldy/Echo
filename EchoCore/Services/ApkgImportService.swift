@@ -520,10 +520,10 @@ nonisolated struct ApkgImportService {
             guard !frontText.isEmpty else { continue }
 
             let cardReference = "apkg-card-\(card.id)"
+            // The sidecar annotates a SUBSET of cards: a card with no sidecar entry is
+            // the normal case, not a warning. (A sidecar entry matching no imported card
+            // is likewise tolerated — it simply goes unused.)
             let sidecarCard = options.sidecarIndex?.metadata(cardID: card.id, noteGUID: note.guid)
-            if options.sidecarIndex != nil, sidecarCard == nil {
-                warnings.append(.apkgSidecarCardNotFound(cardReference: cardReference))
-            }
 
             var sourceBlockID: String?
             if let sidecarCard, options.canResolveAnchors {
