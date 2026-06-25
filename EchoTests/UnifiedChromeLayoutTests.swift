@@ -70,6 +70,24 @@ struct UnifiedChromeLayoutTests {
         )
     }
 
+    @Test func rootBottomChromeDoesNotHostDashboardShelf() throws {
+        let root = try Self.source(named: "RootTabView.swift")
+        let stats = try Self.source(named: "Stats/StatsView.swift")
+
+        #expect(
+            !root.contains("DashboardShelf("),
+            "Root bottom chrome must stay progress-first; dashboard modules should not sit above the player dock."
+        )
+        #expect(
+            !root.contains("launchStudySession"),
+            "RootTabView should not carry study launch state for the bottom player chrome."
+        )
+        #expect(
+            stats.contains("Button(\"Review Queue\", systemImage: \"rectangle.stack.fill\""),
+            "Study review entry should live in Stats instead of competing with the bottom player chrome."
+        )
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
