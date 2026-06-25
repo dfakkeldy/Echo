@@ -15,7 +15,7 @@ enum TestPDFFixture {
             lines: [
                 "PDF Fixture",
                 "This PDF uses a single narration chapter.",
-                "It keeps the text short so PDF parsing and import remain fast."
+                "It keeps the text short so PDF parsing and import remain fast.",
             ])
     }
 
@@ -27,7 +27,7 @@ enum TestPDFFixture {
                 "This is the first chapter paragraph. It contains enough words",
                 "to seed two stable text blocks when parsed for narration.",
                 "Chapter 2",
-                "This is the second chapter paragraph and keeps assertions fast."
+                "This is the second chapter paragraph and keeps assertions fast.",
             ])
     }
 
@@ -38,19 +38,25 @@ enum TestPDFFixture {
                 [
                     "Opening notes",
                     "This first page has ordinary prose without a chapter heading.",
-                    "It should become the first synthetic PDF narration chapter."
+                    "It should become the first synthetic PDF narration chapter.",
                 ],
                 [
                     "More practical notes",
                     "This second page also avoids chapter marker language.",
-                    "It should become the second synthetic PDF narration chapter."
+                    "It should become the second synthetic PDF narration chapter.",
                 ],
                 [
                     "Closing notes",
                     "This third page keeps the fixture small and deterministic.",
-                    "It should become the third synthetic PDF narration chapter."
-                ]
+                    "It should become the third synthetic PDF narration chapter.",
+                ],
             ])
+    }
+
+    /// A structurally-valid PDF with a single blank page (no drawn text), so text
+    /// extraction yields nothing and import is expected to bail out.
+    static func blank(in dir: URL) throws -> URL {
+        try makePDF(at: dir.appendingPathComponent("fixture-blank.pdf"), pages: [[]])
     }
 
     private static func makePDF(at url: URL, lines: [String]) throws -> URL {
@@ -86,10 +92,11 @@ enum TestPDFFixture {
                     continue
                 }
 
-                guard let attributed = CFAttributedStringCreate(
-                    nil,
-                    line as CFString,
-                    [kCTFontAttributeName: font] as CFDictionary)
+                guard
+                    let attributed = CFAttributedStringCreate(
+                        nil,
+                        line as CFString,
+                        [kCTFontAttributeName: font] as CFDictionary)
                 else {
                     throw FixtureError.failedToCreatePDF
                 }

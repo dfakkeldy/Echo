@@ -7,7 +7,7 @@ import os.log
 /// and text documents.
 enum PDFAutoImportScanner {
     private static let logger = Logger(category: "PDFAutoImport")
-    private struct ExtractedText {
+    private struct ExtractedText: Sendable {
         let pages: [String]
 
         var body: String {
@@ -109,10 +109,20 @@ enum PDFAutoImportScanner {
         }
 
         do {
-            let extractedText = try extractText(from: pdfURL)
+            // PDF text extraction (PDFDocument(url:) + per-page .string) is a
+            // synchronous, potentially expensive CPU pass with no suspension
+            // points. Under this target's default-MainActor isolation it would
+            // otherwise run on the main thread and hang the UI for large PDFs, so
+            // hop it onto the cooperative pool. Only the Sendable [String] page
+            // text crosses back — no PDFKit object leaves the detached task.
+            let extractedText = try await Task.detached(priority: .userInitiated) {
+                try Self.extractText(from: pdfURL)
+            }.value
             let sourceText = extractedText.body
             guard !sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                logger.info("Skipping PDF import because no readable text was extracted: \(sanitizedPath(pdfURL.path))")
+                logger.info(
+                    "Skipping PDF import because no readable text was extracted: \(sanitizedPath(pdfURL.path))"
+                )
                 return false
             }
 
@@ -151,9 +161,10 @@ enum PDFAutoImportScanner {
             content: extractedText.body,
             sourceURL: sourceURL)
 
-        guard shouldUseSyntheticPageChapters(
-            for: naturalParse,
-            pageCount: extractedText.pages.count)
+        guard
+            shouldUseSyntheticPageChapters(
+                for: naturalParse,
+                pageCount: extractedText.pages.count)
         else {
             return naturalParse
         }
@@ -177,18 +188,27 @@ enum PDFAutoImportScanner {
         return spines.count <= 1
     }
 
-    private static func extractText(from pdfURL: URL) throws -> ExtractedText {
+    /// `nonisolated` so it can run off the main actor inside a detached task
+    /// (see `importPDFFile`); it touches only PDFKit and local state.
+    private nonisolated static func extractText(from pdfURL: URL) throws -> ExtractedText {
         guard let document = PDFDocument(url: pdfURL) else {
             throw PDFAutoImportError.unreadable(pdfURL)
         }
 
         let pages = (0..<document.pageCount).compactMap { pageIndex -> String? in
-            let text = document.page(at: pageIndex)?.string?
-                .split(whereSeparator: \.isNewline)
-                .joined(separator: " ")
+            guard let raw = document.page(at: pageIndex)?.string else { return nil }
+            // Preserve line breaks. The downstream tokenizer reflows consecutive
+            // non-blank lines back into paragraphs (so PDF hard-wraps within a
+            // paragraph are rejoined) but inspects each line individually for
+            // chapter markers — so a standalone "Chapter 1" line is still
+            // promoted to a heading. Flattening every page to one line (the prior
+            // behavior) hid all in-page chapter markers.
+            let page = raw.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let text, !text.isEmpty else { return nil }
-            return text
+            guard !page.isEmpty else { return nil }
+            return page
         }
 
         if pages.isEmpty {
@@ -207,16 +227,17 @@ enum PDFAutoImportScanner {
         return path
     }
 
-    private enum PDFAutoImportError: LocalizedError {
+    private enum PDFAutoImportError: LocalizedError, Sendable {
         case unreadable(URL)
         case noText(URL)
 
         var errorDescription: String? {
             switch self {
             case .unreadable(let url):
-                return "Cannot open PDF: \(url.path)"
+                return "Cannot open PDF: \(PDFAutoImportScanner.sanitizedPath(url.path))"
             case .noText(let url):
-                return "No readable text found in PDF: \(url.path)"
+                return
+                    "No readable text found in PDF: \(PDFAutoImportScanner.sanitizedPath(url.path))"
             }
         }
     }
