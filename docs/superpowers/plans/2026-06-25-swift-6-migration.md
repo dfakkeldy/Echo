@@ -17,6 +17,7 @@
 - Do not introduce third-party frameworks.
 - Do not replace Swift Concurrency with GCD; use `Task { @MainActor in updateState() }`, `Task.sleep(for:)`, actors, or `@concurrent` when that matches the work.
 - Preserve current deployment targets during this migration: iOS `18.0`, macOS `15.0`, watchOS `11.0`. Any platform-floor increase is a separate product decision.
+- Reconcile with `AGENTS.md`: `AGENTS.md:17` pins iOS 19 / macOS 16 / watchOS 12 — higher than the floors preserved above (this plan intentionally does NOT raise them; a platform-floor bump is a separate product decision), while `AGENTS.md:18` already mandates Swift 6, which this migration delivers. Either correct the stale `AGENTS.md` floors or record that the divergence is deliberate.
 - Keep `SWIFT_APPROACHABLE_CONCURRENCY = YES` and `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` for app targets.
 - Use `@Observable @MainActor` for shared UI-facing data; avoid `ObservableObject`, `@Published`, `@StateObject`, `@ObservedObject`, and `@EnvironmentObject` unless working in legacy integration code.
 
@@ -28,7 +29,7 @@
 - Current app target language mode: `SWIFT_VERSION = 5.0`.
 - Current effective Swift version for `Echo`, `Echo macOS`, and `Echo Watch App`: `5`.
 - Current project settings already include `SWIFT_APPROACHABLE_CONCURRENCY = YES` and `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
-- A global command-line `SWIFT_VERSION=6.0` build fails in `ZIPFoundation 0.9.20` due package-owned global mutable vars, so Echo must migrate by editing Echo target build settings rather than by command-line override.
+- A global command-line `SWIFT_VERSION=6.0` build fails in `ZIPFoundation 0.9.20` due to package-owned global mutable vars. A SwiftPM dependency's language mode is governed by its own `Package.swift` tools-version / `swiftLanguageModes`, not by Echo's target settings — so the `SWIFT_VERSION=6.0` CLI override is what wrongly forces the packages. Echo must therefore migrate by editing Echo target build settings, never the command-line override.
 - Several older audit findings have already been fixed or removed in this checkout: `Shared/AppGroupDefaults.swift` has `nonisolated static let suiteName`, `NarrationCache` is `nonisolated`, `KokoroFrontEnd` is `nonisolated`, `OnnxKokoroEngine.tensorData` is `nonisolated static`, and `NarrationExportService.swift` no longer exists.
 
 ## File Map
@@ -91,7 +92,19 @@ make build-tests
 
 Expected: `** TEST BUILD SUCCEEDED **`. If this fails before migration edits, stop and fix the existing baseline first.
 
-- [ ] **Step 4: Commit only if baseline documentation was added**
+- [ ] **Step 4: Capture a Swift 6 diagnostic baseline for the Echo target**
+
+This sizes Task 5 with evidence instead of guesswork. Temporarily flip ONLY the `Echo` target to Swift 6 (scratch edit `SWIFT_VERSION = 6.0` for the Echo target's Debug config in `project.pbxproj` — do NOT pass it on the command line, do NOT commit), build for testing, count diagnostics, then revert:
+
+```bash
+make build-tests 2>&1 | tee /tmp/swift6-baseline.log
+rg -c "error:|warning:" /tmp/swift6-baseline.log || true
+git checkout -- Echo.xcodeproj/project.pbxproj   # discard the scratch flip
+```
+
+Expected: a concrete diagnostic count recorded before any migration commit. This only covers the iOS slice (the `Echo` scheme), so it is a floor, not a ceiling. If the count is large across `EchoCore`/`Shared`, split Task 5 into reviewer-sized commits by subsystem instead of one `EchoCore Shared` blob.
+
+- [ ] **Step 5: Commit only if baseline documentation was added**
 
 If no files changed, skip the commit. If a migration note file was added by the implementer, commit only that file:
 
@@ -210,7 +223,9 @@ Expected: every `WCSessionDelegate` entry point that touches `WatchViewModel` st
 xcodebuild -project Echo.xcodeproj -scheme "Echo Watch App" -destination 'generic/platform=watchOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-Expected: `** BUILD SUCCEEDED **`. If Swift 6 later reports `[String: Any]` Sendable capture diagnostics, extract a `WatchStateSnapshot: Sendable` value in the delegate method and pass that snapshot into a MainActor `applyState(_:)` overload.
+Expected: `** BUILD SUCCEEDED **`. The direct `[String: Any]` -> `Task { @MainActor in }` capture is expected to compile under Swift 6 region-based isolation (the same shape already ships in `WatchSyncManager`), so the `WatchStateSnapshot: Sendable` refactor is a fallback, not the default path — only extract it if the build actually reports a `[String: Any]` Sendable-capture diagnostic.
+
+> Out of scope (track separately): the outbound `sendMessage` reply/error closures in `requestCurrentState()` (~:590) and `sendCommand()` (~:630) call MainActor methods and are invoked off-main by WatchConnectivity — a pre-existing latent runtime race. It is NOT a Swift 6 compile blocker (those blocks import non-`@Sendable` and inherit MainActor isolation), so this migration deliberately leaves them; do not "fix" them as part of the flip.
 
 - [ ] **Step 5: Commit**
 
@@ -235,7 +250,7 @@ Expected: one commit with only `WatchViewModel.swift`.
 
 - [ ] **Step 1: Snapshot macOS deck export state before `Task`**
 
-In `MacAnkiExportView.exportToApkg()`, capture immutable values before creating the task:
+In `MacAnkiExportView.exportToFile()` (there is no `exportToApkg()`), capture immutable values before creating the task. Keep the enclosing AppKit save-panel closure: the snippet's `url` is `panel.url`, in scope only inside `panel.begin { response in … }`.
 
 ```swift
 let selectedDeckIDsSnapshot = selectedDeckIDs
@@ -452,7 +467,9 @@ nonisolated final class ProgressFanOut: @unchecked Sendable {
 }
 ```
 
-Expected: a late subscriber added after `.ready` immediately receives `.ready`, which removes the stale spinner race named in the audit.
+Expected: a late subscriber added after `.ready` immediately receives `.ready`.
+
+> Reality check: on the current `OnnxKokoroEngine` wiring this replay branch is unreachable — a post-ready caller takes the `session != nil` fast path (`OnnxKokoroEngine.swift:121`, direct `progress(.ready)`), and the join path already re-emits `progress(.ready)` after `await task.value`. So treat this change as defensive hardening of `ProgressFanOut`, NOT as a fix for an engine-observable "stale spinner" race. The load-bearing part of this slice is the Swift 6 `@unchecked Sendable` isolation boundary, not the replay. Add a `ProgressFanOut` unit test that subscribes after `.ready` and asserts immediate delivery.
 
 - [ ] **Step 2: Verify `OnnxKokoroEngine` helper isolation is deliberate**
 
@@ -473,7 +490,9 @@ Run the narrow suites that exist in this checkout:
 
 ```bash
 make build-tests
-make test-only FILTER=EchoTests/Narration
+# 'EchoTests/Narration' is not a real umbrella suite — discover the actual suites and run each:
+find EchoTests -name '*Narration*Tests.swift' -maxdepth 2
+# then, per suite: make test-only FILTER=EchoTests/<SuiteName>
 ```
 
 Expected: `make build-tests` succeeds. If `EchoTests/Narration` is not a valid filter in this checkout, run the available narration-named suites listed by:
@@ -587,7 +606,7 @@ Expected: one commit containing the project setting flip and only the source edi
 **Files:**
 - Modify: `Echo.xcodeproj/project.pbxproj`
 - Modify: `Echo Widget/Models/AppIntent.swift` only if Swift 6 diagnostics reappear
-- Modify: `Echo Watch App/Services/WatchViewModel.swift` only if Swift 6 diagnostics remain after Task 2
+- Modify: `Echo Watch App/Services/WatchViewModel.swift` only if Swift 6 diagnostics remain after Task 2 (expect them — the file's own `Timer.scheduledTimer` + `MainActor.assumeIsolated` closures at ~:177, :857, :905, :927 and the rollback timer at ~:165 are NOT covered by Task 2 and may need the same `Task { @MainActor in }` treatment)
 - Test: watch and widget schemes
 
 **Interfaces:**
@@ -605,7 +624,7 @@ Echo WidgetExtension
 Run:
 
 ```bash
-xcodebuild -project Echo.xcodeproj -scheme "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project Echo.xcodeproj -target "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
 Expected: `** BUILD SUCCEEDED **`. If `AppIntent.perform()` diagnostics appear, preserve the existing fixed pattern by keeping the intent methods MainActor-isolated.
@@ -693,7 +712,7 @@ Set `SWIFT_VERSION = 6.0` for Debug and Release build configurations that belong
 echo-cli
 ```
 
-Update `Tools/echo-cli/add-target.rb` so future generated CLI targets use Swift 6:
+Update `Tools/echo-cli/add-target.rb` so future generated CLI targets use Swift 6 (cosmetic / forward-looking only — this one-shot scaffolder is stale: it still references a non-existent `Tools/echo-cli/main.swift` and aborts on re-run, and the live CLI entry point is `EchoCLI.swift`. Do NOT run the script; the load-bearing flip is the `project.pbxproj` change above):
 
 ```ruby
 bs['SWIFT_VERSION'] = '6.0'
@@ -752,13 +771,15 @@ Run these one at a time:
 ```bash
 make build-tests
 make test
-xcodebuild -project Echo.xcodeproj -scheme "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project Echo.xcodeproj -target "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project Echo.xcodeproj -scheme "Echo Watch App" -destination 'generic/platform=watchOS Simulator' CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project Echo.xcodeproj -scheme "Echo macOS" -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project Echo.xcodeproj -scheme echo-cli -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+# Compile the Swift-6-flipped test targets that have no host-app run of their own:
+xcodebuild build-for-testing -project Echo.xcodeproj -scheme "Echo Watch App" -destination 'generic/platform=watchOS Simulator' CODE_SIGNING_ALLOWED=NO
 ```
 
-Expected: all commands succeed. If a command fails due signing despite `CODE_SIGNING_ALLOWED=NO`, rerun that command for a simulator or generic destination that does not require provisioning.
+Expected: all commands succeed. If a command fails due signing despite `CODE_SIGNING_ALLOWED=NO`, rerun that command for a simulator or generic destination that does not require provisioning. Any flipped test target not built above (e.g. `EchoUITests`, `Echo Watch AppUITests` if excluded from their scheme's build/test action) is Swift-6-unverified — build it via `-target` or call out in the PR that it is unchecked.
 
 - [ ] **Step 3: Run SwiftLint if installed**
 
@@ -782,7 +803,9 @@ Expected: one final migration hygiene commit.
 ### Task 9: Final Audit And PR Prep
 
 **Files:**
-- Modify: `ARCHITECTURE.md` only if generated source tree sections changed because files were added or removed
+- Modify: `ARCHITECTURE.md` — unconditionally refresh the "Swift Concurrency & Thread Safety" section (~:915) to describe the new per-target Swift 6 language mode + strict-concurrency posture (the existing `nonisolated(unsafe)` / `@preconcurrency` notes become incomplete, not wrong). Also update the generated source-tree sections if files were added or removed.
+- Modify: `CHANGELOG.md` — add a migration entry (Swift 6 language mode for Echo-owned targets).
+- Check: `ROADMAP.md` for a "Swift 6 migration" item to mark done.
 - Modify: release notes only if project convention requires migration notes for internal reviewers
 
 **Interfaces:**
@@ -795,7 +818,7 @@ Run each command separately:
 
 ```bash
 xcodebuild -project Echo.xcodeproj -scheme Echo -configuration Debug -showBuildSettings | rg "TARGET_NAME|EFFECTIVE_SWIFT_VERSION|SWIFT_VERSION"
-xcodebuild -project Echo.xcodeproj -scheme "Echo WidgetExtension" -configuration Debug -showBuildSettings | rg "TARGET_NAME|EFFECTIVE_SWIFT_VERSION|SWIFT_VERSION"
+xcodebuild -project Echo.xcodeproj -target "Echo WidgetExtension" -configuration Debug -showBuildSettings | rg "TARGET_NAME|EFFECTIVE_SWIFT_VERSION|SWIFT_VERSION"
 xcodebuild -project Echo.xcodeproj -scheme "Echo Watch App" -configuration Debug -showBuildSettings | rg "TARGET_NAME|EFFECTIVE_SWIFT_VERSION|SWIFT_VERSION"
 xcodebuild -project Echo.xcodeproj -scheme "Echo macOS" -configuration Debug -showBuildSettings | rg "TARGET_NAME|EFFECTIVE_SWIFT_VERSION|SWIFT_VERSION"
 xcodebuild -project Echo.xcodeproj -scheme echo-cli -configuration Debug -showBuildSettings | rg "TARGET_NAME|EFFECTIVE_SWIFT_VERSION|SWIFT_VERSION"
@@ -810,7 +833,7 @@ Run these one at a time:
 ```bash
 make build-tests
 make test
-xcodebuild -project Echo.xcodeproj -scheme "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project Echo.xcodeproj -target "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project Echo.xcodeproj -scheme "Echo Watch App" -destination 'generic/platform=watchOS Simulator' CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project Echo.xcodeproj -scheme "Echo macOS" -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project Echo.xcodeproj -scheme echo-cli -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
@@ -842,7 +865,7 @@ Use the repository's normal PR workflow. PR summary:
 ## Verification
 - make build-tests
 - make test
-- xcodebuild -project Echo.xcodeproj -scheme "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+- xcodebuild -project Echo.xcodeproj -target "Echo WidgetExtension" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 - xcodebuild -project Echo.xcodeproj -scheme "Echo Watch App" -destination 'generic/platform=watchOS Simulator' CODE_SIGNING_ALLOWED=NO build
 - xcodebuild -project Echo.xcodeproj -scheme "Echo macOS" -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 - xcodebuild -project Echo.xcodeproj -scheme echo-cli -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
@@ -858,7 +881,7 @@ Expected: PR target is `nightly`.
 - Spec coverage: the plan covers baseline, known concurrency blockers, narration isolation, target-scoped Swift 6 flips, strict concurrency, and final verification.
 - Placeholder scan: no open placeholders are left; conditional branches include concrete fallback actions.
 - Type consistency: `selectedDeckIDsSnapshot`, `decksSnapshot`, `elapsedTask`, `ProgressFanOut.add(_:)`, and `NarrationPrepareProgress.ready` are used consistently across tasks.
-- Scope check: this is one migration project. Platform floor changes and dependency upgrades are intentionally outside this plan unless a target-specific Swift 6 diagnostic requires them.
+- Scope check: this is one migration project. Platform floor changes and dependency upgrades are intentionally outside this plan unless a target-specific Swift 6 diagnostic requires them. Pre-existing *runtime* races that are not Swift 6 compile blockers are also out of scope — notably `ContinuousAlignmentService.stop()`'s untracked `WhisperSession.shared.release()` task (`CODE_AUDIT.md` §3.4); track it separately rather than fixing it under the flip.
 
 ## Execution Choice
 
