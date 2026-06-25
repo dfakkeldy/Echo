@@ -35,6 +35,11 @@ import Testing
         #expect(out.contains("[Fakkeldy](/fˈækəldi/)"))
     }
 
+    @Test func builtInDefaultPronouncesCampbellsSoup() {
+        let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(to: "Campbell's soup")
+        #expect(out.contains("[Campbell](/kˈæmbəl/)'s soup"))
+    }
+
     @Test func builtInDefaultReachesG2PAsExactPhonemes() {
         // End-to-end: the built-in entry flows through `apply` → Misaki link
         // parsing → the exact override phonemes appear in the G2P output.

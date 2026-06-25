@@ -7,7 +7,9 @@ enum TextNormalizer {
     static func normalize(_ input: String) -> String {
         var s = input
         s = expandAbbreviations(s)
-        s = stripThousandsSeparators(s)
+        s = expandNumericPercentages(s)
+        s = expandThousandsSeparatedNumbers(s)
+        s = replacePercentSymbols(s)
         s = normalizeRomanNumeralChapters(s)
         s = normalizeDashes(s)
         return s
@@ -34,10 +36,35 @@ enum TextNormalizer {
         return out
     }
 
-    private static func stripThousandsSeparators(_ s: String) -> String {
-        let re = try! NSRegularExpression(pattern: "(?<=\\d),(?=\\d{3}\\b)")
-        let r = NSRange(s.startIndex..., in: s)
-        return re.stringByReplacingMatches(in: s, range: r, withTemplate: "")
+    private static func expandNumericPercentages(_ s: String) -> String {
+        replacingMatches(
+            in: s,
+            pattern: #"(?<![\p{L}\p{N}_])([0-9][0-9,]*(?:\.[0-9]+)?)\s*%"#
+        ) { match, text in
+            guard let literal = substring(match.range(at: 1), in: text),
+                let words = numberWords(from: literal)
+            else { return nil }
+            return "\(words) percent"
+        }
+    }
+
+    private static func expandThousandsSeparatedNumbers(_ s: String) -> String {
+        replacingMatches(
+            in: s,
+            pattern: #"(?<![\p{L}\p{N}_])([0-9]{1,3}(?:,[0-9]{3})+)(?:\.([0-9]+))?(?![\p{L}\p{N}_])"#
+        ) { match, text in
+            guard let integer = substring(match.range(at: 1), in: text) else { return nil }
+            let fraction = substring(match.range(at: 2), in: text)
+            let literal = fraction.map { "\(integer).\($0)" } ?? integer
+            return numberWords(from: literal)
+        }
+    }
+
+    private static func replacePercentSymbols(_ s: String) -> String {
+        let out = s.replacingOccurrences(of: "%", with: " percent")
+        let re = try! NSRegularExpression(pattern: "\\s+percent")
+        let r = NSRange(out.startIndex..., in: out)
+        return re.stringByReplacingMatches(in: out, range: r, withTemplate: " percent")
     }
 
     private static func normalizeRomanNumeralChapters(_ s: String) -> String {
@@ -77,4 +104,103 @@ enum TextNormalizer {
         }
         return total > 0 ? total : nil
     }
+
+    private static func replacingMatches(
+        in s: String,
+        pattern: String,
+        transform: (NSTextCheckingResult, String) -> String?
+    ) -> String {
+        let re = try! NSRegularExpression(pattern: pattern)
+        let r = NSRange(s.startIndex..., in: s)
+        let matches = re.matches(in: s, range: r).reversed()
+        var out = s
+        for match in matches {
+            guard let whole = Range(match.range, in: out),
+                let replacement = transform(match, out)
+            else { continue }
+            out.replaceSubrange(whole, with: replacement)
+        }
+        return out
+    }
+
+    private static func substring(_ range: NSRange, in s: String) -> String? {
+        guard range.location != NSNotFound, let swiftRange = Range(range, in: s) else {
+            return nil
+        }
+        return String(s[swiftRange])
+    }
+
+    private static func numberWords(from literal: String) -> String? {
+        let clean = literal.replacingOccurrences(of: ",", with: "")
+        let parts = clean.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+            .map(String.init)
+        guard let integerText = parts.first, let integer = Int(integerText) else { return nil }
+
+        var words = cardinalWords(integer)
+        if parts.count == 2, !parts[1].isEmpty {
+            let fraction = parts[1].compactMap { digitWord($0) }.joined(separator: " ")
+            guard !fraction.isEmpty else { return nil }
+            words += " point \(fraction)"
+        }
+        return words
+    }
+
+    private static func cardinalWords(_ value: Int) -> String {
+        if value < 20 { return smallNumberWords[value] }
+        if value < 100 {
+            let tens = value / 10
+            let ones = value % 10
+            let tensWord = tensNumberWords[tens] ?? ""
+            return ones == 0 ? tensWord : "\(tensWord)-\(smallNumberWords[ones])"
+        }
+        if value < 1000 {
+            let hundreds = value / 100
+            let remainder = value % 100
+            let prefix = "\(smallNumberWords[hundreds]) hundred"
+            return remainder == 0 ? prefix : "\(prefix) and \(cardinalWords(remainder))"
+        }
+
+        for (scale, name) in scaleNumberWords {
+            guard value >= scale else { continue }
+            let major = value / scale
+            let remainder = value % scale
+            let prefix = "\(cardinalWords(major)) \(name)"
+            if remainder == 0 { return prefix }
+            if remainder < 100 { return "\(prefix) and \(cardinalWords(remainder))" }
+            if scale == 1_000 && value < 10_000 {
+                return "\(prefix) \(cardinalWords(remainder))"
+            }
+            return "\(prefix), \(cardinalWords(remainder))"
+        }
+
+        return String(value)
+    }
+
+    private static func digitWord(_ ch: Character) -> String? {
+        guard let value = ch.wholeNumberValue, (0...9).contains(value) else { return nil }
+        return smallNumberWords[value]
+    }
+
+    private static let smallNumberWords = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen",
+    ]
+
+    private static let tensNumberWords = [
+        2: "twenty",
+        3: "thirty",
+        4: "forty",
+        5: "fifty",
+        6: "sixty",
+        7: "seventy",
+        8: "eighty",
+        9: "ninety",
+    ]
+
+    private static let scaleNumberWords = [
+        (1_000_000_000, "billion"),
+        (1_000_000, "million"),
+        (1_000, "thousand"),
+    ]
 }
