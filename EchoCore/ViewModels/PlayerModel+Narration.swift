@@ -256,6 +256,7 @@
                                 segmentIndex: segment.segmentIndex,
                                 blocks: segment.blocks,
                                 voice: voice.id,
+                                chapterTitle: segment.chapterTitle,
                                 onBlockProgress: { [weak self] displayNumber, fraction in
                                     guard let self else { return }
                                     self.state.currentSubtitle = NarrationProgressText.subtitle(
@@ -275,11 +276,18 @@
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
+                        } else {
+                            try await service.updateCachedNarrationTitle(
+                                chapterIndex: segment.chapterIndex,
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                blocks: segment.blocks,
+                                chapterTitle: segment.chapterTitle)
                         }
 
                         let track = Track(
                             url: fileURL,
-                            title: String(localized: "Chapter \(segment.chapterDisplayNumber)"))
+                            title: segment.chapterTitle)
 
                         if offset == 0 {
                             // First segment: start playing through the pipeline.
@@ -338,7 +346,8 @@
                                 chapterDisplayNumber: segment.chapterDisplayNumber,
                                 segmentIndex: segment.segmentIndex,
                                 blocks: segment.blocks,
-                                voice: voice.id)
+                                voice: voice.id,
+                                chapterTitle: segment.chapterTitle)
                             try Task.checkCancellation()
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
@@ -346,11 +355,18 @@
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
+                        } else {
+                            try await service.updateCachedNarrationTitle(
+                                chapterIndex: segment.chapterIndex,
+                                chapterDisplayNumber: segment.chapterDisplayNumber,
+                                segmentIndex: segment.segmentIndex,
+                                blocks: segment.blocks,
+                                chapterTitle: segment.chapterTitle)
                         }
 
                         let track = Track(
                             url: fileURL,
-                            title: String(localized: "Chapter \(segment.chapterDisplayNumber)"))
+                            title: segment.chapterTitle)
                         self.tracks.insert(track, at: 0)
                         // The playing track shifted one slot right; keep currentIndex on it.
                         self.state.currentIndex += 1

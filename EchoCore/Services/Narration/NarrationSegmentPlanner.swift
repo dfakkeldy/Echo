@@ -9,8 +9,25 @@ enum NarrationSegmentPlanner {
     struct PlannedSegment: Equatable {
         let chapterIndex: Int
         let chapterDisplayNumber: Int
+        let chapterTitle: String
         let segmentIndex: Int
         let blocks: [EPubBlockRecord]
+
+        init(
+            chapterIndex: Int,
+            chapterDisplayNumber: Int,
+            segmentIndex: Int,
+            blocks: [EPubBlockRecord],
+            chapterTitle: String? = nil
+        ) {
+            self.chapterIndex = chapterIndex
+            self.chapterDisplayNumber = chapterDisplayNumber
+            self.chapterTitle = chapterTitle
+                ?? NarrationChapterPlanner.title(
+                    displayNumber: chapterDisplayNumber, blocks: blocks)
+            self.segmentIndex = segmentIndex
+            self.blocks = blocks
+        }
     }
 
     private static let charsPerSecond = 14.0
@@ -73,7 +90,8 @@ enum NarrationSegmentPlanner {
                     chapterIndex: chapter.index,
                     chapterDisplayNumber: chapter.displayNumber,
                     segmentIndex: segmentIndex,
-                    blocks: currentBlocks
+                    blocks: currentBlocks,
+                    chapterTitle: chapter.title
                 ))
             segmentIndex += 1
             currentBlocks = []

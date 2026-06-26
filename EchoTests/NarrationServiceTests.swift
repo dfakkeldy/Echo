@@ -10,29 +10,46 @@ import Testing
 
     private func blocks(_ audiobookID: String, _ texts: [String?]) -> [EPubBlockRecord] {
         texts.enumerated().map { i, t in
-            EPubBlockRecord(
-                id: "blk\(i)", audiobookID: audiobookID, spineHref: "c.xhtml",
-                spineIndex: 0, blockIndex: i, sequenceIndex: i,
-                blockKind: "paragraph", text: t, htmlContent: nil, cardColor: nil,
-                chapterThemeColor: nil, imagePath: nil, chapterIndex: 0,
-                isHidden: false, hiddenReason: nil, isFrontMatter: false,
-                wordCount: nil, markers: nil, textFormats: nil,
-                createdAt: nil, modifiedAt: nil)
+            block(audiobookID, id: "blk\(i)", seq: i, text: t)
         }
+    }
+
+    private func block(
+        _ audiobookID: String,
+        id: String,
+        seq: Int,
+        kind: String = "paragraph",
+        text: String?,
+        chapterIndex: Int = 0
+    ) -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: id, audiobookID: audiobookID, spineHref: "c.xhtml",
+            spineIndex: 0, blockIndex: seq, sequenceIndex: seq,
+            blockKind: kind, text: text, htmlContent: nil, cardColor: nil,
+            chapterThemeColor: nil, imagePath: nil, chapterIndex: chapterIndex,
+            isHidden: false, hiddenReason: nil, isFrontMatter: false,
+            wordCount: nil, markers: nil, textFormats: nil,
+            createdAt: nil, modifiedAt: nil)
     }
 
     /// Inserts the audiobook row plus the blocks (so `alignment_anchor`'s
     /// `epub_block_id` foreign key is satisfied) and returns the blocks.
     private func seed(_ db: DatabaseService, _ texts: [String?]) throws -> [EPubBlockRecord] {
+        return try seed(db, records: blocks("b1", texts))
+    }
+
+    private func seed(
+        _ db: DatabaseService,
+        records: [EPubBlockRecord]
+    ) throws -> [EPubBlockRecord] {
         try db.write { db in
             try db.execute(
                 sql:
                     "INSERT INTO audiobook (id, title, duration, added_at) VALUES ('b1','Book',0,'2026-06-13T00:00:00Z')"
             )
         }
-        let blocks = blocks("b1", texts)
-        try EPubBlockDAO(db: db.writer).insertAll(blocks)
-        return blocks
+        try EPubBlockDAO(db: db.writer).insertAll(records)
+        return records
     }
 
     private func makeService(_ db: DatabaseService, tts: TTSEngine, writer: AudioFileWriting)
@@ -89,6 +106,29 @@ import Testing
                 db, sql: "SELECT narration_voice FROM track WHERE audiobook_id = 'b1'")
         }
         #expect(voiceCol == "af_warm")
+    }
+
+    @Test func renderChapterPersistsDerivedChapterTitle() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let records = [
+            block("b1", id: "h0", seq: 0, kind: "heading", text: "Chapter 1: A Door Opens"),
+            block("b1", id: "blk0", seq: 1, text: "abcd"),
+        ]
+        let blocks = try seed(db, records: records)
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+        try await svc.renderChapter(
+            chapterIndex: 0,
+            chapterNumber: 1,
+            blocks: blocks,
+            voice: VoiceID("af_warm"))
+
+        let title = try db.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT title FROM track WHERE audiobook_id = 'b1'")
+        }
+        #expect(title == "ch. 1: A Door Opens")
     }
 
     @Test func writesSynthesizedAnchorPerTextBlockInOrder() async throws {
@@ -214,17 +254,19 @@ import Testing
             chapterDisplayNumber: 1,
             segmentIndex: 0,
             blocks: Array(blocks[0...1]),
-            voice: VoiceID("af_warm"))
+            voice: VoiceID("af_warm"),
+            chapterTitle: "ch. 1: Opening")
         try await svc.renderSegment(
             chapterIndex: 0,
             chapterDisplayNumber: 1,
             segmentIndex: 1,
             blocks: [blocks[2]],
-            voice: VoiceID("af_warm"))
+            voice: VoiceID("af_warm"),
+            chapterTitle: "ch. 1: Opening")
 
         let tracks = try TrackDAO(db: db.writer).tracks(for: "b1")
         #expect(tracks.map(\.id) == ["syn-b1-ch0-s0", "syn-b1-ch0-s1"])
-        #expect(tracks.map(\.title) == ["Chapter 1", "Chapter 1"])
+        #expect(tracks.map(\.title) == ["ch. 1: Opening", "ch. 1: Opening"])
         #expect(tracks.map(\.sortOrder) == [0, 1])
         #expect(tracks.map(\.narrationVoice) == ["af_warm", "af_warm"])
         #expect(abs((tracks.first?.duration ?? -1) - 1.1) < 0.0001)
