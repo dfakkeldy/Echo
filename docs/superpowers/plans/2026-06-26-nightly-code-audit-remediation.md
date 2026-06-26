@@ -211,10 +211,10 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `Echo macOS/Services/MacApkgExportService.swift`
 - Add/modify tests under `EchoTests` or a macOS-capable test target
 
-- [ ] Extract or mirror the iOS monotonic ID allocation used in `ApkgExportService`.
-- [ ] Remove `hashValue % 1000` and wall-clock-per-card ID derivation from macOS export.
-- [ ] Add a regression test that exports enough cards to exercise same-millisecond allocation.
-- [ ] Confirm note IDs and card IDs are unique and non-overlapping.
+- [x] Extract or mirror the iOS monotonic ID allocation used in `ApkgExportService`.
+- [x] Remove `hashValue % 1000` and wall-clock-per-card ID derivation from macOS export.
+- [x] Add a regression test that exports enough cards to exercise same-millisecond allocation.
+- [x] Confirm note IDs and card IDs are unique and non-overlapping.
 
 **Acceptance criteria:** macOS APKG export never derives note/card IDs from randomized hash fragments.
 
