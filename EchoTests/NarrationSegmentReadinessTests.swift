@@ -77,10 +77,12 @@ import Testing
 
     @Test func assembledChapterRejectsMismatchedSpokenBlocks() throws {
         let planned = [
-            segment(0, blocks: [
-                block("b0", text: "First"),
-                block("image", text: nil),
-            ])
+            segment(
+                0,
+                blocks: [
+                    block("b0", text: "First"),
+                    block("image", text: nil),
+                ])
         ]
         let rendered = [
             renderedSegment(0, duration: 1.0, blockIDs: ["image"])
@@ -163,7 +165,8 @@ import Testing
                     createdAt: "2026-01-01T00:00:00Z",
                     modifiedAt: "2026-01-01T00:00:00Z")
             ],
-            spokenBlockIDs: blockIDs)
+            spokenBlockIDs: blockIDs,
+            synthesisWordTimingsByBlock: [:])
     }
 
     private func fileURL(chapter: Int, segment: Int, voice: VoiceID) -> URL {

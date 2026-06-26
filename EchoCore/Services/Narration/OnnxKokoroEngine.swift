@@ -30,6 +30,11 @@
         private let logger = Logger(category: "OnnxKokoro")
         private var env: ORTEnv?
         private var session: ORTSession?
+        /// Optional second session: the extracted duration head (encoder +
+        /// duration predictor). Loaded best-effort from the app bundle in
+        /// `prepare()`; when nil, synthesis emits no word timings and callers fall
+        /// back to interpolation. Same inputs as the waveform model.
+        private var durationSession: ORTSession?
         private var initializationTask: Task<Void, Error>?
         private var progressFanOut: ProgressFanOut?
         private var didLogFirstSynthesis = false
@@ -96,6 +101,11 @@
         /// so an exact-size match is a cheap, sufficient integrity check.
         nonisolated static let expectedModelBytes = 163_234_740
 
+        /// Bundled duration-head resource name and its sole output tensor.
+        private nonisolated static let durationHeadResource = "kokoro_dur_head"
+        private nonisolated static let durationOutputName =
+            "/encoder/predictor/ReduceSum_output_0"
+
         /// Test seam: the immutable remote model URL, so a unit test can assert it is
         /// pinned to a commit revision rather than the moving `main` branch ref.
         nonisolated static var remoteModelURLForTesting: URL { hfModelURL }
@@ -153,7 +163,28 @@
                 logger.notice(
                     "ONNX session created in \(loadMs, privacy: .public) ms (no AOT compile), intraOp=\(intraOpThreads, privacy: .public)."
                 )
-                self.store(env: env, session: session)
+                // Best-effort: load the bundled duration head so synthesis can emit
+                // exact word timings. Its absence or a load error is non-fatal — it
+                // only disables timing (callers fall back to interpolation).
+                var durationSession: ORTSession?
+                if let headURL = NarrationResources.url(
+                    forResource: Self.durationHeadResource, withExtension: "onnx")
+                {
+                    do {
+                        let headOptions = try ORTSessionOptions()
+                        try headOptions.setGraphOptimizationLevel(.all)
+                        try headOptions.setIntraOpNumThreads(intraOpThreads)
+                        durationSession = try ORTSession(
+                            env: env, modelPath: headURL.path, sessionOptions: headOptions)
+                    } catch {
+                        logger.warning(
+                            "Duration head load failed (word timing disabled): \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
+                } else {
+                    logger.warning("Duration head resource not bundled (word timing disabled).")
+                }
+                self.store(env: env, session: session, durationSession: durationSession)
                 fan.emit(.compilingModels(done: 1, total: 1))
                 fan.emit(.ready)
             }
@@ -198,7 +229,19 @@
                 }
             }
             let audioS = Double(samples.count) / 24_000
-            return TTSChunk(samples: samples, sampleRate: 24_000, duration: audioS)
+
+            // Word timings from the duration head (computed on the original text;
+            // robust to the silence guard's internal speed nudges / splits via the
+            // normalization in KokoroWordTimer). Soft-fails to nil → interpolation.
+            var wordTimings: [ChunkWordTiming]?
+            if let (ids, frames) = tokenDurations(forText: text, voice: voice) {
+                let wordCount = text.split(whereSeparator: { $0.isWhitespace }).count
+                wordTimings = KokoroWordTimer.wordTimings(
+                    ids: ids, perTokenFrames: frames, wordCount: wordCount,
+                    sampleCount: samples.count, sampleRate: 24_000)
+            }
+            return TTSChunk(
+                samples: samples, sampleRate: 24_000, duration: audioS, wordTimings: wordTimings)
         }
 
         /// One encode + ONNX run for a single text fragment at a given `speed` → PCM
@@ -272,11 +315,51 @@
             return samples
         }
 
+        /// Runs the duration head for `text` to get per-token frame durations,
+        /// returning the BOS/EOS-wrapped token ids alongside them (so callers can
+        /// map tokens→words). `nil` when the head isn't loaded or anything fails —
+        /// always a soft failure, never throwing into the synthesis path. `speed`
+        /// is fixed at 1.0: it only globally scales durations, which the per-word
+        /// normalization to the real sample count absorbs.
+        private func tokenDurations(forText text: String, voice: VoiceID)
+            -> (ids: [Int32], frames: [Float])?
+        {
+            guard let durationSession else { return nil }
+            do {
+                let (ids32, refS) = try frontEnd.encode(text: text, voice: voice)
+                guard ids32.contains(where: { $0 != KokoroPhonemeVocab.boundaryTokenId }) else {
+                    return nil
+                }
+                let ids64 = ids32.map { Int64($0) }
+                let inputIds = try ORTValue(
+                    tensorData: Self.tensorData(ids64), elementType: .int64,
+                    shape: [NSNumber(value: 1), NSNumber(value: ids64.count)])
+                let styleValue = try ORTValue(
+                    tensorData: Self.tensorData(refS), elementType: .float,
+                    shape: [NSNumber(value: 1), NSNumber(value: refS.count)])
+                let speedValue = try ORTValue(
+                    tensorData: Self.tensorData([Float(1.0)]), elementType: .float,
+                    shape: [NSNumber(value: 1)])
+                let outputs = try durationSession.run(
+                    withInputs: ["input_ids": inputIds, "style": styleValue, "speed": speedValue],
+                    outputNames: [Self.durationOutputName], runOptions: nil)
+                guard let durValue = outputs[Self.durationOutputName] else { return nil }
+                let frames = try durValue.tensorData().toFloatArray()
+                guard frames.count == ids32.count else { return nil }
+                return (ids32, frames)
+            } catch {
+                logger.warning(
+                    "Duration head run failed: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
+        }
+
         // MARK: - Private
 
-        private func store(env: ORTEnv, session: ORTSession) {
+        private func store(env: ORTEnv, session: ORTSession, durationSession: ORTSession?) {
             self.env = env
             self.session = session
+            self.durationSession = durationSession
         }
 
         /// Copies a numeric array's raw bytes into `NSMutableData` for an ORTValue
@@ -295,7 +378,9 @@
         /// to a temp file with byte-level progress, and is size-validated before its
         /// path is handed to ORT (which would otherwise fail later with an opaque
         /// session-create error).
-        private nonisolated static func ensureModel(progress: @Sendable (Double) -> Void) async throws -> URL {
+        private nonisolated static func ensureModel(progress: @Sendable (Double) -> Void)
+            async throws -> URL
+        {
             let dest = modelURL()
             let fm = FileManager.default
             if fm.fileExists(atPath: dest.path) {
