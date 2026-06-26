@@ -279,10 +279,10 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 **Files:**
 - Modify: `EchoCore/Views/PDFDocumentView.swift`
 
-- [ ] Replace `Task.detached` launched from `makeUIView` with `.task(id: folderURL)` from the SwiftUI owner, or store/cancel an owned task in the representable coordinator.
-- [ ] Do background file discovery using Sendable values.
-- [ ] Construct and assign `PDFDocument` on MainActor unless PDFKit sendability is documented and validated.
-- [ ] Prevent stale folder loads from overwriting current state.
+- [x] Replace `Task.detached` launched from `makeUIView` with `.task(id: folderURL)` from the SwiftUI owner, or store/cancel an owned task in the representable coordinator.
+- [x] Do background file discovery using Sendable values.
+- [x] Construct and assign `PDFDocument` on MainActor unless PDFKit sendability is documented and validated.
+- [x] Prevent stale folder loads from overwriting current state.
 
 **Acceptance criteria:** PDF loading cancels or becomes stale-safe when `folderURL` or view identity changes.
 

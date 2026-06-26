@@ -8,6 +8,7 @@ struct PDFDocumentView: View {
     @Environment(PlayerModel.self) private var model
 
     @State private var pdfDocument: PDFDocument?
+    @State private var pdfLoadToken = 0
     @State private var showingAlignmentOptions = false
     @State private var showingManualAlignment = false
     @State private var capturedState: PDFViewState?
@@ -33,10 +34,10 @@ struct PDFDocumentView: View {
                 .padding(.bottom, model.bottomInset)
             } else {
                 ProgressView()
-                    .onAppear {
-                        loadPDF()
-                    }
             }
+        }
+        .task(id: PDFLoadRequest(folderURL: folderURL, reloadToken: pdfLoadToken)) {
+            await loadPDF(for: folderURL)
         }
         .confirmationDialog("Align PDF View", isPresented: $showingAlignmentOptions) {
             Button("Align to Now") {
@@ -68,28 +69,42 @@ struct PDFDocumentView: View {
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
                 ingestedID == folderURL.absoluteString
             else { return }
-            loadPDF()
+            pdfLoadToken &+= 1
         }
     }
 
-    private func loadPDF() {
-        Task.detached(priority: .userInitiated) {
-            guard !Task.isCancelled else { return }
-            do {
-                let files = try FileManager.default.contentsOfDirectory(atPath: folderURL.path)
-                if let pdfFile = files.first(where: { $0.lowercased().hasSuffix(".pdf") }) {
-                    let pdfURL = folderURL.appendingPathComponent(pdfFile)
-                    if let doc = PDFDocument(url: pdfURL) {
-                        await MainActor.run {
-                            self.pdfDocument = doc
-                        }
-                    }
-                }
-            } catch {
-                let logger = Logger(category: "PDFDocumentView")
-                logger.error("Failed to load PDF: \(error.localizedDescription)")
-            }
+    private func loadPDF(for folderURL: URL) async {
+        do {
+            let pdfURL = try await Self.firstPDFURL(in: folderURL)
+            try Task.checkCancellation()
+            guard self.folderURL == folderURL else { return }
+
+            let document = pdfURL.flatMap(PDFDocument.init(url:))
+            try Task.checkCancellation()
+            pdfDocument = document
+        } catch is CancellationError {
+            return
+        } catch {
+            Self.logger.error("Failed to load PDF: \(error.localizedDescription)")
         }
+    }
+
+    @concurrent
+    private static func firstPDFURL(in folderURL: URL) async throws -> URL? {
+        try Task.checkCancellation()
+        let files = try FileManager.default.contentsOfDirectory(
+            at: folderURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        try Task.checkCancellation()
+        return files
+            .filter { $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
+            .first
     }
 
     private func createBookmarkWithScreenshot(state: PDFViewState) {
@@ -122,6 +137,13 @@ struct PDFDocumentView: View {
             }
         }
     }
+
+    private struct PDFLoadRequest: Equatable {
+        let folderURL: URL
+        let reloadToken: Int
+    }
+
+    private static let logger = Logger(category: "PDFDocumentView")
 }
 
 struct PDFKitView: UIViewRepresentable {
