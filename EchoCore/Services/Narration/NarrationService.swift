@@ -88,6 +88,9 @@ final class NarrationService {
         let duration: TimeInterval
         let anchors: [AlignmentAnchorRecord]
         let spokenBlockIDs: [String]
+        /// Per-block file-relative word timings captured at synthesis (empty when
+        /// the engine emitted none). Applied over the interpolated baseline.
+        let synthesisWordTimingsByBlock: [String: [ChunkWordTiming]]
     }
 
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
@@ -279,6 +282,15 @@ final class NarrationService {
                 .recalculateTimeline(anchoredOnly: true, materializeWordTimings: false)
             try WordTimingMaterializer.materializeChapter(
                 audiobookID: audiobookID, blockIDs: rendered.spokenBlockIDs, writer: db)
+            let overridden = try WordTimingMaterializer.refineWithSynthesis(
+                audiobookID: audiobookID,
+                synthesisByBlock: rendered.synthesisWordTimingsByBlock,
+                writer: db)
+            if !rendered.synthesisWordTimingsByBlock.isEmpty {
+                logger.notice(
+                    "Synthesis word timing: \(overridden, privacy: .public)/\(rendered.synthesisWordTimingsByBlock.count, privacy: .public) blocks overrode interpolation (rest fell back)."
+                )
+            }
             if let segmentKey {
                 let audioEndTimesByBlockID = Dictionary(
                     uniqueKeysWithValues: rendered.anchors.compactMap { anchor in
@@ -342,11 +354,13 @@ final class NarrationService {
         }
 
         let spoken = blocks.filter { ($0.text?.isEmpty == false) }
-        let unitLabel = segmentIndex.map {
-            "Chapter \(chapterDisplayNumber) segment \($0 + 1)"
-        } ?? "Chapter \(chapterDisplayNumber)"
+        let unitLabel =
+            segmentIndex.map {
+                "Chapter \(chapterDisplayNumber) segment \($0 + 1)"
+            } ?? "Chapter \(chapterDisplayNumber)"
         logger.notice("\(unitLabel): synthesizing \(spoken.count) block(s)…")
         var anchors: [AlignmentAnchorRecord] = []
+        var synthesisWordTimingsByBlock: [String: [ChunkWordTiming]] = [:]
         var cursor: TimeInterval = 0
         let now = Self.iso8601.string(from: Date())
 
@@ -369,11 +383,14 @@ final class NarrationService {
             // block (keyed on block.id) is preserved by spanning the summed sub-chunk
             // durations, so read-along is unchanged regardless of how it sub-chunks.
             var blockDuration: TimeInterval = 0
+            var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
             for subText in NarrationTextChunker.split(text) {
                 try Task.checkCancellation()
                 do {
+                    let chunkStartInFile = cursor + blockDuration
                     let chunk = try await tts.synthesize(subText, voice: voice)
                     try await stream.append(chunk)
+                    blockChunkTimings.append((chunk.wordTimings, chunkStartInFile))
                     blockDuration += chunk.duration
                 } catch is CancellationError {
                     throw CancellationError()
@@ -385,6 +402,9 @@ final class NarrationService {
                     )
                     continue
                 }
+            }
+            if let assembled = NarrationWordTimingAssembler.assemble(blockChunkTimings) {
+                synthesisWordTimingsByBlock[block.id] = assembled
             }
 
             anchors.append(
@@ -425,7 +445,8 @@ final class NarrationService {
             fileURL: fileURL,
             duration: duration,
             anchors: anchors,
-            spokenBlockIDs: spoken.map(\.id))
+            spokenBlockIDs: spoken.map(\.id),
+            synthesisWordTimingsByBlock: synthesisWordTimingsByBlock)
     }
 
     #if DEBUG && os(iOS)
