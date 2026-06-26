@@ -1,1 +1,1 @@
-audiobookshelf,m4b,mp3,epub,pdf,anki,srs,spaced,offline,loop,ebook,carplay,tts,export,fsrs
+audiobookshelf,m4b,mp3,epub,pdf,anki,srs,spaced,offline,loop,ebook,tts,export,fsrs

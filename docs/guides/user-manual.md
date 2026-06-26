@@ -1,6 +1,6 @@
 # Echo User Manual
 
-The complete reference for **Echo: Audiobook Study Player** on iPhone, iPad, Apple Watch, Mac, CarPlay, and widgets.
+The complete reference for **Echo: Audiobook Study Player** on iPhone, iPad, Apple Watch, Mac, and widgets.
 
 New to Echo? Read [Getting the Most Out of Echo](getting-the-most-out-of-echo.md) first — it explains *why* these features help you learn. This manual explains *how* everything works.
 
@@ -29,13 +29,12 @@ New to Echo? Read [Getting the Most Out of Echo](getting-the-most-out-of-echo.md
 17. [Playlist & Study Library](#17-playlist--study-library)
 18. [Apple Watch](#18-apple-watch)
 19. [Widgets & Control Center](#19-widgets--control-center)
-20. [CarPlay](#20-carplay)
-21. [Echo for Mac](#21-echo-for-mac)
-22. [Sync & iCloud](#22-sync--icloud)
-23. [Settings Reference](#23-settings-reference)
-24. [Transcription Tools](#24-transcription-tools-power-users)
-25. [Privacy](#25-privacy)
-26. [Troubleshooting & FAQ](#26-troubleshooting--faq)
+20. [Echo for Mac](#20-echo-for-mac)
+21. [Sync & iCloud](#21-sync--icloud)
+22. [Settings Reference](#22-settings-reference)
+23. [Transcription Tools](#23-transcription-tools-power-users)
+24. [Privacy](#24-privacy)
+25. [Troubleshooting & FAQ](#25-troubleshooting--faq)
 
 ---
 
@@ -462,13 +461,7 @@ Durable application-context sync; stale commands never replay; the watch request
 
 ---
 
-## 20. CarPlay
-
-Browse list + transport commands (play, pause, skip). Intentionally minimal for now; richer templates and capture buttons are on the roadmap. No CarPlay? The watch remote and aux cable are the designed path.
-
----
-
-## 21. Echo for Mac
+## 20. Echo for Mac
 
 - **Three-pane layout:** bookmarks sidebar, player pane, document pane.
 - Broadest format support (FLAC/OGG/OPUS).
@@ -482,7 +475,7 @@ Mac 1.0 is the *functional core* — play, read, review, see your stats. Full re
 
 ---
 
-## 22. Sync & iCloud
+## 21. Sync & iCloud
 
 Echo has no servers and no accounts — sync rides on *your* iCloud.
 
@@ -494,7 +487,7 @@ Echo has no servers and no accounts — sync rides on *your* iCloud.
 
 ---
 
-## 23. Settings Reference
+## 22. Settings Reference
 
 | Group | Settings |
 |---|---|
@@ -514,7 +507,7 @@ Echo has no servers and no accounts — sync rides on *your* iCloud.
 
 ---
 
-## 24. Transcription Tools (Power Users)
+## 23. Transcription Tools (Power Users)
 
 A companion command-line tool (`Tools/transcription_generator.py`) for archival transcripts on your Mac. EPUB/PDF alignment runs entirely in-app now (on-device WhisperKit); the earlier Swift transcription/alignment CLI has been retired.
 
@@ -525,7 +518,7 @@ Optional — the iOS app's built-in alignment needs none of this. Set up with `p
 
 ---
 
-## 25. Privacy
+## 24. Privacy
 
 - **No accounts. No analytics. No tracking. No ads. No servers.**
 - Books, bookmarks, photos, voice memos, notes, flashcards, and listening history stay on your devices (and your personal iCloud, where you enable sync).
@@ -535,7 +528,7 @@ Optional — the iOS app's built-in alignment needs none of this. Set up with `p
 
 ---
 
-## 26. Troubleshooting & FAQ
+## 25. Troubleshooting & FAQ
 
 ### Library & playback
 
@@ -594,7 +587,7 @@ Only if you turn it on — and even then: approximate places, a few capture mome
 On-device machine learning (WhisperKit) for alignment — no cloud APIs, no uploads. No chatbots, no generative features today; if AI-assisted card drafting arrives post-1.0, it runs on-device under the same rules 🔭.
 
 **What's coming after 1.0?**
-Chapter Study Mode, on-device AI card drafting, focus soundscapes, gentle hyperfocus/transition reminders, a Context Memory map view, .apkg export, richer CarPlay, full Mac reader parity. The [ROADMAP](../../ROADMAP.md) is public.
+Chapter Study Mode, on-device AI card drafting, focus soundscapes, gentle hyperfocus/transition reminders, a Context Memory map view, .apkg export, full Mac reader parity. The [ROADMAP](../../ROADMAP.md) is public.
 
 **Where are my files? Can I get my data out?**
 Audio stays where you put it (read in place, never modified). Echo's data lives in a local SQL database with an open schema; everything exports (see Exports). Deleting the app deletes Echo's database — your audio folder is untouched.

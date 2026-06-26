@@ -138,12 +138,14 @@ xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 - Modify: `EchoCore/Views/HelpContent.swift`
 - Optionally conditionally compile or remove exposed CarPlay scene code
 
-- [ ] Decide whether CarPlay ships in the next nightly/weekly train.
-- [ ] If shipping, enable entitlement and regenerate profiles before merging metadata that advertises CarPlay.
-- [ ] If deferring, remove the scene declaration and all user/tester marketing claims until entitlement approval exists.
-- [ ] Add a release checklist item that validates CarPlay entitlement/profile state against metadata.
+- [x] Decide whether CarPlay ships in the next nightly/weekly train: deferred until a future nightly/weekly train because the entitlement/profile approval is outside the repo.
+- [x] Shipping path not selected; no CarPlay entitlement was added and no provisioning profile change is assumed.
+- [x] If deferring, remove the scene declaration and all user/tester marketing claims until entitlement approval exists.
+- [x] Add a release checklist item that validates CarPlay entitlement/profile state against metadata.
 
 **Acceptance criteria:** plist, entitlements, provisioning, help, keywords, and TestFlight copy all describe the same shipped feature set.
+
+**Verification note:** 2026-06-26 pass: `plutil -lint EchoCore/Info.plist EchoCore/EchoCore.entitlements` returned OK for both files; a case-insensitive targeted `rg` found no active user/tester surface advertising shipped CarPlay; generic iOS build passed with `CODE_SIGNING_ALLOWED=NO`; `git diff --check` passed.
 
 ### Task 1.5: Decide deployment-target source of truth
 

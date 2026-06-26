@@ -1125,3 +1125,10 @@ workflow manually: **Actions ▸ Release Trains ▸ Run workflow ▸ channel:**,
 unique, monotonic build number from TestFlight's latest + 1, so `MARKETING_VERSION`
 only moves for real releases. A purely local upload is `bundle exec fastlane beta
 channel:weekly` (needs `fastlane/api_key.json` and `MATCH_PASSWORD`).
+
+**Release checklist guardrail.** Before merging any future CarPlay scene
+declaration or marketing copy, verify the App ID/provisioning profile includes
+the matching CarPlay entitlement (`com.apple.developer.carplay-audio`), the
+checked-in entitlements file enables it, `EchoCore/Info.plist` advertises only
+matching scene roles, and TestFlight/App Store metadata names only shipped
+surfaces.

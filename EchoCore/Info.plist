@@ -37,21 +37,6 @@
 		<string>Lexend.ttf</string>
 		<string>OpenDyslexic-Regular.otf</string>
 	</array>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UISceneConfigurations</key>
-		<dict>
-			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
-			<array>
-				<dict>
-					<key>UISceneConfigurationName</key>
-					<string>CarPlay</string>
-					<key>UISceneDelegateClassName</key>
-					<string>$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate</string>
-				</dict>
-			</array>
-		</dict>
-	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

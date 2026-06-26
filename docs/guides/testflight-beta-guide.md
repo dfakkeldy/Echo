@@ -154,7 +154,6 @@ Echo's flagship new surface. Works on every device Echo supports — no special 
 Honest list — these are known, so you don't need to report them (though opinions on them are welcome):
 
 - **First auto-align is heavy.** Model download (~40 MB) + Neural Engine work; phones run warm on long books. Plug in.
-- **CarPlay is minimal** — browse + transport only, richer templates on the roadmap.
 - **iCloud sync covers alignment anchors only** so far; bookmarks/flashcards/position sync across devices is roadmap work.
 - **Edition drift is real.** Auto-align gets you close; some books need two or three manual anchors. That's expected, not a bug — but tell us about books that need *lots*.
 - **Watch review sessions** can briefly show stale state if the phone app was killed mid-review; relaunching the phone app reconverges.

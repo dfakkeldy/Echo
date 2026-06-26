@@ -50,7 +50,7 @@ The busiest week of the project's opening stretch, and it reads like a different
 - **The Anki system.** SM-2 daily review, inline flashcard recall during playback, audio snippet cards, JSON deck import, and hands-free **flashcard review on the watch**.
 - **The EPUB alignment pipeline** — a Swift CLI that unpacks an EPUB, parses the spine, and fuzzy-aligns transcribed audio to text with Levenshtein matching. The hardest problem in the app, started properly, with tests.
 - **V1 EPUB timeline core** — `epub_block` and `alignment_anchor` tables, an import service, manual anchors with interpolation: the seed of the Read tab.
-- Plus: tab navigation, multi-file **M4B support**, **CarPlay**, a portable playlist manifest, a Twitter-style unified timeline feed — and this very **GitHub Pages site** with the privacy policy.
+- Plus: tab navigation, multi-file **M4B support**, a CarPlay prototype now deferred for entitlement approval, a portable playlist manifest, a Twitter-style unified timeline feed — and this very **GitHub Pages site** with the privacy policy.
 
 ---
 
@@ -92,7 +92,7 @@ Around the headline, a lot else shipped. The **macOS app** got a BookPlayer-styl
 
 ## The shape of the thing
 
-Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets — plus CarPlay). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
+Nine working weeks. Four platforms (iOS, watchOS, macOS, widgets). A SQL database, an on-device ML alignment pipeline, an on-device neural text-to-speech narrator, a spaced-repetition system, and an EPUB/PDF reader — built nights-and-weekends around a mail route, by someone whose previous programming experience was "some Python scripts for GIS and a Visual Basic call logger in high school."
 
 The point of publishing this log isn't bragging rights. It's the same as open-sourcing the code: you should be able to see exactly what you're trusting with your books and your attention — and maybe, if you've been wondering whether you could build *your* app, this page is the nudge.
 
