@@ -6,6 +6,17 @@ import os.log
 enum EPUBAutoImportScanner {
     private static let logger = Logger(category: "EPUBAutoImport")
 
+    enum ImportOutcome {
+        case imported
+        case alreadyImported
+        case failed(URL, underlying: Error)
+
+        var didImportBlocks: Bool {
+            if case .imported = self { return true }
+            return false
+        }
+    }
+
     /// Scans the given audiobook folder for `.epub` files. When one is found
     /// and no prior EPUB blocks exist in the database, the archive is extracted
     /// and imported via `EPUBImportService`.
@@ -90,8 +101,30 @@ enum EPUBAutoImportScanner {
         databaseService: DatabaseService,
         chapters: [Chapter],
         duration: TimeInterval?,
-        force: Bool = false
+        force: Bool = false,
+        finalizerFileURL: URL? = nil
     ) async -> Bool {
+        let outcome = await importEPUBFileOutcome(
+            epubURL: epubURL,
+            audiobookID: audiobookID,
+            databaseService: databaseService,
+            chapters: chapters,
+            duration: duration,
+            force: force,
+            finalizerFileURL: finalizerFileURL
+        )
+        return outcome.didImportBlocks
+    }
+
+    static func importEPUBFileOutcome(
+        epubURL: URL,
+        audiobookID: String,
+        databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        force: Bool = false,
+        finalizerFileURL: URL? = nil
+    ) async -> ImportOutcome {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
@@ -104,7 +137,7 @@ enum EPUBAutoImportScanner {
                 logger.debug(
                     "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
                 )
-                return false
+                return .alreadyImported
             }
         }
 
@@ -118,7 +151,7 @@ enum EPUBAutoImportScanner {
             cacheDir = try prepareCacheDirectory(safeID: safeID)
         } catch {
             logger.error("Failed to prepare EPUB cache directory: \(error.localizedDescription)")
-            return false
+            return .failed(epubURL, underlying: error)
         }
 
         let extractedDir: URL
@@ -128,7 +161,7 @@ enum EPUBAutoImportScanner {
             logger.error(
                 "Failed to extract EPUB \(sanitizedPath(epubURL.lastPathComponent)): \(error.localizedDescription)"
             )
-            return false
+            return .failed(epubURL, underlying: error)
         }
 
         // Import extracted EPUB blocks.
@@ -145,12 +178,16 @@ enum EPUBAutoImportScanner {
                 "Auto-imported \(blocks.count) EPUB blocks for \(sanitizedPath(epubURL.lastPathComponent))"
             )
 
-            return await DocumentImportFinalizer.finalize(
-                audiobookID: audiobookID, blocks: blocks, fileURL: epubURL,
+            let finalized = await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID, blocks: blocks, fileURL: finalizerFileURL ?? epubURL,
                 duration: duration, databaseService: databaseService)
+            if finalized {
+                return .imported
+            }
+            return .failed(epubURL, underlying: ScannerError.finalizationFailed(url: epubURL))
         } catch {
             logger.error("EPUB auto-import failed: \(error.localizedDescription)")
-            return false
+            return .failed(epubURL, underlying: error)
         }
     }
 
@@ -350,6 +387,7 @@ private enum ScannerError: LocalizedError {
     case invalidArchive(url: URL)
     case invalidEPUB(path: String)
     case unsafeEntryPath(String)
+    case finalizationFailed(url: URL)
 
     var errorDescription: String? {
         switch self {
@@ -361,6 +399,8 @@ private enum ScannerError: LocalizedError {
             return "File is not a valid EPUB: \(path)"
         case .unsafeEntryPath(let path):
             return "EPUB contains an unsafe entry path: \(path)"
+        case .finalizationFailed(let url):
+            return "Could not save EPUB import: \(url.lastPathComponent)"
         }
     }
 }

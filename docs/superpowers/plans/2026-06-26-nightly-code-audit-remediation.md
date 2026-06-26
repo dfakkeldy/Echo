@@ -344,13 +344,15 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Services/PDFImportCoordinator.swift`
 - Add/modify tests under `EchoTests`
 
-- [ ] Make import coordinators return a typed success/failure result or throw typed errors.
-- [ ] Preserve the underlying cause for permission, copy, parse, and scanner failures.
-- [ ] Add loading and error presentation in `RootTabView`.
-- [ ] Refresh reader state only after successful import.
-- [ ] Add tests for failed coordinator paths and unsupported/denied file imports.
+- [x] Make import coordinators return a typed success/failure result or throw typed errors.
+- [x] Preserve the underlying cause for permission, copy, parse, and scanner failures.
+- [x] Add loading and error presentation in `RootTabView`.
+- [x] Refresh reader state only after successful import.
+- [x] Add tests for failed coordinator paths and unsupported/denied file imports.
 
 **Acceptance criteria:** users get visible feedback for document import progress and failure.
+
+**Verification:** 2026-06-26 Task 4.2 implementation adds typed import results/errors for EPUB/PDF coordinators, surfaces an import progress overlay and failure alert in `RootTabView`, ignores picker cancellation, prevents concurrent imports, and refreshes reader state only after successful coordinator return. Outside-folder imports now stage incoming documents so scanner failures preserve existing companion files; EPUB/PDF scanner outcomes carry underlying failures; EPUB block/TOC replacement is transactional; readable textless PDFs attach successfully while clearing stale EPUB blocks. Added focused tests for missing/invalid sources, failed staged EPUB imports preserving old files, textless PDF attach, final-name alignment sidecar ingestion through staged import, unsupported selection, and file-importer failure preservation. Ran `git diff --check` and `xcodebuild -quiet build-for-testing -project Echo.xcodeproj -scheme Echo -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/EchoTask42DerivedData -only-testing:EchoTests/EPUBImportCoordinatorTests -only-testing:EchoTests/PDFImportCoordinatorTests -only-testing:EchoTests/CompanionDocumentImportRequestTests -only-testing:EchoTests/PlayerMoreMenuTests -only-testing:EchoTests/PDFAutoImportScannerTests -only-testing:EchoTests/EPUBAutoImportScannerTests -jobs 5 -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO` (succeeded; runtime simulator execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`). Code review/re-review found no remaining blockers.
 
 ### Task 4.3: Add accessible alternatives for PDF, transport, and scrubber actions
 

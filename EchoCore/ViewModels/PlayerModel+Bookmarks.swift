@@ -2,8 +2,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Foundation
+import os.log
 
 // MARK: - Bookmarks API
+
+enum PlayerDocumentImportError: LocalizedError {
+    case noActiveBook
+    case databaseUnavailable
+
+    nonisolated var errorDescription: String? {
+        switch self {
+        case .noActiveBook:
+            return "Open a book before importing a document."
+        case .databaseUnavailable:
+            return "Document import is unavailable for the current book."
+        }
+    }
+}
 
 extension PlayerModel {
 
@@ -137,41 +152,51 @@ extension PlayerModel {
         )
     }
 
+    @discardableResult
+    func importEPUBDocument(from sourceURL: URL) async throws -> EPUBImportCoordinator.ImportResult {
+        guard let folderURL else { throw PlayerDocumentImportError.noActiveBook }
+        guard let db = databaseService else { throw PlayerDocumentImportError.databaseUnavailable }
+
+        let result = try await EPUBImportCoordinator.importEPUB(
+            from: sourceURL,
+            to: folderURL,
+            databaseService: db,
+            chapters: state.chapters,
+            duration: state.durationSeconds
+        )
+
+        // The import wiped and re-created epub_block rows (cascade-deleting
+        // their anchors); timeline_item still references the dead block IDs.
+        // Rebuild it so the reader and timeline feed reflect the new import.
+        await reingestTimelineFromEPUB()
+        playbackController.state.documentIngestionTrigger += 1
+
+        return result
+    }
+
     func importEPUB(from sourceURL: URL) {
-        guard let folderURL = folderURL, let db = databaseService else { return }
+        let logger = Logger(category: "PlayerDocumentImport")
         Task {
-            let didStartSource = sourceURL.startAccessingSecurityScopedResource()
-            defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
-            let didStartDest = folderURL.startAccessingSecurityScopedResource()
-            defer { if didStartDest { folderURL.stopAccessingSecurityScopedResource() } }
-            await EPUBImportCoordinator.importEPUB(
-                from: sourceURL,
-                to: folderURL,
-                databaseService: db,
-                chapters: self.state.chapters,
-                duration: self.state.durationSeconds
-            )
-            // The import wiped and re-created epub_block rows (cascade-deleting
-            // their anchors); timeline_item still references the dead block IDs.
-            // Rebuild it so the reader and timeline feed reflect the new import.
-            await self.reingestTimelineFromEPUB()
-            await MainActor.run {
-                self.playbackController.state.documentIngestionTrigger += 1
+            do {
+                _ = try await self.importEPUBDocument(from: sourceURL)
+            } catch {
+                logger.error("EPUB import failed: \(error.localizedDescription)")
             }
         }
     }
 
     /// Copies the selected PDF file into the current audiobook folder.
-    func importPDF(from sourceURL: URL) {
-        guard let folderURL = folderURL else { return }
-        let didStartSource = sourceURL.startAccessingSecurityScopedResource()
-        defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
-        let didStartDest = folderURL.startAccessingSecurityScopedResource()
-        defer { if didStartDest { folderURL.stopAccessingSecurityScopedResource() } }
-        PDFImportCoordinator.importPDF(
+    @discardableResult
+    func importPDFDocument(from sourceURL: URL) async throws -> PDFImportCoordinator.ImportResult {
+        guard let folderURL else { throw PlayerDocumentImportError.noActiveBook }
+        guard let db = databaseService else { throw PlayerDocumentImportError.databaseUnavailable }
+
+        let result = try await PDFImportCoordinator.importPDF(
             from: sourceURL,
             to: folderURL,
-            databaseService: databaseService
+            databaseService: db,
+            chapters: state.chapters,
+            duration: state.durationSeconds
         )
         playbackController.state.documentIngestionTrigger += 1
         NotificationCenter.default.post(
@@ -179,6 +204,19 @@ extension PlayerModel {
             object: nil,
             userInfo: ["audiobookID": folderURL.absoluteString]
         )
+
+        return result
+    }
+
+    func importPDF(from sourceURL: URL) {
+        let logger = Logger(category: "PlayerDocumentImport")
+        Task {
+            do {
+                _ = try await self.importPDFDocument(from: sourceURL)
+            } catch {
+                logger.error("PDF import failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func addWatchBookmark(from payload: [String: Any]) {

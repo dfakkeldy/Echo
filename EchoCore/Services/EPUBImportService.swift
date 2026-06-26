@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 /// Imports EPUB structure into the application's SQL database and local asset storage.
@@ -174,13 +175,22 @@ struct EPUBImportService {
         guard let db = assetStorage.databaseService else {
             throw EPUBImportError.databaseNotAvailable
         }
-        let dao = EPubBlockDAO(db: db.writer)
-        try dao.deleteAll(for: audiobookID)
-        try dao.insertAll(allBlocks)
-
-        let tocDAO = EPubTOCEntryDAO(db: db.writer)
-        try tocDAO.deleteAll(for: audiobookID)
-        try tocDAO.insertAll(tocRecords)
+        let blocksToInsert = allBlocks
+        let tocRecordsToInsert = tocRecords
+        try await db.writer.write { database in
+            try EPubTOCEntryRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .deleteAll(database)
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .deleteAll(database)
+            for var block in blocksToInsert {
+                try block.insert(database)
+            }
+            for var tocRecord in tocRecordsToInsert {
+                try tocRecord.insert(database)
+            }
+        }
 
         logger.info(
             "Imported \(allBlocks.count) EPUB blocks and \(tocRecords.count) TOC entries for \(audiobookID)"
