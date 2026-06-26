@@ -963,7 +963,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         let startTime = Date()
         WKInterfaceDevice.current().play(.notification)
         
-        Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { timer in
+        let alarmTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { timer in
             MainActor.assumeIsolated {
                 guard Date().timeIntervalSince(startTime) < 3.0 else {
                     timer.invalidate()
@@ -972,6 +972,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 WKInterfaceDevice.current().play(.notification)
             }
         }
+        RunLoop.main.add(alarmTimer, forMode: .common)
     }
 
     func appWillEnterForeground() {

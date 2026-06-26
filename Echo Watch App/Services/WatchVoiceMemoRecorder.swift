@@ -85,6 +85,7 @@ final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
                 _ = self.stopRecording()
             }
         }
+        if let timer { RunLoop.main.add(timer, forMode: .common) }
     }
 
     private static func recordingsDirectory() throws -> URL {
