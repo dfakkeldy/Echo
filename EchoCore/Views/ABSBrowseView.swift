@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 struct ABSBrowseView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -65,8 +71,7 @@ struct ABSBrowseView: View {
                                 } label: {
                                     ABSItemRow(
                                         item: item,
-                                        coverURL: model.makeAudiobookshelfService()?.coverURL(
-                                            itemID: item.id))
+                                        service: model.makeAudiobookshelfService())
                                 }
                             }
                         }
@@ -167,17 +172,14 @@ struct ABSBrowseView: View {
 
 private struct ABSItemRow: View {
     let item: ABSLibraryItem
-    let coverURL: URL?
+    let service: AudiobookshelfService?
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: coverURL) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Image(systemName: "book.closed").foregroundStyle(.secondary)
-            }
+            ABSAuthenticatedCoverImage(
+                service: service, itemID: item.id, contentMode: .fill, placeholderFont: nil)
             .frame(width: 44, height: 44)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(.rect(cornerRadius: 4))
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title ?? "Untitled").font(.body).lineLimit(2)
                 if let author = item.author {
@@ -200,15 +202,13 @@ private struct ABSItemDetailView: View {
             Section {
                 HStack {
                     Spacer()
-                    AsyncImage(url: model.makeAudiobookshelfService()?.coverURL(itemID: item.id)) {
-                        image in
-                        image.resizable().aspectRatio(contentMode: .fit)
-                    } placeholder: {
-                        Image(systemName: "book.closed").font(.largeTitle).foregroundStyle(
-                            .secondary)
-                    }
+                    ABSAuthenticatedCoverImage(
+                        service: model.makeAudiobookshelfService(),
+                        itemID: item.id,
+                        contentMode: .fit,
+                        placeholderFont: .largeTitle)
                     .frame(maxWidth: 200, maxHeight: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(.rect(cornerRadius: 8))
                     Spacer()
                 }
             }
@@ -268,5 +268,63 @@ private struct ABSItemDetailView: View {
         let h = Int(seconds) / 3600
         let m = (Int(seconds) % 3600) / 60
         return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+}
+
+private struct ABSAuthenticatedCoverImage: View {
+    let service: AudiobookshelfService?
+    let itemID: String
+    let contentMode: ContentMode
+    let placeholderFont: Font?
+
+    @State private var imageData: Data?
+
+    var body: some View {
+        Group {
+            #if canImport(UIKit)
+            if let imageData, let image = UIImage(data: imageData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+                    .accessibilityLabel(Text("Cover"))
+            } else {
+                placeholder
+            }
+            #elseif canImport(AppKit)
+            if let imageData, let image = NSImage(data: imageData) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+                    .accessibilityLabel(Text("Cover"))
+            } else {
+                placeholder
+            }
+            #else
+            placeholder
+            #endif
+        }
+        .task(id: itemID) {
+            await loadCover()
+        }
+    }
+
+    private var placeholder: some View {
+        Image(systemName: "book.closed")
+            .font(placeholderFont)
+            .foregroundStyle(.secondary)
+    }
+
+    private func loadCover() async {
+        guard let service else {
+            imageData = nil
+            return
+        }
+        do {
+            imageData = try await service.coverImageData(itemID: itemID)
+        } catch is CancellationError {
+            // Superseded by row/detail teardown.
+        } catch {
+            imageData = nil
+        }
     }
 }

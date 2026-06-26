@@ -453,12 +453,14 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Services/Audiobookshelf/AudiobookshelfService.swift`
 - Modify cover/image UI that currently needs self-contained URLs
 
-- [ ] Build an authenticated image/download loader that uses `Authorization` headers.
-- [ ] Stop app-owned downloads from using `?token=` URLs.
-- [ ] Keep query-token support only behind a narrow helper for ABS endpoints that cannot accept headers.
-- [ ] Ensure token-bearing URLs are not logged or cached.
+- [x] Build an authenticated image/download loader that uses `Authorization` headers.
+- [x] Stop app-owned downloads from using `?token=` URLs.
+- [x] Keep query-token support only behind a narrow helper for ABS endpoints that cannot accept headers.
+- [x] Ensure token-bearing URLs are not logged or cached.
 
 **Acceptance criteria:** access tokens are not embedded in URLs for normal app-owned cover/download flows.
+
+**Verification note:** 2026-06-26 pass: `git diff --check` passed; targeted token-bearing ABS URL scan found only the deliberately named compatibility helper plus unrelated local cover fixtures/source-guard assertions; focused iOS `build-for-testing` for ABS service cover/download tests and the ABS browse source guard passed with signing disabled; macOS app build passed with signing disabled. Runtime simulator test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
 
 ### Task 5.3: Make ABS token lifecycle failure states explicit
 

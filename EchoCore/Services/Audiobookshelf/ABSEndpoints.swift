@@ -47,22 +47,22 @@ struct ABSEndpoints {
             .appending(queryItems: [.init(name: "expanded", value: "1")])
     }
 
-    /// Cover and file downloads authenticate via `?token=` so the URL is self-contained
-    /// for AsyncImage / background downloads.
-    func cover(_ id: String, token: String) -> URL {
+    func cover(_ id: String) -> URL {
         baseURL.appending(path: "api/items/\(id)/cover")
-            .appending(queryItems: [.init(name: "token", value: token)])
     }
 
-    func fileDownload(itemID: String, ino: String, token: String) -> URL {
+    /// Compatibility-only URL for ABS surfaces that cannot attach Authorization headers.
+    /// App-owned requests must prefer header-auth endpoint builders.
+    func fileDownloadWithQueryTokenForCompatibility(itemID: String, ino: String, token: String)
+        -> URL
+    {
         baseURL.appending(path: "api/items/\(itemID)/file/\(ino)/download")
             .appending(queryItems: [.init(name: "token", value: token)])
     }
 
-    /// Whole-item single-file download (used later by the foreground download path).
-    func downloadItem(_ itemID: String, token: String) -> URL {
+    /// Whole-item single-file download for app-owned requests; authenticate with headers.
+    func downloadItem(_ itemID: String) -> URL {
         baseURL.appending(path: "api/items/\(itemID)/download")
-            .appending(queryItems: [.init(name: "token", value: token)])
     }
 
     func search(libraryID: String, query: String, limit: Int) -> URL {
