@@ -133,6 +133,13 @@ import Testing
         )
     }
 
+    @Test func onnxModelSizeCheckAvoidsBroadFileMetadataAPI() throws {
+        let source = try Self.source(at: "EchoCore/Services/Narration/OnnxKokoroEngine.swift")
+
+        #expect(!source.contains("attributesOfItem(atPath:"))
+        #expect(source.contains("resourceValues(forKeys: [.fileSizeKey])"))
+    }
+
     private static let manifestPaths = [
         "EchoCore/PrivacyInfo.xcprivacy",
         "Echo macOS/PrivacyInfo.xcprivacy",

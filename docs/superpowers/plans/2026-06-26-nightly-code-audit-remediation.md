@@ -488,9 +488,9 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoTests/PrivacyManifestTests.swift`
 
 - [ ] Produce an archive privacy report under Xcode 26.6.
-- [ ] Determine whether `attributesOfItem(atPath:)` for `.size` triggers a required-reason API category.
-- [ ] Prefer replacing it with a non-flagged length read if practical.
-- [ ] If the API is justified, add the required manifest category and test coverage.
+- [x] Determine whether `attributesOfItem(atPath:)` for `.size` triggers a required-reason API category.
+- [x] Prefer replacing it with a non-flagged length read if practical.
+- [x] Because the broad API was replaced, add regression coverage that prevents reintroducing it.
 
 **Acceptance criteria:** privacy manifest coverage matches Xcode archive validation, not only hand-maintained expectations.
 
