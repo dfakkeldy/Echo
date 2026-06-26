@@ -13,11 +13,11 @@ private enum PDFDocumentAction: CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .alignToNow:
-            "Align to Now"
+            String(localized: "Align to Now")
         case .alignToSpecificTime:
-            "Align to Specific Time"
+            String(localized: "Align to Specific Time")
         case .createBookmark:
-            "Create Bookmark / Anki Card"
+            String(localized: "Create Bookmark / Anki Card")
         }
     }
 
@@ -219,7 +219,7 @@ struct PDFDocumentView: View {
 
             if let draft = model.bookmarkDraftAtCurrentTime() {
                 model.appendBookmark(
-                    from: draft, title: "PDF Bookmark", timestamp: draft.timestamp, note: nil,
+                    from: draft, title: String(localized: "PDF Bookmark"), timestamp: draft.timestamp, note: nil,
                     voiceMemoFileName: nil, bookmarkImageFileName: imageName)
                 return true
             }
@@ -318,7 +318,7 @@ private struct PDFKitView: UIViewRepresentable {
         }
 
         func configureAccessibilityActions(for pdfView: PDFView) {
-            pdfView.accessibilityLabel = "PDF document"
+            pdfView.accessibilityLabel = String(localized: "PDF document")
             pdfView.accessibilityCustomActions = PDFDocumentAction.allCases.map { action in
                 let customAction = UIAccessibilityCustomAction(name: action.title) {
                     [weak self] _ in

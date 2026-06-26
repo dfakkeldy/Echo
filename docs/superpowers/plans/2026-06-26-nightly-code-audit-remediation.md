@@ -414,10 +414,10 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Views/SessionDetailFeedView.swift`
 - Modify: `EchoCore/Views/ReaderSettingsSheet.swift`
 
-- [ ] Add catalog keys for user-visible UIKit/accessibility action names and ABS errors.
-- [ ] Use `String(localized:)` or generated symbol keys for non-SwiftUI strings.
-- [ ] Replace `DateFormatter`, `String(format:)`, and ad hoc measurement strings with `FormatStyle` and localized placeholders/plurals.
-- [ ] Test with a non-US locale.
+- [x] Add catalog keys for user-visible UIKit/accessibility action names and ABS errors.
+- [x] Use `String(localized:)` or generated symbol keys for non-SwiftUI strings.
+- [x] Replace `DateFormatter`, `String(format:)`, and ad hoc measurement strings with `FormatStyle` and localized placeholders/plurals.
+- [x] Test with a non-US locale.
 
 **Acceptance criteria:** user-visible action/error/formatting strings are localizable and locale-aware.
 

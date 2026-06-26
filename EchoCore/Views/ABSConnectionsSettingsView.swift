@@ -84,7 +84,7 @@ struct ABSConnectionsSettingsView: View {
 
     private func connect() async {
         guard let url = ABSEndpoints.normalizedBaseURL(from: baseURL) else {
-            errorMessage = "Invalid server URL"
+            errorMessage = String(localized: "Invalid server URL")
             return
         }
         isConnecting = true
@@ -99,17 +99,17 @@ struct ABSConnectionsSettingsView: View {
             if case .untrustedCertificate(let host, let sha256) = error {
                 pendingTrust = PendingTrust(host: host, sha256: sha256)  // password kept for retry
             } else {
-                errorMessage = "Could not connect: \(error.localizedDescription)"
+                errorMessage = String(localized: "Could not connect: \(error.localizedDescription)")
             }
         } catch {
-            errorMessage = "Could not connect: \(error.localizedDescription)"
+            errorMessage = String(localized: "Could not connect: \(error.localizedDescription)")
         }
     }
 
     private func trustAndConnect(_ trust: PendingTrust) async {
         pendingTrust = nil
         guard let url = ABSEndpoints.normalizedBaseURL(from: baseURL) else {
-            errorMessage = "Invalid server URL"
+            errorMessage = String(localized: "Invalid server URL")
             return
         }
         isConnecting = true
@@ -122,7 +122,7 @@ struct ABSConnectionsSettingsView: View {
             connected = server
             password = ""
         } catch {
-            errorMessage = "Could not connect: \(error.localizedDescription)"
+            errorMessage = String(localized: "Could not connect: \(error.localizedDescription)")
         }
     }
 

@@ -12,13 +12,6 @@ struct SessionsListView: View {
     @State private var isLoading = true
     @State private var loadError: String?
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
-
     var body: some View {
         Group {
             if isLoading {
@@ -52,7 +45,7 @@ struct SessionsListView: View {
     @ViewBuilder
     private func sessionRow(_ session: SessionSummary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(Self.dateFormatter.string(from: session.startedAt))
+            Text(session.startedAt, format: .dateTime.month(.abbreviated).day().hour().minute())
                 .font(.headline)
             if let range = session.chapterRangeLabel {
                 Text(range)
@@ -60,11 +53,9 @@ struct SessionsListView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
-                Label("\(Int(session.minutesListened.rounded())) min", systemImage: "headphones")
+                Label(formattedListeningDuration(for: session), systemImage: "headphones")
                 if session.hasRoute {
-                    Label(
-                        String(format: "%.1f mi", session.routeMiles),
-                        systemImage: "map")
+                    Label(formattedRouteDistance(for: session), systemImage: "map")
                 }
             }
             .font(.caption)
@@ -87,6 +78,24 @@ struct SessionsListView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func formattedListeningDuration(for session: SessionSummary) -> String {
+        Measurement(value: session.minutesListened.rounded(), unit: UnitDuration.minutes)
+            .formatted(
+                .measurement(
+                    width: .abbreviated,
+                    usage: .asProvided,
+                    numberFormatStyle: .number.precision(.fractionLength(0))))
+    }
+
+    private func formattedRouteDistance(for session: SessionSummary) -> String {
+        Measurement(value: session.routeMiles, unit: UnitLength.miles)
+            .formatted(
+                .measurement(
+                    width: .abbreviated,
+                    usage: .road,
+                    numberFormatStyle: .number.precision(.fractionLength(1))))
     }
 
     private func load() async {
