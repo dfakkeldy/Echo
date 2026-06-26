@@ -911,15 +911,19 @@ EchoCore/Development Assets/macbeth_m4b/
 
 In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, loading the Macbeth audiobook and EPUB for immediate testing of the reader, alignment, and search features without requiring external file selection.
 
-### Swift Concurrency & Thread Safety (June 2026)
+### Swift Concurrency & Thread Safety (Swift 6 language mode, June 2026)
 
-All service-layer Timer closures and NotificationCenter observers have been modernized to use `MainActor.assumeIsolated` instead of `Task { @MainActor in }` for callbacks that are guaranteed to execute on the main thread. This pattern avoids spawning unnecessary unstructured tasks when the execution context is already on the main actor.
+All Echo-owned Xcode targets compile in **Swift 6 language mode** with `SWIFT_STRICT_CONCURRENCY = complete` set explicitly per target, alongside `SWIFT_APPROACHABLE_CONCURRENCY = YES` and `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (so a type with no explicit isolation is inferred `@MainActor`). SwiftPM dependencies keep their own package-declared language modes — the migration never forces them to Swift 6. Deployment floors are unchanged (iOS 18 / macOS 15 / watchOS 11).
 
-Key changes across 9 service files:
-- **`AudioEngine`**: Timer callbacks (fade, time tracking, interruption observers) use `MainActor.assumeIsolated { ... }` with proper `[weak self]` guards. `AVAudioEngine`, `Timer`, and `NSObjectProtocol` observer properties are annotated `nonisolated(unsafe)` to suppress Swift 6 data-race diagnostics — these values are always accessed on the main thread at runtime because `AudioEngine` is `@MainActor`-isolated.
-- **`BookmarkStore`**: Voice memo progress timer and audio file completion handler modernized.
-- **`DatabaseService`**: Migration registration no longer wraps `Schema_V*.migrate(db)` in `MainActor.assumeIsolated { }` — `runMigrations(writer:)` is now `nonisolated` and the schema migrate methods do not require main-actor isolation. Test in-memory databases use the same simplified pattern.
-- **Imports**: `@preconcurrency import AVFoundation` added to all files importing AVFoundation, silencing Swift 6 concurrency warnings until AVFoundation adopts full sendability.
+The posture for resolving isolation across boundaries, in order of preference:
+- **`isolated deinit` (SE-0371)** for `@MainActor` classes whose teardown must call main-actor methods (`DefaultChimePlayer`, `DefaultVisualizerTap`, `SecurityScopeManager`, `NowPlayingController`). A few older deinits (`PlayerModel`, `AudioEngine`, `SleepTimerManager`) still use `MainActor.assumeIsolated { … }` to avoid an iOS-26.x **simulator** `isolated deinit` bad-free bug — swap them once that is fixed.
+- **`nonisolated`** on pure value types and stateless static helpers so they cross actor boundaries freely (`Bookmark`, `Chapter`, `WordFrequency`, `PDFViewState`, `SessionSummary`, `OKLCH`, `CoverTheme`, `SafeFileName`, the deck-import/source-anchor value types, …).
+- **`sending`** on non-`Sendable` payloads handed off exactly once into a `@MainActor` task (WCSession messages/replies, MetricKit payloads, `AVAsset`).
+- **Cancellable `Task` loops** in place of `Timer.scheduledTimer` for main-actor UI tickers (snippet/joystick scrub, audio fade, watch alarm haptics, voice-memo elapsed). `MainActor.assumeIsolated { … }` is still used for timers/observers genuinely guaranteed to fire on the main run loop or `queue: .main`.
+- **`Mutex` (`Synchronization`, iOS 18+)** for state shared across isolation domains without an actor: the one-shot `AVAudioConverterInputBlock` feed in `AudioSegmentReader`, the `ProgressFanOut` terminal-replay box, and the macOS `ReadyToPlayGuard` single-resume continuation.
+- **Actor-scoped resources**: `LocationCaptureService` is an `actor` and builds its `CLGeocoder` as a method-local so the non-`Sendable` value never escapes the actor's isolation region.
+
+No `nonisolated(unsafe)` or `@unchecked Sendable` was introduced by the Swift 6 migration (the one pre-existing lock-backed `@unchecked Sendable`, `ProgressFanOut`, remains). `@preconcurrency import AVFoundation` is still used where AVFoundation's `Sendable` annotations are incomplete.
 
 ### Artwork Accent Color (June 2026)
 
