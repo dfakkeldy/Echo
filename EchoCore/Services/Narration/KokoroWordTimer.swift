@@ -11,10 +11,10 @@ import Foundation
 /// inconsistency so the caller falls back to interpolation rather than emitting
 /// wrong timings.
 enum KokoroWordTimer {
-    private static let spaceTokenId: Int32 = 16
-    private static let boundaryTokenId: Int32 = KokoroPhonemeVocab.boundaryTokenId  // 0
+    private nonisolated static let spaceTokenId: Int32 = 16
+    private nonisolated static let boundaryTokenId: Int32 = KokoroPhonemeVocab.boundaryTokenId  // 0
 
-    static func wordTimings(
+    nonisolated static func wordTimings(
         ids: [Int32], perTokenFrames: [Float], wordCount: Int,
         sampleCount: Int, sampleRate: Double
     ) -> [ChunkWordTiming]? {
