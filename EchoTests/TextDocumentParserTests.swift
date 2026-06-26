@@ -65,7 +65,7 @@ import Testing
         let p = parse("## C\n\nThis is **strong** prose.")
         let para = try #require(p.blocks.first { ($0.text ?? "").contains("strong") })
         #expect(para.text == "This is strong prose.")
-        #expect(para.decodedFormats.contains { $0.type == .bold })
+        #expect(try para.decodeFormats().contains { $0.type == .bold })
     }
 
     @Test func blockIDsFollowSchemeAndAreReproducible() {

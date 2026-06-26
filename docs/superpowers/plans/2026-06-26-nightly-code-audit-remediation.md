@@ -227,10 +227,10 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `Shared/Database/BookmarkRecord.swift`
 - Add/modify tests under `EchoTests`
 
-- [ ] Add tests for malformed marker/format JSON and malformed PDF bookmark state.
-- [ ] Introduce throwing decode helpers or structured diagnostics that include row context.
-- [ ] Return empty arrays only for absent optional values, not corrupt persisted values.
-- [ ] Log privacy-safe corruption details and avoid silently replacing identity/state with empty defaults.
+- [x] Add tests for malformed marker/format JSON and malformed PDF bookmark state.
+- [x] Introduce throwing decode helpers or structured diagnostics that include row context.
+- [x] Return empty arrays only for absent optional values, not corrupt persisted values.
+- [x] Log privacy-safe corruption details and avoid silently replacing identity/state with empty defaults.
 
 **Acceptance criteria:** corrupt persisted JSON is observable in logs/tests and not treated as intentionally empty data.
 

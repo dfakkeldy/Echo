@@ -20,7 +20,7 @@ struct StudyNotesExportDatabaseSource {
     func bookmarks(for audiobookID: String) throws -> [Bookmark] {
         try BookmarkDAO(db: databaseWriter)
             .bookmarks(for: audiobookID)
-            .map { $0.toModel() }
+            .map { try $0.toModel() }
     }
 
     func notes(for audiobookID: String) throws -> [StudyNotesExportService.Note] {

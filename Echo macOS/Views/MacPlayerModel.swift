@@ -832,7 +832,7 @@ final class MacPlayerModel {
         do {
             let dao = BookmarkDAO(db: db.writer)
             let records = try dao.bookmarks(for: audiobookID)
-            bookmarkStore.bookmarks = records.map { $0.toModel() }
+            bookmarkStore.bookmarks = try records.map { try $0.toModel() }
         } catch {
             Logger(category: "MacPlayerModel").error(
                 "Failed to load bookmarks: \(error.localizedDescription)")

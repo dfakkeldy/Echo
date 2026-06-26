@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import os.log
 
 // MARK: - Bridging from the app-level Bookmark model
 
@@ -49,7 +50,26 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
 
 #if os(iOS) || os(macOS)
     extension BookmarkRecord {
-        init(from model: Bookmark) {
+        private static let logger = Logger(category: "BookmarkRecord")
+
+        struct JSONCodingFailure: Error, CustomStringConvertible, LocalizedError, Sendable {
+            let column: String
+            let bookmarkID: String
+            let audiobookID: String
+            let operation: String
+            let underlyingDescription: String
+
+            var description: String {
+                """
+                Failed to \(operation) \(column) JSON for bookmark \(bookmarkID) \
+                in audiobook \(audiobookID): \(underlyingDescription)
+                """
+            }
+
+            var errorDescription: String? { description }
+        }
+
+        init(from model: Bookmark) throws {
             self.id = model.id.uuidString
             self.audiobookID = model.folderKey ?? ""
             self.trackID = model.trackId
@@ -63,19 +83,17 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
             self.latitude = model.latitude
             self.longitude = model.longitude
             self.placeName = model.placeName
-            self.pdfViewStateJSON = {
-                if let state = model.pdfViewState {
-                    return String(
-                        data: (try? JSONEncoder().encode(state)) ?? Data(), encoding: .utf8)
-                }
-                return nil
-            }()
             self.createdAt = Date().ISO8601Format()
             self.modifiedAt = Date().ISO8601Format()
+            self.pdfViewStateJSON = try Self.encodePDFViewState(
+                model.pdfViewState,
+                bookmarkID: self.id,
+                audiobookID: self.audiobookID
+            )
         }
 
         /// Convert to the app-level Bookmark domain model.
-        func toModel() -> Bookmark {
+        func toModel() throws -> Bookmark {
             Bookmark(
                 id: UUID(uuidString: id) ?? UUID(),
                 title: title,
@@ -85,13 +103,78 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
                 note: note,
                 voiceMemoFileName: voiceMemoPath,
                 bookmarkImageFileName: imagePath,
-                pdfViewState: pdfViewStateJSON.flatMap { json in
-                    try? JSONDecoder().decode(PDFViewState.self, from: Data(json.utf8))
-                },
+                pdfViewState: try decodePDFViewState(),
                 isEnabled: isEnabled,
                 latitude: latitude,
                 longitude: longitude,
                 placeName: placeName
+            )
+        }
+
+        private func decodePDFViewState() throws -> PDFViewState? {
+            guard let pdfViewStateJSON else { return nil }
+
+            do {
+                return try JSONDecoder().decode(
+                    PDFViewState.self, from: Data(pdfViewStateJSON.utf8))
+            } catch {
+                let failure = JSONCodingFailure(
+                    column: "pdf_view_state_json",
+                    bookmarkID: id,
+                    audiobookID: audiobookID,
+                    operation: "decode",
+                    underlyingDescription: String(describing: error)
+                )
+                Self.logJSONCodingFailure(failure)
+                throw failure
+            }
+        }
+
+        private static func encodePDFViewState(
+            _ state: PDFViewState?,
+            bookmarkID: String,
+            audiobookID: String
+        ) throws -> String? {
+            guard let state else { return nil }
+
+            do {
+                let data = try JSONEncoder().encode(state)
+                guard let json = String(data: data, encoding: .utf8) else {
+                    let failure = JSONCodingFailure(
+                        column: "pdf_view_state_json",
+                        bookmarkID: bookmarkID,
+                        audiobookID: audiobookID,
+                        operation: "encode",
+                        underlyingDescription: "Encoded data was not valid UTF-8"
+                    )
+                    logJSONCodingFailure(failure)
+                    throw failure
+                }
+                return json
+            } catch {
+                if let failure = error as? JSONCodingFailure {
+                    throw failure
+                }
+                let failure = JSONCodingFailure(
+                    column: "pdf_view_state_json",
+                    bookmarkID: bookmarkID,
+                    audiobookID: audiobookID,
+                    operation: "encode",
+                    underlyingDescription: String(describing: error)
+                )
+                logJSONCodingFailure(failure)
+                throw failure
+            }
+        }
+
+        private static func logJSONCodingFailure(_ failure: JSONCodingFailure) {
+            logger.error(
+                """
+                Failed to \(failure.operation, privacy: .public) persisted bookmark JSON column \(failure.column, privacy: .public) \
+                for bookmark \(failure.bookmarkID, privacy: .private) \
+                audiobook \(failure.audiobookID, privacy: .private): \
+                \(failure.underlyingDescription, privacy: .private)
+                """
             )
         }
     }

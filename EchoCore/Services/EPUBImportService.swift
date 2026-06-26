@@ -107,7 +107,7 @@ struct EPUBImportService {
         // as headings (table-styled topic titles) so the reader can style and
         // anchor them. Runs before chapter-index assignment so promotions
         // count as headings there.
-        let tocRecords = Self.resolveTOCEntries(
+        let tocRecords = try Self.resolveTOCEntries(
             parse.tocEntryTree,
             audiobookID: audiobookID,
             spine: parse.spine,
@@ -203,7 +203,7 @@ struct EPUBImportService {
         firstHeadingBlockIDBySpine: [Int: String],
         firstBlockIDBySpine: [Int: String],
         blocks: inout [EPubBlockRecord]
-    ) -> [EPubTOCEntryRecord] {
+    ) throws -> [EPubTOCEntryRecord] {
         guard !tree.isEmpty else { return [] }
 
         var spineIndexByHref: [String: Int] = [:]
@@ -229,10 +229,10 @@ struct EPUBImportService {
             return spineIndexByFilename[URL(fileURLWithPath: normalized).lastPathComponent]
         }
 
-        func appendEntries(_ nodes: [TOCEntryNode], parentID: String?, depth: Int) {
+        func appendEntries(_ nodes: [TOCEntryNode], parentID: String?, depth: Int) throws {
             for node in nodes {
                 guard let spineIdx = resolveSpineIndex(node.href) else {
-                    appendEntries(node.children, parentID: parentID, depth: depth)
+                    try appendEntries(node.children, parentID: parentID, depth: depth)
                     continue
                 }
 
@@ -266,14 +266,14 @@ struct EPUBImportService {
                     let blockID = resolvedBlockID,
                     let arrayIdx = blockArrayIndexByID[blockID]
                 {
-                    promoteToHeadingIfTitleMatches(
+                    try promoteToHeadingIfTitleMatches(
                         &blocks[arrayIdx], title: node.title, depth: depth)
                 }
 
-                appendEntries(node.children, parentID: entryID, depth: depth + 1)
+                try appendEntries(node.children, parentID: entryID, depth: depth + 1)
             }
         }
-        appendEntries(tree, parentID: nil, depth: 0)
+        try appendEntries(tree, parentID: nil, depth: 0)
         return records
     }
 
@@ -284,7 +284,7 @@ struct EPUBImportService {
     /// body prose safe when an entry anchors at a regular paragraph.
     private static func promoteToHeadingIfTitleMatches(
         _ block: inout EPubBlockRecord, title: String, depth: Int
-    ) {
+    ) throws {
         guard block.blockKind == EPubBlockRecord.Kind.paragraph.rawValue,
             let text = block.text, !text.isEmpty, text.count <= 120,
             titlesEssentiallyMatch(text, title)
@@ -292,7 +292,7 @@ struct EPUBImportService {
 
         block.blockKind = EPubBlockRecord.Kind.heading.rawValue
         let level = min(max(depth + 1, 1), 6)
-        var markers = block.decodedMarkers
+        var markers = try block.decodeMarkers()
         markers.insert(
             SyncMarker(type: .chapterStart, payload: String(level), epubCharOffset: 0),
             at: 0

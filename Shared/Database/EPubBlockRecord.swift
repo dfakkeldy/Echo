@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import os.log
 
 /// A parsed EPUB block — heading, paragraph, sentence, or image — extracted
 /// from XHTML spine items and stored in structural reading order.
@@ -57,6 +58,27 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
 }
 
 extension EPubBlockRecord {
+    private static let logger = Logger(category: "EPubBlockRecord")
+
+    struct JSONDecodingFailure: Error, CustomStringConvertible, LocalizedError, Sendable {
+        let column: String
+        let blockID: String
+        let audiobookID: String
+        let spineHref: String
+        let blockIndex: Int
+        let underlyingDescription: String
+
+        var description: String {
+            """
+            Failed to decode \(column) JSON for EPUB block \(blockID) \
+            in audiobook \(audiobookID), spine \(spineHref), block index \(blockIndex): \
+            \(underlyingDescription)
+            """
+        }
+
+        var errorDescription: String? { description }
+    }
+
     /// Block kind constants used in the `block_kind` column.
     enum Kind: String {
         case heading
@@ -69,27 +91,81 @@ extension EPubBlockRecord {
     /// Returns nil for empty arrays to keep storage clean.
     static func encodeMarkers(_ markers: [SyncMarker]) -> String? {
         guard !markers.isEmpty else { return nil }
-        guard let data = try? JSONEncoder().encode(markers) else { return nil }
-        return String(data: data, encoding: .utf8)
+        return encodeJSONColumn(markers, column: "markers")
     }
 
     /// Encode text formats to JSON for database storage.
     /// Returns nil for empty arrays to keep storage clean.
     static func encodeFormats(_ formats: [TextFormat]) -> String? {
         guard !formats.isEmpty else { return nil }
-        guard let data = try? JSONEncoder().encode(formats) else { return nil }
-        return String(data: data, encoding: .utf8)
+        return encodeJSONColumn(formats, column: "text_formats")
     }
 
-    /// Decode markers from the JSON column. Returns empty array on failure or nil.
-    var decodedMarkers: [SyncMarker] {
-        guard let markers, let data = markers.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([SyncMarker].self, from: data)) ?? []
+    /// Decode markers from the JSON column. Returns empty only when the optional
+    /// column is absent; malformed persisted JSON throws with row context.
+    func decodeMarkers() throws -> [SyncMarker] {
+        try decodeJSONColumn(markers, column: "markers", as: [SyncMarker].self, absentValue: [])
     }
 
-    /// Decode text formats from the JSON column. Returns empty array on failure or nil.
-    var decodedFormats: [TextFormat] {
-        guard let textFormats, let data = textFormats.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([TextFormat].self, from: data)) ?? []
+    /// Decode text formats from the JSON column. Returns empty only when the
+    /// optional column is absent; malformed persisted JSON throws with row context.
+    func decodeFormats() throws -> [TextFormat] {
+        try decodeJSONColumn(
+            textFormats, column: "text_formats", as: [TextFormat].self, absentValue: [])
+    }
+
+    private func decodeJSONColumn<Value: Decodable>(
+        _ json: String?,
+        column: String,
+        as type: Value.Type,
+        absentValue: @autoclosure () -> Value
+    ) throws -> Value {
+        guard let json else { return absentValue() }
+
+        do {
+            return try JSONDecoder().decode(type, from: Data(json.utf8))
+        } catch {
+            let failure = JSONDecodingFailure(
+                column: column,
+                blockID: id,
+                audiobookID: audiobookID,
+                spineHref: spineHref,
+                blockIndex: blockIndex,
+                underlyingDescription: String(describing: error)
+            )
+            Self.logJSONDecodingFailure(failure)
+            throw failure
+        }
+    }
+
+    private static func encodeJSONColumn<Value: Encodable>(_ value: Value, column: String) -> String? {
+        do {
+            let data = try JSONEncoder().encode(value)
+            guard let json = String(data: data, encoding: .utf8) else {
+                logger.error(
+                    "Failed to encode EPUB JSON column \(column, privacy: .public): encoded data was not valid UTF-8"
+                )
+                return nil
+            }
+            return json
+        } catch {
+            logger.error(
+                "Failed to encode EPUB JSON column \(column, privacy: .public): \(String(describing: error), privacy: .private)"
+            )
+            return nil
+        }
+    }
+
+    private static func logJSONDecodingFailure(_ failure: JSONDecodingFailure) {
+        logger.error(
+            """
+            Failed to decode persisted EPUB JSON column \(failure.column, privacy: .public) \
+            for block \(failure.blockID, privacy: .private) \
+            audiobook \(failure.audiobookID, privacy: .private) \
+            spine \(failure.spineHref, privacy: .private) \
+            blockIndex \(failure.blockIndex, privacy: .public): \
+            \(failure.underlyingDescription, privacy: .private)
+            """
+        )
     }
 }
