@@ -7,11 +7,17 @@ import Testing
 
 @Suite struct NarrationChapterPlannerTests {
 
-    private func block(id: String, chapter: Int?, text: String?, seq: Int) -> EPubBlockRecord {
+    private func block(
+        id: String,
+        chapter: Int?,
+        text: String?,
+        seq: Int,
+        kind: String = "paragraph"
+    ) -> EPubBlockRecord {
         EPubBlockRecord(
             id: id, audiobookID: "b1", spineHref: "c.xhtml",
             spineIndex: 0, blockIndex: seq, sequenceIndex: seq,
-            blockKind: "paragraph", text: text, htmlContent: nil, cardColor: nil,
+            blockKind: kind, text: text, htmlContent: nil, cardColor: nil,
             chapterThemeColor: nil, imagePath: nil, chapterIndex: chapter,
             isHidden: false, hiddenReason: nil, isFrontMatter: false,
             wordCount: nil, markers: nil, textFormats: nil,
@@ -64,6 +70,55 @@ import Testing
 
     @Test func emptyInputYieldsNoChapters() {
         #expect(NarrationChapterPlanner.plan(from: []).isEmpty)
+    }
+
+    @Test func titleUsesSpecificHeadingWithCompactChapterPrefix() {
+        let blocks = [
+            block(id: "h1", chapter: 0, text: "Chapter One", seq: 0, kind: "heading"),
+            block(id: "h2", chapter: 0, text: "The Door Opens", seq: 1, kind: "heading"),
+            block(id: "p1", chapter: 0, text: "Once upon a time.", seq: 2),
+        ]
+
+        let title = NarrationChapterPlanner.title(displayNumber: 1, blocks: blocks)
+        let planned = NarrationChapterPlanner.plan(from: blocks)
+
+        #expect(title == "ch. 1: The Door Opens")
+        #expect(planned.first?.title == "ch. 1: The Door Opens")
+    }
+
+    @Test func titleStripsDuplicateChapterNumberPrefix() {
+        let blocks = [
+            block(
+                id: "h1", chapter: 0, text: "Chapter 1: The Door Opens", seq: 0,
+                kind: "heading"),
+            block(id: "p1", chapter: 0, text: "Once upon a time.", seq: 1),
+        ]
+
+        #expect(
+            NarrationChapterPlanner.title(displayNumber: 1, blocks: blocks)
+                == "ch. 1: The Door Opens")
+    }
+
+    @Test func titleFallsBackWhenHeadingIsOnlyGenericChapterNumber() {
+        let blocks = [
+            block(id: "h1", chapter: 0, text: "Chapter 1", seq: 0, kind: "heading"),
+            block(id: "p1", chapter: 0, text: "Once upon a time.", seq: 1),
+        ]
+
+        #expect(NarrationChapterPlanner.title(displayNumber: 1, blocks: blocks) == "Chapter 1")
+    }
+
+    @Test func titleDoesNotStripPartialChapterNumberPrefix() {
+        let blocks = [
+            block(
+                id: "h1", chapter: 0, text: "Chapter 10: Elsewhere", seq: 0,
+                kind: "heading"),
+            block(id: "p1", chapter: 0, text: "Once upon a time.", seq: 1),
+        ]
+
+        #expect(
+            NarrationChapterPlanner.title(displayNumber: 1, blocks: blocks)
+                == "ch. 1: Chapter 10: Elsewhere")
     }
 
     @Test func resumeStartsAtChapterThenForwardOnly() {

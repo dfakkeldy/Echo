@@ -329,7 +329,14 @@ final class MacBatchProcessingService {
                     let cachedFile = NarrationCache.directory().appendingPathComponent(
                         NarrationFileNaming.chapterFileName(
                             audiobookID: audiobookID, chapterIndex: chapter.index, voice: voice))
-                    if FileManager.default.fileExists(atPath: cachedFile.path) { continue }
+                    if FileManager.default.fileExists(atPath: cachedFile.path) {
+                        try await service.updateCachedNarrationTitle(
+                            chapterIndex: chapter.index,
+                            chapterDisplayNumber: chapter.displayNumber,
+                            blocks: chapter.blocks,
+                            chapterTitle: chapter.title)
+                        continue
+                    }
 
                     progress(
                         .transcribing,
@@ -338,7 +345,7 @@ final class MacBatchProcessingService {
                     do {
                         try await service.renderChapter(
                             chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                            blocks: chapter.blocks, voice: voice)
+                            blocks: chapter.blocks, voice: voice, chapterTitle: chapter.title)
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
@@ -353,7 +360,7 @@ final class MacBatchProcessingService {
                         do {
                             try await service.renderChapter(
                                 chapterIndex: chapter.index, chapterNumber: chapter.displayNumber,
-                                blocks: chapter.blocks, voice: voice)
+                                blocks: chapter.blocks, voice: voice, chapterTitle: chapter.title)
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
