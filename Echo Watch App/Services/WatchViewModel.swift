@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Observation
+import SwiftUI
 import WatchConnectivity
 import WatchKit
 import WidgetKit
 import os.log
-import SwiftUI
 
 /// Mutable playback state captured before an optimistic local update.
 /// If the iPhone doesn't confirm within 3 seconds or reports an error,
@@ -34,6 +34,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var pomodoroRemaining: TimeInterval = 25 * 60
     @ObservationIgnored private var pomodoroTimer: Timer?
     @ObservationIgnored private var lastPomodoroTick: Date?
+    @ObservationIgnored private var alarmHapticsTask: Task<Void, Never>?
     var artworkAccentColorHex: String? = nil
     var artworkAccentColor: Color? {
         guard let hex = artworkAccentColorHex else { return nil }
@@ -47,7 +48,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var totalProgressFraction: Double = 0.0
     var totalBookDuration: Double = 0
     var chapterDuration: Double = 0
-    
+
     @ObservationIgnored private var playbackTimer: Timer?
     @ObservationIgnored private var lastTimerTick: Date?
     /// When `true`, the linear progress bar should snap to the current value
@@ -189,7 +190,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         if isPlaying {
             if playbackTimer == nil {
                 lastTimerTick = Date()
-                playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) {
+                    [weak self] _ in
                     guard let self else { return }
                     MainActor.assumeIsolated {
                         self.tickPlayback()
@@ -206,7 +208,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             playbackTimer = nil
         }
     }
-    
+
     private func tickPlayback() {
         guard let lastTick = lastTimerTick else { return }
         let now = Date()
@@ -222,7 +224,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         // from the phone, which has the authoritative position.
         let maxExpectedDelta: TimeInterval = 2.0
         guard elapsed <= maxExpectedDelta else {
-            logger.debug("Skipping stale timer tick after \(elapsed)s suspension; requesting fresh state")
+            logger.debug(
+                "Skipping stale timer tick after \(elapsed)s suspension; requesting fresh state")
             requestCurrentState()
             return
         }
@@ -248,7 +251,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         AppGroupDefaults.migrateStandardDefaultsIfNeeded()
         loadPersistedState()
         if WCSession.isSupported(),
-           ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+        {
             let session = WCSession.default
             session.delegate = self
             session.activate()
@@ -264,7 +268,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         currentTime = defaults.double(forKey: "currentTime")
         chapterDuration = defaults.double(forKey: "chapterDuration")
         if let storedSpeed = defaults.object(forKey: "playbackSpeed") as? Double,
-           let idx = availableSpeeds.firstIndex(where: { abs($0 - storedSpeed) < 0.001 }) {
+            let idx = availableSpeeds.firstIndex(where: { abs($0 - storedSpeed) < 0.001 })
+        {
             currentSpeedIndex = idx
         }
         bookmarkStorageKey = defaults.string(forKey: "bookmarkStorageKey")
@@ -278,7 +283,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         if seekForwardDuration == 0 { seekForwardDuration = 30 }
 
         if let thumbnailData = defaults.data(forKey: "thumbnailData"),
-           let image = UIImage(data: thumbnailData) {
+            let image = UIImage(data: thumbnailData)
+        {
             thumbnailImage = image
         }
 
@@ -288,29 +294,34 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         pomodoroRemaining = pomodoroDuration
 
         if let data = defaults.data(forKey: "watchPage1"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page1Slots = padded(decoded)
         } else if let raw = defaults.string(forKey: "watchPage1") {
             // Migration from old comma-separated format
             page1Slots = padded(parseSlots(raw))
         }
         if let data = defaults.data(forKey: "watchPage2"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page2Slots = padded(decoded)
         } else if let raw = defaults.string(forKey: "watchPage2") {
             // Migration from old comma-separated format
             page2Slots = padded(parseSlots(raw))
         }
         if let data = defaults.data(forKey: "watchPage3"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page3Slots = padded(decoded)
         }
         if let data = defaults.data(forKey: "watchPage4"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page4Slots = padded(decoded)
         }
         if let data = defaults.data(forKey: "watchPage5"),
-           let decoded = try? JSONDecoder().decode([WatchAction].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WatchAction].self, from: data)
+        {
             page5Slots = padded(decoded)
         }
 
@@ -337,10 +348,14 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         return out
     }
 
-    nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+    nonisolated func session(
+        _ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
+        error: Error?
+    ) {
         guard activationState == .activated else {
             if let error {
-                Logger(category: "WatchViewModel").error("WatchConnectivity activation failed: \(error)")
+                Logger(category: "WatchViewModel").error(
+                    "WatchConnectivity activation failed: \(error)")
             }
             return
         }
@@ -356,21 +371,26 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
+    nonisolated func session(
+        _ session: WCSession, didReceiveApplicationContext applicationContext: sending [String: Any]
+    ) {
         guard session.activationState == .activated else { return }
         Task { @MainActor [weak self] in
             self?.applyReceivedApplicationContext(applicationContext)
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: sending [String: Any]) {
         guard session.activationState == .activated else { return }
         Task { @MainActor [weak self] in
             self?.applyState(message)
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+    nonisolated func session(
+        _ session: WCSession, didReceiveMessage message: sending [String: Any],
+        replyHandler: sending @escaping ([String: Any]) -> Void
+    ) {
         guard session.activationState == .activated else {
             replyHandler([:])
             return
@@ -381,7 +401,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String : Any] = [:]) {
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: sending [String: Any] = [:])
+    {
         guard session.activationState == .activated else { return }
         Task { @MainActor [weak self] in
             self?.applyState(userInfo)
@@ -498,32 +519,39 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.sleepTimerRemainingSeconds = rem
             }
             if let playbackSpeed = state["playbackSpeed"] as? Double,
-               let idx = self.availableSpeeds.firstIndex(where: { abs($0 - playbackSpeed) < 0.001 }) {
+                let idx = self.availableSpeeds.firstIndex(where: { abs($0 - playbackSpeed) < 0.001 }
+                )
+            {
                 self.currentSpeedIndex = idx
                 self.defaults.set(playbackSpeed, forKey: "playbackSpeed")
             }
             if let watchPage1Data = state["watchPage1"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage1Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage1Data)
+            {
                 self.page1Slots = self.padded(decoded)
                 self.defaults.set(watchPage1Data, forKey: "watchPage1")
             }
             if let watchPage2Data = state["watchPage2"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage2Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage2Data)
+            {
                 self.page2Slots = self.padded(decoded)
                 self.defaults.set(watchPage2Data, forKey: "watchPage2")
             }
             if let watchPage3Data = state["watchPage3"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage3Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage3Data)
+            {
                 self.page3Slots = self.padded(decoded)
                 self.defaults.set(watchPage3Data, forKey: "watchPage3")
             }
             if let watchPage4Data = state["watchPage4"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage4Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage4Data)
+            {
                 self.page4Slots = self.padded(decoded)
                 self.defaults.set(watchPage4Data, forKey: "watchPage4")
             }
             if let watchPage5Data = state["watchPage5"] as? Data,
-               let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage5Data) {
+                let decoded = try? JSONDecoder().decode([WatchAction].self, from: watchPage5Data)
+            {
                 self.page5Slots = self.padded(decoded)
                 self.defaults.set(watchPage5Data, forKey: "watchPage5")
             }
@@ -587,13 +615,15 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.defaults.removeObject(forKey: "artworkAccentColorHex")
             }
             if let wordCloudJSON = state["wordCloudJSON"] as? String,
-               let jsonData = wordCloudJSON.data(using: .utf8),
-               let words = try? JSONDecoder().decode([WordFrequency].self, from: jsonData) {
+                let jsonData = wordCloudJSON.data(using: .utf8),
+                let words = try? JSONDecoder().decode([WordFrequency].self, from: jsonData)
+            {
                 self.currentWordCloud = words
             }
 
             if let dueCardsJSON = state["dueCardsJSON"] as? String,
-               let cards = WatchReviewQueueStore.decode(dueCardsJSON) {
+                let cards = WatchReviewQueueStore.decode(dueCardsJSON)
+            {
                 self.dueCards = cards
                 WatchReviewQueueStore.save(cards, to: self.defaults)
             }
@@ -623,7 +653,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         session.transferUserInfo([
             WatchMessageKey.command: "gradeFlashcard",
             "cardID": cardID,
-            "grade": grade
+            "grade": grade,
         ])
         dueCards.removeAll { $0.id == cardID }
         WatchReviewQueueStore.save(dueCards, to: defaults)
@@ -654,15 +684,18 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         // serial queue, not the main thread. Hop to the main actor before touching
         // any @MainActor-isolated state (applyState, the logger property) to avoid a
         // Swift 6 isolation trap. Mirrors the WCSessionDelegate callbacks above.
-        session.sendMessage([WatchMessageKey.command: "requestState"], replyHandler: { reply in
-            Task { @MainActor [weak self] in
-                self?.applyState(reply)
-            }
-        }, errorHandler: { error in
-            Task { @MainActor [weak self] in
-                self?.logger.error("Error requesting state: \(error)")
-            }
-        })
+        session.sendMessage(
+            [WatchMessageKey.command: "requestState"],
+            replyHandler: { reply in
+                Task { @MainActor [weak self] in
+                    self?.applyState(reply)
+                }
+            },
+            errorHandler: { error in
+                Task { @MainActor [weak self] in
+                    self?.logger.error("Error requesting state: \(error)")
+                }
+            })
         return true
     }
 
@@ -676,7 +709,8 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     }
 
     private static func isDirectionalCommand(_ command: String) -> Bool {
-        command == "next" || command == "previous" || command == "skipForward" || command == "skipBackward"
+        command == "next" || command == "previous" || command == "skipForward"
+            || command == "skipBackward"
     }
 
     private static func isForwardCommand(_ command: String) -> Bool {
@@ -706,30 +740,36 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         // state (clearPendingRollback, applyState, playHaptic, rollback, the
         // loopMode/logger reads) to avoid a Swift 6 isolation trap. Mirrors the
         // WCSessionDelegate callbacks above.
-        session.sendMessage(message, replyHandler: { reply in
-            Task { @MainActor [weak self] in
-                self?.clearPendingRollback()
-                self?.applyState(reply)
-                if Self.isDirectionalCommand(command),
-                   self?.loopMode == "bookmark",
-                   reply["commandResult"] as? String != "bookmarkJump" {
-                    self?.playHaptic(Self.isForwardCommand(command) ? .directionUp : .directionDown)
+        session.sendMessage(
+            message,
+            replyHandler: { reply in
+                Task { @MainActor [weak self] in
+                    self?.clearPendingRollback()
+                    self?.applyState(reply)
+                    if Self.isDirectionalCommand(command),
+                        self?.loopMode == "bookmark",
+                        reply["commandResult"] as? String != "bookmarkJump"
+                    {
+                        self?.playHaptic(
+                            Self.isForwardCommand(command) ? .directionUp : .directionDown)
+                    }
                 }
-            }
-        }, errorHandler: { error in
-            // Deliberately do NOT fall back to transferUserInfo here. Transport,
-            // navigation and seek commands are only meaningful live. transferUserInfo
-            // persists them in a FIFO queue that drains (even across launches) the next
-            // time the phone is reachable, replaying stale play/pause/seek intent and
-            // fighting the user. sendMessage already wakes a suspended companion app; if
-            // it still fails the correct recovery is to revert the optimistic UI and
-            // re-pull the phone's authoritative state — not to queue a stale command.
-            Task { @MainActor [weak self] in
-                self?.logger.error("Error sending command \(command): \(error). Reverting optimistic state.")
-                self?.rollback()
-                self?.requestCurrentState()
-            }
-        })
+            },
+            errorHandler: { error in
+                // Deliberately do NOT fall back to transferUserInfo here. Transport,
+                // navigation and seek commands are only meaningful live. transferUserInfo
+                // persists them in a FIFO queue that drains (even across launches) the next
+                // time the phone is reachable, replaying stale play/pause/seek intent and
+                // fighting the user. sendMessage already wakes a suspended companion app; if
+                // it still fails the correct recovery is to revert the optimistic UI and
+                // re-pull the phone's authoritative state — not to queue a stale command.
+                Task { @MainActor [weak self] in
+                    self?.logger.error(
+                        "Error sending command \(command): \(error). Reverting optimistic state.")
+                    self?.rollback()
+                    self?.requestCurrentState()
+                }
+            })
         if pendingSnapshot != nil {
             scheduleRollback()
         }
@@ -788,10 +828,12 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         sleepTimerMode = "minutes"
         sleepTimerMinutes = minutes
         sleepTimerRemainingSeconds = minutes * 60
-        sendCommand("setSleepTimer", params: [
-            "sleepTimerMode": "minutes",
-            "sleepTimerMinutes": minutes
-        ])
+        sendCommand(
+            "setSleepTimer",
+            params: [
+                "sleepTimerMode": "minutes",
+                "sleepTimerMinutes": minutes,
+            ])
     }
 
     func setSleepTimerEndOfChapter() {
@@ -799,9 +841,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         sleepTimerMode = "endOfChapter"
         sleepTimerMinutes = 0
         sleepTimerRemainingSeconds = 0
-        sendCommand("setSleepTimer", params: [
-            "sleepTimerMode": "endOfChapter"
-        ])
+        sendCommand(
+            "setSleepTimer",
+            params: [
+                "sleepTimerMode": "endOfChapter"
+            ])
     }
 
     func cancelSleepTimer() {
@@ -885,7 +929,6 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-
     private func bookmarkPayload(command: String) throws -> [String: Any] {
         guard WCSession.isSupported() else {
             throw WatchBookmarkError.watchConnectivityUnavailable
@@ -905,7 +948,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             "bookmarkID": UUID().uuidString,
             "bookmarkStorageKey": bookmarkStorageKey,
             "timestamp": max(0, currentTime),
-            "createdAt": Date().timeIntervalSince1970
+            "createdAt": Date().timeIntervalSince1970,
         ]
 
         if let folderKey {
@@ -936,8 +979,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         pomodoroActive = true
         lastPomodoroTick = Date()
         playHaptic(.start)
-        
-        pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+
+        pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+            [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
                 self.tickPomodoro()
@@ -956,6 +1000,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         pomodoroTimer?.invalidate()
         pomodoroTimer = nil
         lastPomodoroTick = nil
+        // Silence a ringing alarm if the user stops the Pomodoro mid-alarm.
+        alarmHapticsTask?.cancel()
+        alarmHapticsTask = nil
         playHaptic(.stop)
     }
 
@@ -972,7 +1019,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         let now = Date()
         let elapsed = now.timeIntervalSince(lastTick)
         self.lastPomodoroTick = now
-        
+
         if pomodoroRemaining > elapsed {
             pomodoroRemaining -= elapsed
         } else {
@@ -981,38 +1028,42 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             pomodoroTimer?.invalidate()
             pomodoroTimer = nil
             self.lastPomodoroTick = nil
-            
+
             playPersistentAlarmHaptics()
         }
     }
 
     private func playPersistentAlarmHaptics() {
-        let startTime = Date()
-        WKInterfaceDevice.current().play(.notification)
-        
-        Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                guard Date().timeIntervalSince(startTime) < 3.0 else {
-                    timer.invalidate()
-                    return
-                }
+        // A self-terminating ~3s repeating haptic. Modeled as a cancellable
+        // MainActor Task loop (not `Timer.scheduledTimer`) so the non-Sendable
+        // `Timer` never has to cross an isolation boundary under Swift 6, and so
+        // `stopPomodoro()` can silence a ringing alarm by cancelling the task.
+        alarmHapticsTask?.cancel()
+        alarmHapticsTask = Task { @MainActor [weak self] in
+            let startTime = Date()
+            WKInterfaceDevice.current().play(.notification)
+            while !Task.isCancelled, Date().timeIntervalSince(startTime) < 3.0 {
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
                 WKInterfaceDevice.current().play(.notification)
             }
+            self?.alarmHapticsTask = nil
         }
     }
 
     func appWillEnterForeground() {
         guard pomodoroActive else { return }
-        
+
         if let lastTick = lastPomodoroTick {
             let elapsed = Date().timeIntervalSince(lastTick)
             self.lastPomodoroTick = Date()
-            
+
             if pomodoroRemaining > elapsed {
                 pomodoroRemaining -= elapsed
-                
+
                 if pomodoroTimer == nil {
-                    pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                    pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
+                        [weak self] _ in
                         guard let self else { return }
                         MainActor.assumeIsolated {
                             self.tickPomodoro()
@@ -1030,7 +1081,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 pomodoroTimer?.invalidate()
                 pomodoroTimer = nil
                 lastPomodoroTick = nil
-                
+
                 playPersistentAlarmHaptics()
             }
         } else {
@@ -1061,7 +1112,9 @@ extension Color {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
         guard Scanner(string: hex).scanHexInt64(&int) else { return nil }
-        let r, g, b: Double
+        let r: Double
+        let g: Double
+        let b: Double
         switch hex.count {
         case 6:
             r = Double((int >> 16) & 0xFF) / 255

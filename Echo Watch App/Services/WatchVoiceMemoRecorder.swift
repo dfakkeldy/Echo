@@ -3,6 +3,7 @@ import AVFoundation
 import Observation
 
 @Observable
+@MainActor
 final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
     static let maximumDuration: TimeInterval = 30
 
@@ -10,15 +11,16 @@ final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
     private(set) var elapsed: TimeInterval = 0
 
     private var recorder: AVAudioRecorder?
-    private var timer: Timer?
+    private var tickTask: Task<Void, Never>?
     private(set) var recordingURL: URL?
 
     func startRecording() throws {
         // Permission is already resolved by the caller (startVoiceBookmark).
         // This guard is a safety net for direct calls that skip the check.
         guard AVAudioApplication.shared.recordPermission == .granted else {
-            throw NSError(domain: "WatchVoiceMemoRecorder", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Microphone access denied."])
+            throw NSError(
+                domain: "WatchVoiceMemoRecorder", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Microphone access denied."])
         }
 
         let directory = try Self.recordingsDirectory()
@@ -32,7 +34,7 @@ final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: 22_050.0,
             AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
         ]
 
         let audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
@@ -51,8 +53,8 @@ final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
     func stopRecording() -> URL? {
         recorder?.stop()
         recorder = nil
-        timer?.invalidate()
-        timer = nil
+        tickTask?.cancel()
+        tickTask = nil
         isRecording = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         return recordingURL
@@ -69,20 +71,35 @@ final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
         elapsed = 0
     }
 
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        timer?.invalidate()
-        timer = nil
-        isRecording = false
-        elapsed = min(recorder.currentTime, Self.maximumDuration)
+    // AVAudioRecorderDelegate's requirement is nonisolated, so this witness must be
+    // too (the class is @MainActor). Snapshot the Sendable `currentTime` synchronously,
+    // then hop to the main actor to mutate the @MainActor-isolated state.
+    nonisolated func audioRecorderDidFinishRecording(
+        _ recorder: AVAudioRecorder, successfully flag: Bool
+    ) {
+        let finalTime = recorder.currentTime
+        Task { @MainActor in
+            self.tickTask?.cancel()
+            self.tickTask = nil
+            self.isRecording = false
+            self.elapsed = min(finalTime, Self.maximumDuration)
+        }
     }
 
+    // A cancellable MainActor poll loop (not `Timer.scheduledTimer`) so the elapsed-time
+    // updates and `stopRecording()` happen on the main actor without a non-Sendable
+    // `Timer` crossing isolation boundaries under Swift 6.
     private func startTimer() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            guard let self, let recorder = self.recorder else { return }
-            self.elapsed = min(recorder.currentTime, Self.maximumDuration)
-            if self.elapsed >= Self.maximumDuration {
-                _ = self.stopRecording()
+        tickTask?.cancel()
+        tickTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self, !Task.isCancelled, let recorder = self.recorder else { return }
+                self.elapsed = min(recorder.currentTime, Self.maximumDuration)
+                if self.elapsed >= Self.maximumDuration {
+                    _ = self.stopRecording()
+                    return
+                }
             }
         }
     }
@@ -92,7 +109,8 @@ final class WatchVoiceMemoRecorder: NSObject, AVAudioRecorderDelegate {
             .appendingPathComponent("WatchVoiceMemos", isDirectory: true)
 
         if !FileManager.default.fileExists(atPath: directory.path) {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
         }
 
         return directory
