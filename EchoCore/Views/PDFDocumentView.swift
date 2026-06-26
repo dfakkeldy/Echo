@@ -3,6 +3,36 @@ import PDFKit
 import SwiftUI
 import os.log
 
+private enum PDFDocumentAction: CaseIterable, Identifiable {
+    case alignToNow
+    case alignToSpecificTime
+    case createBookmark
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .alignToNow:
+            "Align to Now"
+        case .alignToSpecificTime:
+            "Align to Specific Time"
+        case .createBookmark:
+            "Create Bookmark / Anki Card"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .alignToNow:
+            "location.fill"
+        case .alignToSpecificTime:
+            "clock.badge"
+        case .createBookmark:
+            "bookmark.fill"
+        }
+    }
+}
+
 struct PDFDocumentView: View {
     let folderURL: URL
     @Environment(PlayerModel.self) private var model
@@ -12,6 +42,7 @@ struct PDFDocumentView: View {
     @State private var showingAlignmentOptions = false
     @State private var showingManualAlignment = false
     @State private var capturedState: PDFViewState?
+    @State private var currentPDFViewState: PDFViewState?
 
     var body: some View {
         ZStack {
@@ -23,11 +54,14 @@ struct PDFDocumentView: View {
                         set: { if $0 == nil { model.pendingPDFViewStateRestore = nil } }
                     ),
                     onStateChange: { state in
-                        model.currentPDFViewState = state
+                        updateCurrentPDFState(state)
                     },
                     onLongPress: { state in
                         capturedState = state
                         showingAlignmentOptions = true
+                    },
+                    onAction: { action, state in
+                        performPDFAction(action, state: state)
                     }
                 )
                 .ignoresSafeArea(edges: .top)
@@ -36,26 +70,20 @@ struct PDFDocumentView: View {
                 ProgressView()
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if pdfDocument != nil {
+                pdfActionMenu
+                    .padding(.trailing, 16)
+                    .padding(.bottom, model.bottomInset + 16)
+            }
+        }
         .task(id: PDFLoadRequest(folderURL: folderURL, reloadToken: pdfLoadToken)) {
             await loadPDF(for: folderURL)
         }
         .confirmationDialog("Align PDF View", isPresented: $showingAlignmentOptions) {
-            Button("Align to Now") {
-                if let state = capturedState {
-                    model.currentPDFViewState = state
-                    model.addBookmarkAtCurrentTime()
-                }
-            }
-            Button("Align to Specific Time") {
-                if let state = capturedState {
-                    model.currentPDFViewState = state
-                    showingManualAlignment = true
-                }
-            }
-            Button("Create Bookmark / Anki Card") {
-                if let state = capturedState {
-                    model.currentPDFViewState = state
-                    createBookmarkWithScreenshot(state: state)
+            ForEach(PDFDocumentAction.allCases) { action in
+                Button(action.title) {
+                    _ = performPDFAction(action, state: capturedState)
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -89,6 +117,64 @@ struct PDFDocumentView: View {
         }
     }
 
+    private var pdfActionMenu: some View {
+        Menu {
+            ForEach(PDFDocumentAction.allCases) { action in
+                Button {
+                    _ = performPDFAction(action, state: currentPDFActionState)
+                } label: {
+                    Label(action.title, systemImage: action.systemImage)
+                }
+            }
+        } label: {
+            Label("PDF Actions", systemImage: "ellipsis.circle")
+                .labelStyle(.iconOnly)
+                .font(.title3)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
+        .accessibilityLabel(Text("PDF Actions"))
+        .accessibilityHint(Text("Open PDF alignment and bookmark actions"))
+        .disabled(currentPDFActionState == nil)
+    }
+
+    private var currentPDFActionState: PDFViewState? {
+        if let currentPDFViewState {
+            return currentPDFViewState
+        }
+        if let modelState = model.currentPDFViewState {
+            return modelState
+        }
+        guard pdfDocument?.pageCount ?? 0 > 0 else { return nil }
+        return PDFViewState(pageIndex: 0, zoomScale: 1, offsetX: 0, offsetY: 0)
+    }
+
+    private func updateCurrentPDFState(_ state: PDFViewState) {
+        if currentPDFViewState != state {
+            currentPDFViewState = state
+        }
+        model.currentPDFViewState = state
+    }
+
+    @discardableResult
+    private func performPDFAction(_ action: PDFDocumentAction, state: PDFViewState?) -> Bool {
+        guard let state else { return false }
+
+        updateCurrentPDFState(state)
+
+        switch action {
+        case .alignToNow:
+            return model.addBookmarkAtCurrentTime() != nil
+        case .alignToSpecificTime:
+            showingManualAlignment = true
+            return true
+        case .createBookmark:
+            return createBookmarkWithScreenshot(state: state)
+        }
+    }
+
     @concurrent
     private static func firstPDFURL(in folderURL: URL) async throws -> URL? {
         try Task.checkCancellation()
@@ -107,10 +193,11 @@ struct PDFDocumentView: View {
             .first
     }
 
-    private func createBookmarkWithScreenshot(state: PDFViewState) {
+    @discardableResult
+    private func createBookmarkWithScreenshot(state: PDFViewState) -> Bool {
         guard let document = pdfDocument,
             let page = document.page(at: state.pageIndex)
-        else { return }
+        else { return false }
 
         // Render PDF page to image
         let pageRect = page.bounds(for: .mediaBox)
@@ -134,8 +221,11 @@ struct PDFDocumentView: View {
                 model.appendBookmark(
                     from: draft, title: "PDF Bookmark", timestamp: draft.timestamp, note: nil,
                     voiceMemoFileName: nil, bookmarkImageFileName: imageName)
+                return true
             }
         }
+
+        return false
     }
 
     private struct PDFLoadRequest: Equatable {
@@ -146,11 +236,12 @@ struct PDFDocumentView: View {
     private static let logger = Logger(category: "PDFDocumentView")
 }
 
-struct PDFKitView: UIViewRepresentable {
+private struct PDFKitView: UIViewRepresentable {
     let document: PDFDocument
     @Binding var restoreState: PDFViewState?
     let onStateChange: (PDFViewState) -> Void
     let onLongPress: (PDFViewState) -> Void
+    let onAction: (PDFDocumentAction, PDFViewState) -> Bool
 
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
@@ -186,12 +277,18 @@ struct PDFKitView: UIViewRepresentable {
         )
 
         context.coordinator.pdfView = pdfView
+        context.coordinator.configureAccessibilityActions(for: pdfView)
+        context.coordinator.publishCurrentState()
+
         return pdfView
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
+        context.coordinator.parent = self
+
         if uiView.document != document {
             uiView.document = document
+            context.coordinator.publishCurrentState()
         }
 
         if let state = restoreState {
@@ -200,6 +297,7 @@ struct PDFKitView: UIViewRepresentable {
                     to: CGRect(x: state.offsetX, y: state.offsetY, width: 1, height: 1), on: page)
                 uiView.scaleFactor = CGFloat(state.zoomScale)
             }
+            context.coordinator.publishCurrentState()
 
             Task { @MainActor in
                 restoreState = nil
@@ -211,12 +309,31 @@ struct PDFKitView: UIViewRepresentable {
         Coordinator(self)
     }
 
-    class Coordinator: NSObject {
-        let parent: PDFKitView
+    final class Coordinator: NSObject {
+        var parent: PDFKitView
         weak var pdfView: PDFView?
 
         init(_ parent: PDFKitView) {
             self.parent = parent
+        }
+
+        func configureAccessibilityActions(for pdfView: PDFView) {
+            pdfView.accessibilityLabel = "PDF document"
+            pdfView.accessibilityCustomActions = PDFDocumentAction.allCases.map { action in
+                let customAction = UIAccessibilityCustomAction(name: action.title) {
+                    [weak self] _ in
+                    guard let self, let state = currentState() else { return false }
+                    return parent.onAction(action, state)
+                }
+                customAction.category = UIAccessibilityCustomAction.editCategory
+                return customAction
+            }
+        }
+
+        func publishCurrentState() {
+            if let state = currentState() {
+                parent.onStateChange(state)
+            }
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {

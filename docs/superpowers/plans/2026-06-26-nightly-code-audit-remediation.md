@@ -363,11 +363,11 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Views/TransportControlsView+LongPress.swift`
 - Modify: `EchoCore/Views/ScrubberJoystick.swift`
 
-- [ ] Add visible toolbar/menu actions for PDF align/bookmark operations.
-- [ ] Add `UIAccessibilityCustomAction` or SwiftUI `.accessibilityAction` equivalents for PDF operations.
-- [ ] Add named accessibility actions for transport secondary actions.
-- [ ] Add `.accessibilityAdjustableAction` and named step actions for the scrubber joystick.
-- [ ] Verify VoiceOver can discover and perform every action without custom gestures.
+- [x] Add visible toolbar/menu actions for PDF align/bookmark operations.
+- [x] Add `UIAccessibilityCustomAction` or SwiftUI `.accessibilityAction` equivalents for PDF operations.
+- [x] Add named accessibility actions for transport secondary actions.
+- [x] Add `.accessibilityAdjustableAction` and named step actions for the scrubber joystick.
+- [x] Verify VoiceOver can discover and perform every action without custom gestures.
 
 **Acceptance criteria:** no primary reader/PDF/transport/alignment action is available only through long press or drag.
 
