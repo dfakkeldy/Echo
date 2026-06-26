@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 /// Handles SQL persistence of audiobooks, tracks, transcripts, and timeline
@@ -35,7 +36,6 @@ struct TimelineIngestionService {
                 remoteItemID: existing?.remoteItemID,
                 topicsJSON: existing?.topicsJSON
             )
-            try AudiobookDAO(db: db.writer).save(audiobook)
             let records = tracks.enumerated().map { (i, track) in
                 TrackRecord(
                     id: track.id,
@@ -48,8 +48,12 @@ struct TimelineIngestionService {
                     playlistPosition: nil
                 )
             }
-            try TrackDAO(db: db.writer).deleteAll(for: audiobookID)
-            try TrackDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+            let trackDAO = TrackDAO(db: db.writer)
+            try db.writer.write { database in
+                var audiobookRecord = audiobook
+                try audiobookRecord.save(database)
+                try trackDAO.refreshAll(records, audiobookID: audiobookID, in: database)
+            }
         } catch {
             logger.error("Failed to persist audiobook to SQL: \(error.localizedDescription)")
         }

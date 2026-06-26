@@ -195,11 +195,13 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify migration registry as needed
 - Add/modify tests under `EchoTests`
 
-- [ ] Write a regression test that creates an audiobook with tracks, a bookmark with `track_id`, and a playback event with `track_id`, then refreshes/reingests the book.
-- [ ] Replace `deleteAll(for:)` before insert with transactional upsert-by-track-ID.
-- [ ] Delete obsolete tracks only after dependents are remapped or nulled.
-- [ ] If schema change is chosen, migrate `bookmark.track_id` and `playback_event.track_id` to `ON DELETE SET NULL` safely.
-- [ ] Ensure failed refresh cannot leave metadata updated while tracks remain stale.
+- [x] Write a regression test that creates an audiobook with tracks, a bookmark with `track_id`, and a playback event with `track_id`, then refreshes/reingests the book.
+- [x] Replace `deleteAll(for:)` before insert with transactional upsert-by-track-ID.
+- [x] Delete obsolete tracks only after dependents are remapped or nulled.
+- [x] Confirm no schema change is needed; obsolete dependent `track_id` values are nulled in the refresh transaction before track deletion.
+- [x] Ensure failed refresh cannot leave metadata updated while tracks remain stale.
+
+**Verification:** `git diff --check`; focused iOS `build-for-testing` for `EchoTests/TimelineIngestionTrackRefreshTests` with signing disabled; macOS app build with signing disabled. Runtime test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
 
 **Acceptance criteria:** reingesting a book after bookmarks/playback events succeeds without FK failure and preserves dependent history.
 
