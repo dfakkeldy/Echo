@@ -12,6 +12,7 @@ import Foundation
 ///     {
 ///       "frontText": "What does 'ephemeral' mean?",
 ///       "backText": "Lasting for a very short time.",
+///       "sourceAnchor": "s1-b2",
 ///       "startTime": 45.0,
 ///       "endTime": 52.0,
 ///       "triggerTiming": "beginning"
@@ -19,6 +20,9 @@ import Foundation
 ///   ]
 /// }
 /// ```
+///
+/// `startTime` and `endTime` are optional when `sourceAnchor` resolves to an
+/// EPUB block for the target audiobook.
 struct FlashcardDeckImport: Codable, Sendable {
     let deckName: String
     let targetMediaID: String
@@ -27,8 +31,8 @@ struct FlashcardDeckImport: Codable, Sendable {
     struct ImportedCard: Codable, Sendable {
         let frontText: String
         let backText: String
-        let startTime: Double
-        let endTime: Double
+        let startTime: Double?
+        let endTime: Double?
         let triggerTiming: FlashcardTriggerTiming
         let sourceAnchor: String?
     }
@@ -55,7 +59,7 @@ enum DeckImportError: LocalizedError {
         case .emptyCardText(let index):
             "Card \(index + 1): frontText and backText must not be empty."
         case .invalidTimeRange(let index):
-            "Card \(index + 1): startTime must be less than endTime and both must be non-negative."
+            "Card \(index + 1): startTime must be less than endTime and both must be non-negative unless sourceAnchor resolves to an EPUB block."
         }
     }
 }

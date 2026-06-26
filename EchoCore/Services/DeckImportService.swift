@@ -36,9 +36,6 @@ struct DeckImportService {
             guard !card.frontText.isEmpty, !card.backText.isEmpty else {
                 throw DeckImportError.emptyCardText(cardIndex: index)
             }
-            guard card.startTime >= 0, card.endTime > card.startTime else {
-                throw DeckImportError.invalidTimeRange(cardIndex: index)
-            }
             guard validTriggerTimings.contains(card.triggerTiming.rawValue) else {
                 throw DeckImportError.invalidTriggerTiming(
                     card.triggerTiming.rawValue, cardIndex: index)
@@ -72,6 +69,12 @@ struct DeckImportService {
                     resolvedSourceBlockIDs[index] = nil
                     warnings.append(warning)
                 }
+            }
+        }
+
+        for (index, card) in deck.cards.enumerated() {
+            guard hasValidTimeRange(card) || resolvedSourceBlockIDs[index] != nil else {
+                throw DeckImportError.invalidTimeRange(cardIndex: index)
             }
         }
 
@@ -114,8 +117,8 @@ struct DeckImportService {
                 audiobookID: deck.targetMediaID,
                 frontText: card.frontText,
                 backText: card.backText,
-                mediaTimestamp: card.startTime,
-                endTimestamp: card.endTime,
+                mediaTimestamp: startTimestamp(for: card),
+                endTimestamp: endTimestamp(for: card),
                 triggerTiming: card.triggerTiming,
                 nextReviewDate: Date().ISO8601Format(),
                 intervalDays: 0,
@@ -156,5 +159,26 @@ struct DeckImportService {
         try db.read { db in
             try String.fetchOne(db, sql: "SELECT id FROM deck WHERE name = ?", arguments: [name])
         }
+    }
+
+    private func hasValidTimeRange(_ card: FlashcardDeckImport.ImportedCard) -> Bool {
+        guard let startTime = card.startTime, let endTime = card.endTime else {
+            return false
+        }
+        return startTime >= 0 && endTime > startTime
+    }
+
+    private func startTimestamp(for card: FlashcardDeckImport.ImportedCard) -> Double {
+        guard hasValidTimeRange(card), let startTime = card.startTime else {
+            return 0
+        }
+        return startTime
+    }
+
+    private func endTimestamp(for card: FlashcardDeckImport.ImportedCard) -> Double? {
+        guard hasValidTimeRange(card) else {
+            return nil
+        }
+        return card.endTime
     }
 }

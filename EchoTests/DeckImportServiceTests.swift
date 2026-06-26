@@ -119,6 +119,102 @@ struct DeckImportServiceTests {
     }
 
     @Test
+    func importDeckVNextAllowsResolvedSourceAnchorWithoutTimestamps() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s1-b2"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Anchor Only Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "sourceAnchor": "s1-b2",
+                  "triggerTiming": "manualOnly"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 1)
+        #expect(result.warningCount == 0)
+
+        let card = try writer.read { db in try Flashcard.fetchOne(db) }
+        #expect(card?.sourceBlockID == "epub-book-a-s1-b2")
+        #expect(card?.mediaTimestamp == 0)
+        #expect(card?.endTimestamp == nil)
+    }
+
+    @Test
+    func importDeckVNextAllowsResolvedSourceAnchorWithDegenerateZeroRange() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s1-b2"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Builder Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 0,
+                  "sourceAnchor": "s1-b2",
+                  "triggerTiming": "manualOnly"
+                }
+              ]
+            }
+            """)
+
+        let result = try DeckImportService().importDeckVNext(from: url, db: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 1)
+        #expect(result.warningCount == 0)
+
+        let card = try writer.read { db in try Flashcard.fetchOne(db) }
+        #expect(card?.sourceBlockID == "epub-book-a-s1-b2")
+        #expect(card?.mediaTimestamp == 0)
+        #expect(card?.endTimestamp == nil)
+    }
+
+    @Test
+    func importDeckVNextRejectsSourceOnlyCardWhenAnchorDoesNotResolve() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Unresolved Anchor Only Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "sourceAnchor": "s9-b9",
+                  "triggerTiming": "manualOnly"
+                }
+              ]
+            }
+            """)
+
+        #expect {
+            try DeckImportService().importDeckVNext(from: url, db: writer)
+        } throws: { error in
+            guard case DeckImportError.invalidTimeRange(cardIndex: 0) = error else {
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
     func importDeckVNextRehomesFullLegacyBlockID() throws {
         let writer = try DatabaseService(inMemory: ()).writer
         try seedBookWithBlocks(writer, targetID: "book-b", blockIDs: ["epub-book-b-s0-b0"])
