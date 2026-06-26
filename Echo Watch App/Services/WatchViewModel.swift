@@ -650,10 +650,18 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         let session = WCSession.default
         applyReceivedApplicationContext(session.receivedApplicationContext)
         guard session.activationState == .activated, session.isReachable else { return false }
-        session.sendMessage([WatchMessageKey.command: "requestState"], replyHandler: { [weak self] reply in
-            self?.applyState(reply)
-        }, errorHandler: { [weak self] error in
-            self?.logger.error("Error requesting state: \(error)")
+        // WatchConnectivity invokes these reply/error handlers on a background
+        // serial queue, not the main thread. Hop to the main actor before touching
+        // any @MainActor-isolated state (applyState, the logger property) to avoid a
+        // Swift 6 isolation trap. Mirrors the WCSessionDelegate callbacks above.
+        session.sendMessage([WatchMessageKey.command: "requestState"], replyHandler: { reply in
+            Task { @MainActor [weak self] in
+                self?.applyState(reply)
+            }
+        }, errorHandler: { error in
+            Task { @MainActor [weak self] in
+                self?.logger.error("Error requesting state: \(error)")
+            }
         })
         return true
     }
@@ -693,15 +701,22 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             }
         }
 
-        session.sendMessage(message, replyHandler: { [weak self] reply in
-            self?.clearPendingRollback()
-            self?.applyState(reply)
-            if Self.isDirectionalCommand(command),
-               self?.loopMode == "bookmark",
-               reply["commandResult"] as? String != "bookmarkJump" {
-                self?.playHaptic(Self.isForwardCommand(command) ? .directionUp : .directionDown)
+        // WatchConnectivity invokes these reply/error handlers on a background
+        // serial queue. Hop to the main actor before touching @MainActor-isolated
+        // state (clearPendingRollback, applyState, playHaptic, rollback, the
+        // loopMode/logger reads) to avoid a Swift 6 isolation trap. Mirrors the
+        // WCSessionDelegate callbacks above.
+        session.sendMessage(message, replyHandler: { reply in
+            Task { @MainActor [weak self] in
+                self?.clearPendingRollback()
+                self?.applyState(reply)
+                if Self.isDirectionalCommand(command),
+                   self?.loopMode == "bookmark",
+                   reply["commandResult"] as? String != "bookmarkJump" {
+                    self?.playHaptic(Self.isForwardCommand(command) ? .directionUp : .directionDown)
+                }
             }
-        }, errorHandler: { [weak self] error in
+        }, errorHandler: { error in
             // Deliberately do NOT fall back to transferUserInfo here. Transport,
             // navigation and seek commands are only meaningful live. transferUserInfo
             // persists them in a FIFO queue that drains (even across launches) the next
@@ -709,9 +724,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             // fighting the user. sendMessage already wakes a suspended companion app; if
             // it still fails the correct recovery is to revert the optimistic UI and
             // re-pull the phone's authoritative state — not to queue a stale command.
-            self?.logger.error("Error sending command \(command): \(error). Reverting optimistic state.")
-            self?.rollback()
-            self?.requestCurrentState()
+            Task { @MainActor [weak self] in
+                self?.logger.error("Error sending command \(command): \(error). Reverting optimistic state.")
+                self?.rollback()
+                self?.requestCurrentState()
+            }
         })
         if pendingSnapshot != nil {
             scheduleRollback()
