@@ -17,6 +17,10 @@ rescue
   false
 end
 
+def release_archive_xcargs(build_number)
+  "CURRENT_PROJECT_VERSION=#{build_number} -jobs 5"
+end
+
 # ── Platforms & Lanes ──────────────────────────────────────────────
 
 platform :ios do
@@ -161,7 +165,7 @@ platform :ios do
       scheme: "Echo",
       export_method: "app-store",
       output_directory: "build",
-      xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
+      xcargs: release_archive_xcargs(next_build)
     )
 
     # ── macOS: sync → (CI) manual-sign → archive (rescue-wrapped) ─────────
@@ -197,7 +201,7 @@ platform :ios do
           scheme: "Echo macOS",
           export_method: "app-store",
           output_directory: "build",
-          xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
+          xcargs: release_archive_xcargs(next_build)
         )
       rescue => e
         UI.error("macOS build failed: #{e.message}")

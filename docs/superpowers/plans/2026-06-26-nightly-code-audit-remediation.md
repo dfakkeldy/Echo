@@ -57,10 +57,10 @@ xcodebuild build \
 - Modify: `.github/workflows/ci.yml`
 - Modify: `.github/workflows/release-trains.yml`
 
-- [ ] Replace the blanket `.gitignore` rule for `Package.resolved` with a scoped exception for the Xcode workspace lockfile.
-- [ ] Resolve packages once with Xcode 26.6 and commit the generated workspace `Package.resolved`.
-- [ ] Confirm `git check-ignore` no longer ignores the committed lockfile.
-- [ ] Consider adding `-onlyUsePackageVersionsFromResolvedFile` to CI/release package resolution after the lockfile is tracked.
+- [x] Replace the blanket `.gitignore` rule for `Package.resolved` with a scoped exception for the Xcode workspace lockfile.
+- [x] Resolve packages once with Xcode 26.6 and commit the generated workspace `Package.resolved`.
+- [x] Confirm `git check-ignore` no longer ignores the committed lockfile.
+- [x] Consider adding `-onlyUsePackageVersionsFromResolvedFile` to CI/release package resolution after the lockfile is tracked.
 
 **Verification:**
 
@@ -84,10 +84,10 @@ xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 - Modify: `Echo.xcodeproj/project.pbxproj` if target membership is not automatic through synchronized groups
 - Modify: `EchoTests/PrivacyManifestTests.swift`
 
-- [ ] Add a macOS privacy manifest declaring `NSPrivacyAccessedAPICategoryUserDefaults` with reasons matching standard/app-group usage.
-- [ ] Ensure the file is included in the `Echo macOS` target.
-- [ ] Extend privacy-manifest tests so every shipping target with required-reason API use is enumerated.
-- [ ] Add a test assertion that the macOS manifest exists and declares UserDefaults reasons.
+- [x] Add a macOS privacy manifest declaring `NSPrivacyAccessedAPICategoryUserDefaults` with reasons matching standard/app-group usage.
+- [x] Ensure the file is included in the `Echo macOS` target.
+- [x] Extend privacy-manifest tests so every shipping target with required-reason API use is enumerated.
+- [x] Add a test assertion that the macOS manifest exists and declares UserDefaults reasons.
 
 **Verification:** `make test` or targeted privacy manifest tests after Phase 0 is unblocked.
 
@@ -101,10 +101,10 @@ xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 - Modify: `.github/workflows/release-trains.yml`
 - Review: `fastlane/Matchfile`
 
-- [ ] Require `MATCH_GIT_SSH_KEY` in the `ready=true` gate when `Matchfile` uses SSH.
-- [ ] Update the skipped-upload notice to list all missing signing inputs.
-- [ ] Keep the deploy-key load conditional aligned with the readiness output.
-- [ ] If switching to HTTPS/token match auth instead, update `Matchfile`, workflow secrets, and release docs in one PR.
+- [x] Require `MATCH_GIT_SSH_KEY` in the `ready=true` gate when `Matchfile` uses SSH.
+- [x] Update the skipped-upload notice to list all missing signing inputs.
+- [x] Keep the deploy-key load conditional aligned with the readiness output.
+- [x] Keep SSH match auth; no `Matchfile` HTTPS/token switch is needed.
 
 **Acceptance criteria:** scheduled runs without the deploy key compile only and do not start a doomed Fastlane upload.
 
@@ -114,9 +114,11 @@ xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 
 **Files:**
 - Modify: `.github/workflows/release-trains.yml`
+- Modify: `fastlane/Fastfile`
 
-- [ ] Add `-parallel-testing-enabled NO` and `-jobs 5` to the release-train `xcodebuild build-for-testing` command.
-- [ ] Keep flags consistent with `.github/workflows/ci.yml`.
+- [x] Add `-parallel-testing-enabled NO` and `-jobs 5` to the release-train `xcodebuild build-for-testing` command.
+- [x] Keep flags consistent with `.github/workflows/ci.yml`.
+- [x] Pass `-jobs 5` through Fastlane archive `build_app` invocations used by credentialed release-train uploads.
 
 **Acceptance criteria:** scheduled release-train build behavior matches PR build-gate resource limits.
 
