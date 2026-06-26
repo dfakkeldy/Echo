@@ -232,6 +232,29 @@ xcodebuild test \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
 ```
 
+CI build-gates the embedded watch app through the `Echo` scheme, but watchOS
+unit tests are manual until a pinned watchOS simulator destination is reliable on
+the runner. To run them locally, first choose a destination from:
+
+```bash
+xcodebuild -showdestinations \
+  -project Echo.xcodeproj \
+  -scheme "Echo Watch App"
+```
+
+Then run:
+
+```bash
+WATCH_DEST='platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'
+xcodebuild test \
+  -project Echo.xcodeproj \
+  -scheme "Echo Watch App" \
+  -destination "$WATCH_DEST" \
+  -only-testing:"Echo Watch AppTests" \
+  -parallel-testing-enabled NO \
+  CODE_SIGNING_ALLOWED=NO
+```
+
 ### MockMediaProvider
 
 [`MockMediaProvider.swift`](EchoCore/MockMediaProvider.swift) is a `#if DEBUG`-only utility that seeds a sample audiobook (`BIFF.m4b`) into the simulator's Documents directory on first launch. It is automatically invoked during `DEBUG && targetEnvironment(simulator)` builds in the app's `init()`.

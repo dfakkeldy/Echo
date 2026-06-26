@@ -506,9 +506,9 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `.github/workflows/ci.yml`
 - Possibly modify: `README.md`
 
-- [ ] Add a serial watchOS unit-test job for `Echo Watch AppTests` on a pinned watch destination, if GitHub runner support is stable.
-- [ ] Keep UI tests manual unless simulator reliability and runtime cost are acceptable.
-- [ ] If not adding CI coverage, update README/release checklist to state watch tests are manual and list the command.
+- [x] Defer a serial watchOS unit-test job for `Echo Watch AppTests` until a pinned watch destination is reliable on GitHub runners.
+- [x] Keep UI tests manual unless simulator reliability and runtime cost are acceptable.
+- [x] If not adding CI coverage, update README/release checklist to state watch tests are manual and list the command.
 
 **Acceptance criteria:** watch test status is no longer ambiguous.
 

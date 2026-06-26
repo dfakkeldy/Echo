@@ -1039,6 +1039,13 @@ so the fix is not lost at the next promotion.
   `EchoTests` with `test-without-building`, then smoke-builds the macOS target.
   The required status check is named **`Build gate + tests`**; branch protection
   keys off that exact string, so it must not be renamed.
+  Watch app tests are not a CI execution gate yet: CI compile-checks the embedded
+  watch app through the `Echo` scheme, while `Echo Watch AppTests` stay manual
+  until a pinned watchOS simulator destination is reliable on GitHub runners.
+  Manual command:
+  `xcodebuild test -project Echo.xcodeproj -scheme "Echo Watch App" -destination "$WATCH_DEST" -only-testing:"Echo Watch AppTests" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO`
+  after setting `WATCH_DEST` to a destination from
+  `xcodebuild -showdestinations -project Echo.xcodeproj -scheme "Echo Watch App"`.
 - **`.github/workflows/release-trains.yml`** — scheduled builds that give the
   train branches teeth. `schedule`/`workflow_dispatch` triggers only execute the
   copy of a workflow on the **default branch**, so this file lives on `main` and
