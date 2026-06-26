@@ -240,6 +240,17 @@ struct RootTabView: View {
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
+        .alert(
+            "Folder Access Not Saved",
+            isPresented: $model.showingBookmarkPersistenceWarning
+        ) {
+            Button("OK", role: .cancel) {}
+            Button("Choose Folder") { showingFolderPicker = true }
+        } message: {
+            Text(
+                "Echo could not save permanent access to this folder. You can keep using it now, but you may need to choose it again after relaunch."
+            )
+        }
         .fileImporter(
             isPresented: $model.showingDocumentImporter,
             allowedContentTypes: companionDocumentTypes,

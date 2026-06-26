@@ -211,13 +211,17 @@ final class MacPlayerModel {
     }
 
     /// One-time migration from `UserDefaults.standard` to the shared App Group
-    /// suite so bookmarks and last-file data are visible to iOS/watchOS/widgets.
+    /// suite so bookmark records are visible to iOS/watchOS/widgets.
+    ///
+    /// Security-scoped last-file bookmarks are migrated directly to Keychain in
+    /// `restoreLastFile()` so they do not get copied into another plaintext
+    /// defaults store.
     private func migrateFromStandardUserDefaults() {
         let migrationFlag = "mac.migratedToAppGroup.v1"
         guard !defaults.bool(forKey: migrationFlag) else { return }
 
         let standard = UserDefaults.standard
-        for key in [bookmarksKey, lastFileKey] {
+        for key in [bookmarksKey] {
             if let data = standard.data(forKey: key) {
                 defaults.set(data, forKey: key)
             }
@@ -345,14 +349,7 @@ final class MacPlayerModel {
             }
         }
 
-        // Persist a security-scoped bookmark so we can reopen on next launch.
-        if let bookmark = try? url.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        ) {
-            defaults.set(bookmark, forKey: lastFileKey)
-        }
+        saveLastFileBookmark(for: url)
 
         loadBookmarksFromDB()
         migrateLegacyBookmarksIfNeeded()
@@ -512,7 +509,7 @@ final class MacPlayerModel {
     }
 
     private func restoreLastFile() {
-        guard let data = defaults.data(forKey: lastFileKey) else { return }
+        guard let data = lastFileBookmarkData() else { return }
         var stale = false
         guard
             let url = try? URL(
@@ -528,6 +525,45 @@ final class MacPlayerModel {
             currentScopedURL = url
         }
         open(url: url)
+    }
+
+    private func saveLastFileBookmark(for url: URL) {
+        do {
+            let bookmark = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            guard KeychainStore.set(bookmark, for: .macLastFileBookmark) else {
+                os_log(.error, "Mac last-file bookmark Keychain save failed; file must be reselected")
+                return
+            }
+            removeLegacyLastFileBookmarkDefaults()
+        } catch {
+            os_log(.error, "Mac last-file bookmark save failed: %{private}@", error.localizedDescription)
+        }
+    }
+
+    private func lastFileBookmarkData() -> Data? {
+        if let data = KeychainStore.data(for: .macLastFileBookmark) {
+            return data
+        }
+        guard let legacy = defaults.data(forKey: lastFileKey)
+            ?? UserDefaults.standard.data(forKey: lastFileKey)
+        else {
+            return nil
+        }
+        guard KeychainStore.set(legacy, for: .macLastFileBookmark) else {
+            os_log(.error, "Mac last-file bookmark migration failed; file must be reselected")
+            return nil
+        }
+        removeLegacyLastFileBookmarkDefaults()
+        return legacy
+    }
+
+    private func removeLegacyLastFileBookmarkDefaults() {
+        defaults.removeObject(forKey: lastFileKey)
+        UserDefaults.standard.removeObject(forKey: lastFileKey)
     }
 
     // MARK: Playback controls

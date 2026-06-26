@@ -242,10 +242,10 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Services/Persistence.swift`
 - Add/modify tests around Keychain failure behavior
 
-- [ ] Remove release-build fallback that writes security-scoped bookmark data to `UserDefaults`.
-- [ ] On Keychain save failure, fail closed and surface a reselect-folder requirement.
-- [ ] During legacy migration, delete plaintext bookmark data only after successful Keychain write.
-- [ ] If migration fails, do not continue using plaintext legacy bookmark data indefinitely.
+- [x] Remove release-build fallback that writes security-scoped bookmark data to `UserDefaults`.
+- [x] On Keychain save failure, fail closed and surface a reselect-folder requirement.
+- [x] During legacy migration, delete plaintext bookmark data only after successful Keychain write.
+- [x] If migration fails, do not continue using plaintext legacy bookmark data indefinitely.
 
 **Acceptance criteria:** security-scoped bookmark grants are not newly written to plaintext defaults and legacy plaintext data has a bounded migration path.
 

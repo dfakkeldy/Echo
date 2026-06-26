@@ -103,6 +103,7 @@ final class PlayerModel {
     var showBookmarks: Bool = true
     var isPlaylistEditing: Bool = false
     var showingDocumentImporter: Bool = false
+    var showingBookmarkPersistenceWarning: Bool = false
     var showingABSBrowse: Bool = false
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
@@ -1594,7 +1595,7 @@ final class PlayerModel {
         securityScope.startSelection(url: url)
 
         // Save security-scoped bookmark so it restores after relaunch.
-        persistence.saveBookmark(url: url)
+        showingBookmarkPersistenceWarning = !persistence.saveBookmark(url: url)
 
         // Load bookmarks for this book.
         loadBookmarksForCurrentBook()
