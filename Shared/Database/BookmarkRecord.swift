@@ -52,8 +52,8 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
     extension BookmarkRecord {
         private static let logger = Logger(category: "BookmarkRecord")
 
-        struct JSONCodingFailure: Error, CustomStringConvertible, LocalizedError, Sendable {
-            let column: String
+        struct PersistedValueCodingFailure: Error, CustomStringConvertible, LocalizedError, Sendable {
+            let field: String
             let bookmarkID: String
             let audiobookID: String
             let operation: String
@@ -61,7 +61,7 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
 
             var description: String {
                 """
-                Failed to \(operation) \(column) JSON for bookmark \(bookmarkID) \
+                Failed to \(operation) persisted bookmark field \(field) for bookmark \(bookmarkID) \
                 in audiobook \(audiobookID): \(underlyingDescription)
                 """
             }
@@ -94,8 +94,10 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
 
         /// Convert to the app-level Bookmark domain model.
         func toModel() throws -> Bookmark {
-            Bookmark(
-                id: UUID(uuidString: id) ?? UUID(),
+            let bookmarkUUID = try decodeBookmarkID()
+
+            return Bookmark(
+                id: bookmarkUUID,
                 title: title,
                 folderKey: audiobookID,
                 trackId: trackID,
@@ -111,6 +113,44 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
             )
         }
 
+        static func decodeModelsSkippingCorruptRows(
+            from records: [BookmarkRecord],
+            logger: Logger,
+            operation: String
+        ) -> [Bookmark] {
+            records.compactMap { record in
+                do {
+                    return try record.toModel()
+                } catch {
+                    logger.error(
+                        """
+                        Skipped corrupt bookmark row while \(operation, privacy: .public) \
+                        for bookmark \(record.id, privacy: .private) \
+                        audiobook \(record.audiobookID, privacy: .private): \
+                        \(String(describing: error), privacy: .private)
+                        """
+                    )
+                    return nil
+                }
+            }
+        }
+
+        private func decodeBookmarkID() throws -> UUID {
+            guard let bookmarkUUID = UUID(uuidString: id) else {
+                let failure = PersistedValueCodingFailure(
+                    field: "id",
+                    bookmarkID: id,
+                    audiobookID: audiobookID,
+                    operation: "decode",
+                    underlyingDescription: "Invalid UUID string"
+                )
+                Self.logPersistedValueCodingFailure(failure)
+                throw failure
+            }
+
+            return bookmarkUUID
+        }
+
         private func decodePDFViewState() throws -> PDFViewState? {
             guard let pdfViewStateJSON else { return nil }
 
@@ -118,14 +158,14 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
                 return try JSONDecoder().decode(
                     PDFViewState.self, from: Data(pdfViewStateJSON.utf8))
             } catch {
-                let failure = JSONCodingFailure(
-                    column: "pdf_view_state_json",
+                let failure = PersistedValueCodingFailure(
+                    field: "pdf_view_state_json",
                     bookmarkID: id,
                     audiobookID: audiobookID,
                     operation: "decode",
                     underlyingDescription: String(describing: error)
                 )
-                Self.logJSONCodingFailure(failure)
+                Self.logPersistedValueCodingFailure(failure)
                 throw failure
             }
         }
@@ -140,37 +180,37 @@ struct BookmarkRecord: Codable, FetchableRecord, MutablePersistableRecord {
             do {
                 let data = try JSONEncoder().encode(state)
                 guard let json = String(data: data, encoding: .utf8) else {
-                    let failure = JSONCodingFailure(
-                        column: "pdf_view_state_json",
+                    let failure = PersistedValueCodingFailure(
+                        field: "pdf_view_state_json",
                         bookmarkID: bookmarkID,
                         audiobookID: audiobookID,
                         operation: "encode",
                         underlyingDescription: "Encoded data was not valid UTF-8"
                     )
-                    logJSONCodingFailure(failure)
+                    logPersistedValueCodingFailure(failure)
                     throw failure
                 }
                 return json
             } catch {
-                if let failure = error as? JSONCodingFailure {
+                if let failure = error as? PersistedValueCodingFailure {
                     throw failure
                 }
-                let failure = JSONCodingFailure(
-                    column: "pdf_view_state_json",
+                let failure = PersistedValueCodingFailure(
+                    field: "pdf_view_state_json",
                     bookmarkID: bookmarkID,
                     audiobookID: audiobookID,
                     operation: "encode",
                     underlyingDescription: String(describing: error)
                 )
-                logJSONCodingFailure(failure)
+                logPersistedValueCodingFailure(failure)
                 throw failure
             }
         }
 
-        private static func logJSONCodingFailure(_ failure: JSONCodingFailure) {
+        private static func logPersistedValueCodingFailure(_ failure: PersistedValueCodingFailure) {
             logger.error(
                 """
-                Failed to \(failure.operation, privacy: .public) persisted bookmark JSON column \(failure.column, privacy: .public) \
+                Failed to \(failure.operation, privacy: .public) persisted bookmark field \(failure.field, privacy: .public) \
                 for bookmark \(failure.bookmarkID, privacy: .private) \
                 audiobook \(failure.audiobookID, privacy: .private): \
                 \(failure.underlyingDescription, privacy: .private)

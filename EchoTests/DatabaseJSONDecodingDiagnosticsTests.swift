@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import Testing
 
 @testable import Echo
@@ -50,8 +51,46 @@ import Testing
         }
 
         #expect(description.contains("pdf_view_state_json"))
-        #expect(description.contains("bookmark-1"))
+        #expect(description.contains("123E4567-E89B-12D3-A456-426614174001"))
         #expect(description.contains("book-1"))
+    }
+
+    @Test func invalidBookmarkIDThrowsWithRowContext() {
+        let record = makeBookmarkRecord(id: "not-a-uuid")
+
+        let description = thrownDescription {
+            _ = try record.toModel()
+        }
+
+        #expect(description.contains("id"))
+        #expect(description.contains("not-a-uuid"))
+        #expect(description.contains("book-1"))
+    }
+
+    @Test func studyNotesExportSkipsCorruptBookmarkRows() throws {
+        let database = try DatabaseService(inMemory: ())
+        try seedAudiobook(database.writer, id: "book-1")
+
+        try database.writer.write { db in
+            var validRecord = makeBookmarkRecord(
+                id: "123E4567-E89B-12D3-A456-426614174000",
+                title: "Valid bookmark"
+            )
+            try validRecord.insert(db)
+
+            var invalidRecord = makeBookmarkRecord(
+                id: "not-a-uuid",
+                title: "Corrupt bookmark"
+            )
+            try invalidRecord.insert(db)
+        }
+
+        let source = StudyNotesExportDatabaseSource(databaseWriter: database.writer)
+        let bookmarks = try source.bookmarks(for: "book-1")
+
+        #expect(bookmarks.count == 1)
+        #expect(bookmarks.first?.title == "Valid bookmark")
+        #expect(bookmarks.first?.id.uuidString == "123E4567-E89B-12D3-A456-426614174000")
     }
 
     private func thrownDescription(_ operation: () throws -> Void) -> String {
@@ -90,12 +129,16 @@ import Testing
         )
     }
 
-    private func makeBookmarkRecord(pdfViewStateJSON: String? = nil) -> BookmarkRecord {
+    private func makeBookmarkRecord(
+        id: String = "123E4567-E89B-12D3-A456-426614174001",
+        title: String = "Bookmark",
+        pdfViewStateJSON: String? = nil
+    ) -> BookmarkRecord {
         BookmarkRecord(
-            id: "bookmark-1",
+            id: id,
             audiobookID: "book-1",
             trackID: nil,
-            title: "Bookmark",
+            title: title,
             mediaTimestamp: 12,
             note: nil,
             voiceMemoPath: nil,
@@ -109,5 +152,19 @@ import Testing
             createdAt: "2026-06-26T00:00:00Z",
             modifiedAt: "2026-06-26T00:00:00Z"
         )
+    }
+
+    private func seedAudiobook(_ writer: DatabaseWriter, id: String) throws {
+        try writer.write { db in
+            var audiobook = AudiobookRecord(
+                id: id,
+                title: "Test Book",
+                author: "Test Author",
+                duration: 0,
+                fileCount: nil,
+                addedAt: "2026-06-26T00:00:00Z"
+            )
+            try audiobook.insert(db)
+        }
     }
 }

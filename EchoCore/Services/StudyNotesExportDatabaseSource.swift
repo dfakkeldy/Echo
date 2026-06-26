@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import os.log
 
 struct StudyNotesExportDatabaseSource {
     let databaseWriter: DatabaseWriter
+    private let logger = Logger(category: "StudyNotesExportDatabaseSource")
 
     func books() throws -> [StudyNotesExportService.Book] {
         try AudiobookDAO(db: databaseWriter)
@@ -18,9 +20,12 @@ struct StudyNotesExportDatabaseSource {
     }
 
     func bookmarks(for audiobookID: String) throws -> [Bookmark] {
-        try BookmarkDAO(db: databaseWriter)
-            .bookmarks(for: audiobookID)
-            .map { try $0.toModel() }
+        let records = try BookmarkDAO(db: databaseWriter).bookmarks(for: audiobookID)
+        return BookmarkRecord.decodeModelsSkippingCorruptRows(
+            from: records,
+            logger: logger,
+            operation: "exporting study notes bookmarks"
+        )
     }
 
     func notes(for audiobookID: String) throws -> [StudyNotesExportService.Note] {

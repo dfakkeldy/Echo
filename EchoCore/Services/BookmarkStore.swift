@@ -336,7 +336,11 @@ final class BookmarkStore {
         let dao = BookmarkDAO(db: database.writer)
         do {
             let records = try dao.bookmarks(for: audiobookID)
-            self.bookmarks = try records.map { try $0.toModel() }
+            self.bookmarks = BookmarkRecord.decodeModelsSkippingCorruptRows(
+                from: records,
+                logger: logger,
+                operation: "loading bookmarks from SQL"
+            )
         } catch {
             logger.error("Failed to load bookmarks from SQL: \(error.localizedDescription)")
         }
