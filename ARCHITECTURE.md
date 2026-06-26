@@ -511,6 +511,20 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 
 > **Update (2026-06-21 — read-along + player-chrome UX fixes).** **Read-along:** the karaoke retint (`ReaderFeedCollectionView`) now clears the previously-highlighted card when the active word crosses a paragraph boundary (pure `KaraokeHighlightTransition`; block changes bypass the 12 Hz throttle), and the highlight is **color/background only — no font-weight swap** — on iOS (`ParagraphCardCell`/`HeadingCardCell`) and macOS (`MacReaderFeedView`), so glyph metrics stay stable. Tapping a paragraph card seeks to it **and** starts playing via the canonical `PlayerModel.seek(toSeconds:)` + `play()` (pure `CardTapDecision`; iOS + macOS), with a no-time fallback; TOC navigation stays seek-only. **Player chrome:** the sleep-timer icon and every bottom-toolbar chip use the cover-derived accent (`PlayerModel.artworkAccentColor ?? .accentColor`); the active state is carried by the filled-chip shape, not color.
 
+**Synthesis-time word timing (Kokoro):** For Echo-narrated books, per-word
+read-along timing is captured at synthesis instead of being interpolated. A
+28 MB ONNX "duration head" — the encoder + duration-predictor subgraph extracted
+offline from `model_fp16.onnx` (see `Tools/extract_kokoro_duration_head.py`) and
+bundled as `kokoro_dur_head.onnx` — runs alongside the waveform model in
+`OnnxKokoroEngine` with identical inputs. `KokoroWordTimer` splits the phoneme
+token stream on the space token (id 16), sums per-token frame durations per word,
+and normalizes to the true sample count. `NarrationService` accumulates these
+across chunks and `WordTimingMaterializer.refineWithSynthesis` overrides the
+interpolated `word_timing` rows (`source:"synthesis"`, confidence 0.9). Any
+failure (head absent, run error, word-count mismatch) leaves the interpolated
+baseline in place. Imported audiobooks are unaffected — they keep the
+WhisperKit + `TokenDTW` path.
+
 **Data model (reuses existing tables):** A standalone EPUB is an `AudiobookRecord` with `epub_block` rows and **no tracks** (the natural empty state). Generating narration renders **one lossless ALAC `.m4a` file per chapter** (each block split into bounded sub-chunks before synthesis — default 350 chars, under Kokoro's ~510-phoneme context — then concatenated; see the upstream-chunking note above), inserted as a `TrackRecord` (`sort_order = chapterIndex`) carrying the voice in the new `narration_voice` column (**Schema V17**; non-null marks a synthesized track). `TrackRecord.title` comes from `NarrationChapterPlanner`: `ch. N: Heading` when the EPUB exposes a useful heading/title, otherwise the existing `Chapter N` fallback; cache-hit paths update old generic title rows without re-rendering audio. Each text block gets one `AlignmentAnchorRecord` with the new **`source = .synthesized`** written at synthesis time — so read-along highlighting and the study layer work for free, and re-alignment never confuses generated anchors for recovered ones.
 
 **Key types (engine core):**
