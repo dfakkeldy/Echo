@@ -265,14 +265,16 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Review: `EchoCore/Services/WordTimingMaterializer.swift` or related pure helpers
 - Add/modify tests under `EchoTests`
 
-- [ ] Identify pure value types used by DTW/tokenization and mark them `nonisolated` where appropriate.
-- [ ] Make DTOs crossing isolation boundaries conform to `Sendable`.
-- [ ] Extract per-chapter tokenization and DTW into a background worker boundary.
-- [ ] Keep UI progress updates, model state, and DB commits on MainActor.
-- [ ] Add cancellation checks around long-running per-chapter work.
-- [ ] Add signposts or a long-chapter performance test to confirm MainActor remains responsive.
+- [x] Identify pure value types used by DTW/tokenization and mark them `nonisolated` where appropriate.
+- [x] Make DTOs crossing isolation boundaries conform to `Sendable`.
+- [x] Extract per-chapter tokenization and DTW into a background worker boundary.
+- [x] Keep UI progress updates, model state, and DB commits on MainActor.
+- [x] Add cancellation checks around long-running per-chapter work.
+- [x] Add signposts or a long-chapter performance test to confirm MainActor remains responsive.
 
 **Acceptance criteria:** long auto-alignment work no longer runs under MainActor isolation, and strict concurrency remains clean.
+
+**Verification:** focused iOS `build-for-testing` passed for `EchoTests/AutoAlignmentWorkerTests`, `EchoTests/TokenDTWTests`, and `EchoTests/TokenDTWWordMatchTests` with `CODE_SIGNING_ALLOWED=NO`, including the cancellation-aware DTW leaf test; macOS app build passed for `Echo macOS` with `CODE_SIGNING_ALLOWED=NO`. Runtime simulator tests remain blocked by the environment CoreSimulator mismatch (`1051.54.0` installed, Xcode requires `1051.55.0`). SwiftLint is not installed in this shell.
 
 ### Task 3.2: Tie PDF loading to SwiftUI task lifetime
 

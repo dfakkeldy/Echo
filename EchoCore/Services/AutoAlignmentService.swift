@@ -435,32 +435,38 @@ final class AutoAlignmentService {
                 continue
             }
 
-            // 2. Token streams — every audio token carries its word's real
-            //    timestamp, so pauses and rate changes cost nothing.
-            let audioTokens = words.flatMap { word in
-                TokenDTW.normalize(word.text).map {
-                    TokenDTW.AudioToken(text: $0, time: word.start)
-                }
-            }
-            var epubTokens: [TokenDTW.EPubToken] = []
-            for block in alignmentBlocks {
-                guard let text = block.text, !block.isHidden else { continue }
-                epubTokens += TokenDTW.normalize(text).map {
-                    TokenDTW.EPubToken(text: $0, blockID: block.id)
-                }
-            }
-            guard !audioTokens.isEmpty, !epubTokens.isEmpty else {
-                state.log("ch\(idx): skip — no tokens")
-                continue
-            }
-
-            // 3. Align, then gate to strong, monotonic, in-window anchors.
+            // 2. Align, then gate to strong, monotonic, in-window anchors.
+            // Tokenization, DTW, word-match emission, and pure gates run on a
+            // nonisolated @concurrent worker so the service's MainActor stays
+            // focused on progress, model lifetime, DAOs, and DB writes.
             state.update(
                 phase: .computingAlignment,
                 progress: baseProgress + 0.99 * progressSlice,
                 statusMessage: "Aligning chapter \(idx + 1)…")
 
-            let candidates = TokenDTW.alignWithBisection(epub: epubTokens, audio: audioTokens)
+            let windowStart = chapter.startSeconds - Config.chapterWindowSlack
+            let windowEnd = chapter.endSeconds + Config.chapterWindowSlack
+            let workerOutput = try await AutoAlignmentWorker.alignChapter(
+                AutoAlignmentWorker.Input(
+                    words: words,
+                    alignmentBlocks: alignmentBlocks.map {
+                        AutoAlignmentWorker.AlignmentBlock(
+                            id: $0.id,
+                            text: $0.text,
+                            isHidden: $0.isHidden
+                        )
+                    },
+                    anchoredBlockIDs: anchoredBlockIDs,
+                    windowStart: windowStart,
+                    windowEnd: windowEnd,
+                    lastGlobalAnchorTime: lastGlobalAnchorTime,
+                    minAnchorRunLength: Config.minAnchorRunLength
+                )
+            )
+            guard workerOutput.audioTokenCount > 0, workerOutput.epubTokenCount > 0 else {
+                state.log("ch\(idx): skip — no tokens")
+                continue
+            }
 
             // Per-word DTW matches for read-along refinement (A4). Use the
             // bisection-aware path so a long chapter never allocates the full
@@ -468,9 +474,7 @@ final class AutoAlignmentService {
             // respects the same memory budget as the candidate alignment above.
             // Accumulate by block; when a block surfaces in two chapters' passes
             // (boundary slack), keep the set whose strongest run is longer.
-            let chapterWordMatches = TokenDTW.wordMatchesWithBisection(
-                epub: epubTokens, audio: audioTokens)
-            for (blockID, matches) in Dictionary(grouping: chapterWordMatches, by: \.blockID) {
+            for (blockID, matches) in workerOutput.wordMatchesByBlock {
                 let incomingMax = matches.map(\.runLength).max() ?? 0
                 let existingMax = dtwMatchesByBlock[blockID]?.map(\.runLength).max() ?? -1
                 if incomingMax > existingMax {
@@ -478,20 +482,12 @@ final class AutoAlignmentService {
                 }
             }
 
-            let windowStart = chapter.startSeconds - Config.chapterWindowSlack
-            let windowEnd = chapter.endSeconds + Config.chapterWindowSlack
-            let eligible = candidates.filter { candidate in
-                !anchoredBlockIDs.contains(candidate.blockID)
-                    && candidate.time >= windowStart
-                    && candidate.time <= windowEnd
-                    && candidate.time + 0.25 >= lastGlobalAnchorTime
-            }
-            let selected = AnchorSelector.select(
-                candidates: eligible, minRunLength: Config.minAnchorRunLength
-            )
-            state.log(
-                "ch\(idx): \(words.count) words → \(candidates.count) candidates → \(selected.count) anchors (gate: run ≥ \(Config.minAnchorRunLength))"
-            )
+            let selected = workerOutput.selectedCandidates
+            let alignmentSummary =
+                "ch\(idx): \(workerOutput.wordCount) words → "
+                + "\(workerOutput.candidateCount) candidates → \(selected.count) anchors "
+                + "(gate: run ≥ \(Config.minAnchorRunLength))"
+            state.log(alignmentSummary)
 
             guard !selected.isEmpty else { continue }
 
