@@ -102,10 +102,13 @@ final class NarrationService {
     func renderChapter(
         chapterIndex: Int, chapterNumber: Int? = nil,
         blocks: [EPubBlockRecord], voice: VoiceID,
+        chapterTitle: String? = nil,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
             nil
     ) async throws {
         let displayNumber = chapterNumber ?? (chapterIndex + 1)
+        let savedTitle = Self.savedTitle(
+            displayNumber: displayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let chapterStart = Date()
         let fileURL = cacheDirectory.appendingPathComponent(
             NarrationFileNaming.chapterFileName(
@@ -123,7 +126,7 @@ final class NarrationService {
         try await persistRenderedNarration(
             rendered,
             trackID: "syn-\(audiobookID)-ch\(chapterIndex)",
-            title: "Chapter \(displayNumber)",
+            title: savedTitle,
             sortOrder: chapterIndex,
             voice: voice)
 
@@ -143,9 +146,12 @@ final class NarrationService {
         segmentIndex: Int,
         blocks: [EPubBlockRecord],
         voice: VoiceID,
+        chapterTitle: String? = nil,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
             nil
     ) async throws {
+        let savedTitle = Self.savedTitle(
+            displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let rendered = try await renderSegmentFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: chapterDisplayNumber,
@@ -157,12 +163,35 @@ final class NarrationService {
         try await persistRenderedNarration(
             rendered,
             trackID: "syn-\(audiobookID)-ch\(chapterIndex)-s\(segmentIndex)",
-            title: "Chapter \(chapterDisplayNumber)",
+            title: savedTitle,
             sortOrder: chapterIndex * 1000 + segmentIndex,
             voice: voice,
             segmentKey: ReaderActiveBlockResolver.segmentKey(
                 forChapter: chapterIndex,
                 segment: segmentIndex))
+    }
+
+    func updateCachedNarrationTitle(
+        chapterIndex: Int,
+        chapterDisplayNumber: Int,
+        segmentIndex: Int? = nil,
+        blocks: [EPubBlockRecord],
+        chapterTitle: String? = nil
+    ) async throws {
+        let savedTitle = Self.savedTitle(
+            displayNumber: chapterDisplayNumber, blocks: blocks, chapterTitle: chapterTitle)
+        let trackID: String
+        if let segmentIndex {
+            trackID = "syn-\(audiobookID)-ch\(chapterIndex)-s\(segmentIndex)"
+        } else {
+            trackID = "syn-\(audiobookID)-ch\(chapterIndex)"
+        }
+
+        try await db.write { db in
+            try db.execute(
+                sql: "UPDATE track SET title = ? WHERE id = ? AND audiobook_id = ?",
+                arguments: [savedTitle, trackID, audiobookID])
+        }
     }
 
     /// Render one complete segment file without mutating playback, alignment, or
@@ -281,6 +310,18 @@ final class NarrationService {
             object: nil,
             userInfo: ["audiobookID": audiobookID]
         )
+    }
+
+    private static func savedTitle(
+        displayNumber: Int,
+        blocks: [EPubBlockRecord],
+        chapterTitle: String?
+    ) -> String {
+        let title = chapterTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let title, !title.isEmpty else {
+            return NarrationChapterPlanner.title(displayNumber: displayNumber, blocks: blocks)
+        }
+        return title
     }
 
     private func renderNarrationFile(
