@@ -126,4 +126,16 @@ jobs:
             -scheme "Echo macOS" \
             -destination "platform=macOS" \
             CODE_SIGNING_ALLOWED=NO \
+            -jobs 5 \
+            -quiet
+
+      - name: Build — echo-cli
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Echo.xcodeproj \
+            -scheme echo-cli \
+            -destination "platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            -jobs 5 \
             -quiet

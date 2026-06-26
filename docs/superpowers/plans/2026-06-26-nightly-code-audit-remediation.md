@@ -30,7 +30,7 @@
 **Files:** none expected unless Makefile destinations need updating after environment repair.
 
 - [ ] Install or repair the Xcode/macOS simulator components so CoreSimulator matches Xcode 26.6 (`1051.55.0` or newer).
-- [ ] Install the Metal Toolchain locally with `xcodebuild -downloadComponent MetalToolchain`, or document that local Metal compilation is intentionally CI-only.
+- [x] Install the Metal Toolchain locally with `xcodebuild -downloadComponent MetalToolchain`, or document that local Metal compilation is intentionally CI-only.
 - [ ] Verify a valid iOS simulator destination exists for the Makefile's configured `IOS_DESTINATION`.
 - [ ] Run `make build-tests`.
 - [ ] Run `make test`.
@@ -168,9 +168,9 @@ xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
 - Modify: `Echo.xcodeproj/project.pbxproj`
 - Consider: `.github/workflows/ci.yml`
 
-- [ ] Replace the `MacOSX15.0.sdk` hardcoded framework path with an SDKROOT-relative Cocoa framework reference, or remove the link if unused.
-- [ ] Build the `echo-cli` scheme locally.
-- [ ] If `echo-cli` is supported, add it to CI as a serial build job.
+- [x] Replace the `MacOSX15.0.sdk` hardcoded framework path with an SDKROOT-relative Cocoa framework reference, or remove the link if unused.
+- [x] Build the `echo-cli` scheme locally.
+- [x] If `echo-cli` is supported, add it to CI as a serial build job.
 
 **Verification:**
 

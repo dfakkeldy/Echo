@@ -136,7 +136,7 @@
 		486ED82EADFDDE51ED2283A1 /* us_gold.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_gold.json; path = EchoCore/Services/Narration/MisakiResources/us_gold.json; sourceTree = SOURCE_ROOT; };
 		739F167A96954DC602A63519 /* _kokoro_vocab.json */ = {isa = PBXFileReference; includeInIndex = 1; name = _kokoro_vocab.json; path = EchoCore/Services/Narration/_kokoro_vocab.json; sourceTree = SOURCE_ROOT; };
 		B17D0C0FE17AC0DE0F0FE002 /* kokoro_dur_head.onnx */ = {isa = PBXFileReference; includeInIndex = 1; name = kokoro_dur_head.onnx; path = EchoCore/Services/Narration/kokoro_dur_head.onnx; sourceTree = SOURCE_ROOT; };
-		756754EC2DEBE3CB3DA81491 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		756754EC2DEBE3CB3DA81491 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		841D8CAEB031B6361813E665 /* af_heart.f32 */ = {isa = PBXFileReference; includeInIndex = 1; name = af_heart.f32; path = EchoCore/Resources/af_heart.f32; sourceTree = SOURCE_ROOT; };
 		A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */ = {isa = PBXFileReference; includeInIndex = 1; name = us_silver.json; path = EchoCore/Services/Narration/MisakiResources/us_silver.json; sourceTree = SOURCE_ROOT; };
 		AA0100000000000000000001 /* Echo macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
