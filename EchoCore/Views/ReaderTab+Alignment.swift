@@ -23,11 +23,20 @@ extension ReaderTab {
             haptic.impactOccurred()
 
             // Visual pulse on the aligned card
+            pulseResetTask?.cancel()
             pulseBlockID = blockID
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            pulseResetTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: .milliseconds(600))
+                } catch {
+                    return
+                }
+
+                guard !Task.isCancelled else { return }
                 if pulseBlockID == blockID {
                     pulseBlockID = nil
                 }
+                pulseResetTask = nil
             }
 
             // Phase 3: Auto-transcription for Manual Alignments (Fine-Tuning)

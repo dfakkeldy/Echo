@@ -114,6 +114,23 @@ import Testing
                 "The macOS privacy manifest must not be excluded from target membership."
             )
         }
+
+        let sharedCoreExceptionStart = try #require(
+            project.range(
+                of: "718DD03F18BB433E7AD362E2 /* Exceptions for \"EchoCore\" folder in \"Echo macOS\" target */ = {"
+            ),
+            "The macOS app target should define EchoCore membership exceptions."
+        )
+        let sharedCoreExceptionSuffix = project[sharedCoreExceptionStart.lowerBound...]
+        let sharedCoreExceptionEnd = try #require(
+            sharedCoreExceptionSuffix.range(of: "target = AA0100000000000000000020 /* Echo macOS */;"),
+            "The EchoCore exception set should belong to the macOS app target."
+        )
+        let sharedCoreExceptionBlock = sharedCoreExceptionSuffix[..<sharedCoreExceptionEnd.upperBound]
+        #expect(
+            sharedCoreExceptionBlock.contains("PrivacyInfo.xcprivacy"),
+            "The macOS app target must not also copy the shared EchoCore privacy manifest."
+        )
     }
 
     private static let manifestPaths = [

@@ -21,6 +21,7 @@ struct ReaderTab: View {
     @State private var topSectionTitle: String? = nil
     @State private var topChapterThemeColor: String? = nil
     @State var pulseBlockID: String? = nil
+    @State var pulseResetTask: Task<Void, Never>?
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
 
@@ -627,6 +628,9 @@ struct ReaderTab: View {
     }
 
     private func tearDownReader() {
+        pulseResetTask?.cancel()
+        pulseResetTask = nil
+        pulseBlockID = nil
         viewModel?.autoAlignmentTask?.cancel()
         clearReaderCaptureActions()
     }

@@ -34,7 +34,7 @@
 - [ ] Verify a valid iOS simulator destination exists for the Makefile's configured `IOS_DESTINATION`.
 - [ ] Run `make build-tests`.
 - [ ] Run `make test`.
-- [ ] Run generic iOS build:
+- [x] Run generic iOS build:
 
 ```bash
 xcodebuild build \
@@ -295,9 +295,9 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Services/DefaultChimePlayer.swift`
 - Modify: `EchoCore/Views/ReaderTab+Alignment.swift`
 
-- [ ] Replace `Task.sleep(nanoseconds:)` with `Task.sleep(for:)`.
-- [ ] Replace `DispatchQueue.main.asyncAfter` pulse reset with an owned cancellable `Task`.
-- [ ] Ensure view/model lifetime cancels delayed work where appropriate.
+- [x] Replace `Task.sleep(nanoseconds:)` with `Task.sleep(for:)`.
+- [x] Replace `DispatchQueue.main.asyncAfter` pulse reset with an owned cancellable `Task`.
+- [x] Ensure view/model lifetime cancels delayed work where appropriate.
 
 **Acceptance criteria:** no production `Task.sleep(nanoseconds:)` remains, and manual alignment pulse reset is structured/cancellable.
 

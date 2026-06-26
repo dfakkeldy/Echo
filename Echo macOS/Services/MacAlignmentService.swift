@@ -70,7 +70,7 @@ final class MacAlignmentService {
                     TokenDTW.AudioToken(
                         text: token.word, time: chunkStartTime + token.start))
             }
-            try await Task.sleep(nanoseconds: 10_000_000)
+            try await Task.sleep(for: .milliseconds(10))
         }
 
         guard !audioTokens.isEmpty else { throw AlignmentError.noAudioTokens }
