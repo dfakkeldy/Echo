@@ -41,7 +41,7 @@ import Testing
         let allBlocks = try EPubBlockDAO(db: db.writer).blocks(for: id)
         #expect(Set(allBlocks.compactMap(\.chapterIndex)) == [0, 1])
         // Inline bold survived into stored textFormats.
-        #expect(allBlocks.contains { (try? $0.decodeFormats().contains { $0.type == .bold }) == true })
+        #expect(try allBlocks.contains { try $0.decodeFormats().contains { $0.type == .bold } })
     }
 
     @Test func plainTextNoMarkersImportsSingleChapter() async throws {
