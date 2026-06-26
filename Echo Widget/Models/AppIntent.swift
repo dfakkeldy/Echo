@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import WidgetKit
 import AppIntents
+import WidgetKit
 
 struct TogglePlaybackIntent: AppIntent {
-    static var title: LocalizedStringResource = "Toggle Playback"
-    static var openAppWhenRun: Bool = true
+    static let title: LocalizedStringResource = "Toggle Playback"
+    static let openAppWhenRun: Bool = true
 
     // Runs on the main actor: `AppGroupDefaults.shared` (a non-Sendable
     // `UserDefaults`) is main-actor-isolated under the project's default
@@ -24,9 +24,10 @@ struct TogglePlaybackIntent: AppIntent {
 }
 
 struct CreateBookmarkIntent: AppIntent {
-    static var title: LocalizedStringResource = "Create Bookmark"
-    static var description = IntentDescription("Creates a new bookmark for the current audiobook position.")
-    
+    static let title: LocalizedStringResource = "Create Bookmark"
+    static let description = IntentDescription(
+        "Creates a new bookmark for the current audiobook position.")
+
     @Parameter(title: "Note")
     var note: String?
 
@@ -38,9 +39,12 @@ struct CreateBookmarkIntent: AppIntent {
         let defaults = AppGroupDefaults.shared
 
         guard let folderKey = defaults.string(forKey: "folderKey"),
-              let trackId = defaults.string(forKey: "trackId"),
-              let currentTime = defaults.object(forKey: "currentTime") as? TimeInterval else {
-            throw NSError(domain: "CreateBookmarkIntent", code: 1, userInfo: [NSLocalizedDescriptionKey: "No active audiobook found."])
+            let trackId = defaults.string(forKey: "trackId"),
+            let currentTime = defaults.object(forKey: "currentTime") as? TimeInterval
+        else {
+            throw NSError(
+                domain: "CreateBookmarkIntent", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No active audiobook found."])
         }
 
         let newBookmark = Bookmark(
@@ -53,9 +57,11 @@ struct CreateBookmarkIntent: AppIntent {
         )
 
         let bookmarksKey = "bookmarks_\(folderKey)"
-        var bookmarks = (try? JSONDecoder().decode([Bookmark].self, from: defaults.data(forKey: bookmarksKey) ?? Data())) ?? []
+        var bookmarks =
+            (try? JSONDecoder().decode(
+                [Bookmark].self, from: defaults.data(forKey: bookmarksKey) ?? Data())) ?? []
         bookmarks.append(newBookmark)
-        
+
         if let data = try? JSONEncoder().encode(bookmarks) {
             defaults.set(data, forKey: bookmarksKey)
         }
