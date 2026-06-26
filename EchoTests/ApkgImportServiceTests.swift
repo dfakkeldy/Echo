@@ -599,4 +599,37 @@ struct ApkgImportServiceTests {
         #expect(result.anchoredCount == 0)
         #expect(result.warnings.contains(.apkgSidecarMissingTargetMediaID))
     }
+
+    @Test
+    func importVNextSubsetSidecarDoesNotWarnForUnlistedCards() async throws {
+        let writer = try makeTestDB()
+        try await seedBookWithBlocks(writer, targetID: "book-a", blockIDs: ["epub-book-a-s0-b1"])
+        let apkgURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("subset_sidecar_\(UUID().uuidString).apkg")
+        defer { try? FileManager.default.removeItem(at: apkgURL) }
+        // Sidecar annotates only a DIFFERENT card (cardID 999...) than the fixture's card,
+        // so the imported card is "unlisted". Under subset-annotation semantics that is the
+        // normal case and must NOT produce a warning.
+        try await createFixtureApkg(
+            destURL: apkgURL,
+            sidecarJSON: """
+                {
+                  "formatVersion": 1,
+                  "targetMediaID": "book-a",
+                  "cards": [
+                    { "cardID": 999999999999, "sourceAnchor": "s0-b1" }
+                  ]
+                }
+                """
+        )
+
+        let result = try await ApkgImportService().importVNext(from: apkgURL, into: writer)
+
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 0)
+        #expect(result.warningCount == 0)
+
+        let cards = try await writer.read { db in try Flashcard.fetchAll(db) }
+        #expect(cards.first?.sourceBlockID == nil)
+    }
 }
