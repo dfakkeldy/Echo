@@ -280,7 +280,7 @@ enum EPUBAutoImportScanner {
         // first can make simulator writes fail with EPERM, while device files
         // still need explicit protection once ZIPFoundation has created them.
         #if os(iOS) && !targetEnvironment(simulator)
-        try applyDataProtectionRecursively(to: destDir)
+            try applyDataProtectionRecursively(to: destDir)
         #endif
 
         logger.debug("Extracted EPUB to \(sanitizedPath(destDir.path))")

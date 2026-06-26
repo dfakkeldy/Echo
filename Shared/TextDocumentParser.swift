@@ -293,9 +293,31 @@ func parsePlainText(audiobookID: String, content: String, sourceURL: URL) -> EPU
         units: units, audiobookID: audiobookID, sourceURL: sourceURL, hrefExt: "txt")
 }
 
+/// Parses extracted PDF page text into one synthetic chapter per page. This is
+/// used only when the plain-text pass cannot find useful chapter markers, so
+/// large PDFs do not become one enormous narration batch.
+func parsePDFPagesAsPlainTextChapters(
+    audiobookID: String,
+    pages: [String],
+    sourceURL: URL
+) -> EPUBBlockParse {
+    var units: [TextUnit] = []
+    for (index, page) in pages.enumerated() {
+        let trimmed = page.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { continue }
+        units.append(.heading(level: 1, text: "Page \(index + 1)"))
+        units.append(contentsOf: tokenizePlainText(trimmed, recognizesChapterMarkers: false))
+    }
+    return buildParse(
+        units: units, audiobookID: audiobookID, sourceURL: sourceURL, hrefExt: "txt")
+}
+
 /// Plain text has no markup: split paragraphs on blank lines, and promote
 /// chapter-like lines to level-1 headings (one heading level → flat chapters).
-private func tokenizePlainText(_ content: String) -> [TextUnit] {
+private func tokenizePlainText(
+    _ content: String,
+    recognizesChapterMarkers: Bool = true
+) -> [TextUnit] {
     var units: [TextUnit] = []
     var paragraphLines: [String] = []
 
@@ -312,7 +334,7 @@ private func tokenizePlainText(_ content: String) -> [TextUnit] {
             flush()
             continue
         }
-        if isChapterMarker(trimmed) {
+        if recognizesChapterMarkers, isChapterMarker(trimmed) {
             flush()
             units.append(.heading(level: 1, text: trimmed))
             continue

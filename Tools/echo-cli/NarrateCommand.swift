@@ -6,9 +6,10 @@ import Foundation
 struct NarrateCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "narrate",
-        abstract: "Narrate an EPUB into a chaptered .m4b + alignment sidecar.")
+        abstract: "Narrate an EPUB or PDF into a chaptered .m4b + alignment sidecar.")
 
-    @Option(help: "EPUB directory or .epub file.") var epub: String
+    @Option(help: "EPUB/PDF source file or directory; EPUB folder/entry wins when both are present.")
+    var epub: String
     @Option(help: "Output .m4b path.") var out: String
     @Option(help: "Sidecar .alignment.json path (optional).") var sidecar: String?
     @Option(help: "Kokoro voice id.") var voice: String = "af_heart"
@@ -62,7 +63,7 @@ struct NarrateCommand: AsyncParsableCommand {
                 "DONE \(result.outM4BURL.path) — \(result.chapters) chapters, "
                     + "\(Int(result.durationSeconds))s")
         } else {
-            print("PARTIAL — \(result.capturedThisRun) captured this run; re-run to continue")
+            print("PARTIAL - \(result.capturedThisRun) captured this run out of \(result.chapters) total chapters; re-run to continue")
             throw ExitCode(2)
         }
     }
