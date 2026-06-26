@@ -1,6 +1,4 @@
 # ── Echo: Audiobook Study Player Fastlane Configuration ────────────────────────
-# TODO(Echo rebrand): Update all bundle IDs from com.orbit.* to com.echo.*
-#                      Requires coordinated App Store Connect migration (Phase 8).
 
 default_platform(:ios)
 

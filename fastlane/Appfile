@@ -1,8 +1,7 @@
 app_identifier("com.echo.audiobooks") # Your main bundle ID
-# TODO(Echo rebrand): Update bundle IDs to com.echo.audiobooks when Phase 8 rebrand ships
 
-apple_id("") # Set via FASTLANE_USER env var or fill in your Apple ID
-# TODO: Remove apple_id from version control — use FASTLANE_USER env var instead
+# Apple ID is intentionally not stored in version control. Set FASTLANE_USER
+# locally or in CI for lanes that need account authentication.
 
 team_id("8AXNA5B37R") # Put your real Team ID here
 
@@ -13,5 +12,4 @@ for_lane :beta do
     "com.echo.audiobooks.watchkitapp",
     "com.echo.audiobooks.watchkitapp.widget"
   ])
-  # TODO(Echo rebrand): Update to com.echo.audiobooks equivalents
 end

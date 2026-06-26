@@ -550,9 +550,9 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `fastlane/Appfile`
 - Review: `fastlane/metadata/*`
 
-- [ ] Remove stale `com.orbit.*` TODOs if all bundle IDs are already `com.echo.*`.
-- [ ] Remove or document empty `apple_id("")` in version-controlled Fastlane config.
-- [ ] Confirm no secret values are introduced.
+- [x] Remove stale `com.orbit.*` TODOs if all bundle IDs are already `com.echo.*`.
+- [x] Remove or document empty `apple_id("")` in version-controlled Fastlane config.
+- [x] Confirm no secret values are introduced.
 
 **Acceptance criteria:** release automation comments/config no longer imply unfinished rebrand or secret-management work that is already resolved.
 
