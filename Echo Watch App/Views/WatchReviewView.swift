@@ -6,6 +6,7 @@ import SwiftUI
 /// without touching the screen.
 struct WatchReviewView: View {
     @Bindable var viewModel: WatchViewModel
+    let isPrimaryActionEnabled: Bool
 
     @State private var currentIndex = 0
     @State private var isRevealed = false
@@ -29,29 +30,27 @@ struct WatchReviewView: View {
                         if isRevealed {
                             HStack(spacing: 8) {
                                 gradeButton("Again", grade: 0, color: .red)
-                                Button {
+                                WatchReviewPrimaryActionButton(
+                                    title: "Good",
+                                    systemImage: "hand.thumbsup.fill",
+                                    isPrimaryActionEnabled: isPrimaryActionEnabled
+                                ) {
                                     gradeAndAdvance(grade: 3)
-                                } label: {
-                                    Label("Good", systemImage: "hand.thumbsup.fill")
-                                        .font(.caption)
-                                        .frame(maxWidth: .infinity)
                                 }
-                                .handGestureShortcut(.primaryAction)
                                 gradeButton("Easy", grade: 5, color: .blue)
                             }
                             .padding(.horizontal)
                         } else {
-                            Button {
+                            WatchReviewPrimaryActionButton(
+                                title: "Reveal",
+                                systemImage: "eye",
+                                isPrimaryActionEnabled: isPrimaryActionEnabled
+                            ) {
                                 viewModel.playReviewRevealHaptic()
                                 withAnimation {
                                     isRevealed = true
                                 }
-                            } label: {
-                                Label("Reveal", systemImage: "eye")
-                                    .font(.caption)
-                                    .frame(maxWidth: .infinity)
                             }
-                            .handGestureShortcut(.primaryAction)
                             .padding(.horizontal)
                         }
                     }
@@ -92,5 +91,21 @@ struct WatchReviewView: View {
                 .frame(maxWidth: .infinity)
         }
         .tint(color)
+    }
+}
+
+private struct WatchReviewPrimaryActionButton: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    let isPrimaryActionEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption)
+                .frame(maxWidth: .infinity)
+        }
+        .handGestureShortcut(.primaryAction, isEnabled: isPrimaryActionEnabled)
     }
 }

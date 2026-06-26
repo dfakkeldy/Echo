@@ -382,9 +382,9 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 **Files:**
 - Modify: `Echo Watch App/Views/PlayerPage.swift`
 
-- [ ] Replace the hidden blank `Button("")` primary-action bridge with a visible/tappable primary action where possible.
-- [ ] If a hidden bridge is unavoidable, give it a proper accessibility label or hide it from accessibility while preserving Double Tap behavior.
-- [ ] Ensure there is only one `handGestureShortcut(.primaryAction)` per watch surface.
+- [x] Replace the hidden blank `Button("")` primary-action bridge with a visible/tappable primary action where possible.
+- [x] If a hidden bridge is unavoidable, give it a proper accessibility label or hide it from accessibility while preserving Double Tap behavior.
+- [x] Ensure there is only one `handGestureShortcut(.primaryAction)` per watch surface.
 
 **Acceptance criteria:** Double Tap remains an accelerator, not the only path, and VoiceOver does not encounter a blank hidden button.
 

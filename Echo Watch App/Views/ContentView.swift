@@ -29,6 +29,7 @@ struct ContentView: View {
                 PlayerPage(
                     slots: viewModel.page1Slots,
                     viewModel: viewModel,
+                    isPrimaryActionEnabled: selectedPage == 0,
                     layout: artworkLayout,
                     onBookmark: { isShowingNewBookmark = true },
                     onSleepTimer: { isShowingSleepTimer = true },
@@ -46,6 +47,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page2Slots,
                         viewModel: viewModel,
+                        isPrimaryActionEnabled: selectedPage == 1,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -65,6 +67,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page3Slots,
                         viewModel: viewModel,
+                        isPrimaryActionEnabled: selectedPage == 2,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -84,6 +87,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page4Slots,
                         viewModel: viewModel,
+                        isPrimaryActionEnabled: selectedPage == 3,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -103,6 +107,7 @@ struct ContentView: View {
                     PlayerPage(
                         slots: viewModel.page5Slots,
                         viewModel: viewModel,
+                        isPrimaryActionEnabled: selectedPage == 4,
                         layout: artworkLayout,
                         onBookmark: { isShowingNewBookmark = true },
                         onSleepTimer: { isShowingSleepTimer = true },
@@ -119,7 +124,10 @@ struct ContentView: View {
                 }
 
                 if !viewModel.dueCards.isEmpty {
-                    WatchReviewView(viewModel: viewModel)
+                    WatchReviewView(
+                        viewModel: viewModel,
+                        isPrimaryActionEnabled: selectedPage == 5
+                    )
                         .tag(5)
                 }
             }
