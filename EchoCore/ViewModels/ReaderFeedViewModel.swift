@@ -136,6 +136,8 @@ final class ReaderFeedViewModel {
 
     /// ID of the currently active block (based on playback position).
     var activeBlockID: String?
+    var pendingSourceAnchoredCardIDs: [String] = []
+    private var sourceAnchoredCardTriggerState = SourceAnchoredCardTriggerResolver.State()
 
     // MARK: - Auto-alignment workflow state
 
@@ -530,6 +532,11 @@ final class ReaderFeedViewModel {
         } catch {
             logger.error("Failed to load reader blocks: \(error.localizedDescription)")
         }
+    }
+
+    func consumePendingSourceAnchoredCardIDs() -> [String] {
+        defer { pendingSourceAnchoredCardIDs = [] }
+        return pendingSourceAnchoredCardIDs
     }
 
     // MARK: - Phase 4: note/memo capture
@@ -998,6 +1005,7 @@ final class ReaderFeedViewModel {
         if currentTrackScope != currentTrackChapterIndices {
             applyTrackScope(currentTrackChapterIndices)
         }
+        let previousBlockID = activeBlockID
         let foundBlockID = ReaderActiveBlockResolver.activeBlockID(
             in: timelineCache,
             time: time,
@@ -1006,6 +1014,11 @@ final class ReaderFeedViewModel {
         )
         if activeBlockID != foundBlockID {
             activeBlockID = foundBlockID
+            resolveSourceAnchoredCardTriggers(
+                previousBlockID: previousBlockID,
+                activeBlockID: foundBlockID,
+                isPlaying: isPlaying
+            )
         }
 
         let wordIdx = ReaderActiveBlockResolver.activeWord(
@@ -1031,6 +1044,23 @@ final class ReaderFeedViewModel {
                 rebuildDisplaySections()
             }
         }
+    }
+
+    private func resolveSourceAnchoredCardTriggers(
+        previousBlockID: String?,
+        activeBlockID: String?,
+        isPlaying: Bool
+    ) {
+        guard isPlaying, previousBlockID != activeBlockID else { return }
+        let cards = (try? flashcardDAO.flashcards(for: audiobookID)) ?? []
+        let result = SourceAnchoredCardTriggerResolver.resolve(
+            previousBlockID: previousBlockID,
+            activeBlockID: activeBlockID,
+            cards: cards,
+            state: sourceAnchoredCardTriggerState
+        )
+        sourceAnchoredCardTriggerState = result.state
+        pendingSourceAnchoredCardIDs.append(contentsOf: result.cardsToTrigger.map(\.id))
     }
 
     /// Index path for a given block ID, if present in the current sections.
