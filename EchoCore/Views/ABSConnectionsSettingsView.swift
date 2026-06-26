@@ -12,6 +12,7 @@ struct ABSConnectionsSettingsView: View {
     @State private var errorMessage: String?
     @State private var showingBrowse = false
     @State private var pendingTrust: PendingTrust?
+    @State private var pendingPlaintextConnection: PlaintextConnectionWarning?
 
     private struct PendingTrust: Identifiable {
         let id = UUID()
@@ -19,34 +20,33 @@ struct ABSConnectionsSettingsView: View {
         let sha256: String
     }
 
+    private struct PlaintextConnectionWarning: Identifiable {
+        let id = UUID()
+        let url: URL
+
+        var displayHost: String {
+            if let host = url.host, let port = url.port {
+                "\(host):\(port)"
+            } else {
+                url.host ?? url.absoluteString
+            }
+        }
+    }
+
     var body: some View {
         Form {
             if let server = connected {
-                Section("Connected") {
-                    LabeledContent("Server", value: server.baseURL)
-                    LabeledContent("User", value: server.username)
-                    Button("Browse Library") { showingBrowse = true }
-                    Button("Sign Out", role: .destructive) {
-                        Task { await signOut(server) }
-                    }
-                }
+                ABSConnectedServerSection(
+                    server: server,
+                    showingBrowse: $showingBrowse,
+                    signOut: signOut)
             } else {
-                Section("Add Audiobookshelf Server") {
-                    TextField("Server URL (http://host:13378)", text: $baseURL)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
-                    TextField("Username", text: $username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField("Password", text: $password)
-                    Button {
-                        Task { await connect() }
-                    } label: {
-                        if isConnecting { ProgressView() } else { Text("Connect") }
-                    }
-                    .disabled(isConnecting || baseURL.isEmpty || username.isEmpty)
-                }
+                ABSAddServerSection(
+                    baseURL: $baseURL,
+                    username: $username,
+                    password: $password,
+                    isConnecting: isConnecting,
+                    connect: connect)
             }
 
             if let errorMessage {
@@ -80,6 +80,22 @@ struct ABSConnectionsSettingsView: View {
                 Only trust it if you recognize this fingerprint.
                 """)
         }
+        .alert(
+            "Send Credentials Over Plain HTTP?",
+            isPresented: Binding(
+                get: { pendingPlaintextConnection != nil },
+                set: { if !$0 { pendingPlaintextConnection = nil } }),
+            presenting: pendingPlaintextConnection
+        ) { warning in
+            Button("Send Over HTTP", role: .destructive) {
+                pendingPlaintextConnection = nil
+                Task { await connect(to: warning.url) }
+            }
+            Button("Cancel", role: .cancel) { pendingPlaintextConnection = nil }
+        } message: { warning in
+            Text(
+                "Echo will send your Audiobookshelf username and password to \(warning.displayHost) without transport encryption. Use HTTPS or self-signed HTTPS when possible.")
+        }
     }
 
     private func connect() async {
@@ -87,12 +103,21 @@ struct ABSConnectionsSettingsView: View {
             errorMessage = String(localized: "Invalid server URL")
             return
         }
+        guard !ABSEndpoints.requiresPlainHTTPConfirmation(url) else {
+            pendingPlaintextConnection = PlaintextConnectionWarning(url: url)
+            return
+        }
+        await connect(to: url)
+    }
+
+    private func connect(to url: URL, trustingCertificate pinnedSHA256: String? = nil) async {
         isConnecting = true
         errorMessage = nil
         defer { isConnecting = false }
         do {
             let server = try await model.connectAudiobookshelf(
-                baseURL: url, username: username, password: password)
+                baseURL: url, username: username, password: password,
+                trustingCertificate: pinnedSHA256)
             connected = server
             password = ""
         } catch let error as ABSError {
@@ -112,22 +137,78 @@ struct ABSConnectionsSettingsView: View {
             errorMessage = String(localized: "Invalid server URL")
             return
         }
-        isConnecting = true
-        errorMessage = nil
-        defer { isConnecting = false }
-        do {
-            let server = try await model.connectAudiobookshelf(
-                baseURL: url, username: username, password: password,
-                trustingCertificate: trust.sha256)
-            connected = server
-            password = ""
-        } catch {
-            errorMessage = String(localized: "Could not connect: \(error.localizedDescription)")
-        }
+        await connect(to: url, trustingCertificate: trust.sha256)
     }
 
     private func signOut(_ server: ABSServerRecord) async {
         await model.disconnectAudiobookshelf(server)
         connected = nil
+    }
+}
+
+private struct ABSConnectedServerSection: View {
+    let server: ABSServerRecord
+    @Binding var showingBrowse: Bool
+    let signOut: (ABSServerRecord) async -> Void
+
+    var body: some View {
+        Section("Connected") {
+            LabeledContent("Server", value: server.baseURL)
+            LabeledContent("User", value: server.username)
+            if server.isPlainHTTP {
+                Label("Plain HTTP connection", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Credentials and audiobook data are not encrypted on this server connection.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Button("Browse Library") { showingBrowse = true }
+            Button("Sign Out", role: .destructive) {
+                Task { await signOut(server) }
+            }
+        }
+    }
+}
+
+private struct ABSAddServerSection: View {
+    @Binding var baseURL: String
+    @Binding var username: String
+    @Binding var password: String
+    let isConnecting: Bool
+    let connect: () async -> Void
+
+    var body: some View {
+        Section {
+            TextField("Server URL (https://host:13378)", text: $baseURL)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                .autocorrectionDisabled()
+            TextField("Username", text: $username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            SecureField("Password", text: $password)
+            Button {
+                Task { await connect() }
+            } label: {
+                ABSConnectButtonLabel(isConnecting: isConnecting)
+            }
+            .disabled(isConnecting || baseURL.isEmpty || username.isEmpty)
+        } header: {
+            Text("Add Audiobookshelf Server")
+        } footer: {
+            Text("Bare hosts use HTTPS. Type http:// only for a local server you trust.")
+        }
+    }
+}
+
+private struct ABSConnectButtonLabel: View {
+    let isConnecting: Bool
+
+    var body: some View {
+        if isConnecting {
+            ProgressView()
+        } else {
+            Text("Connect")
+        }
     }
 }

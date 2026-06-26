@@ -434,13 +434,15 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Views/ABSConnectionsSettingsView.swift`
 - Review: `EchoCore/Info.plist`, `Echo macOS/Info.plist`, `ARCHITECTURE.md`
 
-- [ ] Default bare hosts to HTTPS or require the user to choose HTTP explicitly.
-- [ ] Add an explicit confirmation before sending credentials over HTTP.
-- [ ] Show persistent insecure-server state after connection.
-- [ ] Keep self-signed HTTPS trust-on-first-use as the recommended local path.
-- [ ] Document the ATS exception rationale and App Review notes.
+- [x] Default bare hosts to HTTPS or require the user to choose HTTP explicitly.
+- [x] Add an explicit confirmation before sending credentials over HTTP.
+- [x] Show persistent insecure-server state after connection.
+- [x] Keep self-signed HTTPS trust-on-first-use as the recommended local path.
+- [x] Document the ATS exception rationale and App Review notes.
 
 **Acceptance criteria:** the app no longer silently sends ABS credentials over plaintext because a user omitted the scheme.
+
+**Verification note:** 2026-06-26 pass: `git diff --check`, string catalog JSON validation, and plist lint all passed; stale HTTP-default scan found only explicit-HTTP tests and the updated architecture rationale; focused iOS `build-for-testing` for `EchoTests/ABSEndpointsTests` and `EchoTests/ABSPlainHTTPConnectionViewTests` passed with signing disabled; macOS app build passed with signing disabled. Runtime simulator test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
 
 ### Task 5.2: Remove token-bearing ABS URLs where headers can be used
 
