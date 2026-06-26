@@ -57,6 +57,24 @@ struct ReaderSourceAnchoredCardTriggerTests {
         #expect(vm.pendingSourceAnchoredCardIDs.isEmpty)
     }
 
+    @Test
+    func updateActiveBlockRecordsTriggerSummary() throws {
+        let service = try DatabaseService(inMemory: ())
+        try seedAudiobook(service)
+        try seedBlockAndTimeline(service, blockID: "b1", start: 0, end: 5)
+        try FlashcardDAO(db: service.writer).insert(
+            makeCard(id: "card-1", sourceBlockID: "b1", triggerTiming: .beginning))
+
+        let vm = ReaderFeedViewModel(audiobookID: "book", db: service.writer)
+        vm.reload()
+        vm.updateActiveBlock(time: 1, currentTrackChapterIndices: nil, isPlaying: true)
+
+        #expect(vm.lastSourceAnchoredCardTriggerSummary?.activeBlockID == "b1")
+        #expect(vm.lastSourceAnchoredCardTriggerSummary?.candidateCount == 1)
+        #expect(vm.lastSourceAnchoredCardTriggerSummary?.triggeredCount == 1)
+        #expect(vm.lastSourceAnchoredCardTriggerSummary?.suppressedCount == 0)
+    }
+
     private func seedAudiobook(_ service: DatabaseService) throws {
         try service.write { db in
             try db.execute(
