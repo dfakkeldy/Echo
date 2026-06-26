@@ -195,6 +195,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                         self.tickPlayback()
                     }
                 }
+                // Keep the elapsed-time tick firing while the user scrolls / turns the
+                // Digital Crown — the default run-loop mode is paused during UI tracking.
+                if let playbackTimer {
+                    RunLoop.main.add(playbackTimer, forMode: .common)
+                }
             }
         } else {
             playbackTimer?.invalidate()
@@ -921,6 +926,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.tickPomodoro()
             }
         }
+        // Keep the countdown ticking while the user scrolls / turns the Digital Crown —
+        // the default run-loop mode is paused during UI tracking. Matches SleepTimerManager.
+        if let pomodoroTimer {
+            RunLoop.main.add(pomodoroTimer, forMode: .common)
+        }
     }
 
     func stopPomodoro() {
@@ -990,6 +1000,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                         MainActor.assumeIsolated {
                             self.tickPomodoro()
                         }
+                    }
+                    // Recreated after returning to the foreground, so it needs the same
+                    // common-mode registration as startPomodoro() or it re-freezes.
+                    if let pomodoroTimer {
+                        RunLoop.main.add(pomodoroTimer, forMode: .common)
                     }
                 }
             } else {
