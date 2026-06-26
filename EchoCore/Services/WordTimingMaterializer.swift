@@ -163,4 +163,46 @@ enum WordTimingMaterializer {
         }
         try dao.update(updates)
     }
+
+    /// Confidence stamped on a word whose time came from the synthesis-time
+    /// duration head (above interpolation 0.5; on par with / above DTW 0.85).
+    private static let synthesisConfidence: Double = 0.9
+
+    /// Overrides already-materialized interpolated word times with synthesis-time
+    /// timings, per block, when the per-block word counts match. A count mismatch
+    /// (text normalization / G2P changed the word tokenization) leaves that
+    /// block's interpolated rows untouched — the safety guard for the
+    /// phoneme-group↔source-word mapping. Returns the number of blocks overridden.
+    ///
+    /// Mirrors `refine(...)`: additive, retimes matched rows only, never adds or
+    /// deletes rows. Call AFTER `materializeChapter` has written the interpolated
+    /// baseline for these blocks.
+    @discardableResult
+    static func refineWithSynthesis(
+        audiobookID: String,
+        synthesisByBlock: [String: [ChunkWordTiming]],
+        writer: DatabaseWriter
+    ) throws -> Int {
+        guard !synthesisByBlock.isEmpty else { return 0 }
+        let dao = WordTimingDAO(db: writer)
+        var updates: [WordTimingRecord] = []
+        var blocksOverridden = 0
+        for (blockID, timings) in synthesisByBlock {
+            let rows = try dao.words(forAudiobook: audiobookID, blockID: blockID)
+            guard rows.count == timings.count, !rows.isEmpty else { continue }
+            let rowsByIndex = rows.sorted { $0.wordIndex < $1.wordIndex }
+            let timingsByIndex = timings.sorted { $0.wordIndex < $1.wordIndex }
+            for (row, t) in zip(rowsByIndex, timingsByIndex) {
+                var updated = row
+                updated.audioStartTime = t.start
+                updated.audioEndTime = t.end
+                updated.confidence = synthesisConfidence
+                updated.source = "synthesis"
+                updates.append(updated)
+            }
+            blocksOverridden += 1
+        }
+        try dao.update(updates)
+        return blocksOverridden
+    }
 }
