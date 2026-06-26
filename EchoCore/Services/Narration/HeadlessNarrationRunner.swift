@@ -191,6 +191,9 @@ struct NarrationRunResult {
         let byChapter = Dictionary(
             grouping: blocks.filter { $0.chapterIndex != nil },
             by: { $0.chapterIndex! })
+        let plannedChapters = NarrationChapterPlanner.plan(from: blocks)
+        let plannedByChapterIndex = Dictionary(
+            uniqueKeysWithValues: plannedChapters.map { ($0.index, $0) })
         let chapterIndices = byChapter.keys.sorted()
 
         // 2. Drop crash partials: .m4a files whose chapter has no capture file.
@@ -217,8 +220,11 @@ struct NarrationRunResult {
 
         let totalCount = chapterIndices.count
         for (batchPos, idx) in batch.enumerated() {
-            let displayNumber = (chapterIndices.firstIndex(of: idx) ?? 0) + 1
+            let displayNumber =
+                plannedByChapterIndex[idx]?.displayNumber
+                ?? ((chapterIndices.firstIndex(of: idx) ?? 0) + 1)
             let chapterBlocks = byChapter[idx]!.sorted { $0.sequenceIndex < $1.sequenceIndex }
+            let chapterTitle = plannedByChapterIndex[idx]?.title
 
             progress(
                 .chapter(
@@ -227,7 +233,7 @@ struct NarrationRunResult {
 
             try await svc.renderChapter(
                 chapterIndex: idx, chapterNumber: displayNumber,
-                blocks: chapterBlocks, voice: config.voice
+                blocks: chapterBlocks, voice: config.voice, chapterTitle: chapterTitle
             ) { _, blockFraction in
                 let batchFraction =
                     (Double(batchPos) + blockFraction)

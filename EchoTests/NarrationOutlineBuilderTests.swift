@@ -31,8 +31,8 @@ import Testing
 
         #expect(rows.map(\.chapterIndex) == [1, 2, 3])
         #expect(rows.map(\.displayNumber) == [1, 2, 3])  // stable, excluded NOT skipped
-        #expect(rows[0].title == "Beginnings")  // first heading wins
-        #expect(rows[2].title == "The End")
+        #expect(rows[0].title == "ch. 1: Beginnings")  // first meaningful heading wins
+        #expect(rows[2].title == "ch. 3: The End")
         #expect(rows.map(\.isExcluded) == [false, true, false])
         #expect(rows.map(\.isRendered) == [true, false, false])
     }

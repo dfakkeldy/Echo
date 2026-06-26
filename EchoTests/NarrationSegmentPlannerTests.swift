@@ -4,11 +4,18 @@ import Testing
 @testable import Echo
 
 @Suite struct NarrationSegmentPlannerTests {
-    private func block(_ id: String, chars: Int, chapter: Int, seq: Int) -> EPubBlockRecord {
+    private func block(
+        _ id: String,
+        chars: Int,
+        chapter: Int,
+        seq: Int,
+        kind: String = "paragraph",
+        text: String? = nil
+    ) -> EPubBlockRecord {
         EPubBlockRecord(
             id: id, audiobookID: "b1", spineHref: "c.xhtml",
             spineIndex: 0, blockIndex: seq, sequenceIndex: seq,
-            blockKind: "paragraph", text: String(repeating: "a", count: chars),
+            blockKind: kind, text: text ?? String(repeating: "a", count: chars),
             htmlContent: nil, cardColor: nil, chapterThemeColor: nil,
             imagePath: nil, chapterIndex: chapter,
             isHidden: false, hiddenReason: nil, isFrontMatter: false,
@@ -66,6 +73,21 @@ import Testing
 
         #expect(segments.filter { $0.chapterIndex == 0 }.count == 1)
         #expect(segments.filter { $0.chapterIndex == 1 }.count == 1)
+    }
+
+    @Test func segmentsCarryChapterTitleFromPlan() {
+        let blocks = [
+            block(
+                "h", chars: 0, chapter: 0, seq: 0, kind: "heading",
+                text: "Chapter 1: Opening"),
+            block("p", chars: 150, chapter: 0, seq: 1),
+        ]
+        let chapter = NarrationChapterPlanner.PlannedChapter(
+            index: 0, displayNumber: 1, blocks: blocks)
+
+        let segments = NarrationSegmentPlanner.plan([chapter])
+
+        #expect(segments.map(\.chapterTitle) == ["ch. 1: Opening"])
     }
 
     @Test func resumeStartsAtFirstSegmentOfResumeChapter() {
