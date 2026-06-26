@@ -2,7 +2,10 @@
 import SwiftUI
 
 /// Role-based theme derived from one cover's `CoverSignature`.
-struct CoverTheme: Equatable {
+// `nonisolated`: a pure value theme (SwiftUI `Color`s are Sendable). Under Swift 6
+// MainActor default isolation it would be inferred `@MainActor`, blocking the
+// nonisolated builder/tests from reading its roles.
+nonisolated struct CoverTheme: Equatable {
     let accent: Color  // interactive tint — ≥3:1 vs backgrounds and ≥2.5:1 vs chip
     let onAccent: Color  // glyphs inside accent-filled controls — ≥4.5:1 vs accent
     let secondaryAccent: Color  // gradients, secondary indicators
@@ -16,7 +19,8 @@ struct CoverTheme: Equatable {
 /// lightness and chroma come from per-role constants chosen so the contrast
 /// floors hold for every hue. `CoverThemeBuilderTests` sweeps all 360 hues
 /// in both schemes to prove it ("correct by construction").
-enum CoverThemeBuilder {
+// `nonisolated`: pure theme construction from color math; no main-actor state.
+nonisolated enum CoverThemeBuilder {
 
     /// RGB-typed result used by the property tests; `build` wraps it in Colors.
     struct Resolved: Equatable {

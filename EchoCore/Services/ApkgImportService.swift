@@ -5,7 +5,10 @@ import ZIPFoundation
 import os.log
 
 /// Optional context for `ApkgImportService.importVNext(from:into:context:)`.
-struct ApkgImportContext: Sendable {
+// `nonisolated`: pure `Sendable` value type. Its `init()` is used as a default
+// argument in the `nonisolated` `importVNext`, so a `@MainActor`-inferred default
+// value would be unusable from that caller-isolation-inheriting context.
+nonisolated struct ApkgImportContext: Sendable {
     /// Overrides the target media ID for flashcard placement.
     /// When non-nil it takes precedence over the sidecar's `targetMediaID` only
     /// if the sidecar omits one; sidecar wins when both are present.

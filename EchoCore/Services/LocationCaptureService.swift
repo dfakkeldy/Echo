@@ -1,126 +1,135 @@
 #if os(iOS)
-// SPDX-License-Identifier: GPL-3.0-or-later
-import CoreLocation
+    // SPDX-License-Identifier: GPL-3.0-or-later
+    import CoreLocation
 
-/// One-shot coarse-location capture with reverse-geocode caching.
-/// Opt-in, privacy-first: reduced accuracy, on-device geocoding, never blocks.
-actor LocationCaptureService {
+    /// One-shot coarse-location capture with reverse-geocode caching.
+    /// Opt-in, privacy-first: reduced accuracy, on-device geocoding, never blocks.
+    actor LocationCaptureService {
 
-    /// Captured place info — lat/lon rounded to 2 decimal places (~1 km precision).
-    struct Place: Sendable, Equatable {
-        let latitude: Double
-        let longitude: Double
-        let placeName: String?
+        /// Captured place info — lat/lon rounded to 2 decimal places (~1 km precision).
+        struct Place: Sendable, Equatable {
+            let latitude: Double
+            let longitude: Double
+            let placeName: String?
 
-        /// Two-decimal rounding key — used for cache deduplication.
-        var cacheKey: String {
-            "\(latitude),\(longitude)"
-        }
-    }
-
-    /// The CoreLocation clients are built lazily on first `capture()` rather than
-    /// in `init`, so merely *owning* a LocationCaptureService (PlayerModel holds one
-    /// eagerly) touches no CoreLocation framework state. This is good privacy hygiene
-    /// and — critically — keeps `PlayerModel()` construction free of process-global
-    /// system singletons, which is what the unit-test suite exercises. (Constructing
-    /// CLLocationManager during PlayerModel init double-freed on the iOS 26.2 CI
-    /// simulator; see task_66ce9a55.)
-    private lazy var manager: CLLocationManager = {
-        let manager = CLLocationManager()
-        manager.desiredAccuracy = kCLLocationAccuracyReduced
-        manager.distanceFilter = kCLDistanceFilterNone
-        return manager
-    }()
-    private lazy var geocoder = CLGeocoder()
-    private var cache: [String: Place] = [:]
-
-    /// Captures the current coarse location, reverse-geocoded to "Neighborhood, City".
-    /// Fires once and returns nil on timeout, denial, or error.
-    /// Never blocks the caller for more than ~10 seconds.
-    func capture(description: String? = nil, timeout: TimeInterval = 10) async -> Place? {
-        let status = manager.authorizationStatus
-        guard status != .denied, status != .restricted else {
-            return nil
+            /// Two-decimal rounding key — used for cache deduplication.
+            var cacheKey: String {
+                "\(latitude),\(longitude)"
+            }
         }
 
-        return await withTaskTimeout(timeout) { [weak self] in
-            guard let self else { return nil }
+        /// The CoreLocation clients are built lazily on first `capture()` rather than
+        /// in `init`, so merely *owning* a LocationCaptureService (PlayerModel holds one
+        /// eagerly) touches no CoreLocation framework state. This is good privacy hygiene
+        /// and — critically — keeps `PlayerModel()` construction free of process-global
+        /// system singletons, which is what the unit-test suite exercises. (Constructing
+        /// CLLocationManager during PlayerModel init double-freed on the iOS 26.2 CI
+        /// simulator; see task_66ce9a55.)
+        private lazy var manager: CLLocationManager = {
+            let manager = CLLocationManager()
+            manager.desiredAccuracy = kCLLocationAccuracyReduced
+            manager.distanceFilter = kCLDistanceFilterNone
+            return manager
+        }()
+        private var cache: [String: Place] = [:]
 
-            let coord: CLLocationCoordinate2D
-            do {
-                coord = try await self.requestLocation()
-            } catch {
+        /// Captures the current coarse location, reverse-geocoded to "Neighborhood, City".
+        /// Fires once and returns nil on timeout, denial, or error.
+        /// Never blocks the caller for more than ~10 seconds.
+        func capture(description: String? = nil, timeout: TimeInterval = 10) async -> Place? {
+            let status = manager.authorizationStatus
+            guard status != .denied, status != .restricted else {
                 return nil
             }
 
-            let lat = round(coord.latitude * 100) / 100
-            let lon = round(coord.longitude * 100) / 100
-            let key = "\(lat),\(lon)"
+            return await withTaskTimeout(timeout) { [weak self] in
+                guard let self else { return nil }
 
-            // Return cached place if we've been here before
-            if let cached = await self.cached(key) {
-                return cached
+                let coord: CLLocationCoordinate2D
+                do {
+                    coord = try await self.requestLocation()
+                } catch {
+                    return nil
+                }
+
+                let lat = round(coord.latitude * 100) / 100
+                let lon = round(coord.longitude * 100) / 100
+                let key = "\(lat),\(lon)"
+
+                // Return cached place if we've been here before
+                if let cached = await self.cached(key) {
+                    return cached
+                }
+
+                // Reverse-geocode
+                let location = CLLocation(latitude: lat, longitude: lon)
+                let name = await self.reverseGeocode(location)
+
+                let place = Place(latitude: lat, longitude: lon, placeName: name)
+                await self.store(key, place)
+                return place
             }
+        }
 
-            // Reverse-geocode
-            let location = CLLocation(latitude: lat, longitude: lon)
-            let name: String?
+        /// Clears the in-memory geocode cache.
+        func flushCache() {
+            cache.removeAll()
+        }
+
+        // MARK: - Private
+
+        private func requestLocation() async throws -> CLLocationCoordinate2D {
+            // CLLocationUpdate.liveUpdates() emits one value then continues;
+            // we take the first value.
+            for try await update in CLLocationUpdate.liveUpdates() {
+                guard let coord = update.location?.coordinate else { continue }
+                return coord
+            }
+            throw CancellationError()
+        }
+
+        /// Reverse-geocodes a location to "Neighborhood, City", returning nil on error.
+        ///
+        /// `CLGeocoder` is non-Sendable, so it cannot be held as an actor stored
+        /// property without crossing the isolation boundary. Creating it as a local
+        /// inside this actor-isolated method keeps it from ever escaping the actor
+        /// (region isolation), which is what Swift 6 requires.
+        private func reverseGeocode(_ location: CLLocation) async -> String? {
+            let geocoder = CLGeocoder()
             do {
-                let placemarks = try await self.geocoder.reverseGeocodeLocation(location)
-                name = placemarks.first.flatMap { pm in
+                let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                return placemarks.first.flatMap { pm in
                     [pm.subLocality, pm.locality].compactMap { $0 }.joined(separator: ", ")
                 }
             } catch {
-                name = nil
+                return nil
             }
+        }
 
-            let place = Place(latitude: lat, longitude: lon, placeName: name)
-            await self.store(key, place)
-            return place
+        private func cached(_ key: String) -> Place? {
+            cache[key]
+        }
+
+        private func store(_ key: String, _ place: Place) {
+            cache[key] = place
         }
     }
 
-    /// Clears the in-memory geocode cache.
-    func flushCache() {
-        cache.removeAll()
-    }
-
-    // MARK: - Private
-
-    private func requestLocation() async throws -> CLLocationCoordinate2D {
-        // CLLocationUpdate.liveUpdates() emits one value then continues;
-        // we take the first value.
-        for try await update in CLLocationUpdate.liveUpdates() {
-            guard let coord = update.location?.coordinate else { continue }
-            return coord
+    /// Runs an async operation with a timeout, returning nil if it exceeds the limit.
+    private func withTaskTimeout<T: Sendable>(
+        _ seconds: TimeInterval,
+        operation: @escaping @Sendable () async -> T?
+    ) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await operation() }
+            group.addTask {
+                try? await Task.sleep(for: .nanoseconds(Int64(seconds * 1_000_000_000)))
+                return nil
+            }
+            let result = await group.next()
+            group.cancelAll()
+            return result ?? nil
         }
-        throw CancellationError()
     }
-
-    private func cached(_ key: String) -> Place? {
-        cache[key]
-    }
-
-    private func store(_ key: String, _ place: Place) {
-        cache[key] = place
-    }
-}
-
-/// Runs an async operation with a timeout, returning nil if it exceeds the limit.
-private func withTaskTimeout<T: Sendable>(
-    _ seconds: TimeInterval,
-    operation: @escaping @Sendable () async -> T?
-) async -> T? {
-    await withTaskGroup(of: T?.self) { group in
-        group.addTask { await operation() }
-        group.addTask {
-            try? await Task.sleep(for: .nanoseconds(Int64(seconds * 1_000_000_000)))
-            return nil
-        }
-        let result = await group.next()
-        group.cancelAll()
-        return result ?? nil
-    }
-}
 
 #endif

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import Synchronization
 import Testing
 
 @testable import Echo
@@ -15,22 +16,28 @@ import Testing
             updateReviewNotification: { notificationCounts.append($0) }
         )
 
-        try viewModel.loadQueue(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
 
         let introducedDates = try studyPlanItemIntroducedDates(in: service)
-        #expect(viewModel.queue.entries.map(\.category) == [.dueReview, .inProgressAssignment, .newAssignment])
+        #expect(
+            viewModel.queue.entries.map(\.category) == [
+                .dueReview, .inProgressAssignment, .newAssignment,
+            ])
         #expect(viewModel.queue.newAssignmentCount == 1)
-        #expect(introducedDates == [
-            StudyQueueFixtures.mondayNoon.addingTimeInterval(-86_400).ISO8601Format(),
-            StudyQueueFixtures.mondayNoon.ISO8601Format(),
-            nil,
-        ])
+        #expect(
+            introducedDates == [
+                StudyQueueFixtures.mondayNoon.addingTimeInterval(-86_400).ISO8601Format(),
+                StudyQueueFixtures.mondayNoon.ISO8601Format(),
+                nil,
+            ])
         #expect(notificationCounts == [2])
     }
 
     @Test func loadQueueAppliesGlobalNewChapterLimitBeforeMarkingIntroducedItems() throws {
         let service = try StudyQueueFixtures.serviceWithTwoPlans()
-        let viewModel = StudySessionViewModel(db: service.writer, updateReviewNotification: { _ in })
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
 
         try viewModel.loadQueue(
             now: StudyQueueFixtures.mondayNoon,
@@ -51,12 +58,14 @@ import Testing
 
     @Test func loadQueueResetsSessionState() throws {
         let service = try StudyQueueFixtures.serviceWithPlan(chapterLimit: 1)
-        let viewModel = StudySessionViewModel(db: service.writer, updateReviewNotification: { _ in })
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
         viewModel.currentIndex = 2
         viewModel.isRevealed = true
         viewModel.errorMessage = "Previous error"
 
-        try viewModel.loadQueue(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
 
         #expect(viewModel.currentIndex == 0)
         #expect(viewModel.isRevealed == false)
@@ -68,38 +77,45 @@ import Testing
     @Test func gradeCurrentUsesFSRSLogsReviewAndAdvances() throws {
         let service = try StudyQueueFixtures.serviceWithDueCard()
         var notificationCounts: [Int] = []
-        var queueChangePostCount = 0
+        // The observer block is `@Sendable`; the counter lives behind a `Mutex`
+        // rather than a captured `var` (Swift 6 forbids mutating captured vars from
+        // concurrently-executing code). `notificationCounts` stays a plain var — it
+        // is only mutated by the non-Sendable `updateReviewNotification` closure.
+        let queueChangePostCount = Mutex(0)
         let observer = NotificationCenter.default.addObserver(
             forName: .studyQueueDidChange,
             object: nil,
             queue: nil
         ) { _ in
-            queueChangePostCount += 1
+            queueChangePostCount.withLock { $0 += 1 }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
         let viewModel = StudySessionViewModel(
             db: service.writer,
             updateReviewNotification: { notificationCounts.append($0) }
         )
-        try viewModel.loadQueue(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
         viewModel.reveal()
 
         viewModel.gradeCurrent(.good, now: StudyQueueFixtures.mondayNoon)
 
-        let reviewed = try #require(try service.read { db in
-            try Flashcard.fetchOne(db, key: "due-card")
-        })
-        let event = try #require(try service.read { db in
-            try Row.fetchOne(
-                db,
-                sql: """
-                    SELECT event_type, started_at, ended_at, metadata_json, source_item_id, source_item_type
-                    FROM real_time_event
-                    WHERE source_item_id = ?
-                    """,
-                arguments: ["due-card"]
-            )
-        })
+        let reviewed = try #require(
+            try service.read { db in
+                try Flashcard.fetchOne(db, key: "due-card")
+            })
+        let event = try #require(
+            try service.read { db in
+                try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT event_type, started_at, ended_at, metadata_json, source_item_id, source_item_type
+                        FROM real_time_event
+                        WHERE source_item_id = ?
+                        """,
+                    arguments: ["due-card"]
+                )
+            })
         let metadataJSON: String = event["metadata_json"]
         let metadata = try #require(
             JSONSerialization.jsonObject(with: Data(metadataJSON.utf8)) as? [String: Any]
@@ -112,7 +128,7 @@ import Testing
         #expect(viewModel.isRevealed == false)
         #expect(viewModel.isComplete)
         #expect(notificationCounts == [1, 0])
-        #expect(queueChangePostCount == 2)
+        #expect(queueChangePostCount.withLock { $0 } == 2)
         #expect(event["event_type"] as String == RealTimeEventType.flashcardReviewed.rawValue)
         #expect(event["started_at"] as String == StudyQueueFixtures.mondayNoon.ISO8601Format())
         #expect(event["ended_at"] as String == StudyQueueFixtures.mondayNoon.ISO8601Format())
@@ -130,24 +146,31 @@ import Testing
             db: service.writer,
             updateReviewNotification: { notificationCounts.append($0) }
         )
-        try viewModel.loadQueue(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
 
         viewModel.gradeCurrent(.good, now: StudyQueueFixtures.mondayNoon)
 
-        #expect(viewModel.queue.entries.map(\.category) == [.dueReview, .inProgressAssignment, .newAssignment])
+        #expect(
+            viewModel.queue.entries.map(\.category) == [
+                .dueReview, .inProgressAssignment, .newAssignment,
+            ])
         #expect(viewModel.currentIndex == 1)
         #expect(notificationCounts == [2, 1])
     }
 
     @Test func playAssignmentCallsPlaybackClosureForListeningAndImageAssignments() throws {
         let service = try StudyQueueFixtures.serviceWithImagePlan(chapterLimit: 1)
-        let viewModel = StudySessionViewModel(db: service.writer, updateReviewNotification: { _ in })
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
         var requestedCardIDs: [String] = []
         viewModel.onRequestAssignmentPlayback = { card in requestedCardIDs.append(card.id) }
 
-        try viewModel.loadQueue(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
         let listeningID = try #require(viewModel.currentEntry?.flashcard.id)
-        #expect(viewModel.currentEntry?.flashcard.cardType == StudyFlashcardType.listeningAssignment)
+        #expect(
+            viewModel.currentEntry?.flashcard.cardType == StudyFlashcardType.listeningAssignment)
         viewModel.requestPlayCurrentAssignment()
 
         viewModel.advance()
@@ -160,11 +183,13 @@ import Testing
 
     @Test func playAssignmentIgnoresNormalCardsAndEmptySessions() throws {
         let service = try StudyQueueFixtures.serviceWithDueCard()
-        let viewModel = StudySessionViewModel(db: service.writer, updateReviewNotification: { _ in })
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
         var requestCount = 0
         viewModel.onRequestAssignmentPlayback = { _ in requestCount += 1 }
 
-        try viewModel.loadQueue(now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
         #expect(viewModel.currentEntry?.flashcard.cardType == StudyFlashcardType.normal)
         viewModel.requestPlayCurrentAssignment()
 

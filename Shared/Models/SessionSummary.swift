@@ -4,7 +4,10 @@ import CoreLocation
 import Foundation
 
 /// One GPS sample captured during a session, in chronological order.
-public struct SessionRoutePoint: Codable, Hashable, Sendable {
+// `nonisolated`: a pure `Sendable` value type. Under the iOS target's Swift 6
+// MainActor default isolation its memberwise init would otherwise be inferred
+// `@MainActor`, which the `nonisolated` `SessionSummaryService` cannot call.
+public nonisolated struct SessionRoutePoint: Codable, Hashable, Sendable {
     public let latitude: Double
     public let longitude: Double
     public let placeName: String?
@@ -28,7 +31,9 @@ public struct SessionRoutePoint: Codable, Hashable, Sendable {
 /// derived by `SessionSummaryService` by grouping `playback_event` rows on
 /// `started_at`/`ended_at` time gaps, then joining `session_location`, `chapter`,
 /// `bookmark`, `flashcard`, and `note`.
-public struct SessionSummary: Identifiable, Codable, Hashable, Sendable {
+// `nonisolated` for the same reason as `SessionRoutePoint` above: a pure
+// `Sendable` value built off-actor by `SessionSummaryService`.
+public nonisolated struct SessionSummary: Identifiable, Codable, Hashable, Sendable {
     /// Stable synthetic id = "<audiobookID>#<sessionStart ISO8601>".
     public let id: String
     public let audiobookID: String

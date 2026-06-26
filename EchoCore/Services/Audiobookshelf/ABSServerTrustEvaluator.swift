@@ -4,7 +4,12 @@ import Foundation
 /// Pure, testable trust decision for an Audiobookshelf TLS server-trust challenge.
 /// No `Security`/`Foundation` cert I/O here — the caller (`ABSServerTrustDelegate`) extracts the
 /// inputs and applies the result. This is the unit-tested heart of self-signed cert pinning.
-struct ABSServerTrustEvaluator: Sendable {
+// `nonisolated` because this evaluator is a pure value type consumed from the
+// `nonisolated` `URLSessionDelegate` trust callback. Under the project's MainActor
+// default isolation the struct (and its nested `Decision`'s synthesized `Equatable`
+// conformance) would otherwise be inferred `@MainActor`, which the synchronous
+// nonisolated delegate cannot touch.
+nonisolated struct ABSServerTrustEvaluator: Sendable {
     enum Decision: Equatable, Sendable { case useDefault, accept, reject }
 
     /// Lowercased host of the server's configured base URL.

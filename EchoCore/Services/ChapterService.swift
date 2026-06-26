@@ -1,6 +1,6 @@
+import AVFoundation
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
-import AVFoundation
 
 /// Stateless helper that parses chapters from AVAsset metadata and provides
 /// chapter lookup and navigation primitives. Does not own mutable state —
@@ -11,7 +11,19 @@ struct ChapterService {
     /// Returns an empty array for non-M4B/M4A files or files without chapter markers.
     /// - Parameter asset: The audio file to parse.
     /// - Returns: Chronologically ordered chapters with correct zero-based indices.
-    static func parseChapters(from asset: AVAsset) async -> [Chapter] {
+    ///
+    /// `@concurrent` (with a `sending` asset): this is a pure, stateless parser that
+    /// does only off-main AVFoundation metadata I/O. Under the project's MainActor
+    /// default isolation a plain `static func` would be inferred `@MainActor`, and a
+    /// plain `nonisolated async` one would run on the *caller's* executor (Swift 6.2),
+    /// re-binding `asset` to that actor across each `await`. `AVAsset.loadChapterMetadataGroups`
+    /// is itself `@concurrent`, so forwarding the non-Sendable `AVAsset` to it from an
+    /// actor-isolated region is a data race. Running the whole parser on the global
+    /// executor keeps `asset` in one non-actor region for the duration of all its
+    /// loads; `sending` lets callers transfer their freshly-created local `AVURLAsset`
+    /// in for free. Callers already `await` the result.
+    @concurrent
+    nonisolated static func parseChapters(from asset: sending AVAsset) async -> [Chapter] {
         var groups: [AVTimedMetadataGroup] = []
 
         do {
@@ -39,7 +51,9 @@ struct ChapterService {
             let end = (g.timeRange.start + g.timeRange.duration).seconds
 
             var title: String? = nil
-            if let item = g.items.first(where: { $0.commonKey?.rawValue == AVMetadataKey.commonKeyTitle.rawValue }) {
+            if let item = g.items.first(where: {
+                $0.commonKey?.rawValue == AVMetadataKey.commonKeyTitle.rawValue
+            }) {
                 title = try? await item.load(.stringValue)
             } else if let item = g.items.first {
                 title = try? await item.load(.stringValue)
@@ -52,7 +66,9 @@ struct ChapterService {
 
         built.sort { $0.startSeconds < $1.startSeconds }
         for i in 0..<built.count {
-            built[i] = Chapter(index: i, title: built[i].title, startSeconds: built[i].startSeconds, endSeconds: built[i].endSeconds)
+            built[i] = Chapter(
+                index: i, title: built[i].title, startSeconds: built[i].startSeconds,
+                endSeconds: built[i].endSeconds)
         }
 
         // Single-chapter files are treated as having no chapters.
@@ -67,7 +83,9 @@ struct ChapterService {
     static func chapter(forTime t: Double, in chapters: [Chapter]) -> Chapter? {
         guard chapters.count >= 2 else { return nil }
         let matching = chapters.filter { t >= $0.startSeconds && t < $0.endSeconds }
-        return matching.min(by: { ($0.endSeconds - $0.startSeconds) < ($1.endSeconds - $1.startSeconds) })
+        return matching.min(by: {
+            ($0.endSeconds - $0.startSeconds) < ($1.endSeconds - $1.startSeconds)
+        })
     }
 
     /// Returns the index of the chapter containing the given time.

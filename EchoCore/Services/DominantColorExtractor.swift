@@ -3,11 +3,14 @@ import UIKit
 
 /// What a cover IS — its identity hues — with no opinion about how the UI
 /// should look. `CoverThemeBuilder` owns appearance.
-struct CoverSignature: Equatable {
+// `nonisolated`: a pure value signature (with the nested `HueCandidate`). Under
+// Swift 6 MainActor default isolation it would be inferred `@MainActor`, blocking
+// the nonisolated extractor/tests from reading it.
+nonisolated struct CoverSignature: Equatable {
     struct HueCandidate: Equatable {
-        let hue: Double      // OKLCH hue angle, degrees
-        let chroma: Double   // mean OKLCH chroma of the bucket
-        let weight: Double   // saturation² × centre-bias coverage score
+        let hue: Double  // OKLCH hue angle, degrees
+        let chroma: Double  // mean OKLCH chroma of the bucket
+        let weight: Double  // saturation² × centre-bias coverage score
     }
     /// Ranked by weight, descending. Empty for neutral covers.
     let candidates: [HueCandidate]
@@ -22,7 +25,9 @@ struct CoverSignature: Equatable {
 /// Uses a saturation²-weighted hue histogram with centre-distance biasing.
 /// Pixels near grey, white, or black are ignored. The extractor reports what
 /// the cover IS; `CoverThemeBuilder` decides how the UI looks.
-enum DominantColorExtractor {
+// `nonisolated`: pure image-pixel color analysis; the `UIImage`/`CGImage` inputs are
+// used synchronously and never escape, so no main-actor isolation is required.
+nonisolated enum DominantColorExtractor {
 
     // MARK: - Configuration
 
@@ -50,7 +55,8 @@ enum DominantColorExtractor {
     /// Single downsample + histogram pass emitting identity hues only.
     static func signature(from image: UIImage) -> CoverSignature {
         guard let cgImage = image.cgImage,
-              let pixelData = downsampleAndRead(cgImage) else {
+            let pixelData = downsampleAndRead(cgImage)
+        else {
             return .neutral
         }
 
@@ -66,7 +72,7 @@ enum DominantColorExtractor {
 
         for i in 0..<pixelCount {
             let offset = i * 4
-            let r = Float(pixelData[offset])     / 255.0
+            let r = Float(pixelData[offset]) / 255.0
             let g = Float(pixelData[offset + 1]) / 255.0
             let b = Float(pixelData[offset + 2]) / 255.0
 
@@ -116,21 +122,24 @@ enum DominantColorExtractor {
 
     private static func downsampleAndRead(_ cgImage: CGImage) -> [UInt8]? {
         let size = CGSize(width: sampleSize, height: sampleSize)
-        guard let ctx = CGContext(
-            data: nil,
-            width: sampleSize,
-            height: sampleSize,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
+        guard
+            let ctx = CGContext(
+                data: nil,
+                width: sampleSize,
+                height: sampleSize,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        else { return nil }
 
         ctx.draw(cgImage, in: CGRect(origin: .zero, size: size))
         guard let resized = ctx.makeImage(),
-              let dataProvider = resized.dataProvider,
-              let data = dataProvider.data,
-              let bytes = CFDataGetBytePtr(data) else { return nil }
+            let dataProvider = resized.dataProvider,
+            let data = dataProvider.data,
+            let bytes = CFDataGetBytePtr(data)
+        else { return nil }
 
         let byteCount = CFDataGetLength(data)
         return Array(UnsafeBufferPointer(start: bytes, count: byteCount))
@@ -146,10 +155,11 @@ enum DominantColorExtractor {
 
         let delta = maxVal - minVal
         guard delta > 0.0001 else {
-            return (0, 0, l) // achromatic
+            return (0, 0, l)  // achromatic
         }
 
-        let s: Float = l > 0.5
+        let s: Float =
+            l > 0.5
             ? delta / (2.0 - maxVal - minVal)
             : delta / (maxVal + minVal)
 

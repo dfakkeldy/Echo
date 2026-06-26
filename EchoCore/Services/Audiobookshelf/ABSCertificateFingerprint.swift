@@ -5,7 +5,10 @@ import Security
 
 /// SHA-256 fingerprints of TLS leaf certificates, plus display formatting.
 /// The decision logic lives in `ABSServerTrustEvaluator`; this is the thin cert-I/O + string layer.
-enum ABSCertificateFingerprint {
+// `nonisolated` because these are pure cert/string helpers called from the
+// `nonisolated` `URLSessionDelegate` trust callback; under the project's MainActor
+// default isolation they would otherwise be inferred `@MainActor`.
+nonisolated enum ABSCertificateFingerprint {
     /// Lowercase, unseparated hex of a SHA-256 digest (the canonical stored/compared form).
     static func hex(_ digest: SHA256.Digest) -> String {
         digest.map { String(format: "%02x", $0) }.joined()

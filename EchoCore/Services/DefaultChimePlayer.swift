@@ -88,11 +88,16 @@ final class DefaultChimePlayer: ChimeScheduling {
         do {
             try engine.start()
         } catch {
-            os_log(.error, "ChimePlayer: engine start error: %{private}@", error.localizedDescription)
+            os_log(
+                .error, "ChimePlayer: engine start error: %{private}@", error.localizedDescription)
         }
     }
 
-    deinit {
+    // The class is inferred `@MainActor` under the project's MainActor default
+    // isolation, so a plain nonisolated `deinit` cannot call the MainActor
+    // `cancel()`. `isolated deinit` (SE-0371) runs the deinit on the actor,
+    // letting it tear down the schedule task safely.
+    isolated deinit {
         cancel()
     }
 }

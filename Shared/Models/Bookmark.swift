@@ -37,7 +37,12 @@ func voiceMemoGain(for url: URL) -> Float {
     return min(targetPeak / peak, maxGain)
 }
 
-struct Bookmark: Identifiable, Codable, Equatable, Hashable {
+// `nonisolated`: a pure value model (no main-actor state — just value fields and
+// file-path/string helpers). Under the iOS target's Swift 6 MainActor default
+// isolation its init would otherwise be inferred `@MainActor`, which the GRDB
+// record decode path (`BookmarkRecord.toModel()`, run on a nonisolated DB read)
+// cannot call. Relaxing isolation is safe on every target.
+nonisolated struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     var id: UUID
     var title: String
     var folderKey: String?

@@ -4,7 +4,11 @@ import Foundation
 /// A `URLProtocol` that returns canned responses keyed by URL path suffix.
 /// Register a session via `URLProtocolStub.makeSession()` and stub responses
 /// with `URLProtocolStub.stub(pathSuffix:status:json:)`.
-final class URLProtocolStub: URLProtocol {
+// `nonisolated`: a `URLProtocol` subclass whose overrides (`canInit`, `startLoading`,
+// etc.) must match URLProtocol's nonisolated isolation. Under Swift 6 MainActor
+// default isolation the class would otherwise be inferred `@MainActor`, mismatching
+// every override. (URLProtocol drives these on URLSession's loading threads.)
+nonisolated final class URLProtocolStub: URLProtocol {
     struct Response {
         var status: Int
         var body: Data

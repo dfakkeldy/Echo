@@ -3,7 +3,9 @@ import XCTest
 import SwiftUI
 @testable import Echo
 
-final class CoverThemeBuilderTests: XCTestCase {
+// `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
+// init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
+nonisolated final class CoverThemeBuilderTests: XCTestCase {
 
     /// Fixed stand-in so tests don't depend on the asset-catalog brand color.
     private let brand = ColorMetrics.RGB(r: 1.0, g: 0.36, b: 0.0)

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
-#if canImport(MetricKit)
-import MetricKit
-#endif
 import OSLog
+
+#if canImport(MetricKit)
+    import MetricKit
+#endif
 
 @MainActor
 final class MetricKitDiagnosticsController: NSObject {
@@ -22,8 +23,8 @@ final class MetricKitDiagnosticsController: NSObject {
         isStarted = true
 
         #if canImport(MetricKit)
-        MXMetricManager.shared.add(self)
-        storeDiagnosticPayloads(MXMetricManager.shared.pastDiagnosticPayloads)
+            MXMetricManager.shared.add(self)
+            storeDiagnosticPayloads(MXMetricManager.shared.pastDiagnosticPayloads)
         #endif
     }
 
@@ -32,15 +33,15 @@ final class MetricKitDiagnosticsController: NSObject {
         isStarted = false
 
         #if canImport(MetricKit)
-        MXMetricManager.shared.remove(self)
+            MXMetricManager.shared.remove(self)
         #endif
     }
 
     deinit {
         #if canImport(MetricKit)
-        if isStarted {
-            MXMetricManager.shared.remove(self)
-        }
+            if isStarted {
+                MXMetricManager.shared.remove(self)
+            }
         #endif
     }
 
@@ -48,10 +49,13 @@ final class MetricKitDiagnosticsController: NSObject {
         do {
             let urls = try archive.storeDiagnosticPayloads(payloads, receivedAt: receivedAt)
             if !urls.isEmpty {
-                logger.info("Archived \(urls.count, privacy: .public) MetricKit diagnostic payload(s).")
+                logger.info(
+                    "Archived \(urls.count, privacy: .public) MetricKit diagnostic payload(s).")
             }
         } catch {
-            logger.error("MetricKit diagnostic archive failed: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "MetricKit diagnostic archive failed: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -65,20 +69,24 @@ final class MetricKitDiagnosticsController: NSObject {
 }
 
 #if canImport(MetricKit)
-extension MetricKitDiagnosticsController: MXMetricManagerSubscriber {
-    nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
-        Task { @MainActor [weak self] in
-            self?.storeDiagnosticPayloads(payloads)
+    extension MetricKitDiagnosticsController: MXMetricManagerSubscriber {
+        // `sending payloads`: the non-Sendable `[MXDiagnosticPayload]` arrives on this
+        // nonisolated callback and is transferred into the `@MainActor` Task. Marking
+        // the parameter `sending` lets the compiler verify the array is handed off
+        // exclusively (it is never used again here) rather than shared across actors.
+        nonisolated func didReceive(_ payloads: sending [MXDiagnosticPayload]) {
+            Task { @MainActor [weak self] in
+                self?.storeDiagnosticPayloads(payloads)
+            }
+        }
+
+        nonisolated func didReceive(_ payloads: [MXMetricPayload]) {
+            // The v1.0 crash-free gate needs diagnostics, while App Store Connect
+            // remains the source of aggregate crash-free session percentages.
+        }
+
+        private func storeDiagnosticPayloads(_ payloads: [MXDiagnosticPayload]) {
+            storePayloadData(payloads.map { Data($0.jsonRepresentation()) })
         }
     }
-
-    nonisolated func didReceive(_ payloads: [MXMetricPayload]) {
-        // The v1.0 crash-free gate needs diagnostics, while App Store Connect
-        // remains the source of aggregate crash-free session percentages.
-    }
-
-    private func storeDiagnosticPayloads(_ payloads: [MXDiagnosticPayload]) {
-        storePayloadData(payloads.map { Data($0.jsonRepresentation()) })
-    }
-}
 #endif
