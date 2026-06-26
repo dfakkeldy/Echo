@@ -113,13 +113,7 @@ import os.log
                             }
 
                             #if canImport(PhotosUI)
-                                PhotosPicker(selection: $selectedImageItem, matching: .images) {
-                                    Label(
-                                        bookmarkImageFileName == nil
-                                            ? String(localized: "Attach Image")
-                                            : String(localized: "Replace Image"),
-                                        systemImage: "photo.badge.plus")
-                                }
+                                imagePickerControl
                             #else
                                 Text("Image selection is unavailable on this platform.")
                                     .foregroundStyle(.secondary)
@@ -353,6 +347,19 @@ import os.log
                 isShowingAlert = true
             }
 
+            #if canImport(PhotosUI)
+                // `hasImage` is read here in the MainActor-isolated property body and
+                // passed into the picker as a plain Bool, so the PhotosPicker's
+                // Sendable label closure never references `bookmarkImageFileName`
+                // directly (Swift 6 strict concurrency).
+                private var imagePickerControl: some View {
+                    let hasImage = bookmarkImageFileName != nil
+                    return PhotosPicker(selection: $selectedImageItem, matching: .images) {
+                        AttachImageLabel(hasImage: hasImage)
+                    }
+                }
+            #endif
+
             #if canImport(PhotosUI) && canImport(UIKit)
                 private func importBookmarkImage(from item: PhotosPickerItem) async {
                     do {
@@ -471,6 +478,24 @@ import os.log
             }
 
         }
+
+        #if canImport(PhotosUI)
+            /// Value-driven label for the image PhotosPicker. Keeping it a separate
+            /// view (rather than an inline closure that reads `@State`) avoids a
+            /// "MainActor property referenced from a Sendable closure" warning under
+            /// Swift 6 strict concurrency.
+            private struct AttachImageLabel: View {
+                let hasImage: Bool
+
+                var body: some View {
+                    Label(
+                        hasImage
+                            ? String(localized: "Replace Image")
+                            : String(localized: "Attach Image"),
+                        systemImage: "photo.badge.plus")
+                }
+            }
+        #endif
     #endif
 
 #endif

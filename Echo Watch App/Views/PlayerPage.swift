@@ -707,7 +707,7 @@ struct NewBookmarkView: View {
     @State private var recorder = WatchVoiceMemoRecorder()
     @State private var alertMessage = ""
     @State private var isShowingAlert = false
-    @State private var quickBookmarkTimer: Timer?
+    @State private var quickBookmarkTask: Task<Void, Never>?
     @State private var quickBookmarkStartedAt = Date()
     @State private var quickBookmarkRemaining: TimeInterval = 0
     @State private var didCompleteQuickBookmark = false
@@ -818,24 +818,28 @@ struct NewBookmarkView: View {
     private func startQuickBookmarkTimer() {
         quickBookmarkRemaining = quickBookmarkTimeout
         quickBookmarkStartedAt = Date()
-        quickBookmarkTimer?.invalidate()
-        quickBookmarkTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
-            guard !recorder.isRecording, !didCompleteQuickBookmark else { return }
-            let elapsed = Date().timeIntervalSince(quickBookmarkStartedAt)
-            let remaining = max(0, quickBookmarkTimeout - elapsed)
-            quickBookmarkRemaining = remaining
-            if remaining <= 0 {
-                completeQuickBookmarkFromTimeout()
+        quickBookmarkTask?.cancel()
+        // A MainActor poll loop (not a Timer) so the countdown state mutations
+        // stay on the main actor under Swift 6 strict concurrency.
+        quickBookmarkTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(0.2))
+                guard !Task.isCancelled else { return }
+                guard !recorder.isRecording, !didCompleteQuickBookmark else { continue }
+                let elapsed = Date().timeIntervalSince(quickBookmarkStartedAt)
+                let remaining = max(0, quickBookmarkTimeout - elapsed)
+                quickBookmarkRemaining = remaining
+                if remaining <= 0 {
+                    completeQuickBookmarkFromTimeout()
+                    return
+                }
             }
-        }
-        if let quickBookmarkTimer {
-            RunLoop.main.add(quickBookmarkTimer, forMode: .common)
         }
     }
 
     private func cancelQuickBookmarkTimer() {
-        quickBookmarkTimer?.invalidate()
-        quickBookmarkTimer = nil
+        quickBookmarkTask?.cancel()
+        quickBookmarkTask = nil
     }
 
     private func completeQuickBookmarkFromTimeout() {
