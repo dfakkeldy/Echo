@@ -381,9 +381,9 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `Echo macOS/Views/MacTOCTreeView.swift`
 - Modify: `Echo macOS/Views/MacReaderFeedView.swift`
 
-- [ ] Convert row taps to `Button`, `NavigationLink`, or selection controls.
-- [ ] Use plain styles to preserve visual design without losing semantics.
-- [ ] Add keyboard shortcuts/focus behavior where macOS usage warrants it.
+- [x] Convert row taps to `Button`, `NavigationLink`, or selection controls.
+- [x] Use plain styles to preserve visual design without losing semantics.
+- [x] Add keyboard shortcuts/focus behavior where macOS usage warrants it.
 
 **Acceptance criteria:** selectable rows are announced as actionable controls and remain keyboard reachable.
 
