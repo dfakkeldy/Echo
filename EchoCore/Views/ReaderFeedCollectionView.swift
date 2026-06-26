@@ -2,6 +2,20 @@
 import SwiftUI
 import UIKit
 
+fileprivate struct ReaderSettingsSnapshot: Equatable {
+    var fontSize: Double
+    var lineSpacing: Double
+    var cardTintHex: String
+    var appFont: String
+
+    init(_ settings: ReaderSettings) {
+        fontSize = settings.fontSize
+        lineSpacing = settings.lineSpacing
+        cardTintHex = settings.cardTintHex
+        appFont = settings.appFont
+    }
+}
+
 /// UIViewRepresentable wrapping a UICollectionView that renders the EPUB reader feed.
 struct ReaderFeedCollectionView: UIViewRepresentable {
     var sections: [ReaderCardSection]
@@ -100,6 +114,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
         context.coordinator.onPlayMemo = onPlayMemo
         context.coordinator.offState = offState
+        let settingsSnapshot = ReaderSettingsSnapshot(settings)
+        let settingsChanged =
+            context.coordinator.settingsSnapshot.map { $0 != settingsSnapshot } ?? false
+        context.coordinator.settingsSnapshot = settingsSnapshot
         context.coordinator.settings = settings
         context.coordinator.onToggleChapter = onToggleChapter
         context.coordinator.chapterHasAudio = chapterHasAudio
@@ -136,7 +154,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         }
 
         context.coordinator.activeBlockID = activeBlockID
+        let searchChanged = searchQuery != context.coordinator.searchQuery
         context.coordinator.searchQuery = searchQuery
+        let shouldReconfigureReaderItems = settingsChanged || searchChanged
 
         if let pulseID = pulseBlockID, pulseID != context.coordinator.pulseBlockID {
             context.coordinator.pulseBlockID = pulseID
@@ -174,11 +194,14 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         if sections != context.coordinator.sections {
             let wasEmpty = context.coordinator.sections.isEmpty
             context.coordinator.sections = sections
-            let headerReconfigures =
+            var reconfigures =
                 openKeyChanged
                 ? [previousOpenKey, openChapterKey].compactMap { $0.map { "ch-\($0)" } } : []
+            if shouldReconfigureReaderItems {
+                reconfigures.append(contentsOf: context.coordinator.readerItemIDs())
+            }
             context.coordinator.applySnapshot(
-                animated: !wasEmpty, in: collectionView, reconfiguring: headerReconfigures)
+                animated: !wasEmpty, in: collectionView, reconfiguring: reconfigures)
 
             if wasEmpty, let firstSection = sections.first,
                 let title = firstSection.headingStack.first
@@ -187,14 +210,18 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     self.topChapterTitle = title
                 }
             }
-        } else if openKeyChanged {
+        } else if openKeyChanged || shouldReconfigureReaderItems {
             // Same section structure but a header chevron must flip (rare; e.g. a
             // chapter with no extra sub-sections).
+            var reconfigures =
+                openKeyChanged
+                ? [previousOpenKey, openChapterKey].compactMap { $0.map { "ch-\($0)" } } : []
+            if shouldReconfigureReaderItems {
+                reconfigures.append(contentsOf: context.coordinator.readerItemIDs())
+            }
             context.coordinator.applySnapshot(
-                animated: true, in: collectionView,
-                reconfiguring: [previousOpenKey, openChapterKey].compactMap {
-                    $0.map { "ch-\($0)" }
-                }
+                animated: openKeyChanged, in: collectionView,
+                reconfiguring: reconfigures
             )
         }
 
@@ -250,6 +277,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var topChapterThemeColor: Binding<String?>
         var settings: ReaderSettings = ReaderSettings(
             fontSize: 17, lineSpacing: 1.4, cardTintHex: "#F5F0E8", appFont: "System")
+        fileprivate var settingsSnapshot: ReaderSettingsSnapshot?
         var alignmentStatusByBlockID: [String: String] = [:]
         var audioStartTimeByBlockID: [String: TimeInterval] = [:]
         var chapterHasAudio: [Int: Bool] = [:]
@@ -300,6 +328,12 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 }
             }
             return nil
+        }
+
+        func readerItemIDs() -> [String] {
+            sections.flatMap { section in
+                section.items.map(\.id)
+            }
         }
 
         func cell(for itemID: String, at indexPath: IndexPath, collectionView: UICollectionView)
@@ -378,7 +412,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             withReuseIdentifier: HeadingCardCell.reuseIdentifier, for: indexPath
                         ) as? HeadingCardCell
                     else { return UICollectionViewCell() }
-                    let font = settings.uiFont(forTextStyle: .title3, weight: .semibold)
                     let cardTint =
                         UIColor(
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
@@ -386,7 +419,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     let headingWordIdx =
                         (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     headingCell.configure(
-                        with: block, font: font, tint: cardTint,
+                        with: block, settings: settings, tint: cardTint,
                         isExplicitHighlight: block.cardColor != nil
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: headingWordIdx)
@@ -428,7 +461,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             withReuseIdentifier: ParagraphCardCell.reuseIdentifier, for: indexPath
                         ) as? ParagraphCardCell
                     else { return UICollectionViewCell() }
-                    let font = settings.uiFont(forTextStyle: .body, weight: .regular)
                     let cardTint =
                         UIColor(
                             hex: block.cardColor ?? block.chapterThemeColor ?? settings.cardTintHex)
@@ -436,7 +468,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     let paraWordIdx =
                         (activeWord?.blockID == block.id) ? activeWord?.index : nil
                     paraCell.configure(
-                        with: block, font: font, tint: cardTint, lineSpacing: settings.lineSpacing,
+                        with: block, settings: settings, tint: cardTint,
                         isExplicitHighlight: block.cardColor != nil
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: paraWordIdx)
@@ -501,7 +533,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 snapshot.appendItems(section.items.map(\.id), toSection: section.id)
             }
             let present = Set(sections.flatMap { $0.items.map(\.id) })
-            let toReconfigure = reconfiguring.filter { present.contains($0) }
+            let current = Set(dataSource?.snapshot().itemIdentifiers ?? [])
+            var seen = Set<String>()
+            let toReconfigure = reconfiguring.filter { id in
+                present.contains(id) && current.contains(id) && seen.insert(id).inserted
+            }
             if !toReconfigure.isEmpty { snapshot.reconfigureItems(toReconfigure) }
             dataSource?.apply(snapshot, animatingDifferences: animated)
             Task { @MainActor in
@@ -553,9 +589,6 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         func updateActiveWord(
             _ word: (blockID: String, index: Int)?, in collectionView: UICollectionView
         ) {
-            let bodyFont = settings.uiFont(forTextStyle: .body, weight: .regular)
-            let headingFont = settings.uiFont(forTextStyle: .title3, weight: .semibold)
-
             // Clear the previously-highlighted cell when the active word leaves its
             // block (or goes to nil) — otherwise that paragraph's last word lingers.
             if let clearID = KaraokeHighlightTransition.blockToClear(
@@ -563,8 +596,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 let ip = dataSource?.indexPath(for: "b-\(clearID)"),
                 let prevCell = collectionView.cellForItem(at: ip)
             {
-                (prevCell as? ParagraphCardCell)?.applyWordHighlight(nil, baseFont: bodyFont)
-                (prevCell as? HeadingCardCell)?.applyWordHighlight(nil, baseFont: headingFont)
+                (prevCell as? ParagraphCardCell)?.applyWordHighlight(nil)
+                (prevCell as? HeadingCardCell)?.applyWordHighlight(nil)
             }
             lastHighlightedWordBlockID = word?.blockID
 
@@ -574,12 +607,12 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 let indexPath = dataSource.indexPath(for: "b-\(word.blockID)"),
                 let cell = collectionView.cellForItem(at: indexPath)
             else { return }
-            // Fonts mirror those `cell(for:)` builds for each cell kind so the
-            // highlighted word keeps the same metrics as the surrounding text.
+            // Each cell stores its current text configuration, so this only changes
+            // the highlight index and preserves the existing attributed font runs.
             if let para = cell as? ParagraphCardCell {
-                para.applyWordHighlight(word.index, baseFont: bodyFont)
+                para.applyWordHighlight(word.index)
             } else if let heading = cell as? HeadingCardCell {
-                heading.applyWordHighlight(word.index, baseFont: headingFont)
+                heading.applyWordHighlight(word.index)
             }
         }
 

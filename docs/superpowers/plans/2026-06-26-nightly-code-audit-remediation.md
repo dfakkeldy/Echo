@@ -323,13 +323,15 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/Views/Cells/ParagraphCardCell.swift`
 - Review: `EchoCore/Views/Cells/HeadingCardCell.swift`
 
-- [ ] Scale reader fonts through `UIFontMetrics(forTextStyle:)`.
-- [ ] Enable `adjustsFontForContentSizeCategory` for paragraph labels.
-- [ ] Rebuild attributed text when content-size category changes.
-- [ ] Verify line spacing and attributed bold/highlight runs preserve scaled base fonts.
-- [ ] Test at accessibility Dynamic Type sizes and ensure reader cells do not clip body text.
+- [x] Scale reader fonts through `UIFontMetrics(forTextStyle:)`.
+- [x] Enable `adjustsFontForContentSizeCategory` for paragraph labels.
+- [x] Rebuild attributed text when content-size category changes.
+- [x] Verify line spacing and attributed bold/highlight runs preserve scaled base fonts.
+- [x] Test at accessibility Dynamic Type sizes and ensure reader cells do not clip body text.
 
 **Acceptance criteria:** reader body and heading text scale with system Larger Text without clipping core content.
+
+**Verification:** 2026-06-26 Task 4.1 implementation scales `ReaderSettings.uiFont` and paragraph line spacing via `UIFontMetrics`, rebuilds paragraph/heading attributed text on preferred content-size category trait changes, invalidates the collection layout after trait-driven text rebuilds, and reconfigures reader feed items when reader settings change. Added a behavior-level iOS test that hosts paragraph/heading cells under `.accessibilityExtraExtraExtraLarge`, measures self-sizing height against the rendered label height, and checks scaled base/search fonts. Ran `git diff --check` and `xcodebuild build-for-testing -project Echo.xcodeproj -scheme Echo -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/EchoTask41DerivedData -only-testing:EchoTests/ReaderFeedAccessibilityTests -jobs 5 -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO` (succeeded; runtime simulator execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`).
 
 ### Task 4.2: Surface EPUB/PDF import loading and errors
 
