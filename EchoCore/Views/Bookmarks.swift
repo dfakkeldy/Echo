@@ -36,7 +36,7 @@ import os.log
 
             @State private var recorder: VoiceMemoRecorder?
             @State private var elapsed: TimeInterval = 0
-            @State private var elapsedTimer: Timer?
+            @State private var elapsedTask: Task<Void, Never>?
             @State private var previewPlayer: SnippetPlayer? = nil
             @State private var isPreviewPlaying: Bool = false
             /// Tracks whether the main audiobook player was playing when we started
@@ -113,13 +113,7 @@ import os.log
                             }
 
                             #if canImport(PhotosUI)
-                                PhotosPicker(selection: $selectedImageItem, matching: .images) {
-                                    Label(
-                                        bookmarkImageFileName == nil
-                                            ? String(localized: "Attach Image")
-                                            : String(localized: "Replace Image"),
-                                        systemImage: "photo.badge.plus")
-                                }
+                                imagePickerControl
                             #else
                                 Text("Image selection is unavailable on this platform.")
                                     .foregroundStyle(.secondary)
@@ -272,11 +266,16 @@ import os.log
                     try r.start()
                     recorder = r
                     elapsed = 0
-                    elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) {
-                        _ in
-                        Task { @MainActor in
-                            guard self.recorder?.isRecording == true else { return }
-                            self.elapsed += 0.2
+                    elapsedTask?.cancel()
+                    elapsedTask = Task { @MainActor in
+                        while !Task.isCancelled {
+                            do {
+                                try await Task.sleep(for: .milliseconds(200))
+                            } catch {
+                                return
+                            }
+                            guard recorder?.isRecording == true else { return }
+                            elapsed += 0.2
                         }
                     }
                 } catch {
@@ -285,8 +284,8 @@ import os.log
             }
 
             private func stopElapsedTimer() {
-                elapsedTimer?.invalidate()
-                elapsedTimer = nil
+                elapsedTask?.cancel()
+                elapsedTask = nil
             }
 
             private func saveVoiceMemo() {
@@ -347,6 +346,19 @@ import os.log
                 alertMessage = message
                 isShowingAlert = true
             }
+
+            #if canImport(PhotosUI)
+                // `hasImage` is read here in the MainActor-isolated property body and
+                // passed into the picker as a plain Bool, so the PhotosPicker's
+                // Sendable label closure never references `bookmarkImageFileName`
+                // directly (Swift 6 strict concurrency).
+                private var imagePickerControl: some View {
+                    let hasImage = bookmarkImageFileName != nil
+                    return PhotosPicker(selection: $selectedImageItem, matching: .images) {
+                        AttachImageLabel(hasImage: hasImage)
+                    }
+                }
+            #endif
 
             #if canImport(PhotosUI) && canImport(UIKit)
                 private func importBookmarkImage(from item: PhotosPickerItem) async {
@@ -466,6 +478,24 @@ import os.log
             }
 
         }
+
+        #if canImport(PhotosUI)
+            /// Value-driven label for the image PhotosPicker. Keeping it a separate
+            /// view (rather than an inline closure that reads `@State`) avoids a
+            /// "MainActor property referenced from a Sendable closure" warning under
+            /// Swift 6 strict concurrency.
+            private struct AttachImageLabel: View {
+                let hasImage: Bool
+
+                var body: some View {
+                    Label(
+                        hasImage
+                            ? String(localized: "Replace Image")
+                            : String(localized: "Attach Image"),
+                        systemImage: "photo.badge.plus")
+                }
+            }
+        #endif
     #endif
 
 #endif

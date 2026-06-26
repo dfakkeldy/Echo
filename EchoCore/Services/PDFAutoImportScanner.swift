@@ -219,7 +219,11 @@ enum PDFAutoImportScanner {
     }
 
     /// Sanitizes a filesystem path for safe logging.
-    private static func sanitizedPath(_ path: String) -> String {
+    // `nonisolated`: pure string helper called from `PDFAutoImportError.errorDescription`,
+    // a `nonisolated` `LocalizedError` requirement. Under the iOS target's Swift 6
+    // MainActor default isolation the enclosing enum (and thus this static) is inferred
+    // `@MainActor`, which the nonisolated error path cannot call. (Same fix as SafeFileName.)
+    private nonisolated static func sanitizedPath(_ path: String) -> String {
         let home = NSHomeDirectory()
         if path.hasPrefix(home) {
             return "~" + path.dropFirst(home.count)

@@ -13,7 +13,11 @@ final class SecurityScopeManager {
     private var hasParentAccess: Bool = false
     private var parentURL: URL?
 
-    deinit {
+    // The class is inferred `@MainActor` under the project's MainActor default
+    // isolation, so a plain nonisolated `deinit` cannot call the MainActor
+    // `stopAll()`. `isolated deinit` (SE-0371) runs the deinit on the actor,
+    // letting it release all security-scoped grants safely.
+    isolated deinit {
         stopAll()
     }
 

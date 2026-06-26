@@ -507,4 +507,5 @@ Goal: connect a self-hosted **Audiobookshelf (ABS)** server as a first-class lib
 - **Pomodoro Timer** — Hours support, multi-wheel picker, thicker progress indicator, dynamic formatting, persistent alarm
 - **Watch Enhancements** — Fullscreen cover art viewer, configurable date overlay
 - **Swift Concurrency Modernized** — `MainActor.assumeIsolated` across 9 service files, `nonisolated(unsafe)` annotations, `@preconcurrency import AVFoundation` project-wide
+- **Swift 6 Language Mode** — all Echo-owned targets (`Echo`, tests, `Echo WidgetExtension`, `Echo Watch App` + tests, `Echo macOS`, `echo-cli`) flipped to Swift 6 language mode + explicit `SWIFT_STRICT_CONCURRENCY = complete`; SwiftPM deps left on their own modes; floors preserved (iOS 18 / macOS 15 / watchOS 11). Blockers fixed with `isolated deinit` / `nonisolated` value types / `sending` / Timer→`Task` / `Mutex` — no `nonisolated(unsafe)` or `@unchecked Sendable` introduced
 - **Bug Fixes** — Pause on output device disconnect, progress save before track change, EPUB auto-import security scope, security scope URL reuse, TokenDTW gap-cost initialization

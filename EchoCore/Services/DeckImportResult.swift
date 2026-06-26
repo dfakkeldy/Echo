@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-struct ImportDeckResult: Equatable, Sendable {
+// `nonisolated`: pure `Sendable` value result. Under the iOS target's Swift 6
+// MainActor default isolation its init would be inferred `@MainActor`, which the
+// `nonisolated ApkgImportService` cannot call.
+nonisolated struct ImportDeckResult: Equatable, Sendable {
     let importedCount: Int
     let anchoredCount: Int
     let warningCount: Int
@@ -15,7 +18,9 @@ struct ImportDeckResult: Equatable, Sendable {
     }
 }
 
-enum ImportDeckWarning: Equatable, Sendable {
+// `nonisolated`: pure `Sendable` value enum, built/compared off-actor by the
+// `nonisolated` import service.
+nonisolated enum ImportDeckWarning: Equatable, Sendable {
     case sourceAnchorUnresolved(cardReference: String, sourceAnchor: String)
     case sourceAnchorWrongBook(cardReference: String, sourceAnchor: String)
     case sourceAnchorMalformed(cardReference: String, sourceAnchor: String)

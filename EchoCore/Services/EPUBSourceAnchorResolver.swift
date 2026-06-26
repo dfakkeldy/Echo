@@ -2,7 +2,11 @@
 import Foundation
 import GRDB
 
-struct EPUBSourceAnchorResolver: Sendable {
+// `nonisolated`: a pure GRDB-reading resolver (`DatabaseReader` is Sendable, the
+// `Database` params are used synchronously). Under the iOS target's Swift 6 MainActor
+// default isolation it would be inferred `@MainActor`, which the `nonisolated`
+// `ApkgImportService` (and its `writer.write` closure) cannot call.
+nonisolated struct EPUBSourceAnchorResolver: Sendable {
     private let dbReader: any DatabaseReader
 
     init(dbReader: any DatabaseReader) {
@@ -91,7 +95,8 @@ struct EPUBSourceAnchorResolver: Sendable {
     }
 }
 
-enum EPUBSourceAnchorResolution: Equatable, Sendable {
+// `nonisolated`: pure `Sendable` value result consumed off-actor by the import service.
+nonisolated enum EPUBSourceAnchorResolution: Equatable, Sendable {
     case none
     case resolved(String)
     case unresolved(ImportDeckWarning)

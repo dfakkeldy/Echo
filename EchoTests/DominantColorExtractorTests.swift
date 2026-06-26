@@ -4,7 +4,9 @@ import SwiftUI
 import UIKit
 @testable import Echo
 
-final class DominantColorExtractorTests: XCTestCase {
+// `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
+// init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
+nonisolated final class DominantColorExtractorTests: XCTestCase {
 
     private func solidImage(_ color: UIColor, size: CGSize = CGSize(width: 16, height: 16)) -> UIImage {
         UIGraphicsImageRenderer(size: size).image { ctx in

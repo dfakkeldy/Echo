@@ -202,7 +202,11 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
         return spectrum
     }
 
-    deinit {
+    // The class is inferred `@MainActor` under the project's MainActor default
+    // isolation, so a plain nonisolated `deinit` cannot call the MainActor
+    // `removeTap()`. `isolated deinit` (SE-0371) runs the deinit on the actor,
+    // letting it remove the tap and free the FFT setup safely.
+    isolated deinit {
         removeTap()
         if let fftSetup {
             vDSP_destroy_fftsetup(fftSetup)

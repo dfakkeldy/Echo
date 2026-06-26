@@ -14,6 +14,7 @@ import AVFoundation
 import AppKit
 import Foundation
 import Observation
+import Synchronization
 import UniformTypeIdentifiers
 import os.log
 
@@ -247,30 +248,29 @@ final class MacPlayerModel {
         guard let item = player?.currentItem else { return }
         if item.status == .readyToPlay, duration > 0 { return }
 
+        // The KVO status callback and the timeout below are two independent
+        // resumers of the same continuation — a CheckedContinuation traps on
+        // double resume. `ReadyToPlayGuard` is a Sendable Mutex-backed once-flag
+        // that owns the continuation + observer so a single resume (and observer
+        // invalidation) happens exactly once; KVO is not guaranteed to deliver on
+        // the main thread (audit §3.8). The guard is Sendable because both the
+        // @Sendable KVO closure and the timeout Task cross isolation to reach it
+        // (Swift 6 strict concurrency).
+        let guardBox = ReadyToPlayGuard()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var observer: NSKeyValueObservation?
-            var didResume = false
-            // The KVO status callback and the timeout below are two independent
-            // resumers of the same continuation — a CheckedContinuation traps on
-            // double resume. Funnel both through `finish()` on the main queue so a
-            // single flag resumes (and invalidates the observer) exactly once;
-            // KVO is not guaranteed to deliver on the main thread (audit §3.8).
-            func finish() {
-                guard !didResume else { return }
-                didResume = true
-                observer?.invalidate()
-                continuation.resume()
-            }
-            observer = item.observe(\.status, options: [.new]) { observedItem, _ in
+            let observer = item.observe(\.status, options: [.new]) { observedItem, _ in
                 guard observedItem.status == .readyToPlay || observedItem.status == .failed else {
                     return
                 }
-                DispatchQueue.main.async { finish() }
+                guardBox.resume()
             }
             // Safety timeout — resume after 10 s if status never settles.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                finish()
+            // Swift Concurrency (cancellable Task) instead of GCD asyncAfter.
+            let timeout = Task {
+                try? await Task.sleep(for: .seconds(10))
+                guardBox.resume()
             }
+            guardBox.arm(continuation: continuation, observer: observer, timeout: timeout)
         }
     }
 
@@ -867,5 +867,75 @@ final class MacPlayerModel {
         loadBookmarksFromDB()
         Logger(category: "MacPlayerModel").info(
             "Migrated \(legacy.count) legacy bookmarks to shared database")
+    }
+}
+
+// MARK: - ReadyToPlayGuard
+
+/// Single-resume guard for `waitForReadyToPlay()`. The KVO status callback and
+/// the timeout `Task` are two independent resumers of one `CheckedContinuation`,
+/// which traps on a double resume. This `Sendable` Mutex-backed box owns the
+/// continuation, the KVO observer, and the timeout so the *first* caller wins:
+/// it invalidates the observer, cancels the timeout, and resumes exactly once.
+/// It is `Sendable` (not main-actor-isolated) because the `@Sendable` KVO
+/// closure and the timeout `Task` both reach it across isolation boundaries
+/// under Swift 6 strict concurrency.
+private nonisolated final class ReadyToPlayGuard: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Void, Never>?
+        var observer: NSKeyValueObservation?
+        var timeout: Task<Void, Never>?
+        var resumed = false
+        /// Set when `resume()` fires before `arm()` has stored the continuation,
+        /// so `arm()` can resume immediately rather than dropping the signal.
+        var pendingResume = false
+    }
+
+    private let state = Mutex(State())
+
+    /// Stores the continuation + cancellables. If a resumer already fired before
+    /// arming, resume right away (and tear down) so we never wait forever.
+    func arm(
+        continuation: CheckedContinuation<Void, Never>,
+        observer: NSKeyValueObservation,
+        timeout: Task<Void, Never>
+    ) {
+        let resumeNow: Bool = state.withLock { s in
+            if s.pendingResume {
+                s.resumed = true
+                return true
+            }
+            s.continuation = continuation
+            s.observer = observer
+            s.timeout = timeout
+            return false
+        }
+        if resumeNow {
+            observer.invalidate()
+            timeout.cancel()
+            continuation.resume()
+        }
+    }
+
+    /// Resumes the continuation exactly once and tears down the observer/timeout.
+    func resume() {
+        let toResume: CheckedContinuation<Void, Never>? = state.withLock { s in
+            guard !s.resumed else { return nil }
+            s.resumed = true
+            guard let continuation = s.continuation else {
+                // Fired before `arm()`; let `arm()` resume when it stores it.
+                s.pendingResume = true
+                s.resumed = false
+                return nil
+            }
+            s.observer?.invalidate()
+            s.observer = nil
+            s.timeout?.cancel()
+            s.timeout = nil
+            let continuationToResume = continuation
+            s.continuation = nil
+            return continuationToResume
+        }
+        toResume?.resume()
     }
 }

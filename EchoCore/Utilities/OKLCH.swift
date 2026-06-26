@@ -11,12 +11,16 @@ import Foundation
 /// Reference: Björn Ottosson, "A perceptual color space for image
 /// processing" (bottosson.github.io/posts/oklab). Matrix constants are his
 /// published sRGB D65 values.
-enum OKLCH {
+// `nonisolated`: pure color math (and the nested `LCH` value type). Under the iOS
+// target's Swift 6 MainActor default isolation these would be inferred `@MainActor`,
+// which blocks the nonisolated unit tests (and other off-actor callers) from using
+// them. Pure value computation — relaxing isolation is correct everywhere.
+nonisolated enum OKLCH {
 
     struct LCH: Equatable {
-        var L: Double   // 0…1 perceptual lightness
-        var C: Double   // chroma; ≲0.37 inside sRGB
-        var H: Double   // hue angle, degrees, 0…<360
+        var L: Double  // 0…1 perceptual lightness
+        var C: Double  // chroma; ≲0.37 inside sRGB
+        var H: Double  // hue angle, degrees, 0…<360
     }
 
     // MARK: - Public API

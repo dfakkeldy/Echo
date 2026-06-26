@@ -83,4 +83,32 @@ import Testing
             ])
         #expect(late.items == [.compilingModels(done: 1, total: 2), .ready])
     }
+
+    /// Terminal-replay: a subscriber added AFTER `.ready` has already been emitted
+    /// must immediately receive `.ready` via replay, not be silently dropped.
+    /// This defends against a race where a caller joins after the engine's prepare
+    /// task completes; without replay the subscriber sees nothing and a UI spinner
+    /// could stall indefinitely.
+    @Test func lateJoinerAfterReadyGetsTerminalReplay() {
+        let fan = ProgressFanOut()
+        fan.emit(.ready)  // terminal event emitted before any subscriber exists
+        let box = ProgressBox()
+        fan.add { box.append($0) }  // late joiner — after .ready
+        #expect(box.items == [.ready])
+    }
+
+    /// `clear()` must reset the stored terminal state too, not just the subscriber
+    /// list — otherwise a recycled fan-out would replay a stale `.ready` to a new
+    /// subscriber and skip intermediate progress. After clear() a fresh subscriber
+    /// receives nothing until new events are emitted, proving the box is reusable.
+    @Test func clearResetsTerminalReplay() {
+        let fan = ProgressFanOut()
+        fan.emit(.ready)
+        fan.clear()
+        let box = ProgressBox()
+        fan.add { box.append($0) }  // after clear — must NOT get a stale .ready replay
+        #expect(box.items.isEmpty)
+        fan.emit(.downloadingModels(fraction: 0.1))  // box is reusable post-clear
+        #expect(box.items == [.downloadingModels(fraction: 0.1)])
+    }
 }

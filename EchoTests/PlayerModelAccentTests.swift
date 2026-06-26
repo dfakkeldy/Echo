@@ -4,9 +4,12 @@ import XCTest
 
 @testable import Echo
 
-@MainActor
-final class PlayerModelAccentTests: XCTestCase {
+// `nonisolated` class (not `@MainActor`): an XCTestCase subclass must keep its
+// inits nonisolated to match `XCTestCase`. The individual tests that touch the
+// `@MainActor` `PlayerModel`/`SettingsManager` are annotated `@MainActor` instead.
+nonisolated final class PlayerModelAccentTests: XCTestCase {
 
+    @MainActor
     private func settings(themeColor: ThemeColor) throws -> SettingsManager {
         let suiteName = "PlayerModelAccentTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -16,12 +19,14 @@ final class PlayerModelAccentTests: XCTestCase {
         return settings
     }
 
+    @MainActor
     func testNilAccentWithoutArtwork() {
         let model = PlayerModel()
         XCTAssertNil(model.artworkAccentColor)
         XCTAssertNil(model.artworkAccentColorHex)
     }
 
+    @MainActor
     func testUIColorSchemeDefaultsToLightAndIsSettable() {
         let model = PlayerModel()
         XCTAssertEqual(model.uiColorScheme, .light)
@@ -29,12 +34,14 @@ final class PlayerModelAccentTests: XCTestCase {
         XCTAssertEqual(model.uiColorScheme, .dark)
     }
 
+    @MainActor
     func testCoverThemeWithoutArtworkIsNeutralFallback() {
         let model = PlayerModel()
         XCTAssertTrue(model.coverTheme.isNeutralFallback)
         XCTAssertNil(model.artworkAccentColor)
     }
 
+    @MainActor
     func testCoverThemeChangesWithScheme() {
         let model = PlayerModel()
         model.uiColorScheme = .light
@@ -44,6 +51,7 @@ final class PlayerModelAccentTests: XCTestCase {
         XCTAssertNotEqual(light, dark)
     }
 
+    @MainActor
     func testResolvedThemeTintUsesCoverThemeAccentWhenArtworkSelected() throws {
         let model = PlayerModel()
         let settings = try settings(themeColor: .artwork)
@@ -54,6 +62,7 @@ final class PlayerModelAccentTests: XCTestCase {
         XCTAssertEqual(ColorMetrics.rgb(tint), ColorMetrics.rgb(model.coverTheme.accent))
     }
 
+    @MainActor
     func testThemeColorSettingsSummaryKeepsArtworkDistinctFromSystem() {
         XCTAssertEqual(ThemeColor.artwork.settingsSummaryTitle, "Artwork")
         XCTAssertEqual(ThemeColor.system.settingsSummaryTitle, "System")

@@ -1,6 +1,6 @@
+import AVFoundation
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
-import AVFoundation
 
 // MARK: - Ingestion Error
 
@@ -75,35 +75,37 @@ struct EPUBBlockIngestionStrategy: TimelineIngestionStrategy {
 
         let anchorByBlockID: [String: AlignmentAnchorRecord] = {
             guard let anchors = alignmentAnchors else { return [:] }
-            return Dictionary(anchors.map { ($0.epubBlockID, $0) }, uniquingKeysWith: { first, _ in first })
+            return Dictionary(
+                anchors.map { ($0.epubBlockID, $0) }, uniquingKeysWith: { first, _ in first })
         }()
 
         // 1. Chapter markers
         for chapter in chapters {
-            items.append(TimelineItem(
-                id: "chapterMarker-\(audiobookID)-\(chapter.index)",
-                audiobookID: audiobookID,
-                itemType: .chapterMarker,
-                title: chapter.title ?? "Chapter \(chapter.index + 1)",
-                subtitle: nil,
-                textPayload: nil,
-                imagePath: nil,
-                audioStartTime: chapter.startSeconds,
-                audioEndTime: chapter.endSeconds,
-                epubSequenceIndex: nil,
-                granularityLevel: .chapter,
-                playlistPosition: nil,
-                isEnabled: chapter.isEnabled,
-                sourceTable: "chapter",
-                sourceRowid: String(chapter.index),
-                metadataJSON: nil,
-                epubBlockID: nil,
-                timestampSource: TimestampSource.estimated.rawValue,
-                alignmentStatus: AlignmentStatus.estimated.rawValue,
-                alignmentConfidence: nil,
-                createdAt: nil,
-                modifiedAt: nil
-            ))
+            items.append(
+                TimelineItem(
+                    id: "chapterMarker-\(audiobookID)-\(chapter.index)",
+                    audiobookID: audiobookID,
+                    itemType: .chapterMarker,
+                    title: chapter.title ?? "Chapter \(chapter.index + 1)",
+                    subtitle: nil,
+                    textPayload: nil,
+                    imagePath: nil,
+                    audioStartTime: chapter.startSeconds,
+                    audioEndTime: chapter.endSeconds,
+                    epubSequenceIndex: nil,
+                    granularityLevel: .chapter,
+                    playlistPosition: nil,
+                    isEnabled: chapter.isEnabled,
+                    sourceTable: "chapter",
+                    sourceRowid: String(chapter.index),
+                    metadataJSON: nil,
+                    epubBlockID: nil,
+                    timestampSource: TimestampSource.estimated.rawValue,
+                    alignmentStatus: AlignmentStatus.estimated.rawValue,
+                    alignmentConfidence: nil,
+                    createdAt: nil,
+                    modifiedAt: nil
+                ))
         }
 
         // 2. EPUB blocks → timeline items (preferred feed source)
@@ -203,7 +205,8 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
         if let enhanced = enhancedTranscript, !enhanced.isEmpty {
             for segment in enhanced {
                 let item = TimelineItem(
-                    id: "textSegment-\(audiobookID)-\(segment.startTime ?? 0)-\(segment.endTime ?? 0)",
+                    id:
+                        "textSegment-\(audiobookID)-\(segment.startTime ?? 0)-\(segment.endTime ?? 0)",
                     audiobookID: audiobookID,
                     itemType: .textSegment,
                     title: segment.text,
@@ -220,8 +223,11 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
                     sourceRowid: segment.id,
                     metadataJSON: encodeMarkers(segment.markers),
                     epubBlockID: nil,
-                    timestampSource: segment.startTime != nil ? TimestampSource.transcript.rawValue : TimestampSource.none.rawValue,
-                    alignmentStatus: segment.startTime != nil ? AlignmentStatus.lockedAnchor.rawValue : AlignmentStatus.unaligned.rawValue,
+                    timestampSource: segment.startTime != nil
+                        ? TimestampSource.transcript.rawValue : TimestampSource.none.rawValue,
+                    alignmentStatus: segment.startTime != nil
+                        ? AlignmentStatus.lockedAnchor.rawValue
+                        : AlignmentStatus.unaligned.rawValue,
                     alignmentConfidence: nil,
                     createdAt: nil,
                     modifiedAt: nil
@@ -249,8 +255,12 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
                             sourceRowid: segment.id,
                             metadataJSON: nil,
                             epubBlockID: nil,
-                            timestampSource: segment.startTime != nil ? TimestampSource.transcript.rawValue : TimestampSource.none.rawValue,
-                            alignmentStatus: segment.startTime != nil ? AlignmentStatus.lockedAnchor.rawValue : AlignmentStatus.unaligned.rawValue,
+                            timestampSource: segment.startTime != nil
+                                ? TimestampSource.transcript.rawValue
+                                : TimestampSource.none.rawValue,
+                            alignmentStatus: segment.startTime != nil
+                                ? AlignmentStatus.lockedAnchor.rawValue
+                                : AlignmentStatus.unaligned.rawValue,
                             alignmentConfidence: nil,
                             createdAt: nil,
                             modifiedAt: nil
@@ -300,7 +310,8 @@ struct RichIngestionStrategy: TimelineIngestionStrategy {
             ["type": $0.type.rawValue, "payload": $0.payload, "epubCharOffset": $0.epubCharOffset]
         }
         if let data = try? JSONSerialization.data(withJSONObject: encodable),
-           let json = String(data: data, encoding: .utf8) {
+            let json = String(data: data, encoding: .utf8)
+        {
             return json
         }
         return nil
@@ -356,7 +367,9 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
             sequenceIndex += 1
 
             if let imageData = chapterImages[chapter.index],
-               let savedPath = saveChapterImage(imageData, audiobookID: audiobookID, chapterIndex: chapter.index) {
+                let savedPath = saveChapterImage(
+                    imageData, audiobookID: audiobookID, chapterIndex: chapter.index)
+            {
                 let imageItem = TimelineItem(
                     id: "imageAsset-chapter-\(audiobookID)-\(chapter.index)",
                     audiobookID: audiobookID,
@@ -398,9 +411,11 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
     }
 
     private func saveChapterImage(_ data: Data, audiobookID: String, chapterIndex: Int) -> String? {
-        guard let cacheDir = FileManager.default.urls(
-            for: .cachesDirectory, in: .userDomainMask
-        ).first?.appendingPathComponent("ChapterArtwork") else { return nil }
+        guard
+            let cacheDir = FileManager.default.urls(
+                for: .cachesDirectory, in: .userDomainMask
+            ).first?.appendingPathComponent("ChapterArtwork")
+        else { return nil }
 
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
@@ -420,7 +435,14 @@ struct SparseIngestionStrategy: TimelineIngestionStrategy {
 // MARK: - Chapter Image Extractor
 
 enum ChapterImageExtractor {
-    static func extractChapterArtwork(from asset: AVAsset) async -> [Int: Data] {
+    // `@concurrent` + `sending`: same rationale as `ChapterService.parseChapters`.
+    // `AVAsset.loadChapterMetadataGroups` is `@concurrent`, so forwarding a
+    // non-Sendable `AVAsset` to it from an actor-isolated region is a data race.
+    // Running the whole extractor on the global executor keeps `asset` in one
+    // non-actor region; `sending` lets the caller transfer its fresh local asset in.
+    @concurrent
+    nonisolated static func extractChapterArtwork(from asset: sending AVAsset) async -> [Int: Data]
+    {
         var result: [Int: Data] = [:]
 
         do {

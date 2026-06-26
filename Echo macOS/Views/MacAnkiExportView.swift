@@ -7,9 +7,9 @@
 //  to AnkiConnect (if the Anki addon is running on localhost:8765).
 //
 
+import GRDB
 import SwiftUI
 import UniformTypeIdentifiers
-import GRDB
 
 struct MacAnkiExportView: View {
     @Environment(DatabaseService.self) private var dbService
@@ -32,8 +32,11 @@ struct MacAnkiExportView: View {
 
             if !ankiStatusMessage.isEmpty {
                 HStack(spacing: 6) {
-                    Image(systemName: ankiConnectAvailable ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                        .foregroundStyle(ankiConnectAvailable ? .green : .orange)
+                    Image(
+                        systemName: ankiConnectAvailable
+                            ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+                    )
+                    .foregroundStyle(ankiConnectAvailable ? .green : .orange)
                     Text(ankiStatusMessage)
                         .font(.caption)
                 }
@@ -109,7 +112,8 @@ struct MacAnkiExportView: View {
             let reachable = try await AnkiConnectBridge.healthCheck()
             await MainActor.run {
                 ankiConnectAvailable = reachable
-                ankiStatusMessage = reachable
+                ankiStatusMessage =
+                    reachable
                     ? "AnkiConnect detected on localhost:8765"
                     : "AnkiConnect not available — export to file instead"
             }
@@ -135,10 +139,13 @@ struct MacAnkiExportView: View {
             guard response == .OK, let url = panel.url else { return }
 
             isExporting = true
+            let selectedDeckIDsSnapshot = selectedDeckIDs
+            let writer = dbService.writer
             Task {
                 do {
                     let service = MacApkgExportService()
-                    let apkgURL = try await service.export(deckIDs: Array(selectedDeckIDs), db: dbService.writer)
+                    let apkgURL = try await service.export(
+                        deckIDs: Array(selectedDeckIDsSnapshot), db: writer)
 
                     // Copy to user-chosen location
                     try? FileManager.default.removeItem(at: url)
@@ -164,13 +171,16 @@ struct MacAnkiExportView: View {
         exportError = nil
         isExporting = true
 
+        let selectedDeckIDsSnapshot = selectedDeckIDs
+        let decksSnapshot = decks
         Task {
             do {
                 // Load flashcards for selected decks
                 let cards: [Flashcard] = try await dbService.readAsync { db in
                     var allCards: [Flashcard] = []
-                    for deckID in selectedDeckIDs {
-                        let deckCards = try Flashcard
+                    for deckID in selectedDeckIDsSnapshot {
+                        let deckCards =
+                            try Flashcard
                             .filter(Column("deck_id") == deckID)
                             .fetchAll(db)
                         allCards.append(contentsOf: deckCards)
@@ -188,8 +198,8 @@ struct MacAnkiExportView: View {
 
                 // Get deck names
                 var deckNames: [String: String] = [:]
-                for deckID in selectedDeckIDs {
-                    if let deck = decks.first(where: { $0.id == deckID }) {
+                for deckID in selectedDeckIDsSnapshot {
+                    if let deck = decksSnapshot.first(where: { $0.id == deckID }) {
                         deckNames[deckID] = deck.name
                     }
                 }
@@ -240,7 +250,8 @@ private struct AnkiConnectBridge {
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+                httpResponse.statusCode == 200
+            else {
                 return false
             }
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -273,12 +284,12 @@ private struct AnkiConnectBridge {
                 "modelName": "Basic",
                 "fields": [
                     "Front": card.frontText,
-                    "Back": card.backText
+                    "Back": card.backText,
                 ],
                 "tags": ["echo", "echo-imported"],
                 "options": [
                     "allowDuplicate": false
-                ]
+                ],
             ]
             notes.append(note)
         }
@@ -289,13 +300,14 @@ private struct AnkiConnectBridge {
             let body: [String: Any] = [
                 "action": "addNotes",
                 "version": 6,
-                "params": ["notes": chunk]
+                "params": ["notes": chunk],
             ]
             let request = try Self.makeURLRequest(with: body)
             let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+                httpResponse.statusCode == 200
+            else {
                 throw AnkiConnectError.requestFailed
             }
 
@@ -324,7 +336,9 @@ private struct AnkiConnectBridge {
 
         var errorDescription: String? {
             switch self {
-            case .requestFailed: return "Failed to connect to AnkiConnect. Make sure Anki is running with the AnkiConnect addon installed."
+            case .requestFailed:
+                return
+                    "Failed to connect to AnkiConnect. Make sure Anki is running with the AnkiConnect addon installed."
             case .apiError(let msg): return "AnkiConnect error: \(msg)"
             case .notRunning: return "AnkiConnect is not reachable on localhost:8765"
             }
@@ -334,8 +348,8 @@ private struct AnkiConnectBridge {
 
 // MARK: - Array Chunking
 
-private extension Array {
-    func chunked(into size: Int) -> [[Element]] {
+extension Array {
+    fileprivate func chunked(into size: Int) -> [[Element]] {
         stride(from: 0, to: count, by: size).map {
             Array(self[$0..<Swift.min($0 + size, count)])
         }

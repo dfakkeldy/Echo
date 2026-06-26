@@ -10,15 +10,22 @@ import GRDB
 /// `event_type='play'` rows whose inter-row wall-clock gap is <= `gapThreshold`.
 /// Route comes from `session_location` (FK -> playback_event.id); chapter range
 /// from a `chapter` overlap join; counts from `created_at` in the session window.
-struct SessionSummaryService {
+// `nonisolated`: a pure, stateless GRDB-reading service. It is invoked from a
+// background `Task.detached` (see SessionsListView), so under the iOS target's
+// Swift 6 MainActor default isolation it must not be inferred `@MainActor` — a
+// detached task cannot call a main-actor method. `DatabaseWriter` is `Sendable`,
+// so the type carries no main-actor state. (No-op on the still-Swift-5 targets.)
+nonisolated struct SessionSummaryService {
     let db: DatabaseWriter
-
-    private static let iso = ISO8601DateFormatter()
 
     /// Returns sessions newest-first.
     func sessions(audiobookID: String, gapThreshold: TimeInterval = 300) throws -> [SessionSummary]
     {
-        try db.read { db in
+        // A local formatter rather than a shared `static` one: a non-Sendable
+        // `ISO8601DateFormatter` static would not be concurrency-safe now that the
+        // type is `nonisolated`. It is created once per call and reused within it.
+        let iso = ISO8601DateFormatter()
+        return try db.read { db in
             // 1. Pull closed play segments, oldest-first, to group on gaps.
             let segmentRows = try Row.fetchAll(
                 db,
@@ -45,8 +52,8 @@ struct SessionSummaryService {
                 guard
                     let startStr: String = row["started_at"],
                     let endStr: String = row["ended_at"],
-                    let start = Self.iso.date(from: startStr),
-                    let end = Self.iso.date(from: endStr)
+                    let start = iso.date(from: startStr),
+                    let end = iso.date(from: endStr)
                 else { return nil }
                 return Segment(
                     eventID: row["id"],
@@ -87,8 +94,8 @@ struct SessionSummaryService {
                         return acc + (s.speed > 0 ? dur / s.speed : dur)
                     } / 60.0
 
-                let startStr = Self.iso.string(from: startedAt)
-                let endStr = Self.iso.string(from: endedAt)
+                let startStr = iso.string(from: startedAt)
+                let endStr = iso.string(from: endedAt)
 
                 // 3a. Chapter range via overlap join.
                 let chapterRow = try Row.fetchOne(
@@ -129,7 +136,7 @@ struct SessionSummaryService {
                 let route: [SessionRoutePoint] = routeRows.compactMap { row in
                     guard
                         let createdStr: String = row["created_at"],
-                        let ts = Self.iso.date(from: createdStr)
+                        let ts = iso.date(from: createdStr)
                     else { return nil }
                     return SessionRoutePoint(
                         latitude: row["latitude"],

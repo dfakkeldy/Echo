@@ -4,7 +4,9 @@ import Foundation
 // MARK: - ChapterGroupingResult
 
 /// The output of `ChapterGroupingService.group(_:)`.
-struct ChapterGroupingResult {
+// `nonisolated`: a pure value result type. Under Swift 6 MainActor default isolation
+// it would otherwise be inferred `@MainActor`, blocking nonisolated callers/tests.
+nonisolated struct ChapterGroupingResult {
     /// Collapsed logical chapters suitable for navigation and display.
     let logicalChapters: [Chapter]
     /// Map from logical chapter index → original fine-grained sub-section atoms.
@@ -32,7 +34,8 @@ struct ChapterGroupingResult {
 /// title, and collapses each group into a single `Chapter` that spans the full
 /// time range of the group.  The original atoms are retained in `sections` so
 /// the scrubber can render hairline tick marks at their boundaries.
-struct ChapterGroupingService {
+// `nonisolated`: a pure, stateless grouping service (only value-in/value-out).
+nonisolated struct ChapterGroupingService {
 
     // MARK: - Public API
 
@@ -43,12 +46,13 @@ struct ChapterGroupingService {
     ///   (`wasGrouped == false`) `logicalChapters` equals the input and `sections` is empty.
     static func group(_ chapters: [Chapter]) -> ChapterGroupingResult {
         guard chapters.count >= 2 else {
-            return ChapterGroupingResult(logicalChapters: chapters, sections: [:], wasGrouped: false)
+            return ChapterGroupingResult(
+                logicalChapters: chapters, sections: [:], wasGrouped: false)
         }
 
         var logicalChapters: [Chapter] = []
         var sections: [Int: [Chapter]] = [:]
-        
+
         var groupAtoms: [Chapter] = []
         var currentBaseTitle: String? = nil
 
@@ -73,13 +77,13 @@ struct ChapterGroupingService {
         for chapter in chapters {
             let rawTitle = chapter.title ?? ""
             let strippedTitle = logicalBaseTitle(for: rawTitle)
-            
+
             if groupAtoms.isEmpty {
                 groupAtoms.append(chapter)
                 currentBaseTitle = strippedTitle
                 continue
             }
-            
+
             var belongsToGroup = false
             if strippedTitle == currentBaseTitle {
                 belongsToGroup = true
@@ -87,7 +91,7 @@ struct ChapterGroupingService {
                 // Handle Libation hierarchical pattern: "Base Title: Sub-section Title"
                 belongsToGroup = true
             }
-            
+
             if belongsToGroup {
                 groupAtoms.append(chapter)
             } else {
@@ -135,8 +139,10 @@ struct ChapterGroupingService {
 
     private static func strip(_ string: String, pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: string, range: NSRange(string.startIndex..., in: string)),
-              let range = Range(match.range, in: string) else {
+            let match = regex.firstMatch(
+                in: string, range: NSRange(string.startIndex..., in: string)),
+            let range = Range(match.range, in: string)
+        else {
             return nil
         }
         return String(string[string.startIndex..<range.lowerBound])

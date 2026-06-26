@@ -72,7 +72,14 @@ struct ReaderFeedAccessibilityTests {
         while directory.path != "/" {
             let candidate = directory.deletingLastPathComponent().appending(path: relativePath)
             if FileManager.default.fileExists(atPath: candidate.path) {
-                return try String(contentsOf: candidate, encoding: .utf8)
+                let raw = try String(contentsOf: candidate, encoding: .utf8)
+                // Collapse runs of whitespace (including newlines) to a single space so the
+                // substring assertions stay robust to SwiftFormat line-wrapping: the project's
+                // format-on-edit hook may wrap a long call (e.g. the `onAccessibilityActions`
+                // closure header) across lines without changing its meaning, which must not
+                // break these structural checks.
+                return raw.replacingOccurrences(
+                    of: "\\s+", with: " ", options: .regularExpression)
             }
             directory.deleteLastPathComponent()
         }

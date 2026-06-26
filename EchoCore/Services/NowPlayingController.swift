@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import MediaPlayer
+
 #if os(iOS)
-import UIKit
+    import UIKit
 #endif
 
 /// Manages MPNowPlayingInfoCenter metadata updates and MPRemoteCommandCenter
@@ -13,7 +14,11 @@ final class NowPlayingController {
     private var didConfigureRemoteCommands = false
     private var remoteCommandTokens: [Any] = []
 
-    deinit {
+    // `isolated deinit` (SE-0371): the class is `@MainActor`, and
+    // `remoteCommandTokens` is a non-Sendable `[Any]` of MPRemoteCommandCenter
+    // targets. A plain nonisolated deinit cannot touch that MainActor state, so
+    // run the deinit on the main actor to release the handlers safely.
+    isolated deinit {
         remoteCommandTokens.removeAll()
     }
 
@@ -101,9 +106,9 @@ final class NowPlayingController {
         var chapterIndex: Int?
         var chapterElapsed: TimeInterval?
         var chapterDuration: TimeInterval?
-#if os(iOS)
-        var artworkImage: UIImage?
-#endif
+        #if os(iOS)
+            var artworkImage: UIImage?
+        #endif
         var isPaused: Bool = false
         var playbackRate: Float = 1.0
     }
@@ -136,13 +141,13 @@ final class NowPlayingController {
             }
         }
 
-#if os(iOS)
-        if let image = params.artworkImage {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                image
+        #if os(iOS)
+            if let image = params.artworkImage {
+                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
+                    image
+                }
             }
-        }
-#endif
+        #endif
 
         info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
         // The system uses DefaultPlaybackRate to know what "1×" means for this item.

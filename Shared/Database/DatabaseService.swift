@@ -66,7 +66,12 @@ final class DatabaseService {
         try writer.read(block)
     }
 
-    func readAsync<T>(_ block: @escaping @Sendable (Database) throws -> T) async throws -> T {
+    // `T: Sendable` because GRDB's async `read`/`write` return the value across the
+    // database access pool's executor boundary; Swift 6 requires the result to be
+    // Sendable for that hop. (The synchronous variants above stay on the caller.)
+    func readAsync<T: Sendable>(_ block: @escaping @Sendable (Database) throws -> T) async throws
+        -> T
+    {
         try await writer.read(block)
     }
 
@@ -74,7 +79,9 @@ final class DatabaseService {
         try writer.write(block)
     }
 
-    func writeAsync<T>(_ block: @escaping @Sendable (Database) throws -> T) async throws -> T {
+    func writeAsync<T: Sendable>(_ block: @escaping @Sendable (Database) throws -> T) async throws
+        -> T
+    {
         try await writer.write(block)
     }
 

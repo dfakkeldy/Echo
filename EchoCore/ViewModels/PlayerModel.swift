@@ -537,13 +537,15 @@ final class PlayerModel {
     /// from the system Now Playing slot.
     private var pauseBackgroundTask: UIBackgroundTaskIdentifier = .invalid
 
-    /// Timer driving the joystick scrubbing loop in ManualAlignmentSheet.
+    /// Task driving the joystick scrubbing loop in ManualAlignmentSheet.
     /// Fires every 0.1 s, relaying the current playback time to the view's
-    /// `onTick` closure so it can compute scrub deltas.
-    @ObservationIgnored private var joystickScrubTimer: Timer?
-    /// Timer that plays brief 0.2 s audio snippets during joystick scrubbing.
+    /// `onTick` closure so it can compute scrub deltas. A `Task` rather than a
+    /// `Timer` so the main-actor `onTick`/`timeProvider` closures stay on-actor
+    /// (a `Timer`'s `@Sendable` callback can't capture them under Swift 6).
+    @ObservationIgnored private var joystickScrubTask: Task<Void, Never>?
+    /// Task that plays brief 0.2 s audio snippets during joystick scrubbing.
     /// Fires every 0.4 s while the user holds a joystick deflection.
-    @ObservationIgnored private var snippetPlaybackTimer: Timer?
+    @ObservationIgnored private var snippetPlaybackTask: Task<Void, Never>?
 
     /// Tracks if audio was playing prior to an interruption, to determine if we should resume.
     var wasPlayingBeforeInterruption: Bool = false
@@ -1037,11 +1039,11 @@ final class PlayerModel {
             continuousAlignmentService?.stop()
             continuousAlignmentService = nil
 
-            // Invalidate scrub / snippet timers so they do not outlive the model.
-            joystickScrubTimer?.invalidate()
-            joystickScrubTimer = nil
-            snippetPlaybackTimer?.invalidate()
-            snippetPlaybackTimer = nil
+            // Cancel scrub / snippet tasks so they do not outlive the model.
+            joystickScrubTask?.cancel()
+            joystickScrubTask = nil
+            snippetPlaybackTask?.cancel()
+            snippetPlaybackTask = nil
         }
     }
 
@@ -1329,19 +1331,20 @@ final class PlayerModel {
     /// compute scrub deltas from its `joystickValue` State.
     func startJoystickScrubbing(onTick: @escaping (TimeInterval) -> Void) {
         stopJoystickScrubbing()
-        joystickScrubTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) {
-            [weak self] _ in
-            Task { @MainActor [weak self] in
+        joystickScrubTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                if Task.isCancelled { return }
                 guard let self else { return }
                 onTick(self.currentPlaybackTime)
             }
         }
     }
 
-    /// Invalidates the joystick scrub timer.
+    /// Cancels the joystick scrub task.
     func stopJoystickScrubbing() {
-        joystickScrubTimer?.invalidate()
-        joystickScrubTimer = nil
+        joystickScrubTask?.cancel()
+        joystickScrubTask = nil
     }
 
     /// Starts a recurring 0.4 s snippet playback timer that plays brief 0.2 s
@@ -1349,11 +1352,16 @@ final class PlayerModel {
     /// `timeProvider` to forward the current scrubbed time.
     func startSnippetPlayback(timeProvider: @escaping () -> TimeInterval) {
         stopSnippetPlayback()
-        snippetPlaybackTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) {
-            [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, !self.isPlaying else { return }
-                guard self.tracks.indices.contains(self.currentIndex) else { return }
+        snippetPlaybackTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                if Task.isCancelled { return }
+                // nil self means the model was deallocated → terminate the loop
+                // (matching startJoystickScrubbing); the not-playing/invalid-index
+                // cases are transient, so keep polling.
+                guard let self else { return }
+                guard !self.isPlaying else { continue }
+                guard self.tracks.indices.contains(self.currentIndex) else { continue }
                 let currentScrubTime = timeProvider()
                 let url = self.tracks[self.currentIndex].url
                 let duration = self.durationSeconds ?? .infinity
@@ -1363,10 +1371,10 @@ final class PlayerModel {
         }
     }
 
-    /// Invalidates the snippet playback timer.
+    /// Cancels the snippet playback task.
     func stopSnippetPlayback() {
-        snippetPlaybackTimer?.invalidate()
-        snippetPlaybackTimer = nil
+        snippetPlaybackTask?.cancel()
+        snippetPlaybackTask = nil
     }
 
     func setSpeed(_ newSpeed: Float) {

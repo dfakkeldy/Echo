@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import SwiftUI
 import AVFoundation
+import Observation
+import SwiftUI
 import WatchConnectivity
 import WatchKit
-import Observation
 import WidgetKit
 
 // MARK: - Content View
@@ -41,7 +41,7 @@ struct ContentView: View {
                         isShowingPomodoroPicker = true
                     }
                 )
-                    .tag(0)
+                .tag(0)
                 if viewModel.page2Slots.contains(where: { $0 != .empty }) {
                     PlayerPage(
                         slots: viewModel.page2Slots,
@@ -151,7 +151,7 @@ struct ContentView: View {
                 } label: {
                     ZStack {
                         Color.black.ignoresSafeArea()
-                        
+
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
@@ -195,7 +195,7 @@ struct ContentView: View {
 
     @State private var accumulatedScrubDelta: Double = 0.0
     @State private var isScrubbingActive: Bool = false
-    @State private var scrubIdleTimer: Timer?
+    @State private var scrubIdleTask: Task<Void, Never>?
 
     private func handleCrownRotation(offset: Double) {
         let delta = offset - previousCrownOffset
@@ -203,8 +203,8 @@ struct ContentView: View {
         guard delta != 0 else { return }
 
         if viewModel.crownAction == "scrub" {
-            scrubIdleTimer?.invalidate()
-            
+            scrubIdleTask?.cancel()
+
             if isScrubbingActive {
                 viewModel.sendCommand("scrubDelta", params: ["delta": delta])
             } else {
@@ -216,9 +216,13 @@ struct ContentView: View {
                     accumulatedScrubDelta = 0.0
                 }
             }
-            
-            // Reset the deadzone if the crown hasn't been moved for 1 second
-            scrubIdleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+
+            // Reset the deadzone if the crown hasn't been moved for 1 second.
+            // A MainActor Task (not a Timer) so the state mutations stay on the
+            // main actor under Swift 6 strict concurrency.
+            scrubIdleTask = Task {
+                try? await Task.sleep(for: .seconds(1.0))
+                guard !Task.isCancelled else { return }
                 isScrubbingActive = false
                 accumulatedScrubDelta = 0.0
             }
@@ -230,17 +234,17 @@ struct ContentView: View {
     private var dateString: String {
         let date = Date.now
         let weekday = date.formatted(.dateTime.weekday(.abbreviated))
-        
+
         let useShortFormat: Bool
         switch viewModel.watchDateFormat {
         case "short":
             useShortFormat = true
         case "long":
             useShortFormat = false
-        default: // "auto"
+        default:  // "auto"
             useShortFormat = WKInterfaceDevice.current().screenBounds.width < 175
         }
-        
+
         if useShortFormat {
             // "Mon 06/08"
             let month = date.formatted(.dateTime.month(.twoDigits))
@@ -296,7 +300,7 @@ struct ContentView: View {
             colors: [
                 Color.black.opacity(0.70),
                 Color.black.opacity(0.16),
-                Color.black.opacity(0.80)
+                Color.black.opacity(0.80),
             ],
             startPoint: .top,
             endPoint: .bottom

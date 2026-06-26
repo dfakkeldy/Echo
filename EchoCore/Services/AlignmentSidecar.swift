@@ -13,7 +13,11 @@ import Foundation
 /// stores the **portable suffix** and the importer re-prefixes it with the
 /// importing device's own `audiobookID`. (Previously the sidecar stored the full
 /// device-local id, so a Mac-written sidecar could never resolve on the phone.)
-enum AlignmentSidecar {
+// `nonisolated`: a stateless utility (URL/string/JSON/file helpers, plus the pure
+// `Anchor` value type). Under the iOS target's Swift 6 MainActor default isolation
+// it would be inferred `@MainActor`, which the `nonisolated` `EPUBSourceAnchorResolver`
+// (and other off-actor callers) cannot reach.
+nonisolated enum AlignmentSidecar {
 
     /// One persisted anchor. `blockId` is the portable `s<i>-b<j>` suffix.
     /// `confidence` is unused on ingest and **optional**, so a leaner or

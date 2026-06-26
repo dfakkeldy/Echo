@@ -166,10 +166,12 @@ struct ReaderTab: View {
                     onContextMenu: { (block: EPubBlockRecord) -> UIContextMenuConfiguration? in
                         buildContextMenu(block: block)
                     },
-                    onAccessibilityActions: { (block: EPubBlockRecord) -> [UIAccessibilityCustomAction] in
+                    onAccessibilityActions: {
+                        (block: EPubBlockRecord) -> [UIAccessibilityCustomAction] in
                         buildAccessibilityActions(block: block)
                     },
-                    onChapterHeaderContextMenu: { (chapterIndex: Int) -> UIContextMenuConfiguration? in
+                    onChapterHeaderContextMenu: {
+                        (chapterIndex: Int) -> UIContextMenuConfiguration? in
                         let state = vm.chapterOffState(chapterIndex)
                         let hasAudio = vm.chapterHasAudio[chapterIndex] ?? false
 
@@ -187,7 +189,8 @@ struct ReaderTab: View {
 
                             // Granular: Listen (audio).
                             let listen = UIAction(
-                                title: state.isAudioOff ? "Turn on listening" : "Turn off listening",
+                                title: state.isAudioOff
+                                    ? "Turn on listening" : "Turn off listening",
                                 image: UIImage(systemName: "headphones"),
                                 attributes: hasAudio ? [] : .disabled
                             ) { _ in
@@ -200,7 +203,8 @@ struct ReaderTab: View {
                             // flag; a distinct narration off-switch requires separately-addressable
                             // narration tracks (future work).
                             let narrate = UIAction(
-                                title: state.isAudioOff ? "Turn on narration" : "Turn off narration",
+                                title: state.isAudioOff
+                                    ? "Turn on narration" : "Turn off narration",
                                 image: UIImage(systemName: "waveform"),
                                 attributes: hasAudio ? [] : .disabled
                             ) { _ in
@@ -219,7 +223,8 @@ struct ReaderTab: View {
                             }
 
                             let granular = UIMenu(
-                                title: "", options: .displayInline, children: [listen, narrate, cards])
+                                title: "", options: .displayInline,
+                                children: [listen, narrate, cards])
                             return UIMenu(title: "", children: [everywhere, granular])
                         }
                     },
@@ -457,7 +462,8 @@ struct ReaderTab: View {
     @ViewBuilder
     private func readerNoResultsView(_ vm: ReaderFeedViewModel) -> some View {
         let hasSearch = !model.epubSearchText.isEmpty
-        let hasFilter = vm.filter.contentType != .everything || vm.filter.scope != .wholeBook
+        let hasFilter =
+            vm.filter.contentType != .everything || vm.filter.scope != .wholeBook
             || vm.sessionScope != .wholeBook
 
         ContentUnavailableView {
@@ -936,7 +942,8 @@ struct ReaderTab: View {
         } catch {
             recordingMemoBlockID = nil
             model.isReaderVoiceMemoRecording = false
-            logger.error("Failed to start reader memo: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "Failed to start reader memo: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -1158,19 +1165,25 @@ struct EPUBTOCSheet: View {
             }
             .onAppear {
                 if let activeID = activeBlockID {
-                    func expandPath(for nodes: [TOCNode], path: [String]) -> Bool {
+                    // Pure recursive search that returns the node IDs to expand,
+                    // so the MainActor-isolated `expandedChapters` is mutated only
+                    // here in the `.onAppear` closure (not from a nonisolated
+                    // nested function) under Swift 6 strict concurrency.
+                    func pathToActive(in nodes: [TOCNode], path: [String]) -> [String]? {
                         for node in nodes {
                             let newPath = path + [node.id]
-                            if node.blockID == activeID
-                                || expandPath(for: node.children, path: newPath)
-                            {
-                                expandedChapters.formUnion(newPath)
-                                return true
+                            if node.blockID == activeID {
+                                return newPath
+                            }
+                            if let found = pathToActive(in: node.children, path: newPath) {
+                                return found
                             }
                         }
-                        return false
+                        return nil
                     }
-                    _ = expandPath(for: chapters, path: [])
+                    if let matched = pathToActive(in: chapters, path: []) {
+                        expandedChapters.formUnion(matched)
+                    }
                 }
             }
         }

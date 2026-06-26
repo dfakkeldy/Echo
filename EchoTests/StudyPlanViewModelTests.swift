@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import Synchronization
 import Testing
 
 @testable import Echo
@@ -9,7 +10,8 @@ import Testing
 @Suite struct StudyPlanViewModelTests {
     @Test func createPlanHonorsDeselectedCandidates() throws {
         let service = try seededService()
-        let viewModel = StudyPlanViewModel(audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+        let viewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
         viewModel.load()
 
         #expect(viewModel.candidates.map(\.sourceBlockID) == ["h1", "h2", "h3"])
@@ -30,7 +32,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: imageURL) }
 
         let service = try seededService(imagePath: imageURL.path)
-        let viewModel = StudyPlanViewModel(audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+        let viewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
         viewModel.load()
         let firstCandidate = try #require(viewModel.candidates.first)
         viewModel.toggleCandidate(firstCandidate)
@@ -47,7 +50,8 @@ import Testing
         let service = try seededService()
         let dao = StudyPlanDAO(db: service.writer)
         let original = try dao.createPlan(makeCreationRequest())
-        let viewModel = StudyPlanViewModel(audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+        let viewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
 
         viewModel.load()
         viewModel.cadenceUnit = .week
@@ -78,7 +82,8 @@ import Testing
         let service = try seededService(imagePath: imageURL.path)
         let dao = StudyPlanDAO(db: service.writer)
         _ = try dao.createPlan(makeCreationRequest())
-        let viewModel = StudyPlanViewModel(audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+        let viewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
 
         viewModel.load()
         viewModel.includeImages = true
@@ -90,7 +95,10 @@ import Testing
         #expect(didSave)
         #expect(updated.includeImages)
         #expect(itemSources == ["h1", "img1"])
-        #expect(cardTypes == [StudyFlashcardType.listeningAssignment, StudyFlashcardType.imageAssignment])
+        #expect(
+            cardTypes == [
+                StudyFlashcardType.listeningAssignment, StudyFlashcardType.imageAssignment,
+            ])
     }
 
     @Test func existingPlanCanDisableImageItemsWhenTurnedOff() throws {
@@ -100,13 +108,15 @@ import Testing
 
         let service = try seededService(imagePath: imageURL.path)
         let dao = StudyPlanDAO(db: service.writer)
-        let setupViewModel = StudyPlanViewModel(audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+        let setupViewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
         setupViewModel.load()
         setupViewModel.includeImages = true
         setupViewModel.refreshPreviewForImageInclusionChange()
         #expect(setupViewModel.save(now: Self.testDate))
 
-        let viewModel = StudyPlanViewModel(audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+        let viewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
         viewModel.load()
         viewModel.includeImages = false
         let didSave = viewModel.save(now: Self.testDate.addingTimeInterval(60))
@@ -120,14 +130,18 @@ import Testing
 
     @Test func savePostsStudyPlanDidChangeNotification() throws {
         let service = try seededService()
-        let viewModel = StudyPlanViewModel(audiobookID: "book", bookTitle: "Study Book", db: service.writer)
-        var postCount = 0
+        let viewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+        // The observer block is `@Sendable`, so the counter lives behind a `Mutex`
+        // (Swift's sanctioned primitive) rather than a captured `var`, which Swift 6
+        // forbids mutating from concurrently-executing code.
+        let postCount = Mutex(0)
         let observer = NotificationCenter.default.addObserver(
             forName: .studyPlanDidChange,
             object: nil,
             queue: nil
         ) { _ in
-            postCount += 1
+            postCount.withLock { $0 += 1 }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
@@ -135,7 +149,7 @@ import Testing
         let didSave = viewModel.save(now: Self.testDate)
 
         #expect(didSave)
-        #expect(postCount == 1)
+        #expect(postCount.withLock { $0 } == 1)
     }
 
     @Test func bookTitleResolverUsesStoredAudiobookTitle() throws {
@@ -334,7 +348,7 @@ import Testing
                     mediaTimestamp: 0,
                     endTimestamp: 100,
                     playlistPosition: nil
-                ),
+                )
             ],
             now: Self.testDate
         )
