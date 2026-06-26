@@ -4,9 +4,9 @@
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 [![TestFlight](https://img.shields.io/badge/TestFlight-Beta-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/iOS-19+-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/macOS-16+-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/watchOS-12+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/iOS-18+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/macOS-15+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/watchOS-11+-blue.svg)](#)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 **Echo** turns audiobooks into a serious study medium. It aligns the audiobook you already own to its EPUB/PDF for word-level read-along, **narrates ebooks that have no audiobook** on-device, and turns what you hear into flashcards you review with spaced repetition — all without leaving the audio.

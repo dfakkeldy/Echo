@@ -156,11 +156,13 @@ xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
   - Project/package targets: `Echo.xcodeproj/project.pbxproj`, `ThirdParty/MisakiSwift/Package.swift`
   - Or docs/guidance: `AGENTS.md`, `README.md`, `ARCHITECTURE.md` if applicable
 
-- [ ] Make an explicit product call: keep iOS 18/macOS 15/watchOS 11 or raise to iOS 19/macOS 16/watchOS 12.
-- [ ] If raising targets, update every app/test/package target together and run full build/test gates.
-- [ ] If preserving current targets, correct README badges and agent guidance so contributors do not use newer APIs accidentally.
+- [x] Product call: preserve iOS 18/macOS 15/watchOS 11.
+- [x] Raising targets path not selected; no app/test/package deployment targets were changed.
+- [x] Preserving current targets: corrected README badges and agent guidance so contributors do not use newer APIs accidentally.
 
 **Acceptance criteria:** project settings and docs agree on supported OS floors.
+
+**Verification note:** 2026-06-26 pass: targeted stale-floor search found no remaining current root docs/guidance claims for iOS 19/macOS 16/watchOS 12; project and package deployment settings remain iOS 18.0, macOS 15.0, watchOS 11.0 (`ThirdParty/MisakiSwift` platforms remain `.iOS(.v18)` and `.macOS(.v15)`); `git diff --check` passed.
 
 ### Task 1.6: Fix `echo-cli` Cocoa framework SDK reference
 
