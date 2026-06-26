@@ -8,6 +8,16 @@ nonisolated struct VoiceID: RawRepresentable, Hashable, Sendable, Codable {
     init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// One rendered word within a synthesized chunk, timed relative to the chunk's
+/// own start. Produced by the Kokoro duration head; `nil` on any engine that
+/// can't emit timings (mock) or any failure (so the caller falls back to
+/// interpolation). `Sendable` to cross the actor→main boundary inside `TTSChunk`.
+nonisolated struct ChunkWordTiming: Sendable, Equatable {
+    let wordIndex: Int
+    let start: TimeInterval
+    let end: TimeInterval
+}
+
 /// A rendered span of speech audio for one block of text.
 /// Samples are mono Float PCM at `sampleRate`. `Sendable` so it can cross
 /// the actor→main boundary safely (no non-Sendable AVAudioPCMBuffer).
@@ -15,6 +25,20 @@ nonisolated struct TTSChunk: Sendable, Equatable {
     let samples: [Float]
     let sampleRate: Double
     let duration: TimeInterval
+    /// Per-word timing for this chunk (chunk-relative seconds), or `nil` when the
+    /// engine can't produce it. Defaulted in the memberwise init so existing
+    /// `TTSChunk(samples:sampleRate:duration:)` call sites are unaffected.
+    let wordTimings: [ChunkWordTiming]?
+
+    init(
+        samples: [Float], sampleRate: Double, duration: TimeInterval,
+        wordTimings: [ChunkWordTiming]? = nil
+    ) {
+        self.samples = samples
+        self.sampleRate = sampleRate
+        self.duration = duration
+        self.wordTimings = wordTimings
+    }
 
     /// A run of digital silence `seconds` long at `sampleRate`. Used for the
     /// chapter lead-out pad so the final word isn't clipped when the player
