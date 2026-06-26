@@ -382,7 +382,7 @@ git commit -m "feat(narration): add NarrationWordTimingAssembler for block-level
 
 **Interfaces:**
 - Consumes: `ChunkWordTiming` (Task 1); `WordTimingDAO` (existing) methods `words(forAudiobook:blockID:) -> [WordTimingRecord]` and `update([WordTimingRecord])`.
-- Produces: `static func refineWithSynthesis(audiobookID: String, synthesisByBlock: [String: [ChunkWordTiming]], writer: DatabaseWriter) -> Int` (returns the number of blocks actually overridden). For each block: fetch its rows; only if `rows.count == timings.count` (count match — the safety guard against normalization/G2P word drift) override each row positionally with `source:"synthesis"`, `confidence:0.9`. Count mismatch leaves the block's interpolated rows untouched.
+- Produces: `static func refineWithSynthesis(audiobookID: String, synthesisByBlock: [String: [ChunkWordTiming]], writer: DatabaseWriter) throws -> Int` (returns the number of blocks actually overridden). For each block: fetch its rows; only if `rows.count == timings.count` (count match — the safety guard against normalization/G2P word drift) override each row positionally with `source:"synthesis"`, `confidence:0.9`. Count mismatch leaves the block's interpolated rows untouched.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -412,7 +412,7 @@ struct WordTimingSynthesisRefineTests {
     @Test func overridesWhenCountMatches() throws {
         let db = try DatabaseService(inMemory: ())
         try seedInterpolated(db)
-        let overridden = WordTimingMaterializer.refineWithSynthesis(
+        let overridden = try WordTimingMaterializer.refineWithSynthesis(
             audiobookID: "bk",
             synthesisByBlock: [
                 "b0": [
@@ -431,7 +431,7 @@ struct WordTimingSynthesisRefineTests {
     @Test func keepsInterpolatedWhenCountMismatch() throws {
         let db = try DatabaseService(inMemory: ())
         try seedInterpolated(db)
-        let overridden = WordTimingMaterializer.refineWithSynthesis(
+        let overridden = try WordTimingMaterializer.refineWithSynthesis(
             audiobookID: "bk",
             synthesisByBlock: [
                 "b0": [ChunkWordTiming(wordIndex: 0, start: 0.1, end: 0.4)]  // 1 vs 2 rows
@@ -472,15 +472,14 @@ In `EchoCore/Services/WordTimingMaterializer.swift`, add after `refine(...)` (af
         audiobookID: String,
         synthesisByBlock: [String: [ChunkWordTiming]],
         writer: DatabaseWriter
-    ) -> Int {
+    ) throws -> Int {
         guard !synthesisByBlock.isEmpty else { return 0 }
         let dao = WordTimingDAO(db: writer)
         var updates: [WordTimingRecord] = []
         var blocksOverridden = 0
         for (blockID, timings) in synthesisByBlock {
-            guard let rows = try? dao.words(forAudiobook: audiobookID, blockID: blockID),
-                rows.count == timings.count, !rows.isEmpty
-            else { continue }
+            let rows = try dao.words(forAudiobook: audiobookID, blockID: blockID)
+            guard rows.count == timings.count, !rows.isEmpty else { continue }
             let rowsByIndex = rows.sorted { $0.wordIndex < $1.wordIndex }
             let timingsByIndex = timings.sorted { $0.wordIndex < $1.wordIndex }
             for (row, t) in zip(rowsByIndex, timingsByIndex) {
@@ -493,7 +492,7 @@ In `EchoCore/Services/WordTimingMaterializer.swift`, add after `refine(...)` (af
             }
             blocksOverridden += 1
         }
-        try? dao.update(updates)
+        try dao.update(updates)
         return blocksOverridden
     }
 ```
@@ -819,10 +818,11 @@ Create `EchoTests/OnnxKokoroEngineWordTimingTests.swift`:
     /// Gated behind ECHO_RUN_KOKORO_TIMING_IT so the default suite stays fast; run
     /// on device/sim with the env var set, or rely on manual smoke verification.
     struct OnnxKokoroEngineWordTimingTests {
-        @Test func synthesizeEmitsMonotonicWordTimings() async throws {
-            try #require(
-                ProcessInfo.processInfo.environment["ECHO_RUN_KOKORO_TIMING_IT"] == "1",
-                "set ECHO_RUN_KOKORO_TIMING_IT=1 to run the heavy Kokoro timing IT")
+        @Test(
+            .enabled(
+                if: ProcessInfo.processInfo.environment["ECHO_RUN_KOKORO_TIMING_IT"] == "1",
+                "set ECHO_RUN_KOKORO_TIMING_IT=1 to run the heavy Kokoro timing IT"))
+        func synthesizeEmitsMonotonicWordTimings() async throws {
             let engine = OnnxKokoroEngine()
             try await engine.prepare()
             let chunk = try await engine.synthesize("Hello there world.", voice: VoiceID("af_heart"))
@@ -840,7 +840,7 @@ Create `EchoTests/OnnxKokoroEngineWordTimingTests.swift`:
 - [ ] **Step 6: Verify build + pure suites still pass; run the IT manually if able**
 
 Run: `make build-tests && make test-only FILTER=EchoTests/OnnxKokoroEngineWordTimingTests`
-Expected: PASS (the test early-returns via `#require` unless `ECHO_RUN_KOKORO_TIMING_IT=1`). On a device/sim with the model, set the env var to exercise the real path.
+Expected: PASS (the test is skipped via `.enabled(if:)` unless `ECHO_RUN_KOKORO_TIMING_IT=1`). On a device/sim with the model, set the env var to exercise the real path.
 
 - [ ] **Step 7: Commit**
 
@@ -1006,7 +1006,7 @@ In the `return RenderedNarrationFile(...)` (line 421), add the argument:
 In `persistRenderedNarration`, immediately after the `WordTimingMaterializer.materializeChapter(...)` call (line 280–281), add:
 
 ```swift
-                let overridden = WordTimingMaterializer.refineWithSynthesis(
+                let overridden = try WordTimingMaterializer.refineWithSynthesis(
                     audiobookID: audiobookID,
                     synthesisByBlock: rendered.synthesisWordTimingsByBlock,
                     writer: db)
