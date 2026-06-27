@@ -33,9 +33,43 @@ struct BookPreferencesService {
         "book_readerCardTint_\(audiobookID)"
     }
 
+    // MARK: - Reader PDF view mode
+
+    static func readerPDFViewModeKey(for audiobookID: String) -> String {
+        "book_readerPDFViewMode_\(audiobookID)"
+    }
+
+    /// Persists the page⇄reflow choice for a PDF book. `nil` clears it (revert
+    /// to the default). `store` is injectable for testing; production passes
+    /// `.standard`.
+    static func savePDFViewMode(
+        _ mode: ReaderSurfaceMode?, for audiobookID: String, store: UserDefaults = .standard
+    ) {
+        let key = readerPDFViewModeKey(for: audiobookID)
+        if let mode {
+            store.set(mode.rawValue, forKey: key)
+        } else {
+            store.removeObject(forKey: key)
+        }
+    }
+
+    /// Loads the persisted PDF view mode, falling back to `fallback` (default
+    /// `.page`, per spec D1) when unset or unrecognised.
+    static func loadPDFViewMode(
+        for audiobookID: String, default fallback: ReaderSurfaceMode = .page,
+        store: UserDefaults = .standard
+    ) -> ReaderSurfaceMode {
+        guard let raw = store.string(forKey: readerPDFViewModeKey(for: audiobookID)),
+            let mode = ReaderSurfaceMode(rawValue: raw)
+        else { return fallback }
+        return mode
+    }
+
     // MARK: - Load
 
-    static func loadOverrides(for audiobookID: String) -> (font: String?, bookmarks: String?, volumeBoost: String?) {
+    static func loadOverrides(for audiobookID: String) -> (
+        font: String?, bookmarks: String?, volumeBoost: String?
+    ) {
         let defaults = UserDefaults.standard
         return (
             font: defaults.string(forKey: fontKey(for: audiobookID)),
