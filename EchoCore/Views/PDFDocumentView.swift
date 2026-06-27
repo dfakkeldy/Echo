@@ -3,6 +3,16 @@ import PDFKit
 import SwiftUI
 import os.log
 
+/// Data carried from a long-press on the PDF page.
+/// `word` and `context` are resolved directly from the PDF at the touch point.
+private struct PDFLongPressHit {
+    let state: PDFViewState
+    /// The word at the press point (from `PDFPage.selectionForWord(at:)`), or nil.
+    let word: String?
+    /// The line of text containing the press point (best-effort context), or nil.
+    let context: String?
+}
+
 private enum PDFDocumentAction: CaseIterable, Identifiable {
     case alignToNow
     case alignToSpecificTime
@@ -36,6 +46,7 @@ private enum PDFDocumentAction: CaseIterable, Identifiable {
 struct PDFDocumentView: View {
     let folderURL: URL
     @Environment(PlayerModel.self) private var model
+    @Environment(FreeTierGate.self) private var freeTierGate
 
     @State private var pdfDocument: PDFDocument?
     @State private var pdfLoadToken = 0
@@ -43,6 +54,10 @@ struct PDFDocumentView: View {
     @State private var showingManualAlignment = false
     @State private var capturedState: PDFViewState?
     @State private var currentPDFViewState: PDFViewState?
+    /// Long-press hit carrying state + resolved word + context.
+    @State private var longPressHit: PDFLongPressHit?
+    /// Whether to show the word-action dialog (Look Up + Save + Alignment).
+    @State private var showingWordActions = false
 
     // MARK: - Read-along state (M3 Task 3)
 
@@ -69,9 +84,16 @@ struct PDFDocumentView: View {
                     onStateChange: { state in
                         updateCurrentPDFState(state)
                     },
-                    onLongPress: { state in
-                        capturedState = state
-                        showingAlignmentOptions = true
+                    onLongPress: { hit in
+                        capturedState = hit.state
+                        if let word = hit.word, !word.isEmpty {
+                            // Word resolved: offer Look Up + Save + Alignment options.
+                            longPressHit = hit
+                            showingWordActions = true
+                        } else {
+                            // No word at press point: fall through to alignment dialog.
+                            showingAlignmentOptions = true
+                        }
                     },
                     onAction: { action, state in
                         performPDFAction(action, state: state)
@@ -132,6 +154,29 @@ struct PDFDocumentView: View {
             ForEach(PDFDocumentAction.allCases) { action in
                 Button(action.title) {
                     _ = performPDFAction(action, state: capturedState)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        // M3 Task 4: word-action dialog (Look Up + Save + Alignment options).
+        // Only shown when a word was resolved at the long-press point.
+        .confirmationDialog(
+            longPressHit?.word.map { "\"\($0)\"" } ?? "",
+            isPresented: $showingWordActions,
+            titleVisibility: .visible
+        ) {
+            if let hit = longPressHit, let word = hit.word {
+                if DictionaryLookupPresenter.hasDefinition(for: word) {
+                    Button("Look Up \"\(word)\"") {
+                        DictionaryLookupPresenter.present(term: word)
+                    }
+                }
+                Button("Save \"\(word)\"") {
+                    savePDFVocabularyWord(word: word, context: hit.context)
+                }
+                Button("Alignment options\u{2026}") {
+                    // Re-trigger the alignment dialog with the same captured state.
+                    showingAlignmentOptions = true
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -315,6 +360,64 @@ struct PDFDocumentView: View {
         return false
     }
 
+    // MARK: - M3 Task 4: Vocabulary word save
+
+    /// Saves `word` as a vocabulary flashcard, mirroring `ReaderTab.saveVocabularyWord`.
+    /// Audio anchor = the active block's start time (block-level; per-word timing is
+    /// unavailable in the PDF page context).
+    private func savePDFVocabularyWord(word: String, context: String?) {
+        guard let db = model.databaseService else { return }
+        let audiobookID = folderURL.absoluteString
+
+        guard freeTierGate.canCreateFlashcards(adding: 1) else {
+            model.paywallContext = .flashcardCap
+            model.showPaywall = true
+            return
+        }
+
+        let dao = FlashcardDAO(db: db.writer)
+
+        // Dedupe: re-surface existing card with light haptic, no duplicate.
+        if (try? dao.vocabularyCard(for: audiobookID, word: word)) != nil {
+            Haptic.play(.light)
+            return
+        }
+
+        // Audio anchor: active block start time, or current playback time as fallback.
+        let activeBlock = readAlong?.activeBlock(
+            at: model.currentPlaybackTime,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices)
+        let blockID = activeBlock?.blockID
+        let audioStart: TimeInterval
+        if let bid = blockID,
+            let t = readAlong?.blockStartTime(forBlock: bid)
+        {
+            audioStart = t
+        } else {
+            audioStart = model.currentPlaybackTime
+        }
+
+        let card = VocabularyCardBuilder.make(
+            id: UUID().uuidString,
+            audiobookID: audiobookID,
+            word: word,
+            contextSentence: context.flatMap { $0.isEmpty ? nil : $0 },
+            blockID: blockID,
+            audioStart: audioStart,
+            audioEnd: nil,
+            createdAt: Date().ISO8601Format()
+        )
+
+        do {
+            try dao.insert(card)
+            Haptic.play(.medium)
+        } catch {
+            Self.logger.error("Failed to save PDF vocabulary word '\(word)': \(error)")
+            Haptic.play(.rigid)
+        }
+    }
+
     private struct PDFLoadRequest: Equatable {
         let folderURL: URL
         let reloadToken: Int
@@ -336,7 +439,7 @@ private struct PDFKitView: UIViewRepresentable {
     /// Whether narration is actively playing. Auto-follow is suppressed when false.
     let isPlaying: Bool
     let onStateChange: (PDFViewState) -> Void
-    let onLongPress: (PDFViewState) -> Void
+    let onLongPress: (PDFLongPressHit) -> Void
     let onAction: (PDFDocumentAction, PDFViewState) -> Bool
 
     func makeUIView(context: Context) -> PDFView {
@@ -516,9 +619,27 @@ private struct PDFKitView: UIViewRepresentable {
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            if gesture.state == .began, let state = currentState() {
-                parent.onLongPress(state)
+            guard gesture.state == .began, let pdfView, let state = currentState() else { return }
+
+            // Resolve the word at the press point directly from PDFKit.
+            // `selectionForWord(at:)` is available since PDFKit iOS 11 and
+            // compiles cleanly on the iOS 18 SDK.
+            let loc = gesture.location(in: pdfView)
+            var word: String?
+            var context: String?
+            if let page = pdfView.page(for: loc, nearest: true) {
+                let p = pdfView.convert(loc, to: page)
+                let wordSel = page.selectionForWord(at: p)
+                let raw = wordSel?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !raw.isEmpty {
+                    word = raw
+                    // Best-effort context sentence from the same line.
+                    context = page.selectionForLine(at: p)?.string?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
             }
+
+            parent.onLongPress(PDFLongPressHit(state: state, word: word, context: context))
         }
 
         @objc func handlePageChange() {

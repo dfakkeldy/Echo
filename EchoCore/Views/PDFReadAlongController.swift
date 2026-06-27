@@ -153,4 +153,11 @@ final class PDFReadAlongController {
         guard ranges.indices.contains(wordIndex) else { return nil }
         return String(text[ranges[wordIndex]])
     }
+
+    /// Returns the audio start time for `blockID` from the timeline cache, or nil.
+    /// Used as the honest anchor when saving a vocabulary word from the PDF page
+    /// (per-word timing is unavailable in the page context).
+    func blockStartTime(forBlock blockID: String) -> TimeInterval? {
+        timelineCache.first(where: { $0.blockID == blockID })?.start
+    }
 }
