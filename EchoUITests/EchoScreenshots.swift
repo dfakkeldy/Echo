@@ -18,8 +18,9 @@
 //  if `BIFF.m4b` is bundled into the app — see fastlane/screenshots README.
 //  Without it the library is empty and the content-gated screens (Reader,
 //  Timeline) fall back to their empty states. This test is deliberately
-//  defensive: every navigation step is guarded, so a missing screen degrades
-//  to "skip that shot" rather than failing the whole run.
+//  defensive: every navigation step is guarded, so one missing screen doesn't
+//  stop later captures, but the test fails at the end if any expected category
+//  is absent.
 //
 //  NAVIGATION NOTE: The app uses a custom bottom dock, not a standard TabView,
 //  and ships no accessibility identifiers, so we navigate by the accessibility
@@ -29,7 +30,7 @@
 
 import XCTest
 
-final class EchoScreenshots: XCTestCase {
+nonisolated final class EchoScreenshots: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = true // never abort the whole shoot on one missing screen
@@ -40,13 +41,19 @@ final class EchoScreenshots: XCTestCase {
         let app = XCUIApplication()
         setupSnapshot(app)
         app.launch()
+        var capturedShots = Set<String>()
+
+        func capture(_ name: String) {
+            snapshot(name)
+            capturedShots.insert(name)
+        }
 
         // Give the DEBUG-simulator sample seed time to load before the first shot.
         _ = app.wait(for: .runningForeground, timeout: 10)
         sleep(3)
 
         // ① Now Playing — "Turn listening into learning."
-        snapshot("01_Player")
+        capture("01_Player")
 
         // The cycle button advances nowPlaying → timeline → read → stats.
         let cycleButton = app.buttons["Toggle chapters list"]
@@ -54,19 +61,19 @@ final class EchoScreenshots: XCTestCase {
         // ② Timeline — bookmarks / chapters on a single canvas.
         if tap(cycleButton, in: app) {
             sleep(1)
-            snapshot("02_Timeline")
+            capture("02_Timeline")
         }
 
         // ③ Reader — the synced EPUB following the narration.
         if tap(cycleButton, in: app) {
             sleep(1)
-            snapshot("03_Reader")
+            capture("03_Reader")
         }
 
         // ④ Stats / study — the spaced-repetition surface.
         if tap(cycleButton, in: app) {
             sleep(1)
-            snapshot("04_Stats")
+            capture("04_Stats")
         }
 
         // ⑤ Settings — privacy / "all on-device" frame.
@@ -77,9 +84,18 @@ final class EchoScreenshots: XCTestCase {
             if settings.waitForExistence(timeout: 3) {
                 settings.tap()
                 sleep(1)
-                snapshot("05_Settings")
+                capture("05_Settings")
             }
         }
+
+        let expectedShots: Set<String> = [
+            "01_Player", "02_Timeline", "03_Reader", "04_Stats", "05_Settings",
+        ]
+        let missingShots = expectedShots.subtracting(capturedShots).sorted()
+        XCTAssertTrue(
+            missingShots.isEmpty,
+            "Missing expected App Store screenshot categories: \(missingShots.joined(separator: ", "))"
+        )
     }
 
     /// Taps `element` only if it is present and hittable. Returns whether it tapped,

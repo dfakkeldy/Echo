@@ -557,11 +557,13 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `fastlane/screenshots/en-US/README_SCREENSHOTS.md`
 - Add sanitized fixture or generated sample if approved
 
-- [ ] Add an assertion/report that expected screenshot categories are present.
-- [ ] Provide a small sanitized/generated fixture path for repeatable screenshots if permitted.
-- [ ] Track Watch/Mac/manual shots explicitly in the release checklist.
+- [x] Add an assertion/report that expected screenshot categories are present.
+- [x] Provide a small sanitized/generated fixture path for repeatable screenshots if permitted.
+- [x] Track Watch/Mac/manual shots explicitly in the release checklist.
 
 **Acceptance criteria:** screenshot automation cannot silently pass with a materially incomplete marketing set.
+
+**Verification note:** 2026-06-26 pass: `EchoScreenshots` now records expected automated categories and fails the UI test if any are missing; `Snapfile` documents the expected category set; screenshot README documents the local fixture path plus manual Watch/Mac release checklist. Also fixed the committed `SnapshotHelper.swift` platform guard and UI-test `XCTestCase` isolation so the screenshot scheme builds under Swift 6. `git diff --check` passed; focused UI-test build-for-testing passed with signing disabled. Runtime simulator execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
 
 ### Task 6.4: Clean stale Fastlane metadata/config TODOs
 
