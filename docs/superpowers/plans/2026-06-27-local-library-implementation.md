@@ -1352,11 +1352,11 @@ git commit -m "feat(library): list + group-by-axis + open-URL resolution"
 **Interfaces:**
 - Produces: `enum StudyStatus { case notStarted, inProgress, finished }`; `struct ProcessingStatus: OptionSet { let rawValue: Int; static let aligned, narrated, transcribed }`; `func studyStatus(for book: AudiobookRecord) throws -> StudyStatus`; `func processingStatus(for book: AudiobookRecord) throws -> ProcessingStatus`. Plus `LibraryAxis` gains `.studyStatus` and `.processingStatus` cases handled in `sections(by:includeUnavailable:)`.
 
-**⚠️ Execution-time confirms (do these first, then write the queries verbatim):**
-- `playback_event` columns for progress (Schema_V1:136) — confirm the `audiobook_id` column and a progress/position column; "finished" = max progress ≥ 0.99 of duration, "in progress" = any event with progress > 0, else "not started".
-- `track` table name + `audiobook_id` + `narration_voice` columns (`TrackRecord`) — "narrated" = ≥1 track with non-null `narration_voice`.
-- `transcription_segment` (`TranscriptionRecord`) + its `audiobook_id` column — "transcribed" = ≥1 row.
-- "aligned" = `AlignmentAnchorDAO(db:).anchors(for: book.id).count > 2` (the import finalizer seeds a trivial first/last pair; >2 means real anchors). Confirm the seed count before locking the threshold.
+**Schema confirmed (2026-06-27 — queries are now verbatim, not placeholders):**
+- **Study status** ← `playback_state` (`audiobook_id` TEXT PK, `last_position` DOUBLE) vs `audiobook.duration`. `not started` = no row or `last_position == 0`; `finished` = `last_position >= duration * 0.98` (duration > 0); else `in progress`. (`playback_state`, not `playback_event`, is the per-book resume position.)
+- **Narrated** ← `SELECT COUNT(*) FROM track WHERE audiobook_id = ? AND narration_voice IS NOT NULL` > 0. (`track` cols: id, audiobook_id, title, duration, file_path NOT NULL; is_enabled/sort_order have defaults; narration_voice nullable.)
+- **Transcribed** ← `SELECT COUNT(*) FROM transcription_segment WHERE audiobook_id = ?` > 0. (cols: id auto-PK, audiobook_id, start_time, end_time, text NOT NULL.)
+- **Aligned** ← `SELECT COUNT(*) FROM alignment_anchor WHERE audiobook_id = ?` > 2. The import finalizer seeds exactly 2 default first/last-block anchors (source `imported`), so `> 2` means real alignment (DTW/manual/sidecar) was done. (`alignment_anchor` cols: id, audiobook_id, epub_block_id→epub_block, audio_time, anchor_kind, source all NOT NULL — seeding an anchor in a test requires a parent `epub_block` row.)
 
 - [ ] **Step 1: Write the failing test** (seed via raw SQL so it's independent of DAO specifics)
 
@@ -1398,7 +1398,117 @@ Expected: FAIL — no `processingStatus`/`studyStatus`.
 
 - [ ] **Step 3: Implement derived status** (write the verbatim queries against the confirmed columns)
 
-Add to `LibraryService` — `ProcessingStatus` OptionSet, the two derive methods (raw-SQL counts for narrated/transcribed/playback, `AlignmentAnchorDAO` for aligned), and extend `sections(by:)` with `.studyStatus`/`.processingStatus` cases that bucket books into fixed-order sections ("In Progress", "Finished", "Not Started"; "Aligned", "Narrated", "Transcribed", "Not Processed"). (Full code authored at execution time once the four schema confirms above are pinned — each is a `try db.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) …") }` ≥ 1 check plus the anchor threshold.)
+Add the status types at file scope (next to `LibraryAxis`):
+
+```swift
+enum StudyStatus { case notStarted, inProgress, finished }
+
+struct ProcessingStatus: OptionSet {
+    let rawValue: Int
+    static let aligned = ProcessingStatus(rawValue: 1 << 0)
+    static let narrated = ProcessingStatus(rawValue: 1 << 1)
+    static let transcribed = ProcessingStatus(rawValue: 1 << 2)
+}
+```
+
+Add the two derive methods to `LibraryService`:
+
+```swift
+    /// Study progress, derived from `playback_state.last_position` vs the book's
+    /// duration. No new storage.
+    func studyStatus(for book: AudiobookRecord) throws -> StudyStatus {
+        let lastPosition = try db.writer.read { db in
+            try Double.fetchOne(
+                db,
+                sql: "SELECT last_position FROM playback_state WHERE audiobook_id = ?",
+                arguments: [book.id])
+        }
+        guard let pos = lastPosition, pos > 0 else { return .notStarted }
+        if book.duration > 0, pos >= book.duration * 0.98 { return .finished }
+        return .inProgress
+    }
+
+    /// Processing state: aligned (real anchors beyond the 2 default seed anchors),
+    /// narrated (a synthesized track), transcribed (transcription segments exist).
+    /// A book may be several at once.
+    func processingStatus(for book: AudiobookRecord) throws -> ProcessingStatus {
+        try db.writer.read { db in
+            var status: ProcessingStatus = []
+            let anchorCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM alignment_anchor WHERE audiobook_id = ?",
+                arguments: [book.id]) ?? 0
+            if anchorCount > 2 { status.insert(.aligned) }
+            let narratedCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM track WHERE audiobook_id = ? AND narration_voice IS NOT NULL",
+                arguments: [book.id]) ?? 0
+            if narratedCount > 0 { status.insert(.narrated) }
+            let transcribedCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM transcription_segment WHERE audiobook_id = ?",
+                arguments: [book.id]) ?? 0
+            if transcribedCount > 0 { status.insert(.transcribed) }
+            return status
+        }
+    }
+```
+
+Extend `LibraryAxis` with the two cases and handle them in `sections(by:includeUnavailable:)`:
+
+```swift
+enum LibraryAxis { case recentlyAdded, author, topic, folder, studyStatus, processingStatus }
+
+// inside sections(by:includeUnavailable:)'s switch, add:
+        case .studyStatus:
+            return try studyStatusSections(all)
+        case .processingStatus:
+            return try processingStatusSections(all)
+```
+
+Add the two bucketing helpers (fixed section order; only non-empty sections; books sorted by title):
+
+```swift
+    private func studyStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
+        var inProgress: [AudiobookRecord] = [], finished: [AudiobookRecord] = [],
+            notStarted: [AudiobookRecord] = []
+        for book in books {
+            switch try studyStatus(for: book) {
+            case .inProgress: inProgress.append(book)
+            case .finished: finished.append(book)
+            case .notStarted: notStarted.append(book)
+            }
+        }
+        func section(_ title: String, _ items: [AudiobookRecord]) -> LibrarySection? {
+            items.isEmpty ? nil
+                : LibrarySection(title: title, books: items.sorted { $0.title < $1.title })
+        }
+        return [
+            section("In Progress", inProgress), section("Finished", finished),
+            section("Not Started", notStarted),
+        ].compactMap { $0 }
+    }
+
+    private func processingStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
+        var aligned: [AudiobookRecord] = [], narrated: [AudiobookRecord] = [],
+            transcribed: [AudiobookRecord] = [], notProcessed: [AudiobookRecord] = []
+        for book in books {
+            let s = try processingStatus(for: book)
+            if s.contains(.aligned) { aligned.append(book) }
+            if s.contains(.narrated) { narrated.append(book) }
+            if s.contains(.transcribed) { transcribed.append(book) }
+            if s.isEmpty { notProcessed.append(book) }
+        }
+        func section(_ title: String, _ items: [AudiobookRecord]) -> LibrarySection? {
+            items.isEmpty ? nil
+                : LibrarySection(title: title, books: items.sorted { $0.title < $1.title })
+        }
+        return [
+            section("Aligned", aligned), section("Narrated", narrated),
+            section("Transcribed", transcribed), section("Not Processed", notProcessed),
+        ].compactMap { $0 }
+    }
+```
 
 - [ ] **Step 4: Run the test, verify it passes**
 
