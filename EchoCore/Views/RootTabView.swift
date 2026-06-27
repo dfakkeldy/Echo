@@ -184,7 +184,16 @@ struct RootTabView: View {
                 case .read:
                     NavigationStack(path: $readPath) {
                         Group {
-                            if model.hasEPUB {
+                            // A *parsed* PDF (has a .pdf file AND visible blocks,
+                            // so hasEPUB is true) can show either the visual page
+                            // or the reflow feed — render the user-selected one.
+                            // `hasEPUB` here means "has parsed reflowable blocks".
+                            if ReaderSurfaceResolver.offersToggle(
+                                hasPDF: model.hasPDF, hasReflowableBlocks: model.hasEPUB),
+                                let folder = model.folderURL
+                            {
+                                PDFReadingSurface(folderURL: folder)
+                            } else if model.hasEPUB {
                                 ReaderTab(folderURL: model.folderURL!)
                             } else if model.hasPDF {
                                 PDFDocumentView(folderURL: model.folderURL!)
