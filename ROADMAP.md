@@ -71,6 +71,7 @@ Competitors hide fees, gate features behind subscriptions, and run ad-SDKs → *
 Competitors lose progress and corrupt files → **Echo's BYO library + iCloud just works, and your self-hosted shelf comes with it.**
 
 - [ ] **Full CloudKit study-state sync** — position, bookmarks, cards, decks (today **anchors-only**), conflict handling, no lost progress across iPhone / Watch / Mac. *(was WS8)*
+- [~] **On-device Library (BYO-library shelf + folder roots)** — data + service foundation (Schema V27, `LibraryService` / `LibraryScanner` / `LibraryAccess` / `LibraryRootDAO`) landed on this branch; the browsable shelf **UI (Library tab, smart-landing, roots/missing-file screens — M3/M4) is pending**. See `docs/superpowers/specs/2026-06-26-local-library-design.md`.
 - [x] **Full Audiobookshelf** *(was 1.x → now 1.0)* — auth (JWT login + refresh-with-rotation), browse libraries/items, server-side search, **download-to-local** (whole-item zip → `ABSLibrary/<remoteItemID>/`; sibling EPUB auto-discovered so alignment + flashcards fire unchanged), and two-way progress sync (ABS-authoritative last-write-wins reconciler, throttled push + reconcile-on-load). *Merged to `main` (PR #102; V23 migration). Fast-follows: device-verify the live progress-sync wiring; full `URLSessionConfiguration.background` resumable download; multi-server; the macOS ABS UI (the sync extension is excluded from the macOS target today). Pull re-seek is single-track-only in v1; streaming deferred post-1.0.* *(was WS8b)*
 
 ### Wedge 6 — SUPPORT *(beats poor support / feedback)*

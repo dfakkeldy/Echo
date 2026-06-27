@@ -289,6 +289,35 @@ Echo can connect to a self-hosted **Audiobookshelf (ABS)** server and download b
 
 **Credential storage:** the ABS JWT is stored in `KeychainStore` (never in SQLite). The `abs_server` table (Schema V18; existing) holds `baseURL`, `username`, and `defaultLibraryId`; V23 carries the per-book provenance on `audiobook`.
 
+### On-Device Library — Data + Service Foundation (June 2026)
+
+Echo today is single-book-at-a-time: `PlayerModel` holds one `folderURL` and opening another book replaces it. The Library feature adds a **launcher layer above the existing player** — a browsable shelf and rescannable folder "roots" (like foobar2000 mobile). Selecting a book re-acquires file access and calls the existing `loadFolder(url:)`. **Playback and the single-book model are untouched.** As of this branch only the data model and services are implemented (Milestones 1–2); the Library tab, smart-landing logic, and roots/missing-file screens are Milestones 3–4 (**no Library UI exists yet**).
+
+**Architecture — four new units, all in `Shared/` / `EchoCore/`:**
+
+- **`LibraryService`** (`@MainActor` struct, injected `DatabaseService`, no protocol — concrete-type DI matching the codebase pattern): `registerRoot`, two `rescan` overloads (a cheap shallow upsert + an async metadata-enriching overload that reads `AVAsset` common metadata and writes SHA-256–named cover files); both hide vanished books by flipping `is_available = false` — **books are never deleted by a rescan**. `books(includeUnavailable:)` lists the shelf; `sections(by:)` groups it by six axes: Recently Added, Author, Topic, Folder, Study status, and Processing status. `urlForOpening(book:)` resolve-only: it does *not* start-access the scope — instead it returns a `LibraryOpenTarget { url, scopedRoot }` and the future player code owns the security-scope lifecycle, keeping a clean separation between library reads and player startup. Derived status is computed from existing tables: study ← `playback_state.last_position` vs `audiobook.duration`; narrated ← `track.narration_voice`; transcribed ← `transcription_segment`; aligned ← `alignment_anchor` COUNT > 2 (the 2 default seed anchors don't count). `// FIXME(M3)` comments mark the rescan overloads and per-book status derivation as `@MainActor` stubs to be moved off the main actor in M3.
+- **`LibraryScanner`** (pure enum): recursive book discovery (one audio-bearing folder = one book; document-only EPUB/MD/TXT folders are skipped) + a cheap per-book `AVAsset` metadata read (title/author/duration/cover image, written as a SHA-256–named file in a `LibraryCovers/` caches directory). The expensive import path (chapter parsing, EPUB block extraction, alignment) is **deferred to first open** via `index_state = 0` — a rescan only makes the shelf real, it never triggers the study pipeline.
+- **`LibraryAccess`**: security-scoped bookmark make/resolve + author-sort normalization (trims, flips `"Last, First"` → `"First Last"`, lowercases). Per-**root** bookmarks exploit iOS's recursive `.folder` grant — one bookmark for a root folder unlocks access to every book inside it, so the number of persisted bookmarks grows with the number of roots, not the number of books.
+- **`LibraryRootDAO`** / **`LibraryRootRecord`**: GRDB persistence for the `library_root` table.
+
+**Schema V27** (`Shared/Database/Migrations/Schema_V27.swift`) — strictly additive `ALTER TABLE ADD COLUMN` on `audiobook`:
+
+| Column | Type | Purpose |
+|---|---|---|
+| `cover_art_path` | TEXT? | Cached cover image (relative path in `LibraryCovers/` caches dir; nil → generated placeholder) |
+| `narrator` | TEXT? | From `AVAsset` common metadata |
+| `index_state` | INT DEFAULT 0 | `0` = metadata-only (shelf); `1` = full import done on first open |
+| `is_available` | BOOL DEFAULT 1 | `false` = file not found at last rescan; never auto-deleted |
+| `last_seen_at` | TEXT? | ISO-8601 timestamp of last successful rescan |
+| `author_sort` | TEXT? | Normalized author grouping key (`"Last, First"` → `"First Last"`, lowercased) |
+| `source_root_id` | TEXT? | The `library_root.id` this book was discovered under (plain column — not an enforced FK; SQLite can't add one via `ALTER`, and root removal clears it in code) |
+
+Plus the new `library_root` table (`id`, `display_name`, `bookmark` BLOB, `added_at`, `last_scanned_at`) and three indexes. All columns carry defaults or are nullable, so the migration ships **inert** to existing users — no code path yet reads these columns in the shipped app, no re-import, no re-alignment.
+
+**Test coverage:** `LibraryServiceTests` (~13 cases), `SchemaV27Tests`, `AudiobookRecordLibraryFieldsTests`, `LibraryRootDAOTests`, `LibraryAccessTests`, `LibraryScannerTests` — built test-first against an in-memory `DatabaseService`.
+
+Design spec: `docs/superpowers/specs/2026-06-26-local-library-design.md`; implementation plan: `docs/superpowers/plans/2026-06-27-local-library-implementation.md`.
+
 ## Echo Watch App
 
 ```
@@ -591,6 +620,8 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V21 | `batch_queue.kind` (TEXT, default `'align'`) — discriminates audiobook-alignment items from text-only EPUB narration items (additive; no re-import) |
 | V22 | FSRS memory-state seed (`v22_fsrs_seed`) — one-time, idempotent data migration seeding `stability`/`difficulty` from each legacy SM-2 card's `(interval_days, ease_factor)` so its first FSRS review evolves existing memory instead of restarting (only rows where `stability IS NULL`; the FSRS columns themselves shipped in V16) |
 | V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
+| V24–V26 | Voice memos/notes in the reader feed (V24), study plans (V25), timeline segment key (V26) — see CHANGELOG.md |
+| V27 | Library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) + new `library_root` table — all additive, ships inert (no UI yet), no re-import or re-alignment |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 
