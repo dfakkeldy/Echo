@@ -5,7 +5,7 @@ import GRDB
 import os.log
 
 /// The grouping axes available in the Library browser.
-enum LibraryAxis {
+enum LibraryAxis: CaseIterable, Equatable, Hashable {
     case recentlyAdded
     case author
     case topic
@@ -24,7 +24,7 @@ enum StudyStatus: Equatable {
 
 /// A book's processing state — which pipeline stages have been applied.
 /// A book may satisfy multiple states simultaneously.
-struct ProcessingStatus: OptionSet {
+struct ProcessingStatus: OptionSet, Equatable {
     let rawValue: Int
     /// Real alignment anchors beyond the 2 default seed anchors exist.
     static let aligned = ProcessingStatus(rawValue: 1 << 0)
@@ -32,6 +32,12 @@ struct ProcessingStatus: OptionSet {
     static let narrated = ProcessingStatus(rawValue: 1 << 1)
     /// Transcription segments exist.
     static let transcribed = ProcessingStatus(rawValue: 1 << 2)
+}
+
+/// Study + processing status for one library book.
+struct LibraryBookStatus: Equatable {
+    var study: StudyStatus
+    var processing: ProcessingStatus
 }
 
 /// A titled group of books returned by `LibraryService.sections(by:)`.
@@ -252,6 +258,40 @@ struct LibraryService {
         return result
     }
 
+    func relocateRoot(rootID: String, to newURL: URL) throws {
+        guard var root = try LibraryRootDAO(db: db.writer).get(rootID) else {
+            throw LibraryError.unresolvableBook(rootID)
+        }
+        root.displayName = newURL.lastPathComponent
+        root.bookmark = LibraryAccess.makeBookmark(for: newURL) ?? Data()
+        try LibraryRootDAO(db: db.writer).save(root)
+    }
+
+    func removeRoot(rootID: String, forgetBooks: Bool) throws {
+        try db.writer.write { db in
+            if forgetBooks {
+                try db.execute(sql: "DELETE FROM audiobook WHERE source_root_id = ?", arguments: [rootID])
+            } else {
+                try db.execute(
+                    sql: """
+                        UPDATE audiobook
+                        SET source_root_id = NULL, is_available = 0
+                        WHERE source_root_id = ?
+                        """,
+                    arguments: [rootID])
+            }
+            try db.execute(sql: "DELETE FROM library_root WHERE id = ?", arguments: [rootID])
+        }
+    }
+
+    func markUnavailableUnderMissingRoot(rootID: String) throws {
+        try db.writer.write { db in
+            try db.execute(
+                sql: "UPDATE audiobook SET is_available = 0 WHERE source_root_id = ?",
+                arguments: [rootID])
+        }
+    }
+
     /// Writes cover JPEG bytes under `coversDir`, named with a SHA-256 hash of
     /// the book id for cross-launch stability. Returns the relative filename, or
     /// nil if `data` is nil or the write fails.
@@ -357,6 +397,47 @@ struct LibraryService {
         }
     }
 
+    /// Study + processing status for many books in a bounded number of queries.
+    func statusMap(for bookIDs: [String]) throws -> [String: LibraryBookStatus] {
+        guard !bookIDs.isEmpty else { return [:] }
+        return try db.writer.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT a.id AS id, a.duration AS duration, ps.last_position AS pos
+                    FROM audiobook a
+                    LEFT JOIN playback_state ps ON ps.audiobook_id = a.id
+                    WHERE a.id IN \(sqlIn(bookIDs))
+                    """,
+                arguments: StatementArguments(bookIDs))
+            let narrated = try idsWithRows(
+                db, table: "track", bookIDs: bookIDs,
+                extraPredicate: "AND narration_voice IS NOT NULL")
+            let transcribed = try idsWithRows(
+                db, table: "transcription_segment", bookIDs: bookIDs)
+            let alignedCounts = try counts(
+                db, table: "alignment_anchor", bookIDs: bookIDs)
+
+            var result: [String: LibraryBookStatus] = [:]
+            for row in rows {
+                let id: String = row["id"]
+                let duration: Double = row["duration"] ?? 0
+                let position: Double? = row["pos"]
+                let study: StudyStatus = {
+                    guard let position, position > 0 else { return .notStarted }
+                    if duration > 0, position >= duration * 0.98 { return .finished }
+                    return .inProgress
+                }()
+                var processing: ProcessingStatus = []
+                if (alignedCounts[id] ?? 0) > 2 { processing.insert(.aligned) }
+                if narrated.contains(id) { processing.insert(.narrated) }
+                if transcribed.contains(id) { processing.insert(.transcribed) }
+                result[id] = LibraryBookStatus(study: study, processing: processing)
+            }
+            return result
+        }
+    }
+
     /// Resolves the folder URL to open this book, together with the library root
     /// whose security scope the caller must enter. This method is SIDE-EFFECT-FREE:
     /// it does NOT call `startAccessingSecurityScopedResource()` — the player layer
@@ -373,13 +454,14 @@ struct LibraryService {
                 // book.id is stored as the folder's absoluteString (e.g. "file:///path/").
                 // URL(string:) correctly parses it, including percent-encoded characters,
                 // without the fragile replacingOccurrences approach in the brief.
-                let childURL = URL(string: book.id)
+                let childURL = URL(string: book.id),
+                childURL.isFileURL
             else {
                 throw LibraryError.unresolvableBook(book.id)
             }
             return LibraryOpenTarget(url: childURL, scopedRoot: resolved.url)
         }
-        guard let url = URL(string: book.id) else {
+        guard let url = URL(string: book.id), url.isFileURL else {
             throw LibraryError.unresolvableBook(book.id)
         }
         return LibraryOpenTarget(url: url, scopedRoot: nil)
@@ -430,12 +512,12 @@ struct LibraryService {
     }
 
     private func studyStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
-        // FIXME(M3): N+1 per-book status query on @MainActor — replace with a single aggregate (GROUP BY) query and run off-main before wiring the status grids.
+        let statuses = try statusMap(for: books.map(\.id))
         var inProgress: [AudiobookRecord] = []
         var finished: [AudiobookRecord] = []
         var notStarted: [AudiobookRecord] = []
         for book in books {
-            switch try studyStatus(for: book) {
+            switch statuses[book.id]?.study ?? .notStarted {
             case .inProgress: inProgress.append(book)
             case .finished: finished.append(book)
             case .notStarted: notStarted.append(book)
@@ -452,13 +534,13 @@ struct LibraryService {
     }
 
     private func processingStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
-        // FIXME(M3): N+1 per-book status query on @MainActor — replace with a single aggregate (GROUP BY) query and run off-main before wiring the status grids.
+        let statuses = try statusMap(for: books.map(\.id))
         var aligned: [AudiobookRecord] = []
         var narrated: [AudiobookRecord] = []
         var transcribed: [AudiobookRecord] = []
         var notProcessed: [AudiobookRecord] = []
         for book in books {
-            let s = try processingStatus(for: book)
+            let s = statuses[book.id]?.processing ?? []
             if s.contains(.aligned) { aligned.append(book) }
             if s.contains(.narrated) { narrated.append(book) }
             if s.contains(.transcribed) { transcribed.append(book) }
@@ -472,5 +554,46 @@ struct LibraryService {
             section("Aligned", aligned), section("Narrated", narrated),
             section("Transcribed", transcribed), section("Not Processed", notProcessed),
         ].compactMap { $0 }
+    }
+
+    private func sqlIn(_ ids: [String]) -> String {
+        "(" + Array(repeating: "?", count: ids.count).joined(separator: ",") + ")"
+    }
+
+    private func idsWithRows(
+        _ db: Database,
+        table: String,
+        bookIDs: [String],
+        extraPredicate: String = ""
+    ) throws -> Set<String> {
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT DISTINCT audiobook_id AS id
+                FROM \(table)
+                WHERE audiobook_id IN \(sqlIn(bookIDs)) \(extraPredicate)
+                """,
+            arguments: StatementArguments(bookIDs))
+        return Set(rows.map { row in
+            let id: String = row["id"]
+            return id
+        })
+    }
+
+    private func counts(_ db: Database, table: String, bookIDs: [String]) throws -> [String: Int] {
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT audiobook_id AS id, COUNT(*) AS count
+                FROM \(table)
+                WHERE audiobook_id IN \(sqlIn(bookIDs))
+                GROUP BY audiobook_id
+                """,
+            arguments: StatementArguments(bookIDs))
+        return Dictionary(uniqueKeysWithValues: rows.map { row in
+            let id: String = row["id"]
+            let count: Int = row["count"]
+            return (id, count)
+        })
     }
 }

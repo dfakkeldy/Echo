@@ -13,6 +13,9 @@ final class SecurityScopeManager {
     private var hasParentAccess: Bool = false
     private var parentURL: URL?
 
+    private var hasLibraryRootAccess: Bool = false
+    private var libraryRootURL: URL?
+
     // The class is inferred `@MainActor` under the project's MainActor default
     // isolation, so a plain nonisolated `deinit` cannot call the MainActor
     // `stopAll()`. `isolated deinit` (SE-0371) runs the deinit on the actor,
@@ -89,10 +92,33 @@ final class SecurityScopeManager {
         parentURL = nil
     }
 
-    /// Stops the selection, file, and parent security-scoped access grants.
+    /// Starts accessing a library root that owns access for an opened child book.
+    /// This slot is independent from the selection slot because `loadFolder`
+    /// refreshes selection to the child URL during normal player setup.
+    @discardableResult
+    func startLibraryRoot(url: URL) -> Bool {
+        if hasLibraryRootAccess {
+            if libraryRootURL == url { return true }
+            stopLibraryRoot()
+        }
+        libraryRootURL = url
+        hasLibraryRootAccess = url.startAccessingSecurityScopedResource()
+        return hasLibraryRootAccess
+    }
+
+    /// Stops the current library-root security-scoped access grant.
+    func stopLibraryRoot() {
+        guard hasLibraryRootAccess, let url = libraryRootURL else { return }
+        url.stopAccessingSecurityScopedResource()
+        hasLibraryRootAccess = false
+        libraryRootURL = nil
+    }
+
+    /// Stops the selection, file, parent, and library-root security-scoped access grants.
     func stopAll() {
         stopFile()
         stopParent()
         stopSelection()
+        stopLibraryRoot()
     }
 }

@@ -56,7 +56,7 @@ final class PlayerLoadingCoordinator {
     /// - Parameters:
     ///   - url: The folder or file URL to load.
     ///   - autoplay: Whether to automatically begin playback after loading. Defaults to `true`.
-    func loadFolder(_ url: URL, autoplay: Bool = true) {
+    func loadFolder(_ url: URL, autoplay: Bool = true, persistBookmark: Bool = true) {
         guard let state, let playbackController, let playlistManager, let persistence,
             let timelinePersistence, let bookSettingsOverrideStore, let bookmarkStore
         else { return }
@@ -145,7 +145,9 @@ final class PlayerLoadingCoordinator {
             isDir: isDir, folderURL: url, state: state, persistence: persistence,
             bookmarkStore: bookmarkStore)
 
-        onPersistSelection?(url)
+        if persistBookmark {
+            onPersistSelection?(url)
+        }
 
         // Post-load hooks: SQL bookmarks, EPUB auto-import.
         // Use the normalized folderURL (always a directory — see above) so

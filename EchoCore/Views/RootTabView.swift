@@ -143,9 +143,11 @@ struct RootTabView: View {
 
     @State private var nowPlayingPath = NavigationPath()
     @State private var readPath = NavigationPath()
+    @State private var libraryPath = NavigationPath()
 
     @SceneStorage("nowPlayingPathData") private var nowPlayingPathData: Data?
     @SceneStorage("readPathData") private var readPathData: Data?
+    @SceneStorage("libraryPathData") private var libraryPathData: Data?
 
     init(pendingDeepLink: Binding<PlayerDeepLink?> = .constant(nil)) {
         _pendingDeepLink = pendingDeepLink
@@ -208,6 +210,24 @@ struct RootTabView: View {
                             dest.view(using: model)
                         }
                     }
+                case .library:
+                    NavigationStack(path: $libraryPath) {
+                        if let db = model.databaseService {
+                            LibraryView(
+                                db: db,
+                                openBook: { model.openLibraryBook($0) },
+                                onAddFolder: { showingFolderPicker = true },
+                                onConnectServer: { showingSettings = true }
+                            )
+                            .toolbarVisibility(.hidden, for: .navigationBar)
+                            .navigationDestination(for: NavigationDestination.self) { dest in
+                                dest.view(using: model)
+                            }
+                        } else {
+                            ProgressView()
+                                .toolbarVisibility(.hidden, for: .navigationBar)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -262,6 +282,7 @@ struct RootTabView: View {
                 showingFolderPicker = false
                 // A picked folder, audio file, or lone study EPUB all flow
                 // through the same loader; an EPUB opens as an audio-less book.
+                Task { await model.registerLibraryRoot(url: url) }
                 model.loadFolder(url)
             }
         }
@@ -392,6 +413,8 @@ struct RootTabView: View {
             model.setSettingsManager(settings)
             model.setDisplayScale(displayScale)
             model.restoreLastSelectionIfPossible()
+            model.selectedTab = LibraryViewModel.smartLandingTab(
+                hasCurrentBook: model.folderURL != nil)
             applyPendingDeepLinkIfNeeded()
 
             // Restore navigation paths from SceneStorage
@@ -408,6 +431,13 @@ struct RootTabView: View {
                 )
             {
                 readPath = NavigationPath(representation)
+            }
+            if let data = libraryPathData,
+                let representation = try? JSONDecoder().decode(
+                    NavigationPath.CodableRepresentation.self, from: data
+                )
+            {
+                libraryPath = NavigationPath(representation)
             }
         }
         .onChange(of: pendingDeepLink) { _, _ in
@@ -429,6 +459,11 @@ struct RootTabView: View {
                     let data = try? JSONEncoder().encode(codable)
                 {
                     readPathData = data
+                }
+                if let codable = libraryPath.codable,
+                    let data = try? JSONEncoder().encode(codable)
+                {
+                    libraryPathData = data
                 }
                 model.persistCurrentState()
             }

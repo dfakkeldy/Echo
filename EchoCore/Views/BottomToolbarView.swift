@@ -29,7 +29,7 @@ struct BottomToolbarView: View {
             Spacer()
             markPassageButton
             Spacer()
-            readToggleButton
+            tabCycleButton
             Spacer()
             bookmarkCaptureMenu
         }
@@ -136,24 +136,28 @@ struct BottomToolbarView: View {
         .accessibilityHint(Text("Choose playback speed or open playback options"))
     }
 
-    // MARK: - Read & Study Toggle
+    // MARK: - Tab Cycle
 
-    // Two-state toggle between Now Playing and Read.
-    private var readToggleButton: some View {
-        Button {
+    private var tabCycleButton: some View {
+        let next: TabSelection = {
+            switch model.selectedTab {
+            case .nowPlaying: return .read
+            case .read: return .library
+            case .library: return .nowPlaying
+            }
+        }()
+        return Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                model.selectedTab = (model.selectedTab == .read) ? .nowPlaying : .read
+                model.selectedTab = next
             }
             Haptic.play(.medium)
         } label: {
-            utilityChip(isActive: model.selectedTab == .read) {
-                Image(systemName: model.selectedTab == .read ? "book.pages.fill" : "book.pages")
+            utilityChip(isActive: false) {
+                Image(systemName: next.icon)
                     .font(.title2)
             }
         }
-        .accessibilityLabel(Text(model.selectedTab == .read ? "Now Playing" : "Read & Study"))
-        .accessibilityAddTraits(model.selectedTab == .read ? .isSelected : [])
-        .disabled(!model.hasPlaybackContent)
+        .accessibilityLabel(Text("Go to \(next.label)"))
     }
 
     // MARK: - Bookmark

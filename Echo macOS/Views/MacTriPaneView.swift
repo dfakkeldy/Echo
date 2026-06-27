@@ -18,7 +18,16 @@ struct MacTriPaneView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            MacTOCTreeView()
+            VStack(spacing: 0) {
+                MacLibraryView(db: dbService) { target in
+                    player.openLibraryBook(target)
+                }
+                .frame(minHeight: 220, idealHeight: 280, maxHeight: 360)
+
+                Divider()
+
+                MacTOCTreeView()
+            }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
         } content: {
             VStack(spacing: 0) {

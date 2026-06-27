@@ -29,12 +29,12 @@ struct NowPlayingTab: View {
             // 2. MAIN LAYOUT STACK
             Group {
                 if model.folderURL == nil {
-                    FirstRunLandingView(
-                        onOpenFolder: openFolder,
-                        onOpenHelp: showHelp,
-                        onConnectServer: onConnectServer
-                    )
-                    .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                    Color.clear
+                        .onAppear {
+                            if model.selectedTab == .nowPlaying {
+                                model.selectedTab = .library
+                            }
+                        }
                 } else {
                     VStack(spacing: 0) {
                         // Flexible top slack — balances the artwork block vertically.

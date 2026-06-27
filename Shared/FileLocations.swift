@@ -59,4 +59,10 @@ enum FileLocations {
             .appending(path: "ABSLibrary", directoryHint: .isDirectory)
             .appending(path: remoteItemID, directoryHint: .isDirectory)
     }
+
+    /// Cache directory for cover images extracted during Library root rescans.
+    static var libraryCoversDirectory: URL {
+        cachesDirectory
+            .appending(path: "LibraryCovers", directoryHint: .isDirectory)
+    }
 }
