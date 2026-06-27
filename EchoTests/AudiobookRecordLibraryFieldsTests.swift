@@ -31,6 +31,7 @@ struct AudiobookRecordLibraryFieldsTests {
         #expect(fetched?.isAvailable == true)
         #expect(fetched?.authorSort == "frank herbert")
         #expect(fetched?.sourceRootID == "root-1")
+        #expect(fetched?.lastSeenAt == "2026-06-27T00:00:00Z")
     }
 
     @Test func defaultsApplyWhenLibraryFieldsOmitted() throws {
@@ -40,6 +41,8 @@ struct AudiobookRecordLibraryFieldsTests {
         #expect(record.indexState == 0)
         #expect(record.isAvailable == true)
         #expect(record.coverArtPath == nil)
+        #expect(record.narrator == nil)
+        #expect(record.lastSeenAt == nil)
         #expect(record.sourceRootID == nil)
     }
 }
