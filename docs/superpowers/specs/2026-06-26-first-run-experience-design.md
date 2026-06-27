@@ -33,13 +33,15 @@ Non-goals (explicitly deferred): bare-audio "transcribe → AI flashcards" gener
 ## 3. Design
 
 ### 3.1 Routing & the first-run gate
+**Baseline (post-#199, Wedge 3 "Clarity").** Onboarding is now live: `RootTabView` presents the 4-step slideshow `OnboardingView` (Import → Align → Capture → Review) on cold launch via `firstLaunchOnboardingBinding` (`RootTabView.swift:468`), and empty states already exist — `NowPlayingEmptyState` ("No Book Open" + Choose Book + Help) and `ReaderEmptyState` (two modes). Persistence was hardened too (`saveBookmark` returns `Bool`; a "Folder Access Not Saved" alert covers *save* failures). The first-run redesign therefore **evolves Wedge 3**, it doesn't start from scratch.
+
+**Decision: replace the slideshow with the action-first landing page.** Reuse the existing `@AppStorage("hasSeenOnboarding")` gate, but present the action-first landing (§3.2) instead of the 4-step `OnboardingView` carousel — teach import/align/capture/review by *doing* (the bundled manual + nudges), not slides users skip. The `Wedge3ClarityOnRampTests` assertions that pin the slideshow (Import/Align/Capture/Review/TabView/Get Started) must be **rewritten** to assert the new landing.
 - Entry stays `EchoCoreApp.swift` → `RootTabView` (iOS) / `MacTriPaneView` (macOS).
-- Reuse the existing `@AppStorage("hasSeenOnboarding")` flag but repurpose it to gate the **new native landing page**, not the dead 4-page carousel.
 - First-launch sequence: seed the bundled manual into the library (§3.3) → show the landing page over the empty Now Playing surface.
 - The landing page also reappears whenever the library is genuinely empty (e.g., the only book's files went missing — see §3.8), so "empty" always has a way forward.
 
 ### 3.2 Landing page (native)
-Replaces the "No track selected" empty state. Three actions, ranked by the "most people just want to listen" principle (see mockup screen 1):
+Supersedes the shipped `NowPlayingEmptyState` ("No Book Open" + Choose Book + Help) and the slideshow `OnboardingView`. Three actions, ranked by the "most people just want to listen" principle (see mockup screen 1):
 1. **Open a folder** — primary (accent). Existing `FolderPicker` (`asCopy:false`).
 2. **Play the welcome manual** — secondary. Opens the bundled manual (§3.3).
 3. **Connect a server** — tertiary, "demo" tag. ABS connect with one-tap demo pre-fill (§3.6).
@@ -76,7 +78,7 @@ A small, non-blocking stack beneath the transport (mockup screen 2). Hard rule (
 
 ### 3.8 Silent-failure / returning-user hardening
 Folded in because a returning user whose file moved currently hits the *same* dead end as a newcomer:
-- `restoreBookmark()` returning `nil` (`Persistence.swift:238-240`) → show "Can't find this book's files — they may have moved or been deleted" with a **Re-select** action, instead of silently dropping to empty.
+- `restoreBookmark()` still returns `nil` **silently** on a deleted/moved file (`Persistence.swift:234`, catch at ~267) → show "Can't find this book's files — they may have moved or been deleted" with a **Re-select** action, instead of silently dropping to empty. Mirror the existing `showingBookmarkPersistenceWarning` "Folder Access Not Saved" alert (added in #199, `RootTabView.swift`) — same pattern, applied to *restore* failures, which #199 left unhandled.
 - Narration OOM/model failure (`.fail()` today has no UI) → surface an error with retry.
 - macOS scope-loss (device unmounted) → same recovery affordance.
 - Nested/multi-disc folder → explicit "Echo loads files from the top level of the folder; flatten multi-disc books" message (recursive scan deferred).
@@ -95,7 +97,7 @@ Move the notification-permission prompt from app launch (pre-context, before the
 - Both are GRDB migrations → must follow the schema-migration rules (version-number collision checks, `SchemaVxxTests`) and trigger **`doc-sync`** (ARCHITECTURE.md / README.md / CHANGELOG.md). Run the schema-migration-reviewer before committing.
 
 ## 5. Build order (phasing)
-1. **First-run shell:** landing page + routing gate + no-copy copy + empty-state recovery (§3.1, §3.2, §3.8 partial). Highest user-visible payoff, no schema change.
+1. **First-run shell:** replace the shipped slideshow with the action-first landing page (reuse the `hasSeenOnboarding` gate, build on `NowPlayingEmptyState`), no-copy reassurance, stale-file restore recovery, and **rewrite `Wedge3ClarityOnRampTests`** to match (§3.1, §3.2, §3.8). Highest user-visible payoff, no schema change. *(Manual "Play the welcome manual" action lands here but is non-functional until phase 2 seeds the manual — wire it to a graceful "coming soon"/disabled state in phase 1, or land phase 1+2 together.)*
 2. **Bundled manual:** pre-render the opening chapter's audio+alignment, bundle EPUB, seed on first launch, hybrid playback (§3.3). Depends on a manual freshness pass **and the on-device narration-reliability pass (§7)**.
 3. **Content-aware open + auto-play setting + TOC fallback + empty/unsupported messaging** (§3.4).
 4. **Nudge system + `nudge_dismissal` migration** (§3.5).
