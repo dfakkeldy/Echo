@@ -55,6 +55,45 @@ struct LibraryServiceTests {
         #expect(try AudiobookDAO(db: db.writer).get("file:///Lib/Dune/")?.isAvailable == false)
     }
 
+    @Test func rescanAppliesInjectedMetadata() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+        // Correction B: register a REAL temp dir so the bookmark resolves and the
+        // stale-bookmark guard passes. The injected discover ignores the resolved
+        // URL and returns a fixed synthetic book, so id assertions stay deterministic.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-meta-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+
+        let dune = DiscoveredBook(
+            folderURL: URL(fileURLWithPath: "/Lib/Dune", isDirectory: true),
+            audioFiles: [URL(fileURLWithPath: "/Lib/Dune/d.m4b")], companionEPUB: nil)
+        let covers = FileManager.default.temporaryDirectory
+            .appendingPathComponent("covers-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: covers) }
+
+        _ = try await service.rescan(
+            root: root,
+            discover: { _ in [dune] },
+            readMetadata: { _ in
+                LibraryScanner.ScannedMetadata(
+                    title: "Dune", author: "Tolkien, J.R.R.", narrator: "Scott Brick",
+                    duration: 4242, coverImageData: Data([0xFF, 0xD8]))
+            },
+            coversDir: covers,
+            now: fixedNow)
+
+        let book = try AudiobookDAO(db: db.writer).get("file:///Lib/Dune/")
+        #expect(book?.title == "Dune")
+        #expect(book?.author == "Tolkien, J.R.R.")
+        #expect(book?.narrator == "Scott Brick")
+        #expect(book?.duration == 4242)
+        #expect(book?.authorSort == "j.r.r. tolkien")
+        #expect(book?.coverArtPath != nil)
+    }
+
     @Test func registerRootPersistsBookmarkAndRow() throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
