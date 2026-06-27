@@ -43,11 +43,17 @@ struct Persistence {
 
     // MARK: - Key generators (per-book — no cross-book collisions)
 
-    private func progressKey(for folderKey: String) -> String { "EchoAudiobooks.progress.\(folderKey)" }
+    private func progressKey(for folderKey: String) -> String {
+        "EchoAudiobooks.progress.\(folderKey)"
+    }
     private func speedKey(for title: String) -> String { "EchoAudiobooks.speed.\(title)" }
     private func loopModeKey(for key: String) -> String { "EchoAudiobooks.loopMode.\(key)" }
-    private func lastTrackKey(for folderKey: String) -> String { "EchoAudiobooks.lastTrack.\(folderKey)" }
-    private func pauseTimestampKey(for folderKey: String) -> String { "EchoAudiobooks.pauseTimestamp.\(folderKey)" }
+    private func lastTrackKey(for folderKey: String) -> String {
+        "EchoAudiobooks.lastTrack.\(folderKey)"
+    }
+    private func pauseTimestampKey(for folderKey: String) -> String {
+        "EchoAudiobooks.pauseTimestamp.\(folderKey)"
+    }
 
     // Legacy dictionary key constants (used only for one-time migration).
     private let legacyProgressDictKey = "EchoAudiobooks.progress.dictionary"
@@ -64,7 +70,9 @@ struct Persistence {
     /// Copies entries from a legacy dictionary key to per-book keys,
     /// then removes the legacy dictionary. Each legacy dict is keyed by
     /// book identifier; the value is moved as-is to `perBookKey(bookID)`.
-    private func migrateIfNeeded(legacyKey: String, flagSuffix: String, to perBookKey: (String) -> String) {
+    private func migrateIfNeeded(
+        legacyKey: String, flagSuffix: String, to perBookKey: (String) -> String
+    ) {
         let flag = migrationFlagPrefix + flagSuffix
         guard !defaults.bool(forKey: flag) else { return }
         defer { defaults.set(true, forKey: flag) }
@@ -87,10 +95,12 @@ struct Persistence {
 
     func getLastTrack(for folderKey: String, folderURL: URL? = nil) -> String? {
         if let url = folderURL,
-           let manifest = PlaylistManifestService.read(from: url) {
+            let manifest = PlaylistManifestService.read(from: url)
+        {
             return manifest.playbackState.lastTrackId
         }
-        migrateIfNeeded(legacyKey: legacyLastTrackDictKey, flagSuffix: "lastTrack", to: lastTrackKey(for:))
+        migrateIfNeeded(
+            legacyKey: legacyLastTrackDictKey, flagSuffix: "lastTrack", to: lastTrackKey(for:))
         return defaults.string(forKey: lastTrackKey(for: folderKey))
     }
 
@@ -103,11 +113,14 @@ struct Persistence {
 
     func getSpeed(for title: String, folderURL: URL? = nil) -> Float? {
         if let url = folderURL,
-           let manifest = PlaylistManifestService.read(from: url) {
+            let manifest = PlaylistManifestService.read(from: url)
+        {
             return Float(manifest.playbackState.speed)
         }
         migrateIfNeeded(legacyKey: legacySpeedDictKey, flagSuffix: "speed", to: speedKey(for:))
-        guard let value = defaults.object(forKey: speedKey(for: title)) as? Double else { return nil }
+        guard let value = defaults.object(forKey: speedKey(for: title)) as? Double else {
+            return nil
+        }
         return Float(value)
     }
 
@@ -120,10 +133,12 @@ struct Persistence {
 
     func getLoopMode(for key: String, folderURL: URL? = nil) -> String? {
         if let url = folderURL,
-           let manifest = PlaylistManifestService.read(from: url) {
+            let manifest = PlaylistManifestService.read(from: url)
+        {
             return manifest.playbackState.loopMode
         }
-        migrateIfNeeded(legacyKey: legacyLoopModeDictKey, flagSuffix: "loopMode", to: loopModeKey(for:))
+        migrateIfNeeded(
+            legacyKey: legacyLoopModeDictKey, flagSuffix: "loopMode", to: loopModeKey(for:))
         return defaults.string(forKey: loopModeKey(for: key))
     }
 
@@ -138,7 +153,8 @@ struct Persistence {
 
     func loadOrder(for key: String, folderURL: URL? = nil) -> [String]? {
         if let url = folderURL,
-           let manifest = PlaylistManifestService.read(from: url) {
+            let manifest = PlaylistManifestService.read(from: url)
+        {
             return manifest.tracks.map(\.file)
         }
         return defaults.stringArray(forKey: "order_\(key)")
@@ -153,7 +169,8 @@ struct Persistence {
 
     func loadEnabledState(for key: String, folderURL: URL? = nil) -> [String: Bool]? {
         if let url = folderURL,
-           let manifest = PlaylistManifestService.read(from: url) {
+            let manifest = PlaylistManifestService.read(from: url)
+        {
             return Dictionary(uniqueKeysWithValues: manifest.tracks.map { ($0.file, $0.enabled) })
         }
         return defaults.dictionary(forKey: "enabled_\(key)") as? [String: Bool]
@@ -161,26 +178,34 @@ struct Persistence {
 
     // MARK: - Book Progress
 
-    func saveBookProgress(for folderKey: String, trackId: String, time: Double, folderURL: URL? = nil) {
+    func saveBookProgress(
+        for folderKey: String, trackId: String, time: Double, folderURL: URL? = nil
+    ) {
         let item: [String: Any] = ["trackId": trackId, "time": time]
         defaults.set(item, forKey: progressKey(for: folderKey))
         if let url = folderURL {
-            PlaylistManifestService.updatePlaybackState(folderURL: url, lastTrackId: trackId, lastPosition: time)
+            PlaylistManifestService.updatePlaybackState(
+                folderURL: url, lastTrackId: trackId, lastPosition: time)
         }
     }
 
-    func getBookProgress(for folderKey: String, folderURL: URL? = nil) -> (trackId: String, time: Double)? {
+    func getBookProgress(for folderKey: String, folderURL: URL? = nil) -> (
+        trackId: String, time: Double
+    )? {
         if let url = folderURL,
-           let manifest = PlaylistManifestService.read(from: url) {
+            let manifest = PlaylistManifestService.read(from: url)
+        {
             if let trackId = manifest.playbackState.lastTrackId {
                 return (trackId, manifest.playbackState.lastPosition)
             }
             return nil
         }
-        migrateIfNeeded(legacyKey: legacyProgressDictKey, flagSuffix: "progress", to: progressKey(for:))
+        migrateIfNeeded(
+            legacyKey: legacyProgressDictKey, flagSuffix: "progress", to: progressKey(for:))
         guard let item = defaults.dictionary(forKey: progressKey(for: folderKey)),
-              let trackId = item["trackId"] as? String,
-              let time = item["time"] as? Double else { return nil }
+            let trackId = item["trackId"] as? String,
+            let time = item["time"] as? Double
+        else { return nil }
         return (trackId, time)
     }
 
@@ -195,8 +220,11 @@ struct Persistence {
     }
 
     func getPauseTimestamp(for folderKey: String) -> Date? {
-        migrateIfNeeded(legacyKey: legacyPauseTimestampDictKey, flagSuffix: "pauseTimestamp", to: pauseTimestampKey(for:))
-        guard let interval = defaults.object(forKey: pauseTimestampKey(for: folderKey)) as? Double else { return nil }
+        migrateIfNeeded(
+            legacyKey: legacyPauseTimestampDictKey, flagSuffix: "pauseTimestamp",
+            to: pauseTimestampKey(for:))
+        guard let interval = defaults.object(forKey: pauseTimestampKey(for: folderKey)) as? Double
+        else { return nil }
         return Date(timeIntervalSince1970: interval)
     }
 
@@ -231,7 +259,19 @@ struct Persistence {
         }
     }
 
-    func restoreBookmark() -> URL? {
+    enum BookmarkRestoreResult: Equatable {
+        /// A saved bookmark resolved to a usable folder URL.
+        case restored(URL)
+        /// No bookmark has ever been saved (fresh install / never picked a book).
+        case none
+        /// A bookmark existed but no longer resolves — the files were moved or deleted.
+        case missing
+    }
+
+    /// Resolves the persisted security-scoped bookmark, distinguishing "nothing
+    /// saved" from "saved but the files are gone" so callers can surface a
+    /// recovery prompt for the latter (the former is a normal first launch).
+    func restoreBookmarkResult() -> BookmarkRestoreResult {
         // Migration: if Keychain is empty but UserDefaults has legacy data,
         // move it to Keychain and clean up the plaintext copy.  (§6.2)
         var data = loadSecurityScopedBookmarkData()
@@ -245,10 +285,10 @@ struct Persistence {
                     .error,
                     "Legacy security-scoped bookmark migration failed; folder must be reselected"
                 )
-                return nil
+                return .none
             }
         }
-        guard let data else { return nil }
+        guard let data else { return .none }
 
         var isStale = false
         do {
@@ -263,11 +303,16 @@ struct Persistence {
                 saveBookmark(url: url)
             }
 
-            return url
+            return .restored(url)
         } catch {
             os_log(.error, "Bookmark restore failed: %{private}@", error.localizedDescription)
-            return nil
+            return .missing
         }
+    }
+
+    func restoreBookmark() -> URL? {
+        if case .restored(let url) = restoreBookmarkResult() { return url }
+        return nil
     }
 
     // MARK: - Bookmarks (Per-Book) Persistence
@@ -294,13 +339,15 @@ struct Persistence {
 
     func loadBookmarks(for key: String, folderURL: URL? = nil) -> [Bookmark] {
         if let folderURL,
-           let bookmarks = readSidecar(folderURL: folderURL) {
+            let bookmarks = readSidecar(folderURL: folderURL)
+        {
             return bookmarks
         }
 
         let defaultsBookmarks: [Bookmark]
         if let data = defaults.data(forKey: bookmarksKey(for: key)),
-           let decoded = try? JSONDecoder().decode([Bookmark].self, from: data) {
+            let decoded = try? JSONDecoder().decode([Bookmark].self, from: data)
+        {
             defaultsBookmarks = decoded
         } else {
             defaultsBookmarks = []
@@ -333,7 +380,8 @@ struct Persistence {
         let didStart = folderURL.startAccessingSecurityScopedResource()
         defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
         guard FileManager.default.fileExists(atPath: sidecar.path),
-              let data = try? Data(contentsOf: sidecar) else { return nil }
+            let data = try? Data(contentsOf: sidecar)
+        else { return nil }
         return try? JSONDecoder().decode([Bookmark].self, from: data)
     }
 }

@@ -75,6 +75,33 @@ import Testing
         #expect(KeychainStore.Key.macLastFileBookmark.rawValue == "macLastFileBookmark")
     }
 
+    @Test func restoreBookmarkResultIsNoneWhenNothingSaved() throws {
+        let (defaults, suiteName) = try Self.makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let persistence = Persistence(
+            defaults: defaults,
+            saveSecurityScopedBookmarkData: { _ in true },
+            loadSecurityScopedBookmarkData: { nil }
+        )
+
+        #expect(persistence.restoreBookmarkResult() == .none)
+    }
+
+    @Test func restoreBookmarkResultIsMissingWhenBookmarkUnresolvable() throws {
+        let (defaults, suiteName) = try Self.makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let junk = Data("not-a-bookmark".utf8)
+        let persistence = Persistence(
+            defaults: defaults,
+            saveSecurityScopedBookmarkData: { _ in true },
+            loadSecurityScopedBookmarkData: { junk }
+        )
+
+        #expect(persistence.restoreBookmarkResult() == .missing)
+    }
+
     private static func makeDefaults() throws -> (UserDefaults, String) {
         let suiteName = "com.echo.tests.persistence.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
