@@ -5,23 +5,20 @@ import Testing
 @testable import Echo
 
 struct Wedge3ClarityOnRampTests {
-    @Test func rootPresentsFirstLaunchOnboardingUntilSeen() throws {
-        let source = try Self.viewSource(named: "RootTabView.swift")
+    @Test func nowPlayingShowsActionFirstLanding() throws {
+        let tab = try Self.viewSource(named: "NowPlayingTab.swift")
 
-        #expect(source.contains("@AppStorage(\"hasSeenOnboarding\")"))
-        #expect(source.contains("firstLaunchOnboardingBinding"))
-        #expect(source.contains("OnboardingView()"))
+        #expect(tab.contains("FirstRunLandingView("))
+        #expect(tab.contains("onConnectServer:"))
+        #expect(!tab.contains("NowPlayingEmptyState("))
     }
 
-    @Test func onboardingTeachesCoreWorkflowInFourSteps() throws {
-        let source = try Self.viewSource(named: "OnboardingView.swift")
+    @Test func rootNoLongerPresentsOnboardingSlideshow() throws {
+        let root = try Self.viewSource(named: "RootTabView.swift")
 
-        #expect(source.contains("Import"))
-        #expect(source.contains("Align"))
-        #expect(source.contains("Capture"))
-        #expect(source.contains("Review"))
-        #expect(source.contains("TabView"))
-        #expect(source.contains("Get Started"))
+        #expect(!root.contains("OnboardingView()"))
+        #expect(!root.contains("firstLaunchOnboardingBinding"))
+        #expect(!root.contains("hasSeenOnboarding"))
     }
 
     @Test func readerEmptyStateIsAnActionableOnRamp() throws {
