@@ -2,7 +2,7 @@
 import SwiftUI
 import UIKit
 
-fileprivate struct ReaderSettingsSnapshot: Equatable {
+private struct ReaderSettingsSnapshot: Equatable {
     var fontSize: Double
     var lineSpacing: Double
     var cardTintHex: String
@@ -43,11 +43,18 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     var forceScrollBlockID: String? = nil
     var forceScrollTrigger: Int = 0
     var onTapBlock: ((String) -> Void)?
-    var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+    var onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?
     var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
     var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
     var offState: ((Int) -> ChapterOffState)?
     var onPlayMemo: ((VoiceMemoRecord) -> Void)?
+
+    /// A resolved word under a long-press: its block, index within the block, and display text.
+    struct ReaderWordHit {
+        let blockID: String
+        let wordIndex: Int
+        let word: String
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -264,7 +271,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
 
     class Coordinator: NSObject, UICollectionViewDelegate {
         var onTapBlock: ((String) -> Void)?
-        var onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?
+        var onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?
         var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
         var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
         var offState: ((Int) -> ChapterOffState)?
@@ -304,7 +311,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
 
         init(
             onTapBlock: ((String) -> Void)?,
-            onContextMenu: ((EPubBlockRecord) -> UIContextMenuConfiguration?)?,
+            onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?,
             onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?,
             isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>,
             topPartTitle: Binding<String?>, topChapterTitle: Binding<String?>,
@@ -808,7 +815,22 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             case .chapterHeader(_, let chapterIndex):
                 return onChapterHeaderContextMenu?(chapterIndex)
             case .block(let block):
-                return onContextMenu?(block)
+                var wordHit: ReaderWordHit?
+                if let cell = collectionView.cellForItem(at: indexPath) {
+                    let pointInCell = collectionView.convert(point, to: cell)
+                    let idx =
+                        (cell as? ParagraphCardCell)?.wordIndex(at: pointInCell)
+                        ?? (cell as? HeadingCardCell)?.wordIndex(at: pointInCell)
+                    if let idx {
+                        let words = WordTokenizer.words(in: block.text ?? "")
+                        if idx < words.count {
+                            wordHit = ReaderWordHit(
+                                blockID: block.id, wordIndex: idx,
+                                word: String(words[idx]))
+                        }
+                    }
+                }
+                return onContextMenu?(block, wordHit)
             default:
                 return nil
             }

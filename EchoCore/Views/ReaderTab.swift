@@ -9,6 +9,7 @@ struct ReaderTab: View {
     let folderURL: URL
     @Environment(PlayerModel.self) var model
     @Environment(SettingsManager.self) private var settingsManager
+    @Environment(FreeTierGate.self) var freeTierGate
 
     @State var viewModel: ReaderFeedViewModel?
     @State var showChapterPickerForBlockID: String? = nil
@@ -164,8 +165,10 @@ struct ReaderTab: View {
                     onTapBlock: { (blockID: String) -> Void in
                         tapBlock(blockID)
                     },
-                    onContextMenu: { (block: EPubBlockRecord) -> UIContextMenuConfiguration? in
-                        buildContextMenu(block: block)
+                    onContextMenu: {
+                        (block: EPubBlockRecord, wordHit: ReaderFeedCollectionView.ReaderWordHit?)
+                            -> UIContextMenuConfiguration? in
+                        buildContextMenu(block: block, word: wordHit)
                     },
                     onAccessibilityActions: {
                         (block: EPubBlockRecord) -> [UIAccessibilityCustomAction] in
