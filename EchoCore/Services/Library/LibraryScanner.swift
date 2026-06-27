@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
 import Foundation
-import UIKit
+import ImageIO
+import UniformTypeIdentifiers
 
 /// A book discovered under a Library root: the folder that directly holds its
 /// audio, its audio files, and a companion EPUB if one sits beside them.
@@ -16,6 +17,10 @@ struct DiscoveredBook: Equatable {
 /// book). Mirrors `FolderAudioScanner`'s enumerator options.
 enum LibraryScanner {
     private static let audioExtensions: Set<String> = ["m4b", "mp3", "m4a", "aax", "wav", "flac"]
+    private static let imageExtensions = [
+        "jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff"
+    ]
+    private static let imageExtensionSet = Set(imageExtensions)
 
     static func discoverBooks(in root: URL) -> [DiscoveredBook] {
         let enumerator = FileManager.default.enumerator(
@@ -78,17 +83,7 @@ extension LibraryScanner {
                 $0.isFinite ? $0 : nil
             } ?? 0
 
-        var cover: Data?
-        let embeddedImage = await ArtworkCache.embeddedArtworkImage(for: first)
-        let coverImage: UIImage?
-        if let img = embeddedImage {
-            coverImage = img
-        } else {
-            coverImage = await ArtworkCache.folderArtworkImage(near: first)
-        }
-        if let image = coverImage {
-            cover = image.jpegData(compressionQuality: 0.8)
-        }
+        let cover = await coverArtworkJPEGData(for: first)
 
         return ScannedMetadata(
             title: title?.isEmpty == false ? title! : fallbackTitle(for: book),
@@ -101,5 +96,123 @@ extension LibraryScanner {
         guard let item = metadata.first(where: { $0.commonKey?.rawValue == key.rawValue })
         else { return nil }
         return try? await item.load(.stringValue)
+    }
+
+    private static func coverArtworkJPEGData(for audioURL: URL) async -> Data? {
+        if let embedded = await embeddedArtworkJPEGData(for: audioURL) {
+            return embedded
+        }
+        return await folderArtworkJPEGData(near: audioURL)
+    }
+
+    private static func embeddedArtworkJPEGData(for url: URL) async -> Data? {
+        let asset = AVURLAsset(url: url)
+        let metadata = (try? await asset.load(.commonMetadata)) ?? []
+
+        for item in metadata where item.commonKey == .commonKeyArtwork {
+            guard let data = try? await item.load(.dataValue),
+                  let jpegData = jpegData(fromImageData: data)
+            else { continue }
+            return jpegData
+        }
+
+        return nil
+    }
+
+    private static func folderArtworkJPEGData(near url: URL) async -> Data? {
+        let folderURL = url.deletingLastPathComponent()
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+
+        let files =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+
+        let images = files.filter { fileURL in
+            imageExtensionSet.contains(fileURL.pathExtension.lowercased())
+        }
+
+        if !images.isEmpty {
+            let preferred = images.first { fileURL in
+                fileURL.deletingPathExtension().lastPathComponent.lowercased() == "cover"
+            }
+            let selected = preferred ?? images.sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+            }.first
+
+            if let selected,
+               let data = await jpegData(fromImageFile: selected) {
+                return data
+            }
+        }
+
+        for ext in imageExtensions {
+            let candidate = folderURL.appendingPathComponent("cover").appendingPathExtension(ext)
+            if let data = await jpegData(fromImageFile: candidate) {
+                return data
+            }
+        }
+
+        return nil
+    }
+
+    private static func jpegData(fromImageFile imageURL: URL) async -> Data? {
+        await ensureItemIsAvailable(url: imageURL)
+
+        let didStart = imageURL.startAccessingSecurityScopedResource()
+        defer { if didStart { imageURL.stopAccessingSecurityScopedResource() } }
+
+        guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil) else { return nil }
+        return jpegData(from: source)
+    }
+
+    private static func ensureItemIsAvailable(url: URL) async {
+        guard let values = try? url.resourceValues(forKeys: [
+            .isUbiquitousItemKey,
+            .ubiquitousItemDownloadingStatusKey
+        ]),
+            values.isUbiquitousItem == true
+        else { return }
+
+        let status = values.ubiquitousItemDownloadingStatus ?? .current
+        if status != .current {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        }
+    }
+
+    private static func jpegData(fromImageData data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return jpegData(from: source)
+    }
+
+    private static func jpegData(from source: CGImageSource) -> Data? {
+        let maxPixelSize = 600
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+            source, 0, thumbnailOptions as CFDictionary)
+        else { return nil }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+
+        let destinationOptions: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: 0.8
+        ]
+        CGImageDestinationAddImage(destination, cgImage, destinationOptions as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 }
