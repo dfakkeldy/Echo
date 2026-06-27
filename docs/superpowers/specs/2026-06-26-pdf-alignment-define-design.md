@@ -93,7 +93,7 @@ PDF ─▶ PDFAutoImportScanner (born-digital text + raw page offsets)
 | # | Milestone | Reuses | New work |
 |---|-----------|--------|----------|
 | **M1** | PDF **page surface reachable** + **page ⇄ reflow toggle** + default (reflow+highlight already works via `hasEPUB`→`ReaderTab`, see §2) | Existing card-feed highlight path (reflow), `PDFDocumentView` (page) | Detect a parsed PDF (`hasPDF && hasReflowableBlocks`); host both surfaces behind a per-book toggle; choose/persist default (D1: page); pure `ReaderSurfaceMode` resolver |
-| **M2** | Shared **render-layer migration** → define + Save + **word-tap-to-seek** (all card-feed books) | Active-word resolver, `word_timing`, `wordRanges` | `UILabel`→selectable TextKit host (iOS) / `NSTextView` host (macOS); edit-menu "Save word"; tap→seek; re-implement highlight on new host |
+| **M2** | Per-word interaction on the card feed → define + Save + **word-tap-to-seek** (iOS) | Existing block tap-to-seek + `contextMenuConfigurationForItemsAt:point:` menu; `word_timing`/`wordCache`; `wordRanges` | `UILabel`→**non-selectable** read-only `UITextView` (TextKit, for hit-testing only); `wordIndex(at:)`; **augment** the existing context menu with word "Look Up"+"Save"; refine tap block→word. *(Revised 2026-06-27 — see §6.1.)* |
 | **M3** | **In-place PDF-page** karaoke highlight + define-on-page | Active-word resolver, `word_timing` | V26 `pdf_page_geometry` capture; `PDFView` bbox overlay; page word hit-test |
 | **M4** | **Vocabulary study card** + narrate-PDF affordance | `flashcard` table, study feed, FSRS, `.apkg` export | `cardType="vocabulary"` builder; review surfacing via Look Up; "Narrate PDF" entry point |
 
@@ -156,14 +156,16 @@ CREATE TABLE pdf_page_geometry (
 3. Persist the choice per book (extend `BookSettingsOverrideStore` / `BookPreferencesService`, key `readerPDFViewModeKey`); default = **page** (D1).
 4. The existing `ReaderActiveBlockResolver` → cell highlight path is reused unchanged in reflow mode — no engine work.
 
-**M2 — selectable render host** (shared by EPUB, text, PDF-reflow)
-- **iOS:** `UILabel` → read-only, non-editable, **selectable `UITextView` (TextKit 2)** in `ParagraphCardCell`/`HeadingCardCell`. Gives `characterIndex(for:)` (touch → char → word via `wordRanges`), native long-press selection + **Look Up**, and a custom **"Save word"** edit-menu item (`UIEditMenuInteraction` / `editMenu(for:)`).
-- **macOS:** SwiftUI `Text` → an `NSTextView`-backed representable with the same selectable + Look Up + custom-menu behavior.
-- Re-implement on the migrated host (all from existing data):
-  - **Read-along highlight** — current-word background on the text view's text storage (replaces `UILabel.applyWordHighlight`).
-  - **Word-tap-to-seek (D3)** — tap → `characterIndex(for:)` → word index → `word_timing.audio_start_time` → seek.
-  - **Define + Save** — long-press selects word → Look Up; callout "Save word" → vocabulary builder (§6.3).
-- **Alternative considered:** manual word-frame precompute (measure each `wordRange`'s `boundingRect`, hit-test via gesture recognizer). Avoids the host swap but is fiddly with line wrapping and provides no native selection/Look Up — rejected.
+**M2 — per-word interaction (REVISED 2026-06-27, iOS card feed only)**
+
+The original plan (selectable `UITextView` + native selection "Look Up") was **dropped after implementation-time discovery**: the reader's block interactions are *collection-view-mediated* (`ParagraphCardCell`/`HeadingCardCell` are passive; tap → `ReaderFeedCollectionView.didSelectItemAt` → seek-to-block; long-press → `contextMenuConfigurationForItemsAt:point:` → `buildContextMenu(block:)`). A *selectable* `UITextView` installs selection gestures that intercept and break both. The revised approach is additive and reuses that infrastructure:
+
+- **Render host:** `UILabel` → a **non-selectable**, non-scrolling, read-only `UITextView` in both cells — used *only* to gain TextKit hit-testing (`closestPosition(to:)`/`characterIndex(for:)`). `isSelectable=false`, `isEditable=false`, `isScrollEnabled=false`, `textContainerInset=.zero`, `lineFragmentPadding=0`, clear background. All existing rendering preserved (attributed string, search highlight, `applyWordHighlight` via `textView.attributedText`, `lineSpacing`, colors, `isActiveBlock`). No selection gestures installed → no conflict with the collection view.
+- **Hit-test:** add `func wordIndex(at point: CGPoint) -> Int?` to the cell (text-view layout → char index → word via `wordRanges`).
+- **Define + Save (via the EXISTING long-press menu):** `contextMenuConfigurationForItemsAt:point:` already supplies the touch point. Resolve it to a word; when it does, **prepend** two actions to `buildContextMenu(block:)`: **"Look Up '<word>'"** → present `UIReferenceLibraryViewController(term:)` (the same on-device dictionary, gated by `dictionaryHasDefinition(forTerm:)`; no text selection needed), and **"Save '<word>'"** → `cardType="vocabulary"` flashcard (respecting `FreeTierGate` cap (D6) + dedupe (D7)).
+- **Word-tap-to-seek (D3):** refine the existing tap from block→word granularity via a tap gesture that resolves the word at the tap location and seeks to `word_timing.audio_start_time` (fallback to block seek). The one genuinely new gesture — kept last in the plan so it can't block define/Save.
+- **macOS:** unchanged. The Mac reader (`MacReaderFeedView`) is pure SwiftUI `Text`/`AttributedString` — a separate render path; M2 is **iOS-only** (parity is a follow-up).
+- **Look Up note:** `UIReferenceLibraryViewController` is the same on-device dictionary the selection "Look Up" presents; only the *trigger* differs (a menu action instead of the selection callout). D2's intent (on-device dictionary popover) is preserved.
 
 ### 6.2 PDF page — M3 (in-place highlight + define-on-page)
 
