@@ -12,8 +12,14 @@ struct LibraryServiceTests {
     @Test func rescanInsertsShallowRowsForNewBooks() throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
-        let root = try service.registerRoot(
-            url: URL(fileURLWithPath: "/Lib", isDirectory: true), now: fixedNow)
+        // Register a REAL temp dir so the bookmark resolves and rescan's
+        // stale-bookmark guard passes. The injected discover ignores the resolved
+        // URL and returns a fixed synthetic book, so id assertions stay deterministic.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-rescan-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
 
         let discovered = [
             DiscoveredBook(
@@ -32,8 +38,12 @@ struct LibraryServiceTests {
     @Test func rescanHidesBooksThatVanished() throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
-        let root = try service.registerRoot(
-            url: URL(fileURLWithPath: "/Lib", isDirectory: true), now: fixedNow)
+        // Real temp dir so both rescans clear the stale-bookmark guard.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-rescan-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
         let dune = DiscoveredBook(
             folderURL: URL(fileURLWithPath: "/Lib/Dune", isDirectory: true),
             audioFiles: [URL(fileURLWithPath: "/Lib/Dune/d.m4b")], companionEPUB: nil)

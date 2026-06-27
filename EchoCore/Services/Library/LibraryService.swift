@@ -27,7 +27,15 @@ struct LibraryService {
     func registerRoot(url: URL, now: () -> String = { Date().ISO8601Format() }) throws
         -> LibraryRootRecord
     {
-        let bookmark = LibraryAccess.makeBookmark(for: url) ?? Data()
+        let bookmark: Data
+        if let made = LibraryAccess.makeBookmark(for: url) {
+            bookmark = made
+        } else {
+            logger.warning(
+                "Could not bookmark root at \(url.path); storing empty bookmark (rescan will skip)."
+            )
+            bookmark = Data()
+        }
         let root = LibraryRootRecord(
             id: "root-\(UUID().uuidString)",
             displayName: url.lastPathComponent,
@@ -42,27 +50,18 @@ struct LibraryService {
     /// for present ones, and hides ones that vanished (never deleted). `discover`
     /// is injected so tests pass a fixed book list. Metadata enrichment is layered
     /// on in a later task; this pass establishes identity + availability.
-    ///
-    /// When the bookmark cannot be resolved (e.g. the root was registered with a
-    /// non-existent path in tests), `discover` is still called with a placeholder
-    /// URL so injected closures that ignore their argument work correctly.
     @discardableResult
     func rescan(
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
         now: () -> String = { Date().ISO8601Format() }
     ) throws -> RescanResult {
-        // Resolve bookmark to get the root URL for the discover call. When the
-        // bookmark is empty (e.g. non-existent path registered in tests), fall back
-        // to a placeholder so injected discover closures (which ignore the URL) still
-        // work. In production, a valid registered root always has a resolvable bookmark.
-        let rootURL: URL
-        if let resolved = LibraryAccess.resolveURL(from: root.bookmark)?.url {
-            rootURL = resolved
-        } else {
-            logger.warning(
-                "Root \(root.id) bookmark unresolved; using placeholder URL for discover.")
-            rootURL = URL(fileURLWithPath: "/")
+        // A stale/unresolvable bookmark (the missing-root scenario) must NOT fall
+        // through to scanning a placeholder path — that would enumerate the whole
+        // filesystem root. Skip the rescan and leave existing rows untouched.
+        guard let rootURL = LibraryAccess.resolveURL(from: root.bookmark)?.url else {
+            logger.warning("Root \(root.id) bookmark unresolved; skipping rescan.")
+            return RescanResult(added: 0, updated: 0, hidden: 0)
         }
 
         let dao = AudiobookDAO(db: db.writer)
