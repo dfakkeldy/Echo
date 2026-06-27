@@ -161,7 +161,7 @@ struct PDFDocumentView: View {
         // M3 Task 4: word-action dialog (Look Up + Save + Alignment options).
         // Only shown when a word was resolved at the long-press point.
         .confirmationDialog(
-            longPressHit?.word.map { "\"\($0)\"" } ?? "",
+            wordActionDialogTitle,
             isPresented: $showingWordActions,
             titleVisibility: .visible
         ) {
@@ -245,6 +245,11 @@ struct PDFDocumentView: View {
     }
 
     // MARK: - Action menu
+
+    private var wordActionDialogTitle: String {
+        guard let word = longPressHit?.word else { return "" }
+        return "\"\(word)\""
+    }
 
     private var pdfActionMenu: some View {
         Menu {
