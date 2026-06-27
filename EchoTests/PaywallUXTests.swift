@@ -16,11 +16,14 @@ struct PaywallUXTests {
         #expect(!source.localizedStandardContains("carousel"))
     }
 
-    @Test func paywallPromisesOneTimeNoSubscriptionAndKeepsRestoreVisible() throws {
+    @Test func paywallOffersSubscriptionsLifetimeAndKeepsRestoreVisible() throws {
         let source = try Self.source(path: "EchoCore/Views/Paywall/PaywallView.swift")
 
-        #expect(source.contains("One-time — no subscription"))
-        #expect(source.contains("Pay once, unlock forever. No subscription, no account."))
+        #expect(source.contains("ProductIDs.yearly"))
+        #expect(source.contains("ProductIDs.monthly"))
+        #expect(source.contains("ProductIDs.lifetime"))
+        #expect(source.contains("Subscriptions can include App Store trials"))
+        #expect(source.contains("Lifetime"))
         #expect(source.contains("Restore Purchases"))
         #expect(source.contains("Terms"))
         #expect(source.contains("Privacy"))
@@ -29,15 +32,17 @@ struct PaywallUXTests {
         #expect(source.contains("Open source — you can build it yourself."))
     }
 
-    @Test func paywallUsesStoreKitDisplayPricesForEveryUnlock() throws {
+    @Test func paywallUsesStoreKitDisplayPricesForEveryPlan() throws {
         let source = try Self.source(path: "EchoCore/Views/Paywall/PaywallView.swift")
         let productIDs = try Self.source(path: "EchoCore/Services/Store/ProductIDs.swift")
 
         #expect(source.contains("product.displayPrice"))
         #expect(!source.contains("\"$"))
-        #expect(Set(ProductIDs.all) == ProductIDs.nonConsumables)
-        #expect(productIDs.contains("non-consumable"))
-        #expect(productIDs.contains("no subscriptions"))
+        #expect(Set(ProductIDs.all) == ProductIDs.subscriptionIDs.union(ProductIDs.nonConsumables))
+        #expect(ProductIDs.subscriptionIDs == Set([ProductIDs.monthly, ProductIDs.yearly]))
+        #expect(productIDs.contains("com.echo.pro.monthly"))
+        #expect(productIDs.contains("com.echo.pro.yearly"))
+        #expect(productIDs.contains("com.echo.pro.unlock"))
     }
 
     private static func source(path: String) throws -> String {
