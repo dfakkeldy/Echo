@@ -34,7 +34,7 @@
 | `EchoCore/Services/BookPreferencesService.swift` | Add per-book PDF view-mode persistence (key + save/load, injectable `UserDefaults`) | **Modify** |
 | `EchoTests/ReaderPDFViewModePreferenceTests.swift` | Unit tests for the persistence round-trip | **Create** |
 | `EchoCore/Views/PDFReadingSurface.swift` | Container hosting `PDFDocumentView` ⇄ `ReaderTab` behind a persisted segmented toggle | **Create** |
-| `EchoCore/Views/RootTabView.swift` | Intercept a parsed PDF in the `.read` branch → render `PDFReadingSurface` | **Modify** (`:79-100`) |
+| `EchoCore/Views/RootTabView.swift` | Intercept a parsed PDF in the `.read` branch → render `PDFReadingSurface` | **Modify** (`:185-205`) |
 
 ---
 
@@ -350,7 +350,7 @@ git commit -m "feat(reader): PDFReadingSurface hosts page/reflow toggle"
 
 - [ ] **Step 1: Replace the `.read` branch's surface selection**
 
-In `EchoCore/Views/RootTabView.swift`, replace the existing `Group { if model.hasEPUB { ... } else if model.hasPDF { ... } ... }` (lines 79-100) with the version below. The only change is the **new first branch** that intercepts a parsed PDF; every other branch is unchanged.
+In `EchoCore/Views/RootTabView.swift`, replace the existing `Group { if model.hasEPUB { ... } else if model.hasPDF { ... } ... }` in the `.read` case (lines 185-205 as of `nightly` @ #199; match by the `if model.hasEPUB {` block, not the literal line number) with the version below. The only change is the **new first branch** that intercepts a parsed PDF; every other branch is unchanged.
 
 ```swift
                         Group {

@@ -33,7 +33,7 @@ A single shared render-layer upgrade (non-selectable `UILabel`/`Text` → select
 - Narration of those blocks produces **exact per-block** `synthesized` anchors (`NarrationService.swift:131-173`), then `WordTimingMaterializer` interpolates per-word `[start,end)` rows across each block's known span — identical to narrated EPUB/text. **No DTW.**
 
 ### The gap is the *page* surface, not the highlight (corrected 2026-06-26)
-`RootTabView.swift:80-83` branches the Read tab:
+`RootTabView.swift` (`:186-189` as of `nightly` @ #199) branches the Read tab:
 ```
 if model.hasEPUB        → ReaderTab          (card feed; DOES word-by-word highlight)
 else if model.hasPDF    → PDFDocumentView    (visual pages; NO highlight surface)
