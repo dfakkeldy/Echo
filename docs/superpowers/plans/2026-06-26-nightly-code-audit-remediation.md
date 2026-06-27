@@ -509,14 +509,14 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/PrivacyInfo.xcprivacy`
 - Modify: `EchoTests/PrivacyManifestTests.swift`
 
-- [ ] Produce an archive privacy report under Xcode 26.6.
+- [x] Produce an archive privacy report under Xcode 26.6.
 - [x] Determine whether `attributesOfItem(atPath:)` for `.size` triggers a required-reason API category.
 - [x] Prefer replacing it with a non-flagged length read if practical.
 - [x] Because the broad API was replaced, add regression coverage that prevents reintroducing it.
 
 **Acceptance criteria:** privacy manifest coverage matches Xcode archive validation, not only hand-maintained expectations.
 
-**Verification note:** 2026-06-27 re-check: Xcode 26.6 exposes no local `privacyreport` utility through `xcrun`, no privacy-report action or export option in `xcodebuild -help`, and no matching report generator under `/Applications/Xcode.app/Contents/Developer`. The archive privacy report remains a manual Xcode archive/export validation step in this environment.
+**Verification note:** 2026-06-27 pass: produced `docs/superpowers/reports/2026-06-27-xcode-privacy-archive-report.md` from an Xcode 26.6 (`17F113`) iOS archive at `/tmp/EchoPrivacyArchive.xcarchive`. The archive completed with `ARCHIVE SUCCEEDED`, Xcode's archive log shows `-scanforprivacyfile` coverage for the app, watch app, widget extension, `onnxruntime.framework`, `GRDB_GRDB.bundle`, `ZIPFoundation_ZIPFoundation.bundle`, `swift-crypto_Crypto.bundle`, and `swift-transformers_Hub.bundle`, and the archived manifests match the source-manifest decision. Xcode 26.6 exposes no local `privacyreport` utility through `xcrun`, no `privacytool` utility, no privacy-report action or export option in `xcodebuild -help`, and no matching scriptable report generator under `/Applications/Xcode.app/Contents`, so the checked-in report records the archive-derived evidence instead of a GUI-only Organizer PDF.
 
 ---
 
