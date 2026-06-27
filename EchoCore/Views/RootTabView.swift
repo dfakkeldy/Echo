@@ -356,7 +356,7 @@ struct RootTabView: View {
             )
         }
         .alert(
-            "Can't Find This Book's Files",
+            "Can’t Find This Book’s Files",
             isPresented: $model.showingMissingBookWarning
         ) {
             Button("OK", role: .cancel) {}
