@@ -4,7 +4,7 @@
 
 **Goal:** Add an on-device Library — a launcher layer above Echo's single-book player that lists every added book, browses it by several axes, and rescans registered folder "roots" — without changing playback.
 
-**Architecture:** New code is concrete and constructor/closure-injected (the `DatabaseService(inMemory:)` house pattern — no protocols). A V26 migration adds library columns to `audiobook` and a `library_root` table. A `LibraryScanner` discovers books under a root and does a cheap metadata read; a `LibraryService` registers roots, rescans, lists/groups books, computes availability, and resolves a book's URL for opening (which then calls the existing `PlayerModel.loadFolder(url:)`). The UI (Library tab, smart-landing, roots/missing-file management) is Milestones 3–4.
+**Architecture:** New code is concrete and constructor/closure-injected (the `DatabaseService(inMemory:)` house pattern — no protocols). A V27 migration adds library columns to `audiobook` and a `library_root` table. A `LibraryScanner` discovers books under a root and does a cheap metadata read; a `LibraryService` registers roots, rescans, lists/groups books, computes availability, and resolves a book's URL for opening (which then calls the existing `PlayerModel.loadFolder(url:)`). The UI (Library tab, smart-landing, roots/missing-file management) is Milestones 3–4.
 
 **Tech Stack:** Swift 6, SwiftUI, GRDB (SQLite), AVFoundation, Swift Testing, os.Logger.
 
@@ -12,13 +12,13 @@
 
 - **SPDX header:** every Swift file starts with `// SPDX-License-Identifier: GPL-3.0-or-later` on line 1. (A PostToolUse SwiftFormat hook can reflow imports — verify the SPDX line stays line 1 after edits.)
 - **DB column naming:** `snake_case` columns mapped via `CodingKeys` to camelCase Swift properties.
-- **Migration registration is append-only and never reordered:** add exactly one `migrator.registerMigration("v26_library")` after `"v25_study_plans"`.
+- **Migration registration is append-only and never reordered:** add exactly one `migrator.registerMigration("v27_library")` after `"v26_timeline_segment_key"` (the current last migration).
 - **No protocols for the new services** — inject `DatabaseWriter`/`DatabaseService` or closures; create DAOs from the writer.
 - **Logging:** `private let logger = Logger(category: "Name")`; use `logger.info/.warning/.error`; raw `print()` only behind `#if DEBUG`.
 - **Concurrency:** Swift 6 language mode is on (PR #195). New view models/stores that touch UI are `@MainActor`; pure value services are plain structs. Use `async/await`, never `DispatchQueue.main.async` or blocking sleeps.
 - **Tests:** Swift Testing (`@Test`, `@MainActor @Suite struct`, `#expect`). Build once with `make build-tests` (needs `CODE_SIGNING_ALLOWED=NO`), then `make test-only FILTER=EchoTests/<Suite>`. UI tests stay excluded from the scheme.
 - **iOS-first:** all new files live in `Shared/` or `EchoCore/` so macOS can adopt them later; do **not** wire macOS UI in this plan.
-- **⚠️ V26 number collision:** the PDF Alignment initiative also claims V26 (`pdf_page_geometry`). Whichever lands on `nightly` second renumbers to V27. **Before Task 1, confirm the next free number against `Shared/Database/Migrations/` and `DatabaseService.runMigrations`;** if V26 is taken, use V27 everywhere in this plan.
+- **Migration number = V27 (confirmed).** V26 is already taken on `nightly` by `v26_timeline_segment_key` (merged); the PDF Alignment initiative separately contends for a number. The Library therefore uses **V27** (`v27_library` / `Schema_V27`). Before Task 1, re-confirm `v27_*` is still free against `DatabaseService.runMigrations`; if a newer migration has landed, bump to the next free number everywhere in this plan and STOP to flag it.
 
 ## Refinements vs. the spec (read before starting)
 
@@ -32,12 +32,12 @@ The spec (`docs/superpowers/specs/2026-06-26-local-library-design.md`) is author
 ## File Structure
 
 **Milestone 1 — Data + access foundation**
-- Create `Shared/Database/Migrations/Schema_V26.swift` — adds library columns + `library_root` table + indexes.
-- Modify `Shared/Database/DatabaseService.swift` — register `v26_library`.
+- Create `Shared/Database/Migrations/Schema_V27.swift` — adds library columns + `library_root` table + indexes.
+- Modify `Shared/Database/DatabaseService.swift` — register `v27_library`.
 - Modify `Shared/Database/DAOs/AudiobookDAO.swift` — add 7 library fields + `CodingKeys` to `AudiobookRecord`.
 - Create `Shared/Database/DAOs/LibraryRootDAO.swift` — `LibraryRootRecord` + `LibraryRootDAO`.
 - Create `EchoCore/Services/Library/LibraryAccess.swift` — bookmark make/resolve + `authorSort` normalization.
-- Test: `EchoTests/SchemaV26Tests.swift`, `EchoTests/AudiobookRecordLibraryFieldsTests.swift`, `EchoTests/LibraryRootDAOTests.swift`, `EchoTests/LibraryAccessTests.swift`.
+- Test: `EchoTests/SchemaV27Tests.swift`, `EchoTests/AudiobookRecordLibraryFieldsTests.swift`, `EchoTests/LibraryRootDAOTests.swift`, `EchoTests/LibraryAccessTests.swift`.
 
 **Milestone 2 — Scan + service**
 - Create `EchoCore/Services/Library/LibraryScanner.swift` — recursive book discovery + cheap metadata read.
@@ -50,19 +50,19 @@ The spec (`docs/superpowers/specs/2026-06-26-local-library-design.md`) is author
 
 ## Milestone 1 — Data + Access Foundation
 
-### Task 1: V26 migration (library columns + `library_root` table)
+### Task 1: V27 migration (library columns + `library_root` table)
 
 **Files:**
-- Create: `Shared/Database/Migrations/Schema_V26.swift`
-- Modify: `Shared/Database/DatabaseService.swift:83-90` (the `runMigrations` block)
-- Test: `EchoTests/SchemaV26Tests.swift`
+- Create: `Shared/Database/Migrations/Schema_V27.swift`
+- Modify: `Shared/Database/DatabaseService.swift` (the `runMigrations` block — register after `v26_timeline_segment_key`, the current last migration)
+- Test: `EchoTests/SchemaV27Tests.swift`
 
 **Interfaces:**
-- Produces: `enum Schema_V26 { nonisolated static func migrate(_ db: Database) throws }`; new `audiobook` columns `cover_art_path, narrator, index_state, is_available, last_seen_at, author_sort, source_root_id`; new table `library_root(id, display_name, bookmark, added_at, last_scanned_at)`.
+- Produces: `enum Schema_V27 { nonisolated static func migrate(_ db: Database) throws }`; new `audiobook` columns `cover_art_path, narrator, index_state, is_available, last_seen_at, author_sort, source_root_id`; new table `library_root(id, display_name, bookmark, added_at, last_scanned_at)`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `EchoTests/SchemaV26Tests.swift`:
+Create `EchoTests/SchemaV27Tests.swift`:
 
 ```swift
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -72,8 +72,8 @@ import Testing
 @testable import Echo
 
 @MainActor
-@Suite struct SchemaV26Tests {
-    @Test func v26AddsLibraryColumnsToAudiobook() throws {
+@Suite struct SchemaV27Tests {
+    @Test func v27AddsLibraryColumnsToAudiobook() throws {
         let db = try DatabaseService(inMemory: ())
         let columns = try columnNames(table: "audiobook", db: db)
 
@@ -86,7 +86,7 @@ import Testing
         #expect(columns.contains("source_root_id"))
     }
 
-    @Test func v26CreatesLibraryRootTable() throws {
+    @Test func v27CreatesLibraryRootTable() throws {
         let db = try DatabaseService(inMemory: ())
         let columns = try columnNames(table: "library_root", db: db)
 
@@ -97,7 +97,7 @@ import Testing
         #expect(columns.contains("last_scanned_at"))
     }
 
-    @Test func v26CreatesLibraryIndexes() throws {
+    @Test func v27CreatesLibraryIndexes() throws {
         let db = try DatabaseService(inMemory: ())
         let indexes = try indexNames(table: "audiobook", db: db)
         #expect(indexes.contains("idx_audiobook_author_sort"))
@@ -137,24 +137,24 @@ import Testing
 
 - [ ] **Step 2: Run the test, verify it fails**
 
-Run: `make build-tests CODE_SIGNING_ALLOWED=NO && make test-only FILTER=EchoTests/SchemaV26Tests`
-Expected: FAIL — compile error "cannot find 'Schema_V26'" (it isn't registered yet) / missing columns.
+Run: `make build-tests CODE_SIGNING_ALLOWED=NO && make test-only FILTER=EchoTests/SchemaV27Tests`
+Expected: FAIL — compile error "cannot find 'Schema_V27'" (it isn't registered yet) / missing columns.
 
 - [ ] **Step 3: Create the migration**
 
-Create `Shared/Database/Migrations/Schema_V26.swift`:
+Create `Shared/Database/Migrations/Schema_V27.swift`:
 
 ```swift
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 
-/// V26 — On-device Library: browsable shelf metadata on `audiobook` plus a
+/// V27 — On-device Library: browsable shelf metadata on `audiobook` plus a
 /// `library_root` table of registered, rescannable folders.
 ///
 /// Additive only: new nullable columns (and two NOT NULL columns with defaults,
 /// safe for SQLite `ALTER TABLE ADD COLUMN`), a new table, and indexes. Does not
 /// edit shipped migrations and does not force an EPUB re-import or re-alignment.
-enum Schema_V26 {
+enum Schema_V27 {
     nonisolated static func migrate(_ db: Database) throws {
         try db.alter(table: "audiobook") { t in
             t.add(column: "cover_art_path", .text)
@@ -191,28 +191,28 @@ enum Schema_V26 {
 
 - [ ] **Step 4: Register the migration**
 
-In `Shared/Database/DatabaseService.swift`, inside `runMigrations`, add the registration immediately after the `v25_study_plans` block:
+In `Shared/Database/DatabaseService.swift`, inside `runMigrations`, add the registration immediately after the `v26_timeline_segment_key` block (the current last migration — do not reorder, do not touch earlier migrations):
 
 ```swift
-    migrator.registerMigration("v25_study_plans") { db in
-        try Schema_V25.migrate(db)
-    }
-    migrator.registerMigration("v26_library") { db in
+    migrator.registerMigration("v26_timeline_segment_key") { db in
         try Schema_V26.migrate(db)
+    }
+    migrator.registerMigration("v27_library") { db in
+        try Schema_V27.migrate(db)
     }
     try migrator.migrate(writer)
 ```
 
 - [ ] **Step 5: Run the test, verify it passes**
 
-Run: `make build-tests CODE_SIGNING_ALLOWED=NO && make test-only FILTER=EchoTests/SchemaV26Tests`
+Run: `make build-tests CODE_SIGNING_ALLOWED=NO && make test-only FILTER=EchoTests/SchemaV27Tests`
 Expected: PASS (4 tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Shared/Database/Migrations/Schema_V26.swift Shared/Database/DatabaseService.swift EchoTests/SchemaV26Tests.swift
-git commit -m "feat(db): V26 migration — library columns + library_root table"
+git add Shared/Database/Migrations/Schema_V27.swift Shared/Database/DatabaseService.swift EchoTests/SchemaV27Tests.swift
+git commit -m "feat(db): V27 migration — library columns + library_root table"
 ```
 
 ---
@@ -1433,12 +1433,12 @@ These touch custom UI (`UnifiedBottomDock`, `BottomToolbarView`, new SwiftUI vie
 - **T20 — Manage Roots screen:** list roots + `last_scanned_at`; Remove root (forget books / keep via minting per-book bookmarks from the live root grant before release).
 - **T21 — Missing-file UI:** hide unavailable by default; "Show unavailable" toggle; Relocate (re-pick) / Remove.
 
-**Docs (before the M1–M2 PR, per project rule):** run the **doc-sync** skill — add a Library subsystem section to `ARCHITECTURE.md`, note the V26 schema, and update `README.md`/`ROADMAP.md`/`CHANGELOG`. Run **schema-migration-reviewer** on Task 1 and **cross-platform-parity-reviewer** when macOS adopts the core.
+**Docs (before the M1–M2 PR, per project rule):** run the **doc-sync** skill — add a Library subsystem section to `ARCHITECTURE.md`, note the V27 schema, and update `README.md`/`ROADMAP.md`/`CHANGELOG`. Run **schema-migration-reviewer** on Task 1 and **cross-platform-parity-reviewer** when macOS adopts the core.
 
 ---
 
 ## Self-Review
 
-- **Spec coverage:** browse axes → Tasks 9–10 + roadmap T14; rescan cheap-read/defer → Tasks 6–8 + T16; per-root access → Tasks 3–4, 7, 9; hide-unavailable → Tasks 7, 9 + T21; smart-landing → T15; roots + auto-register (Component D) → Tasks 3,7 + T17–T18; V26 migration → Task 1. ✅ All spec sections map to a task.
+- **Spec coverage:** browse axes → Tasks 9–10 + roadmap T14; rescan cheap-read/defer → Tasks 6–8 + T16; per-root access → Tasks 3–4, 7, 9; hide-unavailable → Tasks 7, 9 + T21; smart-landing → T15; roots + auto-register (Component D) → Tasks 3,7 + T17–T18; V27 migration → Task 1. ✅ All spec sections map to a task.
 - **Placeholders:** Task 10 Step 3 and Milestones 3–4 are deliberately roadmap-level (gated on execution-time schema/UI confirms that can't be guessed without inventing signatures) — every *fully-specified* task (1–9) carries complete code. This is an intentional milestone split, not a hidden TODO.
 - **Type consistency:** `AudiobookRecord` field names, `LibraryRootRecord`/`LibraryRootDAO`, `DiscoveredBook`, `ScannedMetadata`, `RescanResult`, `LibrarySection`, `LibraryAxis` are used identically across Tasks 1–10.

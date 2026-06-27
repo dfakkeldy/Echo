@@ -23,7 +23,7 @@ A four-way parallel read of the codebase established the ground truth this desig
 - **iOS cannot watch folders.** No `FSEvents`/`NSFilePresenter`/`DirectoryMonitor` anywhere; all imports are event-driven on explicit user action. A `.folder` pick grants **recursive** access to everything beneath it (exploited in §7).
 - **Recursive scan heuristics already exist on macOS.** [`FolderAudioScanner`](../../../Echo%20macOS/Services/FolderAudioScanner.swift) does a one-time recursive enumerate (`.skipsHiddenFiles`, `.skipsPackageDescendants`) for the batch queue — the shared scanner (§8) generalizes this.
 - **Metadata reads are available and cheap-ish.** [`ChapterService`](../../../EchoCore/Services/ChapterService.swift) uses `AVAsset.loadChapterMetadataGroups`; common metadata (title/author/artwork) is an `AVAsset` metadata load; EPUB title/author/cover come from the OPF.
-- **Schema is at V25** (`DatabaseService` registers V1 → V25; V25 added study plans). Next migration is **V26**.
+- **Schema is at V26** (latest registered migration is `v26_timeline_segment_key`; V25 added study plans). Next free migration is **V27**.
 
 ## 3. Goals / non-goals
 
@@ -71,9 +71,9 @@ LibraryView ──uses──▶ LibraryViewModel ──uses──▶ LibraryServ
    tap book ─────────────────────────────────────▶ PlayerModel.loadFolder(url:)   (unchanged)
 ```
 
-## 6. Data model — V26 migration
+## 6. Data model — V27 migration
 
-A single additive migration `Schema_V26`. **Columns added to `audiobook`:**
+A single additive migration `Schema_V27`. **Columns added to `audiobook`:**
 
 | Column | Type | Purpose |
 |---|---|---|
@@ -97,7 +97,7 @@ A single additive migration `Schema_V26`. **Columns added to `audiobook`:**
 
 Existing columns already serve several axes for free: `topics_json` → **Topic**, `added_at` → **Recently Added**, `author` → **Author**. **Study status** and **Processing status** are *derived at query time*, not stored (§12).
 
-**Migration-safety notes (for `schema-migration-reviewer`):** strictly additive (new nullable columns + new table; no edits to shipped migrations, no data rewrite); needs a `SchemaV26Tests`; does **not** force an EPUB re-import or alignment re-run. ⚠️ **Known version collision:** the in-flight **PDF Alignment initiative** already claims **V26** for a `pdf_page_geometry` migration (its M3 milestone). Whichever feature lands on `nightly` second must renumber to V27 — settle the number against `Shared/Database/` at rebase time before writing the migration.
+**Migration-safety notes (for `schema-migration-reviewer`):** strictly additive (new nullable columns + new table; no edits to shipped migrations, no data rewrite); needs a `SchemaV27Tests`; does **not** force an EPUB re-import or alignment re-run. ⚠️ **Version number = V27:** V26 is already taken on `nightly` by `v26_timeline_segment_key` (merged), and the PDF Alignment initiative separately contends for a number — so the Library claims **V27** (`v27_library` / `Schema_V27`). Re-confirm `v27_*` is free against `Shared/Database/DatabaseService.runMigrations` before writing the migration.
 
 ## 7. Security-scope / access model — the central lift
 
@@ -164,12 +164,12 @@ Unavailable books (`is_available = 0`) are **hidden** by default. A toolbar **"S
 
 - **`LibraryService` + `LibraryScanner`** against `DatabaseService(inMemory:)` and **temp directories on disk** (plain file URLs — no security scopes needed in tests): discovery, dedup-by-id, shallow insert (`index_state = 0`), `last_seen_at`/`is_available` refresh, known-but-absent → hidden, author/topic grouping, sort, `author_sort` normalization, processing-status & study-status derivation.
 - **`BookmarkStore`** — file-backed test instance: multi-record store/restore, root-covers-children resolution, stale-bookmark → unavailable.
-- **`SchemaV26Tests`** — migration applies cleanly on a V25 DB, new columns/table present, existing rows default sanely, no re-import/re-align triggered.
+- **`SchemaV27Tests`** — migration applies cleanly on a V25 DB, new columns/table present, existing rows default sanely, no re-import/re-align triggered.
 - Run via `make build-tests` once then `make test-only FILTER=EchoTests/<Suite>` (remember `CODE_SIGNING_ALLOWED=NO`). UI tests stay excluded.
 
 ## 15. Documentation impact
 
-Per the project's doc-sync rule, on implementation: **ARCHITECTURE.md** gains a "Library" subsystem section (the launcher layer, the V26 schema, the scan pipeline, the access model); **README.md** gains the feature; **ROADMAP.md** moves it from idea → shipped; **CHANGELOG** entry. Run the **doc-sync** skill before the PR.
+Per the project's doc-sync rule, on implementation: **ARCHITECTURE.md** gains a "Library" subsystem section (the launcher layer, the V27 schema, the scan pipeline, the access model); **README.md** gains the feature; **ROADMAP.md** moves it from idea → shipped; **CHANGELOG** entry. Run the **doc-sync** skill before the PR.
 
 ## 16. Open questions / future phases
 
