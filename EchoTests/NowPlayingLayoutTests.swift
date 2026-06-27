@@ -129,13 +129,13 @@ struct NowPlayingLayoutTests {
 
     @Test func noBookStateIsActionLedInsteadOfPlayableChrome() throws {
         let nowPlaying = try Self.source(named: "NowPlayingTab.swift")
-        let emptyState = try Self.source(named: "NowPlayingEmptyState.swift")
+        let landing = try Self.source(named: "FirstRunLandingView.swift")
         let dock = try Self.source(named: "Components/UnifiedBottomDock.swift")
 
         #expect(nowPlaying.contains("if model.folderURL == nil"))
-        #expect(nowPlaying.contains("NowPlayingEmptyState("))
-        #expect(emptyState.contains("Button(\"Choose Book\", systemImage: \"folder\")"))
-        #expect(emptyState.contains("No Book Open"))
+        #expect(nowPlaying.contains("FirstRunLandingView("))
+        #expect(landing.contains("Button(\"Open a Folder\", systemImage: \"folder\""))
+        #expect(landing.contains("Welcome to Echo"))
         #expect(dock.contains("model.selectedTab == .nowPlaying && model.hasPlaybackContent"))
     }
 
