@@ -539,11 +539,13 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 **Files:**
 - Modify: `fastlane/Fastfile`
 
-- [ ] Decide whether weekly/release trains must block on macOS archive failures.
-- [ ] If yes, remove or scope the rescue wrapper so nightly can continue only when intended but weekly/release fails.
-- [ ] If no, emit a GitHub warning/summary that is visible in required checks.
+- [x] Decide whether weekly/release trains must block on macOS archive failures.
+- [x] If yes, remove or scope the rescue wrapper so nightly can continue only when intended but weekly/release fails.
+- [x] If no, emit a GitHub warning/summary that is visible in required checks.
 
 **Acceptance criteria:** macOS release failures are either blocking or clearly visible by release channel.
+
+**Verification note:** 2026-06-26 pass: scoped macOS archive failure handling so nightly continues with a GitHub warning and step-summary entry, while weekly/manual release trains fail via `UI.user_error!`. `ruby -c fastlane/Fastfile` and `git diff --check` passed.
 
 ### Task 6.3: Make screenshot completeness observable
 
