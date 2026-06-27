@@ -86,6 +86,9 @@ struct SettingsExtractionTests {
         #expect(source.contains("Section(\"Data\")"))
         #expect(source.contains("Export All Study Notes"))
         #expect(source.contains("Section(\"Support\")"))
+        #expect(source.contains("FeedbackSupport.privacyPolicyURL"))
+        #expect(source.contains("Privacy Policy"))
+        #expect(source.contains("Text(\"About\")"))
         // The Volume Boost toggle moved to the Playback Options sheet (WS-B).
         #expect(!source.contains("Toggle(\"Volume Boost\""))
     }

@@ -55,8 +55,8 @@ struct PaywallView: View {
                             )!)
                         Link(
                             "Privacy",
-                            destination: URL(
-                                string: "https://kinnokilabs.com/apps/echo/privacy")!)
+                            destination: FeedbackSupport.privacyPolicyURL
+                        )
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
