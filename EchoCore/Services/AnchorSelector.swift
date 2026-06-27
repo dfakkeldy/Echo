@@ -12,7 +12,7 @@ import Foundation
 /// 2. **Monotonicity** — anchors must be non-decreasing in time along the
 ///    block reading order. On a violation the weaker run is dropped, so one
 ///    bad match can't fold the timeline back on itself.
-enum AnchorSelector {
+nonisolated enum AnchorSelector {
 
     /// - Parameter candidates: Candidates in **block reading order**
     ///   (sequence-index order), at most one per block.

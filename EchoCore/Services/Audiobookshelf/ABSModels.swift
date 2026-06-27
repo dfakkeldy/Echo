@@ -44,6 +44,44 @@ extension ABSError {
         else { return error }
         return .untrustedCertificate(host: host, sha256: fingerprint)
     }
+
+    var privacySafeLogDescription: String {
+        switch self {
+        case .notConnected:
+            return "not connected"
+        case .unauthorized:
+            return "unauthorized"
+        case .network(let error):
+            if let urlError = error as? URLError {
+                return "network error \(urlError.code.rawValue)"
+            }
+            return "network error"
+        case .http(let code, _):
+            return "HTTP \(code)"
+        case .serverMessage:
+            return "server message"
+        case .missingField(let field):
+            return "missing field \(field)"
+        case .untrustedCertificate:
+            return "untrusted certificate"
+        }
+    }
+}
+
+enum ABSSignOutResult {
+    case noRemoteToken
+    case remoteRevoked
+    case remoteRevokeFailed(ABSError)
+    case remoteRevokeUnknown
+
+    var didRemoteRevokeFail: Bool {
+        switch self {
+        case .remoteRevokeFailed, .remoteRevokeUnknown:
+            return true
+        case .noRemoteToken, .remoteRevoked:
+            return false
+        }
+    }
 }
 
 // MARK: - Auth

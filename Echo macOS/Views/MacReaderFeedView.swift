@@ -367,16 +367,18 @@ private struct MacBlockCardView: View, Equatable {
     }
 
     var body: some View {
-        Group {
-            switch block.blockKind {
-            case EPubBlockRecord.Kind.heading.rawValue:
-                headingCard
-            case EPubBlockRecord.Kind.image.rawValue:
-                imageCard
-            default:
-                paragraphCard
+        if let onTap {
+            Button(action: onTap) {
+                cardContent
             }
+            .buttonStyle(.plain)
+        } else {
+            cardContent
         }
+    }
+
+    private var cardContent: some View {
+        blockContent
         .padding(.horizontal)
         .padding(.vertical, 6)
         .background(isActive ? Color.accentColor.opacity(0.08) : Color.clear)
@@ -388,8 +390,17 @@ private struct MacBlockCardView: View, Equatable {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap?()
+    }
+
+    @ViewBuilder
+    private var blockContent: some View {
+        switch block.blockKind {
+        case EPubBlockRecord.Kind.heading.rawValue:
+            headingCard
+        case EPubBlockRecord.Kind.image.rawValue:
+            imageCard
+        default:
+            paragraphCard
         }
     }
 

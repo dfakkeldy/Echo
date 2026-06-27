@@ -17,8 +17,10 @@
 	<dict>
 		<!-- Echo connects to user-provided, self-hosted Audiobookshelf servers (LAN,
 		     Tailscale/CGNAT 100.64.0.0/10, VPN, reverse proxies) the developer does not
-		     control and that commonly run over plaintext HTTP. NSAllowsLocalNetworking is
-		     insufficient: the Tailscale shared range is not an ATS "local" range. -->
+		     control. The connect UI defaults bare hosts to HTTPS and requires explicit
+		     confirmation for plaintext HTTP credentials. NSAllowsLocalNetworking is
+		     insufficient for confirmed HTTP servers because the Tailscale shared range is
+		     not an ATS "local" range. -->
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
@@ -37,21 +39,6 @@
 		<string>Lexend.ttf</string>
 		<string>OpenDyslexic-Regular.otf</string>
 	</array>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UISceneConfigurations</key>
-		<dict>
-			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
-			<array>
-				<dict>
-					<key>UISceneConfigurationName</key>
-					<string>CarPlay</string>
-					<key>UISceneDelegateClassName</key>
-					<string>$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate</string>
-				</dict>
-			</array>
-		</dict>
-	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

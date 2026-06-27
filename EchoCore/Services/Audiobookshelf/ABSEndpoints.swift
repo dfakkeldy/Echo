@@ -2,21 +2,26 @@
 import Foundation
 
 /// All Audiobookshelf URL/path construction in one place.
-/// `baseURL` may include a reverse-proxy subpath (e.g. http://host:13378/audiobookshelf);
+/// `baseURL` may include a reverse-proxy subpath (e.g. https://host:13378/audiobookshelf);
 /// every endpoint appends RELATIVELY so the prefix is preserved. No force-unwraps.
 struct ABSEndpoints {
     let baseURL: URL
 
     /// Normalize raw user input into a base URL: trims whitespace, strips a trailing
-    /// slash, defaults a missing scheme to http (bare host:port LAN/tailnet addresses),
-    /// validates via URLComponents. Returns nil if unparseable.
+    /// slash, defaults a missing scheme to HTTPS, validates via URLComponents.
+    /// Returns nil if unparseable. Users must type `http://` explicitly for plaintext
+    /// LAN/tailnet servers so the connect UI can ask before sending credentials.
     static func normalizedBaseURL(from raw: String) -> URL? {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return nil }
         if s.hasSuffix("/") { s = String(s.dropLast()) }
-        if !s.contains("://") { s = "http://" + s }
+        if !s.contains("://") { s = "https://" + s }
         guard let comps = URLComponents(string: s), comps.host != nil else { return nil }
         return comps.url
+    }
+
+    static func requiresPlainHTTPConfirmation(_ url: URL) -> Bool {
+        url.scheme?.localizedCaseInsensitiveCompare("http") == .orderedSame
     }
 
     func login() -> URL { baseURL.appending(path: "login") }
@@ -42,22 +47,22 @@ struct ABSEndpoints {
             .appending(queryItems: [.init(name: "expanded", value: "1")])
     }
 
-    /// Cover and file downloads authenticate via `?token=` so the URL is self-contained
-    /// for AsyncImage / background downloads.
-    func cover(_ id: String, token: String) -> URL {
+    func cover(_ id: String) -> URL {
         baseURL.appending(path: "api/items/\(id)/cover")
-            .appending(queryItems: [.init(name: "token", value: token)])
     }
 
-    func fileDownload(itemID: String, ino: String, token: String) -> URL {
+    /// Compatibility-only URL for ABS surfaces that cannot attach Authorization headers.
+    /// App-owned requests must prefer header-auth endpoint builders.
+    func fileDownloadWithQueryTokenForCompatibility(itemID: String, ino: String, token: String)
+        -> URL
+    {
         baseURL.appending(path: "api/items/\(itemID)/file/\(ino)/download")
             .appending(queryItems: [.init(name: "token", value: token)])
     }
 
-    /// Whole-item single-file download (used later by the foreground download path).
-    func downloadItem(_ itemID: String, token: String) -> URL {
+    /// Whole-item single-file download for app-owned requests; authenticate with headers.
+    func downloadItem(_ itemID: String) -> URL {
         baseURL.appending(path: "api/items/\(itemID)/download")
-            .appending(queryItems: [.init(name: "token", value: token)])
     }
 
     func search(libraryID: String, query: String, limit: Int) -> URL {

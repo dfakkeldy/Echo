@@ -8,6 +8,7 @@ final class ParagraphCardCell: UICollectionViewCell {
     private let label: UILabel = {
         let label = UILabel()
         label.numberOfLines = 0
+        label.adjustsFontForContentSizeCategory = true
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
@@ -30,6 +31,14 @@ final class ParagraphCardCell: UICollectionViewCell {
     }()
 
     private var hasAnchorText = false
+    private struct TextConfiguration {
+        var block: EPubBlockRecord
+        var settings: ReaderSettings
+        var tint: UIColor
+        var isExplicitHighlight: Bool
+        var searchQuery: String?
+        var highlightedWordIndex: Int?
+    }
 
     // Karaoke word-highlight state. Word ranges are computed once at configure
     // time so repeated words don't break a naive substring search; the highlight
@@ -37,7 +46,7 @@ final class ParagraphCardCell: UICollectionViewCell {
     private var wordRanges: [NSRange] = []
     private var baseAttributed: NSMutableAttributedString?
     private var highlightTint: UIColor = .systemBlue
-    private var lastHighlightFont: UIFont = .systemFont(ofSize: 16)
+    private var textConfiguration: TextConfiguration?
 
     var isActiveBlock: Bool = false {
         didSet {
@@ -69,6 +78,12 @@ final class ParagraphCardCell: UICollectionViewCell {
             label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
         ])
+
+        _ = registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+            (cell: ParagraphCardCell, _: UITraitCollection) in
+            cell.rebuildAttributedTextForCurrentTraits()
+            cell.invalidateCollectionLayoutForTraitChange()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -89,24 +104,43 @@ final class ParagraphCardCell: UICollectionViewCell {
     }
 
     func configure(
-        with block: EPubBlockRecord, font: UIFont, tint: UIColor, lineSpacing: CGFloat,
+        with block: EPubBlockRecord, settings: ReaderSettings, tint: UIColor,
         isExplicitHighlight: Bool, searchQuery: String? = nil,
         highlightedWordIndex: Int? = nil
     ) {
-        let plainText = (block.text ?? "")
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        textConfiguration = TextConfiguration(
+            block: block,
+            settings: settings,
+            tint: tint,
+            isExplicitHighlight: isExplicitHighlight,
+            searchQuery: searchQuery,
+            highlightedWordIndex: highlightedWordIndex
+        )
+        rebuildAttributedTextForCurrentTraits()
+    }
+
+    private func rebuildAttributedTextForCurrentTraits() {
+        guard let configuration = textConfiguration else { return }
+
+        let block = configuration.block
+        let plainText = Self.normalizedText(for: block)
+        let font = configuration.settings.uiFont(
+            forTextStyle: .body,
+            weight: .regular,
+            compatibleWith: traitCollection)
+        let boldFont = configuration.settings.uiFont(
+            forTextStyle: .body,
+            weight: .bold,
+            compatibleWith: traitCollection)
 
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineSpacing
+        paragraphStyle.lineSpacing = configuration.settings.scaledLineSpacing(
+            compatibleWith: traitCollection)
 
-        let hasThemeOrCardColor = block.cardColor != nil || block.chapterThemeColor != nil
         let textColor =
-            hasThemeOrCardColor
-            ? tint.contrastingTextColor
-            : (UITraitCollection.current.userInterfaceStyle == .dark
+            configuration.isExplicitHighlight
+            ? configuration.tint.contrastingTextColor
+            : (traitCollection.userInterfaceStyle == .dark
                 ? UIColor.white : UIColor.label)
         let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -116,7 +150,7 @@ final class ParagraphCardCell: UICollectionViewCell {
 
         let attributed = NSMutableAttributedString(string: plainText, attributes: baseAttributes)
 
-        if let query = searchQuery, !query.isEmpty {
+        if let query = configuration.searchQuery, !query.isEmpty {
             let lowerText = plainText.lowercased()
             let lowerQuery = query.lowercased()
             var searchRange = lowerText.startIndex..<lowerText.endIndex
@@ -127,9 +161,7 @@ final class ParagraphCardCell: UICollectionViewCell {
                 attributed.addAttribute(
                     .backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.4),
                     range: nsRange)
-                attributed.addAttribute(
-                    .font, value: UIFont.systemFont(ofSize: font.pointSize, weight: .bold),
-                    range: nsRange)
+                attributed.addAttribute(.font, value: boldFont, range: nsRange)
                 searchRange = range.upperBound..<lowerText.endIndex
             }
         }
@@ -138,18 +170,21 @@ final class ParagraphCardCell: UICollectionViewCell {
         // apply the highlight against this base text instead of mutating it in place.
         wordRanges = Self.wordRanges(in: plainText)
         baseAttributed = attributed
-        highlightTint = tint
-        applyWordHighlight(highlightedWordIndex, baseFont: font)
+        highlightTint = configuration.tint
+        label.font = font
+        renderWordHighlight(configuration.highlightedWordIndex)
 
         if block.cardColor != nil {
-            contentView.backgroundColor = tint
+            contentView.backgroundColor = configuration.tint
         } else if block.chapterThemeColor != nil {
             contentView.backgroundColor =
-                UITraitCollection.current.userInterfaceStyle == .dark
+                traitCollection.userInterfaceStyle == .dark
                 ? UIColor.black.withAlphaComponent(0.2) : UIColor.white.withAlphaComponent(0.4)
         } else {
-            contentView.backgroundColor = tint.withAlphaComponent(0.08)
+            contentView.backgroundColor = configuration.tint.withAlphaComponent(0.08)
         }
+
+        setNeedsLayout()
     }
 
     // Alignment debugging aid: every card shows its timestamp —
@@ -173,7 +208,20 @@ final class ParagraphCardCell: UICollectionViewCell {
     }
 
     /// Applies (or clears) the karaoke highlight without rebuilding base text.
-    func applyWordHighlight(_ wordIndex: Int?, baseFont: UIFont) {
+    func applyWordHighlight(_ wordIndex: Int?) {
+        textConfiguration?.highlightedWordIndex = wordIndex
+        renderWordHighlight(wordIndex)
+    }
+
+    private static func normalizedText(for block: EPubBlockRecord) -> String {
+        (block.text ?? "")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private func renderWordHighlight(_ wordIndex: Int?) {
         guard let base = baseAttributed?.mutableCopy() as? NSMutableAttributedString else { return }
         if let wordIndex, wordIndex >= 0, wordIndex < wordRanges.count {
             let range = wordRanges[wordIndex]
@@ -185,6 +233,17 @@ final class ParagraphCardCell: UICollectionViewCell {
                 value: highlightTint.withAlphaComponent(0.25), range: range)
         }
         label.attributedText = base
-        lastHighlightFont = baseFont
+    }
+
+    private func invalidateCollectionLayoutForTraitChange() {
+        (superview as? UICollectionView)?.collectionViewLayout.invalidateLayout()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        textConfiguration = nil
+        wordRanges = []
+        baseAttributed = nil
+        label.attributedText = nil
     }
 }

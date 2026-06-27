@@ -77,7 +77,7 @@ import Testing
         }
     }
 
-    @Test func macOSAppTargetUsesSharedAppPrivacyManifest() throws {
+    @Test func macOSAppTargetHasDedicatedPrivacyManifest() throws {
         let project = try Self.source(at: "Echo.xcodeproj/project.pbxproj")
         let targetStart = try #require(
             project.range(of: "AA0100000000000000000020 /* Echo macOS */ = {"),
@@ -91,19 +91,58 @@ import Testing
         let targetBlock = targetSuffix[..<targetEnd.upperBound]
 
         #expect(
-            targetBlock.contains("CC08EC5B2F9522F600206D2F /* EchoCore */,"),
-            "The macOS app target should include the shared EchoCore synchronized group."
+            targetBlock.contains("AA0100000000000000000010 /* Echo macOS */,"),
+            "The macOS app target should include its synchronized source group."
         )
         #expect(
             FileManager.default.fileExists(
-                atPath: try Self.root().appending(path: "EchoCore/PrivacyInfo.xcprivacy").path
+                atPath: try Self.root().appending(path: "Echo macOS/PrivacyInfo.xcprivacy").path
             ),
-            "The shared app privacy manifest must exist for iOS and macOS app targets."
+            "The macOS app target must provide a dedicated privacy manifest."
         )
+        if let exceptionStart = project.range(
+            of: "AA0100000000000000000011 /* Exceptions for \"Echo macOS\" folder in \"Echo macOS\" target */ = {"
+        ) {
+            let exceptionSuffix = project[exceptionStart.lowerBound...]
+            let exceptionEnd = try #require(
+                exceptionSuffix.range(of: "target = AA0100000000000000000020 /* Echo macOS */;"),
+                "The macOS app synchronized-group exception set should belong to the macOS app target."
+            )
+            let exceptionBlock = exceptionSuffix[..<exceptionEnd.upperBound]
+            #expect(
+                !exceptionBlock.contains("PrivacyInfo.xcprivacy"),
+                "The macOS privacy manifest must not be excluded from target membership."
+            )
+        }
+
+        let sharedCoreExceptionStart = try #require(
+            project.range(
+                of: "718DD03F18BB433E7AD362E2 /* Exceptions for \"EchoCore\" folder in \"Echo macOS\" target */ = {"
+            ),
+            "The macOS app target should define EchoCore membership exceptions."
+        )
+        let sharedCoreExceptionSuffix = project[sharedCoreExceptionStart.lowerBound...]
+        let sharedCoreExceptionEnd = try #require(
+            sharedCoreExceptionSuffix.range(of: "target = AA0100000000000000000020 /* Echo macOS */;"),
+            "The EchoCore exception set should belong to the macOS app target."
+        )
+        let sharedCoreExceptionBlock = sharedCoreExceptionSuffix[..<sharedCoreExceptionEnd.upperBound]
+        #expect(
+            sharedCoreExceptionBlock.contains("PrivacyInfo.xcprivacy"),
+            "The macOS app target must not also copy the shared EchoCore privacy manifest."
+        )
+    }
+
+    @Test func onnxModelSizeCheckAvoidsBroadFileMetadataAPI() throws {
+        let source = try Self.source(at: "EchoCore/Services/Narration/OnnxKokoroEngine.swift")
+
+        #expect(!source.contains("attributesOfItem(atPath:"))
+        #expect(source.contains("resourceValues(forKeys: [.fileSizeKey])"))
     }
 
     private static let manifestPaths = [
         "EchoCore/PrivacyInfo.xcprivacy",
+        "Echo macOS/PrivacyInfo.xcprivacy",
         "Echo Watch App/PrivacyInfo.xcprivacy",
         "Echo Widget/PrivacyInfo.xcprivacy",
     ]

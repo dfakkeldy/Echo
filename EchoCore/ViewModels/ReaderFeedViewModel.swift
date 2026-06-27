@@ -342,7 +342,7 @@ final class ReaderFeedViewModel {
                                         ? tocBase
                                         : tocBase + [text.collapsedWhitespace()]
                                 } else {
-                                    Self.applyLegacyHeadingCascade(
+                                    try Self.applyLegacyHeadingCascade(
                                         text: text,
                                         block: block,
                                         audioChapterKey: key,
@@ -1094,8 +1094,8 @@ final class ReaderFeedViewModel {
         globalActiveHeadings: inout [String?],
         audioChaptersWithHeadings: inout Set<Int>,
         currentHeadingStack: inout [String]
-    ) {
-        let markers = block.decodedMarkers
+    ) throws {
+        let markers = try block.decodeMarkers()
         var level: Int? = nil
         if let startMarker = markers.first(where: { $0.type == MarkerType.chapterStart }),
             let parsedLevel = Int(startMarker.payload)

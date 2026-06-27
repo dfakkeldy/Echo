@@ -7,12 +7,11 @@ import os.log
 
 /// Syncs community-contributed alignment anchors via CloudKit.
 ///
-/// **Security note (§6.4):** The public CloudKit database allows anyone with the
-/// container identifier to write arbitrary anchor data. For production, consider:
-/// - Switching writes to `privateCloudDatabase` (anchors only visible to owner)
-/// - Adding a server-side CKSubscription validation step
-/// - Rate-limiting uploads per device (e.g. max 5 uploads/hour)
-/// - Validating that anchor timestamps are non-negative and within audiobook duration
+/// Shared anchors intentionally use the public CloudKit database because this is
+/// community reuse/discovery data, not a user's private device-sync state. Treat
+/// public records as untrusted input: bound payload sizes, attribute uploads with
+/// a hashed CloudKit user record name, throttle local writes, and validate before
+/// merging or importing.
 @MainActor
 final class CloudKitSyncService {
     private let logger = Logger(category: "CloudKitSyncService")
@@ -29,6 +28,11 @@ final class CloudKitSyncService {
     // MARK: - Constants
 
     private nonisolated static let sharedAlignmentRecordType = "SharedAlignment"
+    nonisolated static let maxAnchorCount = 2_000
+    nonisolated static let maxAnchorPayloadBytes = 512 * 1_024
+    nonisolated static let uploadThrottleInterval: TimeInterval = 12 * 60
+    private nonisolated static let uploadDefaultsPrefix =
+        "CloudKitSyncService.lastUpload.SharedAlignment"
 
     /// Generates a deterministic, collision-resistant record name from audiobook metadata.
     /// Uses SHA-256 so the same title+author+duration produces the same ID across devices and launches.
@@ -40,14 +44,126 @@ final class CloudKitSyncService {
         return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
 
+    nonisolated static func uploaderHash(forUserRecordName userRecordName: String) -> String {
+        let hash = SHA256.hash(data: Data(userRecordName.utf8))
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated static func uploadDefaultsKey(recordName: String) -> String {
+        "\(uploadDefaultsPrefix).\(recordName)"
+    }
+
+    nonisolated static func canUpload(
+        lastUploadDate: Date?,
+        now: Date = .now,
+        minimumInterval: TimeInterval = uploadThrottleInterval
+    ) -> Bool {
+        guard let lastUploadDate else { return true }
+        return now.timeIntervalSince(lastUploadDate) >= minimumInterval
+    }
+
+    nonisolated static func uploadableAnchors(_ anchors: [AlignmentAnchorRecord])
+        -> [AlignmentAnchorRecord]
+    {
+        anchors.filter { $0.source != AlignmentAnchorRecord.Source.synthesized.rawValue }
+    }
+
+    nonisolated static func publicPayloadAnchor(from anchor: AlignmentAnchorRecord)
+        -> CloudKitPublicAnchor
+    {
+        CloudKitPublicAnchor(
+            blockID: AlignmentSidecar.portableSuffix(of: anchor.epubBlockID),
+            audioTime: anchor.audioTime,
+            audioEndTime: anchor.audioEndTime,
+            anchorKind: anchor.anchorKind,
+            source: anchor.source)
+    }
+
+    nonisolated static func encodedAnchorPayload(
+        forUpload anchors: [AlignmentAnchorRecord],
+        maxAnchorCount: Int = maxAnchorCount,
+        maxPayloadBytes: Int = maxAnchorPayloadBytes
+    ) throws -> String {
+        let uploadable = uploadableAnchors(anchors)
+        let publicAnchors = uploadable.map(publicPayloadAnchor)
+        guard uploadable.count <= maxAnchorCount else {
+            throw CloudKitAnchorPayloadError.tooManyAnchors(
+                count: uploadable.count, max: maxAnchorCount)
+        }
+
+        let payloadData = try JSONEncoder().encode(publicAnchors)
+        guard payloadData.count <= maxPayloadBytes else {
+            throw CloudKitAnchorPayloadError.payloadTooLarge(
+                bytes: payloadData.count, max: maxPayloadBytes)
+        }
+        guard let payloadString = String(data: payloadData, encoding: .utf8) else {
+            throw CloudKitAnchorPayloadError.invalidUTF8
+        }
+        return payloadString
+    }
+
+    nonisolated static func validatedDecodedAnchors(
+        _ payload: String?,
+        audiobookID: String,
+        maxAnchorCount: Int = maxAnchorCount,
+        maxPayloadBytes: Int = maxAnchorPayloadBytes
+    ) throws -> [AlignmentAnchorRecord] {
+        guard let payload else { return [] }
+        guard payload.utf8.count <= maxPayloadBytes else {
+            throw CloudKitAnchorPayloadError.payloadTooLarge(
+                bytes: payload.utf8.count, max: maxPayloadBytes)
+        }
+        guard let data = payload.data(using: .utf8) else {
+            throw CloudKitAnchorPayloadError.invalidUTF8
+        }
+
+        let publicAnchors: [CloudKitPublicAnchor]
+        do {
+            publicAnchors = try JSONDecoder().decode([CloudKitPublicAnchor].self, from: data)
+        } catch {
+            let legacyAnchors = try JSONDecoder().decode([AlignmentAnchorRecord].self, from: data)
+            publicAnchors = legacyAnchors.map(publicPayloadAnchor)
+        }
+
+        guard publicAnchors.count <= maxAnchorCount else {
+            throw CloudKitAnchorPayloadError.tooManyAnchors(
+                count: publicAnchors.count, max: maxAnchorCount)
+        }
+        return publicAnchors.map { $0.alignmentAnchor(audiobookID: audiobookID) }
+    }
+
+    nonisolated static func semanticallyValidRemoteAnchors(
+        _ anchors: [AlignmentAnchorRecord],
+        duration: Double,
+        localBlockIDs: Set<String>
+    ) -> [AlignmentAnchorRecord] {
+        anchors.filter { anchor in
+            guard anchor.source != AlignmentAnchorRecord.Source.synthesized.rawValue else {
+                return false
+            }
+            guard localBlockIDs.contains(anchor.epubBlockID) else {
+                return false
+            }
+            guard anchor.audioTime >= 0 && anchor.audioTime <= duration else {
+                return false
+            }
+            if let endTime = anchor.audioEndTime {
+                guard endTime >= 0 && endTime <= duration && endTime >= anchor.audioTime else {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
     // MARK: - Anchor merge (§6.1)
 
     /// Decodes a CloudKit anchor payload string, tolerating missing/malformed data.
-    nonisolated static func decodeAnchors(_ payload: String?) -> [AlignmentAnchorRecord] {
-        guard let payload, let data = payload.data(using: .utf8),
-            let anchors = try? JSONDecoder().decode([AlignmentAnchorRecord].self, from: data)
-        else { return [] }
-        return anchors
+    nonisolated static func decodeAnchors(
+        _ payload: String?,
+        audiobookID: String
+    ) -> [AlignmentAnchorRecord] {
+        (try? validatedDecodedAnchors(payload, audiobookID: audiobookID)) ?? []
     }
 
     /// Higher rank = more trustworthy: human-made anchors beat imported beat machine.
@@ -59,10 +175,9 @@ final class CloudKitSyncService {
         }
     }
 
-    /// Unions local and remote anchors by `epubBlockID`. When both sides anchored
-    /// the same block, keeps the higher-ranked source; ties go to local (the
-    /// uploader's current view). The result always covers every remote block, so
-    /// a small local set can never shrink the shared community payload.
+    /// Unions local and sanitized remote anchors by `epubBlockID`. When both sides
+    /// anchored the same block, keeps the higher-ranked source; ties go to local
+    /// (the uploader's current view).
     nonisolated static func mergeAnchors(
         local: [AlignmentAnchorRecord], remote: [AlignmentAnchorRecord]
     ) -> [AlignmentAnchorRecord] {
@@ -81,8 +196,16 @@ final class CloudKitSyncService {
 
     /// Uploads manual alignment anchors for a specific audiobook to the public CloudKit database.
     func uploadAnchors(audiobookID: String, title: String, author: String, duration: Double)
-        async throws
+        async throws -> CloudKitAnchorUploadResult
     {
+        let recordName = Self.recordName(title: title, author: author, duration: duration)
+        let recordID = CKRecord.ID(recordName: recordName)
+
+        guard canUpload(recordName: recordName) else {
+            logger.info("Skipped CloudKit anchor upload because the local rate limit is active.")
+            return .rateLimited
+        }
+
         // Fetch anchors
         let anchors = try await db.read { db in
             try AlignmentAnchorRecord
@@ -92,50 +215,58 @@ final class CloudKitSyncService {
         }
 
         guard !anchors.isEmpty else {
-            logger.info("No anchors to upload for \(title).")
-            return
+            logger.info("No anchors to upload for CloudKit record \(recordName, privacy: .public).")
+            return .noUploadableAnchors
         }
 
-        let encoder = JSONEncoder()
-        let payloadData = try encoder.encode(anchors)
-        guard let payloadString = String(data: payloadData, encoding: .utf8) else {
-            throw NSError(
-                domain: "CloudKitSync", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to encode anchors"])
-        }
+        let payloadString = try Self.encodedAnchorPayload(forUpload: anchors)
+        let uploaderHash = try await currentUploaderHash()
 
-        let recordID = CKRecord.ID(
-            recordName: Self.recordName(title: title, author: author, duration: duration))
         let record = CKRecord(recordType: Self.sharedAlignmentRecordType, recordID: recordID)
 
         record["audiobookTitle"] = title as CKRecordValue
         record["audiobookAuthor"] = author as CKRecordValue
         record["audioDuration"] = duration as CKRecordValue
         record["anchorsPayload"] = payloadString as CKRecordValue
+        record["uploaderHash"] = uploaderHash as CKRecordValue
+        record["lastUploaderHash"] = uploaderHash as CKRecordValue
 
         do {
             _ = try await publicDatabase.save(record)
-            logger.info("Successfully uploaded \(anchors.count) anchors for \(title).")
+            markUploadCompleted(recordName: recordName)
+            logger.info("Successfully uploaded \(anchors.count) anchors to CloudKit record \(recordName, privacy: .public).")
+            return .uploaded(anchorCount: anchors.count)
         } catch let error as CKError where error.code == .serverRecordChanged {
             // Merge instead of overwrite: the record name is a deterministic hash
             // of title+author+duration, so every user of this book writes the SAME
             // public record. Overwriting would clobber the community's anchors
-            // (CODE_AUDIT.md §6.1). Union by block, preferring human anchors; the
-            // union never shrinks the payload.
+            // (CODE_AUDIT.md §6.1). First sanitize untrusted remote anchors, then
+            // union by block, preferring human anchors.
             let existingRecord = try await publicDatabase.record(for: recordID)
-            let remoteAnchors = Self.decodeAnchors(existingRecord["anchorsPayload"] as? String)
-            let merged = Self.mergeAnchors(local: anchors, remote: remoteAnchors)
-            let mergedData = try encoder.encode(merged)
-            guard let mergedString = String(data: mergedData, encoding: .utf8) else {
-                throw NSError(
-                    domain: "CloudKitSync", code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "Failed to encode merged anchors"])
+            let remoteAnchors = Self.decodeAnchors(
+                existingRecord["anchorsPayload"] as? String, audiobookID: audiobookID)
+            let localBlockIDs = try await fetchLocalBlockIDs(for: audiobookID)
+            let sanitizedRemoteAnchors = Self.semanticallyValidRemoteAnchors(
+                remoteAnchors, duration: duration, localBlockIDs: localBlockIDs)
+            if sanitizedRemoteAnchors.count < remoteAnchors.count {
+                logger.warning(
+                    "Dropped \(remoteAnchors.count - sanitizedRemoteAnchors.count) untrusted remote anchor(s) before CloudKit merge."
+                )
             }
+            let merged = Self.mergeAnchors(local: anchors, remote: sanitizedRemoteAnchors)
+            let uploadableMerged = Self.uploadableAnchors(merged)
+            let mergedString = try Self.encodedAnchorPayload(forUpload: uploadableMerged)
             existingRecord["anchorsPayload"] = mergedString as CKRecordValue
+            existingRecord["lastUploaderHash"] = uploaderHash as CKRecordValue
             _ = try await publicDatabase.save(existingRecord)
+            markUploadCompleted(recordName: recordName)
             logger.info(
-                "Merged \(anchors.count) local + \(remoteAnchors.count) remote -> \(merged.count) anchors for \(title)."
+                "Merged \(anchors.count) local + \(sanitizedRemoteAnchors.count) remote -> \(uploadableMerged.count) anchors for CloudKit record \(recordName, privacy: .public)."
             )
+            return .merged(
+                localAnchorCount: anchors.count,
+                remoteAnchorCount: sanitizedRemoteAnchors.count,
+                uploadedAnchorCount: uploadableMerged.count)
         } catch {
             logger.error("Failed to upload anchors: \(error.localizedDescription)")
             throw error
@@ -146,89 +277,132 @@ final class CloudKitSyncService {
     func downloadAnchors(audiobookID: String, title: String, author: String, duration: Double)
         async throws -> [AlignmentAnchorRecord]
     {
-        // Use %@ with NSNumber to avoid floating-point precision loss from %f formatting
-        let predicate = NSPredicate(
-            format: "audiobookTitle == %@ AND audiobookAuthor == %@ AND audioDuration == %@", title,
-            author, NSNumber(value: duration))
-        let query = CKQuery(recordType: Self.sharedAlignmentRecordType, predicate: predicate)
+        let recordID = CKRecord.ID(
+            recordName: Self.recordName(title: title, author: author, duration: duration))
+        let record: CKRecord
+        do {
+            record = try await publicDatabase.record(for: recordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            logger.info("No shared alignment found for deterministic CloudKit anchor record.")
+            return []
+        } catch {
+            logger.error("Failed to fetch record: \(error.localizedDescription)")
+            throw error
+        }
 
-        let (matchResults, _) = try await publicDatabase.records(matching: query, resultsLimit: 1)
-
-        guard let firstMatch = matchResults.first else {
-            logger.info("No shared alignment found for \(title).")
+        guard let payloadString = record["anchorsPayload"] as? String else {
             return []
         }
 
-        switch firstMatch.1 {
-        case .success(let record):
-            guard let payloadString = record["anchorsPayload"] as? String,
-                let payloadData = payloadString.data(using: .utf8)
-            else {
-                return []
-            }
+        let anchors: [AlignmentAnchorRecord]
+        do {
+            anchors = try Self.validatedDecodedAnchors(payloadString, audiobookID: audiobookID)
+        } catch {
+            logger.warning(
+                "Rejected untrusted CloudKit anchor payload: \(error.localizedDescription)"
+            )
+            return []
+        }
 
-            let decoder = JSONDecoder()
-            let anchors = try decoder.decode([AlignmentAnchorRecord].self, from: payloadData)
+        let localBlockIDs = try await fetchLocalBlockIDs(for: audiobookID)
+        let validAnchors = Self.semanticallyValidRemoteAnchors(
+            anchors, duration: duration, localBlockIDs: localBlockIDs)
 
-            // Validate payload before inserting into local database (§6.4).
-            // The public CloudKit database allows anyone with the container
-            // identifier to write arbitrary anchor data. Reject anchors whose
-            // timestamps are nonsensical relative to the audiobook duration.
-            let validAnchors = anchors.filter { anchor in
-                guard anchor.audioTime >= 0 && anchor.audioTime <= duration else {
-                    logger.warning(
-                        "Rejected downloaded anchor \(anchor.id): audioTime \(anchor.audioTime)s outside [0, \(duration)]s"
-                    )
-                    return false
-                }
-                if let endTime = anchor.audioEndTime {
-                    guard endTime >= 0 && endTime <= duration && endTime >= anchor.audioTime else {
-                        logger.warning(
-                            "Rejected downloaded anchor \(anchor.id): audioEndTime \(endTime)s invalid for [0, \(duration)]s"
-                        )
-                        return false
-                    }
-                }
-                return true
-            }
+        if validAnchors.count < anchors.count {
+            logger.warning(
+                "Filtered out \(anchors.count - validAnchors.count) untrusted anchor(s) from downloaded payload"
+            )
+        }
 
-            if validAnchors.count < anchors.count {
-                logger.warning(
-                    "Filtered out \(anchors.count - validAnchors.count) invalid anchor(s) from downloaded payload"
-                )
-            }
+        // Map the validated anchors to this specific local audiobookID
+        let localizedAnchors = validAnchors.map { anchor in
+            var updated = anchor
+            updated.audiobookID = audiobookID
+            updated.source = AlignmentAnchorRecord.Source.imported.rawValue
+            return updated
+        }
 
-            // Map the validated anchors to this specific local audiobookID
-            let localizedAnchors = validAnchors.map { anchor in
-                var updated = anchor
-                updated.audiobookID = audiobookID
-                updated.source = AlignmentAnchorRecord.Source.imported.rawValue
-                return updated
-            }
+        logger.info("Successfully downloaded \(localizedAnchors.count) anchors from CloudKit.")
+        return localizedAnchors
+    }
 
-            // Drop anchors that reference EPUB blocks this device doesn't have.
-            // Block IDs are device-local (epub-<audiobookID>-s…-b…), so a payload
-            // produced from a differently-parsed EPUB references nonexistent local
-            // blocks; inserting those just creates orphan anchors that silently do
-            // nothing (§6.2). The durable fix is content-stable block IDs (§5.1).
-            let localBlockIDs = try await db.read { db in
-                try String.fetchSet(
-                    db, sql: "SELECT id FROM epub_block WHERE audiobook_id = ?",
-                    arguments: [audiobookID])
-            }
-            let resolvedAnchors = localizedAnchors.filter { localBlockIDs.contains($0.epubBlockID) }
-            if resolvedAnchors.count < localizedAnchors.count {
-                logger.warning(
-                    "Dropped \(localizedAnchors.count - resolvedAnchors.count) downloaded anchor(s) referencing blocks not present locally"
-                )
-            }
+    private func currentUploaderHash() async throws -> String {
+        let userRecordID = try await container.userRecordID()
+        return Self.uploaderHash(forUserRecordName: userRecordID.recordName)
+    }
 
-            logger.info("Successfully downloaded \(resolvedAnchors.count) anchors for \(title).")
-            return resolvedAnchors
+    private func canUpload(recordName: String, now: Date = .now) -> Bool {
+        let key = Self.uploadDefaultsKey(recordName: recordName)
+        let timestamp = UserDefaults.standard.double(forKey: key)
+        let lastUploadDate = timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : nil
+        return Self.canUpload(lastUploadDate: lastUploadDate, now: now)
+    }
 
-        case .failure(let error):
-            logger.error("Failed to fetch record: \(error.localizedDescription)")
-            throw error
+    private func markUploadCompleted(recordName: String, now: Date = .now) {
+        UserDefaults.standard.set(
+            now.timeIntervalSince1970, forKey: Self.uploadDefaultsKey(recordName: recordName))
+    }
+
+    private func fetchLocalBlockIDs(for audiobookID: String) async throws -> Set<String> {
+        try await db.read { db in
+            try String.fetchSet(
+                db, sql: "SELECT id FROM epub_block WHERE audiobook_id = ?",
+                arguments: [audiobookID])
+        }
+    }
+}
+
+enum CloudKitAnchorUploadResult: Equatable, Sendable {
+    case uploaded(anchorCount: Int)
+    case merged(localAnchorCount: Int, remoteAnchorCount: Int, uploadedAnchorCount: Int)
+    case noUploadableAnchors
+    case rateLimited
+}
+
+nonisolated struct CloudKitPublicAnchor: Codable, Equatable, Sendable {
+    var blockID: String
+    var audioTime: TimeInterval
+    var audioEndTime: TimeInterval?
+    var anchorKind: String
+    var source: String
+
+    enum CodingKeys: String, CodingKey {
+        case blockID = "block_id"
+        case audioTime = "audio_time"
+        case audioEndTime = "audio_end_time"
+        case anchorKind = "anchor_kind"
+        case source
+    }
+
+    func alignmentAnchor(audiobookID: String) -> AlignmentAnchorRecord {
+        let localBlockID = AlignmentSidecar.localBlockID(blockID, audiobookID: audiobookID)
+        return AlignmentAnchorRecord(
+            id: "cloudkit-\(AlignmentSidecar.portableSuffix(of: blockID))",
+            audiobookID: audiobookID,
+            epubBlockID: localBlockID,
+            audioTime: audioTime,
+            audioEndTime: audioEndTime,
+            anchorKind: anchorKind,
+            source: source,
+            note: nil,
+            createdAt: nil,
+            modifiedAt: nil)
+    }
+}
+
+enum CloudKitAnchorPayloadError: LocalizedError, Equatable, Sendable {
+    case tooManyAnchors(count: Int, max: Int)
+    case payloadTooLarge(bytes: Int, max: Int)
+    case invalidUTF8
+
+    var errorDescription: String? {
+        switch self {
+        case .tooManyAnchors(let count, let max):
+            "CloudKit anchor payload contains \(count) anchors; maximum is \(max)."
+        case .payloadTooLarge(let bytes, let max):
+            "CloudKit anchor payload is \(bytes) bytes; maximum is \(max)."
+        case .invalidUTF8:
+            "CloudKit anchor payload is not valid UTF-8."
         }
     }
 }

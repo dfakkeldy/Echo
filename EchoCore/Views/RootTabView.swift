@@ -7,6 +7,110 @@ struct IdentifiableUUID: Identifiable, Hashable {
     let id: UUID
 }
 
+struct CompanionDocumentImportRequest: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case epub
+        case pdf
+
+        var loadingMessage: String {
+            switch self {
+            case .epub: "Importing EPUB..."
+            case .pdf: "Importing PDF..."
+            }
+        }
+    }
+
+    let id: UUID
+    let url: URL
+    let kind: Kind
+
+    init(result: Result<[URL], Error>) throws {
+        let urls = try result.get()
+        guard let url = urls.first else {
+            throw CompanionDocumentImportSelectionError.noSelection
+        }
+        try self.init(url: url)
+    }
+
+    init(url: URL) throws {
+        let pathExtension = url.pathExtension.lowercased()
+        switch pathExtension {
+        case "epub":
+            self.id = UUID()
+            self.url = url
+            self.kind = .epub
+        case "pdf":
+            self.id = UUID()
+            self.url = url
+            self.kind = .pdf
+        default:
+            throw CompanionDocumentImportSelectionError.unsupportedFileType(url)
+        }
+    }
+}
+
+enum CompanionDocumentImportSelectionError: LocalizedError, Equatable {
+    case noSelection
+    case unsupportedFileType(URL)
+
+    nonisolated var errorDescription: String? {
+        switch self {
+        case .noSelection:
+            return "No document was selected."
+        case .unsupportedFileType(let url):
+            return "Choose an EPUB or PDF document. \(url.lastPathComponent) is not supported."
+        }
+    }
+}
+
+private enum DocumentImportPhase {
+    case idle
+    case importing(id: UUID, kind: CompanionDocumentImportRequest.Kind)
+    case failed(DocumentImportFailure)
+
+    var loadingMessage: String? {
+        guard case .importing(_, let kind) = self else { return nil }
+        return kind.loadingMessage
+    }
+
+    var failureMessage: String? {
+        guard case .failed(let failure) = self else { return nil }
+        return failure.message
+    }
+
+    var activeRequestID: UUID? {
+        guard case .importing(let id, _) = self else { return nil }
+        return id
+    }
+}
+
+private struct DocumentImportFailure {
+    let message: String
+
+    init(error: Error) {
+        self.message = error.localizedDescription
+    }
+}
+
+private struct DocumentImportProgressOverlay: View {
+    let message: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.18)
+                .ignoresSafeArea()
+
+            ProgressView {
+                Text(message)
+            }
+            .padding()
+            .background(.regularMaterial)
+            .clipShape(.rect(cornerRadius: 8))
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
 struct RootTabView: View {
     @Binding var pendingDeepLink: PlayerDeepLink?
     @Environment(PlayerModel.self) private var model
@@ -36,6 +140,8 @@ struct RootTabView: View {
     @State private var showingExport = false
     @State private var showingStudyNotesExport = false
     @State private var editingIdentifiableUUID: IdentifiableUUID?
+    @State private var documentImportPhase: DocumentImportPhase = .idle
+    @State private var documentImportTask: Task<Void, Never>?
 
     @State private var nowPlayingPath = NavigationPath()
     @State private var readPath = NavigationPath()
@@ -240,17 +346,38 @@ struct RootTabView: View {
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
+        .alert(
+            "Folder Access Not Saved",
+            isPresented: $model.showingBookmarkPersistenceWarning
+        ) {
+            Button("OK", role: .cancel) {}
+            Button("Choose Folder") { showingFolderPicker = true }
+        } message: {
+            Text(
+                "Echo could not save permanent access to this folder. You can keep using it now, but you may need to choose it again after relaunch."
+            )
+        }
         .fileImporter(
             isPresented: $model.showingDocumentImporter,
             allowedContentTypes: companionDocumentTypes,
             allowsMultipleSelection: false
         ) { result in
-            guard let url = try? result.get().first else { return }
-            if url.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame {
-                model.importPDF(from: url)
-            } else {
-                model.importEPUB(from: url)
+            beginDocumentImport(with: result)
+        }
+        .overlay {
+            if let message = documentImportPhase.loadingMessage {
+                DocumentImportProgressOverlay(message: message)
             }
+        }
+        .alert(
+            "Couldn’t Import Document",
+            isPresented: documentImportErrorPresented
+        ) {
+            Button("OK", role: .cancel) {
+                documentImportPhase = .idle
+            }
+        } message: {
+            Text(documentImportPhase.failureMessage ?? "Import failed.")
         }
         .onAppear {
             model.setSettingsManager(settings)
@@ -324,6 +451,20 @@ struct RootTabView: View {
         [UTType(filenameExtension: "epub") ?? .data, .pdf]
     }
 
+    private var documentImportErrorPresented: Binding<Bool> {
+        Binding(
+            get: {
+                if case .failed = documentImportPhase { return true }
+                return false
+            },
+            set: { isPresented in
+                if !isPresented, case .failed = documentImportPhase {
+                    documentImportPhase = .idle
+                }
+            }
+        )
+    }
+
     private var firstLaunchOnboardingBinding: Binding<Bool> {
         Binding(
             get: { !hasSeenOnboarding },
@@ -333,6 +474,62 @@ struct RootTabView: View {
                 }
             }
         )
+    }
+
+    private func beginDocumentImport(with result: Result<[URL], Error>) {
+        guard documentImportPhase.activeRequestID == nil else { return }
+
+        do {
+            let request = try CompanionDocumentImportRequest(result: result)
+            documentImportPhase = .importing(id: request.id, kind: request.kind)
+            documentImportTask = Task {
+                await importCompanionDocument(request)
+            }
+        } catch {
+            handleDocumentImportError(error, requestID: nil)
+        }
+    }
+
+    private func importCompanionDocument(_ request: CompanionDocumentImportRequest) async {
+        do {
+            let url = request.url
+            switch request.kind {
+            case .pdf:
+                try await model.importPDFDocument(from: url)
+            case .epub:
+                try await model.importEPUBDocument(from: url)
+            }
+            guard isActiveDocumentImport(request.id), !Task.isCancelled else { return }
+            documentImportPhase = .idle
+            documentImportTask = nil
+        } catch {
+            handleDocumentImportError(error, requestID: request.id)
+        }
+    }
+
+    private func handleDocumentImportError(_ error: Error, requestID: UUID?) {
+        if let requestID, !isActiveDocumentImport(requestID) {
+            return
+        }
+
+        if isDocumentImportCancellation(error) {
+            documentImportPhase = .idle
+        } else {
+            documentImportPhase = .failed(DocumentImportFailure(error: error))
+        }
+        documentImportTask = nil
+    }
+
+    private func isActiveDocumentImport(_ requestID: UUID) -> Bool {
+        documentImportPhase.activeRequestID == requestID
+    }
+
+    private func isDocumentImportCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+
+        let nsError = error as NSError
+        return nsError.domain == NSCocoaErrorDomain
+            && nsError.code == CocoaError.Code.userCancelled.rawValue
     }
 
     private func applyPendingDeepLinkIfNeeded() {

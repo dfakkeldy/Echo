@@ -39,6 +39,5 @@ PLEASE FOCUS ON
 KNOWN THIS BUILD
 • First narration and first auto-align each warm an on-device model — plug in for the first run.
 • iCloud sync currently covers alignment anchors; full bookmark / flashcard / position sync is 1.0 work.
-• CarPlay is intentionally minimal (browse + transport).
 
 Send feedback via TestFlight (screenshot → Share → Send Beta Feedback) or github.com/dfakkeldy/Echo/issues. Thank you!

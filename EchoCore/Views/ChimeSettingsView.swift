@@ -23,19 +23,20 @@ struct ChimeSettingsView: View {
             }
             Section("Sound") {
                 ForEach(ChimeSound.allCases) { sound in
-                    HStack {
-                        Image(systemName: sound.sfSymbol)
-                        Text(sound.displayName)
-                        Spacer()
-                        if sound == chimeSound { Image(systemName: "checkmark") }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         settings.chimeSound = sound.rawValue
                         // Preview: play once
                         engine?.cancel()
                         engine?.schedule(interval: 0.1, sound: sound)
+                    } label: {
+                        HStack {
+                            Image(systemName: sound.sfSymbol)
+                            Text(sound.displayName)
+                            Spacer()
+                            if sound == chimeSound { Image(systemName: "checkmark") }
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
             }
             Section("Volume") {

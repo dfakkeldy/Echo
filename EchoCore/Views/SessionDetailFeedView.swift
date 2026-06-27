@@ -69,7 +69,7 @@ struct SessionDetailFeedView: View {
     @ViewBuilder
     private var recapHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("\(Int(session.minutesListened.rounded())) minutes listened")
+            Text(String(localized: "\(formattedListeningDuration) listened"))
                 .font(.headline)
             if let range = session.chapterRangeLabel {
                 Text(range)
@@ -77,11 +77,29 @@ struct SessionDetailFeedView: View {
                     .foregroundStyle(.secondary)
             }
             if session.hasRoute {
-                Text(String(format: "%.1f miles travelled", session.routeMiles))
+                Text(String(localized: "\(formattedRouteDistance) travelled"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var formattedListeningDuration: String {
+        Measurement(value: session.minutesListened.rounded(), unit: UnitDuration.minutes)
+            .formatted(
+                .measurement(
+                    width: .wide,
+                    usage: .asProvided,
+                    numberFormatStyle: .number.precision(.fractionLength(0))))
+    }
+
+    private var formattedRouteDistance: String {
+        Measurement(value: session.routeMiles, unit: UnitLength.miles)
+            .formatted(
+                .measurement(
+                    width: .wide,
+                    usage: .road,
+                    numberFormatStyle: .number.precision(.fractionLength(1))))
     }
 
     @ViewBuilder

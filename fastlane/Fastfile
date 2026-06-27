@@ -1,6 +1,4 @@
 # ── Echo: Audiobook Study Player Fastlane Configuration ────────────────────────
-# TODO(Echo rebrand): Update all bundle IDs from com.orbit.* to com.echo.*
-#                      Requires coordinated App Store Connect migration (Phase 8).
 
 default_platform(:ios)
 
@@ -15,6 +13,23 @@ def scheme_exists?(scheme_name)
   JSON.parse(output)["project"]["schemes"].include?(scheme_name)
 rescue
   false
+end
+
+def release_archive_xcargs(build_number)
+  "CURRENT_PROJECT_VERSION=#{build_number} -jobs 5"
+end
+
+def github_warning(message)
+  UI.important(message)
+  puts("::warning::#{message}") if ENV["GITHUB_ACTIONS"] == "true"
+  summary_path = ENV["GITHUB_STEP_SUMMARY"]
+  return if summary_path.to_s.empty?
+
+  File.open(summary_path, "a") do |file|
+    file.puts("### Warning")
+    file.puts(message)
+    file.puts
+  end
 end
 
 # ── Platforms & Lanes ──────────────────────────────────────────────
@@ -161,15 +176,15 @@ platform :ios do
       scheme: "Echo",
       export_method: "app-store",
       output_directory: "build",
-      xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
+      xcargs: release_archive_xcargs(next_build)
     )
 
-    # ── macOS: sync → (CI) manual-sign → archive (rescue-wrapped) ─────────
+    # ── macOS: sync → (CI) manual-sign → archive ──────────────────────────
     # Universal app: the Mac App Store profile is under the SAME bundle id
     # (com.echo.audiobooks) but the `macos` platform. Synced AFTER the iOS build
-    # so it doesn't clobber the iOS profile mapping. Wrapped in a rescue so a
-    # macOS failure (e.g. the still-manual Mac Installer Distribution cert, or the
-    # App Store record not yet having a macOS platform) never blocks the iOS upload.
+    # so it doesn't clobber the iOS profile mapping. Nightly may continue after a
+    # visible warning; weekly/release lanes fail so Mac archive regressions cannot
+    # silently ride the promotion train.
     if scheme_exists?("Echo macOS")
       begin
         sync_code_signing(
@@ -197,11 +212,15 @@ platform :ios do
           scheme: "Echo macOS",
           export_method: "app-store",
           output_directory: "build",
-          xcargs: "CURRENT_PROJECT_VERSION=#{next_build}"
+          xcargs: release_archive_xcargs(next_build)
         )
       rescue => e
-        UI.error("macOS build failed: #{e.message}")
-        UI.error("iOS .ipa will still be uploaded. Fix the macOS target and re-run.")
+        message = "macOS archive failed for #{channel.empty? ? 'manual' : channel} channel: #{e.message}"
+        if channel == "nightly"
+          github_warning("#{message}. Continuing nightly iOS upload; fix the macOS target and re-run.")
+        else
+          UI.user_error!("#{message}. Weekly/release trains require a successful macOS archive.")
+        end
       end
     else
       UI.important("No macOS scheme found — skipping macOS build. Create 'Echo macOS' scheme in Xcode to include it.")

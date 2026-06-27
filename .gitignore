@@ -37,6 +37,7 @@ project.xcworkspace/xcuserdata/
 .build/
 .swiftpm/
 Package.resolved
+!Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # --- CocoaPods ---
 Pods/
@@ -95,4 +96,3 @@ vendor/bundle/
 /docs/competitor-analysis.md
 /docs/superpowers/specs/2026-06-19-roadmap-rebuild-design.md
 /docs/superpowers/plans/2026-06-14-echo-pro-paywall.md
-

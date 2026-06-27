@@ -23,11 +23,20 @@ extension ReaderTab {
             haptic.impactOccurred()
 
             // Visual pulse on the aligned card
+            pulseResetTask?.cancel()
             pulseBlockID = blockID
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            pulseResetTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: .milliseconds(600))
+                } catch {
+                    return
+                }
+
+                guard !Task.isCancelled else { return }
                 if pulseBlockID == blockID {
                     pulseBlockID = nil
                 }
+                pulseResetTask = nil
             }
 
             // Phase 3: Auto-transcription for Manual Alignments (Fine-Tuning)
@@ -113,7 +122,7 @@ extension ReaderTab {
 
         guard !chapters.isEmpty, !blocks.isEmpty else {
             vm.showAutoAlignmentFailedAlert = true
-            vm.autoAlignmentErrorMessage = "No chapters or EPUB blocks found."
+            vm.autoAlignmentErrorMessage = String(localized: "No chapters or EPUB blocks found.")
             return
         }
 
@@ -167,49 +176,53 @@ extension ReaderTab {
         var actions: [UIAccessibilityCustomAction] = []
 
         actions.append(
-            UIAccessibilityCustomAction(name: "Auto-Align Chapters") { [weak model] _ in
+            UIAccessibilityCustomAction(name: String(localized: "Auto-Align Chapters")) { [weak model] _ in
                 guard let model else { return false }
                 startAutoAlignment(model: model)
                 return true
             })
 
         actions.append(
-            UIAccessibilityCustomAction(name: "Change Color") { _ in
+            UIAccessibilityCustomAction(name: String(localized: "Change Color")) { _ in
                 showCardColorPickerForBlockID = blockID
                 return true
             })
 
         if kind == .heading {
             actions.append(
-                UIAccessibilityCustomAction(name: "Set Chapter Theme") { _ in
+                UIAccessibilityCustomAction(name: String(localized: "Set Chapter Theme")) { _ in
                     showChapterThemePickerForBlockID = blockID
                     return true
                 })
         }
 
         actions.append(
-            UIAccessibilityCustomAction(name: "Align to Now") { [weak model] _ in
+            UIAccessibilityCustomAction(name: String(localized: "Align to Now")) { [weak model] _ in
                 guard let model else { return false }
                 alignBlock(blockID, to: model.currentPlaybackTime, source: .moveToNow)
                 return true
             })
 
         actions.append(
-            UIAccessibilityCustomAction(name: "Align to 5s Ago") { [weak model] _ in
+            UIAccessibilityCustomAction(name: String(localized: "Align to 5s Ago")) { [weak model] _ in
                 guard let model else { return false }
                 alignBlock(blockID, to: max(0, model.currentPlaybackTime - 5.0), source: .moveToNow)
                 return true
             })
 
         actions.append(
-            UIAccessibilityCustomAction(name: "Align to Chapter Start") { _ in
+            UIAccessibilityCustomAction(name: String(localized: "Align to Chapter Start")) { _ in
                 showChapterPickerForBlockID = blockID
                 return true
             })
 
         if let chapterIndex = block.chapterIndex {
             actions.append(
-                UIAccessibilityCustomAction(name: "Not in Audio, Whole Chapter") { _ in
+                UIAccessibilityCustomAction(
+                    name: String(
+                        localized: "notInAudioWholeChapterAction",
+                        defaultValue: "Not in Audio, Whole Chapter")
+                ) { _ in
                     hideChapter(chapterIndex)
                     return true
                 })
@@ -217,13 +230,17 @@ extension ReaderTab {
 
         if block.isHidden {
             actions.append(
-                UIAccessibilityCustomAction(name: "Include in Audio") { _ in
+                UIAccessibilityCustomAction(name: String(localized: "Include in Audio")) { _ in
                     unhideBlock(blockID)
                     return true
                 })
         } else {
             actions.append(
-                UIAccessibilityCustomAction(name: "Not in Audio, This Paragraph") { _ in
+                UIAccessibilityCustomAction(
+                    name: String(
+                        localized: "notInAudioThisParagraphAction",
+                        defaultValue: "Not in Audio, This Paragraph")
+                ) { _ in
                     hideBlock(blockID)
                     return true
                 })
@@ -231,20 +248,20 @@ extension ReaderTab {
 
         if status == "lockedAnchor" {
             actions.append(
-                UIAccessibilityCustomAction(name: "Erase Anchor") { _ in
+                UIAccessibilityCustomAction(name: String(localized: "Erase Anchor")) { _ in
                     eraseAnchor(blockID)
                     return true
                 })
         }
 
         actions.append(
-            UIAccessibilityCustomAction(name: "Reset Alignment") { _ in
+            UIAccessibilityCustomAction(name: String(localized: "Reset Alignment")) { _ in
                 resetAlignment()
                 return true
             })
 
         actions.append(
-            UIAccessibilityCustomAction(name: "Save Bookmark") { [weak model] _ in
+            UIAccessibilityCustomAction(name: String(localized: "Save Bookmark")) { [weak model] _ in
                 guard let model else { return false }
                 saveBookmark(block: block, model: model)
                 return true
@@ -252,7 +269,7 @@ extension ReaderTab {
 
         if let text = block.text, !text.isEmpty {
             actions.append(
-                UIAccessibilityCustomAction(name: "Copy Text") { _ in
+                UIAccessibilityCustomAction(name: String(localized: "Copy Text")) { _ in
                     UIPasteboard.general.string = text
                     return true
                 })
@@ -260,7 +277,7 @@ extension ReaderTab {
 
         if kind == .image {
             actions.append(
-                UIAccessibilityCustomAction(name: "Save Image") { _ in
+                UIAccessibilityCustomAction(name: String(localized: "Save Image")) { _ in
                     saveImageToCameraRoll(block: block)
                     return true
                 })
@@ -278,7 +295,7 @@ extension ReaderTab {
             var actions: [UIAction] = []
 
             let autoAlignAction = UIAction(
-                title: "Auto-Align Chapters", image: UIImage(systemName: "wand.and.stars")
+                title: String(localized: "Auto-Align Chapters"), image: UIImage(systemName: "wand.and.stars")
             ) { [weak model] _ in
                 guard let model else { return }
                 startAutoAlignment(model: model)
@@ -286,7 +303,7 @@ extension ReaderTab {
             actions.append(autoAlignAction)
 
             let changeColorAction = UIAction(
-                title: "Change Color", image: UIImage(systemName: "paintpalette")
+                title: String(localized: "Change Color"), image: UIImage(systemName: "paintpalette")
             ) { _ in
                 Task { @MainActor in
                     showCardColorPickerForBlockID = blockID
@@ -296,7 +313,7 @@ extension ReaderTab {
 
             if kind == .heading {
                 let themeChapterAction = UIAction(
-                    title: "Set Chapter Theme", image: UIImage(systemName: "paintpalette.fill")
+                    title: String(localized: "Set Chapter Theme"), image: UIImage(systemName: "paintpalette.fill")
                 ) { _ in
                     Task { @MainActor in
                         showChapterThemePickerForBlockID = blockID
@@ -306,7 +323,7 @@ extension ReaderTab {
             }
 
             let alignNowAction = UIAction(
-                title: "Align to Now", image: UIImage(systemName: "location.fill")
+                title: String(localized: "Align to Now"), image: UIImage(systemName: "location.fill")
             ) { [weak model] _ in
                 guard let model else { return }
                 alignBlock(blockID, to: model.currentPlaybackTime, source: .moveToNow)
@@ -314,7 +331,7 @@ extension ReaderTab {
             actions.append(alignNowAction)
 
             let alignFiveAction = UIAction(
-                title: "Align to 5s Ago", image: UIImage(systemName: "gobackward.5")
+                title: String(localized: "Align to 5s Ago"), image: UIImage(systemName: "gobackward.5")
             ) { [weak model] _ in
                 guard let model else { return }
                 alignBlock(blockID, to: max(0, model.currentPlaybackTime - 5.0), source: .moveToNow)
@@ -322,7 +339,7 @@ extension ReaderTab {
             actions.append(alignFiveAction)
 
             let alignChapterAction = UIAction(
-                title: "Align to Chapter Start", image: UIImage(systemName: "text.book.closed")
+                title: String(localized: "Align to Chapter Start"), image: UIImage(systemName: "text.book.closed")
             ) { _ in
                 showChapterPickerForBlockID = blockID
             }
@@ -332,7 +349,10 @@ extension ReaderTab {
 
             if let chapterIndex = block.chapterIndex {
                 let skipChapterAction = UIAction(
-                    title: "Not in Audio (Whole Chapter)", image: UIImage(systemName: "speaker.slash.fill")
+                    title: String(
+                        localized: "notInAudioWholeChapterContextMenu",
+                        defaultValue: "Not in Audio (Whole Chapter)"),
+                    image: UIImage(systemName: "speaker.slash.fill")
                 ) { _ in
                     hideChapter(chapterIndex)
                 }
@@ -341,14 +361,17 @@ extension ReaderTab {
 
             if block.isHidden {
                 let unhideBlockAction = UIAction(
-                    title: "Include in Audio", image: UIImage(systemName: "speaker.wave.2.fill")
+                    title: String(localized: "Include in Audio"), image: UIImage(systemName: "speaker.wave.2.fill")
                 ) { _ in
                     unhideBlock(blockID)
                 }
                 actions.append(unhideBlockAction)
             } else {
                 let skipBlockAction = UIAction(
-                    title: "Not in Audio (This Paragraph)", image: UIImage(systemName: "speaker.slash")
+                    title: String(
+                        localized: "notInAudioThisParagraphContextMenu",
+                        defaultValue: "Not in Audio (This Paragraph)"),
+                    image: UIImage(systemName: "speaker.slash")
                 ) { _ in
                     hideBlock(blockID)
                 }
@@ -357,7 +380,7 @@ extension ReaderTab {
 
             if status == "lockedAnchor" {
                 let eraseAction = UIAction(
-                    title: "Erase Anchor", image: UIImage(systemName: "link.badge.minus"), attributes: .destructive
+                    title: String(localized: "Erase Anchor"), image: UIImage(systemName: "link.badge.minus"), attributes: .destructive
                 ) { _ in
                     eraseAnchor(blockID)
                 }
@@ -365,14 +388,14 @@ extension ReaderTab {
             }
 
             let resetAction = UIAction(
-                title: "Reset Alignment", image: UIImage(systemName: "exclamationmark.arrow.triangle.2.circlepath"), attributes: .destructive
+                title: String(localized: "Reset Alignment"), image: UIImage(systemName: "exclamationmark.arrow.triangle.2.circlepath"), attributes: .destructive
             ) { _ in
                 resetAlignment()
             }
             actions.append(resetAction)
 
             let saveBookmarkAction = UIAction(
-                title: "Save Bookmark", image: UIImage(systemName: "bookmark.fill")
+                title: String(localized: "Save Bookmark"), image: UIImage(systemName: "bookmark.fill")
             ) { [weak model] _ in
                 guard let model else { return }
                 saveBookmark(block: block, model: model)
@@ -381,7 +404,7 @@ extension ReaderTab {
 
             if let text = block.text, !text.isEmpty {
                 let copyAction = UIAction(
-                    title: "Copy Text", image: UIImage(systemName: "doc.on.doc")
+                    title: String(localized: "Copy Text"), image: UIImage(systemName: "doc.on.doc")
                 ) { _ in
                     UIPasteboard.general.string = text
                 }
@@ -390,7 +413,7 @@ extension ReaderTab {
 
             if kind == .image {
                 let saveImageAction = UIAction(
-                    title: "Save Image", image: UIImage(systemName: "square.and.arrow.down")
+                    title: String(localized: "Save Image"), image: UIImage(systemName: "square.and.arrow.down")
                 ) { _ in
                     saveImageToCameraRoll(block: block)
                 }
@@ -435,7 +458,7 @@ extension ReaderTab {
             id: UUID().uuidString,
             audiobookID: audiobookID,
             trackID: nil,
-            title: "Bookmarked text",
+            title: String(localized: "Bookmarked text"),
             mediaTimestamp: mediaTime,
             note: note.isEmpty ? nil : note,
             voiceMemoPath: nil,

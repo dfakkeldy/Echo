@@ -240,9 +240,12 @@ struct MacApkgExportService {
                     "{}", modelsJSON, decksJSON, "{}", ""
                 ])
 
-                // Insert notes and cards
-                for card in cards {
-                    let noteID = Int64(Date().timeIntervalSince1970 * 1000) + Int64(card.id.hashValue % 1000)
+                // Allocate note/card IDs from one base timestamp, strided by 2
+                // so INTEGER PRIMARY KEYs never collide.
+                let idAllocator = ApkgIDAllocator()
+                for (index, card) in cards.enumerated() {
+                    let ids = idAllocator.ids(forCardAt: index)
+                    let noteID = ids.noteID
                     let guid = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(32))
                     let tags = card.tags ?? ""
                     let flds = "\(card.frontText)\u{1f}\(card.backText)"
@@ -257,7 +260,7 @@ struct MacApkgExportService {
                         tags, flds, sfld, csum, 0, ""
                     ])
 
-                    let cardID = noteID + 1
+                    let cardID = ids.cardID
                     let factor = Int(card.easeFactor * 1000)
                     try db.execute(sql: """
                         INSERT INTO cards (id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)

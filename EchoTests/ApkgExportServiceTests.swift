@@ -284,4 +284,25 @@ struct ApkgExportServiceTests {
             #expect(overlap == 0)
         }
     }
+
+    @Test func apkgIDAllocatorProducesUniqueNonOverlappingIDsAtSameTimestamp() {
+        let cardCount = 2_000
+        let allocator = ApkgIDAllocator(baseID: 1_780_000_000_000)
+
+        let pairs = (0..<cardCount).map { allocator.ids(forCardAt: $0) }
+        let noteIDs = Set(pairs.map(\.noteID))
+        let cardIDs = Set(pairs.map(\.cardID))
+
+        #expect(noteIDs.count == cardCount)
+        #expect(cardIDs.count == cardCount)
+        #expect(noteIDs.isDisjoint(with: cardIDs))
+    }
+
+    @Test func macApkgExportUsesSharedMonotonicIDAllocator() throws {
+        let source = try MacSource.read("Services/MacApkgExportService.swift")
+
+        #expect(source.contains("ApkgIDAllocator"))
+        #expect(!source.contains("hashValue % 1000"))
+        #expect(!source.contains("timeIntervalSince1970 * 1000) +"))
+    }
 }

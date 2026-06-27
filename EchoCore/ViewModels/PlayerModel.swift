@@ -70,6 +70,8 @@ final class PlayerModel {
     @ObservationIgnored var absSyncRemoteItemID: String? = nil
     /// Epoch-seconds timestamp of the last successful ABS progress push.
     @ObservationIgnored var absLastPushAt: TimeInterval? = nil
+    /// User-visible warning when local ABS disconnect succeeds but server-side revoke fails.
+    var absRemoteSignOutWarning: String?
 
     // MARK: - UI state (local to PlayerModel)
 
@@ -103,6 +105,7 @@ final class PlayerModel {
     var showBookmarks: Bool = true
     var isPlaylistEditing: Bool = false
     var showingDocumentImporter: Bool = false
+    var showingBookmarkPersistenceWarning: Bool = false
     var showingABSBrowse: Bool = false
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
@@ -1594,7 +1597,7 @@ final class PlayerModel {
         securityScope.startSelection(url: url)
 
         // Save security-scoped bookmark so it restores after relaunch.
-        persistence.saveBookmark(url: url)
+        showingBookmarkPersistenceWarning = !persistence.saveBookmark(url: url)
 
         // Load bookmarks for this book.
         loadBookmarksForCurrentBook()

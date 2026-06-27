@@ -39,11 +39,13 @@ struct MacTOCTreeView: View {
                 Spacer()
             } else {
                 List(filteredNodes, id: \.id, children: \.childrenAsOptional) { node in
-                    TOCRowView(node: node)
-                        .id(node.id)
-                        .onTapGesture {
-                            navigateTo(node: node)
+                    Button {
+                        navigateTo(node: node)
+                    } label: {
+                        TOCRowView(node: node)
+                            .id(node.id)
                         }
+                    .buttonStyle(.plain)
                 }
                 .listStyle(.sidebar)
                 .searchable(text: $searchText, prompt: "Filter chapters…")

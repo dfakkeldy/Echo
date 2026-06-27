@@ -92,10 +92,22 @@ import Testing
         #expect(item.media?.tracks?.first?.title == "Chapter 1")
     }
 
-    @Test func coverURLEmbedsTokenAndItemID() {
+    @Test func coverImageDataUsesAuthorizationHeaderWithoutTokenQuery() async throws {
         let service = makeService()  // tokens.accessToken == "acc"
-        let url = service.coverURL(itemID: "it1")?.absoluteString
-        #expect(url?.contains("/api/items/it1/cover") == true)
-        #expect(url?.contains("token=acc") == true)
+        let payload = Data([0x89, 0x50, 0x4E, 0x47])
+        URLProtocolStub.stub(
+            pathSuffix: "/api/items/it1/cover", status: 200, data: payload,
+            headers: ["Content-Type": "image/png"])
+
+        let data = try await service.coverImageData(itemID: "it1")
+        let request = try #require(URLProtocolStub.requests.last)
+        let queryItems = URLComponents(
+            url: try #require(request.url), resolvingAgainstBaseURL: false
+        )?.queryItems ?? []
+
+        #expect(data == payload)
+        #expect(request.url?.path == "/api/items/it1/cover")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
+        #expect(!queryItems.contains { $0.name == "token" })
     }
 }

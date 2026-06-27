@@ -308,6 +308,7 @@ private extension CGFloat {
         return numberA...numberB ~= self
     }
 }
+#endif
 
 // Please don't remove the lines below
 // They are used to detect outdated configuration files

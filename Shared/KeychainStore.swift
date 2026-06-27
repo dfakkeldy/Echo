@@ -18,6 +18,7 @@ import Synchronization
 enum KeychainStore {
     enum Key: String {
         case securityScopedBookmark
+        case macLastFileBookmark
         case bookmarkNotes
         case absRefreshToken
         case absPinnedCertificate

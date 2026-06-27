@@ -51,9 +51,20 @@ bundled into the Echo app target.** `*.m4b` is git-ignored, so:
    `EchoCore/Development Assets/`).
 2. Then `fastlane screenshots` will have real content on screen.
 
-Without it, the run still succeeds but content-gated screens show their empty
-states — fine for a privacy/settings shot, not for the player. The UI test is
-defensive: a missing screen is skipped, never a hard failure.
+Without it, content-gated screens show their empty states — fine for a
+privacy/settings shot, not for the player. The UI test now fails if any expected
+automated category is missing, so a screenshot run cannot silently pass with a
+partial set.
+
+Recommended local fixture path:
+
+```
+fastlane/fixtures/BIFF.m4b
+```
+
+Keep fixture media out of git unless it is sanitized and licensed for
+redistribution; add it to the Echo target's Copy Bundle Resources locally before
+running `fastlane screenshots`.
 
 The test navigates by accessibility **labels** (the app ships no accessibility
 identifiers). If you restyle the bottom dock / top header, keep the labels
@@ -77,6 +88,14 @@ first (Cmd-R in Xcode). Captures are named and sized correctly automatically.
 For **watchOS** and **Mac**, capture by hand for now (watch snapshot automation
 is a separate setup): Simulator → File ▸ Save Screen (⌘S), or `xcrun simctl io
 booted screenshot`, into this folder using the naming convention below.
+
+Manual release checklist:
+
+- iPhone automated set includes Player, Timeline, Reader, Stats, and Settings.
+- iPad automated set includes Player, Timeline, Reader, Stats, and Settings.
+- Watch remote shot is captured manually and named with `_Watch`.
+- Mac app shot is captured manually and named with `_Mac`.
+- Any intentionally omitted category is noted in the release notes before upload.
 
 ---
 

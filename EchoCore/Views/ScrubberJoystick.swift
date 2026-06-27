@@ -8,6 +8,7 @@ struct ScrubberJoystick: View {
     @State private var dragOffset: CGFloat = 0
     private let trackWidth: CGFloat = 200
     private let knobSize: CGFloat = 44
+    private let accessibilityStep = 0.25
 
     var body: some View {
         ZStack {
@@ -23,29 +24,14 @@ struct ScrubberJoystick: View {
                 .gesture(
                     DragGesture()
                         .onChanged { gesture in
-                            let maxTranslation = (trackWidth - knobSize) / 2
-                            let translation = min(
-                                max(gesture.translation.width, -maxTranslation), maxTranslation)
-                            dragOffset = translation
-                            value = Double(translation / maxTranslation)
-
-                            // Exponential mapping so small pulls are slow, big pulls are fast.
-                            let sign = value < 0 ? -1.0 : 1.0
-                            value = sign * pow(abs(value), 2.0)
+                            updateScrubValue(fromTranslation: gesture.translation.width)
                         }
                         .onEnded { _ in
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                                dragOffset = 0
-                                value = 0
-                            }
-                            onRelease()
+                            stopScrubbing()
                         }
                 )
         }
         .frame(height: knobSize)
-        // VoiceOver: a continuous drag-scrubber is best exposed as a single
-        // direct-interaction element so the gesture passes through, with a
-        // spoken label/value/hint (§8.4).
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Scrubber")
         .accessibilityValue(
@@ -53,7 +39,60 @@ struct ScrubberJoystick: View {
                 ? "Centered"
                 : "\(value > 0 ? "Forward" : "Backward") \(Int(abs(value) * 100)) percent"
         )
-        .accessibilityHint("Drag left or right to scrub; release to stop")
+        .accessibilityHint("Swipe up or down to scrub, or use actions for forward, backward, and stop")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                adjustScrubbing(by: accessibilityStep)
+            case .decrement:
+                adjustScrubbing(by: -accessibilityStep)
+            @unknown default:
+                break
+            }
+        }
+        .accessibilityAction(named: Text("Scrub forward")) {
+            adjustScrubbing(by: accessibilityStep)
+        }
+        .accessibilityAction(named: Text("Scrub backward")) {
+            adjustScrubbing(by: -accessibilityStep)
+        }
+        .accessibilityAction(named: Text("Stop scrubbing")) {
+            stopScrubbing()
+        }
         .accessibilityAddTraits(.allowsDirectInteraction)
+    }
+
+    private var maximumTranslation: CGFloat {
+        (trackWidth - knobSize) / 2
+    }
+
+    private func updateScrubValue(fromTranslation rawTranslation: CGFloat) {
+        let translation = min(max(rawTranslation, -maximumTranslation), maximumTranslation)
+        dragOffset = translation
+
+        let linearValue = Double(translation / maximumTranslation)
+        let sign = linearValue < 0 ? -1.0 : 1.0
+        value = sign * pow(abs(linearValue), 2.0)
+    }
+
+    private func adjustScrubbing(by delta: Double) {
+        setScrubValue(value + delta)
+    }
+
+    private func setScrubValue(_ newValue: Double) {
+        let clampedValue = min(max(newValue, -1.0), 1.0)
+        value = clampedValue
+
+        let sign = clampedValue < 0 ? -1.0 : 1.0
+        let linearValue = sign * sqrt(abs(clampedValue))
+        dragOffset = CGFloat(linearValue) * maximumTranslation
+    }
+
+    private func stopScrubbing() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            dragOffset = 0
+            value = 0
+        }
+        onRelease()
     }
 }

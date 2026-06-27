@@ -531,12 +531,10 @@ final class MacBatchProcessingService {
     /// from the audio file, then persists the companion EPUB's blocks into the
     /// shared database under the directory-derived audiobook ID.
     ///
-    /// `EPUBImportCoordinator.importEPUB` is non-throwing `Void`: it logs and
-    /// returns on a copy/block-clear/extract failure rather than propagating it.
-    /// A fire-and-forget import that failed would leave zero EPUB blocks, yet the
-    /// runner would still mark the book `.completed`. So after awaiting the
-    /// import we verify blocks were actually persisted and throw when none were,
-    /// letting `BatchQueueRunner.drain` record the item as `.failed`.
+    /// `EPUBImportCoordinator.importEPUB` propagates file/copy/parse failures.
+    /// After awaiting the import we still verify blocks were actually persisted
+    /// and throw when none were, letting `BatchQueueRunner.drain` record the item
+    /// as `.failed`.
     private func importBook(
         audioURL: URL, epubURL: URL, audiobookID: String, dbService: DatabaseService
     ) async throws {
@@ -545,7 +543,7 @@ final class MacBatchProcessingService {
         let chapters = await ChapterService.parseChapters(from: asset)
         let duration = try? await asset.load(.duration).seconds
 
-        await EPUBImportCoordinator.importEPUB(
+        _ = try await EPUBImportCoordinator.importEPUB(
             from: epubURL,
             to: folderURL,
             databaseService: dbService,
@@ -563,9 +561,9 @@ final class MacBatchProcessingService {
     /// Imports a standalone EPUB's blocks (no audio) under `audiobookID`, reusing
     /// the same `EPUBImportCoordinator.importEPUB` path as the align flow but with
     /// no audio chapters/duration. The EPUB is imported in place (source == dest),
-    /// so the same-folder copy is skipped. Throws if zero blocks were persisted (a
-    /// swallowed extract/parse failure), so the runner marks the item `.failed`
-    /// rather than completing an empty book.
+    /// so the same-folder copy is skipped. Throws on import failure or if zero
+    /// blocks were persisted, so the runner marks the item `.failed` rather than
+    /// completing an empty book.
     private func importEPUBOnly(
         epubURL: URL, audiobookID: String, dbService: DatabaseService
     ) async throws {
@@ -594,7 +592,7 @@ final class MacBatchProcessingService {
             _ = await TextAutoImportScanner.importTextFile(
                 textURL: epubURL, audiobookID: audiobookID, databaseService: dbService, force: true)
         } else {
-            await EPUBImportCoordinator.importEPUB(
+            _ = try await EPUBImportCoordinator.importEPUB(
                 from: epubURL,
                 to: epubURL,
                 databaseService: dbService,

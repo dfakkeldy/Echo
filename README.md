@@ -4,9 +4,9 @@
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 [![TestFlight](https://img.shields.io/badge/TestFlight-Beta-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/iOS-19+-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/macOS-16+-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/watchOS-12+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/iOS-18+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/macOS-15+-blue.svg)](#)
+[![Platform](https://img.shields.io/badge/watchOS-11+-blue.svg)](#)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 **Echo** turns audiobooks into a serious study medium. It aligns the audiobook you already own to its EPUB/PDF for word-level read-along, **narrates ebooks that have no audiobook** on-device, and turns what you hear into flashcards you review with spaced repetition — all without leaving the audio.
@@ -230,6 +230,29 @@ xcodebuild test \
   -project Echo.xcodeproj \
   -scheme "Echo" \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+```
+
+CI build-gates the embedded watch app through the `Echo` scheme, but watchOS
+unit tests are manual until a pinned watchOS simulator destination is reliable on
+the runner. To run them locally, first choose a destination from:
+
+```bash
+xcodebuild -showdestinations \
+  -project Echo.xcodeproj \
+  -scheme "Echo Watch App"
+```
+
+Then run:
+
+```bash
+WATCH_DEST='platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'
+xcodebuild test \
+  -project Echo.xcodeproj \
+  -scheme "Echo Watch App" \
+  -destination "$WATCH_DEST" \
+  -only-testing:"Echo Watch AppTests" \
+  -parallel-testing-enabled NO \
+  CODE_SIGNING_ALLOWED=NO
 ```
 
 ### MockMediaProvider

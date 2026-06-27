@@ -233,15 +233,6 @@ enum HelpContent {
             """
         ),
         HelpSection(
-            id: "carplay",
-            title: "CarPlay",
-            body: """
-            Echo appears in CarPlay with a browse list and transport controls — play, pause, and skip from the car's screen. Playback also responds to your car's steering-wheel and head-unit controls via the system Now Playing integration.
-
-            CarPlay support is intentionally minimal for now; richer browsing is planned. No CarPlay in your car? Echo is designed so the Apple Watch remote covers the same job — the phone can stay in your pocket or on the aux cable.
-            """
-        ),
-        HelpSection(
             id: "appearance",
             title: "Appearance & Settings",
             body: """

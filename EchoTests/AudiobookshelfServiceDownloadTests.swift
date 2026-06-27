@@ -28,7 +28,15 @@ import Testing
         try await service.downloadItemZip(itemID: "it1", to: dest)
 
         let written = try Data(contentsOf: dest)
+        let request = try #require(URLProtocolStub.requests.last)
+        let queryItems = URLComponents(
+            url: try #require(request.url), resolvingAgainstBaseURL: false
+        )?.queryItems ?? []
+
         #expect(written == payload)
+        #expect(request.url?.path == "/api/items/it1/download")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
+        #expect(!queryItems.contains { $0.name == "token" })
     }
 
     @Test func httpErrorThrows() async {

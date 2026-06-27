@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 /// Imports EPUB structure into the application's SQL database and local asset storage.
@@ -107,7 +108,7 @@ struct EPUBImportService {
         // as headings (table-styled topic titles) so the reader can style and
         // anchor them. Runs before chapter-index assignment so promotions
         // count as headings there.
-        let tocRecords = Self.resolveTOCEntries(
+        let tocRecords = try Self.resolveTOCEntries(
             parse.tocEntryTree,
             audiobookID: audiobookID,
             spine: parse.spine,
@@ -174,13 +175,22 @@ struct EPUBImportService {
         guard let db = assetStorage.databaseService else {
             throw EPUBImportError.databaseNotAvailable
         }
-        let dao = EPubBlockDAO(db: db.writer)
-        try dao.deleteAll(for: audiobookID)
-        try dao.insertAll(allBlocks)
-
-        let tocDAO = EPubTOCEntryDAO(db: db.writer)
-        try tocDAO.deleteAll(for: audiobookID)
-        try tocDAO.insertAll(tocRecords)
+        let blocksToInsert = allBlocks
+        let tocRecordsToInsert = tocRecords
+        try await db.writer.write { database in
+            try EPubTOCEntryRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .deleteAll(database)
+            try EPubBlockRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .deleteAll(database)
+            for var block in blocksToInsert {
+                try block.insert(database)
+            }
+            for var tocRecord in tocRecordsToInsert {
+                try tocRecord.insert(database)
+            }
+        }
 
         logger.info(
             "Imported \(allBlocks.count) EPUB blocks and \(tocRecords.count) TOC entries for \(audiobookID)"
@@ -203,7 +213,7 @@ struct EPUBImportService {
         firstHeadingBlockIDBySpine: [Int: String],
         firstBlockIDBySpine: [Int: String],
         blocks: inout [EPubBlockRecord]
-    ) -> [EPubTOCEntryRecord] {
+    ) throws -> [EPubTOCEntryRecord] {
         guard !tree.isEmpty else { return [] }
 
         var spineIndexByHref: [String: Int] = [:]
@@ -229,10 +239,10 @@ struct EPUBImportService {
             return spineIndexByFilename[URL(fileURLWithPath: normalized).lastPathComponent]
         }
 
-        func appendEntries(_ nodes: [TOCEntryNode], parentID: String?, depth: Int) {
+        func appendEntries(_ nodes: [TOCEntryNode], parentID: String?, depth: Int) throws {
             for node in nodes {
                 guard let spineIdx = resolveSpineIndex(node.href) else {
-                    appendEntries(node.children, parentID: parentID, depth: depth)
+                    try appendEntries(node.children, parentID: parentID, depth: depth)
                     continue
                 }
 
@@ -266,14 +276,14 @@ struct EPUBImportService {
                     let blockID = resolvedBlockID,
                     let arrayIdx = blockArrayIndexByID[blockID]
                 {
-                    promoteToHeadingIfTitleMatches(
+                    try promoteToHeadingIfTitleMatches(
                         &blocks[arrayIdx], title: node.title, depth: depth)
                 }
 
-                appendEntries(node.children, parentID: entryID, depth: depth + 1)
+                try appendEntries(node.children, parentID: entryID, depth: depth + 1)
             }
         }
-        appendEntries(tree, parentID: nil, depth: 0)
+        try appendEntries(tree, parentID: nil, depth: 0)
         return records
     }
 
@@ -284,7 +294,7 @@ struct EPUBImportService {
     /// body prose safe when an entry anchors at a regular paragraph.
     private static func promoteToHeadingIfTitleMatches(
         _ block: inout EPubBlockRecord, title: String, depth: Int
-    ) {
+    ) throws {
         guard block.blockKind == EPubBlockRecord.Kind.paragraph.rawValue,
             let text = block.text, !text.isEmpty, text.count <= 120,
             titlesEssentiallyMatch(text, title)
@@ -292,7 +302,7 @@ struct EPUBImportService {
 
         block.blockKind = EPubBlockRecord.Kind.heading.rawValue
         let level = min(max(depth + 1, 1), 6)
-        var markers = block.decodedMarkers
+        var markers = try block.decodeMarkers()
         markers.insert(
             SyncMarker(type: .chapterStart, payload: String(level), epubCharOffset: 0),
             at: 0

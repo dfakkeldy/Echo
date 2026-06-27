@@ -8,6 +8,7 @@ import WatchKit
 struct PlayerPage: View {
     let slots: [WatchAction]
     let viewModel: WatchViewModel
+    let isPrimaryActionEnabled: Bool
     let layout: WatchArtworkLayout
     let onBookmark: () -> Void
     let onSleepTimer: () -> Void
@@ -109,6 +110,7 @@ struct PlayerPage: View {
                 centerSlot: slots[3],
                 rightSlot: slots[4],
                 viewModel: viewModel,
+                isPrimaryActionEnabled: isPrimaryActionEnabled,
                 usesImmersiveChrome: true,
                 isCompactLayout: isCompactLayout,
                 onBookmark: onBookmark,
@@ -417,6 +419,7 @@ struct TransportRow: View {
     let centerSlot: WatchAction
     let rightSlot: WatchAction
     let viewModel: WatchViewModel
+    let isPrimaryActionEnabled: Bool
     let usesImmersiveChrome: Bool
     let isCompactLayout: Bool
     let onBookmark: () -> Void
@@ -434,7 +437,16 @@ struct TransportRow: View {
         HStack(spacing: usesImmersiveChrome ? rowSpacing : 20) {
             SideTransportButton(action: leftSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
 
-            CenterTransportButton(action: centerSlot, viewModel: viewModel, controlSize: centerButtonSize, ringSize: ringSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
+            CenterTransportButton(
+                action: centerSlot,
+                viewModel: viewModel,
+                isPrimaryActionEnabled: isPrimaryActionEnabled,
+                controlSize: centerButtonSize,
+                ringSize: ringSize,
+                onBookmark: onBookmark,
+                onSleepTimer: onSleepTimer,
+                onPomodoroLongPress: onPomodoroLongPress
+            )
 
             SideTransportButton(action: rightSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
         }
@@ -585,6 +597,7 @@ extension View {
 struct CenterTransportButton: View {
     let action: WatchAction
     let viewModel: WatchViewModel
+    let isPrimaryActionEnabled: Bool
     let controlSize: CGFloat
     let ringSize: CGFloat
     let onBookmark: () -> Void
@@ -623,15 +636,7 @@ struct CenterTransportButton: View {
                         .animation(ringSuppressed ? nil : .linear(duration: 0.5), value: ringProgress)
                 }
 
-                Button {
-                    if resolvedAction == .bookmark {
-                        onBookmark()
-                    } else if resolvedAction == .sleepTimer {
-                        onSleepTimer()
-                    } else {
-                        viewModel.handle(resolvedAction)
-                    }
-                } label: {
+                Button(action: performResolvedAction) {
                     Image(systemName: centerIconName)
                         .font(.system(size: iconSize))
                         .frame(width: controlSize, height: controlSize)
@@ -642,19 +647,7 @@ struct CenterTransportButton: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .accessibilityLabel(centerAccessibilityLabel)
-
-                // Hidden helper for the double-tap primary-action shortcut.
-                Button("") {
-                    if resolvedAction == .bookmark {
-                        onBookmark()
-                    } else if resolvedAction == .sleepTimer {
-                        onSleepTimer()
-                    } else {
-                        viewModel.handle(resolvedAction)
-                    }
-                }
-                .opacity(0)
-                .handGestureShortcut(.primaryAction)
+                .handGestureShortcut(.primaryAction, isEnabled: isPrimaryActionEnabled)
             }
         }
     }
@@ -694,6 +687,16 @@ struct CenterTransportButton: View {
         case .markPassage: return "Mark passage for later"
         case .pomodoro: return "Pomodoro timer"
         case .empty: return ""
+        }
+    }
+
+    private func performResolvedAction() {
+        if resolvedAction == .bookmark {
+            onBookmark()
+        } else if resolvedAction == .sleepTimer {
+            onSleepTimer()
+        } else {
+            viewModel.handle(resolvedAction)
         }
     }
 }

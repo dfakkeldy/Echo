@@ -26,6 +26,9 @@ scheme("Echo Screenshots")
 # Run ONLY the screenshot test, not the boilerplate EchoCoreUITests.
 only_testing(["EchoUITests/EchoScreenshots"])
 
+# EchoScreenshots asserts that each automated device captures these categories:
+# 01_Player, 02_Timeline, 03_Reader, 04_Stats, 05_Settings.
+
 # Where the PNGs land (picked up as-is by deliver / upload_to_app_store).
 output_directory("./fastlane/screenshots")
 

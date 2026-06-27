@@ -142,7 +142,11 @@ jobs:
             ${{ runner.os }}-xcode26-spm-
 
       - name: Resolve package dependencies
-        run: xcodebuild -resolvePackageDependencies -project Echo.xcodeproj -scheme Echo
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Echo.xcodeproj \
+            -scheme Echo \
+            -onlyUsePackageVersionsFromResolvedFile
 
       # ── Always-on gate: compile the train branch (no secrets required) ─────
       # This is the guaranteed-useful part of a scheduled run and the same gate
@@ -155,6 +159,8 @@ jobs:
             -project Echo.xcodeproj \
             -scheme Echo \
             -destination "$IOS_DESTINATION" \
+            -parallel-testing-enabled NO \
+            -jobs 5 \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 
@@ -162,15 +168,20 @@ jobs:
       - name: Check release credentials
         id: creds
         run: |
-          if [ -n "$ASC_API_KEY_JSON" ] && [ -n "$MATCH_PASSWORD" ]; then
+          missing=()
+          [ -z "$ASC_API_KEY_JSON" ] && missing+=("APP_STORE_CONNECT_API_KEY_JSON")
+          [ -z "$MATCH_PASSWORD" ] && missing+=("MATCH_PASSWORD")
+          [ -z "$MATCH_GIT_SSH_KEY" ] && missing+=("MATCH_GIT_SSH_KEY")
+
+          if [ "${#missing[@]}" -eq 0 ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=TestFlight upload skipped::Signing secrets not configured (APP_STORE_CONNECT_API_KEY_JSON / MATCH_PASSWORD). The ${{ needs.resolve.outputs.channel }} branch was compiled but not uploaded."
+            echo "::notice title=TestFlight upload skipped::Signing secrets not configured: ${missing[*]}. The ${{ needs.resolve.outputs.channel }} branch was compiled but not uploaded."
           fi
 
       - name: Load match deploy key
-        if: steps.creds.outputs.ready == 'true' && env.MATCH_GIT_SSH_KEY != ''
+        if: steps.creds.outputs.ready == 'true'
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.MATCH_GIT_SSH_KEY }}

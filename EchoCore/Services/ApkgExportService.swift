@@ -236,13 +236,11 @@ struct ApkgExportService {
                     ])
 
                 // Allocate note/card IDs from one base timestamp, strided by 2
-                // (notes = base, base+2…; cards = base+1, base+3…) so the
-                // INTEGER PRIMARY KEYs never collide. The old epoch-ms +
-                // hashValue % 1000 could collide within a millisecond, and
-                // hashValue is randomized per process.
-                let baseID = Int64(Date().timeIntervalSince1970 * 1000)
+                // so INTEGER PRIMARY KEYs never collide.
+                let idAllocator = ApkgIDAllocator()
                 for (index, card) in cards.enumerated() {
-                    let noteID = baseID + Int64(index) * 2
+                    let ids = idAllocator.ids(forCardAt: index)
+                    let noteID = ids.noteID
                     let guid = String(
                         UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(32))
                     let tags = card.tags ?? ""
@@ -260,7 +258,7 @@ struct ApkgExportService {
                             tags, flds, sfld, csum, 0, "",
                         ])
 
-                    let cardID = noteID + 1
+                    let cardID = ids.cardID
                     let factor = Int(card.easeFactor * 1000)
                     try db.execute(
                         sql: """

@@ -117,8 +117,8 @@
         /// a single stat, no hashing.
         nonisolated static func fileHasExpectedSize(at url: URL, expectedBytes: Int) -> Bool {
             guard
-                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                let size = attrs[.size] as? Int
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+                let size = values.fileSize
             else { return false }
             return size == expectedBytes
         }

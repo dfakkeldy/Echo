@@ -15,6 +15,19 @@ enum PDFAutoImportScanner {
         }
     }
 
+    enum ImportOutcome {
+        case imported
+        case alreadyImported
+        case noReadableText(URL)
+        case unreadable(URL, underlying: Error)
+        case failed(URL, underlying: Error)
+
+        var didImportBlocks: Bool {
+            if case .imported = self { return true }
+            return false
+        }
+    }
+
     /// Scans the given audiobook folder for `.pdf` files. When one is found and no
     /// prior import exists for the folder, the text is extracted and imported via
     /// `EPUBImportService.import(parse:)`.
@@ -90,8 +103,30 @@ enum PDFAutoImportScanner {
         databaseService: DatabaseService,
         chapters: [Chapter],
         duration: TimeInterval?,
-        force: Bool = false
+        force: Bool = false,
+        finalizerFileURL: URL? = nil
     ) async -> Bool {
+        let outcome = await importPDFFileOutcome(
+            pdfURL: pdfURL,
+            audiobookID: audiobookID,
+            databaseService: databaseService,
+            chapters: chapters,
+            duration: duration,
+            force: force,
+            finalizerFileURL: finalizerFileURL
+        )
+        return outcome.didImportBlocks
+    }
+
+    static func importPDFFileOutcome(
+        pdfURL: URL,
+        audiobookID: String,
+        databaseService: DatabaseService,
+        chapters: [Chapter],
+        duration: TimeInterval?,
+        force: Bool = false,
+        finalizerFileURL: URL? = nil
+    ) async -> ImportOutcome {
         // Security-scoped access is managed by SecurityScopeManager in loadFolder.
         // Don't start/stop here — duplicate cycles break file-provider access.
 
@@ -104,7 +139,7 @@ enum PDFAutoImportScanner {
                 logger.debug(
                     "PDF text blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
                 )
-                return false
+                return .alreadyImported
             }
         }
 
@@ -123,7 +158,7 @@ enum PDFAutoImportScanner {
                 logger.info(
                     "Skipping PDF import because no readable text was extracted: \(sanitizedPath(pdfURL.path))"
                 )
-                return false
+                return .noReadableText(pdfURL)
             }
 
             let parse = parsePDFText(
@@ -141,12 +176,26 @@ enum PDFAutoImportScanner {
             )
             logger.info("Imported \(blocks.count) PDF blocks for \(sanitizedPath(audiobookID))")
 
-            return await DocumentImportFinalizer.finalize(
-                audiobookID: audiobookID, blocks: blocks, fileURL: pdfURL,
+            let finalized = await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID, blocks: blocks, fileURL: finalizerFileURL ?? pdfURL,
                 duration: duration, databaseService: databaseService)
+            if finalized {
+                return .imported
+            }
+            return .failed(pdfURL, underlying: PDFAutoImportError.finalizationFailed(pdfURL))
+        } catch let error as PDFAutoImportError {
+            logger.error("PDF auto-import failed: \(error.localizedDescription)")
+            switch error {
+            case .unreadable(let url):
+                return .unreadable(url, underlying: error)
+            case .noText(let url):
+                return .noReadableText(url)
+            case .finalizationFailed(let url):
+                return .failed(url, underlying: error)
+            }
         } catch {
             logger.error("PDF auto-import failed: \(error.localizedDescription)")
-            return false
+            return .failed(pdfURL, underlying: error)
         }
     }
 
@@ -234,6 +283,7 @@ enum PDFAutoImportScanner {
     private enum PDFAutoImportError: LocalizedError, Sendable {
         case unreadable(URL)
         case noText(URL)
+        case finalizationFailed(URL)
 
         var errorDescription: String? {
             switch self {
@@ -242,6 +292,8 @@ enum PDFAutoImportScanner {
             case .noText(let url):
                 return
                     "No readable text found in PDF: \(PDFAutoImportScanner.sanitizedPath(url.path))"
+            case .finalizationFailed(let url):
+                return "Could not save PDF text import: \(PDFAutoImportScanner.sanitizedPath(url.path))"
             }
         }
     }

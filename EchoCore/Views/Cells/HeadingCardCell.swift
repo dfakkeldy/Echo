@@ -32,6 +32,14 @@ final class HeadingCardCell: UICollectionViewCell {
     }()
 
     private var hasAnchorText = false
+    private struct TextConfiguration {
+        var block: EPubBlockRecord
+        var settings: ReaderSettings
+        var tint: UIColor
+        var isExplicitHighlight: Bool
+        var searchQuery: String?
+        var highlightedWordIndex: Int?
+    }
 
     // Karaoke word-highlight state. Word ranges are computed once at configure
     // time so repeated words don't break a naive substring search; the highlight
@@ -39,7 +47,7 @@ final class HeadingCardCell: UICollectionViewCell {
     private var wordRanges: [NSRange] = []
     private var baseAttributed: NSMutableAttributedString?
     private var highlightTint: UIColor = .systemBlue
-    private var lastHighlightFont: UIFont = .systemFont(ofSize: 16)
+    private var textConfiguration: TextConfiguration?
 
     var isActiveBlock: Bool = false {
         didSet {
@@ -71,6 +79,12 @@ final class HeadingCardCell: UICollectionViewCell {
             label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
             label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
         ])
+
+        _ = registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+            (cell: HeadingCardCell, _: UITraitCollection) in
+            cell.rebuildAttributedTextForCurrentTraits()
+            cell.invalidateCollectionLayoutForTraitChange()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -91,23 +105,46 @@ final class HeadingCardCell: UICollectionViewCell {
     }
 
     func configure(
-        with block: EPubBlockRecord, font: UIFont, tint: UIColor, isExplicitHighlight: Bool,
+        with block: EPubBlockRecord, settings: ReaderSettings, tint: UIColor,
+        isExplicitHighlight: Bool,
         searchQuery: String? = nil,
         highlightedWordIndex: Int? = nil
     ) {
-        let plainText = (block.text ?? "").collapsedWhitespace()
+        textConfiguration = TextConfiguration(
+            block: block,
+            settings: settings,
+            tint: tint,
+            isExplicitHighlight: isExplicitHighlight,
+            searchQuery: searchQuery,
+            highlightedWordIndex: highlightedWordIndex
+        )
+        rebuildAttributedTextForCurrentTraits()
+    }
 
-        let hasThemeOrCardColor = block.cardColor != nil || block.chapterThemeColor != nil
+    private func rebuildAttributedTextForCurrentTraits() {
+        guard let configuration = textConfiguration else { return }
+
+        let block = configuration.block
+        let plainText = (block.text ?? "").collapsedWhitespace()
+        let font = configuration.settings.uiFont(
+            forTextStyle: .title3,
+            weight: .semibold,
+            compatibleWith: traitCollection)
+        let boldFont = configuration.settings.uiFont(
+            forTextStyle: .title3,
+            weight: .bold,
+            compatibleWith: traitCollection)
+
         let textColor =
-            hasThemeOrCardColor
-            ? tint.contrastingTextColor
-            : (UITraitCollection.current.userInterfaceStyle == .dark
+            configuration.isExplicitHighlight
+            ? configuration.tint.contrastingTextColor
+            : (traitCollection.userInterfaceStyle == .dark
                 ? UIColor.white : UIColor.label)
 
         let attributed: NSMutableAttributedString
-        if let query = searchQuery, !query.isEmpty {
+        if let query = configuration.searchQuery, !query.isEmpty {
             attributed = highlightedText(
-                plainText, query: query, font: font, textColor: textColor)
+                plainText, query: query, font: font, boldFont: boldFont, textColor: textColor)
         } else {
             attributed = NSMutableAttributedString(
                 string: plainText,
@@ -121,21 +158,30 @@ final class HeadingCardCell: UICollectionViewCell {
         // apply the highlight against this base text instead of mutating it in place.
         wordRanges = ParagraphCardCell.wordRanges(in: plainText)
         baseAttributed = attributed
-        highlightTint = tint
-        applyWordHighlight(highlightedWordIndex, baseFont: font)
+        highlightTint = configuration.tint
+        label.font = font
+        renderWordHighlight(configuration.highlightedWordIndex)
 
         if block.cardColor != nil {
-            contentView.backgroundColor = tint
+            contentView.backgroundColor = configuration.tint
         } else if block.chapterThemeColor != nil {
             contentView.backgroundColor =
-                UITraitCollection.current.userInterfaceStyle == .dark
+                traitCollection.userInterfaceStyle == .dark
                 ? UIColor.black.withAlphaComponent(0.2) : UIColor.white.withAlphaComponent(0.4)
         } else {
-            contentView.backgroundColor = tint.withAlphaComponent(0.08)
+            contentView.backgroundColor = configuration.tint.withAlphaComponent(0.08)
         }
+
+        setNeedsLayout()
     }
 
-    private func highlightedText(_ text: String, query: String, font: UIFont, textColor: UIColor)
+    private func highlightedText(
+        _ text: String,
+        query: String,
+        font: UIFont,
+        boldFont: UIFont,
+        textColor: UIColor
+    )
         -> NSMutableAttributedString
     {
         let attributed = NSMutableAttributedString(
@@ -154,9 +200,7 @@ final class HeadingCardCell: UICollectionViewCell {
             attributed.addAttribute(
                 .backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.4),
                 range: nsRange)
-            attributed.addAttribute(
-                .font, value: UIFont.systemFont(ofSize: font.pointSize, weight: .bold),
-                range: nsRange)
+            attributed.addAttribute(.font, value: boldFont, range: nsRange)
             searchRange = range.upperBound..<lowerText.endIndex
         }
         return attributed
@@ -172,7 +216,12 @@ final class HeadingCardCell: UICollectionViewCell {
     }
 
     /// Applies (or clears) the karaoke highlight without rebuilding base text.
-    func applyWordHighlight(_ wordIndex: Int?, baseFont: UIFont) {
+    func applyWordHighlight(_ wordIndex: Int?) {
+        textConfiguration?.highlightedWordIndex = wordIndex
+        renderWordHighlight(wordIndex)
+    }
+
+    private func renderWordHighlight(_ wordIndex: Int?) {
         guard let base = baseAttributed?.mutableCopy() as? NSMutableAttributedString else { return }
         if let wordIndex, wordIndex >= 0, wordIndex < wordRanges.count {
             let range = wordRanges[wordIndex]
@@ -182,6 +231,17 @@ final class HeadingCardCell: UICollectionViewCell {
                 value: highlightTint.withAlphaComponent(0.25), range: range)
         }
         label.attributedText = base
-        lastHighlightFont = baseFont
+    }
+
+    private func invalidateCollectionLayoutForTraitChange() {
+        (superview as? UICollectionView)?.collectionViewLayout.invalidateLayout()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        textConfiguration = nil
+        wordRanges = []
+        baseAttributed = nil
+        label.attributedText = nil
     }
 }

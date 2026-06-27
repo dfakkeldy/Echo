@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Echo User Manual — Complete Reference</title>
-    <meta name="description" content="The complete user manual for Echo: Audiobook Study Player — playback, smart rewind, bookmarks, flashcards, decks and Anki import, brain dump notes, insights, EPUB/PDF alignment, library organization, Apple Watch, widgets, CarPlay, Mac, sync, and settings.">
+    <meta name="description" content="The complete user manual for Echo: Audiobook Study Player — playback, smart rewind, bookmarks, flashcards, decks and Anki import, brain dump notes, insights, EPUB/PDF alignment, library organization, Apple Watch, widgets, Mac, sync, and settings.">
     <meta property="og:title" content="Echo User Manual">
-    <meta property="og:description" content="Every Echo feature and how it works, on iPhone, Apple Watch, Mac, and CarPlay.">
+    <meta property="og:description" content="Every Echo feature and how it works, on iPhone, iPad, Apple Watch, Mac, and widgets.">
     <meta property="og:image" content="https://dfakkeldy.github.io/Echo/assets/icon.png">
     <meta property="og:url" content="https://dfakkeldy.github.io/Echo/manual.html">
     <meta property="og:type" content="article">
@@ -40,7 +40,7 @@
             <h1>Echo User Manual</h1>
             <p>
                 The complete reference for <strong>Echo: Audiobook Study Player</strong> on iPhone, iPad, Apple Watch,
-                Mac, CarPlay, and widgets. New to Echo? Read
+                Mac, and widgets. New to Echo? Read
                 <a href="learn.html" style="color: var(--link);">Getting the Most Out of Echo</a> first — it explains
                 <em>why</em> these features help you learn. This manual explains <em>how</em> everything works.
             </p>
@@ -75,13 +75,12 @@
                     <li><a href="#playlist">17 · Playlist &amp; Study Library</a></li>
                     <li><a href="#watch">18 · Apple Watch</a></li>
                     <li><a href="#widgets">19 · Widgets &amp; Control Center</a></li>
-                    <li><a href="#carplay">20 · CarPlay</a></li>
-                    <li><a href="#mac">21 · Echo for Mac</a></li>
-                    <li><a href="#sync">22 · Sync &amp; iCloud</a></li>
-                    <li><a href="#settings">23 · Settings Reference</a></li>
-                    <li><a href="#tools">24 · Transcription Tools</a></li>
-                    <li><a href="#privacy">25 · Privacy</a></li>
-                    <li><a href="#faq">26 · Troubleshooting &amp; FAQ</a></li>
+                    <li><a href="#mac">20 · Echo for Mac</a></li>
+                    <li><a href="#sync">21 · Sync &amp; iCloud</a></li>
+                    <li><a href="#settings">22 · Settings Reference</a></li>
+                    <li><a href="#tools">23 · Transcription Tools</a></li>
+                    <li><a href="#privacy">24 · Privacy</a></li>
+                    <li><a href="#faq">25 · Troubleshooting &amp; FAQ</a></li>
                 </ol>
             </aside>
 
@@ -545,11 +544,7 @@ iCloud Drive/
                     <li><strong>Control Center:</strong> a toggle-playback control.</li>
                 </ul>
 
-                <h2 id="carplay"><span class="sec-num">20</span>CarPlay</h2>
-                <p>Echo appears in CarPlay with a browse list and remote transport commands — play, pause, skip — through the car's interface. (CarPlay is intentionally minimal for now; richer templates and capture buttons are on the roadmap.)</p>
-                <p>No CarPlay in your car (Echo's creator doesn't have it either)? That's what the watch remote and aux cable are for. Echo's whole design assumes the phone stays in your pocket.</p>
-
-                <h2 id="mac"><span class="sec-num">21</span>Echo for Mac</h2>
+                <h2 id="mac"><span class="sec-num">20</span>Echo for Mac</h2>
                 <ul>
                     <li><strong>Three-pane layout:</strong> bookmarks sidebar, player with transport + speed controls, document pane.</li>
                     <li>Plays the same folders (broadest format support, including FLAC/OGG/OPUS).</li>
@@ -561,7 +556,7 @@ iCloud Drive/
                 </ul>
                 <p>Mac 1.0 is the <em>functional core</em> — play, read, review, see your stats. Full reader/alignment parity with iOS continues after 1.0.</p>
 
-                <h2 id="sync"><span class="sec-num">22</span>Sync &amp; iCloud</h2>
+                <h2 id="sync"><span class="sec-num">21</span>Sync &amp; iCloud</h2>
                 <p>Echo has no servers and no accounts — sync rides on <em>your</em> iCloud, end to end.</p>
                 <ul>
                     <li><strong>Today:</strong> your audio files sync wherever you keep them (e.g., iCloud Drive), and alignment anchors sync through iCloud so a book aligned once stays aligned.</li>
@@ -571,7 +566,7 @@ iCloud Drive/
                     <li>Voice memos, brain-dump notes, and planned sessions stay device-local in 1.0 — their sync is on the roadmap.</li>
                 </ul>
 
-                <h2 id="settings"><span class="sec-num">23</span>Settings Reference</h2>
+                <h2 id="settings"><span class="sec-num">22</span>Settings Reference</h2>
                 <table>
                     <thead><tr><th scope="col">Group</th><th scope="col">Settings</th></tr></thead>
                     <tbody>
@@ -591,7 +586,7 @@ iCloud Drive/
                     </tbody>
                 </table>
 
-                <h2 id="tools"><span class="sec-num">24</span>Transcription Tools (Power Users)</h2>
+                <h2 id="tools"><span class="sec-num">23</span>Transcription Tools (Power Users)</h2>
                 <p>The Echo repository ships a companion command-line tool (<code>Tools/transcription_generator.py</code>) for generating full transcripts of your audiobooks on your Mac. EPUB/PDF alignment itself runs entirely inside the app (WhisperKit on-device) and needs none of this — the earlier Swift transcription/alignment CLI has been retired in favour of in-app alignment.</p>
                 <ul>
                     <li><strong>Python CLI</strong> (faster-whisper): transcribe a single file with <code>--audio_path</code>, or a whole folder with <code>--dir</code> (files that already have a <code>.transcript.json</code> are skipped). Tune the run with <code>--model_size</code>, <code>--language</code>, <code>--device</code>, and <code>--force</code>.</li>
@@ -599,7 +594,7 @@ iCloud Drive/
                 </ul>
                 <p>This is optional — the iOS app's built-in alignment needs none of it — but lovely for archival transcripts of your library. Set it up with <code>pip install -r Tools/requirements.txt</code> and <code>brew install ffmpeg</code>.</p>
 
-                <h2 id="privacy"><span class="sec-num">25</span>Privacy</h2>
+                <h2 id="privacy"><span class="sec-num">24</span>Privacy</h2>
                 <p>The shortest section, because there's nothing to disclose:</p>
                 <ul>
                     <li><strong>No accounts. No analytics. No tracking. No ads. No servers.</strong></li>
@@ -609,7 +604,7 @@ iCloud Drive/
                     <li>The app is <strong>open source (GPL-3.0)</strong> — you can read every line: <a href="https://github.com/dfakkeldy/Echo" target="_blank" rel="noopener noreferrer">github.com/dfakkeldy/Echo</a>.</li>
                 </ul>
 
-                <h2 id="faq"><span class="sec-num">26</span>Troubleshooting &amp; FAQ</h2>
+                <h2 id="faq"><span class="sec-num">25</span>Troubleshooting &amp; FAQ</h2>
 
                 <h3>Library &amp; playback</h3>
                 <details class="faq-item">
@@ -719,7 +714,7 @@ iCloud Drive/
                 <details class="faq-item">
                     <summary>What's coming after 1.0?</summary>
                     <div class="faq-body">
-                        <p>The honest shortlist on the roadmap: Chapter Study Mode (chapters as flashcards), on-device AI card drafting, focus soundscapes layered under the narration, gentle hyperfocus/transition reminders, a map view for Context Memory, .apkg export, richer CarPlay, and full Mac reader parity. The <a href="https://github.com/dfakkeldy/Echo/blob/main/ROADMAP.md" target="_blank" rel="noopener noreferrer">ROADMAP</a> is public, like everything else.</p>
+                        <p>The honest shortlist on the roadmap: Chapter Study Mode (chapters as flashcards), on-device AI card drafting, focus soundscapes layered under the narration, gentle hyperfocus/transition reminders, a map view for Context Memory, .apkg export, and full Mac reader parity. The <a href="https://github.com/dfakkeldy/Echo/blob/main/ROADMAP.md" target="_blank" rel="noopener noreferrer">ROADMAP</a> is public, like everything else.</p>
                     </div>
                 </details>
                 <details class="faq-item">

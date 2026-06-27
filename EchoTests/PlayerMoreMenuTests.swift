@@ -58,8 +58,8 @@ struct PlayerMoreMenuTests {
         #expect(
             root.contains("companionDocumentTypes")
                 && root.contains(".pdf")
-                && root.contains("model.importPDF(from: url)")
-                && root.contains("model.importEPUB(from: url)"),
+                && root.contains("model.importPDFDocument(from: url)")
+                && root.contains("model.importEPUBDocument(from: url)"),
             "RootTabView should import selected EPUB or PDF companions into the current book."
         )
     }
@@ -93,7 +93,7 @@ struct PlayerMoreMenuTests {
             return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet"
         } else if fileName == "RootTabView.swift" {
             return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet "
-                + ".fileImporter( companionDocumentTypes .pdf model.importPDF(from: url) model.importEPUB(from: url)"
+                + ".fileImporter( companionDocumentTypes .pdf model.importPDFDocument(from: url) model.importEPUBDocument(from: url)"
         } else if fileName == "Components/UnifiedTopHeader.swift" {
             return "onAddDocumentTap Add Document"
         }

@@ -17,6 +17,10 @@ struct ABSServerRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case defaultLibraryId = "default_library_id"
         case addedAt = "added_at"
     }
+
+    var isPlainHTTP: Bool {
+        URL(string: baseURL)?.scheme?.localizedCaseInsensitiveCompare("http") == .orderedSame
+    }
 }
 
 struct ABSServerDAO {
