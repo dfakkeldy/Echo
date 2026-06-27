@@ -171,6 +171,14 @@ struct LibraryServiceTests {
         let service = LibraryService(db: db)
         let book = try #require(try AudiobookDAO(db: db.writer).get("bk"))
         #expect(try service.studyStatus(for: book) == .notStarted)
+
+        // Zero-position is also .notStarted (guards the `pos > 0` check from
+        // being loosened to a mere nil-check later).
+        try db.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO playback_state (audiobook_id, last_position) VALUES ('bk', 0)")
+        }
+        #expect(try service.studyStatus(for: book) == .notStarted)
     }
 
     @Test func processingStatusReflectsTranscription() throws {
@@ -195,9 +203,8 @@ struct LibraryServiceTests {
         let audiobookID = "bk-align"
         try db.write { db in
             try db.execute(
-                sql:
-                    "INSERT INTO audiobook (id, title, duration) VALUES ('\(audiobookID)', 'T', 100)"
-            )
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, 'T', 100)",
+                arguments: [audiobookID])
         }
         try EPubBlockDAO(db: db.writer).insertAll([
             EPubBlockRecord(
