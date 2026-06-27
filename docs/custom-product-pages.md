@@ -150,7 +150,7 @@ STUDY FEATURES:
 - High-fidelity M4B, MP3, and M4A playback with pitch-preserved speed controls (0.5x to 3.0x).
 - Visual timeline showing bookmarks, notes, and study card locations.
 - PDF and EPUB annotation with text highlighting.
-- Fully offline study database — no accounts or subscriptions.
+- Fully offline study database — no accounts or tracking.
 ```
 
 ### Screenshot Storyboard & Caption Copy

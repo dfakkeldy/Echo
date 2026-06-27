@@ -3,10 +3,13 @@ import Foundation
 
 /// Pure, dependency-free entitlement rules — unit-testable without StoreKit.
 enum ProEntitlement {
-    /// Echo Pro is a one-time, non-consumable unlock — there is no subscription path.
-    /// Pro is granted iff the user owns the lifetime unlock OR the Founders unlock.
-    static func isPro(lifetimeOwned: Bool, foundersOwned: Bool) -> Bool {
-        lifetimeOwned || foundersOwned
+    /// Pro is granted by an active subscription, the lifetime unlock, or the Founders unlock.
+    static func isPro(
+        subscriptionActive: Bool,
+        lifetimeOwned: Bool,
+        foundersOwned: Bool
+    ) -> Bool {
+        subscriptionActive || lifetimeOwned || foundersOwned
     }
 }
 

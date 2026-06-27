@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import StoreKit
 import SwiftUI
 
 struct ProTranscriptsSettingsView: View {
     @Environment(StoreManager.self) private var storeManager
-    @State private var isPurchasingPro = false
     @State private var isRestoringPurchases = false
     @State private var isRetryingProducts = false
+    @State private var showingPaywall = false
 
     var body: some View {
         Form {
@@ -19,18 +18,11 @@ struct ProTranscriptsSettingsView: View {
                     .foregroundStyle(storeManager.hasUnlockedPro ? .green : .secondary)
                 }
 
-                if let product = storeManager.proUnlockProduct, !storeManager.hasUnlockedPro {
-                    Button {
-                        Task { await purchasePro() }
-                    } label: {
-                        if isPurchasingPro {
-                            ProgressView()
-                        } else {
-                            Text(String(localized: "Unlock for \(product.displayPrice)"))
-                        }
+                if !storeManager.hasUnlockedPro {
+                    Button("View Echo Pro Plans") {
+                        showingPaywall = true
                     }
-                    .disabled(isPurchasingPro || isRestoringPurchases)
-                } else if !storeManager.hasUnlockedPro {
+
                     Button {
                         Task { await retryProducts() }
                     } label: {
@@ -40,7 +32,7 @@ struct ProTranscriptsSettingsView: View {
                             Text("Retry Loading Purchase")
                         }
                     }
-                    .disabled(isRetryingProducts || isPurchasingPro || isRestoringPurchases)
+                    .disabled(isRetryingProducts || isRestoringPurchases)
                 }
 
                 Button {
@@ -52,9 +44,9 @@ struct ProTranscriptsSettingsView: View {
                         Text("Restore Purchases")
                     }
                 }
-                .disabled(isPurchasingPro || isRestoringPurchases)
+                .disabled(isRestoringPurchases)
             } footer: {
-                Text("Unlock transcript overlays for audiobooks with transcript sidecars.")
+                Text("Echo Pro unlocks transcript overlays plus unlimited study and narration tools.")
             }
 
             if let lastStoreError = storeManager.lastStoreError {
@@ -66,21 +58,14 @@ struct ProTranscriptsSettingsView: View {
                 }
             }
         }
-        .navigationTitle("Pro Transcripts")
+        .navigationTitle("Echo Pro")
         .task {
-            if storeManager.proUnlockProduct == nil {
+            if storeManager.products.isEmpty {
                 await storeManager.requestProducts()
             }
         }
-    }
-
-    private func purchasePro() async {
-        isPurchasingPro = true
-        defer { isPurchasingPro = false }
-        do {
-            try await storeManager.purchaseProUnlock()
-        } catch {
-            storeManager.recordStoreError(error)
+        .sheet(isPresented: $showingPaywall) {
+            PaywallView(context: .settings)
         }
     }
 

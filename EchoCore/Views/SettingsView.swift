@@ -48,7 +48,7 @@ struct SettingsView: View {
                 }
 
                 Section("Store") {
-                    NavigationLink("Pro Transcripts") {
+                    NavigationLink("Echo Pro") {
                         ProTranscriptsSettingsView()
                     }
                 }

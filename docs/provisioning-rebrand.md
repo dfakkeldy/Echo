@@ -96,17 +96,24 @@ If Xcode reports a signing error about the team, go to **Xcode → Settings → 
 
 ---
 
-## IAP Product (post-release setup)
+## IAP Products (post-release setup)
 
-In **[App Store Connect](https://appstoreconnect.apple.com)** → your app record → **In-App Purchases** → **+**:
+In **[App Store Connect](https://appstoreconnect.apple.com)** → your app record:
 
-| Field | Value |
-|-------|-------|
-| Type | Non-Consumable |
-| Reference Name | `Echo Pro Unlock` |
-| Product ID | `com.echo.pro.unlock` |
+1. Create an auto-renewable subscription group named `Echo Pro`.
+2. Add the subscription products below.
+3. Add the lifetime/founders non-consumables below.
 
-This can wait until you create the App Store Connect app record — it's not needed for development builds.
+| Reference Name | Product ID | Type | Notes |
+|-------|-------|-------|-------|
+| `Echo Pro Monthly` | `com.echo.pro.monthly` | Auto-Renewable Subscription | Monthly Pro access; configure the trial here if we ship one |
+| `Echo Pro Yearly` | `com.echo.pro.yearly` | Auto-Renewable Subscription | Yearly Pro access; likely featured plan |
+| `Echo Pro Lifetime` | `com.echo.pro.unlock` | Non-Consumable | Buy once, unlock Pro forever |
+| `Echo Pro Founders` | `com.echo.pro.founders` | Non-Consumable | Optional launch-window offer; existing buyers keep Pro forever |
+
+Prices remain a product decision. The app renders `Product.displayPrice` from StoreKit and discovers the subscription group ID from the loaded subscription products, so App Store Connect can change prices without a code release.
+
+This can wait until you create the App Store Connect app record — it's not needed for development builds unless you want sandbox purchase testing.
 
 ---
 

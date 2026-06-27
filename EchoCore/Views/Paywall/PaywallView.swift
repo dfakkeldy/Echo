@@ -25,15 +25,22 @@ struct PaywallView: View {
                     benefits
 
                     // Plan options — ALWAYS render product.displayPrice (sale-safe), never hardcode.
-                    // Echo Pro is a one-time unlock — no subscription.
+                    if let yearly = product(ProductIDs.yearly) {
+                        planButton(yearly, badge: badge(for: yearly), priceSuffix: "/ year")
+                    }
+                    if let monthly = product(ProductIDs.monthly) {
+                        planButton(monthly, badge: badge(for: monthly), priceSuffix: "/ month")
+                    }
                     if let lifetime = product(ProductIDs.lifetime) {
-                        planButton(lifetime, oneTime: true, badge: "One-time — no subscription")
+                        planButton(lifetime, badge: "Lifetime", priceSuffix: "once")
                     }
                     if FoundersWindow.isOpen, let founders = product(ProductIDs.founders) {
-                        planButton(founders, oneTime: true, badge: "Founders — limited time")
+                        planButton(founders, badge: "Founders — limited time", priceSuffix: "once")
                     }
 
-                    Text("Pay once, unlock forever. No subscription, no account.")
+                    Text(
+                        "Subscriptions can include App Store trials. Lifetime stays available when you're ready to own Echo forever."
+                    )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -84,7 +91,7 @@ struct PaywallView: View {
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 8) {
             benefitLabel("♾️", "Unlimited flashcards with FSRS spaced repetition")
-            benefitLabel("🗣️", "Unlimited on-device AI narration (coming in 1.0)")
+            benefitLabel("🗣️", "Unlimited on-device AI narration")
             benefitLabel("📊", "Insights — listening & study streaks")
             benefitLabel("📤", "Export any book as a chaptered .m4b audiobook")
             benefitLabel("🔒", "No account, no servers, no tracking")
@@ -100,7 +107,7 @@ struct PaywallView: View {
 
     @ViewBuilder
     private func planButton(
-        _ product: Product, oneTime: Bool = false, badge: String? = nil
+        _ product: Product, badge: String? = nil, priceSuffix: String? = nil
     ) -> some View {
         Button {
             Task {
@@ -117,12 +124,25 @@ struct PaywallView: View {
                     }
                 }
                 Spacer()
-                Text(oneTime ? "\(product.displayPrice) once" : product.displayPrice)
+                Text(priceText(for: product, suffix: priceSuffix))
                     .bold()
             }
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .disabled(purchasing)
+    }
+
+    private func badge(for product: Product) -> String {
+        guard product.subscription?.introductoryOffer?.paymentMode == .freeTrial else {
+            return product.id == ProductIDs.yearly ? "Yearly" : "Monthly"
+        }
+
+        return product.id == ProductIDs.yearly ? "Yearly trial" : "Monthly trial"
+    }
+
+    private func priceText(for product: Product, suffix: String?) -> String {
+        guard let suffix else { return product.displayPrice }
+        return "\(product.displayPrice) \(suffix)"
     }
 }
