@@ -32,14 +32,16 @@ A single shared render-layer upgrade (non-selectable `UILabel`/`Text` → select
 - `PlayerLoadingCoordinator` (`:215`, `:224`) calls `PDFAutoImportScanner.importPDFFile` / `scanAndImportIfNeeded` **on load**, so a PDF book's blocks exist on-device whenever it is opened.
 - Narration of those blocks produces **exact per-block** `synthesized` anchors (`NarrationService.swift:131-173`), then `WordTimingMaterializer` interpolates per-word `[start,end)` rows across each block's known span — identical to narrated EPUB/text. **No DTW.**
 
-### The gap is the display surface, not the data
+### The gap is the *page* surface, not the highlight (corrected 2026-06-26)
 `RootTabView.swift:80-83` branches the Read tab:
 ```
 if model.hasEPUB        → ReaderTab          (card feed; DOES word-by-word highlight)
 else if model.hasPDF    → PDFDocumentView    (visual pages; NO highlight surface)
 else if hasStandaloneTranscript → …
 ```
-A narrated PDF has a `.pdf` file (`hasPDF == true`) but no `.epub` file, so it renders as **pages** and the existing highlight machinery is unreachable. The timing data exists; the UI cannot reach it.
+**Critical correction:** `hasEPUB` is *not* an `.epub`-file check — it is `EPubBlockDAO.visibleBlocks(audiobookID).isEmpty == false` (`PlayerTimelinePersistenceService.hasEPUB`). A PDF opened as an audioless study book is parsed into **visible** `epub_block` rows on load (`PlayerLoadingCoordinator.importDocumentForAudiolessBook` → `PDFAutoImportScanner.importPDFFile` → `DocumentImportFinalizer.finalize`). So a narrated/parsed PDF has `hasEPUB == true` and the branch short-circuits to **`ReaderTab` — the card feed, *with* read-along highlighting** — and **never reaches `PDFDocumentView`**. `ReaderTab` renders purely from `epub_block`/`word_timing` rows and is format-agnostic.
+
+**Consequence:** for a narrated PDF, the highlightable **card feed (reflow) already works today**. The genuinely unreachable surface is the **visual PDF page** (`PDFDocumentView` is only shown for a PDF with *no* blocks — a companion PDF alongside *external* audio, or a scanned/no-text PDF). The data exists *and* the reflow highlight already reaches it; what's missing is (a) the visual page surface for a parsed PDF, and (b) the in-place highlight *on* that page (M3).
 
 ### Per-word interaction is blocked on both surfaces
 - Card feed: `ParagraphCardCell`/`HeadingCardCell` draw an `NSAttributedString` in a **non-selectable `UILabel`** (iOS) / SwiftUI `Text` (macOS). `wordRanges: [NSRange]` exist for karaoke tinting but only in logical index space — no glyph geometry, so a touch cannot resolve to a word.
@@ -54,7 +56,7 @@ A narrated PDF has a `.pdf` file (`hasPDF == true`) but no `.epub` file, so it r
 
 | # | Decision | Choice |
 |---|----------|--------|
-| D1 | Highlight surface | **Hybrid** — visual page (default) + reflow text-feed mode |
+| D1 | Highlight surface | **Hybrid** — visual page (default) + reflow text-feed mode. *Note: today a parsed PDF already defaults to the reflow feed (see §2); making page the default is a deliberate behavior change.* |
 | D2 | Define UX | **Look Up popover + Save-to-study** (FSRS vocabulary flashcard) |
 | D3 | Per-word render scope | **Whole shared card feed** (EPUB/text/PDF-reflow) **+ ship word-tap-to-seek** |
 | D4 | In-place PDF-page highlight | **In v1** (premium hybrid) |
@@ -90,7 +92,7 @@ PDF ─▶ PDFAutoImportScanner (born-digital text + raw page offsets)
 
 | # | Milestone | Reuses | New work |
 |---|-----------|--------|----------|
-| **M1** | PDF **reflow mode** + read-along highlight | Entire card-feed highlight path | Page/reflow toggle; lift `hasEPUB`-only gate so a PDF book renders the feed |
+| **M1** | PDF **page surface reachable** + **page ⇄ reflow toggle** + default (reflow+highlight already works via `hasEPUB`→`ReaderTab`, see §2) | Existing card-feed highlight path (reflow), `PDFDocumentView` (page) | Detect a parsed PDF (`hasPDF && hasReflowableBlocks`); host both surfaces behind a per-book toggle; choose/persist default (D1: page); pure `ReaderSurfaceMode` resolver |
 | **M2** | Shared **render-layer migration** → define + Save + **word-tap-to-seek** (all card-feed books) | Active-word resolver, `word_timing`, `wordRanges` | `UILabel`→selectable TextKit host (iOS) / `NSTextView` host (macOS); edit-menu "Save word"; tap→seek; re-implement highlight on new host |
 | **M3** | **In-place PDF-page** karaoke highlight + define-on-page | Active-word resolver, `word_timing` | V26 `pdf_page_geometry` capture; `PDFView` bbox overlay; page word hit-test |
 | **M4** | **Vocabulary study card** + narrate-PDF affordance | `flashcard` table, study feed, FSRS, `.apkg` export | `cardType="vocabulary"` builder; review surfacing via Look Up; "Narrate PDF" entry point |
@@ -146,12 +148,13 @@ CREATE TABLE pdf_page_geometry (
 
 ## 6. Per-surface design
 
-### 6.1 Card feed — M1 (reflow) + M2 (selectable host)
+### 6.1 Card feed & the page/reflow toggle — M1 + M2 (selectable host)
 
-**M1 — reflow mode**
-1. Lift the `hasEPUB`-only gate in `RootTabView` so a PDF book (blocks present) can render the card feed.
-2. Add a **page ⇄ reflow** toggle to the PDF reader surface (segmented control / toolbar button). Page → `PDFDocumentView`; reflow → card feed.
-3. The existing `ReaderActiveBlockResolver` → cell highlight path works unchanged — narrated PDF word timing is already present. Minimal engine work.
+**M1 — page surface reachable + page ⇄ reflow toggle** (the reflow card feed + highlight already works — see §2; M1 makes the *page* reachable and lets the user choose):
+1. Add `hasReflowableBlocks` to `PlayerModel` (mirrors `hasEPUB`: `EPubBlockDAO.count(for:) > 0`), and a pure `ReaderSurfaceMode` resolver: a parsed PDF (`hasPDF && hasReflowableBlocks`) offers `[.page, .reflow]`; everything else keeps today's single surface.
+2. For a parsed PDF, render the **chosen** surface (page → `PDFDocumentView`; reflow → `ReaderTab`) instead of letting `hasEPUB` silently force the feed. Add a **page ⇄ reflow** toggle (segmented control in `UnifiedTopHeader`, shown only when the resolver returns both modes).
+3. Persist the choice per book (extend `BookSettingsOverrideStore` / `BookPreferencesService`, key `readerPDFViewModeKey`); default = **page** (D1).
+4. The existing `ReaderActiveBlockResolver` → cell highlight path is reused unchanged in reflow mode — no engine work.
 
 **M2 — selectable render host** (shared by EPUB, text, PDF-reflow)
 - **iOS:** `UILabel` → read-only, non-editable, **selectable `UITextView` (TextKit 2)** in `ParagraphCardCell`/`HeadingCardCell`. Gives `characterIndex(for:)` (touch → char → word via `wordRanges`), native long-press selection + **Look Up**, and a custom **"Save word"** edit-menu item (`UIEditMenuInteraction` / `editMenu(for:)`).
