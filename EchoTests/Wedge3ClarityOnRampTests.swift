@@ -62,6 +62,17 @@ struct Wedge3ClarityOnRampTests {
         #expect(root.contains("Button(\"Choose Book\")"))
     }
 
+    @Test func firstRunLandingIsActionFirst() throws {
+        let landing = try Self.viewSource(named: "FirstRunLandingView.swift")
+
+        #expect(landing.contains("Welcome to Echo"))
+        #expect(landing.contains("Start listening in seconds"))
+        #expect(landing.contains("Button(\"Open a Folder\", systemImage: \"folder\""))
+        #expect(landing.contains("Connect a Server"))
+        #expect(landing.contains("it never copies them"))
+        #expect(landing.contains("How do I add books?"))
+    }
+
     private static func viewSource(named fileName: String) throws -> String {
         try Self.source(directoryName: "EchoCore/Views", fileName: fileName)
     }
