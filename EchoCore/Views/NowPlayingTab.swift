@@ -6,6 +6,7 @@ struct NowPlayingTab: View {
     let openFolder: () -> Void
     let showHelp: () -> Void
     let showBookSettings: () -> Void
+    let onConnectServer: () -> Void
     // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     @Environment(PlayerModel.self) private var model
@@ -28,9 +29,10 @@ struct NowPlayingTab: View {
             // 2. MAIN LAYOUT STACK
             Group {
                 if model.folderURL == nil {
-                    NowPlayingEmptyState(
-                        onChooseBook: openFolder,
-                        onOpenHelp: showHelp
+                    FirstRunLandingView(
+                        onOpenFolder: openFolder,
+                        onOpenHelp: showHelp,
+                        onConnectServer: onConnectServer
                     )
                     .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                 } else {

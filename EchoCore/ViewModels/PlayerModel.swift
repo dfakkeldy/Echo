@@ -106,6 +106,9 @@ final class PlayerModel {
     var isPlaylistEditing: Bool = false
     var showingDocumentImporter: Bool = false
     var showingBookmarkPersistenceWarning: Bool = false
+    /// Set when a previously-open book can't be restored because its files were
+    /// moved or deleted. Drives the "Can't Find This Book's Files" recovery alert.
+    var showingMissingBookWarning: Bool = false
     var showingABSBrowse: Bool = false
 
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
@@ -1120,15 +1123,18 @@ final class PlayerModel {
     /// loading it without autoplay. Falls back to sample content in DEBUG simulator
     /// builds when no persisted selection exists.
     func restoreLastSelectionIfPossible() {
-        guard let url = persistence.restoreBookmark() else {
+        switch persistence.restoreBookmarkResult() {
+        case .restored(let url):
+            loadFolder(url, autoplay: false)
+        case .missing:
+            showingMissingBookWarning = true
+        case .none:
             #if DEBUG && targetEnvironment(simulator)
                 if let sampleURL = MockMediaProvider.sampleAudiobookURL() {
                     loadFolder(sampleURL, autoplay: false)
                 }
             #endif
-            return
         }
-        loadFolder(url, autoplay: false)
     }
 
     /// Sets up or tears down the continuous alignment service.

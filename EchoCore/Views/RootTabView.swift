@@ -120,8 +120,6 @@ struct RootTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
 
-    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
-
     @State private var showingFolderPicker = false
     @State private var showingSettings = false
     @State private var showingPlaybackOptions = false
@@ -173,7 +171,8 @@ struct RootTabView: View {
                             showsBookSettings: model.folderURL != nil,
                             openFolder: { showingFolderPicker = true },
                             showHelp: { model.showingHelp = true },
-                            showBookSettings: { showingBookSettings = true }
+                            showBookSettings: { showingBookSettings = true },
+                            onConnectServer: { showingSettings = true }
                         )
                         .toolbarVisibility(.hidden, for: .navigationBar)
                         .navigationDestination(for: NavigationDestination.self) { dest in
@@ -222,11 +221,13 @@ struct RootTabView: View {
                 onHelpTap: { model.showingHelp = true },
                 onStatsTap: { showingStats = true },
                 onFidgetTap: { showingFidget = true },
-                onAddDocumentTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                onAddDocumentTap: (model.folderURL != nil
+                    && !model.narrationPlaybackState.isRunning)
                     ? { model.showingDocumentImporter = true } : nil,
                 onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
                     ? { showingExport = true } : nil,
-                onStudyNotesExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                onStudyNotesExportTap: (model.folderURL != nil
+                    && !model.narrationPlaybackState.isRunning)
                     ? { showingStudyNotesExport = true } : nil
             )
 
@@ -263,9 +264,6 @@ struct RootTabView: View {
                 // through the same loader; an EPUB opens as an audio-less book.
                 model.loadFolder(url)
             }
-        }
-        .sheet(isPresented: firstLaunchOnboardingBinding) {
-            OnboardingView()
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
@@ -355,6 +353,17 @@ struct RootTabView: View {
         } message: {
             Text(
                 "Echo could not save permanent access to this folder. You can keep using it now, but you may need to choose it again after relaunch."
+            )
+        }
+        .alert(
+            "Can’t Find This Book’s Files",
+            isPresented: $model.showingMissingBookWarning
+        ) {
+            Button("OK", role: .cancel) {}
+            Button("Choose Book") { showingFolderPicker = true }
+        } message: {
+            Text(
+                "The files for your last book may have moved or been deleted. Choose the book again to keep listening."
             )
         }
         .fileImporter(
@@ -460,17 +469,6 @@ struct RootTabView: View {
             set: { isPresented in
                 if !isPresented, case .failed = documentImportPhase {
                     documentImportPhase = .idle
-                }
-            }
-        )
-    }
-
-    private var firstLaunchOnboardingBinding: Binding<Bool> {
-        Binding(
-            get: { !hasSeenOnboarding },
-            set: { isPresented in
-                if !isPresented {
-                    hasSeenOnboarding = true
                 }
             }
         )
