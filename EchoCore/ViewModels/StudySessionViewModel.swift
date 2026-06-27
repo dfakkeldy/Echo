@@ -71,8 +71,10 @@ final class StudySessionViewModel {
 
     func requestPlayCurrentAssignment() {
         guard let entry = currentEntry,
-              entry.flashcard.cardType == StudyFlashcardType.listeningAssignment
-                || entry.flashcard.cardType == StudyFlashcardType.imageAssignment else {
+            entry.flashcard.cardType == StudyFlashcardType.listeningAssignment
+                || entry.flashcard.cardType == StudyFlashcardType.imageAssignment
+                || entry.flashcard.cardType == StudyFlashcardType.vocabulary
+        else {
             return
         }
 
@@ -83,7 +85,8 @@ final class StudySessionViewModel {
         guard let entry = currentEntry else { return }
 
         do {
-            try FlashcardDAO(db: db).grade(cardID: entry.flashcard.id, grade: grade.rawValue, now: now)
+            try FlashcardDAO(db: db).grade(
+                cardID: entry.flashcard.id, grade: grade.rawValue, now: now)
             logFlashcardReviewed(card: entry.flashcard, grade: grade.rawValue, now: now)
             ReviewPromptManager.shared.recordActivationEvent(.studyCardReviewed, now: now)
             advance()
@@ -91,7 +94,8 @@ final class StudySessionViewModel {
             NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
         } catch {
             errorMessage = error.localizedDescription
-            logger.error("Failed to grade card \(entry.flashcard.id): \(error.localizedDescription)")
+            logger.error(
+                "Failed to grade card \(entry.flashcard.id): \(error.localizedDescription)")
         }
     }
 
@@ -103,7 +107,8 @@ final class StudySessionViewModel {
     private func logFlashcardReviewed(card: Flashcard, grade: Int, now: Date) {
         let dao = RealTimeEventDAO(db: db)
         do {
-            let metadataJSON = try FlashcardReviewMetadata(card: card, grade: grade).encodedJSONString()
+            let metadataJSON = try FlashcardReviewMetadata(card: card, grade: grade)
+                .encodedJSONString()
             try dao.log(
                 id: UUID().uuidString,
                 eventType: RealTimeEventType.flashcardReviewed.rawValue,

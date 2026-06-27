@@ -2,9 +2,9 @@
 import SwiftUI
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 struct StudyAssignmentCardView: View {
@@ -23,14 +23,42 @@ struct StudyAssignmentCardView: View {
                     .frame(maxHeight: 260)
             }
 
-            Button("Play Assignment", systemImage: "play.circle.fill", action: onPlay)
-                .buttonStyle(.borderedProminent)
+            if isVocabulary {
+                if let context = VocabularyCardContext.sentence(
+                    fromMediaJSON: entry.flashcard.mediaJSON)
+                {
+                    Text(context)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            Button(
+                isVocabulary ? "Play in context" : "Play Assignment",
+                systemImage: "play.circle.fill", action: onPlay
+            )
+            .buttonStyle(.borderedProminent)
 
             if isRevealed {
-                Text(entry.flashcard.backText)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isVocabulary {
+                    #if os(iOS)
+                        if DictionaryLookupPresenter.hasDefinition(for: entry.flashcard.frontText) {
+                            Button(
+                                "Look Up \"\(entry.flashcard.frontText)\"",
+                                systemImage: "book.circle"
+                            ) {
+                                DictionaryLookupPresenter.present(term: entry.flashcard.frontText)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    #endif
+                } else {
+                    Text(entry.flashcard.backText)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 StudyAssignmentGradeButtons(
                     grades: StudyAssignmentGradePolicy.choices(for: entry.flashcard.cardType),
                     onGrade: onGrade)
@@ -42,21 +70,32 @@ struct StudyAssignmentCardView: View {
         .padding(16)
     }
 
+    private var isVocabulary: Bool {
+        entry.flashcard.cardType == StudyFlashcardType.vocabulary
+    }
+
     private var labelTitle: String {
-        entry.flashcard.cardType == StudyFlashcardType.imageAssignment
-            ? "Image Assignment"
-            : "Listening Assignment"
+        switch entry.flashcard.cardType {
+        case StudyFlashcardType.imageAssignment: "Image Assignment"
+        case StudyFlashcardType.vocabulary: "Vocabulary"
+        default: "Listening Assignment"
+        }
     }
 
     private var labelIcon: String {
-        entry.flashcard.cardType == StudyFlashcardType.imageAssignment ? "photo" : "headphones"
+        switch entry.flashcard.cardType {
+        case StudyFlashcardType.imageAssignment: "photo"
+        case StudyFlashcardType.vocabulary: "character.book.closed"
+        default: "headphones"
+        }
     }
 
     private var imagePath: String? {
         guard entry.flashcard.cardType == StudyFlashcardType.imageAssignment else { return nil }
         guard let mediaJSON = entry.flashcard.mediaJSON,
-              let data = mediaJSON.data(using: .utf8),
-              let media = try? JSONDecoder().decode(StudyCardMedia.self, from: data) else {
+            let data = mediaJSON.data(using: .utf8),
+            let media = try? JSONDecoder().decode(StudyCardMedia.self, from: data)
+        else {
             return nil
         }
         return media.imagePath
@@ -105,19 +144,21 @@ private struct StudyLocalImageView: View {
 
     var body: some View {
         #if canImport(UIKit)
-        if let path, let image = UIImage(contentsOfFile: path) {
-            StudyDecoratedImageView(image: Image(uiImage: image), accessibilityLabel: accessibilityLabel)
-        } else {
-            StudyUnavailableImagePlaceholder()
-        }
+            if let path, let image = UIImage(contentsOfFile: path) {
+                StudyDecoratedImageView(
+                    image: Image(uiImage: image), accessibilityLabel: accessibilityLabel)
+            } else {
+                StudyUnavailableImagePlaceholder()
+            }
         #elseif canImport(AppKit)
-        if let path, let image = NSImage(contentsOfFile: path) {
-            StudyDecoratedImageView(image: Image(nsImage: image), accessibilityLabel: accessibilityLabel)
-        } else {
-            StudyUnavailableImagePlaceholder()
-        }
+            if let path, let image = NSImage(contentsOfFile: path) {
+                StudyDecoratedImageView(
+                    image: Image(nsImage: image), accessibilityLabel: accessibilityLabel)
+            } else {
+                StudyUnavailableImagePlaceholder()
+            }
         #else
-        StudyUnavailableImagePlaceholder()
+            StudyUnavailableImagePlaceholder()
         #endif
     }
 }

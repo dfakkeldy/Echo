@@ -24,7 +24,7 @@ struct StudySessionView: View {
             }
             .navigationTitle("Study")
             #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
+                .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -38,7 +38,7 @@ struct StudySessionView: View {
                     set: { if !$0 { viewModel.errorMessage = nil } }
                 )
             ) {
-                Button("OK", role: .cancel) { }
+                Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
@@ -73,7 +73,9 @@ private struct StudySessionCardView: View {
 
     var body: some View {
         if entry.flashcard.cardType == StudyFlashcardType.listeningAssignment
-            || entry.flashcard.cardType == StudyFlashcardType.imageAssignment {
+            || entry.flashcard.cardType == StudyFlashcardType.imageAssignment
+            || entry.flashcard.cardType == StudyFlashcardType.vocabulary
+        {
             StudyAssignmentCardView(
                 entry: entry,
                 isRevealed: viewModel.isRevealed,
@@ -83,21 +85,21 @@ private struct StudySessionCardView: View {
             )
         } else {
             #if os(macOS)
-            StudyInlineReviewCard(
-                frontText: entry.flashcard.frontText,
-                backText: entry.flashcard.backText,
-                onGrade: { viewModel.gradeCurrent($0) }
-            )
+                StudyInlineReviewCard(
+                    frontText: entry.flashcard.frontText,
+                    backText: entry.flashcard.backText,
+                    onGrade: { viewModel.gradeCurrent($0) }
+                )
             #else
-            FlashcardReviewCard(
-                frontText: entry.flashcard.frontText,
-                backText: entry.flashcard.backText,
-                onGrade: { grade in
-                    if let reviewGrade = ReviewGrade(rawValue: grade) {
-                        viewModel.gradeCurrent(reviewGrade)
+                FlashcardReviewCard(
+                    frontText: entry.flashcard.frontText,
+                    backText: entry.flashcard.backText,
+                    onGrade: { grade in
+                        if let reviewGrade = ReviewGrade(rawValue: grade) {
+                            viewModel.gradeCurrent(reviewGrade)
+                        }
                     }
-                }
-            )
+                )
             #endif
         }
     }
@@ -124,14 +126,16 @@ private struct StudyInlineReviewCard: View {
                     .frame(maxWidth: .infinity, minHeight: 140)
                     .padding(20)
                     .background(
-                        isRevealed ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.08),
+                        isRevealed
+                            ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.08),
                         in: .rect(cornerRadius: 12)
                     )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(isRevealed ? "Answer" : "Question"))
             .accessibilityValue(Text(isRevealed ? backText : frontText))
-            .accessibilityHint(Text(isRevealed ? "Press to show question" : "Press to reveal answer"))
+            .accessibilityHint(
+                Text(isRevealed ? "Press to show question" : "Press to reveal answer"))
 
             if isRevealed {
                 StudyInlineReviewGradeButtons(onGrade: onGrade)
