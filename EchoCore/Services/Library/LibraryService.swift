@@ -4,13 +4,34 @@ import Foundation
 import GRDB
 import os.log
 
-/// The grouping axes available in the Library browser. Status-based axes
-/// (e.g. `.unread`, `.inProgress`) are added in Task 10.
+/// The grouping axes available in the Library browser.
 enum LibraryAxis {
     case recentlyAdded
     case author
     case topic
     case folder
+    case studyStatus
+    case processingStatus
+}
+
+/// Study progress for a book, derived from `playback_state.last_position` vs
+/// `audiobook.duration`. No new storage — pure query.
+enum StudyStatus: Equatable {
+    case notStarted
+    case inProgress
+    case finished
+}
+
+/// A book's processing state — which pipeline stages have been applied.
+/// A book may satisfy multiple states simultaneously.
+struct ProcessingStatus: OptionSet {
+    let rawValue: Int
+    /// Real alignment anchors beyond the 2 default seed anchors exist.
+    static let aligned = ProcessingStatus(rawValue: 1 << 0)
+    /// At least one synthesised (narrated) track exists.
+    static let narrated = ProcessingStatus(rawValue: 1 << 1)
+    /// Transcription segments exist.
+    static let transcribed = ProcessingStatus(rawValue: 1 << 2)
 }
 
 /// A titled group of books returned by `LibraryService.sections(by:)`.
@@ -277,6 +298,55 @@ struct LibraryService {
             return groupedByTopic(all)
         case .folder:
             return grouped(all, key: { rootKey(for: $0) }, title: { rootKey(for: $0) })
+        case .studyStatus:
+            return try studyStatusSections(all)
+        case .processingStatus:
+            return try processingStatusSections(all)
+        }
+    }
+
+    // MARK: - Derived status
+
+    /// Study progress, derived from `playback_state.last_position` vs the book's
+    /// duration. No new storage.
+    func studyStatus(for book: AudiobookRecord) throws -> StudyStatus {
+        let lastPosition = try db.writer.read { db in
+            try Double.fetchOne(
+                db,
+                sql: "SELECT last_position FROM playback_state WHERE audiobook_id = ?",
+                arguments: [book.id])
+        }
+        guard let pos = lastPosition, pos > 0 else { return .notStarted }
+        if book.duration > 0, pos >= book.duration * 0.98 { return .finished }
+        return .inProgress
+    }
+
+    /// Processing state: aligned (real anchors beyond the 2 default seed anchors),
+    /// narrated (a synthesised track), transcribed (transcription segments exist).
+    /// A book may be several at once.
+    func processingStatus(for book: AudiobookRecord) throws -> ProcessingStatus {
+        try db.writer.read { db in
+            var status: ProcessingStatus = []
+            let anchorCount =
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM alignment_anchor WHERE audiobook_id = ?",
+                    arguments: [book.id]) ?? 0
+            if anchorCount > 2 { status.insert(.aligned) }
+            let narratedCount =
+                try Int.fetchOne(
+                    db,
+                    sql:
+                        "SELECT COUNT(*) FROM track WHERE audiobook_id = ? AND narration_voice IS NOT NULL",
+                    arguments: [book.id]) ?? 0
+            if narratedCount > 0 { status.insert(.narrated) }
+            let transcribedCount =
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM transcription_segment WHERE audiobook_id = ?",
+                    arguments: [book.id]) ?? 0
+            if transcribedCount > 0 { status.insert(.transcribed) }
+            return status
         }
     }
 
@@ -350,5 +420,48 @@ struct LibraryService {
     /// Returns the parent folder name from the book's `id` URL for grouping by folder.
     private func rootKey(for book: AudiobookRecord) -> String {
         URL(string: book.id)?.deletingLastPathComponent().lastPathComponent ?? "Other"
+    }
+
+    private func studyStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
+        var inProgress: [AudiobookRecord] = []
+        var finished: [AudiobookRecord] = []
+        var notStarted: [AudiobookRecord] = []
+        for book in books {
+            switch try studyStatus(for: book) {
+            case .inProgress: inProgress.append(book)
+            case .finished: finished.append(book)
+            case .notStarted: notStarted.append(book)
+            }
+        }
+        func section(_ title: String, _ items: [AudiobookRecord]) -> LibrarySection? {
+            items.isEmpty
+                ? nil : LibrarySection(title: title, books: items.sorted { $0.title < $1.title })
+        }
+        return [
+            section("In Progress", inProgress), section("Finished", finished),
+            section("Not Started", notStarted),
+        ].compactMap { $0 }
+    }
+
+    private func processingStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
+        var aligned: [AudiobookRecord] = []
+        var narrated: [AudiobookRecord] = []
+        var transcribed: [AudiobookRecord] = []
+        var notProcessed: [AudiobookRecord] = []
+        for book in books {
+            let s = try processingStatus(for: book)
+            if s.contains(.aligned) { aligned.append(book) }
+            if s.contains(.narrated) { narrated.append(book) }
+            if s.contains(.transcribed) { transcribed.append(book) }
+            if s.isEmpty { notProcessed.append(book) }
+        }
+        func section(_ title: String, _ items: [AudiobookRecord]) -> LibrarySection? {
+            items.isEmpty
+                ? nil : LibrarySection(title: title, books: items.sorted { $0.title < $1.title })
+        }
+        return [
+            section("Aligned", aligned), section("Narrated", narrated),
+            section("Transcribed", transcribed), section("Not Processed", notProcessed),
+        ].compactMap { $0 }
     }
 }

@@ -142,6 +142,114 @@ struct LibraryServiceTests {
         #expect(sections.first?.books.count == 2)
     }
 
+    // MARK: - Task 10: derived study + processing status
+
+    @Test func processingStatusReflectsNarrationAndTranscription() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO audiobook (id, title, duration) VALUES ('bk', 'T', 100)
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO track (id, audiobook_id, title, duration, file_path, sort_order, narration_voice)
+                    VALUES ('t1', 'bk', 'c1', 50, '/bk/c1.wav', 0, 'af_heart')
+                    """)
+        }
+        let service = LibraryService(db: db)
+        let book = try #require(try AudiobookDAO(db: db.writer).get("bk"))
+        #expect(try service.processingStatus(for: book).contains(.narrated))
+        #expect(!(try service.processingStatus(for: book).contains(.transcribed)))
+    }
+
+    @Test func studyStatusNotStartedWithNoPlayback() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.writer.write { db in
+            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk','T',100)")
+        }
+        let service = LibraryService(db: db)
+        let book = try #require(try AudiobookDAO(db: db.writer).get("bk"))
+        #expect(try service.studyStatus(for: book) == .notStarted)
+    }
+
+    @Test func processingStatusReflectsTranscription() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk', 'T', 100)")
+            try db.execute(
+                sql: """
+                    INSERT INTO transcription_segment (audiobook_id, start_time, end_time, text)
+                    VALUES ('bk', 0.0, 1.0, 'Hello world')
+                    """)
+        }
+        let service = LibraryService(db: db)
+        let book = try #require(try AudiobookDAO(db: db.writer).get("bk"))
+        #expect(try service.processingStatus(for: book).contains(.transcribed))
+        #expect(!(try service.processingStatus(for: book).contains(.narrated)))
+    }
+
+    @Test func processingStatusAlignedRequiresMoreThanSeedAnchors() throws {
+        let db = try DatabaseService(inMemory: ())
+        let audiobookID = "bk-align"
+        try db.write { db in
+            try db.execute(
+                sql:
+                    "INSERT INTO audiobook (id, title, duration) VALUES ('\(audiobookID)', 'T', 100)"
+            )
+        }
+        try EPubBlockDAO(db: db.writer).insertAll([
+            EPubBlockRecord(
+                id: "eb0", audiobookID: audiobookID, spineHref: "ch1.xhtml",
+                spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+                blockKind: "paragraph", text: "Some text",
+                chapterIndex: 0, isHidden: false)
+        ])
+        let dao = AlignmentAnchorDAO(db: db.writer)
+        let iso = AlignmentService.isoFormatter
+        func makeAnchor(id: String, time: Double) -> AlignmentAnchorRecord {
+            AlignmentAnchorRecord(
+                id: id, audiobookID: audiobookID, epubBlockID: "eb0",
+                audioTime: time, audioEndTime: nil,
+                anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                source: AlignmentAnchorRecord.Source.imported.rawValue, note: nil,
+                createdAt: iso.string(from: Date()), modifiedAt: nil)
+        }
+        try dao.insert(makeAnchor(id: "anc-1", time: 0))
+        try dao.insert(makeAnchor(id: "anc-2", time: 10))
+
+        let service = LibraryService(db: db)
+        let book = try #require(try AudiobookDAO(db: db.writer).get(audiobookID))
+
+        // Two anchors = seed only; .aligned should NOT be present
+        #expect(!(try service.processingStatus(for: book).contains(.aligned)))
+
+        // Insert a third anchor — now aligned
+        try dao.insert(makeAnchor(id: "anc-3", time: 20))
+        #expect(try service.processingStatus(for: book).contains(.aligned))
+    }
+
+    @Test func studyStatusInProgressAndFinished() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('bk', 'T', 100)")
+            try db.execute(
+                sql: "INSERT INTO playback_state (audiobook_id, last_position) VALUES ('bk', 50)")
+        }
+        let service = LibraryService(db: db)
+        let book = try #require(try AudiobookDAO(db: db.writer).get("bk"))
+
+        #expect(try service.studyStatus(for: book) == .inProgress)
+
+        try db.writer.write { db in
+            try db.execute(
+                sql: "UPDATE playback_state SET last_position = 99 WHERE audiobook_id = 'bk'")
+        }
+        #expect(try service.studyStatus(for: book) == .finished)
+    }
+
     @Test func urlForOpeningResolvesViaRoot() throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
