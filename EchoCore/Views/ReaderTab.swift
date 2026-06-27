@@ -165,6 +165,9 @@ struct ReaderTab: View {
                     onTapBlock: { (blockID: String) -> Void in
                         tapBlock(blockID)
                     },
+                    onTapWord: { (blockID: String, wordIndex: Int?) -> Void in
+                        tapWord(blockID, wordIndex)
+                    },
                     onContextMenu: {
                         (block: EPubBlockRecord, wordHit: ReaderFeedCollectionView.ReaderWordHit?)
                             -> UIContextMenuConfiguration? in
@@ -859,6 +862,27 @@ struct ReaderTab: View {
     private func tapBlock(_ blockID: String) {
         guard let vm = viewModel else { return }
         let time = vm.audioStartTime(for: blockID, audiobookID: folderURL.absoluteString)
+        switch CardTapDecision.make(time: time) {
+        case .seekAndPlay(let seconds):
+            model.seek(toSeconds: seconds)
+            if !model.isPlaying { model.play() }
+        case .noTime:
+            Haptic.play(.light)  // un-narrated / un-aligned block — acknowledge the tap
+        }
+        viewModel?.activeBlockID = blockID  // highlight + scroll the tapped card either way
+        model.readerCaptureAnchorBlockID = blockID
+    }
+
+    /// Word-refined version of `tapBlock`: seeks to the tapped word when timing is
+    /// available, otherwise falls back to the block's audio start time. Always fires
+    /// exactly once per tap — the collection view's `didSelectItemAt` is the single
+    /// call site and it calls either `tapWord` (when `onTapWord` is set) or
+    /// `tapBlock`, never both.
+    private func tapWord(_ blockID: String, _ wordIndex: Int?) {
+        guard let vm = viewModel else { return }
+        let audiobookID = folderURL.absoluteString
+        let wordTime = wordIndex.flatMap { vm.wordTiming(blockID: blockID, wordIndex: $0)?.start }
+        let time = wordTime ?? vm.audioStartTime(for: blockID, audiobookID: audiobookID)
         switch CardTapDecision.make(time: time) {
         case .seekAndPlay(let seconds):
             model.seek(toSeconds: seconds)

@@ -43,6 +43,12 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     var forceScrollBlockID: String? = nil
     var forceScrollTrigger: Int = 0
     var onTapBlock: ((String) -> Void)?
+    /// Called when the user taps a block cell, carrying the tapped word index when a
+    /// word was hit, or `nil` for a tap that didn't land on identifiable text. The
+    /// receiver should seek to the word when an index is supplied, or fall back to
+    /// block-start otherwise. This callback replaces `onTapBlock` for `.block` items;
+    /// `onTapBlock` is kept for non-block items' continuity.
+    var onTapWord: ((String, Int?) -> Void)?
     var onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?
     var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
     var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
@@ -59,6 +65,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onTapBlock: onTapBlock,
+            onTapWord: onTapWord,
             onContextMenu: onContextMenu,
             onAccessibilityActions: onAccessibilityActions,
             isHeaderVisible: $isHeaderVisible,
@@ -111,11 +118,27 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             forCellWithReuseIdentifier: VoiceMemoFeedCell.reuseIdentifier)
 
         context.coordinator.dataSource = makeDataSource(for: collectionView)
+
+        // Word-location recorder: a tap recogniser whose sole job is to capture the
+        // tap point before `didSelectItemAt` fires. It does NOT seek itself — that
+        // would double-fire alongside collection-view selection. `cancelsTouchesInView
+        // = false` ensures touches still reach the collection view so cell selection
+        // proceeds normally. Simultaneous recognition is enabled so it never blocks
+        // pan/scroll gestures.
+        let wordTapGR = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.recordTapPoint(_:))
+        )
+        wordTapGR.cancelsTouchesInView = false
+        wordTapGR.delegate = context.coordinator
+        collectionView.addGestureRecognizer(wordTapGR)
+
         return collectionView
     }
 
     func updateUIView(_ collectionView: UICollectionView, context: Context) {
         context.coordinator.onTapBlock = onTapBlock
+        context.coordinator.onTapWord = onTapWord
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.onAccessibilityActions = onAccessibilityActions
         context.coordinator.onChapterHeaderContextMenu = onChapterHeaderContextMenu
@@ -269,8 +292,12 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    class Coordinator: NSObject, UICollectionViewDelegate {
+    class Coordinator: NSObject, UICollectionViewDelegate, UIGestureRecognizerDelegate {
         var onTapBlock: ((String) -> Void)?
+        /// Word-refined seek callback. When `onTapWord` is set it is called from
+        /// `didSelectItemAt` for `.block` items instead of `onTapBlock`, carrying the
+        /// resolved word index (nil → block-start fallback).
+        var onTapWord: ((String, Int?) -> Void)?
         var onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?
         var onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?
         var onChapterHeaderContextMenu: ((Int) -> UIContextMenuConfiguration?)?
@@ -308,9 +335,14 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         var lastScrolledBlockID: String?
         var lastForceScrolledID: String?
         var lastForceScrollTrigger: Int = 0
+        /// The most recent tap location in the collection view's coordinate space,
+        /// recorded by `recordTapPoint(_:)` before `didSelectItemAt` fires. Used to
+        /// resolve which word inside a block cell was tapped.
+        var lastTapPoint: CGPoint? = nil
 
         init(
             onTapBlock: ((String) -> Void)?,
+            onTapWord: ((String, Int?) -> Void)?,
             onContextMenu: ((EPubBlockRecord, ReaderWordHit?) -> UIContextMenuConfiguration?)?,
             onAccessibilityActions: ((EPubBlockRecord) -> [UIAccessibilityCustomAction])?,
             isHeaderVisible: Binding<Bool>, autoScrollEnabled: Binding<Bool>,
@@ -318,6 +350,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             topSectionTitle: Binding<String?>, topChapterThemeColor: Binding<String?>
         ) {
             self.onTapBlock = onTapBlock
+            self.onTapWord = onTapWord
             self.onContextMenu = onContextMenu
             self.onAccessibilityActions = onAccessibilityActions
             self.isHeaderVisible = isHeaderVisible
@@ -787,6 +820,28 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             }
         }
 
+        /// Records the tap location in the collection view's coordinate space.
+        /// This recogniser fires before `didSelectItemAt` so the word can be resolved
+        /// in the delegate callback without a second seek. The recogniser never cancels
+        /// touches (`cancelsTouchesInView = false`) and runs simultaneously with all
+        /// other recognisers, so it doesn't interfere with scrolling or selection.
+        @objc func recordTapPoint(_ gr: UITapGestureRecognizer) {
+            guard let collectionView = gr.view as? UICollectionView else { return }
+            lastTapPoint = gr.location(in: collectionView)
+        }
+
+        // MARK: UIGestureRecognizerDelegate
+
+        /// Allow the word-tap recorder to run at the same time as the collection
+        /// view's own built-in gesture recognisers (pan, long press, etc.) so it
+        /// never blocks scrolling or the context menu long-press.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
         func collectionView(
             _ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath
         ) {
@@ -797,8 +852,28 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             case .chapterHeader(_, let chapterIndex):
                 onToggleChapter?(chapterIndex)
             case .block(let block):
-                onTapBlock?(block.id)
+                // If a word-refined seek handler is registered, resolve the word at the
+                // tap location and pass it. The handler falls back to block-start when
+                // wordIdx is nil. This is the single seek point — onTapBlock is not
+                // called here when onTapWord is set, preventing a double-seek.
+                if let onTapWord {
+                    var wordIdx: Int? = nil
+                    if let pt = lastTapPoint,
+                        let cell = collectionView.cellForItem(at: indexPath)
+                    {
+                        let pointInCell = collectionView.convert(pt, to: cell)
+                        wordIdx =
+                            (cell as? ParagraphCardCell)?.wordIndex(at: pointInCell)
+                            ?? (cell as? HeadingCardCell)?.wordIndex(at: pointInCell)
+                    }
+                    lastTapPoint = nil
+                    onTapWord(block.id, wordIdx)
+                } else {
+                    lastTapPoint = nil
+                    onTapBlock?(block.id)
+                }
             case .bookmark, .ankiCard, .note, .voiceMemo:
+                lastTapPoint = nil
                 break  // Tasks 7/8 will wire tap handlers for inline items.
             }
         }
