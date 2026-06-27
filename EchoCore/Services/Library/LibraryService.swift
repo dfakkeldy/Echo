@@ -125,6 +125,7 @@ struct LibraryService {
         var result = RescanResult(added: 0, updated: 0, hidden: 0)
         let timestamp = now()
 
+        // FIXME(M3): @MainActor + blocking GRDB per book — move rescan off-main in a bounded Task before wiring the Rescan button.
         for book in found {
             let id = book.folderURL.absoluteString
             if let existing = try dao.get(id) {
@@ -196,6 +197,7 @@ struct LibraryService {
         var result = RescanResult(added: 0, updated: 0, hidden: 0)
         let timestamp = now()
 
+        // FIXME(M3): @MainActor + blocking GRDB per book — move rescan off-main in a bounded Task before wiring the Rescan button.
         for book in found {
             let id = book.folderURL.absoluteString
             let meta = await readMetadata(book)
@@ -210,11 +212,16 @@ struct LibraryService {
                     duration: meta.duration, fileCount: book.audioFiles.count,
                     addedAt: timestamp)
             }
+            // Coalesce: don't overwrite existing metadata with nil/zero from the scanner.
+            // LibraryScanner.readMetadata never returns narrator, may return nil author
+            // (no artist tag), and may return duration 0 (AVAsset load failure). A full
+            // upsert via AudiobookDAO.save would otherwise silently wipe ABS-imported
+            // narrator/author/duration on every local rescan.
             record.title = meta.title
-            record.author = meta.author
-            record.narrator = meta.narrator
-            record.duration = meta.duration
-            record.authorSort = LibraryAccess.authorSort(meta.author)
+            record.author = meta.author ?? record.author
+            record.narrator = meta.narrator ?? record.narrator
+            record.duration = meta.duration > 0 ? meta.duration : record.duration
+            record.authorSort = LibraryAccess.authorSort(meta.author ?? record.author)
             record.coverArtPath = coverPath ?? record.coverArtPath
             record.fileCount = book.audioFiles.count
             record.isAvailable = true
@@ -423,6 +430,7 @@ struct LibraryService {
     }
 
     private func studyStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
+        // FIXME(M3): N+1 per-book status query on @MainActor — replace with a single aggregate (GROUP BY) query and run off-main before wiring the status grids.
         var inProgress: [AudiobookRecord] = []
         var finished: [AudiobookRecord] = []
         var notStarted: [AudiobookRecord] = []
@@ -444,6 +452,7 @@ struct LibraryService {
     }
 
     private func processingStatusSections(_ books: [AudiobookRecord]) throws -> [LibrarySection] {
+        // FIXME(M3): N+1 per-book status query on @MainActor — replace with a single aggregate (GROUP BY) query and run off-main before wiring the status grids.
         var aligned: [AudiobookRecord] = []
         var narrated: [AudiobookRecord] = []
         var transcribed: [AudiobookRecord] = []

@@ -94,6 +94,53 @@ struct LibraryServiceTests {
         #expect(book?.coverArtPath != nil)
     }
 
+    @Test func rescanPreservesExistingMetadataWhenScannedIsNil() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+        // Real temp dir so the bookmark resolves and the stale-bookmark guard passes.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-coalesce-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+
+        // Pre-save a record with ABS-imported narrator/author/duration that the
+        // scanner will NOT return (it returns nil narrator, nil author, 0 duration).
+        let bookID = "file:///Lib/Dune/"
+        let dao = AudiobookDAO(db: db.writer)
+        var existing = AudiobookRecord(
+            id: bookID, title: "Dune (pre)", author: "Frank Herbert", duration: 4242,
+            fileCount: 1, addedAt: fixedNow(), isAvailable: true, sourceRootID: root.id)
+        existing.narrator = "Scott Brick"
+        try dao.save(existing)
+
+        let dune = DiscoveredBook(
+            folderURL: URL(fileURLWithPath: "/Lib/Dune", isDirectory: true),
+            audioFiles: [URL(fileURLWithPath: "/Lib/Dune/d.m4b")], companionEPUB: nil)
+        let covers = FileManager.default.temporaryDirectory
+            .appendingPathComponent("covers-coalesce-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: covers) }
+
+        _ = try await service.rescan(
+            root: root,
+            discover: { _ in [dune] },
+            readMetadata: { _ in
+                LibraryScanner.ScannedMetadata(
+                    title: "Dune", author: nil, narrator: nil,
+                    duration: 0, coverImageData: nil)
+            },
+            coversDir: covers,
+            now: fixedNow)
+
+        let book = try dao.get(bookID)
+        // Title IS updated by rescan (scanner always returns a non-empty title).
+        #expect(book?.title == "Dune")
+        // narrator/author/duration must be PRESERVED (not wiped to nil/0).
+        #expect(book?.narrator == "Scott Brick")
+        #expect(book?.author == "Frank Herbert")
+        #expect(book?.duration == 4242)
+    }
+
     @Test func registerRootPersistsBookmarkAndRow() throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
