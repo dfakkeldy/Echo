@@ -106,7 +106,7 @@ Recommended order: **M1 → M2 → M3 → M4** (M1 ships value almost immediatel
 ### M1, M2 — no schema change
 Reflow rendering and the selectable-host migration reuse `epub_block`, `alignment_anchor`, and `word_timing` exactly as narrated EPUB/text already do.
 
-### M3 — new `pdf_block_page` table (V26) — REVISED 2026-06-27
+### M3 — new `pdf_block_page` table (shipped as **V27**; V26 was already taken by `v26_timeline_segment_key`) — REVISED 2026-06-27
 
 **Why the original `pdf_page_geometry` (char-offset) design was dropped:** the PDF→text pipeline (`PDFAutoImportScanner.extractText` → `parsePDFText` → `TextDocumentParser.buildParse`) **concatenates pages** (`ExtractedText.body` joins with `"\n\n"`) and **reflows/normalizes lines into paragraphs before blocks are created**, so per-block raw char offsets are destroyed in a *shared* parser (also used by EPUB/text). Worse, the normalized block text does not index 1:1 into `page.string`, which `PDFPage.characterBounds(at:)` requires — so stored char offsets wouldn't reconcile even if captured. The robust mechanism is the inverse of D5's original choice.
 
