@@ -28,6 +28,7 @@ import Testing
             blockID: nil, audioStart: 0, audioEnd: nil, createdAt: "t")
         #expect(card.endTimestamp == nil)
         #expect(card.sourceBlockID == nil)
+        #expect(card.mediaJSON == nil)
     }
 }
 

@@ -80,7 +80,7 @@ nonisolated struct FlashcardDAO {
         try db.read { db in
             try Flashcard
                 .filter(Column("audiobook_id") == audiobookID)
-                .filter(Column("card_type") == "vocabulary")
+                .filter(Column("card_type") == StudyFlashcardType.vocabulary)
                 .filter(sql: "LOWER(front_text) = ?", arguments: [word.lowercased()])
                 .fetchOne(db)
         }
