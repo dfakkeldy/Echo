@@ -60,7 +60,7 @@ else if hasStandaloneTranscript → …
 | D2 | Define UX | **Look Up popover + Save-to-study** (FSRS vocabulary flashcard) |
 | D3 | Per-word render scope | **Whole shared card feed** (EPUB/text/PDF-reflow) **+ ship word-tap-to-seek** |
 | D4 | In-place PDF-page highlight | **In v1** (premium hybrid) |
-| D5 | Page word→geometry mapping | **Capture provenance at import** into a new **V26 `pdf_page_geometry`** table |
+| D5 | Page word→geometry mapping | ~~Capture char-offset provenance at import (`pdf_page_geometry`)~~ **REVISED 2026-06-27 (§5): infeasible — shared-parser normalization destroys offsets. Now: capture per-block PAGE INDEX (`pdf_block_page` V26) + locate the word at render via PDFKit text search.** |
 | D6 | Vocabulary cards vs Pro cap | **Count against the flashcard cap** (they are real study cards) |
 | D7 | Duplicate "Save word" | **Dedupe per `(audiobookID, lowercased word)`**, re-surface existing card |
 
@@ -79,7 +79,7 @@ Everything is driven by the existing `ReaderActiveBlockResolver` (audio time →
 ```
 PDF ─▶ PDFAutoImportScanner (born-digital text + raw page offsets)
         ├─▶ epub_block rows
-        └─▶ pdf_page_geometry rows           ← NEW (V26, M3)
+        └─▶ pdf_block_page rows (page index) ← NEW (V26, M3; was pdf_page_geometry)
    ─▶ NarrationService ─▶ synthesized anchors ─▶ WordTimingMaterializer ─▶ word_timing
    ─▶ ReaderActiveBlockResolver (audio time → active block → active word)
         ├─▶ card-feed cell highlight          (M1 reflow; M2 selectable host)
@@ -94,7 +94,7 @@ PDF ─▶ PDFAutoImportScanner (born-digital text + raw page offsets)
 |---|-----------|--------|----------|
 | **M1** | PDF **page surface reachable** + **page ⇄ reflow toggle** + default (reflow+highlight already works via `hasEPUB`→`ReaderTab`, see §2) | Existing card-feed highlight path (reflow), `PDFDocumentView` (page) | Detect a parsed PDF (`hasPDF && hasReflowableBlocks`); host both surfaces behind a per-book toggle; choose/persist default (D1: page); pure `ReaderSurfaceMode` resolver |
 | **M2** | Per-word interaction on the card feed → define + Save + **word-tap-to-seek** (iOS) | Existing block tap-to-seek + `contextMenuConfigurationForItemsAt:point:` menu; `word_timing`/`wordCache`; `wordRanges` | `UILabel`→**non-selectable** read-only `UITextView` (TextKit, for hit-testing only); `wordIndex(at:)`; **augment** the existing context menu with word "Look Up"+"Save"; refine tap block→word. *(Revised 2026-06-27 — see §6.1.)* |
-| **M3** | **In-place PDF-page** karaoke highlight + define-on-page | Active-word resolver, `word_timing` | V26 `pdf_page_geometry` capture; `PDFView` bbox overlay; page word hit-test |
+| **M3** | **PDF-page** auto-follow + best-effort word karaoke + define-on-page | Active-word resolver, `word_timing`, M2 builders | V26 `pdf_block_page` (page-index) capture; `PDFView` page auto-follow; search-based word highlight (on-device-tuned); long-press define-on-page *(REVISED — see §5/§6.2)* |
 | **M4** | **Vocabulary study card** + narrate-PDF affordance | `flashcard` table, study feed, FSRS, `.apkg` export | `cardType="vocabulary"` builder; review surfacing via Look Up; "Narrate PDF" entry point |
 
 Recommended order: **M1 → M2 → M3 → M4** (M1 ships value almost immediately; M3 is the hardest and depends on no other milestone but is sequenced last among the highlight work).
@@ -106,24 +106,27 @@ Recommended order: **M1 → M2 → M3 → M4** (M1 ships value almost immediatel
 ### M1, M2 — no schema change
 Reflow rendering and the selectable-host migration reuse `epub_block`, `alignment_anchor`, and `word_timing` exactly as narrated EPUB/text already do.
 
-### M3 — new `pdf_page_geometry` table (V26)
-Bridges our text-storage space to PDFKit's page-coordinate space. Captured at import while the **raw** page string is still in hand (before `TextDocumentParser` normalization), so it survives multi-column/hyphenation differences between `page.string` and our normalized block text.
+### M3 — new `pdf_block_page` table (V26) — REVISED 2026-06-27
+
+**Why the original `pdf_page_geometry` (char-offset) design was dropped:** the PDF→text pipeline (`PDFAutoImportScanner.extractText` → `parsePDFText` → `TextDocumentParser.buildParse`) **concatenates pages** (`ExtractedText.body` joins with `"\n\n"`) and **reflows/normalizes lines into paragraphs before blocks are created**, so per-block raw char offsets are destroyed in a *shared* parser (also used by EPUB/text). Worse, the normalized block text does not index 1:1 into `page.string`, which `PDFPage.characterBounds(at:)` requires — so stored char offsets wouldn't reconcile even if captured. The robust mechanism is the inverse of D5's original choice.
+
+**Revised:** capture only the **page index** per block (cleanly recoverable from the still-separated `ExtractedText.pages` before concatenation), and locate the active word on the page at render via **PDFKit text search** (`PDFDocument/PDFPage.findString` / `page.selection(for:)`), which is inherently tolerant of the whitespace/normalization differences.
 
 ```
-CREATE TABLE pdf_page_geometry (
-    id            INTEGER PRIMARY KEY,
+CREATE TABLE pdf_block_page (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
     audiobook_id  TEXT NOT NULL,
     epub_block_id TEXT NOT NULL,
-    page_index    INTEGER NOT NULL,   -- PDFDocument page index for this block
-    char_start    INTEGER NOT NULL,   -- offset of block start in that page's RAW string
-    char_len      INTEGER NOT NULL    -- length of the block's slice in the raw string
+    page_index    INTEGER NOT NULL   -- 0-based PDFDocument page this block came from
 );
 -- index on (audiobook_id, epub_block_id); index on (audiobook_id, page_index)
 ```
-- Words are **derived at render** by the same deterministic whitespace split `WordTimingMaterializer` uses — no per-word rows needed.
-- **Render mapping:** active word → char range within block → `+ char_start` → page char range → union `PDFPage.characterBounds(at:)` → page rect(s).
-- **Migration caveat:** already-imported PDFs must be **re-imported** to populate geometry; until then page mode shows no overlay (reflow-mode highlight still works). Note in release notes.
+- **Capture point:** hook `parsePDFText` at the `ExtractedText.pages` level (pages still separated), tagging each emitted block with its source page index, persisted after `DocumentImportFinalizer`.
+- **Render mapping (page-level, robust):** active block → `pdf_block_page.page_index` → `PDFView.go(to: page)` auto-follow.
+- **Render mapping (word-level, best-effort):** active word's text + a small context window → `PDFPage.findString`/`selection` on that page → selection bounds → `pdfView.convert(_:from: page)` → karaoke rect. Best-effort and on-device-tuned; falls back to page-level follow when the search is ambiguous or misses.
+- **Migration caveat:** already-imported PDFs must be **re-imported** to populate `pdf_block_page`; until then page mode auto-follows by best-effort search only (reflow-mode highlight still works). Note in release notes.
 - Run `schema-migration-reviewer` before committing — current max is **V25**; parallel branches could also claim V26 (collision risk).
+- **Verifiability:** the V26 schema + page-index capture are build+unit-testable; the overlay/auto-follow/search-highlight are runtime-only and require on-device verification.
 
 ### M4 — vocabulary card: no migration
 `Flashcard` (`Shared/Database/Flashcard.swift`) already carries every needed field:
@@ -167,17 +170,14 @@ The original plan (selectable `UITextView` + native selection "Look Up") was **d
 - **macOS:** unchanged. The Mac reader (`MacReaderFeedView`) is pure SwiftUI `Text`/`AttributedString` — a separate render path; M2 is **iOS-only** (parity is a follow-up).
 - **Look Up note:** `UIReferenceLibraryViewController` is the same on-device dictionary the selection "Look Up" presents; only the *trigger* differs (a menu action instead of the selection callout). D2's intent (on-device dictionary popover) is preserved.
 
-### 6.2 PDF page — M3 (in-place highlight + define-on-page)
+### 6.2 PDF page — M3 (in-place highlight + define-on-page) — REVISED 2026-06-27
 
-- **Import-time capture:** extend `PDFAutoImportScanner`'s per-page `.string` pass to emit `pdf_page_geometry` rows (§5).
-- **Overlay:** `PDFDocumentView` gains an overlay driven by `ReaderActiveBlockResolver`:
-  1. active word → char range in block → `+ char_start` → page char range,
-  2. union `PDFPage.characterBounds(at:)` → page-space rect(s) (multi-line-fragment aware),
-  3. convert page-space → view-space via `pdfView.convert(_:from: page)` → paint karaoke rect,
-  4. **auto-follow:** when active block's `page_index` changes, navigate `PDFView` to that page, keep active word visible.
-  - Cache geometry per active word (not per frame) to bound `characterBounds` cost.
-- **Define / Save / seek on the page:** `PDFView` is natively selectable → long-press yields selection + Look Up free. Add word hit-test `page.characterIndex(at: point)` → reverse-map through `pdf_page_geometry` → block + word; reuse the **M2 "Save word" and seek builders** so both surfaces behave identically.
-- **Scanned/image PDFs:** no `characterBounds` → overlay simply does not paint (and they have no narration). Graceful degradation, consistent with the OCR non-goal.
+- **Import-time capture:** hook `PDFAutoImportScanner.parsePDFText` at the `ExtractedText.pages` level (pages still separated, before concatenation) to tag each emitted block with its source page index, persisted into `pdf_block_page` (§5) after `DocumentImportFinalizer`. *(Build + unit-testable.)*
+- **Overlay (`PDFDocumentView`) driven by `ReaderActiveBlockResolver`:** the view builds its own observer of `model.currentPlaybackTime` (mirroring `ReaderTab`'s `.onChange`), loads `WordTimingDAO.words(forAudiobook:)` + the timeline cache once, and resolves the active (blockID, wordIndex):
+  1. **Page auto-follow (robust):** active block → `pdf_block_page.page_index` → `PDFView.go(to: page)` so the page tracks narration.
+  2. **Word karaoke (best-effort):** active word's text + a short context window → `PDFPage.findString`/`selection(for:)` on that page → selection `bounds(for: page)` → `pdfView.convert(_:from: page)` → paint the karaoke rect. Throttled; cached per active word. Falls back to page-level follow when the search is ambiguous/misses. *(Runtime-only — on-device verification + tuning required.)*
+- **Define / Save on the page:** reuse the existing `PDFKitView` long-press (`handleLongPress`). Read the word *directly from the PDF* at the press point via `page.selection(for:)` / `page.character(at:)` → present **Look Up** (`UIReferenceLibraryViewController`, M2's `DictionaryLookupPresenter`) and **Save** (M2's `VocabularyCardBuilder` + cap + dedupe; audio time from the resolved active block when the exact word time is unavailable).
+- **Scanned/image PDFs:** `page.string` is empty → no blocks, no narration, no overlay. Graceful no-op, consistent with the OCR non-goal.
 
 ### 6.3 Define + Save-to-study UX — M4
 
