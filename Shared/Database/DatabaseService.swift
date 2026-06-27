@@ -96,6 +96,9 @@ final class DatabaseService {
         migrator.registerMigration("v26_timeline_segment_key") { db in
             try Schema_V26.migrate(db)
         }
+        migrator.registerMigration("v27_library") { db in
+            try Schema_V27.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }
