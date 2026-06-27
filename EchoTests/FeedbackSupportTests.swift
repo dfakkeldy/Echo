@@ -9,6 +9,7 @@ struct FeedbackSupportTests {
         #expect(FeedbackSupport.supportEmail == "echo@kinnokilabs.com")
         #expect(FeedbackSupport.githubIssuesURL.absoluteString == "https://github.com/dfakkeldy/Echo/issues")
         #expect(FeedbackSupport.manualURL.absoluteString == "https://dfakkeldy.github.io/Echo/manual.html")
+        #expect(FeedbackSupport.privacyPolicyURL.absoluteString == "https://dfakkeldy.github.io/Echo/privacy.html")
     }
 
     @Test func emailURLPrefillsRecipientSubjectAndBuildContextWithoutPrivateData() throws {

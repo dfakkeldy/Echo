@@ -306,6 +306,10 @@ private struct BuildMetadataSection: View {
 
     var body: some View {
         Section {
+            Link(destination: FeedbackSupport.privacyPolicyURL) {
+                Label("Privacy Policy", systemImage: "hand.raised")
+            }
+
             LabeledContent("Version", value: buildMetadata.versionString)
             LabeledContent {
                 HStack {
@@ -322,7 +326,7 @@ private struct BuildMetadataSection: View {
                 Text("Commit")
             }
         } header: {
-            Text("Build")
+            Text("About")
         } footer: {
             Text(
                 "Use these details when comparing installs or reporting a bug. The commit hash is stamped into the app at build time."
