@@ -222,11 +222,13 @@ struct RootTabView: View {
                 onHelpTap: { model.showingHelp = true },
                 onStatsTap: { showingStats = true },
                 onFidgetTap: { showingFidget = true },
-                onAddDocumentTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                onAddDocumentTap: (model.folderURL != nil
+                    && !model.narrationPlaybackState.isRunning)
                     ? { model.showingDocumentImporter = true } : nil,
                 onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
                     ? { showingExport = true } : nil,
-                onStudyNotesExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
+                onStudyNotesExportTap: (model.folderURL != nil
+                    && !model.narrationPlaybackState.isRunning)
                     ? { showingStudyNotesExport = true } : nil
             )
 
@@ -355,6 +357,17 @@ struct RootTabView: View {
         } message: {
             Text(
                 "Echo could not save permanent access to this folder. You can keep using it now, but you may need to choose it again after relaunch."
+            )
+        }
+        .alert(
+            "Can't Find This Book's Files",
+            isPresented: $model.showingMissingBookWarning
+        ) {
+            Button("OK", role: .cancel) {}
+            Button("Choose Book") { showingFolderPicker = true }
+        } message: {
+            Text(
+                "The files for your last book may have moved or been deleted. Choose the book again to keep listening."
             )
         }
         .fileImporter(
