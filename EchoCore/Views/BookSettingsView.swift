@@ -101,19 +101,34 @@ struct BookOverridesSections: View {
             return
         }
 
-        // Extract title/author from path
         let folderURL = URL(string: audiobookID) ?? URL(fileURLWithPath: audiobookID)
-        let title = folderURL.lastPathComponent
-        let author = folderURL.deletingLastPathComponent().lastPathComponent
-        let duration = model.state.totalBookDuration > 0 ? model.state.totalBookDuration : (model.state.durationSeconds ?? 0.0)
+        let record = try? AudiobookDAO(db: db).get(audiobookID)
+        let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
+            folderURL: folderURL, record: record)
+        let fallbackDuration =
+            model.state.totalBookDuration > 0
+            ? model.state.totalBookDuration : (model.state.durationSeconds ?? 0.0)
+        let duration = (record?.duration).flatMap { $0 > 0 ? $0 : nil } ?? fallbackDuration
 
         isUploading = true
         defer { isUploading = false }
 
         do {
             let syncService = CloudKitSyncService(db: db)
-            try await syncService.uploadAnchors(audiobookID: audiobookID, title: title, author: author, duration: duration)
-            uploadAlert = ("Success", "Alignment anchors uploaded and shared successfully.")
+            let result = try await syncService.uploadAnchors(
+                audiobookID: audiobookID, title: title, author: author, duration: duration)
+            switch result {
+            case .uploaded, .merged:
+                uploadAlert = ("Success", "Alignment anchors uploaded and shared successfully.")
+            case .noUploadableAnchors:
+                uploadAlert = (
+                    "No Alignment Anchors",
+                    "This book does not have uploadable alignment anchors yet.")
+            case .rateLimited:
+                uploadAlert = (
+                    "Try Again Later",
+                    "Alignment sharing is temporarily rate limited for this book.")
+            }
         } catch {
             uploadAlert = ("Upload Failed", error.localizedDescription)
         }

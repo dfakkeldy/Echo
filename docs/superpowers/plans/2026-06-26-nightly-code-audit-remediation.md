@@ -489,12 +489,14 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify docs/architecture as needed
 - Add/modify CloudKit-related tests where feasible
 
-- [ ] Decide whether shared anchors remain in public DB or move to private/shared DB.
-- [ ] If public remains, add author attribution, payload size limits, upload rate limits, and abuse recovery.
-- [ ] Keep local block-ID validation and synthesized-anchor filtering.
-- [ ] Document the chosen trust model in `ARCHITECTURE.md`.
+- [x] Decide whether shared anchors remain in public DB or move to private/shared DB.
+- [x] If public remains, add author attribution, payload size limits, upload rate limits, and abuse recovery.
+- [x] Keep local block-ID validation and synthesized-anchor filtering.
+- [x] Document the chosen trust model in `ARCHITECTURE.md`.
 
 **Acceptance criteria:** CloudKit anchor sync has an explicit abuse/control model, not only local merge validation.
+
+**Verification note:** 2026-06-26 pass: kept shared alignment anchors in the public CloudKit database, documented the untrusted-public-record trust model, added hashed uploader attribution, suffix-only public block IDs, deterministic-record downloads, shared persisted metadata lookup for manual uploads, upload/read payload bounds, local per-record upload throttling, semantic sanitization before download and conflict-merge re-upload, explicit skipped-upload results, and regression coverage for upload/download rejection helpers, public-payload identifier privacy, polluted remote payload recovery, deterministic fetch, and manual-share metadata guards. `git diff --check` passed; focused iOS `build-for-testing` for `CloudKitSyncMergeTests` and `CloudKitSyncSourceTests` passed with signing disabled; macOS app build passed with signing disabled. SwiftLint/SwiftFormat were unavailable in this worktree.
 
 ### Task 5.5: Verify file metadata privacy-manifest category
 
