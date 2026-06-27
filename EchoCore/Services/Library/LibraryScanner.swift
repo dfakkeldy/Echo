@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
-import CryptoKit
 import Foundation
 import UIKit
 
@@ -79,7 +78,7 @@ extension LibraryScanner {
                 $0.isFinite ? $0 : nil
             } ?? 0
 
-        var cover: Data? = nil
+        var cover: Data?
         let embeddedImage = await ArtworkCache.embeddedArtworkImage(for: first)
         let coverImage: UIImage?
         if let img = embeddedImage {
