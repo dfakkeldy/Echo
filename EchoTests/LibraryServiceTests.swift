@@ -169,10 +169,14 @@ struct LibraryServiceTests {
             sourceRootID: root.id)
         try AudiobookDAO(db: db.writer).save(book)
 
-        let resolved = try service.urlForOpening(book)
-        #expect(resolved.standardizedFileURL == childURL.standardizedFileURL)
+        let target = try service.urlForOpening(book)
+        #expect(target.url.standardizedFileURL == childURL.standardizedFileURL)
+        // The root scope is handed back to the caller (NOT entered here).
+        #expect(target.scopedRoot != nil)
+        #expect(target.scopedRoot?.standardizedFileURL == tmp.standardizedFileURL)
 
-        // Fallback: book with no sourceRootID and a valid file:// id returns that URL.
+        // Fallback: book with no sourceRootID and a valid file:// id returns that
+        // URL with a nil scopedRoot (no security scope to manage).
         let standaloneBook = AudiobookRecord(
             id: childURL.absoluteString,
             title: "StandaloneBook",
@@ -183,6 +187,7 @@ struct LibraryServiceTests {
             isAvailable: true,
             sourceRootID: nil)
         let fallback = try service.urlForOpening(standaloneBook)
-        #expect(fallback.standardizedFileURL == childURL.standardizedFileURL)
+        #expect(fallback.url.standardizedFileURL == childURL.standardizedFileURL)
+        #expect(fallback.scopedRoot == nil)
     }
 }

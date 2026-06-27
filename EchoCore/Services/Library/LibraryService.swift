@@ -27,6 +27,16 @@ enum LibraryError: Error {
     case unresolvableBook(String)
 }
 
+/// Resolution result for opening a library book. The caller (the player layer)
+/// owns the security-scope lifecycle: before accessing `url`, call
+/// `scopedRoot?.startAccessingSecurityScopedResource()`, and call the matching
+/// `stopAccessingSecurityScopedResource()` when the book is closed (M3 routes this
+/// through SecurityScopeManager). LibraryService intentionally starts NO scope itself.
+struct LibraryOpenTarget {
+    let url: URL  // book folder URL to open
+    let scopedRoot: URL?  // root whose scope the caller must start/stop; nil for standalone books
+}
+
 /// Owns the on-device Library: registers folder roots, rescans them for books
 /// (cheap shallow upsert), and resolves a book's URL for opening. A launcher
 /// layer above the single-book player — it does not change playback.
@@ -270,27 +280,32 @@ struct LibraryService {
         }
     }
 
-    /// Resolves the folder URL to open this book, re-acquiring access through its
-    /// library root's security-scoped bookmark. Falls back to parsing `book.id` as
-    /// a URL string directly (for books not backed by a registered root).
-    func urlForOpening(_ book: AudiobookRecord) throws -> URL {
-        if let rootID = book.sourceRootID,
-            let root = try LibraryRootDAO(db: db.writer).get(rootID),
-            let resolved = LibraryAccess.resolveURL(from: root.bookmark)
-        {
-            _ = resolved.url.startAccessingSecurityScopedResource()
-            // book.id is stored as the folder's absoluteString (e.g. "file:///path/").
-            // URL(string:) correctly parses it, including percent-encoded characters,
-            // without the fragile replacingOccurrences approach in the brief.
-            guard let url = URL(string: book.id) else {
+    /// Resolves the folder URL to open this book, together with the library root
+    /// whose security scope the caller must enter. This method is SIDE-EFFECT-FREE:
+    /// it does NOT call `startAccessingSecurityScopedResource()` — the player layer
+    /// owns that lifecycle (start before access, stop on close) so the scope is
+    /// never leaked. See `LibraryOpenTarget` for the contract.
+    ///
+    /// A root-backed book whose root row is missing or whose bookmark no longer
+    /// resolves is treated as unavailable and throws `LibraryError.unresolvableBook`
+    /// (it must not silently fall through to an unscoped open).
+    func urlForOpening(_ book: AudiobookRecord) throws -> LibraryOpenTarget {
+        if let rootID = book.sourceRootID {
+            guard let root = try LibraryRootDAO(db: db.writer).get(rootID),
+                let resolved = LibraryAccess.resolveURL(from: root.bookmark),
+                // book.id is stored as the folder's absoluteString (e.g. "file:///path/").
+                // URL(string:) correctly parses it, including percent-encoded characters,
+                // without the fragile replacingOccurrences approach in the brief.
+                let childURL = URL(string: book.id)
+            else {
                 throw LibraryError.unresolvableBook(book.id)
             }
-            return url.standardizedFileURL
+            return LibraryOpenTarget(url: childURL, scopedRoot: resolved.url)
         }
         guard let url = URL(string: book.id) else {
             throw LibraryError.unresolvableBook(book.id)
         }
-        return url
+        return LibraryOpenTarget(url: url, scopedRoot: nil)
     }
 
     // MARK: - Private grouping helpers
