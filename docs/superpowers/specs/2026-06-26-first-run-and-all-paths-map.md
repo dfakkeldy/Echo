@@ -15,6 +15,9 @@
 - **EchoDeckBuilder (G3):** it's a **real, separate macOS app** at `~/Developer/EchoDeckBuilder` (SwiftUI, SPM executable, MVP complete on branch `codex/echo-deck-builder-mvp`; 34 tests passing). Takes an **EPUB** in, exports **"Echo Deck JSON vNext"** (`.echo-deck.json`) with portable `s<i>-b<j>` anchors. See revised §G3/§F16 for integration shape + the two gaps (transcript-input, iOS-only).
 - **Manual artifact + behavior:** bundle **`~/Developer/echo-manual-build/welcome-to-echo/dist/Welcome-to-Echo.epub`** (16 ch, 44k words, 28 placeholder images; text-only today) — NOT the explainer-audiobooks series. The landing page's **"Play / Read the welcome manual"** opens this bundled EPUB; **chapter 1 narration is pre-rendered + bundled** (plays instantly), and **once playback starts the remaining chapters narrate on-device** progressively. Prereqs: pre-render ch.1 audio + word alignment via `echo-cli`/overnight harness, and re-verify the manual against shipped features (dated 2026-06-22, can go stale).
 - **Web landing page:** `dfakkeldy.github.io/Echo` stays the **external marketing front door** ("Join the Beta") with the desktop reference manual at `/manual.html`. The **in-app manual is self-contained** (opens the bundled EPUB, not the web page) — no runtime dependency on the site. Keep web manual.html in sync via `doc-sync`.
+- **Companion docs (A5):** audio + **one** EPUB/PDF → auto-load it; **multiple** → load the **name-matching** one; none matching → offer to import. PDF now auto-imports (today only EPUB does, via `EPUBAutoImportScanner`, "first found").
+- **ABS demo server:** point at the community demo **`audiobooks.dev`** (`demo`/`demo`, listed in ABS's official README) with a graceful-offline fallback; no self-hosted server for 1.0.
+- **On-device narration reliability:** owner-confirmed **REQUIRED** — a gating dependency for the bundled manual (silence-guard + fresh-process batching ≤~5 ch + per-chapter error UI/resume).
 
 ---
 
@@ -66,6 +69,8 @@ The invariant behind every audio path: **one folder (or single file's parent fol
 | **Unsupported-only (.wav/.flac/.aiff)** | 0 | none | none | Narration nudge fires | Empty state, formats not obvious | "Unsupported format — Echo plays MP3/M4A/M4B" |
 
 > Verified correction: the narration nudge keys on `tracks.isEmpty` regardless of *why* — so it WILL fire on a genuinely empty/unsupported folder (offering to narrate nothing). Arguably a bug; needs a guard (§F14).
+
+> Companion auto-load (resolved): a single EPUB/PDF beside the audio auto-loads; with **multiple** companions, the **name-matching** file loads (the M4B's filename is the disambiguator); none matching → the import nudge. PDF now auto-imports too. New test rows: M4B + 2 EPUBs (one name-matching) → matching loads; M4B + 2 EPUBs (no match) → nudge, none auto-loaded; M4B + 1 PDF → PDF auto-loads.
 
 ---
 

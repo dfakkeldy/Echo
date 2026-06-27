@@ -26,7 +26,8 @@ Non-goals (explicitly deferred): bare-audio "transcribe → AI flashcards" gener
 | Web page | `dfakkeldy.github.io/Echo` stays the **external marketing front door** + desktop reference `manual.html`; kept in sync via `doc-sync`. |
 | Auto-play | New **Settings → "Auto-play on open"** toggle, **default OFF**. When ON, applies to audio-first opens only (never text-only). Default keeps load-don't-play with a prominent Play affordance. |
 | MP3 ordering | Honor embedded **track-number/disc** metadata; fall back to natural filename sort; **show the order** so it's verifiable. |
-| Audiobookshelf | One-tap **"Connect to demo"** (read-only, rate-limited, public-domain-only guest); not a self-hosted load-bearing server. |
+| Audiobookshelf | One-tap **"Connect to demo"** → the community `audiobooks.dev` demo (`demo`/`demo`, listed in ABS's official README), with a graceful-offline fallback; no self-hosted server for 1.0. |
+| Companion docs | Audio + **one** EPUB/PDF → auto-load it; **multiple** → load the **name-matching** one; none matching → offer to import. PDF now auto-imports too (today only EPUB does). |
 | Flashcards | **EPUB round-trip first:** "Open in EchoDeckBuilder" (macOS) + Echo's **vNext importer**. Bare-audio "Transcribe → flashcards" is a forward-hook only. iOS "Make flashcards" = export the EPUB for EchoDeckBuilder on Mac. |
 
 ## 3. Design
@@ -48,12 +49,13 @@ No-copy reassurance lives here, stated precisely for the dominant (audio) case: 
 ### 3.3 Bundled manual (listen-first hybrid) + seeding
 - **Bundle** `Welcome-to-Echo.epub` into Echo's resources. **Pre-render the opening chapter's audio + word-level alignment** (the manual's first chapter — file `ch00`, "Welcome to Echo"; optionally through the next chapter) via the `echo-cli`/overnight harness, and bundle those alongside.
 - **Seed** on first launch: create the audiobook + track DB records so the manual is the first library item, with its EPUB blocks imported (reusing the existing EPUB import pipeline) and the opening chapter's alignment attached so read-along works immediately.
-- **Playback:** the opening chapter plays instantly from the bundled audio. **Once playback starts**, on-device narration renders the remaining chapters progressively (extends the existing `startNarrationPlayback` render-ahead, which today renders all chapters on-device with no pre-bundled head). A quiet, non-blocking banner shows "Narrating the rest on-device — N/16" (mockup screen 3). `NarrationSilenceGuard` (PR #144) covers the on-device chapters; the bundled ch.1 is guaranteed clean for the first impression.
+- **Playback:** the opening chapter plays instantly from the bundled audio. **Once playback starts**, on-device narration renders the remaining chapters progressively (extends the existing `startNarrationPlayback` render-ahead, which today renders all chapters on-device with no pre-bundled head). A quiet, non-blocking banner shows "Narrating the rest on-device — N/16" (mockup screen 3). `NarrationSilenceGuard` (PR #144) covers the on-device chapters; the bundled opening chapter is guaranteed clean for the first impression. The on-device chapters depend on the narration-reliability requirement in §7 — that pass **gates shipping the bundled manual**.
 - **Freshness:** the manual is dated 2026-06-22 and can drift from shipped features — re-run the `echo-manual-epub` skill and re-verify before bundling, and treat manual refresh as a recurring `doc-sync` item.
 
 ### 3.4 Content-aware open + auto-play
 The engine already makes *one folder = one book* (`folderURL` is the book identity), so this governs post-load behavior:
 - **Audio present** (1 M4B / MP3 folder / multi-M4B): load, show the book, make **Play unmissable**; auto-play only if Settings → "Auto-play on open" is ON (default OFF). MP3 order per the metadata→filename rule, shown for verification.
+- **Companion document auto-load** (audio + EPUB/PDF in the same folder): if there's **exactly one** EPUB/PDF, load it automatically. If there are **multiple**, load the one whose filename **matches the audiobook/M4B name** (extension- and case-insensitive, natural match); if none matches, **don't guess** — show the *Read along with the ebook* / *Add a PDF* nudge so the user chooses. Extends today's behavior (`EPUBAutoImportScanner` grabs the first EPUB; PDF isn't auto-imported) to (a) include **PDF** and (b) disambiguate by **name match** instead of "first found".
 - **Text only** (EPUB/PDF/.md): never auto-plays; offers narration via the (now dismissible) narration nudge.
 - **Empty / unsupported-only folder:** explicit message ("Echo plays MP3, M4A, and M4B") and **suppress** the narration nudge, which currently misfires on `tracks.isEmpty` regardless of whether any document exists.
 - **M4B chapters in the Contents/TOC view:** chapters are already parsed (and aggregated across multi-disc with cumulative offsets) and shown in the chapter picker; add a fallback so the Read-tab TOC tree (today EPUB-only, `MacTOCTreeView`) lists `state.chapters` when there's no EPUB.
@@ -65,8 +67,8 @@ A small, non-blocking stack beneath the transport (mockup screen 2). Hard rule (
 - Each is individually dismissible. **Persistence:** new `nudge_dismissal` table keyed per-book + per-type; dismissed offers stay dismissed across launches and are re-enableable in Settings. Exceptions: the manual offer is session-only; the narration offer (text-only books) persists until narration starts.
 
 ### 3.6 Audiobookshelf one-tap demo
-- Add a **"Connect to demo"** affordance in the ABS connect flow (and reachable from the landing page's "Connect a server") that pre-fills a read-only, rate-limited, public-domain-only guest server URL/credentials.
-- The demo server itself is operational scope, not app code: a small throwaway instance (or a community/official demo) with a guest/read-only account. The app only ships the pre-fill + a "this is a demo; connect your own server for your library" note.
+- An existing community demo, **`https://audiobooks.dev`** (login `demo` / `demo`), is listed in Audiobookshelf's official README. The **"Connect to demo"** affordance (in the ABS connect flow and from the landing page's "Connect a server") pre-fills it so users see a real ABS library in one tap.
+- **Caveats that drive the UX:** it's volunteer-maintained (one community member), has no uptime guarantee, and ABS guest/demo accounts are **not strictly read-only**. So: label it "community-maintained demo — may be unavailable", handle connect failures gracefully (clear "demo's offline — connect your own server" fallback, never a dead end), and never write to it. We do **not** self-host a server for 1.0; revisit a self-hosted read-only LibriVox instance only if the community demo proves unreliable.
 
 ### 3.7 Transcription wiring + flashcards (EPUB round-trip)
 - **Wire transcription** (the whole feature is wiring — `StandaloneTranscriptionService` exists but is instantiated nowhere): a "Transcribe to make searchable" action (from the nudge and `BookSettingsView`), shown only when `!hasEPUB && !hasPDF` → run on-device WhisperKit → progress UI (adapt `AutoAlignmentProgressView`) → on completion show `StandaloneTranscriptView`. Optional FTS5 index on `standalone_transcript.text` (today's search is a client-side filter).
@@ -94,7 +96,7 @@ Move the notification-permission prompt from app launch (pre-context, before the
 
 ## 5. Build order (phasing)
 1. **First-run shell:** landing page + routing gate + no-copy copy + empty-state recovery (§3.1, §3.2, §3.8 partial). Highest user-visible payoff, no schema change.
-2. **Bundled manual:** pre-render ch.1 audio+alignment, bundle EPUB, seed on first launch, hybrid playback (§3.3). Depends on a manual freshness pass.
+2. **Bundled manual:** pre-render the opening chapter's audio+alignment, bundle EPUB, seed on first launch, hybrid playback (§3.3). Depends on a manual freshness pass **and the on-device narration-reliability pass (§7)**.
 3. **Content-aware open + auto-play setting + TOC fallback + empty/unsupported messaging** (§3.4).
 4. **Nudge system + `nudge_dismissal` migration** (§3.5).
 5. **Transcription wiring (+ optional FTS5)** (§3.7 first half).
@@ -107,8 +109,8 @@ Phases 1–4 constitute the core first-run experience; 5–8 harden and extend. 
 ## 6. Testing
 The all-paths test map ([2026-06-26-first-run-and-all-paths-map.md](2026-06-26-first-run-and-all-paths-map.md)) is the test matrix: §B (content-combination), §C (per-book actions), §E (edge/returning/platform), and §H (verified-but-risky). Key assertions to add: nudge never overlaps transport; dismissed nudge stays dismissed across launches; stale-file restore shows recovery UI (not empty); empty/unsupported folder shows the format message and no narration nudge; auto-play obeys the default-OFF setting; MP3 order honors track metadata.
 
-## 7. Risks & open items
-- **Manual staleness** — bundled content drifts from shipped features; needs a refresh + verify before each release that bundles it.
-- **On-device narration reliability** — bundling ch.1 de-risks the first impression, but chapters 2+ still depend on the on-device engine (OOM/silence history); silence-guard + per-chapter error UI required.
-- **Demo ABS server** — operational ownership, abuse/rate-limiting, and uptime live outside the app; if it's down the affordance must fail gracefully.
-- **Smaller defaults folded in** (confirm if any should change): PDF auto-import (proposed: add, matching EPUB); AirDrop copies into sandbox (message accordingly); FTS5 (ship with transcription or accept client-side filter initially).
+## 7. Risks & requirements
+- **On-device narration reliability — REQUIRED (owner-confirmed).** The manual's chapters beyond the bundled opener, and every EPUB-narration path, depend on the on-device engine — which has an OOM-past-~8-chapters and intermittent all-zero (silent) chunk history. Reliability is a hard prerequisite, not a nice-to-have: keep/strengthen `NarrationSilenceGuard` (detect + retry + re-split, PR #144), render on-device chapters in **fresh processes batched ≤~5 chapters** (per the overnight findings) to avoid jetsam OOM, and add **per-chapter error UI + resume**. Bundling the opening chapter only de-risks the *first* impression; the rest must still render cleanly. Treat a narration-reliability pass as a **gating dependency** for shipping the bundled manual (build phase 2).
+- **Manual staleness** — bundled content drifts from shipped features; refresh (`echo-manual-epub`) + verify before any release that bundles it.
+- **Demo ABS server — RESOLVED to a fallback.** Point at the community `audiobooks.dev` demo; fail gracefully when it's down or changed; don't depend on it (see §3.6).
+- **Resolved smaller items:** PDF auto-import → handled by the companion-document rule (§3.4); AirDrop copies into the sandbox → message accordingly; FTS5 → ship with transcription, or accept the client-side filter initially.
