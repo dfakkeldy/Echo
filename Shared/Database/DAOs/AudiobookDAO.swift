@@ -57,6 +57,13 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var serverID: String? = nil
     var remoteItemID: String? = nil
     var topicsJSON: String? = nil
+    var coverArtPath: String? = nil
+    var narrator: String? = nil
+    var indexState: Int = 0
+    var isAvailable: Bool = true
+    var lastSeenAt: String? = nil
+    var authorSort: String? = nil
+    var sourceRootID: String? = nil
 
     static let databaseTableName = "audiobook"
 
@@ -68,5 +75,12 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case serverID = "server_id"
         case remoteItemID = "remote_item_id"
         case topicsJSON = "topics_json"
+        case coverArtPath = "cover_art_path"
+        case narrator
+        case indexState = "index_state"
+        case isAvailable = "is_available"
+        case lastSeenAt = "last_seen_at"
+        case authorSort = "author_sort"
+        case sourceRootID = "source_root_id"
     }
 }
