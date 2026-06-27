@@ -1875,6 +1875,60 @@
         }
       }
     },
+    "Could not remove the Audiobookshelf server from this device. Try signing out again." : {
+      "comment" : "Error shown when local Audiobookshelf server-record deletion fails during sign-out.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not remove the Audiobookshelf server from this device. Try signing out again."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kan de Audiobookshelf-server niet van dit apparaat verwijderen. Probeer opnieuw uit te loggen."
+          }
+        }
+      }
+    },
+    "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires." : {
+      "comment" : "Warning shown after local Audiobookshelf sign-out succeeds but remote token revoke fails.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Echo is lokaal uitgelogd, maar Audiobookshelf heeft het uitloggen op de server niet bevestigd. De serversessie kan actief blijven totdat deze verloopt."
+          }
+        }
+      }
+    },
+    "Warning" : {
+      "comment" : "Section header for a warning message.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warning"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waarschuwing"
+          }
+        }
+      }
+    },
     "Echo will send your Audiobookshelf username and password to %@ without transport encryption. Use HTTPS or self-signed HTTPS when possible." : {
       "comment" : "Plain HTTP confirmation warning. The argument is the server host and optional port.",
       "extractionState" : "manual",

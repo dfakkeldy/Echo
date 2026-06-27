@@ -70,6 +70,8 @@ final class PlayerModel {
     @ObservationIgnored var absSyncRemoteItemID: String? = nil
     /// Epoch-seconds timestamp of the last successful ABS progress push.
     @ObservationIgnored var absLastPushAt: TimeInterval? = nil
+    /// User-visible warning when local ABS disconnect succeeds but server-side revoke fails.
+    var absRemoteSignOutWarning: String?
 
     // MARK: - UI state (local to PlayerModel)
 

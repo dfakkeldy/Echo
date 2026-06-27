@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import OSLog
 
 /// HTTP client for one Audiobookshelf server. Sibling to `CloudKitSyncService`:
 /// a concrete `@MainActor final class`, constructor-injected, no protocol.
 /// The `session` parameter is the test seam (inject a `URLProtocolStub` session).
 @MainActor
 final class AudiobookshelfService {
+    private let logger = Logger(category: "AudiobookshelfAuth")
     private let endpoints: ABSEndpoints
     private let tokens: ABSTokenStore
     private let session: URLSession
@@ -70,14 +72,36 @@ final class AudiobookshelfService {
         return try await task.value
     }
 
-    func signOut() async {
-        if let refresh = tokens.refreshToken {
-            var request = URLRequest(url: endpoints.logout())
-            request.httpMethod = "POST"
-            request.setValue(refresh, forHTTPHeaderField: "x-refresh-token")
-            _ = try? await session.data(for: request)
+    func signOut() async -> ABSSignOutResult {
+        guard let refresh = tokens.refreshToken else {
+            tokens.clear()
+            logger.info("ABS sign-out cleared local credentials; no remote refresh token was present.")
+            return .noRemoteToken
         }
-        tokens.clear()
+
+        var request = URLRequest(url: endpoints.logout())
+        request.httpMethod = "POST"
+        request.setValue(refresh, forHTTPHeaderField: "x-refresh-token")
+
+        do {
+            _ = try await Self.sendDataStatic(request, session: session)
+            tokens.clear()
+            logger.info("ABS sign-out revoked the remote refresh token and cleared local credentials.")
+            return .remoteRevoked
+        } catch let error as ABSError {
+            tokens.clear()
+            logger.warning(
+                "ABS remote sign-out failed; local credentials were cleared: \(error.privacySafeLogDescription, privacy: .public)"
+            )
+            return .remoteRevokeFailed(error)
+        } catch {
+            tokens.clear()
+            let mapped = ABSError.network(error)
+            logger.warning(
+                "ABS remote sign-out failed; local credentials were cleared: \(mapped.privacySafeLogDescription, privacy: .public)"
+            )
+            return .remoteRevokeFailed(mapped)
+        }
     }
 
     // MARK: Browse

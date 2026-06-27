@@ -10,6 +10,7 @@ struct ABSConnectionsSettingsView: View {
     @State private var connected: ABSServerRecord?
     @State private var isConnecting = false
     @State private var errorMessage: String?
+    @State private var warningMessage: String?
     @State private var showingBrowse = false
     @State private var pendingTrust: PendingTrust?
     @State private var pendingPlaintextConnection: PlaintextConnectionWarning?
@@ -54,6 +55,14 @@ struct ABSConnectionsSettingsView: View {
                     Text(errorMessage).foregroundStyle(.red)
                 } header: {
                     Text("Error")
+                }
+            }
+
+            if let warningMessage {
+                Section {
+                    Text(warningMessage).foregroundStyle(.orange)
+                } header: {
+                    Text("Warning")
                 }
             }
         }
@@ -113,6 +122,7 @@ struct ABSConnectionsSettingsView: View {
     private func connect(to url: URL, trustingCertificate pinnedSHA256: String? = nil) async {
         isConnecting = true
         errorMessage = nil
+        warningMessage = nil
         defer { isConnecting = false }
         do {
             let server = try await model.connectAudiobookshelf(
@@ -141,8 +151,26 @@ struct ABSConnectionsSettingsView: View {
     }
 
     private func signOut(_ server: ABSServerRecord) async {
-        await model.disconnectAudiobookshelf(server)
-        connected = nil
+        do {
+            let result = try await model.disconnectAudiobookshelf(server)
+            connected = nil
+            errorMessage = nil
+            if result.didRemoteRevokeFail {
+                warningMessage =
+                    model.absRemoteSignOutWarning
+                    ?? String(
+                        localized:
+                            "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires.")
+            } else {
+                warningMessage = nil
+            }
+        } catch {
+            errorMessage =
+                String(
+                    localized:
+                        "Could not remove the Audiobookshelf server from this device. Try signing out again.")
+            warningMessage = model.absRemoteSignOutWarning
+        }
     }
 }
 

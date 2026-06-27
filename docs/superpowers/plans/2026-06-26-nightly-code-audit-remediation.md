@@ -471,12 +471,14 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - Modify: `EchoCore/ViewModels/PlayerModel+Audiobookshelf.swift`
 - Add/modify tests around failed connect and sign-out
 
-- [ ] Roll back tokens on any server-record save failure, not only when a cert pin exists.
-- [ ] Differentiate local token clearing from remote refresh-token revoke failure.
-- [ ] Add retry/backoff or a user-visible "remote sign-out failed" state.
-- [ ] Add privacy-safe logging for sync/auth health.
+- [x] Roll back tokens on any server-record save failure, not only when a cert pin exists.
+- [x] Differentiate local token clearing from remote refresh-token revoke failure.
+- [x] Add retry/backoff or a user-visible "remote sign-out failed" state.
+- [x] Add privacy-safe logging for sync/auth health.
 
 **Acceptance criteria:** UI state and Keychain/server token state cannot diverge silently after failed connect/sign-out.
+
+**Verification note:** 2026-06-26 pass: `git diff --check` and string catalog JSON validation passed; focused iOS `build-for-testing` for ABS auth lifecycle tests passed with signing disabled; macOS app build passed with signing disabled. Runtime simulator test execution remains blocked by CoreSimulator `1051.54.0` vs Xcode-required `1051.55.0`.
 
 ### Task 5.4: Decide and harden CloudKit anchor trust model
 

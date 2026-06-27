@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import OSLog
 import UIKit
 
 extension PlayerModel {
+    private static var absLogger: Logger { Logger(category: "AudiobookshelfAuth") }
+
     /// DAO for the single connected ABS server. nil if the DB isn't ready yet.
     var absServerDAO: ABSServerDAO? {
         guard let writer = databaseService?.writer else { return nil }
@@ -32,11 +35,13 @@ extension PlayerModel {
         let defaultLib: String?
         do {
             defaultLib = try await service.login(username: username, password: password)
+            Self.absLogger.info("ABS login succeeded; attempting to persist server record.")
         } catch {
             service.invalidate()
-            // Roll back the pin we optimistically wrote if a *trust* connect failed for some other
-            // reason (wrong password, etc.), so a stale pin can't linger for an unsaved server.
-            if pinnedSHA256 != nil { tokens.clear() }
+            // Roll back every token-store value for this unsaved server, including non-pin
+            // refresh tokens from partial auth responses and optimistic trust pins.
+            tokens.clear()
+            Self.absLogger.warning("ABS login failed; cleared local credentials for unsaved server.")
             throw error
         }
 
@@ -47,10 +52,11 @@ extension PlayerModel {
         do {
             try dao.save(record)
         } catch {
-            // Symmetric with the login-failure rollback above: don't leave a Keychain pin
-            // (or a live delegate session) behind for a server whose record never persisted.
+            // Symmetric with the login-failure rollback above: don't leave access/refresh tokens,
+            // Keychain trust pins, or a live delegate session behind when the DB record is absent.
             service.invalidate()
-            if pinnedSHA256 != nil { tokens.clear() }
+            tokens.clear()
+            Self.absLogger.error("ABS server record save failed after login; cleared local credentials.")
             throw error
         }
         absService?.invalidate()  // release any previously-cached delegate session
@@ -59,13 +65,87 @@ extension PlayerModel {
         return record
     }
 
-    func disconnectAudiobookshelf(_ server: ABSServerRecord) async {
-        let service = makeAudiobookshelfService()  // reuse cached instance if present
-        await service?.signOut()  // clears access/refresh + the pinned cert
-        service?.invalidate()  // release the delegate-backed session
-        try? absServerDAO?.delete(server.id)
+    @discardableResult
+    func disconnectAudiobookshelf(_ server: ABSServerRecord) async throws -> ABSSignOutResult {
+        absRemoteSignOutWarning = nil
+
+        let service = makeAudiobookshelfService(for: server)
+        let signOutResult: ABSSignOutResult
+        if let service {
+            signOutResult = await service.signOut()  // clears access/refresh + the pinned cert
+            service.invalidate()  // release the delegate-backed session
+        } else {
+            signOutResult = clearAudiobookshelfTokensWithUnknownRemoteStatus(for: server)
+        }
+
+        if case .remoteRevokeFailed(let error) = signOutResult {
+            setRemoteSignOutWarning()
+            Self.absLogger.warning(
+                "ABS remote sign-out failed during disconnect; local disconnect continuing: \(error.privacySafeLogDescription, privacy: .public)"
+            )
+        } else if case .remoteRevokeUnknown = signOutResult {
+            setRemoteSignOutWarning()
+            Self.absLogger.warning(
+                "ABS remote sign-out status is unknown during disconnect; local disconnect continuing."
+            )
+        }
+
         absService = nil
         absServiceServerID = nil
+
+        guard let dao = absServerDAO else {
+            Self.absLogger.error("ABS local server delete failed because the database is unavailable.")
+            throw ABSError.notConnected
+        }
+        do {
+            try dao.delete(server.id)
+        } catch {
+            Self.absLogger.error("ABS local server delete failed after credentials were cleared.")
+            throw error
+        }
+
+        return signOutResult
+    }
+
+    private func setRemoteSignOutWarning() {
+        absRemoteSignOutWarning =
+            String(
+                localized:
+                    "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires.")
+    }
+
+    private func clearAudiobookshelfTokensWithUnknownRemoteStatus(
+        for server: ABSServerRecord
+    ) -> ABSSignOutResult {
+        let tokens = ABSTokenStore(serverID: server.id)
+        let hadRefreshToken = tokens.refreshToken != nil
+        tokens.clear()
+
+        if hadRefreshToken {
+            Self.absLogger.warning(
+                "ABS disconnect could not build a service; cleared local credentials with unknown remote sign-out status.")
+            return .remoteRevokeUnknown
+        }
+
+        Self.absLogger.info(
+            "ABS disconnect could not build a service; cleared local credentials with no remote refresh token present.")
+        return .noRemoteToken
+    }
+
+    private func makeAudiobookshelfService(for server: ABSServerRecord) -> AudiobookshelfService? {
+        if let cached = absService, absServiceServerID == server.id { return cached }
+        guard let url = URL(string: server.baseURL) else { return nil }
+
+        let tokens = ABSTokenStore(serverID: server.id)
+        let host = url.host?.lowercased() ?? ""
+        let (session, delegate) = ABSURLSession.make(
+            expectedHost: host, pinnedSHA256: tokens.pinnedCertificateSHA256)
+        let service = AudiobookshelfService(
+            baseURL: url, tokens: tokens, session: session, trustDelegate: delegate)
+        absService?.invalidate()
+        absService = service
+        absServiceServerID = server.id
+        return service
     }
 
     /// The SINGLE, cached service for the connected server. ONE instance is required for
