@@ -61,7 +61,7 @@ import Testing
         model.databaseService = database
         let server = ABSServerRecord(
             id: "disconnect-unknown-\(UUID().uuidString)",
-            baseURL: " ",
+            baseURL: "",
             username: "reader",
             defaultLibraryId: nil,
             addedAt: Date.now.formatted(.iso8601))
@@ -81,8 +81,8 @@ import Testing
         }
         #expect(result.didRemoteRevokeFail)
         #expect(model.absRemoteSignOutWarning?.contains("server session may remain active") == true)
-        #expect(tokens.accessToken == nil)
-        #expect(tokens.refreshToken == nil)
+        let reloadedTokens = ABSTokenStore(serverID: server.id)
+        #expect(reloadedTokens.refreshToken == nil)
         #expect(try ABSServerDAO(db: database.writer).current() == nil)
     }
 

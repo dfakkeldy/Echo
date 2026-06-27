@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import Testing
 
 @testable import Echo
+
+private final class PlayerModelFixtureLocator {}
 
 @MainActor
 struct PlayerModelTests {
@@ -25,7 +28,7 @@ struct PlayerModelTests {
 
     @Test(
         "PlayerModel importEPUB preserves the source EPUB file when imported from the same folder")
-    func importEPUBPreservesSourceWhenSameFolder() throws {
+    func importEPUBPreservesSourceWhenSameFolder() async throws {
         let model = PlayerModel()
         let db = try DatabaseService(inMemory: ())
         model.databaseService = db
@@ -44,8 +47,15 @@ struct PlayerModelTests {
         // Verify the file exists initially
         #expect(FileManager.default.fileExists(atPath: epubURL.path))
 
-        // Trigger importEPUB from the exact file location
-        model.importEPUB(from: epubURL)
+        do {
+            _ = try await model.importEPUBDocument(from: epubURL)
+            Issue.record("Expected fake EPUB payload to report scanner failure.")
+        } catch EPUBImportCoordinator.ImportError.scannerFailed(let url, let underlying) {
+            #expect(url == epubURL)
+            #expect(underlying != nil)
+        } catch {
+            Issue.record("Expected scanner failure, got \(error).")
+        }
 
         // Verify the file was NOT deleted!
         #expect(FileManager.default.fileExists(atPath: epubURL.path))
@@ -59,12 +69,29 @@ struct PlayerModelTests {
         let db = try DatabaseService(inMemory: ())
         model.databaseService = db
 
+        let fixtureURL = try #require(
+            Bundle(for: PlayerModelFixtureLocator.self)
+                .url(forResource: "minimal-book", withExtension: "epub"),
+            "minimal-book.epub is missing from the EchoTests bundle resources"
+        )
+
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
         model.folderURL = tmpDir
+        model.state.chapters = [
+            Chapter(index: 0, title: "Chapter One", startSeconds: 0, endSeconds: 1800),
+            Chapter(index: 1, title: "Chapter Two", startSeconds: 1800, endSeconds: 3600),
+        ]
+        model.state.durationSeconds = 3600
+        try db.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, 'Fixture', 3600)",
+                arguments: [tmpDir.absoluteString]
+            )
+        }
 
         // Create an existing epub in the folder (which should be deleted)
         let oldEpubURL = tmpDir.appendingPathComponent("old.epub")
@@ -76,20 +103,16 @@ struct PlayerModelTests {
         try FileManager.default.createDirectory(at: outerDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: outerDir) }
 
-        let sourceEpubURL = outerDir.appendingPathComponent("new.epub")
-        try Data("new epub content".utf8).write(to: sourceEpubURL)
+        let sourceEpubURL = outerDir.appendingPathComponent("minimal-book.epub")
+        try FileManager.default.copyItem(at: fixtureURL, to: sourceEpubURL)
+        try Data("[]".utf8).write(
+            to: tmpDir.appendingPathComponent("minimal-book.alignment.json")
+        )
 
-        // Trigger importEPUB
-        model.importEPUB(from: sourceEpubURL)
-
-        // Wait for asynchronous import task to finish
-        let destinationURL = tmpDir.appendingPathComponent("new.epub")
-        let start = Date()
-        while !FileManager.default.fileExists(atPath: destinationURL.path)
-            && Date().timeIntervalSince(start) < 1.0
-        {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        // Trigger importEPUB through the async path so cleanup has completed before assertions.
+        let result = try await model.importEPUBDocument(from: sourceEpubURL)
+        let destinationURL = tmpDir.appendingPathComponent("minimal-book.epub")
+        #expect(result.destinationURL == destinationURL)
 
         // Verify old EPUB is deleted to ensure a single companion document
         #expect(!FileManager.default.fileExists(atPath: oldEpubURL.path))

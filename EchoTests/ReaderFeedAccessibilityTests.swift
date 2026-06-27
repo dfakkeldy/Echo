@@ -182,12 +182,15 @@ struct ReaderFeedAccessibilityTests {
     ) throws -> TextCellMeasurement {
         let parent = UIViewController()
         let child = UIViewController()
+        let window = UIWindow(
+            frame: CGRect(origin: .zero, size: CGSize(width: width, height: 1_000)))
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
         parent.loadViewIfNeeded()
         child.loadViewIfNeeded()
         parent.addChild(child)
+        parent.setOverrideTraitCollection(trait, forChild: child)
         parent.view.addSubview(child.view)
-        child.traitOverrides.preferredContentSizeCategory =
-            trait.preferredContentSizeCategory
         child.didMove(toParent: parent)
 
         child.view.frame = CGRect(origin: .zero, size: CGSize(width: width, height: 1_000))
@@ -196,8 +199,11 @@ struct ReaderFeedAccessibilityTests {
         defer {
             cell.removeFromSuperview()
             child.willMove(toParent: nil)
+            parent.setOverrideTraitCollection(nil, forChild: child)
             child.view.removeFromSuperview()
             child.removeFromParent()
+            window.isHidden = true
+            window.rootViewController = nil
         }
 
         configure(cell)
@@ -301,7 +307,8 @@ struct ReaderFeedAccessibilityTests {
         ]
         for name in actionNames {
             #expect(
-                alignmentSource.contains("UIAccessibilityCustomAction(name: \"\(name)\""),
+                alignmentSource.contains(
+                    "UIAccessibilityCustomAction(name: String(localized: \"\(name)\""),
                 "Reader accessibility actions must expose \(name)."
             )
         }

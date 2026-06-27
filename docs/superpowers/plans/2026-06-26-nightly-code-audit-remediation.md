@@ -29,11 +29,11 @@
 
 **Files:** none expected unless Makefile destinations need updating after environment repair.
 
-- [ ] Install or repair the Xcode/macOS simulator components so CoreSimulator matches Xcode 26.6 (`1051.55.0` or newer).
+- [x] Install or repair the Xcode/macOS simulator components so CoreSimulator matches Xcode 26.6 (`1051.55.0` or newer).
 - [x] Install the Metal Toolchain locally with `xcodebuild -downloadComponent MetalToolchain`, or document that local Metal compilation is intentionally CI-only.
-- [ ] Verify a valid iOS simulator destination exists for the Makefile's configured `IOS_DESTINATION`.
-- [ ] Run `make build-tests`.
-- [ ] Run `make test`.
+- [x] Verify a valid iOS simulator destination exists for the Makefile's configured `IOS_DESTINATION`.
+- [x] Run `make build-tests`.
+- [x] Run `make test`.
 - [x] Run generic iOS build:
 
 ```bash
@@ -44,6 +44,8 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO \
   -jobs 5
 ```
+
+**Verification note:** 2026-06-26 local pass: Xcode 26.6 (`17F113`) now has an available `iPhone 17` simulator destination on iOS 26.5. `make build-tests` passed with `TEST BUILD SUCCEEDED`; `make test` passed with `TEST SUCCEEDED`. While restoring the full test gate, fixed existing fragile tests in `ABSAuthLifecycleSourceTests`, `PlayerModelTests`, and `ReaderFeedAccessibilityTests` that failed under the repaired simulator/toolchain.
 
 **Acceptance criteria:** simulator test build and test commands no longer fail because of host toolchain mismatch; any remaining failures are actionable source/test failures.
 
@@ -513,6 +515,8 @@ xcodebuild build -project Echo.xcodeproj -scheme echo-cli -destination 'platform
 - [x] Because the broad API was replaced, add regression coverage that prevents reintroducing it.
 
 **Acceptance criteria:** privacy manifest coverage matches Xcode archive validation, not only hand-maintained expectations.
+
+**Verification note:** 2026-06-27 re-check: Xcode 26.6 exposes no local `privacyreport` utility through `xcrun`, no privacy-report action or export option in `xcodebuild -help`, and no matching report generator under `/Applications/Xcode.app/Contents/Developer`. The archive privacy report remains a manual Xcode archive/export validation step in this environment.
 
 ---
 
