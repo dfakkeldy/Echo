@@ -4,6 +4,29 @@ import Foundation
 import GRDB
 import os.log
 
+/// The grouping axes available in the Library browser. Status-based axes
+/// (e.g. `.unread`, `.inProgress`) are added in Task 10.
+enum LibraryAxis {
+    case recentlyAdded
+    case author
+    case topic
+    case folder
+}
+
+/// A titled group of books returned by `LibraryService.sections(by:)`.
+/// Note: not `Equatable` because `AudiobookRecord` is not `Equatable`; add
+/// conformance once `AudiobookRecord` gains it (Task 10+).
+struct LibrarySection {
+    let title: String
+    let books: [AudiobookRecord]
+}
+
+/// Errors thrown by `LibraryService` query methods.
+enum LibraryError: Error {
+    /// The book's id could not be parsed to a URL and has no resolvable root.
+    case unresolvableBook(String)
+}
+
 /// Owns the on-device Library: registers folder roots, rescans them for books
 /// (cheap shallow upsert), and resolves a book's URL for opening. A launcher
 /// layer above the single-book player — it does not change playback.
@@ -213,5 +236,104 @@ struct LibraryService {
     private func coverFilename(for id: String) -> String {
         let digest = SHA256.hash(data: Data(id.utf8))
         return digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
+    }
+
+    // MARK: - Query
+
+    /// Returns all books ordered by `added_at` DESC. Filters out unavailable books
+    /// unless `includeUnavailable` is `true`.
+    func books(includeUnavailable: Bool) throws -> [AudiobookRecord] {
+        try db.writer.read { db in
+            var request = AudiobookRecord.order(Column("added_at").desc)
+            if !includeUnavailable {
+                request = request.filter(Column("is_available") == true)
+            }
+            return try request.fetchAll(db)
+        }
+    }
+
+    /// Returns books grouped into sections according to `axis`. Books within each
+    /// section are sorted by title; sections are sorted deterministically by key.
+    func sections(by axis: LibraryAxis, includeUnavailable: Bool) throws -> [LibrarySection] {
+        let all = try books(includeUnavailable: includeUnavailable)
+        switch axis {
+        case .recentlyAdded:
+            return [LibrarySection(title: "Recently Added", books: all)]
+        case .author:
+            return grouped(
+                all, key: { $0.authorSort ?? "unknown" },
+                title: { $0.author ?? "Unknown Author" })
+        case .topic:
+            return groupedByTopic(all)
+        case .folder:
+            return grouped(all, key: { rootKey(for: $0) }, title: { rootKey(for: $0) })
+        }
+    }
+
+    /// Resolves the folder URL to open this book, re-acquiring access through its
+    /// library root's security-scoped bookmark. Falls back to parsing `book.id` as
+    /// a URL string directly (for books not backed by a registered root).
+    func urlForOpening(_ book: AudiobookRecord) throws -> URL {
+        if let rootID = book.sourceRootID,
+            let root = try LibraryRootDAO(db: db.writer).get(rootID),
+            let resolved = LibraryAccess.resolveURL(from: root.bookmark)
+        {
+            _ = resolved.url.startAccessingSecurityScopedResource()
+            // book.id is stored as the folder's absoluteString (e.g. "file:///path/").
+            // URL(string:) correctly parses it, including percent-encoded characters,
+            // without the fragile replacingOccurrences approach in the brief.
+            guard let url = URL(string: book.id) else {
+                throw LibraryError.unresolvableBook(book.id)
+            }
+            return url.standardizedFileURL
+        }
+        guard let url = URL(string: book.id) else {
+            throw LibraryError.unresolvableBook(book.id)
+        }
+        return url
+    }
+
+    // MARK: - Private grouping helpers
+
+    /// Groups `books` by `key`, sorts sections by that key, and derives each
+    /// section's display title from the first book in the group.
+    private func grouped(
+        _ books: [AudiobookRecord],
+        key: (AudiobookRecord) -> String,
+        title: (AudiobookRecord) -> String
+    ) -> [LibrarySection] {
+        let groups = Dictionary(grouping: books, by: key)
+        return groups.keys.sorted().map { k in
+            let items = groups[k]!.sorted { $0.title < $1.title }
+            return LibrarySection(title: title(items[0]), books: items)
+        }
+    }
+
+    /// Groups books by each decoded topic tag; a book with multiple topics appears
+    /// in multiple sections.
+    private func groupedByTopic(_ books: [AudiobookRecord]) -> [LibrarySection] {
+        var byTopic: [String: [AudiobookRecord]] = [:]
+        for book in books {
+            for topic in decodeTopics(book.topicsJSON) {
+                byTopic[topic, default: []].append(book)
+            }
+        }
+        return byTopic.keys.sorted().map { topic in
+            LibrarySection(
+                title: topic, books: byTopic[topic]!.sorted { $0.title < $1.title })
+        }
+    }
+
+    /// Decodes a JSON array of topic strings from `json`. Returns `[]` on any failure.
+    private func decodeTopics(_ json: String?) -> [String] {
+        guard let json, let data = json.data(using: .utf8),
+            let topics = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return topics
+    }
+
+    /// Returns the parent folder name from the book's `id` URL for grouping by folder.
+    private func rootKey(for book: AudiobookRecord) -> String {
+        URL(string: book.id)?.deletingLastPathComponent().lastPathComponent ?? "Other"
     }
 }

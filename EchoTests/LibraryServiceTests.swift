@@ -106,4 +106,83 @@ struct LibraryServiceTests {
         #expect(try LibraryRootDAO(db: db.writer).get(root.id) != nil)
         #expect(root.bookmark.isEmpty == false)
     }
+
+    @Test func booksHidesUnavailableByDefault() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "a", title: "A", author: nil, duration: 0, fileCount: nil,
+                addedAt: "2026-06-27T00:00:00Z", isAvailable: true))
+        try dao.save(
+            AudiobookRecord(
+                id: "b", title: "B", author: nil, duration: 0, fileCount: nil,
+                addedAt: "2026-06-26T00:00:00Z", isAvailable: false))
+
+        let service = LibraryService(db: db)
+        #expect(try service.books(includeUnavailable: false).map(\.id) == ["a"])
+        #expect(try service.books(includeUnavailable: true).map(\.id).sorted() == ["a", "b"])
+    }
+
+    @Test func sectionsByAuthorGroupOnNormalizedKey() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "1", title: "X", author: "Tolkien, J.R.R.", duration: 0, fileCount: nil,
+                addedAt: "2026-06-27T00:00:00Z", isAvailable: true, authorSort: "j.r.r. tolkien"))
+        try dao.save(
+            AudiobookRecord(
+                id: "2", title: "Y", author: "J.R.R. Tolkien", duration: 0, fileCount: nil,
+                addedAt: "2026-06-26T00:00:00Z", isAvailable: true, authorSort: "j.r.r. tolkien"))
+
+        let service = LibraryService(db: db)
+        let sections = try service.sections(by: .author, includeUnavailable: false)
+        #expect(sections.count == 1)
+        #expect(sections.first?.books.count == 2)
+    }
+
+    @Test func urlForOpeningResolvesViaRoot() throws {
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+
+        // Create a REAL temp directory so the bookmark resolves.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-open-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+
+        // A child folder under the temp root.
+        let childURL = tmp.appendingPathComponent("MyBook", isDirectory: true)
+        try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
+
+        let book = AudiobookRecord(
+            id: childURL.absoluteString,
+            title: "MyBook",
+            author: nil,
+            duration: 0,
+            fileCount: nil,
+            addedAt: "2026-06-27T00:00:00Z",
+            isAvailable: true,
+            sourceRootID: root.id)
+        try AudiobookDAO(db: db.writer).save(book)
+
+        let resolved = try service.urlForOpening(book)
+        #expect(resolved.standardizedFileURL == childURL.standardizedFileURL)
+
+        // Fallback: book with no sourceRootID and a valid file:// id returns that URL.
+        let standaloneBook = AudiobookRecord(
+            id: childURL.absoluteString,
+            title: "StandaloneBook",
+            author: nil,
+            duration: 0,
+            fileCount: nil,
+            addedAt: "2026-06-27T00:00:00Z",
+            isAvailable: true,
+            sourceRootID: nil)
+        let fallback = try service.urlForOpening(standaloneBook)
+        #expect(fallback.standardizedFileURL == childURL.standardizedFileURL)
+    }
 }
