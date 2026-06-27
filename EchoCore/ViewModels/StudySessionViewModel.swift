@@ -85,6 +85,7 @@ final class StudySessionViewModel {
         do {
             try FlashcardDAO(db: db).grade(cardID: entry.flashcard.id, grade: grade.rawValue, now: now)
             logFlashcardReviewed(card: entry.flashcard, grade: grade.rawValue, now: now)
+            ReviewPromptManager.shared.recordActivationEvent(.studyCardReviewed, now: now)
             advance()
             updateReviewNotification(remainingReviewNotificationCount())
             NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)

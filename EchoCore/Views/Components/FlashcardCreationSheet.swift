@@ -199,6 +199,7 @@ struct FlashcardCreationSheet: View {
         do {
             try FlashcardDAO(db: db.writer).insert(card)
             onSave(cardID)
+            ReviewPromptManager.shared.recordActivationEvent(.flashcardCreated)
             return true
         } catch {
             os_log(.error, "Failed to save flashcard: %{public}@", error.localizedDescription)

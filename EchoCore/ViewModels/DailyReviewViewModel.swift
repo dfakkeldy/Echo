@@ -69,6 +69,7 @@ final class DailyReviewViewModel {
             let dao = FlashcardDAO(db: db)
             try dao.grade(cardID: card.id, grade: grade, now: Date())  // FSRS (DAO default)
             logFlashcardReviewed(card: card, grade: grade)
+            ReviewPromptManager.shared.recordActivationEvent(.flashcardReviewed)
             let remaining = dueCards.count - (currentIndex + 1)
             ReviewNotificationService.updateNotification(dueCount: remaining)
         } catch {

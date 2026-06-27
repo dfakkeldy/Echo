@@ -19,6 +19,7 @@ struct SettingsView: View {
     private let buildMetadata = AppBuildMetadata()
     @State private var showingDeckImporter = false
     @State private var showingAllStudyNotesExport = false
+    @State private var showingFeedback = false
     @State private var importAlert: (title: String, message: String)?
 
     #if DEBUG
@@ -121,9 +122,17 @@ struct SettingsView: View {
                         FeedbackSupportView()
                             .navigationTitle("Feedback & Support")
                     }
-                    NavigationLink("Help") {
+                    NavigationLink {
                         HelpView()
                             .navigationTitle("Help")
+                    } label: {
+                        Label("Help", systemImage: "questionmark.circle")
+                    }
+
+                    Button {
+                        showingFeedback = true
+                    } label: {
+                        Label("Send Feedback", systemImage: "bubble.left.and.text.bubble.right")
                     }
                 }
 
@@ -147,6 +156,9 @@ struct SettingsView: View {
             allowsMultipleSelection: false,
             onCompletion: handleImportResult
         )
+        .sheet(isPresented: $showingFeedback) {
+            FeedbackFormView()
+        }
         .sheet(isPresented: $showingAllStudyNotesExport) {
             if let writer = model.databaseService?.writer {
                 AllStudyNotesExportView(databaseWriter: writer)
