@@ -72,6 +72,7 @@ extension PlayerModel {
             type: .bookmarkCreated, title: bookmark.title, timestamp: t,
             sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
         captureLocationForBookmark(bookmark.id)
+        ReviewPromptManager.shared.recordActivationEvent(.bookmarkCreated)
         return bookmark
     }
 
@@ -112,6 +113,7 @@ extension PlayerModel {
             type: .bookmarkCreated, title: title, timestamp: timestamp,
             sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
         captureLocationForBookmark(bookmark.id)
+        ReviewPromptManager.shared.recordActivationEvent(.bookmarkCreated)
         return bookmark
     }
 

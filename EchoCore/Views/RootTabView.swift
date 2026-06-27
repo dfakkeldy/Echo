@@ -389,6 +389,7 @@ struct RootTabView: View {
             Text(documentImportPhase.failureMessage ?? "Import failed.")
         }
         .onAppear {
+            ReviewPromptManager.shared.recordSessionStart()
             model.setSettingsManager(settings)
             model.setDisplayScale(displayScale)
             model.restoreLastSelectionIfPossible()
@@ -418,7 +419,9 @@ struct RootTabView: View {
             pushNavigationDestination(destination)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background || newPhase == .inactive {
+            if newPhase == .active {
+                ReviewPromptManager.shared.recordSessionStart()
+            } else if newPhase == .background || newPhase == .inactive {
                 // Persist navigation paths
                 if let codable = nowPlayingPath.codable,
                     let data = try? JSONEncoder().encode(codable)
