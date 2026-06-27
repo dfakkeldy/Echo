@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new doc-automation-test test build-tests test-only hooks-test
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test test build-tests test-only hooks-test
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -19,6 +19,21 @@ architecture: ## Generate ARCHITECTURE.md from source tree
 whats-new: ## Draft nightly "What to Test" from commits since last weekly (stdout)
 	@PYTHONPATH=Scripts python3 -m doc_automation.whats_new \
 		--template fastlane/testflight/what_to_test.template.txt --out -
+
+devlog-update: ## Update generated weekly devlog blocks from the previous calendar week
+	@PYTHONPATH=Scripts python3 -m doc_automation.devlog \
+		--markdown docs/guides/devlog.md \
+		--html docs/devlog.html
+
+devlog-pr-body: ## Generate the review checklist and AI-assisted draft for the weekly devlog PR
+	@PYTHONPATH=Scripts python3 -m doc_automation.curate_devlog \
+		--project-name Echo \
+		--markdown docs/guides/devlog.md \
+		--html docs/devlog.html \
+		--repo-url https://github.com/dfakkeldy/Echo \
+		--extra-guidance "Echo is an audiobook study player. Avoid claiming public launch status, account creation, download counts, or revenue unless present in the factual digest." \
+		--extra-checklist "Verify any narration, reading, beta, or App Store claims against the linked commits before posting." \
+		--out "$${DEVLOG_PR_BODY:-devlog-pr-body.md}"
 
 doc-automation-test: ## Run the doc-automation Python unit tests
 	@PYTHONPATH=Scripts python3 -m unittest discover -s Scripts/doc_automation/tests -t Scripts -v

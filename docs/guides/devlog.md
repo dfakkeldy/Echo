@@ -6,6 +6,57 @@ It's all open source. You can audit every claim below: [github.com/dfakkeldy/Ech
 
 ---
 
+<!-- AUTO-DEVLOG:START -->
+## Automated update - Jun 15-21, 2026
+
+*Generated from 383 commits merged during the week.*
+
+### Shipped
+- Make Echo Pro a one-time unlock — remove subscription path ([e67e867](https://github.com/dfakkeldy/Echo/commit/e67e867))
+- Regenerate what_to_test.txt on nightly builds ([59d0da9](https://github.com/dfakkeldy/Echo/commit/59d0da9))
+- What_to_test template + make targets ([df313bf](https://github.com/dfakkeldy/Echo/commit/df313bf))
+- Whats_new CLI with fail-safe file write ([125d56b](https://github.com/dfakkeldy/Echo/commit/125d56b))
+- TestFlight renderer with 4000-char cap ([611cb9b](https://github.com/dfakkeldy/Echo/commit/611cb9b))
+- Commit change-extractor (changes.py) ([e5e2ebf](https://github.com/dfakkeldy/Echo/commit/e5e2ebf))
+- Ship all 28 English Kokoro voices + voice OOV fallback ([781d2b2](https://github.com/dfakkeldy/Echo/commit/781d2b2))
+- Show per-block prepare progress on the lock screen ([036f5e1](https://github.com/dfakkeldy/Echo/commit/036f5e1))
+- ...and 129 more shipped items.
+
+### Fixed
+- Use explicit weekly refspec in beta lane ([fc5ac92](https://github.com/dfakkeldy/Echo/commit/fc5ac92))
+- Align in-app & store copy with shipped features ([2126f27](https://github.com/dfakkeldy/Echo/commit/2126f27))
+- Shorten home-screen display name to "Echo" ([706e78f](https://github.com/dfakkeldy/Echo/commit/706e78f))
+- Karaoke + tap-to-seek + player theming (#4, #5, #6) ([4661e89](https://github.com/dfakkeldy/Echo/commit/4661e89))
+- One cache file per chapter in narrated .m4b export ([e38b70c](https://github.com/dfakkeldy/Echo/commit/e38b70c))
+- Don't group-distribute internal nightly builds to TestFlight ([85d9fb3](https://github.com/dfakkeldy/Echo/commit/85d9fb3))
+- Don't cache a failed ONNX prepare (un-brick narration) ([e1ab85c](https://github.com/dfakkeldy/Echo/commit/e1ab85c))
+- Resolve multi-m4b book time by file URL, not track index ([11ac8d8](https://github.com/dfakkeldy/Echo/commit/11ac8d8))
+- ...and 80 more fixed items.
+
+### Improved
+- Tune ONNX session (graph-opt + injectable intra-op threads) ([b1af352](https://github.com/dfakkeldy/Echo/commit/b1af352))
+- Coalesce per-chapter timeline reloads during narration ([63c4fce](https://github.com/dfakkeldy/Echo/commit/63c4fce))
+- Scope per-chapter word-timing rebuild to the chapter ([10451c3](https://github.com/dfakkeldy/Echo/commit/10451c3))
+- Parallelize Kokoro model download, stream to disk ([7f9b658](https://github.com/dfakkeldy/Echo/commit/7f9b658))
+- Cap duration-model compile + harden compile cache ([2f772a9](https://github.com/dfakkeldy/Echo/commit/2f772a9))
+- Cache compiled Kokoro .mlmodelc + report compile progress ([c59e573](https://github.com/dfakkeldy/Echo/commit/c59e573))
+- Finish-plan Phase 6 quick wins (§2.1, §7.2, §9.2) ([e318aaa](https://github.com/dfakkeldy/Echo/commit/e318aaa))
+- Stream synthesized chunks straight to disk (stream-to-sink) ([2f9afbf](https://github.com/dfakkeldy/Echo/commit/2f9afbf))
+- ...and 1 more improved item.
+
+### Build, docs, and housekeeping
+- Disable code signing for simulator test targets ([8a5440a](https://github.com/dfakkeldy/Echo/commit/8a5440a))
+- Document nightly What-to-Test auto-draft ([61a1baa](https://github.com/dfakkeldy/Echo/commit/61a1baa))
+- Nightly What-to-Test automation implementation plan ([83954cb](https://github.com/dfakkeldy/Echo/commit/83954cb))
+- Fix Anki/FSRS claims, add narration + Audiobookshelf product pages ([17417db](https://github.com/dfakkeldy/Echo/commit/17417db))
+- Add GPLv3 §7 App Store distribution exception ([f134f70](https://github.com/dfakkeldy/Echo/commit/f134f70))
+- Nightly What-to-Test automation design ([cbbbe77](https://github.com/dfakkeldy/Echo/commit/cbbbe77))
+- Surface m4b export + shipped features; fix stale SM-2→FSRS ([e628c3d](https://github.com/dfakkeldy/Echo/commit/e628c3d))
+- Sync narration docs for all-voices + voiced OOV fallback ([3177d9c](https://github.com/dfakkeldy/Echo/commit/3177d9c))
+- ...and 141 more housekeeping items.
+
+<!-- AUTO-DEVLOG:END -->
+
 ## Now — June 2026 · *The road to 1.0* (in progress)
 
 Most of the 1.0 program has now landed, build by build: the **listening capture layer** and the **Insights screen** (real listening time, streaks, chapter coverage, retention curves), opt-in **Context Memory** (place-tagged bookmarks and sessions), the full **Anki workflow** (decks, a card editor, the mark-later Card Inbox, Markdown and JSON export), and — the headline of the last two weeks — **on-device AI narration** that reads a text-only EPUB aloud in a neural voice, entirely offline. Echo also went **GPL-3.0**. What's left for 1.0: **Brain Dump notes** with watch dictation, deeper **Markdown second-brain export**, **Audiobookshelf sync**, and **iCloud study sync** — planned the same way everything else here was built: in public.

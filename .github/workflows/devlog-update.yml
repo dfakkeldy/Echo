@@ -1,0 +1,111 @@
+name: Devlog Update
+
+# GitHub schedule triggers run from the default branch only. This workflow checks
+# out the nightly train, updates the generated devlog block, then opens a PR
+# back to nightly so the release ladder stays intact.
+on:
+  schedule:
+    # Monday 01:00 America/Halifax. Halifax is UTC-3 during daylight time and
+    # UTC-4 during standard time, so both candidates are listed and guarded.
+    - cron: '0 4 * * 1'
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: devlog-update
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve Halifax schedule
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.schedule.outputs.should_run }}
+    steps:
+      - name: Keep only the active 01:00 Halifax cron
+        id: schedule
+        shell: bash
+        run: |
+          schedule="${{ github.event.schedule }}"
+          should_run=true
+
+          if [ -n "$schedule" ]; then
+            offset="$(TZ=America/Halifax date +%z)"
+            scheduled_hour="$(printf '%s\n' "$schedule" | awk '{ print $2 }')"
+            local_slot="$(TZ=America/Halifax date +%u-%H)"
+
+            case "$offset" in
+              -0300) active_hour=4 ;;
+              -0400) active_hour=5 ;;
+              *)
+                echo "::error title=Unexpected Halifax UTC offset::America/Halifax reported offset $offset."
+                exit 1
+                ;;
+            esac
+
+            if [ "$scheduled_hour" != "$active_hour" ] || [ "$local_slot" != "1-01" ]; then
+              should_run=false
+              echo "Skipping inactive or delayed cron '$schedule' for current Halifax slot $local_slot and offset $offset."
+            fi
+          fi
+
+          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
+
+  update:
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
+    name: Update devlog block
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      UPDATE_BRANCH: automation/devlog-${{ github.run_id }}
+    steps:
+      - name: Checkout nightly
+        uses: actions/checkout@v4
+        with:
+          ref: nightly
+          fetch-depth: 0
+
+      - name: Run doc automation tests
+        run: make doc-automation-test
+
+      - name: Generate weekly devlog update
+        run: make devlog-update
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if git diff --quiet -- docs/guides/devlog.md docs/devlog.html; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No devlog changes generated."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate PR review body
+        if: steps.diff.outputs.changed == 'true'
+        run: DEVLOG_PR_BODY="$RUNNER_TEMP/devlog-pr-body.md" make devlog-pr-body
+
+      - name: Commit generated update
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$UPDATE_BRANCH"
+          git add docs/guides/devlog.md docs/devlog.html
+          git commit -m "docs(devlog): weekly automated update"
+          git push origin "$UPDATE_BRANCH"
+
+      - name: Open nightly PR
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          gh pr create \
+            --base nightly \
+            --head "$UPDATE_BRANCH" \
+            --title "docs(devlog): weekly automated update" \
+            --body-file "$RUNNER_TEMP/devlog-pr-body.md"
