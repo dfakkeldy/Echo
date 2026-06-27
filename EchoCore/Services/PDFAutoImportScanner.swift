@@ -180,6 +180,19 @@ enum PDFAutoImportScanner {
                 audiobookID: audiobookID, blocks: blocks, fileURL: finalizerFileURL ?? pdfURL,
                 duration: duration, databaseService: databaseService)
             if finalized {
+                // Record each block's source page index (page mode auto-follow).
+                // try? so capture failure never aborts a successful import.
+                let mapping = PDFBlockPageMapper.map(
+                    blocks: blocks.map { (id: $0.id, text: $0.text ?? "") },
+                    pages: extractedText.pages)
+                let dao = PDFBlockPageDAO(db: databaseService.writer)
+                try? dao.deleteAll(for: audiobookID)
+                try? dao.insertAll(
+                    mapping.map {
+                        PDFBlockPageRecord(
+                            id: nil, audiobookID: audiobookID, epubBlockID: $0.blockID,
+                            pageIndex: $0.pageIndex)
+                    })
                 return .imported
             }
             return .failed(pdfURL, underlying: PDFAutoImportError.finalizationFailed(pdfURL))
@@ -293,7 +306,8 @@ enum PDFAutoImportScanner {
                 return
                     "No readable text found in PDF: \(PDFAutoImportScanner.sanitizedPath(url.path))"
             case .finalizationFailed(let url):
-                return "Could not save PDF text import: \(PDFAutoImportScanner.sanitizedPath(url.path))"
+                return
+                    "Could not save PDF text import: \(PDFAutoImportScanner.sanitizedPath(url.path))"
             }
         }
     }
