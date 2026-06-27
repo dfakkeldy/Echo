@@ -21,7 +21,7 @@ GOOD FIRST TESTS
 
 PRIVACY IN THE BETA
 
-Echo itself contains no analytics, no tracking, and no servers — in beta exactly as in release. TestFlight (Apple's beta system) does share crash reports and the feedback you choose to send with the developer; that's TestFlight's standard behavior, not Echo's. Full policy: dfakkeldy.github.io/Echo/privacy.html
+Echo itself contains no analytics, no tracking, and no servers — in beta exactly as in release. TestFlight (Apple's beta system) does share crash reports and the feedback you choose to send with the developer; that's TestFlight's standard behavior, not Echo's. Full policy: https://dfakkeldy.github.io/Echo/privacy.html
 
 Echo is open source (GPL-3.0): github.com/dfakkeldy/Echo
 Tester guide with full test plans: dfakkeldy.github.io/Echo/beta.html

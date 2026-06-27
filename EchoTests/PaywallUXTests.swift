@@ -24,6 +24,8 @@ struct PaywallUXTests {
         #expect(source.contains("Restore Purchases"))
         #expect(source.contains("Terms"))
         #expect(source.contains("Privacy"))
+        #expect(source.contains("FeedbackSupport.privacyPolicyURL"))
+        #expect(!source.contains("kinnokilabs.com/apps/echo/privacy"))
         #expect(source.contains("Open source — you can build it yourself."))
     }
 

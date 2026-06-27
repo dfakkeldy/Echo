@@ -5,6 +5,7 @@ enum FeedbackSupport {
     nonisolated static let supportEmail = "echo@kinnokilabs.com"
     nonisolated static let githubIssuesURL = URL(string: "https://github.com/dfakkeldy/Echo/issues")!
     nonisolated static let manualURL = URL(string: "https://dfakkeldy.github.io/Echo/manual.html")!
+    nonisolated static let privacyPolicyURL = URL(string: "https://dfakkeldy.github.io/Echo/privacy.html")!
 
     nonisolated static func emailURL(buildMetadata: AppBuildMetadata = AppBuildMetadata()) -> URL {
         var components = URLComponents()
