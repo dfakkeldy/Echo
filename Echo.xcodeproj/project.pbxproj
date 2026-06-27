@@ -327,6 +327,7 @@
 				Views/Components/UnifiedTopHeader.swift,
 				Views/Components/WordCloudView.swift,
 				Views/DashboardShelf.swift,
+				Views/DictionaryLookupPresenter.swift,
 				Views/EPUBHeadingPickerSheet.swift,
 				Views/ExportProgressView.swift,
 				Views/FeedCaptureBar.swift,
