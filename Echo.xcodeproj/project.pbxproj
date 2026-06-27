@@ -349,6 +349,7 @@
 				Views/NowPlayingLayout.swift,
 				Views/NowPlayingTab.swift,
 				Views/PDFDocumentView.swift,
+				Views/PDFReadingSurface.swift,
 				Views/PhonePlayerSettingsView.swift,
 				Views/PlaybackOptionsSheet.swift,
 				Views/PlayerMoreMenu.swift,
