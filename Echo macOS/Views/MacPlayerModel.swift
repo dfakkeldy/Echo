@@ -180,6 +180,8 @@ final class MacPlayerModel {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var currentScopedURL: URL?
+    private var libraryRootScopedURL: URL?
+    private var hasLibraryRootScope = false
     private let defaults = AppGroupDefaults.shared
     private let bookmarksKey = "mac.bookmarks.v1"
     private let lastFileKey = "mac.lastFileBookmark.v1"
@@ -241,6 +243,7 @@ final class MacPlayerModel {
                 NotificationCenter.default.removeObserver(endObserver)
             }
             currentScopedURL?.stopAccessingSecurityScopedResource()
+            stopLibraryRootScope()
         }
     }
 
@@ -286,7 +289,10 @@ final class MacPlayerModel {
         openFileRequestToken = UUID()
     }
 
-    func open(url: URL) {
+    func open(url: URL, preserveLibraryRoot: Bool = false) {
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
         // Stop any current playback before swapping files.
         stop()
 
@@ -397,7 +403,10 @@ final class MacPlayerModel {
         }
     }
 
-    func loadFolder(url folderURL: URL) {
+    func loadFolder(url folderURL: URL, preserveLibraryRoot: Bool = false) {
+        if !preserveLibraryRoot {
+            stopLibraryRootScope()
+        }
         let didStart = folderURL.startAccessingSecurityScopedResource()
         defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
 
@@ -424,7 +433,16 @@ final class MacPlayerModel {
         currentTrackIndex =
             loadResumeState()?
             .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
-        open(url: audioFiles[currentTrackIndex])
+        open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
+    }
+
+    func openLibraryBook(_ target: LibraryOpenTarget) {
+        if let scopedRoot = target.scopedRoot {
+            startLibraryRootScope(url: scopedRoot)
+        } else {
+            stopLibraryRootScope()
+        }
+        loadFolder(url: target.url, preserveLibraryRoot: true)
     }
 
     /// Loads a completed narrated book for playback by reading its rendered
@@ -617,6 +635,28 @@ final class MacPlayerModel {
         duration = 0
         sleepTimer.cancel()
         updateNowPlaying()
+    }
+
+    @discardableResult
+    private func startLibraryRootScope(url: URL) -> Bool {
+        if hasLibraryRootScope {
+            if libraryRootScopedURL == url { return true }
+            stopLibraryRootScope()
+        }
+        libraryRootScopedURL = url
+        hasLibraryRootScope = url.startAccessingSecurityScopedResource()
+        return hasLibraryRootScope
+    }
+
+    private func stopLibraryRootScope() {
+        guard hasLibraryRootScope, let libraryRootScopedURL else {
+            self.libraryRootScopedURL = nil
+            hasLibraryRootScope = false
+            return
+        }
+        libraryRootScopedURL.stopAccessingSecurityScopedResource()
+        self.libraryRootScopedURL = nil
+        hasLibraryRootScope = false
     }
 
     /// Updates the macOS Media Center (Now Playing) with current playback info.

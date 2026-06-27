@@ -21,6 +21,7 @@ import os.log
 /// - SeeAlso: `AppGroupDefaults` for shared settings.
 struct Persistence {
     static let securityScopedBookmarkDefaultsKey = "EchoAudiobooks.selection.bookmark"
+    static let lastLibraryBookIDDefaultsKey = "EchoAudiobooks.library.lastBookID"
 
     private let defaults: UserDefaults
     private let saveSecurityScopedBookmarkData: (Data) -> Bool
@@ -313,6 +314,16 @@ struct Persistence {
     func restoreBookmark() -> URL? {
         if case .restored(let url) = restoreBookmarkResult() { return url }
         return nil
+    }
+
+    // MARK: - Library Restore
+
+    func saveLastLibraryBook(id: String) {
+        defaults.set(id, forKey: Self.lastLibraryBookIDDefaultsKey)
+    }
+
+    func lastLibraryBookID() -> String? {
+        defaults.string(forKey: Self.lastLibraryBookIDDefaultsKey)
     }
 
     // MARK: - Bookmarks (Per-Book) Persistence

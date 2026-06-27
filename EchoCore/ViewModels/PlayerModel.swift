@@ -1085,7 +1085,7 @@ final class PlayerModel {
     /// - Parameters:
     ///   - url: The folder or file URL to load.
     ///   - autoplay: Whether to automatically begin playback after loading. Defaults to `true`.
-    func loadFolder(_ url: URL, autoplay: Bool = true) {
+    func loadFolder(_ url: URL, autoplay: Bool = true, persistBookmark: Bool = true) {
         // Stop narrating the previous book before its tracks are replaced, so a
         // stale render can't append chapters onto the newly loaded book, and
         // clear its narration playback state so the new book starts fresh.
@@ -1094,7 +1094,36 @@ final class PlayerModel {
         state.narrationRenderInFlight = false
         state.awaitingNarrationChapter = false
         narrationPlaybackState.reset()
-        playerLoadingCoordinator.loadFolder(url, autoplay: autoplay)
+        playerLoadingCoordinator.loadFolder(
+            url, autoplay: autoplay, persistBookmark: persistBookmark)
+    }
+
+    /// Opens a book resolved from the Library. A root-backed child book cannot be
+    /// independently bookmarked, so the root scope stays held while the player
+    /// loads the child and the per-book bookmark save is skipped.
+    func openLibraryBook(_ target: LibraryOpenTarget) {
+        if let root = target.scopedRoot {
+            securityScope.startLibraryRoot(url: root)
+        } else {
+            securityScope.stopLibraryRoot()
+        }
+        persistence.saveLastLibraryBook(id: target.url.absoluteString)
+        loadFolder(target.url, autoplay: false, persistBookmark: false)
+    }
+
+    func registerLibraryRoot(url: URL) async {
+        guard let db = databaseService else { return }
+        let service = LibraryService(db: db)
+        do {
+            let root = try service.registerRoot(url: url)
+            _ = try await service.rescan(
+                root: root,
+                readMetadata: { await LibraryScanner.readMetadata(for: $0) },
+                coversDir: FileLocations.libraryCoversDirectory)
+        } catch {
+            Logger(category: "LibraryRegistration")
+                .error("registerLibraryRoot failed: \(error.localizedDescription)")
+        }
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,
@@ -1120,8 +1149,7 @@ final class PlayerModel {
     }
 
     /// Restores the last selected folder or file from a security-scoped bookmark,
-    /// loading it without autoplay. Falls back to sample content in DEBUG simulator
-    /// builds when no persisted selection exists.
+    /// loading it without autoplay.
     func restoreLastSelectionIfPossible() {
         switch persistence.restoreBookmarkResult() {
         case .restored(let url):
@@ -1129,12 +1157,19 @@ final class PlayerModel {
         case .missing:
             showingMissingBookWarning = true
         case .none:
-            #if DEBUG && targetEnvironment(simulator)
-                if let sampleURL = MockMediaProvider.sampleAudiobookURL() {
-                    loadFolder(sampleURL, autoplay: false)
-                }
-            #endif
+            restoreLastLibraryBookIfPossible()
         }
+    }
+
+    @discardableResult
+    private func restoreLastLibraryBookIfPossible() -> Bool {
+        guard let bookID = persistence.lastLibraryBookID(),
+            let db = databaseService,
+            let book = try? AudiobookDAO(db: db.writer).get(bookID),
+            let target = try? LibraryService(db: db).urlForOpening(book)
+        else { return false }
+        openLibraryBook(target)
+        return true
     }
 
     /// Sets up or tears down the continuous alignment service.

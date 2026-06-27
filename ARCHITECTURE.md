@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-13 22:20:36
+**Last generated:** 2026-06-27 12:06:54
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -31,33 +31,103 @@ Localizable.xcstrings
 Models/AggregatedChapter.swift
 Models/Chapter.swift
 Models/EchoPlaylistManifest.swift
+Models/FeedItemInjector.swift
 Models/FlashcardDeckImport.swift
 Models/LoopMode.swift
 Models/M4BBook.swift
+Models/NavigationDestinations.swift
 Models/Note.swift
 Models/PlayerDeepLink.swift
 Models/ReaderCardItem.swift
+Models/ReaderFeedDisplayBuilder+Filter.swift
+Models/ReaderFeedDisplayBuilder.swift
 Models/RealTimeEventType.swift
 Models/SleepTimerMode.swift
 Models/SpeedSuggestion.swift
 Models/ThemeColor.swift
 Models/Track.swift
 PrivacyInfo.xcprivacy
-Protocols/PlayerModelComponentProtocols.swift
-Protocols/SettingsManagerProtocol.swift
-Protocols/StoreManagerProtocol.swift
+Resources/af_alloy.f32
+Resources/af_alloy.rows
+Resources/af_aoede.f32
+Resources/af_aoede.rows
+Resources/af_bella.f32
+Resources/af_bella.rows
+Resources/af_heart.f32
+Resources/af_heart.rows
+Resources/af_jessica.f32
+Resources/af_jessica.rows
+Resources/af_kore.f32
+Resources/af_kore.rows
+Resources/af_nicole.f32
+Resources/af_nicole.rows
+Resources/af_nova.f32
+Resources/af_nova.rows
+Resources/af_river.f32
+Resources/af_river.rows
+Resources/af_sarah.f32
+Resources/af_sarah.rows
+Resources/af_sky.f32
+Resources/af_sky.rows
+Resources/am_adam.f32
+Resources/am_adam.rows
+Resources/am_echo.f32
+Resources/am_echo.rows
+Resources/am_eric.f32
+Resources/am_eric.rows
+Resources/am_fenrir.f32
+Resources/am_fenrir.rows
+Resources/am_liam.f32
+Resources/am_liam.rows
+Resources/am_michael.f32
+Resources/am_michael.rows
+Resources/am_onyx.f32
+Resources/am_onyx.rows
+Resources/am_puck.f32
+Resources/am_puck.rows
+Resources/am_santa.f32
+Resources/am_santa.rows
+Resources/bf_alice.f32
+Resources/bf_alice.rows
+Resources/bf_emma.f32
+Resources/bf_emma.rows
+Resources/bf_isabella.f32
+Resources/bf_isabella.rows
+Resources/bf_lily.f32
+Resources/bf_lily.rows
+Resources/bm_daniel.f32
+Resources/bm_daniel.rows
+Resources/bm_fable.f32
+Resources/bm_fable.rows
+Resources/bm_george.f32
+Resources/bm_george.rows
+Resources/bm_lewis.f32
+Resources/bm_lewis.rows
 Services/AlignmentChunkPlanner.swift
 Services/AlignmentService.swift
+Services/AlignmentSidecar.swift
 Services/AlignmentTranscript.swift
 Services/AnchorSelector.swift
 Services/ApkgExportService.swift
+Services/ApkgIDAllocator.swift
 Services/ApkgImportService.swift
 Services/ArtworkCache.swift
 Services/AudioEngine.swift
 Services/AudioSegmentReader.swift
+Services/Audiobookshelf/ABSCertificateFingerprint.swift
+Services/Audiobookshelf/ABSEndpoints.swift
+Services/Audiobookshelf/ABSImportService.swift
+Services/Audiobookshelf/ABSModels.swift
+Services/Audiobookshelf/ABSProgressReconciler.swift
+Services/Audiobookshelf/ABSProgressSync.swift
+Services/Audiobookshelf/ABSServerTrust.swift
+Services/Audiobookshelf/ABSServerTrustEvaluator.swift
+Services/Audiobookshelf/ABSTokenStore.swift
+Services/Audiobookshelf/AudiobookshelfService.swift
 Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
+Services/AutoAlignmentWorker.swift
 Services/BookPreferencesService.swift
 Services/BookSettingsOverrideStore.swift
 Services/BookmarkArtworkCoordinator.swift
@@ -70,28 +140,82 @@ Services/ChapterTitleMatcher.swift
 Services/CloudKitSyncService.swift
 Services/ContinuousAlignmentService.swift
 Services/CoverThemeBuilder.swift
+Services/DeckImportResult.swift
 Services/DeckImportService.swift
 Services/DeepLinkHandler.swift
 Services/DefaultChimePlayer.swift
 Services/DefaultSoundscapeMixer.swift
 Services/DefaultVisualizerTap.swift
+Services/DocumentImportFinalizer.swift
 Services/DominantColorExtractor.swift
 Services/EPUBAssetStorage.swift
 Services/EPUBAutoImportScanner.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
+Services/EPUBSourceAnchorResolver.swift
+Services/Export/AudioExportService.swift
+Services/Export/ExportFileName.swift
+Services/Export/ExportMetadata+Completeness.swift
+Services/Export/ExportMetadata.swift
+Services/Export/ExportMetadataResolver.swift
+Services/Export/ExportSource.swift
+Services/Export/ExportSourceResolver.swift
+Services/Export/ImportedBookSource.swift
+Services/Export/M4BRetagger.swift
+Services/Export/NarrationCacheSource.swift
+Services/Library/LibraryAccess.swift
+Services/Library/LibraryScanner.swift
+Services/Library/LibraryService.swift
 Services/LocationCaptureService.swift
 Services/M4BParser.swift
 Services/MacPlaybackLogic.swift
+Services/MetricKitDiagnosticsArchive.swift
+Services/MetricKitDiagnosticsController.swift
 Services/MockMediaProvider.swift
 Services/ModelRetainBox.swift
+Services/Narration/AVFoundationAudioWriter.swift
 Services/Narration/AudioFileWriting.swift
+Services/Narration/AudioMarkerStub.swift
+Services/Narration/EpubCoverResolver.swift
+Services/Narration/HeadlessNarrationRunner.swift
+Services/Narration/KokoroFrontEnd.swift
+Services/Narration/KokoroG2P.swift
+Services/Narration/KokoroPhonemeVocab.swift
+Services/Narration/KokoroVoicePack.swift
+Services/Narration/KokoroWordTimer.swift
+Services/Narration/MisakiResources/us_gold.json
+Services/Narration/MisakiResources/us_silver.json
+Services/Narration/NarrationCache.swift
+Services/Narration/NarrationCapability.swift
+Services/Narration/NarrationChapterPlanner.swift
+Services/Narration/NarrationEngineFactory.swift
+Services/Narration/NarrationEntitlementCounter.swift
+Services/Narration/NarrationFileNaming.swift
+Services/Narration/NarrationOutlineBuilder.swift
+Services/Narration/NarrationProgressText.swift
+Services/Narration/NarrationRenderPolicy.swift
+Services/Narration/NarrationResources.swift
+Services/Narration/NarrationSegmentAssembly.swift
+Services/Narration/NarrationSegmentCache.swift
+Services/Narration/NarrationSegmentPlanner.swift
+Services/Narration/NarrationSegmentReadiness.swift
 Services/Narration/NarrationService.swift
+Services/Narration/NarrationSilenceGuard.swift
 Services/Narration/NarrationState.swift
-Services/Narration/TextNormalizer.swift
+Services/Narration/NarrationTextChunker.swift
+Services/Narration/NarrationWordTimingAssembler.swift
+Services/Narration/OnnxKokoroEngine.swift
+Services/Narration/ProgressFanOut.swift
+Services/Narration/PronunciationOverrideStore.swift
+Services/Narration/PronunciationOverrides.swift
 Services/Narration/TTSEngine.swift
+Services/Narration/TextNormalizer.swift
 Services/Narration/VoiceCatalog.swift
+Services/Narration/_kokoro_vocab.json
+Services/Narration/kokoro_dur_head.onnx
 Services/NowPlayingController.swift
+Services/OffStateResolver.swift
+Services/PDFAutoImportScanner.swift
 Services/PDFImportCoordinator.swift
 Services/Persistence.swift
 Services/PlaybackController.swift
@@ -110,18 +234,27 @@ Services/SleepTimerManager.swift
 Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
 Services/StandaloneTranscriptionService.swift
+Services/Store/FoundersWindow.swift
+Services/Store/FreeTierGate.swift
+Services/Store/ProEntitlement.swift
+Services/Store/ProductIDs.swift
 Services/StoreManager.swift
+Services/StudyNotesExportDatabaseSource.swift
 Services/StudyNotesExportService.swift
 Services/TOCTreeBuilder.swift
+Services/TextAutoImportScanner.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
 Services/TokenDTW.swift
 Services/TranscriptService.swift
+Services/VoiceMemoRecorder.swift
 Services/WatchCommandRouter.swift
 Services/WatchConnectivityCoordinator.swift
 Services/WatchStateContextBuilder.swift
 Services/WatchSyncManager.swift
 Services/WhisperSession.swift
+Services/WordTimingMaterializer.swift
+Services/WordTimingRefiner.swift
 State/PlaybackState.swift
 Utilities/ColorMetrics.swift
 Utilities/FolderPicker.swift
@@ -129,13 +262,24 @@ Utilities/OKLCH.swift
 Utilities/ViewModifiers.swift
 Utilities/WordFrequencyComputer.swift
 ViewModels/DailyReviewViewModel.swift
+ViewModels/KaraokeHighlightTransition.swift
+ViewModels/LibraryRootsViewModel.swift
+ViewModels/LibraryViewModel.swift
+ViewModels/PlayerModel+Audiobookshelf.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+MarkedPassages.swift
+ViewModels/PlayerModel+Narration.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
 ViewModels/PlayerModel+WatchState.swift
 ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
+ViewModels/SessionRecapViewModel.swift
+ViewModels/StudyPlanViewModel.swift
+ViewModels/StudySessionViewModel.swift
+Views/ABSBrowseView.swift
+Views/ABSConnectionsSettingsView.swift
+Views/AllStudyNotesExportView.swift
 Views/AppIconSelectionView.swift
 Views/AutoAlignmentProgressView.swift
 Views/BookSettingsView.swift
@@ -164,6 +308,10 @@ Views/Components/UnifiedTopHeader.swift
 Views/Components/WordCloudView.swift
 Views/DashboardShelf.swift
 Views/EPUBHeadingPickerSheet.swift
+Views/ExportDetailsSheet.swift
+Views/ExportProgressView.swift
+Views/FeedCaptureBar.swift
+Views/FeedbackSupportView.swift
 Views/Fidget/BubblePopView.swift
 Views/Fidget/DoodlePadView.swift
 Views/Fidget/FidgetOverlayView.swift
@@ -175,20 +323,32 @@ Views/FlashcardReviewSession.swift
 Views/FontSelectionView.swift
 Views/HelpContent.swift
 Views/HelpView.swift
+Views/Library/LibraryBrowseByView.swift
+Views/Library/LibraryCoverCell.swift
+Views/Library/LibraryCoverImage.swift
+Views/Library/LibraryShelfGrid.swift
+Views/Library/LibraryStatusDot.swift
+Views/Library/LibraryView.swift
+Views/Library/ManageRootsView.swift
 Views/ListeningProgressModuleView.swift
 Views/ManualAlignmentSheet.swift
+Views/Narration/NarrationNudgeView.swift
+Views/Narration/NarrationStatusView.swift
+Views/Narration/VoicePickerView.swift
 Views/NoteEditorView.swift
+Views/NoteFeedCell.swift
 Views/NowPlayingLayout.swift
 Views/NowPlayingTab.swift
-Views/OnboardingView.swift
 Views/PDFDocumentView.swift
+Views/Paywall/PaywallContext.swift
+Views/Paywall/PaywallView.swift
 Views/PhonePlayerSettingsView.swift
 Views/PlaybackOptionsSheet.swift
 Views/PlayerMoreMenu.swift
 Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
-Views/PlaylistView.swift
 Views/ProTranscriptsSettingsView.swift
+Views/PronunciationDictionaryView.swift
 Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
@@ -197,6 +357,8 @@ Views/ReaderTab+Alignment.swift
 Views/ReaderTab.swift
 Views/RootTabView.swift
 Views/ScrubberJoystick.swift
+Views/SessionDetailFeedView.swift
+Views/SessionsListView.swift
 Views/SettingsAdvancedView.swift
 Views/SettingsAppearanceView.swift
 Views/SettingsView.swift
@@ -213,6 +375,10 @@ Views/Stats/StatCardView.swift
 Views/Stats/StatsView.swift
 Views/StatsModuleView.swift
 Views/StreakModuleView.swift
+Views/StudyAssignmentCardView.swift
+Views/StudyNotesExportView.swift
+Views/StudyPlanSheet.swift
+Views/StudySessionView.swift
 Views/ThemeSelectionView.swift
 Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
@@ -221,6 +387,7 @@ Views/Visualizer/VisualizerPickerView.swift
 Views/Visualizer/VisualizerShaders.metal
 Views/Visualizer/VisualizerStyle.swift
 Views/Visualizer/VisualizerView.swift
+Views/VoiceMemoFeedCell.swift
 Views/VoiceMemoOverlayView.swift
 Views/WatchAppSettingsView.swift
 ```
@@ -239,7 +406,11 @@ Services/MacApkgExportService.swift
 Services/MacAudioBoostTap.swift
 Services/MacBatchProcessingService.swift
 Views/MacAnkiExportView.swift
+Views/MacAudioExportView.swift
 Views/MacBatchQueueView.swift
+Views/MacBookmarkReviewView.swift
+Views/MacExportDetailsView.swift
+Views/MacLibraryView.swift
 Views/MacNotesPane.swift
 Views/MacPlaybackOptionsSheet.swift
 Views/MacPlayerModel.swift
@@ -253,71 +424,6 @@ Views/TranscriptStore.swift
 Views/TranscriptionManager.swift
 ```
 
-The macOS app is rooted in `MacTriPaneView` (a `NavigationSplitView`/tri-pane layout), with a separate `Settings { MacSettingsView() }` scene (⌘,). `MacPlayerModel` is a self-contained `@Observable` model wrapping a raw `AVPlayer` — it is **independent of the iOS `PlaybackController`** (which is not compiled into the macOS target), so macOS builds no global cross-file chapter timeline. As of the BookPlayer-style redesign (June 2026) `MacPlayerModel` gained a chapter axis, a 3-way loop, a configurable skip interval, above-unity volume boost, and `SettingsManager` consumption:
-
-- **Chapter axis.** On file open it parses M4B chapter markers via the shared `ChapterService.parseChapters(from:)` (token-guarded async) and derives the active chapter from the periodic time observer via `ChapterService.chapterIndex(forTime:in:)`, exposing `chapters` / `currentChapterIndex` (`private(set)`) plus `nextChapter()` / `previousChapter()` / `seekToChapter(_:)`. Axis reconciliation: chapter nav drives *within* a file when it has ≥2 M4B chapters, else falls back to across-file track nav. The ⌘←/⌘→ "Previous/Next Chapter" menu commands now perform real chapter navigation (they previously called track methods despite their labels).
-- **3-way loop + end-of-chapter sleep.** `loopMode: LoopMode`; the time observer calls `handleChapterBoundary()` **before** the active-chapter refresh (so the boundary is detected on the pre-advancement index), delegating to the pure, unit-tested `MacChapterLoopDecision.evaluate(...)` in `EchoCore/Services/MacPlaybackLogic.swift`. The `.bookmark` (A→B) loop is enforced on the same tick by `handleBookmarkLoop()`, delegating to the pure `MacBookmarkLoopDecision.seekBackTarget(...)` (mirrors iOS `PlaybackController.applyBookmarkLoopIfNeeded`: repeat the segment between the two bookmarks bracketing the playhead); the `MacPlaybackOptionsSheet` demotes `.bookmark` → `.off` when the book has no bookmarks.
-- **Configurable skip interval** (`skipInterval`, default 15) threaded through the player bar and Playback menu commands.
-- **Volume boost above unity** (which `AVAudioMix` volume cannot reach) via an `MTAudioProcessingTap` (`Services/MacAudioBoostTap.swift`) that multiplies samples by a linear gain read live from a shared box; an ASBD `prepare`-callback guard degrades to clean passthrough on non-float-PCM routes. The dB→linear math is the pure `MacVolumeBoost.linearGain` (also in `MacPlaybackLogic.swift`).
-- **Settings.** `Echo_macOSApp` injects a shared `SettingsManager` into both the main `WindowGroup` and the `Settings` scene, applies `.preferredColorScheme` from `settings.appAppearance`, applies static `themeColor` choices as the window tint, and installs the persisted `appFont` as the default body font. `MacPlayerModel.settings` (injected once by `MacTriPaneView.task`, mirroring the `dbService` pattern) adopts the persisted skip interval and default speed. `MacSettingsView` is a native Preferences `TabView` (Appearance + Playback panes binding the shared `SettingsManager`; no Pro/StoreKit pane — macOS has none). The main tri-pane chrome and Mac reader feed/card text also use the configured accessibility font.
-- **Player bar.** `MacTriPaneView`'s player bar replaced the track label with a `< Chapter Title >` chevron nav bar, the inline speed `Picker` with a button that opens `MacPlaybackOptionsSheet` (a `.popover` — speed / loop / skip / boost + a Smart Rewind `SettingsLink`), and relocated the inline sleep menu into `MacPlayerMoreMenu` (chapters / bookmarks / add-bookmark / mark-passage / sleep / Settings).
-
-### macOS Batch Processing Queue (June 2026)
-
-The Mac app can process an entire folder of audiobooks unattended. A small `FolderAudioScanner` recursively scans a user-picked folder and **enqueues** each audio file (with its companion EPUB) into a persistent queue; `MacBatchProcessingService` drains it one book at a time through the real **import → transcribe → align** pipeline. (This replaced the earlier inline, in-memory "Bulk Align Folder…" flow — the dead `MacBulkAlignmentService` and its progress sheet `MacBulkAlignmentProgressView` were removed once the queue UI shipped.)
-
-- **Durable queue (`batch_queue`, Schema V20).** `BatchQueueRecord` / `BatchQueueDAO` persist queue position, status, and (nullable) security-scoped bookmarks. `batch_queue.audiobook_id` deliberately has **no** FK — entries legitimately reference not-yet-imported books. The pure, testable `BatchQueueRunner` (`Shared/`) drains the queue FIFO, isolates per-book failures (a throw marks that item `.failed` and processing continues), and on relaunch `recoverInFlight()` resets any `importing`/`transcribing`/`aligning` item back to `queued` so the queue resumes cleanly.
-- **Sandbox-correct file access.** The Mac app is sandboxed (`app-sandbox` + `files.user-selected.read-write` + `files.bookmarks.app-scope`), so each audio file's security-scoped bookmark is captured at enqueue, and a **separate bookmark for the sibling companion EPUB** is captured at the same moment — while the user-picked folder's scope is still live. Both are resolved and `startAccessingSecurityScopedResource()`-balanced (with `defer` stops) during processing. A book whose import produces **no** EPUB blocks is marked `.failed` rather than silently completing empty.
-- **Two item kinds (`batch_queue.kind`, Schema V21).** `kind` (additive `ALTER ADD … DEFAULT 'align'`) discriminates audiobook-alignment items (`.align`, the original import→transcribe→align) from text-only **EPUB narration** items (`.narrate`). `makeStages()` branches on `kind`: a `.narrate` item bookmarks the EPUB itself as its source, imports the EPUB's blocks (no audio), and synthesizes each chapter on-device via `NarrationService` (see *On-Device Narration*), reusing the same `BatchQueueRunner` failure isolation + restart recovery. `BatchItemKind` decodes forward-compatibly (an unknown future kind falls back to `.align` rather than crashing an older build). `FolderAudioScanner.enqueueEPUBsForNarration` and `MacBatchProcessingService.enqueueNarration(epubURL:)` enqueue them.
-- **UI.** `MacBatchQueueView` shows per-item status/progress (and an **Open** button on a completed `.narrate` book that loads it into the player); `Echo_macOSApp` adds a **Batch** command menu (Open Batch Queue / Add Folder to Queue / **Narrate EPUB(s)…** ⌘⌥N) and calls `resumeOnLaunch()` from the main window's `.task`.
-
-### Audiobookshelf Integration — download-to-local (June 2026)
-
-Echo can connect to a self-hosted **Audiobookshelf (ABS)** server and download books directly into the local study pipeline. The design is **download-to-local, not streaming** — streaming remains deferred post-1.0 because Echo's audio engine reads via `AVAudioFile(forReading:)` (local files only) and the study differentiators (alignment, phrase search, karaoke, flashcards) depend on a local folder identity.
-
-**Architecture overview:**
-
-- **`AudiobookshelfService`** (`@MainActor` class, injected `URLSession`, no protocol — matches the concrete-type DI style) speaks the ABS HTTP API: authenticate, browse libraries/items, search, download whole-item zips, and push/pull media progress. Auth uses JWT + serialized refresh-with-rotation (the rotated token is persisted on every response to avoid self-invalidation). Bare host input defaults to `https://`; plaintext LAN/tailnet `http://` only happens when the user types the scheme explicitly and confirms before Echo sends credentials, and connected HTTP servers remain visibly marked as unencrypted. Both app targets (iOS `EchoCore/Info.plist`, macOS `Echo macOS/Info.plist`) still declare `NSAppTransportSecurity → NSAllowsArbitraryLoads = true` because confirmed ABS hosts are user-supplied and can be arbitrary LAN/VPN/Tailscale addresses; a narrower `NSAllowsLocalNetworking` or per-domain exception is insufficient for Tailscale's CGNAT range (`100.64.0.0/10`), which ATS does not classify as local. **Self-signed HTTPS** remains the recommended local path and is supported via opt-in, per-server **trust-on-first-use certificate pinning**: on first connect the user is shown the cert's SHA-256 fingerprint and, on approval, Echo pins that exact leaf certificate (stored in the server's Keychain namespace — no schema migration) and accepts it only for the configured host. CA-trusted HTTPS validates normally with no prompt. A pinned cert that later changes fails closed (sign out and reconnect to re-trust). *Known limitation:* cover thumbnails on a self-signed server don't load, because `AsyncImage` fetches via `URLSession.shared` (which can't use the pinning delegate); connect, browse, search, download, and progress all work.
-- **`ABSImportService`** (or the download coordinator) receives the downloaded zip, unzips it into `Application Support/ABSLibrary/<remoteItemID>/` (an app-owned folder, no security-scoped bookmarks needed), stamps provenance columns on the `AudiobookRecord`, and hands the resulting folder to the existing `PlayerLoadingCoordinator.loadFolder` unchanged — so M4B chapter parsing, `EPUBAutoImportScanner` sibling discovery, alignment, flashcards, and phrase search all fire with zero pipeline changes.
-- **`ABSProgressReconciler`** implements a last-write-wins (ABS-authoritative) strategy: progress pushes are throttled (~15–30 s) while playing; on book open the reconciler compares local `updatedAt` against ABS `lastUpdate` and re-seeks if ABS is newer. The pull re-seek is single-track-only in v1. *The pure reconciler logic is unit-tested; live playback wiring is device-unverified as of the initial branch.*
-- **Background-task grace window:** a `beginBackgroundTask` call keeps an in-flight download alive when the user backgrounds the app during a download. This is *not* a full `URLSessionConfiguration.background` session — the ABS zip endpoint lacks `Content-Length`/range headers, so true background-session resumption (progress survives process termination) is a documented future enhancement.
-- **Anchor-reuse:** `CloudKitSyncService.downloadAnchors` keys shared anchors on `title+author+duration` (not `audiobookID`), so a book re-downloaded from ABS inherits prior WhisperKit alignment anchors that another device already computed. The provenance columns carry the real ABS title/author so the lookup key matches.
-
-**Schema V23** adds four nullable columns to `audiobook`: `source_type` (TEXT — `"abs"` for ABS-sourced books, `NULL` for local), `server_id` (TEXT), `remote_item_id` (TEXT), and `topics_json` (TEXT — serialized ABS genres/tags for local topic filtering). All are additive `ALTER TABLE ADD COLUMN` statements; no re-import or re-alignment is needed for existing books.
-
-**Platform split:** iOS UI is fully built (Settings ▸ Library Sources connect/browse sheet, search, "Add from Audiobookshelf" download action). The macOS target compiles the service layer but the macOS ABS UI is a fast-follow (not yet wired).
-
-**Credential storage:** the ABS JWT is stored in `KeychainStore` (never in SQLite). The `abs_server` table (Schema V18; existing) holds `baseURL`, `username`, and `defaultLibraryId`; V23 carries the per-book provenance on `audiobook`.
-
-### On-Device Library — Data + Service Foundation (June 2026)
-
-Echo today is single-book-at-a-time: `PlayerModel` holds one `folderURL` and opening another book replaces it. The Library feature adds a **launcher layer above the existing player** — a browsable shelf and rescannable folder "roots" (like foobar2000 mobile). Selecting a book re-acquires file access and calls the existing `loadFolder(url:)`. **Playback and the single-book model are untouched.** As of this branch only the data model and services are implemented (Milestones 1–2); the Library tab, smart-landing logic, and roots/missing-file screens are Milestones 3–4 (**no Library UI exists yet**).
-
-**Architecture — four new units, all in `Shared/` / `EchoCore/`:**
-
-- **`LibraryService`** (`@MainActor` struct, injected `DatabaseService`, no protocol — concrete-type DI matching the codebase pattern): `registerRoot`, two `rescan` overloads (a cheap shallow upsert + an async metadata-enriching overload that reads `AVAsset` common metadata and writes SHA-256–named cover files); both hide vanished books by flipping `is_available = false` — **books are never deleted by a rescan**. `books(includeUnavailable:)` lists the shelf; `sections(by:)` groups it by six axes: Recently Added, Author, Topic, Folder, Study status, and Processing status. `urlForOpening(book:)` resolve-only: it does *not* start-access the scope — instead it returns a `LibraryOpenTarget { url, scopedRoot }` and the future player code owns the security-scope lifecycle, keeping a clean separation between library reads and player startup. Derived status is computed from existing tables: study ← `playback_state.last_position` vs `audiobook.duration`; narrated ← `track.narration_voice`; transcribed ← `transcription_segment`; aligned ← `alignment_anchor` COUNT > 2 (the 2 default seed anchors don't count). `// FIXME(M3)` comments mark the rescan overloads and per-book status derivation as `@MainActor` stubs to be moved off the main actor in M3.
-- **`LibraryScanner`** (pure enum): recursive book discovery (one audio-bearing folder = one book; document-only EPUB/MD/TXT folders are skipped) + a cheap per-book `AVAsset` metadata read (title/author/duration/cover image, written as a SHA-256–named file in a `LibraryCovers/` caches directory). The expensive import path (chapter parsing, EPUB block extraction, alignment) is **deferred to first open** via `index_state = 0` — a rescan only makes the shelf real, it never triggers the study pipeline.
-- **`LibraryAccess`**: security-scoped bookmark make/resolve + author-sort normalization (trims, flips `"Last, First"` → `"First Last"`, lowercases). Per-**root** bookmarks exploit iOS's recursive `.folder` grant — one bookmark for a root folder unlocks access to every book inside it, so the number of persisted bookmarks grows with the number of roots, not the number of books.
-- **`LibraryRootDAO`** / **`LibraryRootRecord`**: GRDB persistence for the `library_root` table.
-
-**Schema V27** (`Shared/Database/Migrations/Schema_V27.swift`) — strictly additive `ALTER TABLE ADD COLUMN` on `audiobook`:
-
-| Column | Type | Purpose |
-|---|---|---|
-| `cover_art_path` | TEXT? | Cached cover image (relative path in `LibraryCovers/` caches dir; nil → generated placeholder) |
-| `narrator` | TEXT? | From `AVAsset` common metadata |
-| `index_state` | INT DEFAULT 0 | `0` = metadata-only (shelf); `1` = full import done on first open |
-| `is_available` | BOOL DEFAULT 1 | `false` = file not found at last rescan; never auto-deleted |
-| `last_seen_at` | TEXT? | ISO-8601 timestamp of last successful rescan |
-| `author_sort` | TEXT? | Normalized author grouping key (`"Last, First"` → `"First Last"`, lowercased) |
-| `source_root_id` | TEXT? | The `library_root.id` this book was discovered under (plain column — not an enforced FK; SQLite can't add one via `ALTER`, and root removal clears it in code) |
-
-Plus the new `library_root` table (`id`, `display_name`, `bookmark` BLOB, `added_at`, `last_scanned_at`) and three indexes. All columns carry defaults or are nullable, so the migration ships **inert** to existing users — no code path yet reads these columns in the shipped app, no re-import, no re-alignment.
-
-**Test coverage:** `LibraryServiceTests` (~13 cases), `SchemaV27Tests`, `AudiobookRecordLibraryFieldsTests`, `LibraryRootDAOTests`, `LibraryAccessTests`, `LibraryScannerTests` — built test-first against an in-memory `DatabaseService`.
-
-Design spec: `docs/superpowers/specs/2026-06-26-local-library-design.md`; implementation plan: `docs/superpowers/plans/2026-06-27-local-library-implementation.md`.
-
 ## Echo Watch App
 
 ```
@@ -328,6 +434,7 @@ Models/WatchBookmark.swift
 PrivacyInfo.xcprivacy
 Services/WatchViewModel.swift
 Services/WatchVoiceMemoRecorder.swift
+Services/WatchWakeRefreshPolicy.swift
 Views/Bookmarks.swift
 Views/Components/PomodoroButton.swift
 Views/Components/ToggleTraitModifier.swift
@@ -342,70 +449,112 @@ Views/WatchReviewView.swift
 
 ```
 AnimationDurations.swift
+AppBuildMetadata.swift
 AppGroupDefaults.swift
 ArchiveExtractionLimits.swift
+BatchQueueRunner.swift
+BookmarkReviewItem.swift
+CardTapDecision.swift
 ChimeSound.swift
 Database/AlignmentAnchorRecord.swift
+Database/BatchQueueRecord.swift
 Database/BookmarkRecord.swift
 Database/ChapterRecord.swift
 Database/ClozeParser.swift
+Database/DAOs/ABSServerDAO.swift
 Database/DAOs/AlignmentAnchorDAO.swift
 Database/DAOs/AudiobookDAO.swift
+Database/DAOs/BatchQueueDAO.swift
 Database/DAOs/BookmarkDAO.swift
 Database/DAOs/ChapterDAO.swift
+Database/DAOs/ContextMemoryDAO.swift
+Database/DAOs/DeckDAO.swift
 Database/DAOs/EPubBlockDAO.swift
 Database/DAOs/EPubTOCEntryDAO.swift
 Database/DAOs/FlashcardDAO.swift
+Database/DAOs/LibraryRootDAO.swift
 Database/DAOs/NoteDAO.swift
 Database/DAOs/PlannedSessionDAO.swift
 Database/DAOs/PlaybackEventDAO.swift
 Database/DAOs/RealTimeEventDAO.swift
+Database/DAOs/StudyPlanDAO.swift
 Database/DAOs/TimelineDAO.swift
 Database/DAOs/TrackDAO.swift
 Database/DAOs/TranscriptionDAO.swift
+Database/DAOs/VoiceMemoDAO.swift
+Database/DAOs/WordTimingDAO.swift
 Database/DatabaseService.swift
 Database/Deck.swift
 Database/EPubBlockRecord.swift
 Database/EPubTOCEntryRecord.swift
+Database/FSRSMigration.swift
 Database/FSRSScheduler.swift
 Database/Flashcard.swift
 Database/MarkedPassageRecord.swift
+Database/Migrations/Schema_V25.swift
+Database/Migrations/Schema_V26.swift
+Database/Migrations/Schema_V27.swift
 Database/NoteRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
+Database/ReviewGrade.swift
 Database/SM2Scheduler.swift
 Database/SchedulingAlgorithm.swift
 Database/Schema_V1.swift
+Database/StudyPlan.swift
+Database/StudyPlanItem.swift
 Database/TimelineItem.swift
 Database/TrackRecord.swift
 Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
+Database/VoiceMemoRecord.swift
+Database/WordTimingRecord.swift
 EPUBBlockParser.swift
 EPUBHeuristicEngine.swift
+EPUBStructureChaptering.swift
 EPUBXMLParsing.swift
 EnhancedTranscriptionSegment.swift
+FeedAccordion.swift
+FeedbackSupport.swift
 FileLocations.swift
 HeadingClassifier.swift
 ImageEncoding.swift
 KeychainStore.swift
 LayoutPreset.swift
 Logger+Subsystem.swift
-MediaPlayable.swift
+MacPlaybackResumeState.swift
+MarkdownInlineFormatter.swift
+Models/Bookmark.swift
 Models/PDFViewState.swift
+Models/SessionSummary.swift
+NarrationNudgePolicy.swift
+NarrationTrackOrdering.swift
 NotificationNames.swift
+ReaderActiveBlockResolver.swift
 ReaderSettings.swift
 SafeFileName.swift
+Services/ChapterAudioStatusResolver.swift
 Services/ChapterCardDrafter.swift
+Services/FeedFilterModel.swift
+Services/FeedScopeResolver.swift
+Services/SessionSummaryService.swift
+Services/StudyPlanGenerator.swift
+Services/StudyQueueBuilder.swift
+SessionScopeReducer.swift
 SoundscapePreset.swift
+SourceAnchoredCardTriggerResolver.swift
 StandaloneTranscriptRecord.swift
+Stats/FlashcardReviewMetadata.swift
 Stats/PlaybackSegmentBuilder.swift
 Stats/StatsAggregator.swift
 Stats/StatsModels.swift
 Stats/StatsRepository.swift
 String+Levenshtein.swift
+Study/StudyPlanTypes.swift
 SyncMarker.swift
 TabSelection.swift
 TextAlignmentUtilities.swift
+TextDocumentParser.swift
 TimeFormatting.swift
 TranscriptionSegment.swift
 URL+SHA256.swift
@@ -413,7 +562,11 @@ VisualizerFrame.swift
 WatchAction.swift
 WatchFlashcard.swift
 WatchMessageKey.swift
+WatchReviewFeedbackPolicy.swift
+WatchReviewQueueStore.swift
 WordFrequency.swift
+WordTimingInterpolator.swift
+WordTokenizer.swift
 ```
 
 ## Echo Widget
@@ -565,6 +718,26 @@ WhisperKit + `TokenDTW` path.
 - `NarrationState` — `@MainActor @Observable` progress object mirroring `AutoAlignmentState` (phases: `idle`, `preparingChapter`, `renderingAhead`, `completed`, `failed`).
 - `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:chapterTitle:)` normalizes + synthesizes each text block, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`; `renderSegment` persists the same planner title for segment-backed playback/export. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
 
+### On-Device Library — Local Shelf + Roots (June 2026)
+
+Echo remains single-book-at-a-time: `PlayerModel` holds one `folderURL` and opening another book replaces it. The Library feature adds a launcher layer above the existing player: a browsable local shelf, rescannable folder roots, missing-file recovery, and a last-library-book restore pointer. Selecting a book re-acquires file access and calls the existing `loadFolder(url:)`; playback and the single-book model are untouched.
+
+**Current units:**
+
+- **`LibraryService`** (`@MainActor` struct, injected `DatabaseService`, no protocol): `registerRoot`, `rescan`, `relocateRoot`, `removeRoot`, `markUnavailableUnderMissingRoot`, `books(includeUnavailable:)`, and `sections(by:)`. Rescans hide vanished books by flipping `is_available = false`; books are never deleted by a rescan. Removing a root either forgets its books or keeps them as missing by clearing `source_root_id`. `statusMap(for:)` computes study + processing state for a whole shelf in one pass, avoiding N+1 per-book status queries. `urlForOpening(book:)` returns a `LibraryOpenTarget { url, scopedRoot }`, and the player owns the security-scope lifecycle.
+- **`LibraryScanner`** discovers one audio-bearing folder as one book, reads cheap `AVAsset` metadata, and writes SHA-256-named cover files under `FileLocations.libraryCoversDirectory`. Full chapter/EPUB/alignment import stays deferred to first open via `index_state`.
+- **`LibraryAccess`** creates and resolves per-root security-scoped bookmarks and normalizes author-sort keys. macOS uses `.withSecurityScope` bookmarks for the same root model.
+- **`LibraryViewModel`** owns shelf state for iOS and macOS: browse axis, sections, `statusMap`, unavailable-book filtering, pending missing-book recovery, and the open-book callback.
+- **`LibraryRootsViewModel`** owns root-management actions for rescan, relocate, and remove flows.
+- **iOS Library UI** (`LibraryView`, `LibraryShelfGrid`, `LibraryCoverCell`, `LibraryCoverImage`, `LibraryBrowseByView`, `LibraryStatusDot`, `ManageRootsView`) implements the third app tab, Browse By menu, processing-status dots, missing-book dialog, and root manager. `RootTabView` smart-lands to Now Playing when a book is active, otherwise to Library; `FirstRunLandingView` is retired into the empty Library state.
+- **macOS Library parity** (`MacLibraryView`, `MacPlayerModel.openLibraryBook(_:)`) embeds the same service/view-model layer in the `MacTriPaneView` sidebar, with native `NSOpenPanel` folder picking and root security scope preservation while opening a selected book.
+
+**Schema V27** adds nullable/defaulted library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) plus the `library_root` table and indexes. The migration is additive for existing users: no re-import and no re-alignment are required.
+
+**Test coverage:** `LibraryServiceTests`, `SchemaV27Tests`, `AudiobookRecordLibraryFieldsTests`, `LibraryRootDAOTests`, `LibraryAccessTests`, `LibraryScannerTests`, `LibraryViewModelTests`, `LibraryRootsViewModelTests`, `LibraryStatusMapTests`, `LibraryAvailabilityTests`, `LibraryLastBookRestoreTests`, and `SecurityScopeManagerLibraryRootTests`.
+
+Design spec: `docs/superpowers/specs/2026-06-26-local-library-design.md`; implementation plans: `docs/superpowers/plans/2026-06-27-local-library-implementation.md`, `docs/superpowers/plans/2026-06-27-local-library-ui-m3.md`, and `docs/superpowers/plans/2026-06-27-local-library-ui-m4.md`.
+
 ### Chaptered M4B Export (June 2026)
 
 Any loaded book — narrated EPUB or imported m4b/mp3 — can be exported as a single chaptered `.m4b` on both iOS and macOS. The export module lives in `EchoCore/Services/Export/` and is structured around two orthogonal seams: **source** (where the audio comes from) and **writer** (how chapter metadata is embedded).
@@ -621,7 +794,7 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V22 | FSRS memory-state seed (`v22_fsrs_seed`) — one-time, idempotent data migration seeding `stability`/`difficulty` from each legacy SM-2 card's `(interval_days, ease_factor)` so its first FSRS review evolves existing memory instead of restarting (only rows where `stability IS NULL`; the FSRS columns themselves shipped in V16) |
 | V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
 | V24–V26 | Voice memos/notes in the reader feed (V24), study plans (V25), timeline segment key (V26) — see CHANGELOG.md |
-| V27 | Library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) + new `library_root` table — all additive, ships inert (no UI yet), no re-import or re-alignment |
+| V27 | Library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) + new `library_root` table — all additive; powers the local Library shelf/root manager with no re-import or re-alignment |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 

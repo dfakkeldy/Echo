@@ -12,8 +12,13 @@ enum LibraryAccess {
     /// a full bookmark that survives relaunch, matching `Persistence.saveBookmark`.
     static func makeBookmark(for url: URL) -> Data? {
         do {
+            #if os(macOS)
+                let options: URL.BookmarkCreationOptions = [.withSecurityScope]
+            #else
+                let options: URL.BookmarkCreationOptions = []
+            #endif
             return try url.bookmarkData(
-                options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+                options: options, includingResourceValuesForKeys: nil, relativeTo: nil)
         } catch {
             logger.error("Bookmark create failed: \(error.localizedDescription)")
             return nil
@@ -25,8 +30,13 @@ enum LibraryAccess {
     static func resolveURL(from data: Data) -> (url: URL, isStale: Bool)? {
         var isStale = false
         do {
+            #if os(macOS)
+                let options: URL.BookmarkResolutionOptions = [.withSecurityScope]
+            #else
+                let options: URL.BookmarkResolutionOptions = []
+            #endif
             let url = try URL(
-                resolvingBookmarkData: data, options: [], relativeTo: nil,
+                resolvingBookmarkData: data, options: options, relativeTo: nil,
                 bookmarkDataIsStale: &isStale)
             return (url, isStale)
         } catch {

@@ -5,11 +5,13 @@ import Testing
 @testable import Echo
 
 struct Wedge3ClarityOnRampTests {
-    @Test func nowPlayingShowsActionFirstLanding() throws {
+    @Test func libraryShowsActionFirstLanding() throws {
         let tab = try Self.viewSource(named: "NowPlayingTab.swift")
+        let library = try Self.viewSource(named: "Library/LibraryView.swift")
 
-        #expect(tab.contains("FirstRunLandingView("))
-        #expect(tab.contains("onConnectServer:"))
+        #expect(tab.contains("model.selectedTab = .library"))
+        #expect(library.contains("onConnectServer"))
+        #expect(library.contains("Button(\"Open a Folder\", systemImage: \"folder\""))
         #expect(!tab.contains("NowPlayingEmptyState("))
     }
 
@@ -59,15 +61,14 @@ struct Wedge3ClarityOnRampTests {
         #expect(root.contains("Button(\"Choose Book\")"))
     }
 
-    @Test func firstRunLandingIsActionFirst() throws {
-        let landing = try Self.viewSource(named: "FirstRunLandingView.swift")
+    @Test func libraryEmptyStateIsActionFirst() throws {
+        let landing = try Self.viewSource(named: "Library/LibraryView.swift")
 
-        #expect(landing.contains("Welcome to Echo"))
-        #expect(landing.contains("Start listening in seconds"))
+        #expect(landing.contains("Your Library"))
+        #expect(landing.contains("Add a folder of audiobooks"))
         #expect(landing.contains("Button(\"Open a Folder\", systemImage: \"folder\""))
         #expect(landing.contains("Connect a Server"))
         #expect(landing.contains("it never copies them"))
-        #expect(landing.contains("How do I add books?"))
     }
 
     private static func viewSource(named fileName: String) throws -> String {
