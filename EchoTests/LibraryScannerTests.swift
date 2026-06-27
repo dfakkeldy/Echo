@@ -42,4 +42,12 @@ struct LibraryScannerTests {
         #expect(bookA.companionEPUB?.lastPathComponent == "a.epub")
         #expect(bookB.companionEPUB == nil)
     }
+
+    @Test func fallbackTitleUsesFolderName() throws {
+        let book = DiscoveredBook(
+            folderURL: URL(fileURLWithPath: "/Books/The Hobbit", isDirectory: true),
+            audioFiles: [URL(fileURLWithPath: "/Books/The Hobbit/01.m4b")],
+            companionEPUB: nil)
+        #expect(LibraryScanner.fallbackTitle(for: book) == "The Hobbit")
+    }
 }
