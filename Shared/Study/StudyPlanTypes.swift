@@ -32,6 +32,7 @@ enum StudyFlashcardType {
     static let normal = "normal"
     static let listeningAssignment = "listening_assignment"
     static let imageAssignment = "image_assignment"
+    static let vocabulary = "vocabulary"
 }
 
 enum StudyAssignmentGradePolicy {
