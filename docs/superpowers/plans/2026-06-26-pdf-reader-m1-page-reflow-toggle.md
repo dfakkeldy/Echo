@@ -15,7 +15,7 @@
 - **Tests are Swift Testing**, not XCTest: `import Testing`, `@Suite struct`, `@Test func`, `#expect(...)`, `Issue.record(...)`. Module is `Echo` (`@testable import Echo`).
 - **New files in `EchoCore/` and `EchoTests/` auto-compile** (project uses `PBXFileSystemSynchronizedRootGroup`) — no `.pbxproj` edits.
 - **Build/test commands** (16 GB Mac — never run two `xcodebuild`s concurrently, never enable parallel testing):
-  - Build the app: `make build` (or the build-gate-wrapped form below).
+  - Compile the app target: `make build-tests` (build-for-testing also compiles the app target; there is **no** `make build` target). Gate-wrapped form below.
   - Build tests once: `make build-tests` (sets `CODE_SIGNING_ALLOWED=NO`).
   - Run one suite: `make test-only FILTER=EchoTests/<SuiteName>`.
   - Gate every build: prefix with `"$HOME/.claude/bin/xcode-build-gate.sh" --wait &&`.
@@ -328,8 +328,8 @@ struct PDFReadingSurface: View {
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `"$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build`
-Expected: BUILD SUCCEEDED. Verify SPDX is still line 1.
+Run: `"$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests`
+Expected: `** TEST BUILD SUCCEEDED **`. Verify SPDX is still line 1.
 
 - [ ] **Step 3: Commit**
 
@@ -388,8 +388,8 @@ In `EchoCore/Views/RootTabView.swift`, replace the existing `Group { if model.ha
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `"$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build`
-Expected: BUILD SUCCEEDED. Verify SPDX is still line 1 of `RootTabView.swift`.
+Run: `"$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests`
+Expected: `** TEST BUILD SUCCEEDED **`. Verify SPDX is still line 1 of `RootTabView.swift`.
 
 - [ ] **Step 3: On-simulator verification (manual, with a parsed PDF)**
 
