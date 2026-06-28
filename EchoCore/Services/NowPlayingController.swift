@@ -143,8 +143,11 @@ final class NowPlayingController {
 
         #if os(iOS)
             if let image = params.artworkImage {
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                    image
+                let artworkImage = image
+                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(
+                    boundsSize: artworkImage.size
+                ) { @Sendable [artworkImage] _ in
+                    artworkImage
                 }
             }
         #endif
