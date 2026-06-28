@@ -341,11 +341,15 @@ private struct SettingsSupportAboutSection: View {
 
         #if canImport(UIKit)
             UIPasteboard.general.string = gitCommitHash
-            copiedCommit = true
         #elseif canImport(AppKit)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(gitCommitHash, forType: .string)
-            copiedCommit = true
         #endif
+
+        copiedCommit = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedCommit = false
+        }
     }
 }
