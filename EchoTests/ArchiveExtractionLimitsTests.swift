@@ -41,4 +41,29 @@ struct ArchiveExtractionLimitsTests {
             }
         }
     }
+
+    @Test func wholeAudiobookBudgetAllowsLargeAudioEntriesBeyondGenericArchiveCap() throws {
+        let budget = ArchiveExtractionLimits.Budget.absWholeAudiobook
+        let largeAudioEntry = ArchiveExtractionLimits.maxEntryBytes + 1
+
+        let total = try ArchiveExtractionLimits.checkedTotal(
+            addingEntryOfSize: largeAudioEntry,
+            to: 0,
+            budget: budget)
+
+        #expect(budget.maxEntryBytes > ArchiveExtractionLimits.maxEntryBytes)
+        #expect(budget.maxTotalBytes > ArchiveExtractionLimits.maxTotalBytes)
+        #expect(total == largeAudioEntry)
+    }
+
+    @Test func wholeAudiobookBudgetRejectsOversizedEntries() {
+        let budget = ArchiveExtractionLimits.Budget.absWholeAudiobook
+
+        #expect(throws: ArchiveExtractionLimits.LimitError.self) {
+            _ = try ArchiveExtractionLimits.checkedTotal(
+                addingEntryOfSize: budget.maxEntryBytes + 1,
+                to: 0,
+                budget: budget)
+        }
+    }
 }

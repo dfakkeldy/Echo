@@ -12,6 +12,22 @@ nonisolated enum ArchiveExtractionLimits {
     /// Largest cumulative extraction across all entries in one archive.
     static let maxTotalBytes: UInt64 = 512 * 1024 * 1024  // 512 MB
 
+    nonisolated struct Budget: Equatable, Sendable {
+        let maxEntryBytes: UInt64
+        let maxTotalBytes: UInt64
+
+        static let generic = Budget(
+            maxEntryBytes: ArchiveExtractionLimits.maxEntryBytes,
+            maxTotalBytes: ArchiveExtractionLimits.maxTotalBytes)
+
+        /// ABS whole-item archives can legitimately contain large audiobook files.
+        /// Keep the generic EPUB/APKG limits tight, but allow multi-gigabyte audio
+        /// while still rejecting absurd declared expansion sizes before extraction.
+        static let absWholeAudiobook = Budget(
+            maxEntryBytes: 2 * 1024 * 1024 * 1024,   // 2 GB per file
+            maxTotalBytes: 8 * 1024 * 1024 * 1024)   // 8 GB per item
+    }
+
     enum LimitError: LocalizedError, Equatable {
         case entryTooLarge(size: UInt64, limit: UInt64)
         case totalTooLarge(total: UInt64, limit: UInt64)
@@ -34,15 +50,19 @@ nonisolated enum ArchiveExtractionLimits {
     /// classic zip bomb that advertises a huge expansion. A hostile archive can
     /// under-report; a streaming byte counter on the written output would be the
     /// stronger guard and is a worthwhile follow-up.
-    static func checkedTotal(addingEntryOfSize entrySize: UInt64, to runningTotal: UInt64) throws
+    static func checkedTotal(
+        addingEntryOfSize entrySize: UInt64,
+        to runningTotal: UInt64,
+        budget: Budget = .generic
+    ) throws
         -> UInt64
     {
-        guard entrySize <= maxEntryBytes else {
-            throw LimitError.entryTooLarge(size: entrySize, limit: maxEntryBytes)
+        guard entrySize <= budget.maxEntryBytes else {
+            throw LimitError.entryTooLarge(size: entrySize, limit: budget.maxEntryBytes)
         }
         let newTotal = runningTotal &+ entrySize
-        guard newTotal >= runningTotal, newTotal <= maxTotalBytes else {
-            throw LimitError.totalTooLarge(total: newTotal, limit: maxTotalBytes)
+        guard newTotal >= runningTotal, newTotal <= budget.maxTotalBytes else {
+            throw LimitError.totalTooLarge(total: newTotal, limit: budget.maxTotalBytes)
         }
         return newTotal
     }
