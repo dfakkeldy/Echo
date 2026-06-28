@@ -1017,7 +1017,7 @@ PlayerModel wires these via coordinator closures in `init()` and exposes thin pa
 
 ### Player Layout Styles
 
-The iOS player supports two layout variants, selected via **Settings > Customization > Phone Player Designer > Player Layout Style** (`PhonePlayerSettingsView`):
+The iOS player supports two layout variants, selected via **Settings > Controls > Phone Player Settings > Layout** (`PhonePlayerSettingsView`):
 
 | Style | Scrubber | Transport Controls | Target |
 |---|---|---|---|
@@ -1028,9 +1028,9 @@ The layout style is persisted in `SettingsManager.playerLayoutStyle` (UserDefaul
 
 Each transport button now supports a **dual-action model**: a tap executes the primary action (configured via `PhonePlayerSettingsView` under "Tap Actions"), while a long-press (>0.5s) executes a secondary action (configured under "Long Press"). The `TransportButton` component uses a custom `PrimitiveButtonStyle` (`TransportPrimitiveButtonStyle`) to layer both gestures onto a single control without the gesture conflicts that arise from stacking `.onTapGesture` + `.onLongPressGesture` on a standard SwiftUI `Button`. Both action sets are persisted in `SettingsManager.phonePage` and `SettingsManager.phoneLongPressPage`, and saved/loaded in `PhonePreset` data models. The `.previousTrack` / `.nextTrack` / `.loopMode` actions were retired from the *selectable* `PhonePlayerSettingsView` palettes (chapter navigation now lives in the metadata chevron bar; loop in `PlaybackOptionsSheet`). This is **passive** — every `WatchAction` enum case and its render/dispatch arm remain, so saved layouts and the watch/CarPlay wire protocol keep decoding — and the fresh-install default `Defaults.phonePage` is now `[.skipBackward, .empty, .playPause, .empty, .skipForward]`.
 
-### Settings Restructure (BookPlayer redesign, June 2026)
+### Settings Restructure (Settings cleanup, June 2026)
 
-`SettingsView` was gutted from a monolith into a **thin app-level shell** holding only app-level rows that link out to subscreens: Display→Appearance, Store→Pro Transcripts, Customization→(Phone Player Designer, Watch App Settings, Advanced), Flashcards, Help, and DEBUG-only sections. No inline per-listen playback controls remain in Settings — those moved to `PlaybackOptionsSheet` (see *UI Architecture*). The former inline sub-views were **extracted** into their own files — `SettingsAppearanceView`, `FontSelectionView`, `ThemeSelectionView`, `ProTranscriptsSettingsView`, `AppIconSelectionView` — plus a new `SettingsAdvancedView` (the relocated Continuous Auto-Alignment + Play-Bookmarks-Inline toggles), routed through `NavigationDestinations`. The `ThemeColor` enum moved to `EchoCore/Models/ThemeColor.swift` so the macOS Settings scene can reuse it.
+`SettingsView` is a thin app-level shell organized by user intent: Now Playing, Appearance, Controls, Library & Accounts, Study & Notes, Advanced & Privacy, and Support & About. Durable playback defaults live in `SettingsNowPlayingView`; app styling and reader defaults live under `SettingsAppearanceView`; phone/watch control designers live under Controls. The quick in-context `PlaybackOptionsSheet` still edits the current listening session and links to `PhonePlayerSettingsView` for durable controls. The former extracted sub-views remain in their own files (`SettingsAppearanceView`, `FontSelectionView`, `ThemeSelectionView`, `ProTranscriptsSettingsView`, `AppIconSelectionView`, `SettingsAdvancedView`) so `SettingsView` stays a routing shell.
 
 ### Chapter Sections & Section Navigation
 
