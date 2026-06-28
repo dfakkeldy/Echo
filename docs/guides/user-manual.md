@@ -437,7 +437,7 @@ Study history now lives across the dedicated study surfaces instead of a separat
 - **Up to 25 buttons:** five pages × five slots, all user-assignable: play/pause, skips (5–60 s), chapters, sections, loop, speed, sleep timer, bookmark, Pomodoro — or empty (empty pages hide).
 - **Mark passage** 🚧 — one tap into the Card Inbox.
 - **Dictate note** 🚧 — speak a Brain Dump note; playback never pauses.
-- **Design it from the phone:** drag-and-drop in *Settings → Watch App*; syncs instantly.
+- **Design it from the phone:** drag-and-drop in *Settings → Controls → Watch App Settings*; syncs instantly.
 - **Digital Crown:** volume or scrubbing (with deadzone).
 - **Big targets:** hit them in gloves, rain, mid-stride.
 
@@ -499,7 +499,7 @@ Echo has no servers and no accounts — sync rides on *your* iCloud.
 | Reader | Font (incl. Lexend, OpenDyslexic) · text size · line spacing · card tint · per-card colors |
 | Appearance | Accent color or Artwork mode · dark mode · app icon · player layout · button sizes |
 | Player Controls | Five tap + five long-press actions |
-| Watch App | Layout designer (5×5) · Crown mode · artwork layout · haptics · date overlay · title scroll speed |
+| Controls → Watch App Settings | Layout designer (5×5) · Crown mode · artwork layout · haptics · date overlay · title scroll speed |
 | Per-book overrides | Any global setting, pinned per book |
 | Data | Study-notes bulk export 🚧 · deck export 🚧 |
 | Help | The full in-app help library |

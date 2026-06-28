@@ -92,11 +92,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var page5Slots: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
 
     // Progress indicator configuration (synced from iPhone)
-    var linearBarMode: String = "total"
+    var linearBarMode: String = "chapter"
     var linearBarHidden: Bool = false
-    var circularRingMode: String = "chapter"
+    var circularRingMode: String = "total"
     var circularRingHidden: Bool = false
-    var watchArtworkLayout: String = "immersive"
+    var watchArtworkLayout: String = "classic"
     var watchBackgroundStyle: String = "artwork"
     var watchTitleScrollEnabled: Bool = false
     var watchTitleScrollSpeed: Double = 30.0
@@ -325,11 +325,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             page5Slots = padded(decoded)
         }
 
-        linearBarMode = defaults.string(forKey: "linearBarMode") ?? "total"
+        linearBarMode = defaults.string(forKey: "linearBarMode") ?? "chapter"
         linearBarHidden = defaults.bool(forKey: "linearBarHidden")
-        circularRingMode = defaults.string(forKey: "circularRingMode") ?? "chapter"
+        circularRingMode = defaults.string(forKey: "circularRingMode") ?? "total"
         circularRingHidden = defaults.bool(forKey: "circularRingHidden")
-        watchArtworkLayout = defaults.string(forKey: "watchArtworkLayout") ?? "immersive"
+        watchArtworkLayout = defaults.string(forKey: "watchArtworkLayout") ?? "classic"
         watchBackgroundStyle = defaults.string(forKey: "watchBackgroundStyle") ?? "artwork"
         watchTitleScrollEnabled = defaults.bool(forKey: "watchTitleScrollEnabled")
         let storedSpeed = defaults.double(forKey: "watchTitleScrollSpeed")

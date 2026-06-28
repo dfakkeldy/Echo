@@ -33,11 +33,11 @@ final class SettingsManager {
         static let watchPage3: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let watchPage4: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let watchPage5: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
-        static let linearBarMode = "total"
+        static let linearBarMode = "chapter"
         static let linearBarHidden = false
-        static let circularRingMode = "chapter"
+        static let circularRingMode = "total"
         static let circularRingHidden = false
-        static let watchArtworkLayout = "immersive"
+        static let watchArtworkLayout = "classic"
         static let watchBackgroundStyle = "artwork"
         static let watchTitleScrollEnabled = false
         static let watchTitleScrollSpeed = 30.0
@@ -62,6 +62,7 @@ final class SettingsManager {
         static let studyGlobalNewChapterLimit = 12
         static let autoAlignmentEnabled = true
         static let locationCaptureEnabled = false
+        static let debugLoggingEnabled = false
         static let autoAlignmentModelSize = "base.en"
         static let autoAlignmentChapterSnapEnabled = true
         static let autoAlignmentDriftDetectionEnabled = true
@@ -125,6 +126,7 @@ final class SettingsManager {
         static let studyGlobalNewChapterLimit = "studyGlobalNewChapterLimit"
         static let autoAlignmentEnabled = "autoAlignmentEnabled"
         static let locationCaptureEnabled = "locationCaptureEnabled"
+        static let debugLoggingEnabled = "debugLoggingEnabled"
         static let autoAlignmentModelSize = "autoAlignmentModelSize"
         static let autoAlignmentChapterSnapEnabled = "autoAlignmentChapterSnapEnabled"
         static let autoAlignmentDriftDetectionEnabled = "autoAlignmentDriftDetectionEnabled"
@@ -303,20 +305,15 @@ final class SettingsManager {
     // MARK: - Reader
 
     var readerFontSize: Double {
-        get { defaults.double(forKey: Keys.readerFontSize).nonZero ?? Defaults.readerFontSize }
-        set { defaults.set(newValue, forKey: Keys.readerFontSize) }
+        didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }
     }
 
     var readerLineSpacing: Double {
-        get {
-            defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing
-        }
-        set { defaults.set(newValue, forKey: Keys.readerLineSpacing) }
+        didSet { defaults.set(readerLineSpacing, forKey: Keys.readerLineSpacing) }
     }
 
     var readerCardTint: String {
-        get { defaults.string(forKey: Keys.readerCardTint) ?? Defaults.readerCardTint }
-        set { defaults.set(newValue, forKey: Keys.readerCardTint) }
+        didSet { defaults.set(readerCardTint, forKey: Keys.readerCardTint) }
     }
 
     // MARK: - Study
@@ -339,6 +336,9 @@ final class SettingsManager {
     }
     var locationCaptureEnabled: Bool {
         didSet { defaults.set(locationCaptureEnabled, forKey: Keys.locationCaptureEnabled) }
+    }
+    var debugLoggingEnabled: Bool {
+        didSet { defaults.set(debugLoggingEnabled, forKey: Keys.debugLoggingEnabled) }
     }
     var autoAlignmentModelSize: String {
         didSet { defaults.set(autoAlignmentModelSize, forKey: Keys.autoAlignmentModelSize) }
@@ -555,6 +555,13 @@ final class SettingsManager {
         seekForwardDuration =
             storedSeekForward == 0 ? Defaults.seekForwardDuration : storedSeekForward
 
+        readerFontSize =
+            defaults.double(forKey: Keys.readerFontSize).nonZero ?? Defaults.readerFontSize
+        readerLineSpacing =
+            defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing
+        readerCardTint =
+            defaults.string(forKey: Keys.readerCardTint) ?? Defaults.readerCardTint
+
         if let presetsData = defaults.data(forKey: Keys.watchPresets),
             let decoded = try? JSONDecoder().decode([WatchPreset].self, from: presetsData)
         {
@@ -577,6 +584,9 @@ final class SettingsManager {
         locationCaptureEnabled =
             defaults.object(forKey: Keys.locationCaptureEnabled) as? Bool
             ?? Defaults.locationCaptureEnabled
+        debugLoggingEnabled =
+            defaults.object(forKey: Keys.debugLoggingEnabled) as? Bool
+            ?? Defaults.debugLoggingEnabled
         autoAlignmentModelSize =
             defaults.string(forKey: Keys.autoAlignmentModelSize) ?? Defaults.autoAlignmentModelSize
         autoAlignmentChapterSnapEnabled =
@@ -645,6 +655,7 @@ final class SettingsManager {
             Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
             Keys.autoAlignmentEnabled: Defaults.autoAlignmentEnabled,
             Keys.locationCaptureEnabled: Defaults.locationCaptureEnabled,
+            Keys.debugLoggingEnabled: Defaults.debugLoggingEnabled,
             Keys.autoAlignmentModelSize: Defaults.autoAlignmentModelSize,
             Keys.autoAlignmentChapterSnapEnabled: Defaults.autoAlignmentChapterSnapEnabled,
             Keys.autoAlignmentDriftDetectionEnabled: Defaults.autoAlignmentDriftDetectionEnabled,

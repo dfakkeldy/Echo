@@ -13,7 +13,8 @@ struct FeedbackMailBuilderTests {
             osVersion: "26.6",
             deviceModel: "iPhone",
             localeIdentifier: "en_US",
-            timeZoneIdentifier: "America/Halifax"
+            timeZoneIdentifier: "America/Halifax",
+            debugLoggingEnabled: true
         )
         let entry = FeedbackEntry(
             category: .bugReport,
@@ -37,5 +38,6 @@ struct FeedbackMailBuilderTests {
         #expect(queryItems["body"]?.contains("Rating: 2/5") == true)
         #expect(queryItems["body"]?.contains("Chapter navigation jumps unexpectedly.") == true)
         #expect(queryItems["body"]?.contains("App: 0.6 (9)") == true)
+        #expect(queryItems["body"]?.contains("Verbose Diagnostic Logging: On") == true)
     }
 }

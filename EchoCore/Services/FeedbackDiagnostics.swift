@@ -12,6 +12,7 @@ struct FeedbackDiagnostics: Equatable, Sendable {
     var deviceModel: String
     var localeIdentifier: String
     var timeZoneIdentifier: String
+    var debugLoggingEnabled: Bool
 
     var formattedString: String {
         """
@@ -21,6 +22,7 @@ struct FeedbackDiagnostics: Equatable, Sendable {
         Device: \(deviceModel)
         Locale: \(localeIdentifier)
         Time Zone: \(timeZoneIdentifier)
+        Verbose Diagnostic Logging: \(debugLoggingEnabled ? "On" : "Off")
         """
     }
 }
@@ -31,7 +33,8 @@ enum FeedbackDiagnosticsCollector {
         bundle: Bundle = .main,
         processInfo: ProcessInfo = .processInfo,
         locale: Locale = .current,
-        timeZone: TimeZone = .current
+        timeZone: TimeZone = .current,
+        debugLoggingEnabled: Bool = false
     ) -> FeedbackDiagnostics {
         let metadata = AppBuildMetadata(bundle: bundle)
         return FeedbackDiagnostics(
@@ -41,7 +44,8 @@ enum FeedbackDiagnosticsCollector {
             osVersion: osVersion(processInfo: processInfo),
             deviceModel: deviceModel(),
             localeIdentifier: locale.identifier,
-            timeZoneIdentifier: timeZone.identifier
+            timeZoneIdentifier: timeZone.identifier,
+            debugLoggingEnabled: debugLoggingEnabled
         )
     }
 

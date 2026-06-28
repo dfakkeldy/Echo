@@ -64,6 +64,16 @@ struct SettingsAdvancedView: View {
                     "When enabled, voice memos attached to bookmarks are played automatically when the audiobook reaches that timestamp."
                 )
             }
+
+            Section {
+                Toggle("Verbose Diagnostic Logging", isOn: $settings.debugLoggingEnabled)
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text(
+                    "Turns on Echo-owned verbose diagnostics for troubleshooting. This does not include book content."
+                )
+            }
         }
         .navigationTitle("Advanced")
     }

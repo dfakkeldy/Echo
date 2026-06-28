@@ -30,412 +30,256 @@ struct WatchAppSettingsView: View {
     var body: some View {
         @Bindable var settings = settings
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+        Form {
+            Section("Face") {
+                Picker("Face Style", selection: $settings.watchArtworkLayout) {
+                    Label("Classic", systemImage: "photo").tag("classic")
+                    Label("Full Face", systemImage: "rectangle.expand.vertical").tag("immersive")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: settings.watchArtworkLayout) { _, _ in
+                    model.syncToWatch()
+                }
 
-                // MARK: Digital Crown Control
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Digital Crown Control")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
+                Picker("Classic Background", selection: $settings.watchBackgroundStyle) {
+                    Text("Blurred").tag("artwork")
+                    Text("Black").tag("black")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: settings.watchBackgroundStyle) { _, _ in
+                    model.syncToWatch()
+                }
 
-                    Picker("Digital Crown", selection: $settings.crownAction) {
-                        Text("Volume").tag("volume")
-                        Text("Scrubbing").tag("scrub")
+                Toggle("Scroll Title", isOn: $settings.watchTitleScrollEnabled)
+                    .onChange(of: settings.watchTitleScrollEnabled) { _, _ in
+                        model.syncToWatch()
+                    }
+
+                if settings.watchTitleScrollEnabled {
+                    Picker("Scroll Speed", selection: $settings.watchTitleScrollSpeed) {
+                        Text("Slow").tag(15.0)
+                        Text("Normal").tag(30.0)
+                        Text("Fast").tag(60.0)
                     }
                     .pickerStyle(.segmented)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.quaternary)
-                    )
-                    .onChange(of: settings.crownAction) { _, _ in
+                    .onChange(of: settings.watchTitleScrollSpeed) { _, _ in
+                        model.syncToWatch()
+                    }
+                }
+
+                Toggle("Show Date", isOn: $settings.watchDateEnabled)
+                    .onChange(of: settings.watchDateEnabled) { _, _ in
                         model.syncToWatch()
                     }
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Volume Sensitivity")
-                            .customFont(.caption, appFont: settings.appFont)
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            Image(systemName: "tortoise")
-                                .foregroundStyle(.secondary)
-                            Slider(value: $settings.crownVolumeSensitivity, in: 0.01...0.1, step: 0.01)
-                            Image(systemName: "hare")
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("\(settings.crownVolumeSensitivity, specifier: "%.2f")×")
-                            .customFont(.caption2, appFont: settings.appFont)
-                            .foregroundStyle(.tertiary)
+                if settings.watchDateEnabled {
+                    Picker("Date Format", selection: $settings.watchDateFormat) {
+                        Text("Auto").tag("auto")
+                        Text("Mon Jun 8").tag("long")
+                        Text("Mon 06/08").tag("short")
                     }
-                    .padding(.top, 4)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Scrubbing Sensitivity")
-                            .customFont(.caption, appFont: settings.appFont)
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            Image(systemName: "tortoise")
-                                .foregroundStyle(.secondary)
-                            Slider(value: $settings.crownScrubSensitivity, in: 0.1...1.0, step: 0.1)
-                            Image(systemName: "hare")
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("\(settings.crownScrubSensitivity, specifier: "%.1f")×")
-                            .customFont(.caption2, appFont: settings.appFont)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                // MARK: Haptics
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Haptics")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    Toggle("Button Haptics", isOn: Binding(
-                        get: { settings.isHapticFeedbackEnabled },
-                        set: {
-                            settings.isHapticFeedbackEnabled = $0
-                            model.syncToWatch()
-                        }
-                    ))
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.quaternary)
-                    )
-                }
-
-                // MARK: Bookmark Timeout
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Bookmark Timeout")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    Stepper(value: $settings.watchQuickBookmarkTimeoutSeconds, in: 1...15) {
-                        HStack {
-                            Label("Quick Bookmark", systemImage: "timer")
-                            Spacer()
-                            Text("\(settings.watchQuickBookmarkTimeoutSeconds)s")
-                                .customFont(.body, appFont: settings.appFont)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .onChange(of: settings.watchQuickBookmarkTimeoutSeconds) { _, _ in
+                    .pickerStyle(.segmented)
+                    .onChange(of: settings.watchDateFormat) { _, _ in
                         model.syncToWatch()
                     }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.quaternary)
-                    )
+                }
+            }
+
+            Section("Progress") {
+                Picker("Circular Ring", selection: $settings.circularRingMode) {
+                    Text("Book").tag("total")
+                    Text("Chapter").tag("chapter")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: settings.circularRingMode) { _, _ in
+                    model.syncToWatch()
                 }
 
-                // MARK: Progress Indicators
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Progress Indicators")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    VStack(spacing: 12) {
-                        Picker("Linear Bar", selection: $settings.linearBarMode) {
-                            Text("Chapter Progress").tag("chapter")
-                            Text("Total Book Progress").tag("total")
-                        }
-                        .pickerStyle(.menu)
-                        .onChange(of: settings.linearBarMode) { _, _ in
-                            model.syncToWatch()
-                        }
-
-                        Toggle("Show Linear Bar", isOn: Binding(
-                            get: { !settings.linearBarHidden },
-                            set: { settings.linearBarHidden = !$0 }
-                        ))
-                        .onChange(of: settings.linearBarHidden) { _, _ in
-                            model.syncToWatch()
-                        }
-
-                        Divider()
-
-                        Picker("Circular Ring", selection: $settings.circularRingMode) {
-                            Text("Chapter Progress").tag("chapter")
-                            Text("Total Book Progress").tag("total")
-                        }
-                        .pickerStyle(.menu)
-                        .onChange(of: settings.circularRingMode) { _, _ in
-                            model.syncToWatch()
-                        }
-
-                        Toggle("Show Circular Ring", isOn: Binding(
-                            get: { !settings.circularRingHidden },
-                            set: { settings.circularRingHidden = !$0 }
-                        ))
-                        .onChange(of: settings.circularRingHidden) { _, _ in
-                            model.syncToWatch()
-                        }
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.quaternary)
-                    )
+                Toggle("Show Circular Ring", isOn: Binding(
+                    get: { !settings.circularRingHidden },
+                    set: { settings.circularRingHidden = !$0 }
+                ))
+                .onChange(of: settings.circularRingHidden) { _, _ in
+                    model.syncToWatch()
                 }
 
-                // MARK: Artwork Layout
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Watch Appearance")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    VStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Face Style")
-                                .customFont(.caption, appFont: settings.appFont)
-                                .foregroundStyle(.secondary)
-
-                            Picker("Face Style", selection: $settings.watchArtworkLayout) {
-                                Label("Full Face", systemImage: "rectangle.expand.vertical").tag("immersive")
-                                Label("Classic", systemImage: "photo").tag("classic")
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: settings.watchArtworkLayout) { _, _ in
-                                model.syncToWatch()
-                            }
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Classic Background")
-                                .customFont(.caption, appFont: settings.appFont)
-                                .foregroundStyle(.secondary)
-
-                            Picker("Classic Background", selection: $settings.watchBackgroundStyle) {
-                                Text("Blurred").tag("artwork")
-                                Text("Black").tag("black")
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: settings.watchBackgroundStyle) { _, _ in
-                                model.syncToWatch()
-                            }
-                        }
-
-                        Divider()
-
-                        Toggle("Scroll Title", isOn: $settings.watchTitleScrollEnabled)
-                            .onChange(of: settings.watchTitleScrollEnabled) { _, _ in
-                                model.syncToWatch()
-                            }
-
-                        if settings.watchTitleScrollEnabled {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Scroll Speed")
-                                    .customFont(.caption, appFont: settings.appFont)
-                                    .foregroundStyle(.secondary)
-
-                                Picker("Scroll Speed", selection: $settings.watchTitleScrollSpeed) {
-                                    Text("Slow").tag(15.0)
-                                    Text("Normal").tag(30.0)
-                                    Text("Fast").tag(60.0)
-                                }
-                                .pickerStyle(.segmented)
-                                .onChange(of: settings.watchTitleScrollSpeed) { _, _ in
-                                    model.syncToWatch()
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        Toggle("Show Date", isOn: $settings.watchDateEnabled)
-                            .onChange(of: settings.watchDateEnabled) { _, _ in
-                                model.syncToWatch()
-                            }
-
-                        if settings.watchDateEnabled {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Date Format")
-                                    .customFont(.caption, appFont: settings.appFont)
-                                    .foregroundStyle(.secondary)
-
-                                Picker("Date Format", selection: $settings.watchDateFormat) {
-                                    Text("Auto").tag("auto")
-                                    Text("Mon Jun 8").tag("long")
-                                    Text("Mon 06/08").tag("short")
-                                }
-                                .pickerStyle(.segmented)
-                                .onChange(of: settings.watchDateFormat) { _, _ in
-                                    model.syncToWatch()
-                                }
-                            }
-                        }
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.quaternary)
-                    )
+                Picker("Linear Bar", selection: $settings.linearBarMode) {
+                    Text("Chapter").tag("chapter")
+                    Text("Book").tag("total")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: settings.linearBarMode) { _, _ in
+                    model.syncToWatch()
                 }
 
-                // MARK: Watch App Designer
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Watch App Designer")
-                        .customFont(.title3, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
+                Toggle("Show Linear Bar", isOn: Binding(
+                    get: { !settings.linearBarHidden },
+                    set: { settings.linearBarHidden = !$0 }
+                ))
+                .onChange(of: settings.linearBarHidden) { _, _ in
+                    model.syncToWatch()
+                }
+            }
 
-                    VStack(spacing: 8) {
-                        Text("Page \(selectedPage + 1) of 5")
-                            .customFont(.subheadline, weight: .medium, appFont: settings.appFont)
-                            .foregroundStyle(.secondary)
-                            
-                        TabView(selection: $selectedPage) {
-                            WatchPreviewCanvas(slots: $page1Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(0)
-                            WatchPreviewCanvas(slots: $page2Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(1)
-                            WatchPreviewCanvas(slots: $page3Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(2)
-                            WatchPreviewCanvas(slots: $page4Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(3)
-                            WatchPreviewCanvas(slots: $page5Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(4)
-                        }
-                        .tabViewStyle(.page(indexDisplayMode: .always))
-                        .frame(height: 320)
-                        .indexViewStyle(.page(backgroundDisplayMode: .always))
-
-                        Text("Choose actions for this page below, or drag actions into the watch preview.")
-                            .customFont(.subheadline, appFont: settings.appFont)
-                            .foregroundStyle(.secondary)
-
-                        selectedPageSlotPickers
-                    }
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(.quaternary)
-                    )
+            Section("Controls") {
+                Picker("Digital Crown", selection: $settings.crownAction) {
+                    Text("Volume").tag("volume")
+                    Text("Scrubbing").tag("scrub")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: settings.crownAction) { _, _ in
+                    model.syncToWatch()
                 }
 
-                // MARK: Available Actions
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Available Actions")
-                        .customFont(.subheadline, weight: .semibold, appFont: settings.appFont)
-                        .foregroundStyle(.secondary)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 18) {
-                            ForEach(palette) { action in
-                                PaletteItem(action: action)
-                            }
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 4)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(.quaternary)
-                )
-
-                // MARK: Layout Presets
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading) {
+                    Text("Volume Sensitivity")
                     HStack {
-                        Text("Layout Presets")
-                            .customFont(.title3, weight: .semibold, appFont: settings.appFont)
+                        Image(systemName: "tortoise")
                             .foregroundStyle(.secondary)
-                        Spacer()
-                        Button {
-                            newPresetName = ""
-                            showingSaveAlert = true
-                        } label: {
-                            Label("Save Current", systemImage: "plus.circle")
+                        Slider(value: $settings.crownVolumeSensitivity, in: 0.01...0.1, step: 0.01)
+                        Image(systemName: "hare")
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(settings.crownVolumeSensitivity.formatted(.number.precision(.fractionLength(2))) + "×")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading) {
+                    Text("Scrubbing Sensitivity")
+                    HStack {
+                        Image(systemName: "tortoise")
+                            .foregroundStyle(.secondary)
+                        Slider(value: $settings.crownScrubSensitivity, in: 0.1...1.0, step: 0.1)
+                        Image(systemName: "hare")
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(settings.crownScrubSensitivity.formatted(.number.precision(.fractionLength(1))) + "×")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Toggle("Button Haptics", isOn: Binding(
+                    get: { settings.isHapticFeedbackEnabled },
+                    set: {
+                        settings.isHapticFeedbackEnabled = $0
+                        model.syncToWatch()
+                    }
+                ))
+
+                Stepper(value: $settings.watchQuickBookmarkTimeoutSeconds, in: 1...15) {
+                    LabeledContent("Quick Bookmark", value: "\(settings.watchQuickBookmarkTimeoutSeconds)s")
+                }
+                .onChange(of: settings.watchQuickBookmarkTimeoutSeconds) { _, _ in
+                    model.syncToWatch()
+                }
+            }
+
+            Section("Layout Designer") {
+                VStack(spacing: 8) {
+                    Text("Page \(selectedPage + 1) of 5")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    TabView(selection: $selectedPage) {
+                        WatchPreviewCanvas(slots: $page1Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(0)
+                        WatchPreviewCanvas(slots: $page2Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(1)
+                        WatchPreviewCanvas(slots: $page3Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(2)
+                        WatchPreviewCanvas(slots: $page4Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(3)
+                        WatchPreviewCanvas(slots: $page5Slots, backgroundStyle: settings.watchBackgroundStyle, onChange: saveSlots).tag(4)
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .always))
+                    .frame(height: 320)
+                    .indexViewStyle(.page(backgroundDisplayMode: .always))
+
+                    Text("Choose actions for this page below, or drag actions into the watch preview.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    selectedPageSlotPickers
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            Section("Available Actions") {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 18) {
+                        ForEach(palette) { action in
+                            PaletteItem(action: action)
                         }
                     }
+                    .padding(.vertical, 8)
+                }
+                .scrollIndicators(.hidden)
+            }
 
-                    if settings.watchPresets.isEmpty {
-                        Text("No presets saved yet.")
-                            .customFont(.subheadline, appFont: settings.appFont)
-                            .foregroundStyle(.tertiary)
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(settings.watchPresets) { preset in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(preset.name)
-                                        .customFont(.headline, weight: .bold, appFont: settings.appFont)
-                                    Text("P1: \(preset.page1.map { $0 == .empty ? "➕" : $0.rawValue }.joined(separator: ", "))")
-                                        .customFont(.caption2, appFont: settings.appFont)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                
-                                Button {
-                                    page1Slots = padded(preset.page1)
-                                    page2Slots = padded(preset.page2)
-                                    if let p3 = preset.page3 { page3Slots = padded(p3) } else { page3Slots = Array(repeating: .empty, count: 5) }
-                                    if let p4 = preset.page4 { page4Slots = padded(p4) } else { page4Slots = Array(repeating: .empty, count: 5) }
-                                    if let p5 = preset.page5 { page5Slots = padded(p5) } else { page5Slots = Array(repeating: .empty, count: 5) }
-                                    saveSlots()
-                                    Haptic.play(.medium)
-                                } label: {
-                                    Text("Load")
-                                        .customFont(.caption, weight: .bold, appFont: settings.appFont)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .buttonBorderShape(.capsule)
-                                .controlSize(.small)
-                                
-                                Button(role: .destructive) {
-                                    settings.watchPresets.removeAll(where: { $0.id == preset.id })
-                                    Haptic.play(.light)
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .foregroundStyle(.red)
-                                }
-                                .padding(.leading, 8)
+            Section("Presets") {
+                Button {
+                    newPresetName = ""
+                    showingSaveAlert = true
+                } label: {
+                    Label("Save Current", systemImage: "plus.circle")
+                }
+
+                if settings.watchPresets.isEmpty {
+                    Text("No presets saved yet.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(settings.watchPresets) { preset in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(preset.name)
+                                Text("P1: \(preset.page1.map { $0 == .empty ? "Empty" : $0.rawValue }.joined(separator: ", "))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(.quaternary)
-                            )
+                            Spacer()
+
+                            Button("Load") {
+                                page1Slots = padded(preset.page1)
+                                page2Slots = padded(preset.page2)
+                                page3Slots = padded(preset.page3 ?? [])
+                                page4Slots = padded(preset.page4 ?? [])
+                                page5Slots = padded(preset.page5 ?? [])
+                                saveSlots()
+                                Haptic.play(.medium)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                settings.watchPresets.removeAll(where: { $0.id == preset.id })
+                                Haptic.play(.light)
+                            }
+                            .labelStyle(.iconOnly)
                         }
                     }
                 }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(.quaternary)
-                )
-                .alert("Save Current Layout", isPresented: $showingSaveAlert) {
-                    TextField("Preset Name", text: $newPresetName)
-                    Button("Save") {
-                        saveCurrentAsPreset()
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("Enter a name for this watch layout configuration.")
-                }
+            }
 
-                // MARK: Force Sync
+            Section {
                 Button {
                     saveSlots()
                     model.syncToWatch()
                     Haptic.play(.medium)
                 } label: {
-                    Text("Sync Now")
-                        .customFont(.headline, weight: .bold, appFont: settings.appFont)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                    Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
                 }
-                .buttonStyle(.bordered)
-                .tint(.accentColor)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
         .navigationTitle("Watch App Settings")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadSlots() }
+        .alert("Save Current Layout", isPresented: $showingSaveAlert) {
+            TextField("Preset Name", text: $newPresetName)
+            Button("Save") {
+                saveCurrentAsPreset()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter a name for this watch layout configuration.")
+        }
     }
 
     @ViewBuilder

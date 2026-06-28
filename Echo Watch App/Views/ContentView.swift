@@ -267,7 +267,7 @@ struct ContentView: View {
     }
 
     private var artworkLayout: WatchArtworkLayout {
-        WatchArtworkLayout(rawValue: viewModel.watchArtworkLayout) ?? .immersive
+        WatchArtworkLayout(rawValue: viewModel.watchArtworkLayout) ?? .classic
     }
 
     private var backgroundStyle: WatchBackgroundStyle {

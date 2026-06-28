@@ -181,6 +181,23 @@ struct EchoCoreTests {
         #expect(defaults.string(forKey: "appFont") == "Lexend")
     }
 
+    @Test func debugLoggingDefaultsOffAndPersists() throws {
+        let suiteName = "test-debug-logging-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: defaults)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+
+        #expect(SettingsManager.Defaults.debugLoggingEnabled == false)
+        #expect(settings.debugLoggingEnabled == false)
+
+        settings.debugLoggingEnabled = true
+
+        let reloaded = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+        #expect(reloaded.debugLoggingEnabled == true)
+    }
+
     @Test func settingsPersistsWatchBackgroundStyle() {
         let suiteName = "watch-background-style-\(UUID().uuidString)"
         let appGroupName = "watch-background-style-ag-\(UUID().uuidString)"
@@ -198,6 +215,51 @@ struct EchoCoreTests {
         settings.watchBackgroundStyle = "black"
 
         #expect(appGroupDefaults.string(forKey: "watchBackgroundStyle") == "black")
+    }
+
+    @Test func settingsUsesClassicWatchFaceAndProgressDefaults() {
+        let suiteName = "watch-progress-defaults-\(UUID().uuidString)"
+        let appGroupName = "watch-progress-defaults-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(SettingsManager.Defaults.watchArtworkLayout == "classic")
+        #expect(SettingsManager.Defaults.linearBarMode == "chapter")
+        #expect(SettingsManager.Defaults.circularRingMode == "total")
+        #expect(appGroupDefaults.string(forKey: "watchArtworkLayout") == "classic")
+        #expect(appGroupDefaults.string(forKey: "linearBarMode") == "chapter")
+        #expect(appGroupDefaults.string(forKey: "circularRingMode") == "total")
+        #expect(settings.watchArtworkLayout == "classic")
+        #expect(settings.linearBarMode == "chapter")
+        #expect(settings.circularRingMode == "total")
+    }
+
+    @Test func settingsPreservesPersistedWatchFaceAndProgressChoices() {
+        let suiteName = "watch-progress-persisted-\(UUID().uuidString)"
+        let appGroupName = "watch-progress-persisted-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        appGroupDefaults.set("immersive", forKey: "watchArtworkLayout")
+        appGroupDefaults.set("total", forKey: "linearBarMode")
+        appGroupDefaults.set("chapter", forKey: "circularRingMode")
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(settings.watchArtworkLayout == "immersive")
+        #expect(settings.linearBarMode == "total")
+        #expect(settings.circularRingMode == "chapter")
     }
 
     @Test func settingsPersistsSeekDurationsAndLayoutCustomizations() {
@@ -268,6 +330,49 @@ struct EchoCoreTests {
         settings.studyGlobalNewChapterLimit = 99
         #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
         #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+    }
+
+    @Test func settingsPersistsAndReloadsReaderDefaults() {
+        let suiteName = "reader-defaults-\(UUID().uuidString)"
+        let appGroupName = "reader-defaults-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        defaults.set(0.0, forKey: "readerFontSize")
+        defaults.set(0.0, forKey: "readerLineSpacing")
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(settings.readerFontSize == SettingsManager.Defaults.readerFontSize)
+        #expect(settings.readerLineSpacing == SettingsManager.Defaults.readerLineSpacing)
+        #expect(settings.readerCardTint == SettingsManager.Defaults.readerCardTint)
+
+        settings.readerFontSize = 21
+        settings.readerLineSpacing = 1.8
+        settings.readerCardTint = "#E3F2FD"
+
+        #expect(defaults.double(forKey: "readerFontSize") == 21)
+        #expect(defaults.double(forKey: "readerLineSpacing") == 1.8)
+        #expect(defaults.string(forKey: "readerCardTint") == "#E3F2FD")
+
+        let reloaded = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(reloaded.readerFontSize == 21)
+        #expect(reloaded.readerLineSpacing == 1.8)
+        #expect(reloaded.readerCardTint == "#E3F2FD")
+    }
+
+    @Test func settingsReaderDefaultsUseObservedStoredProperties() throws {
+        let source = try Self.source(pathComponents: "EchoCore", "Services", "SettingsManager.swift")
+
+        #expect(source.contains("var readerFontSize: Double {"))
+        #expect(source.contains("didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }"))
+        #expect(!source.contains("get { defaults.double(forKey: Keys.readerFontSize)"))
+        #expect(!source.contains("get { defaults.string(forKey: Keys.readerCardTint)"))
     }
 
     @Test func settingsNormalizeLegacyHelveticaToSystemFont() {
@@ -439,6 +544,26 @@ struct EchoCoreTests {
         let mid = try timelineDAO.items(in: 50...150, audiobookID: "book-1")
         // Items at 10s and 100s both fall into 50-150 range (nil end times overlap)
         #expect(mid.count == 2)
+    }
+
+    private static func source(pathComponents: String...) throws -> String {
+        var directory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+
+        while directory.path != "/" {
+            let candidate = pathComponents.reduce(directory.deletingLastPathComponent()) {
+                partialResult, pathComponent in
+                partialResult.appendingPathComponent(pathComponent)
+            }
+
+            if FileManager.default.fileExists(atPath: candidate.path),
+                let content = try? String(contentsOf: candidate, encoding: .utf8)
+            {
+                return content
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw CocoaError(.fileNoSuchFile)
     }
 
 }

@@ -4,6 +4,7 @@ import SwiftUI
 struct FeedbackFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(SettingsManager.self) private var settings
 
     @State private var category: FeedbackCategory
     @State private var rating = 3
@@ -52,7 +53,9 @@ struct FeedbackFormView: View {
                 )
             }
             .task {
-                diagnostics = FeedbackDiagnosticsCollector.collect()
+                diagnostics = FeedbackDiagnosticsCollector.collect(
+                    debugLoggingEnabled: settings.debugLoggingEnabled
+                )
             }
         }
     }

@@ -45,7 +45,7 @@ enum HelpContent {
             • Skip Forward 30s — Jump ahead 30 seconds.
             • Next — Jump to the next chapter or track.
 
-            Each button can be configured with a Tap Action (primary) and a Long Press Action (secondary). Customize both in Settings > Phone Controls. Long-press a button for 0.5 seconds to trigger its secondary action with haptic feedback.
+            Each button can be configured with a Tap Action (primary) and a Long Press Action (secondary). Customize both in Settings > Controls > Phone Player Settings. Long-press a button for 0.5 seconds to trigger its secondary action with haptic feedback.
 
             Playback also works from the Lock Screen and Control Center. Use the system Now Playing controls to pause, play, or skip without opening the app.
             """
@@ -58,7 +58,7 @@ enum HelpContent {
 
             Your chosen speed is saved per book. When you come back to a book, it resumes at the speed you last used for it.
 
-            The default speed for new books is 1.25×, but you can change this in Settings > Playback > Default Speed. This setting is overridden if you manually select a different speed for a specific book.
+            The default speed for new books is 1.25×, but you can change this in Settings > Now Playing > Playback Defaults. This setting is overridden if you manually select a different speed for a specific book.
             """
         ),
         HelpSection(
@@ -148,7 +148,7 @@ enum HelpContent {
             • Medium pauses (minutes) — A larger rewind when you've been away longer.
             • Long pauses (hours) — The largest rewind, or optionally jump to the start of the current chapter.
 
-            Configure Smart Rewind in Settings > Smart Rewind. The feature is off by default. All automatic rewind amounts and the manual skip backward button respect chapter boundaries — you will never rewind past the start of the current chapter.
+            Configure Smart Rewind in Settings > Now Playing > Playback Defaults > Smart Rewind. The feature is off by default. All automatic rewind amounts and the manual skip backward button respect chapter boundaries — you will never rewind past the start of the current chapter.
             """
         ),
         HelpSection(
@@ -218,7 +218,7 @@ enum HelpContent {
             body: """
             The Apple Watch app works as a remote control for the iPhone player. Key features:
 
-            • Up to five customizable Player Pages — Each page holds up to 5 action slots that you can configure from the iPhone Settings > Watch App screen. Swipe between pages to configure them. Empty pages are hidden on the watch.
+            • Up to five customizable Player Pages — Each page holds up to 5 action slots that you can configure from the iPhone Settings > Controls > Watch App Settings screen. Swipe between pages to configure them. Empty pages are hidden on the watch.
             • Digital Crown — Configurable to control volume or scrub through the current track.
             • Quick Bookmarks — Hold the bookmark button to auto-create a bookmark after a configurable countdown (1–15 seconds). Great for hands-free bookmarking.
             • Progress Display — Choose between a circular progress ring and a linear progress bar. Each can show either chapter progress or total book progress.
@@ -229,7 +229,7 @@ enum HelpContent {
             • Fullscreen Artwork — Tap the album art on the player screen to view the cover fullscreen. An optional date overlay can show the day and date on the player.
             • Haptic feedback on button taps can be toggled in Settings.
 
-            Configure all watch options from the iPhone app under Settings > Watch App.
+            Configure all watch options from the iPhone app under Settings > Controls > Watch App Settings.
             """
         ),
         HelpSection(

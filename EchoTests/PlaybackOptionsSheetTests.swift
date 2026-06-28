@@ -58,6 +58,13 @@ struct PlaybackOptionsSheetTests {
         )
     }
 
+    @Test func sheetLinksToDurableControlsSettings() throws {
+        let source = try Self.source(named: "PlaybackOptionsSheet.swift")
+        #expect(source.contains("PhonePlayerSettingsView()"))
+        #expect(source.contains("Text(\"More Controls\")"))
+        #expect(!source.contains("Text(\"More\")"))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

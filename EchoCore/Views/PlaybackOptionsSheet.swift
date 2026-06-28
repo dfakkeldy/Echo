@@ -81,13 +81,12 @@ struct PlaybackOptionsSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
                 }
-                // BookPlayer-style "More" → the full player-controls surface
-                // (skip intervals, smart rewind, quick-action speeds, layout).
+                // Durable button/layout customization lives in Settings > Controls.
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         PhonePlayerSettingsView()
                     } label: {
-                        Text("More")
+                        Text("More Controls")
                     }
                 }
             }

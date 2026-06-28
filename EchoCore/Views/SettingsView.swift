@@ -41,31 +41,54 @@ struct SettingsView: View {
                     )
                 }
 
-                Section("Display") {
+                Section("Now Playing") {
+                    NavigationLink("Playback Defaults") {
+                        SettingsNowPlayingView()
+                    }
+                }
+
+                Section("Appearance") {
                     NavigationLink("Appearance") {
                         SettingsAppearanceView()
                     }
                 }
 
-                Section("Store") {
-                    NavigationLink("Echo Pro") {
-                        ProTranscriptsSettingsView()
-                    }
-                }
-
-                Section("Library Sources") {
-                    NavigationLink("Connections") {
-                        ABSConnectionsSettingsView()
-                    }
-                }
-
-                Section("Customization") {
-                    NavigationLink("Phone Player Designer") {
+                Section("Controls") {
+                    NavigationLink("Phone Player Settings") {
                         PhonePlayerSettingsView()
                     }
                     NavigationLink("Watch App Settings") {
                         WatchAppSettingsView()
                     }
+                }
+
+                Section("Library & Accounts") {
+                    NavigationLink("Connections") {
+                        ABSConnectionsSettingsView()
+                    }
+                    NavigationLink("Echo Pro") {
+                        ProTranscriptsSettingsView()
+                    }
+                }
+
+                Section("Study & Notes") {
+                    Button {
+                        showingDeckImporter = true
+                    } label: {
+                        Label("Import Deck", systemImage: "square.and.arrow.down")
+                    }
+
+                    SettingsStudyRows()
+
+                    Button {
+                        showingAllStudyNotesExport = true
+                    } label: {
+                        Label("Export All Study Notes", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(model.databaseService == nil)
+                }
+
+                Section("Advanced & Privacy") {
                     NavigationLink("Pronunciation") {
                         PronunciationDictionaryView(store: .shared)
                     }
@@ -79,25 +102,6 @@ struct SettingsView: View {
                 #if DEBUG
                     SettingsSilenceDetectionSection()
                 #endif
-
-                Section("Flashcards") {
-                    Button {
-                        showingDeckImporter = true
-                    } label: {
-                        Label("Import Deck", systemImage: "square.and.arrow.down")
-                    }
-                }
-
-                SettingsStudySection()
-
-                Section("Data") {
-                    Button {
-                        showingAllStudyNotesExport = true
-                    } label: {
-                        Label("Export All Study Notes", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(model.databaseService == nil)
-                }
 
                 #if DEBUG
                     Section {
@@ -117,26 +121,10 @@ struct SettingsView: View {
                     }
                 #endif
 
-                Section("Support") {
-                    NavigationLink("Feedback & Support") {
-                        FeedbackSupportView()
-                            .navigationTitle("Feedback & Support")
-                    }
-                    NavigationLink {
-                        HelpView()
-                            .navigationTitle("Help")
-                    } label: {
-                        Label("Help", systemImage: "questionmark.circle")
-                    }
-
-                    Button {
-                        showingFeedback = true
-                    } label: {
-                        Label("Send Feedback", systemImage: "bubble.left.and.text.bubble.right")
-                    }
-                }
-
-                BuildMetadataSection(buildMetadata: buildMetadata)
+                SettingsSupportAboutSection(
+                    buildMetadata: buildMetadata,
+                    showingFeedback: $showingFeedback
+                )
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -251,18 +239,16 @@ struct SettingsView: View {
     #endif
 }
 
-private struct SettingsStudySection: View {
+private struct SettingsStudyRows: View {
     @Environment(SettingsManager.self) private var settings
 
     var body: some View {
         @Bindable var settings = settings
 
-        Section("Study") {
-            Stepper(value: $settings.studyGlobalNewChapterLimit, in: 1...12) {
-                LabeledContent("Global New Chapters") {
-                    Text(limitText)
-                        .foregroundStyle(.secondary)
-                }
+        Stepper(value: $settings.studyGlobalNewChapterLimit, in: 1...12) {
+            LabeledContent("Global New Chapters") {
+                Text(limitText)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -300,12 +286,28 @@ private struct SettingsSilenceDetectionSection: View {
     }
 }
 
-private struct BuildMetadataSection: View {
+private struct SettingsSupportAboutSection: View {
     let buildMetadata: AppBuildMetadata
+    @Binding var showingFeedback: Bool
     @State private var copiedCommit = false
 
     var body: some View {
         Section {
+            NavigationLink("Feedback & Support") {
+                FeedbackSupportView()
+                    .navigationTitle("Feedback & Support")
+            }
+            NavigationLink {
+                HelpView()
+                    .navigationTitle("Help")
+            } label: {
+                Label("Help", systemImage: "questionmark.circle")
+            }
+            Button {
+                showingFeedback = true
+            } label: {
+                Label("Send Feedback", systemImage: "bubble.left.and.text.bubble.right")
+            }
             Link(destination: FeedbackSupport.privacyPolicyURL) {
                 Label("Privacy Policy", systemImage: "hand.raised")
             }
@@ -326,7 +328,7 @@ private struct BuildMetadataSection: View {
                 Text("Commit")
             }
         } header: {
-            Text("About")
+            Text("Support & About")
         } footer: {
             Text(
                 "Use these details when comparing installs or reporting a bug. The commit hash is stamped into the app at build time."
