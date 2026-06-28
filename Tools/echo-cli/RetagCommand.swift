@@ -25,7 +25,8 @@ struct RetagCommand: AsyncParsableCommand {
             out: outURL,
             title: title,
             author: author.isEmpty ? nil : author,
-            comment: HeadlessNarrationRunner.narrationVersionStamp())
+            comment: HeadlessNarrationRunner.narrationVersionStamp(),
+            replaceExistingBookMetadata: true)
         print("retagged \(outURL.lastPathComponent)")
     }
 }

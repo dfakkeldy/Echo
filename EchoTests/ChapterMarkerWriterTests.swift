@@ -96,5 +96,64 @@
             #expect(groups.count == 2)
         }
 
+        @Test func repairModeReplacesStaleAlbumArtistAndNormalModePreservesIt() async throws {
+            let source = try await SilentAudioFixture.makeSilentM4A(seconds: 6)
+            let stale = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            let preserved = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            let repaired = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer {
+                try? FileManager.default.removeItem(at: source)
+                try? FileManager.default.removeItem(at: stale)
+                try? FileManager.default.removeItem(at: preserved)
+                try? FileManager.default.removeItem(at: repaired)
+            }
+
+            try await ChapterMarkerWriter().writeChapters(
+                [ChapterAtom(startTime: 0, title: "Intro")],
+                to: source,
+                outputURL: stale,
+                metadata: ExportMetadata(
+                    title: "Imported Series Album", author: "Stale Album Artist",
+                    coverArt: nil))
+
+            try await ChapterMarkerWriter().writeChapters(
+                [ChapterAtom(startTime: 0, title: "Intro")],
+                to: stale,
+                outputURL: preserved,
+                metadata: ExportMetadata(title: "Retagged Title", author: "Fresh Author", coverArt: nil))
+
+            #expect(
+                try await metadataString(.iTunesMetadataAlbumArtist, at: preserved)
+                    == "Stale Album Artist")
+            #expect(
+                try await metadataString(.iTunesMetadataAlbum, at: preserved)
+                    == "Imported Series Album")
+
+            try await ChapterMarkerWriter().writeChapters(
+                [ChapterAtom(startTime: 0, title: "Intro")],
+                to: stale,
+                outputURL: repaired,
+                metadata: ExportMetadata(title: "Retagged Title", author: "Fresh Author", coverArt: nil),
+                replaceExistingBookMetadata: true)
+
+            #expect(
+                try await metadataString(.iTunesMetadataAlbumArtist, at: repaired)
+                    == "Fresh Author")
+            #expect(try await metadataString(.iTunesMetadataAlbum, at: repaired) == "Retagged Title")
+            #expect(try await metadataString(.iTunesMetadataArtist, at: repaired) == "Fresh Author")
+        }
+
+        private func metadataString(_ identifier: AVMetadataIdentifier, at url: URL) async throws
+            -> String?
+        {
+            let asset = AVURLAsset(url: url)
+            let metadata = try await asset.load(.metadata)
+            let item = metadata.first { $0.identifier?.rawValue == identifier.rawValue }
+            return try await item?.load(.stringValue)
+        }
+
     }
 #endif
