@@ -45,6 +45,30 @@ struct WatchAppDesignerAccessibilityTests {
         )
     }
 
+    @Test func watchSettingsUsesFormSectionsAndSegmentedProgressControls() throws {
+        let source = try Self.source(named: "WatchAppSettingsView.swift")
+        #expect(source.contains("Form {"))
+        #expect(source.contains("Section(\"Face\")"))
+        #expect(source.contains("Section(\"Progress\")"))
+        #expect(source.contains("Section(\"Controls\")"))
+        #expect(source.contains("Section(\"Layout Designer\")"))
+        #expect(source.contains("Section(\"Available Actions\")"))
+        #expect(source.contains("Section(\"Presets\")"))
+        #expect(!source.contains("ScrollView {"))
+
+        let progressSlice = try Self.slice(
+            of: source,
+            after: "Section(\"Progress\")",
+            until: "Section(\"Controls\")"
+        )
+        #expect(progressSlice.contains("Picker(\"Circular Ring\""))
+        #expect(progressSlice.contains("Text(\"Book\").tag(\"total\")"))
+        #expect(progressSlice.contains("Text(\"Chapter\").tag(\"chapter\")"))
+        #expect(progressSlice.contains("Picker(\"Linear Bar\""))
+        #expect(progressSlice.contains(".pickerStyle(.segmented)"))
+        #expect(!progressSlice.contains(".pickerStyle(.menu)"))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {
