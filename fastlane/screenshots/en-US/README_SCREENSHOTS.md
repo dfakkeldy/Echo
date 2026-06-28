@@ -75,8 +75,8 @@ identifiers). If you restyle the bottom dock / top header, keep the labels
 ## Route B — `Scripts/capture_screenshots.sh` (assisted, no app changes)
 
 ```sh
-Scripts/capture_screenshots.sh                      # iPhone 16 Pro Max, en-US
-Scripts/capture_screenshots.sh "iPad Pro 13-inch (M4)"
+Scripts/capture_screenshots.sh                      # iPhone 17 Pro Max, en-US
+Scripts/capture_screenshots.sh "iPad Pro 13-inch (M5)"
 ```
 
 Boots the simulator with the same clean marketing status bar, then captures
@@ -123,9 +123,9 @@ you want native (non-scaled) art.
 
 | Device | Resolution | Required |
 |---|---|---|
-| iPhone 16 Pro Max (6.9") | 1320 × 2868 | ✅ |
+| iPhone 17 Pro Max (6.9") | 1320 × 2868 | ✅ |
 | iPad Pro 13" | 2064 × 2752 | ✅ |
-| iPhone 16 Pro (6.3") | 1206 × 2622 | optional |
+| iPhone 17 Pro (6.3") | 1206 × 2622 | optional |
 | Mac | 2880 × 1800 | for the Mac app |
 | Apple Watch Ultra | 410 × 502 | for the Watch app |
 
@@ -136,7 +136,7 @@ bundle exec fastlane upload_screenshots   # screenshots + metadata, no binary
 ```
 
 (Requires `fastlane/api_key.json`.) Add device frames first with
-`bundle exec fastlane frame_screenshots` (needs `brew install imagemagick`).
+`bundle exec fastlane frame_app_store_screenshots` (needs `brew install imagemagick`).
 
 ## Notes
 

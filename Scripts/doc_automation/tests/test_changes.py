@@ -82,6 +82,17 @@ class CategorizeTests(unittest.TestCase):
         self.assertEqual(result.fixed, ["Verify sync after airplane mode"])
         self.assertEqual(result.new, [])
 
+    def test_internal_implementation_subjects_need_tester_notes(self):
+        result = categorize([
+            RawCommit("feat(db): add audiobook DAO for library roots"),
+            RawCommit("fix(release): M4BRetagger + `echo-cli retag` - re-stamp m4bs"),
+            RawCommit("feat(stats): IOS sessions history list + session-scoped detail feed (Phase 5)"),
+            RawCommit("fix(player): resume playback after airplane mode"),
+            RawCommit("chore(db): schema cleanup", "Tester-note: Verify your library still loads"),
+        ])
+        self.assertEqual(result.new, ["Verify your library still loads"])
+        self.assertEqual(result.fixed, ["Resume playback after airplane mode"])
+
     def test_total_and_is_empty(self):
         empty = CategorizedChanges()
         self.assertTrue(empty.is_empty())

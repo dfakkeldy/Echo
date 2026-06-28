@@ -15,6 +15,13 @@ CONVENTIONAL_RE = re.compile(
 
 # Conventional-Commit type -> CategorizedChanges attribute name.
 INCLUDED_TYPES = {"feat": "new", "fix": "fixed", "perf": "improved"}
+INTERNAL_DESCRIPTION_RE = re.compile(
+    r"`|"
+    r"\b(dao|schema|migration|migrator|fixture|fixtures|fastlane|workflow|xcode)\b|"
+    r"\b(cli|retag|m4bretagger)\b|"
+    r"\bphase\s+\d+\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -41,7 +48,13 @@ def clean_description(desc: str) -> str:
     desc = desc.strip().rstrip(".").strip()
     if not desc:
         return ""
+    desc = re.sub(r"\bIOS\b", "iOS", desc)
+    desc = re.sub(r"\bMacOS\b", "macOS", desc)
     return desc[:1].upper() + desc[1:]
+
+
+def is_internal_description(desc: str) -> bool:
+    return bool(INTERNAL_DESCRIPTION_RE.search(desc))
 
 
 def find_trailers(body: str) -> tuple[str | None, bool]:
@@ -72,6 +85,8 @@ def categorize(commits: list[RawCommit]) -> CategorizedChanges:
             group = INCLUDED_TYPES.get(ctype, "new")
         else:
             if ctype not in INCLUDED_TYPES:
+                continue
+            if is_internal_description(match.group("desc")):
                 continue
             group = INCLUDED_TYPES[ctype]
             bullet = clean_description(match.group("desc"))

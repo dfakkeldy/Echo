@@ -14,9 +14,9 @@
 # automate. Captures land in fastlane/screenshots/<locale>/ ready for deliver.
 #
 # Usage:
-#   Scripts/capture_screenshots.sh                       # iPhone 16 Pro Max, en-US
-#   Scripts/capture_screenshots.sh "iPad Pro 13-inch (M4)"
-#   Scripts/capture_screenshots.sh "iPhone 16 Pro Max" en-GB
+#   Scripts/capture_screenshots.sh                       # iPhone 17 Pro Max, en-US
+#   Scripts/capture_screenshots.sh "iPad Pro 13-inch (M5)"
+#   Scripts/capture_screenshots.sh "iPhone 17 Pro Max" en-GB
 #
 # Requirements: Xcode command line tools (xcrun simctl). Build & install the
 # app on the target simulator first (Cmd-R in Xcode, or `fastlane`), since this
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-DEVICE_NAME="${1:-iPhone 16 Pro Max}"
+DEVICE_NAME="${1:-iPhone 17 Pro Max}"
 LOCALE="${2:-en-US}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
