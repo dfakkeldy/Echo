@@ -6,6 +6,90 @@ import Observation
     import UIKit
 #endif
 
+/// Shared book-absolute timing for playlist playback, manifest resume, Watch
+/// context, and Audiobookshelf progress sync.
+struct PlaybackBookTimeIndex: Equatable, Sendable {
+    struct TrackTime: Equatable, Sendable {
+        var trackID: String
+        var trackURL: URL
+        var trackIndex: Int
+        var startTime: TimeInterval
+        var duration: TimeInterval
+
+        var endTime: TimeInterval { startTime + duration }
+    }
+
+    struct ResolvedTime: Equatable, Sendable {
+        var trackID: String
+        var trackURL: URL
+        var trackIndex: Int
+        var offset: TimeInterval
+        var duration: TimeInterval
+    }
+
+    static let empty = PlaybackBookTimeIndex(tracks: [])
+
+    var tracks: [TrackTime]
+
+    var totalDuration: TimeInterval {
+        tracks.last.map(\.endTime) ?? 0
+    }
+
+    init(tracks: [TrackTime]) {
+        self.tracks = tracks
+            .filter { $0.duration.isFinite && $0.duration > 0 }
+            .sorted {
+                if $0.startTime == $1.startTime { return $0.trackIndex < $1.trackIndex }
+                return $0.startTime < $1.startTime
+            }
+    }
+
+    init(orderedTracks: [(track: Track, duration: TimeInterval)]) {
+        var cursor: TimeInterval = 0
+        var values: [TrackTime] = []
+        for (index, item) in orderedTracks.enumerated() {
+            guard item.duration.isFinite, item.duration > 0 else { continue }
+            values.append(
+                TrackTime(
+                    trackID: item.track.id,
+                    trackURL: item.track.url,
+                    trackIndex: index,
+                    startTime: cursor,
+                    duration: item.duration))
+            cursor += item.duration
+        }
+        self.init(tracks: values)
+    }
+
+    func startTime(forTrackID trackID: String) -> TimeInterval? {
+        tracks.first { $0.trackID == trackID }?.startTime
+    }
+
+    func startTime(forTrackURL trackURL: URL) -> TimeInterval? {
+        tracks.first { $0.trackURL == trackURL }?.startTime
+    }
+
+    func bookTime(trackID: String, offset: TimeInterval) -> TimeInterval? {
+        guard let track = tracks.first(where: { $0.trackID == trackID }) else { return nil }
+        return track.startTime + min(max(0, offset), track.duration)
+    }
+
+    func resolve(bookTime: TimeInterval) -> ResolvedTime? {
+        guard let first = tracks.first else { return nil }
+        let clamped = min(max(0, bookTime), totalDuration)
+        let track =
+            tracks.first { clamped >= $0.startTime && clamped < $0.endTime }
+            ?? tracks.last
+            ?? first
+        return ResolvedTime(
+            trackID: track.trackID,
+            trackURL: track.trackURL,
+            trackIndex: track.trackIndex,
+            offset: min(max(0, clamped - track.startTime), track.duration),
+            duration: track.duration)
+    }
+}
+
 /// Shared mutable playback state, owned by PlaybackController and observed by
 /// both PlayerModel (via pass-through computed properties) and SwiftUI views.
 /// Eliminates ~150 lines of stored properties and pass-throughs from PlayerModel.
@@ -22,6 +106,8 @@ final class PlaybackState {
     var m4bBooks: [M4BBook] = []
     var aggregatedChapters: [AggregatedChapter] = []
     var totalBookDuration: TimeInterval = 0
+    var bookTimeIndex: PlaybackBookTimeIndex = .empty
+    var pendingBookTimeSeek: TimeInterval? = nil
 
     var isMultiM4B: Bool { m4bBooks.count >= 2 }
     var pendingAggregatedChapter: AggregatedChapter? = nil
@@ -41,6 +127,14 @@ final class PlaybackState {
     /// book, or 0 when single-file / unresolved.
     var currentBookStartOffset: TimeInterval { currentBook?.cumulativeStartOffset ?? 0 }
 
+    var currentTrackStartOffset: TimeInterval {
+        guard tracks.indices.contains(currentIndex) else { return 0 }
+        let track = tracks[currentIndex]
+        return bookTimeIndex.startTime(forTrackID: track.id)
+            ?? bookTimeIndex.startTime(forTrackURL: track.url)
+            ?? currentBookStartOffset
+    }
+
     /// Whole-book duration for the current playback scope: the aggregated total
     /// for a multi-M4B folder, otherwise the single file's duration. Centralizes
     /// the `isMultiM4B ? totalBookDuration : durationSeconds` selection that
@@ -48,7 +142,22 @@ final class PlaybackState {
     /// dividing a book-absolute time by the current *track's* duration reads as
     /// finished after the first track (CODE_AUDIT §5.20).
     var effectiveBookDuration: TimeInterval {
-        isMultiM4B ? totalBookDuration : (durationSeconds ?? 0)
+        if bookTimeIndex.totalDuration > 0 { return bookTimeIndex.totalDuration }
+        return isMultiM4B ? totalBookDuration : (durationSeconds ?? 0)
+    }
+
+    func bookTime(forCurrentTrackOffset offset: TimeInterval) -> TimeInterval {
+        guard tracks.indices.contains(currentIndex), offset.isFinite else { return 0 }
+        let track = tracks[currentIndex]
+        return bookTimeIndex.bookTime(trackID: track.id, offset: offset)
+            ?? (currentBookStartOffset + max(0, offset))
+    }
+
+    func trackOffset(forBookTime bookTime: TimeInterval, trackID: String) -> TimeInterval? {
+        guard let resolved = bookTimeIndex.resolve(bookTime: bookTime),
+            resolved.trackID == trackID
+        else { return nil }
+        return resolved.offset
     }
 
     // MARK: - Playback

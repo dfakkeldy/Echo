@@ -66,6 +66,52 @@ import Testing
         #expect(state.effectiveBookDuration == 137)
     }
 
+    @Test func bookTimeIndexMapsAbsoluteTimeToTrackOffset() {
+        let first = Track(url: URL(string: "file:///lib/01.mp3")!, title: "One")
+        let second = Track(url: URL(string: "file:///lib/02.mp3")!, title: "Two")
+
+        let index = PlaybackBookTimeIndex(tracks: [
+            .init(trackID: first.id, trackURL: first.url, trackIndex: 0, startTime: 0, duration: 60),
+            .init(
+                trackID: second.id, trackURL: second.url, trackIndex: 1, startTime: 60,
+                duration: 120),
+        ])
+
+        #expect(index.totalDuration == 180)
+        #expect(index.resolve(bookTime: 75)?.trackID == second.id)
+        #expect(index.resolve(bookTime: 75)?.offset == 15)
+        #expect(index.resolve(bookTime: 5_000)?.trackID == second.id)
+        #expect(index.resolve(bookTime: 5_000)?.offset == 120)
+    }
+
+    @Test func playbackStateUsesBookTimeIndexForCurrentAbsoluteTime() {
+        let state = PlaybackState()
+        let first = Track(url: URL(string: "file:///lib/01.mp3")!, title: "One")
+        let second = Track(url: URL(string: "file:///lib/02.mp3")!, title: "Two")
+        state.tracks = [first, second]
+        state.currentIndex = 1
+        state.bookTimeIndex = PlaybackBookTimeIndex(tracks: [
+            .init(trackID: first.id, trackURL: first.url, trackIndex: 0, startTime: 0, duration: 60),
+            .init(
+                trackID: second.id, trackURL: second.url, trackIndex: 1, startTime: 60,
+                duration: 120),
+        ])
+
+        #expect(state.bookTime(forCurrentTrackOffset: 30) == 90)
+        #expect(state.trackOffset(forBookTime: 90, trackID: second.id) == 30)
+    }
+
+    @Test func playbackStateFallsBackToM4BBookOffsetWhenNoIndexExists() {
+        let state = PlaybackState()
+        let a = book("BookA", offset: 0, duration: 100)
+        let b = book("BookB", offset: 100, duration: 200)
+        state.m4bBooks = [a, b]
+        state.tracks = [Track(url: b.url, title: "BookB"), Track(url: a.url, title: "BookA")]
+        state.currentIndex = 0
+
+        #expect(state.bookTime(forCurrentTrackOffset: 25) == 125)
+    }
+
     // MARK: - §5.2 next-aggregated-chapter boundary
 
     private func chapter(_ index: Int, _ start: TimeInterval, _ end: TimeInterval)

@@ -91,23 +91,28 @@ final class PlaybackProgressPresenter {
 
         // §7.3: coarse book-level percent for dashboard cards — set only when the
         // integer changes, so observers re-render ~1 Hz instead of every tick.
-        if let duration = state.durationSeconds, duration > 0 {
-            let percent = Int(min(1.0, max(0, elapsed / duration)) * 100)
+        let bookElapsed = state.bookTime(forCurrentTrackOffset: elapsed)
+        let bookDuration = state.effectiveBookDuration
+        let usesBookTime = state.bookTimeIndex.totalDuration > 0 || state.isMultiM4B
+        if bookDuration > 0 {
+            let percent = Int(min(1.0, max(0, bookElapsed / bookDuration)) * 100)
             if state.bookProgressPercent != percent { state.bookProgressPercent = percent }
         }
 
-        // Multi-M4B: book-level progress (overrides chapter-level fraction below).
-        if state.isMultiM4B, state.totalBookDuration > 0 {
-            let bookOffset = state.currentBookStartOffset
-            let bookElapsed = bookOffset + elapsed
-            let frac = min(1, max(0, bookElapsed / state.totalBookDuration))
+        // Multi-file books use the shared book-time axis for progress.
+        if bookDuration > 0, usesBookTime {
+            let frac = min(1, max(0, bookElapsed / bookDuration))
             let didChange = abs(state.progressFraction - frac) > 0.005
             state.progressFraction = frac
             state.elapsedText = NowPlayingController.formatTime(max(0, bookElapsed) / speed)
-            let remaining = max(0, state.totalBookDuration - bookElapsed) / speed
+            let remaining = max(0, bookDuration - bookElapsed) / speed
             state.progressText = "-\(NowPlayingController.formatTime(remaining))"
-            state.durationText = NowPlayingController.formatTime(state.totalBookDuration / speed)
+            state.durationText = NowPlayingController.formatTime(bookDuration / speed)
             if didChange { onSyncToWatch?() }
+        }
+
+        if usesBookTime, state.chapters.count < 2 {
+            return
         }
 
         if state.chapters.count >= 2 {
@@ -126,8 +131,8 @@ final class PlaybackProgressPresenter {
                 let chapterDuration = c.endSeconds - c.startSeconds
                 let chapterElapsed = elapsed - c.startSeconds
 
-                // Multi-M4B: book-level progress is already set above; skip chapter-level override.
-                if state.isMultiM4B { return }
+                // Multi-file: book-level progress is already set above; skip chapter-level override.
+                if usesBookTime { return }
 
                 if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
                     let frac = min(1, max(0, chapterElapsed / chapterDuration))
