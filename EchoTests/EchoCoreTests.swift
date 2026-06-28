@@ -200,6 +200,51 @@ struct EchoCoreTests {
         #expect(appGroupDefaults.string(forKey: "watchBackgroundStyle") == "black")
     }
 
+    @Test func settingsUsesClassicWatchFaceAndProgressDefaults() {
+        let suiteName = "watch-progress-defaults-\(UUID().uuidString)"
+        let appGroupName = "watch-progress-defaults-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(SettingsManager.Defaults.watchArtworkLayout == "classic")
+        #expect(SettingsManager.Defaults.linearBarMode == "chapter")
+        #expect(SettingsManager.Defaults.circularRingMode == "total")
+        #expect(appGroupDefaults.string(forKey: "watchArtworkLayout") == "classic")
+        #expect(appGroupDefaults.string(forKey: "linearBarMode") == "chapter")
+        #expect(appGroupDefaults.string(forKey: "circularRingMode") == "total")
+        #expect(settings.watchArtworkLayout == "classic")
+        #expect(settings.linearBarMode == "chapter")
+        #expect(settings.circularRingMode == "total")
+    }
+
+    @Test func settingsPreservesPersistedWatchFaceAndProgressChoices() {
+        let suiteName = "watch-progress-persisted-\(UUID().uuidString)"
+        let appGroupName = "watch-progress-persisted-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        appGroupDefaults.set("immersive", forKey: "watchArtworkLayout")
+        appGroupDefaults.set("total", forKey: "linearBarMode")
+        appGroupDefaults.set("chapter", forKey: "circularRingMode")
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(settings.watchArtworkLayout == "immersive")
+        #expect(settings.linearBarMode == "total")
+        #expect(settings.circularRingMode == "chapter")
+    }
+
     @Test func settingsPersistsSeekDurationsAndLayoutCustomizations() {
         let suiteName = "seek-durations-\(UUID().uuidString)"
         let appGroupName = "seek-durations-ag-\(UUID().uuidString)"

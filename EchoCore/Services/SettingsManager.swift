@@ -33,11 +33,11 @@ final class SettingsManager {
         static let watchPage3: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let watchPage4: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
         static let watchPage5: [WatchAction] = [.empty, .empty, .empty, .empty, .empty]
-        static let linearBarMode = "total"
+        static let linearBarMode = "chapter"
         static let linearBarHidden = false
-        static let circularRingMode = "chapter"
+        static let circularRingMode = "total"
         static let circularRingHidden = false
-        static let watchArtworkLayout = "immersive"
+        static let watchArtworkLayout = "classic"
         static let watchBackgroundStyle = "artwork"
         static let watchTitleScrollEnabled = false
         static let watchTitleScrollSpeed = 30.0
