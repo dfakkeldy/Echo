@@ -26,6 +26,14 @@ struct SettingsExtractionTests {
         #expect(source.contains("struct ThemeSelectionView"))
     }
 
+    @Test func readerDefaultsSubViewIsExtracted() throws {
+        let source = try Self.source(named: "ReaderDefaultsSettingsView.swift")
+        #expect(source.contains("struct ReaderDefaultsSettingsView"))
+        #expect(source.contains("readerFontSize"))
+        #expect(source.contains("readerLineSpacing"))
+        #expect(source.contains("readerCardTint"))
+    }
+
     @Test func proTranscriptsSubViewIsExtracted() throws {
         let source = try Self.source(named: "ProTranscriptsSettingsView.swift")
         #expect(source.contains("struct ProTranscriptsSettingsView"))
@@ -51,6 +59,7 @@ struct SettingsExtractionTests {
         #expect(!source.contains("private struct SettingsAppearanceView"))
         #expect(!source.contains("private struct FontSelectionView"))
         #expect(!source.contains("private struct ThemeSelectionView"))
+        #expect(!source.contains("private struct ReaderDefaultsSettingsView"))
         #expect(!source.contains("private struct ProTranscriptsSettingsView"))
         #expect(!source.contains("private struct AppIconSelectionView"))
     }

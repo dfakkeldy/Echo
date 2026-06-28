@@ -64,6 +64,16 @@ struct SettingsAppearanceView: View {
                         .foregroundStyle(.secondary)
                     }
                 }
+                NavigationLink {
+                    ReaderDefaultsSettingsView()
+                } label: {
+                    HStack {
+                        Text("Reader Defaults")
+                        Spacer()
+                        Text("\(Int(settings.readerFontSize)) pt")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             Section {
                 Toggle(
