@@ -122,6 +122,21 @@ struct PhonePlayerPaletteTests {
         )
     }
 
+    @Test func phoneSettingsUsesFormSectionsAndSharedDesignerTerms() throws {
+        let source = try Self.source(named: "PhonePlayerSettingsView.swift")
+        #expect(source.contains("Form {"))
+        #expect(source.contains("Section(\"Layout\")") || source.contains("Text(\"Layout\")"))
+        #expect(source.contains("Section(\"Mini-Player\")") || source.contains("Text(\"Mini-Player\")"))
+        #expect(source.contains("Section(\"Player Buttons\")"))
+        #expect(source.contains("Section(\"Focus Tools\")"))
+        #expect(source.contains("Section(\"Available Actions\")"))
+        #expect(source.contains("Section(\"Presets\")"))
+        #expect(source.contains("Reset to Defaults"))
+        #expect(!source.contains("ScrollView {"))
+        #expect(!source.contains("Phone App Designer Info"))
+        #expect(!source.contains("Layout Presets"))
+    }
+
     // MARK: - Source resolution
 
     private static func source(named fileName: String) throws -> String {
