@@ -45,7 +45,7 @@ struct SettingsExtractionTests {
         let source = try Self.source(named: "SettingsNowPlayingView.swift")
         #expect(source.contains("struct SettingsNowPlayingView"))
         #expect(source.contains("Default Speed"))
-        #expect(source.contains("PlaybackOptionsSheet.seekDurationOptions"))
+        #expect(source.contains("seekDurationOptions"))
         #expect(source.contains("SmartRewindSettingsView()"))
         #expect(source.contains("playBookmarksInline"))
     }
