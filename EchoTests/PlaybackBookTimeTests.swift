@@ -112,6 +112,27 @@ import Testing
         #expect(state.bookTime(forCurrentTrackOffset: 25) == 125)
     }
 
+    @Test func multiTrackBookTimeSeekDefersUntilIndexExists() {
+        let state = PlaybackState()
+        state.tracks = [
+            Track(url: URL(string: "file:///lib/01.mp3")!, title: "One"),
+            Track(url: URL(string: "file:///lib/02.mp3")!, title: "Two"),
+        ]
+
+        #expect(state.shouldDeferBookTimeSeek(75))
+
+        state.bookTimeIndex = PlaybackBookTimeIndex(tracks: [
+            .init(
+                trackID: state.tracks[0].id, trackURL: state.tracks[0].url, trackIndex: 0,
+                startTime: 0, duration: 60),
+            .init(
+                trackID: state.tracks[1].id, trackURL: state.tracks[1].url, trackIndex: 1,
+                startTime: 60, duration: 120),
+        ])
+
+        #expect(!state.shouldDeferBookTimeSeek(75))
+    }
+
     // MARK: - §5.2 next-aggregated-chapter boundary
 
     private func chapter(_ index: Int, _ start: TimeInterval, _ end: TimeInterval)

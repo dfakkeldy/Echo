@@ -249,9 +249,16 @@ extension PlayerModel {
                 seek(toSeconds: resolved.offset)
             } else if tracks.indices.contains(resolved.trackIndex) {
                 state.pendingBookTimeSeek = target
+                state.pendingBookTimeSeekSuppressesProgressPush = true
                 playerLoadingCoordinator.prepareToPlay(
                     index: resolved.trackIndex, autoplay: isPlaying)
             }
+            return
+        }
+
+        if state.shouldDeferBookTimeSeek(target) {
+            state.pendingBookTimeSeek = target
+            state.pendingBookTimeSeekSuppressesProgressPush = true
             return
         }
 

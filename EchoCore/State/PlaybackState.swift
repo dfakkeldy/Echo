@@ -108,6 +108,7 @@ final class PlaybackState {
     var totalBookDuration: TimeInterval = 0
     var bookTimeIndex: PlaybackBookTimeIndex = .empty
     var pendingBookTimeSeek: TimeInterval? = nil
+    var pendingBookTimeSeekSuppressesProgressPush: Bool = false
 
     var isMultiM4B: Bool { m4bBooks.count >= 2 }
     var pendingAggregatedChapter: AggregatedChapter? = nil
@@ -158,6 +159,10 @@ final class PlaybackState {
             resolved.trackID == trackID
         else { return nil }
         return resolved.offset
+    }
+
+    func shouldDeferBookTimeSeek(_ target: TimeInterval) -> Bool {
+        tracks.count > 1 && target.isFinite && bookTimeIndex.resolve(bookTime: target) == nil
     }
 
     // MARK: - Playback

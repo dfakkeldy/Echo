@@ -88,6 +88,7 @@ final class PlayerLoadingCoordinator {
             url: url, state: state, playlistManager: playlistManager)
         state.bookTimeIndex = .empty
         state.pendingBookTimeSeek = nil
+        state.pendingBookTimeSeekSuppressesProgressPush = false
 
         // Normalize folderURL to always be a directory. When the user opens a
         // single file (e.g. an M4B), use its parent directory as the canonical
@@ -183,6 +184,7 @@ final class PlayerLoadingCoordinator {
         state.totalBookDuration = 0
         state.bookTimeIndex = .empty
         state.pendingBookTimeSeek = nil
+        state.pendingBookTimeSeekSuppressesProgressPush = false
         state.durationSeconds = nil
         state.thumbnailImage = nil
         state.transcription = []
@@ -363,13 +365,17 @@ final class PlayerLoadingCoordinator {
     private func applyPendingBookTimeSeekIfPossible(state: PlaybackState) {
         guard let pending = state.pendingBookTimeSeek,
             state.tracks.indices.contains(state.currentIndex),
-            let resolved = state.bookTimeIndex.resolve(bookTime: pending),
-            resolved.trackID == state.tracks[state.currentIndex].id,
-            let audioEngine,
-            audioEngine.isItemLoaded
+            let resolved = state.bookTimeIndex.resolve(bookTime: pending)
         else { return }
 
+        if resolved.trackID != state.tracks[state.currentIndex].id {
+            prepareToPlay(index: resolved.trackIndex, autoplay: state.isPlaying)
+            return
+        }
+
+        guard let audioEngine, audioEngine.isItemLoaded else { return }
         state.pendingBookTimeSeek = nil
+        state.pendingBookTimeSeekSuppressesProgressPush = false
         state.isManualSeeking = true
         audioEngine.seek(to: resolved.offset) { [weak self] _ in
             state.isManualSeeking = false

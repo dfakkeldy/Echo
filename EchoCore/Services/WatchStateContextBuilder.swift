@@ -98,8 +98,9 @@ enum WatchStateContextBuilder {
 
         // Total progress
         if let duration = s.durationSeconds, duration.isFinite, duration > 0 {
-            let totalElapsed = s.currentPlaybackTime
-            context["totalProgressFraction"] = min(1, max(0, totalElapsed / duration))
+            let bookElapsed = s.currentPlaybackTime
+            let bookDuration = duration
+            context["totalProgressFraction"] = min(1, max(0, bookElapsed / bookDuration))
             context["totalBookDuration"] = duration
         } else {
             let totalCount = Double(s.trackCount)

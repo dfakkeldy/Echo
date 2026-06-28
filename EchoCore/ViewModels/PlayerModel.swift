@@ -779,6 +779,7 @@ final class PlayerModel {
                 offset <= seconds
             {
                 self.state.pendingBookTimeSeek = nil
+                self.state.pendingBookTimeSeekSuppressesProgressPush = false
                 Task { @MainActor in self.seek(toSeconds: offset) }
             } else if let folderURL = self.folderURL,
                 let progress = self.persistence.getBookProgress(
@@ -795,6 +796,7 @@ final class PlayerModel {
                     savedTime >= seconds
                 {
                     self.state.pendingBookTimeSeek = progress.time
+                    self.state.pendingBookTimeSeekSuppressesProgressPush = false
                     return
                 }
                 if savedTime < seconds {
@@ -859,6 +861,9 @@ final class PlayerModel {
             self?.configureContinuousAlignment()
         }
         playerLoadingCoordinator.onSavedPlaybackProgress = { [weak self] in
+            guard self?.state.pendingBookTimeSeekSuppressesProgressPush != true else {
+                return
+            }
             self?.maybePushABSProgress(force: true)
         }
 
