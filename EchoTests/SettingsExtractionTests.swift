@@ -81,32 +81,40 @@ struct SettingsExtractionTests {
         #expect(source.contains("Delete Context Memory"))
     }
 
-    /// The Settings shell links out to its subscreens and keeps only app-level
-    /// rows — no inline per-listen controls remain.
-    @Test func settingsShellExposesSubscreenLinksOnly() throws {
+    @Test func settingsShellUsesApprovedInformationArchitecture() throws {
         let source = try Self.source(named: "SettingsView.swift")
-        #expect(source.contains("SettingsAppearanceView()"))
-        #expect(source.contains("ProTranscriptsSettingsView()"))
+
         #expect(source.contains("Section(\"Now Playing\")"))
         #expect(source.contains("SettingsNowPlayingView()"))
+        #expect(source.contains("Section(\"Appearance\")"))
+        #expect(source.contains("SettingsAppearanceView()"))
+        #expect(source.contains("Section(\"Controls\")"))
         #expect(source.contains("PhonePlayerSettingsView()"))
         #expect(source.contains("WatchAppSettingsView()"))
-        #expect(source.contains("SettingsAdvancedView()"))
-        #expect(source.contains("FeedbackSupportView()"))
+        #expect(source.contains("Section(\"Library & Accounts\")"))
+        #expect(source.contains("ABSConnectionsSettingsView()"))
+        #expect(source.contains("ProTranscriptsSettingsView()"))
+        #expect(source.contains("Section(\"Study & Notes\")"))
+        #expect(source.contains("SettingsStudyRows()"))
         #expect(source.contains("AllStudyNotesExportView"))
-        #expect(source.contains("Section(\"Data\")"))
-        #expect(source.contains("Export All Study Notes"))
-        #expect(source.contains("Section(\"Support\")"))
-        #expect(source.contains("FeedbackSupport.privacyPolicyURL"))
-        #expect(source.contains("Privacy Policy"))
-        #expect(source.contains("Text(\"About\")"))
-        // The Volume Boost toggle moved to the Playback Options sheet (WS-B).
+        #expect(source.contains("Section(\"Advanced & Privacy\")"))
+        #expect(source.contains("PronunciationDictionaryView(store: .shared)"))
+        #expect(source.contains("SettingsAdvancedView()"))
+        #expect(source.contains("SettingsSupportAboutSection("))
+
+        #expect(!source.contains("Section(\"Display\")"))
+        #expect(!source.contains("Section(\"Store\")"))
+        #expect(!source.contains("Section(\"Library Sources\")"))
+        #expect(!source.contains("Section(\"Customization\")"))
+        #expect(!source.contains("Section(\"Flashcards\")"))
+        #expect(!source.contains("Section(\"Data\")"))
+        #expect(!source.contains("Section(\"Support\")"))
         #expect(!source.contains("Toggle(\"Volume Boost\""))
     }
 
     @Test func settingsShellExposesStudyGlobalChapterCap() throws {
         let source = try Self.source(named: "SettingsView.swift")
-        #expect(source.contains("SettingsStudySection()"))
+        #expect(source.contains("SettingsStudyRows()"))
         #expect(source.contains("$settings.studyGlobalNewChapterLimit"))
         #expect(source.contains("Global New Chapters"))
     }
