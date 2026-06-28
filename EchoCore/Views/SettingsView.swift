@@ -41,6 +41,12 @@ struct SettingsView: View {
                     )
                 }
 
+                Section("Now Playing") {
+                    NavigationLink("Playback Defaults") {
+                        SettingsNowPlayingView()
+                    }
+                }
+
                 Section("Display") {
                     NavigationLink("Appearance") {
                         SettingsAppearanceView()

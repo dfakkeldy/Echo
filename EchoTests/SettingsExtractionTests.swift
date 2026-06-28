@@ -87,6 +87,8 @@ struct SettingsExtractionTests {
         let source = try Self.source(named: "SettingsView.swift")
         #expect(source.contains("SettingsAppearanceView()"))
         #expect(source.contains("ProTranscriptsSettingsView()"))
+        #expect(source.contains("Section(\"Now Playing\")"))
+        #expect(source.contains("SettingsNowPlayingView()"))
         #expect(source.contains("PhonePlayerSettingsView()"))
         #expect(source.contains("WatchAppSettingsView()"))
         #expect(source.contains("SettingsAdvancedView()"))

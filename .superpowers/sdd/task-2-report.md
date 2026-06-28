@@ -38,3 +38,9 @@
 ## Any issues or concerns
 - The requested RED step did not reach the expected `CocoaError(.fileNoSuchFile)` because the simulator/device infrastructure blocked `xcodebuild test`.
 - I did not wire the new screen into any navigation entry point because this task brief scoped ownership only to the view file and extraction test.
+
+## Follow-up review fix
+- Added the minimal `SettingsView` route so `SettingsNowPlayingView()` is reachable from the app settings hierarchy without reworking the broader IA.
+- Tightened the extraction guard in `EchoTests/SettingsExtractionTests.swift` to assert both `Section("Now Playing")` and `SettingsNowPlayingView()`.
+- Re-ran the focused test command, but the simulator/device infrastructure still blocked execution with the same `com.apple.mobile.notification_proxy` / passcode-protected device failure.
+- Verified the source change with `rg`, and confirmed the app still builds with `xcodebuild build -scheme Echo -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO`.
