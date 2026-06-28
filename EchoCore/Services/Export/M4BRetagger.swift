@@ -57,7 +57,8 @@ enum M4BRetagger {
     /// tags/cover/comment, and writes the result to `out`. Audio is untouched.
     static func retag(
         m4b: URL, expandedEPUBDir: URL, out: URL,
-        title: String, author: String?, comment: String
+        title: String, author: String?, comment: String,
+        replaceExistingBookMetadata: Bool
     ) async throws {
         #if canImport(AudioMarker)
             let engine = AudioMarkerEngine()
@@ -79,7 +80,8 @@ enum M4BRetagger {
             try await ChapterMarkerWriter().writeChapters(
                 atoms, to: m4b, outputURL: temp,
                 metadata: ExportMetadata(
-                    title: title, author: author, coverArt: cover, comment: comment))
+                    title: title, author: author, coverArt: cover, comment: comment),
+                replaceExistingBookMetadata: replaceExistingBookMetadata)
             if FileManager.default.fileExists(atPath: out.path) {
                 try FileManager.default.removeItem(at: out)
             }

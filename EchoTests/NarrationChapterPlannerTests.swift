@@ -99,6 +99,20 @@ import Testing
                 == "ch. 1: The Door Opens")
     }
 
+    @Test func titlePreservesClosingParenthesisAfterDuplicateChapterPrefixCleanup() {
+        let blocks = [
+            block(
+                id: "h8", chapter: 0,
+                text: "Chapter 8 - The Long Game (and the Honest One)", seq: 0,
+                kind: "heading"),
+            block(id: "p8", chapter: 0, text: "The paragraph.", seq: 1),
+        ]
+
+        #expect(
+            NarrationChapterPlanner.title(displayNumber: 8, blocks: blocks)
+                == "ch. 8: The Long Game (and the Honest One)")
+    }
+
     @Test func titleFallsBackWhenHeadingIsOnlyGenericChapterNumber() {
         let blocks = [
             block(id: "h1", chapter: 0, text: "Chapter 1", seq: 0, kind: "heading"),

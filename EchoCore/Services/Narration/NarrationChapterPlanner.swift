@@ -84,14 +84,14 @@ enum NarrationChapterPlanner {
         from heading: String,
         displayNumber: Int
     ) -> String? {
-        let stripped = strippedDuplicatePrefix(from: heading, displayNumber: displayNumber)
-            .trimmingCharacters(in: titleSeparatorCharacters)
+        let stripped = titleAfterRemovingDuplicatePrefix(from: heading, displayNumber: displayNumber)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !stripped.isEmpty, !isGenericChapterLabel(stripped, displayNumber: displayNumber)
         else { return nil }
         return stripped
     }
 
-    private static func strippedDuplicatePrefix(
+    private static func titleAfterRemovingDuplicatePrefix(
         from heading: String,
         displayNumber: Int
     ) -> String {
@@ -121,7 +121,7 @@ enum NarrationChapterPlanner {
 
             let suffix = heading[range.upperBound...]
             guard suffix.first.map(isTitleBoundary) ?? true else { continue }
-            return String(suffix)
+            return String(suffix.drop(while: isTitleBoundary))
         }
         return heading
     }
@@ -154,14 +154,14 @@ enum NarrationChapterPlanner {
             .joined(separator: " ")
     }
 
-    private static var titleSeparatorCharacters: CharacterSet {
+    private static var titleBoundaryCharacters: CharacterSet {
         var set = CharacterSet.whitespacesAndNewlines
         set.insert(charactersIn: ":.-)–—")
         return set
     }
 
     private static func isTitleBoundary(_ character: Character) -> Bool {
-        character.unicodeScalars.allSatisfy { titleSeparatorCharacters.contains($0) }
+        character.unicodeScalars.allSatisfy { titleBoundaryCharacters.contains($0) }
     }
 
     private static func englishCardinal(_ value: Int) -> String? {

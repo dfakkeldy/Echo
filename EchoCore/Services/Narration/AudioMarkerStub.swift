@@ -46,7 +46,8 @@ nonisolated struct ChapterMarkerWriter {
         _ chapters: [ChapterAtom],
         to sourceURL: URL,
         outputURL: URL,
-        metadata: ExportMetadata? = nil
+        metadata: ExportMetadata? = nil,
+        replaceExistingBookMetadata: Bool = false
     ) async throws {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
@@ -68,15 +69,19 @@ nonisolated struct ChapterMarkerWriter {
                 // `ilst` atoms ©nam/©alb/©ART/aART/©gen/©cmt. album/albumArtist/genre
                 // DEFAULT only when the source carries none — so re-exporting an
                 // imported m4b keeps its real album/series/genre rather than clobbering
-                // them with the title / "Audiobook".
+                // them with the title / "Audiobook". Repair retag opts into replacement.
                 if !metadata.title.isEmpty {
                     info.metadata.title = metadata.title
-                    if (info.metadata.album ?? "").isEmpty { info.metadata.album = metadata.title }
+                    if replaceExistingBookMetadata || (info.metadata.album ?? "").isEmpty {
+                        info.metadata.album = metadata.title
+                    }
                 }
-                if (info.metadata.genre ?? "").isEmpty { info.metadata.genre = "Audiobook" }
+                if replaceExistingBookMetadata || (info.metadata.genre ?? "").isEmpty {
+                    info.metadata.genre = "Audiobook"
+                }
                 if let author = metadata.author, !author.isEmpty {
                     info.metadata.artist = author
-                    if (info.metadata.albumArtist ?? "").isEmpty {
+                    if replaceExistingBookMetadata || (info.metadata.albumArtist ?? "").isEmpty {
                         info.metadata.albumArtist = author
                     }
                 }

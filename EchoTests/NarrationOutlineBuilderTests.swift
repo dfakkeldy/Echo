@@ -44,4 +44,21 @@ import Testing
         #expect(rows.count == 1)
         #expect(rows[0].title == "Chapter 1")
     }
+
+    @Test func titlePreservesClosingParenthesisAfterDuplicateChapterPrefixCleanup() {
+        var blocks: [EPubBlockRecord] = []
+        for chapter in 0..<7 {
+            blocks.append(
+                block("p\(chapter)", ch: chapter, seq: chapter, text: "Earlier chapter"))
+        }
+        blocks.append(
+            block(
+                "h8", ch: 7, seq: 7, kind: "heading",
+                text: "Chapter 8 - The Long Game (and the Honest One)"))
+        blocks.append(block("p8", ch: 7, seq: 8, text: "The paragraph."))
+
+        let rows = NarrationOutlineBuilder.build(allBlocks: blocks, isRendered: { _ in false })
+
+        #expect(rows.last?.title == "ch. 8: The Long Game (and the Honest One)")
+    }
 }
