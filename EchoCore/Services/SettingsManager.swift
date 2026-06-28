@@ -303,20 +303,15 @@ final class SettingsManager {
     // MARK: - Reader
 
     var readerFontSize: Double {
-        get { defaults.double(forKey: Keys.readerFontSize).nonZero ?? Defaults.readerFontSize }
-        set { defaults.set(newValue, forKey: Keys.readerFontSize) }
+        didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }
     }
 
     var readerLineSpacing: Double {
-        get {
-            defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing
-        }
-        set { defaults.set(newValue, forKey: Keys.readerLineSpacing) }
+        didSet { defaults.set(readerLineSpacing, forKey: Keys.readerLineSpacing) }
     }
 
     var readerCardTint: String {
-        get { defaults.string(forKey: Keys.readerCardTint) ?? Defaults.readerCardTint }
-        set { defaults.set(newValue, forKey: Keys.readerCardTint) }
+        didSet { defaults.set(readerCardTint, forKey: Keys.readerCardTint) }
     }
 
     // MARK: - Study
@@ -554,6 +549,13 @@ final class SettingsManager {
         let storedSeekForward = defaults.integer(forKey: Keys.seekForwardDuration)
         seekForwardDuration =
             storedSeekForward == 0 ? Defaults.seekForwardDuration : storedSeekForward
+
+        readerFontSize =
+            defaults.double(forKey: Keys.readerFontSize).nonZero ?? Defaults.readerFontSize
+        readerLineSpacing =
+            defaults.double(forKey: Keys.readerLineSpacing).nonZero ?? Defaults.readerLineSpacing
+        readerCardTint =
+            defaults.string(forKey: Keys.readerCardTint) ?? Defaults.readerCardTint
 
         if let presetsData = defaults.data(forKey: Keys.watchPresets),
             let decoded = try? JSONDecoder().decode([WatchPreset].self, from: presetsData)

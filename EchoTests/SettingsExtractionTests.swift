@@ -32,6 +32,8 @@ struct SettingsExtractionTests {
         #expect(source.contains("readerFontSize"))
         #expect(source.contains("readerLineSpacing"))
         #expect(source.contains("readerCardTint"))
+        #expect(source.contains(".accessibilityLabel(\"Line Spacing\")"))
+        #expect(source.contains(".accessibilityValue(lineSpacingMultiplierText)"))
     }
 
     @Test func proTranscriptsSubViewIsExtracted() throws {

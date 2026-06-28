@@ -38,6 +38,8 @@ struct ReaderDefaultsSettingsView: View {
                         in: 1.0...2.5,
                         step: 0.1
                     )
+                    .accessibilityLabel("Line Spacing")
+                    .accessibilityValue(lineSpacingMultiplierText)
                     Text(verbatim: lineSpacingMultiplierText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
