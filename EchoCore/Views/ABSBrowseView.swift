@@ -45,31 +45,6 @@ struct ABSBrowseView: View {
                                 )
                             )
                             .listRowSeparator(.hidden)
-                        } else if isLoadingItems {
-                            ProgressView("Loading books...")
-                        } else if isSearching {
-                            ProgressView("Searching...")
-                        } else if let browseErrorMessage {
-                            ContentUnavailableView(
-                                "Couldn't load books", systemImage: "wifi.slash",
-                                description: Text(browseErrorMessage))
-                            .listRowSeparator(.hidden)
-                        } else if displayedItems.isEmpty {
-                            if isShowingSearchResults {
-                                ContentUnavailableView("No Results", systemImage: "magnifyingglass",
-                                    description: Text(
-                                        "No books matched \"\(trimmedSearchQuery)\"."
-                                    )
-                                )
-                                .listRowSeparator(.hidden)
-                            } else {
-                                ContentUnavailableView("No Books", systemImage: "book.closed",
-                                    description: Text(
-                                        "This Audiobookshelf library does not contain any books yet."
-                                    )
-                                )
-                                .listRowSeparator(.hidden)
-                            }
                         } else {
                             if let searchErrorMessage {
                                 ContentUnavailableView(
@@ -77,13 +52,56 @@ struct ABSBrowseView: View {
                                     description: Text(searchErrorMessage))
                                 .listRowSeparator(.hidden)
                             }
-                            ForEach(displayedItems) { item in
-                                NavigationLink {
-                                    ABSItemDetailView(item: item, onImported: { dismiss() })
-                                } label: {
-                                    ABSItemRow(
-                                        item: item,
-                                        service: model.makeAudiobookshelfService())
+
+                            if displayedItems.isEmpty {
+                                if isLoadingItems {
+                                    ProgressView("Loading books...")
+                                } else if isSearching {
+                                    ProgressView("Searching...")
+                                } else if let browseErrorMessage {
+                                    ContentUnavailableView(
+                                        "Couldn't load books", systemImage: "wifi.slash",
+                                        description: Text(browseErrorMessage))
+                                    .listRowSeparator(.hidden)
+                                } else if isShowingSearchResults, searchErrorMessage == nil {
+                                    ContentUnavailableView(
+                                        "No Results", systemImage: "magnifyingglass",
+                                        description: Text(
+                                            "No books matched \"\(trimmedSearchQuery)\"."
+                                        )
+                                    )
+                                    .listRowSeparator(.hidden)
+                                } else if searchErrorMessage == nil {
+                                    ContentUnavailableView(
+                                        "No Books", systemImage: "book.closed",
+                                        description: Text(
+                                            "This Audiobookshelf library does not contain any books yet."
+                                        )
+                                    )
+                                    .listRowSeparator(.hidden)
+                                }
+                            } else {
+                                ForEach(displayedItems) { item in
+                                    NavigationLink {
+                                        ABSItemDetailView(item: item, onImported: { dismiss() })
+                                    } label: {
+                                        ABSItemRow(
+                                            item: item,
+                                            service: model.makeAudiobookshelfService())
+                                    }
+                                }
+
+                                if isLoadingItems {
+                                    ProgressView("Loading books...")
+                                }
+                                if isSearching {
+                                    ProgressView("Searching...")
+                                }
+                                if let browseErrorMessage {
+                                    ContentUnavailableView(
+                                        "Couldn't load books", systemImage: "wifi.slash",
+                                        description: Text(browseErrorMessage))
+                                    .listRowSeparator(.hidden)
                                 }
                             }
                         }

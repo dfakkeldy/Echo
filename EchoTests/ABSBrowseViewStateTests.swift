@@ -29,8 +29,8 @@ struct ABSBrowseViewStateTests {
         #expect(src.contains("ProgressView(\"Loading books"))
         #expect(src.contains("ProgressView(\"Searching"))
         #expect(src.contains("ContentUnavailableView(\"No Libraries\""))
-        #expect(src.contains("ContentUnavailableView(\"No Books\""))
-        #expect(src.contains("ContentUnavailableView(\"No Results\""))
+        #expect(src.contains("\"No Books\", systemImage: \"book.closed\""))
+        #expect(src.contains("\"No Results\", systemImage: \"magnifyingglass\""))
     }
 
     @Test func librarySwitchRefreshesSearchForCurrentLibrary() throws {
@@ -38,5 +38,25 @@ struct ABSBrowseViewStateTests {
 
         #expect(src.contains(".task(id: selectedLibrary?.id)"))
         #expect(src.contains("await runSearch()"))
+    }
+
+    @Test func loadedRowsPrecedeSupplementalLoadingAndBrowseErrors() throws {
+        let src = try source()
+        let rows = try #require(src.range(of: "ForEach(displayedItems)"))
+        let loading = try #require(src.range(of: "if isLoadingItems", range: rows.upperBound..<src.endIndex))
+        let browseError = try #require(
+            src.range(of: "if let browseErrorMessage", range: rows.upperBound..<src.endIndex))
+
+        #expect(rows.lowerBound < loading.lowerBound)
+        #expect(rows.lowerBound < browseError.lowerBound)
+    }
+
+    @Test func searchErrorPrecedesNoResultsEmptyState() throws {
+        let src = try source()
+        let searchError = try #require(src.range(of: "if let searchErrorMessage"))
+        let noResults = try #require(src.range(of: "ContentUnavailableView(\n                                        \"No Results\""))
+
+        #expect(searchError.lowerBound < noResults.lowerBound)
+        #expect(src.contains("isShowingSearchResults, searchErrorMessage == nil"))
     }
 }
