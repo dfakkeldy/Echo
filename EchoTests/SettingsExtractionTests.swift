@@ -31,6 +31,15 @@ struct SettingsExtractionTests {
         #expect(source.contains("struct ProTranscriptsSettingsView"))
     }
 
+    @Test func nowPlayingSubViewIsExtracted() throws {
+        let source = try Self.source(named: "SettingsNowPlayingView.swift")
+        #expect(source.contains("struct SettingsNowPlayingView"))
+        #expect(source.contains("Default Speed"))
+        #expect(source.contains("PlaybackOptionsSheet.seekDurationOptions"))
+        #expect(source.contains("SmartRewindSettingsView()"))
+        #expect(source.contains("playBookmarksInline"))
+    }
+
     @Test func appIconSubViewIsExtracted() throws {
         let source = try Self.source(named: "AppIconSelectionView.swift")
         #expect(source.contains("struct AppIconSelectionView"))
