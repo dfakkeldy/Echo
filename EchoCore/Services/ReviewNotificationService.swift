@@ -154,8 +154,10 @@ private extension UNAuthorizationStatus {
             .authorized
         case .provisional:
             .provisional
+#if os(iOS)
         case .ephemeral:
             .ephemeral
+#endif
         @unknown default:
             .unknown
         }
