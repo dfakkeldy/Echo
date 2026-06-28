@@ -83,6 +83,8 @@ struct SettingsExtractionTests {
         #expect(source.contains("struct SettingsAdvancedView"))
         #expect(source.contains("configureContinuousAlignment()"))
         #expect(source.contains("playBookmarksInline"))
+        #expect(source.contains("debugLoggingEnabled"))
+        #expect(source.contains("Verbose Diagnostic Logging"))
     }
 
     @Test func advancedSubViewOwnsContextMemoryPrivacyControls() throws {

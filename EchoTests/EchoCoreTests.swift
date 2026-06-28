@@ -181,6 +181,23 @@ struct EchoCoreTests {
         #expect(defaults.string(forKey: "appFont") == "Lexend")
     }
 
+    @Test func debugLoggingDefaultsOffAndPersists() throws {
+        let suiteName = "test-debug-logging-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: defaults)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+
+        #expect(SettingsManager.Defaults.debugLoggingEnabled == false)
+        #expect(settings.debugLoggingEnabled == false)
+
+        settings.debugLoggingEnabled = true
+
+        let reloaded = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+        #expect(reloaded.debugLoggingEnabled == true)
+    }
+
     @Test func settingsPersistsWatchBackgroundStyle() {
         let suiteName = "watch-background-style-\(UUID().uuidString)"
         let appGroupName = "watch-background-style-ag-\(UUID().uuidString)"

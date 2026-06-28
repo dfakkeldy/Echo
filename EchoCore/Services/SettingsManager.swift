@@ -62,6 +62,7 @@ final class SettingsManager {
         static let studyGlobalNewChapterLimit = 12
         static let autoAlignmentEnabled = true
         static let locationCaptureEnabled = false
+        static let debugLoggingEnabled = false
         static let autoAlignmentModelSize = "base.en"
         static let autoAlignmentChapterSnapEnabled = true
         static let autoAlignmentDriftDetectionEnabled = true
@@ -125,6 +126,7 @@ final class SettingsManager {
         static let studyGlobalNewChapterLimit = "studyGlobalNewChapterLimit"
         static let autoAlignmentEnabled = "autoAlignmentEnabled"
         static let locationCaptureEnabled = "locationCaptureEnabled"
+        static let debugLoggingEnabled = "debugLoggingEnabled"
         static let autoAlignmentModelSize = "autoAlignmentModelSize"
         static let autoAlignmentChapterSnapEnabled = "autoAlignmentChapterSnapEnabled"
         static let autoAlignmentDriftDetectionEnabled = "autoAlignmentDriftDetectionEnabled"
@@ -334,6 +336,9 @@ final class SettingsManager {
     }
     var locationCaptureEnabled: Bool {
         didSet { defaults.set(locationCaptureEnabled, forKey: Keys.locationCaptureEnabled) }
+    }
+    var debugLoggingEnabled: Bool {
+        didSet { defaults.set(debugLoggingEnabled, forKey: Keys.debugLoggingEnabled) }
     }
     var autoAlignmentModelSize: String {
         didSet { defaults.set(autoAlignmentModelSize, forKey: Keys.autoAlignmentModelSize) }
@@ -579,6 +584,9 @@ final class SettingsManager {
         locationCaptureEnabled =
             defaults.object(forKey: Keys.locationCaptureEnabled) as? Bool
             ?? Defaults.locationCaptureEnabled
+        debugLoggingEnabled =
+            defaults.object(forKey: Keys.debugLoggingEnabled) as? Bool
+            ?? Defaults.debugLoggingEnabled
         autoAlignmentModelSize =
             defaults.string(forKey: Keys.autoAlignmentModelSize) ?? Defaults.autoAlignmentModelSize
         autoAlignmentChapterSnapEnabled =
@@ -647,6 +655,7 @@ final class SettingsManager {
             Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
             Keys.autoAlignmentEnabled: Defaults.autoAlignmentEnabled,
             Keys.locationCaptureEnabled: Defaults.locationCaptureEnabled,
+            Keys.debugLoggingEnabled: Defaults.debugLoggingEnabled,
             Keys.autoAlignmentModelSize: Defaults.autoAlignmentModelSize,
             Keys.autoAlignmentChapterSnapEnabled: Defaults.autoAlignmentChapterSnapEnabled,
             Keys.autoAlignmentDriftDetectionEnabled: Defaults.autoAlignmentDriftDetectionEnabled,
