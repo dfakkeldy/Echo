@@ -21,6 +21,7 @@ INCLUDED_TYPES = {"feat": "new", "fix": "fixed", "perf": "improved"}
 class RawCommit:
     subject: str
     body: str = ""
+    sha: str = ""
 
 
 @dataclass

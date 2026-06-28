@@ -51,6 +51,61 @@
         </div>
 
         <div class="devlog-timeline">
+            <!-- AUTO-DEVLOG:START -->
+            <article class="week-entry automated-devlog">
+                <p class="week-meta">Automated · Jun 15-21, 2026 · 383 commits</p>
+                <h2>Weekly build digest</h2>
+                <h3>Shipped</h3>
+                <ul>
+                    <li>Make Echo Pro a one-time unlock — remove subscription path <a href="https://github.com/dfakkeldy/Echo/commit/e67e867" target="_blank" rel="noopener noreferrer">e67e867</a></li>
+                    <li>Regenerate what_to_test.txt on nightly builds <a href="https://github.com/dfakkeldy/Echo/commit/59d0da9" target="_blank" rel="noopener noreferrer">59d0da9</a></li>
+                    <li>What_to_test template + make targets <a href="https://github.com/dfakkeldy/Echo/commit/df313bf" target="_blank" rel="noopener noreferrer">df313bf</a></li>
+                    <li>Whats_new CLI with fail-safe file write <a href="https://github.com/dfakkeldy/Echo/commit/125d56b" target="_blank" rel="noopener noreferrer">125d56b</a></li>
+                    <li>TestFlight renderer with 4000-char cap <a href="https://github.com/dfakkeldy/Echo/commit/611cb9b" target="_blank" rel="noopener noreferrer">611cb9b</a></li>
+                    <li>Commit change-extractor (changes.py) <a href="https://github.com/dfakkeldy/Echo/commit/e5e2ebf" target="_blank" rel="noopener noreferrer">e5e2ebf</a></li>
+                    <li>Ship all 28 English Kokoro voices + voice OOV fallback <a href="https://github.com/dfakkeldy/Echo/commit/781d2b2" target="_blank" rel="noopener noreferrer">781d2b2</a></li>
+                    <li>Show per-block prepare progress on the lock screen <a href="https://github.com/dfakkeldy/Echo/commit/036f5e1" target="_blank" rel="noopener noreferrer">036f5e1</a></li>
+                    <li><em>...and 129 more shipped items.</em></li>
+                </ul>
+                <h3>Fixed</h3>
+                <ul>
+                    <li>Use explicit weekly refspec in beta lane <a href="https://github.com/dfakkeldy/Echo/commit/fc5ac92" target="_blank" rel="noopener noreferrer">fc5ac92</a></li>
+                    <li>Align in-app &amp; store copy with shipped features <a href="https://github.com/dfakkeldy/Echo/commit/2126f27" target="_blank" rel="noopener noreferrer">2126f27</a></li>
+                    <li>Shorten home-screen display name to &quot;Echo&quot; <a href="https://github.com/dfakkeldy/Echo/commit/706e78f" target="_blank" rel="noopener noreferrer">706e78f</a></li>
+                    <li>Karaoke + tap-to-seek + player theming (#4, #5, #6) <a href="https://github.com/dfakkeldy/Echo/commit/4661e89" target="_blank" rel="noopener noreferrer">4661e89</a></li>
+                    <li>One cache file per chapter in narrated .m4b export <a href="https://github.com/dfakkeldy/Echo/commit/e38b70c" target="_blank" rel="noopener noreferrer">e38b70c</a></li>
+                    <li>Don&#x27;t group-distribute internal nightly builds to TestFlight <a href="https://github.com/dfakkeldy/Echo/commit/85d9fb3" target="_blank" rel="noopener noreferrer">85d9fb3</a></li>
+                    <li>Don&#x27;t cache a failed ONNX prepare (un-brick narration) <a href="https://github.com/dfakkeldy/Echo/commit/e1ab85c" target="_blank" rel="noopener noreferrer">e1ab85c</a></li>
+                    <li>Resolve multi-m4b book time by file URL, not track index <a href="https://github.com/dfakkeldy/Echo/commit/11ac8d8" target="_blank" rel="noopener noreferrer">11ac8d8</a></li>
+                    <li><em>...and 80 more fixed items.</em></li>
+                </ul>
+                <h3>Improved</h3>
+                <ul>
+                    <li>Tune ONNX session (graph-opt + injectable intra-op threads) <a href="https://github.com/dfakkeldy/Echo/commit/b1af352" target="_blank" rel="noopener noreferrer">b1af352</a></li>
+                    <li>Coalesce per-chapter timeline reloads during narration <a href="https://github.com/dfakkeldy/Echo/commit/63c4fce" target="_blank" rel="noopener noreferrer">63c4fce</a></li>
+                    <li>Scope per-chapter word-timing rebuild to the chapter <a href="https://github.com/dfakkeldy/Echo/commit/10451c3" target="_blank" rel="noopener noreferrer">10451c3</a></li>
+                    <li>Parallelize Kokoro model download, stream to disk <a href="https://github.com/dfakkeldy/Echo/commit/7f9b658" target="_blank" rel="noopener noreferrer">7f9b658</a></li>
+                    <li>Cap duration-model compile + harden compile cache <a href="https://github.com/dfakkeldy/Echo/commit/2f772a9" target="_blank" rel="noopener noreferrer">2f772a9</a></li>
+                    <li>Cache compiled Kokoro .mlmodelc + report compile progress <a href="https://github.com/dfakkeldy/Echo/commit/c59e573" target="_blank" rel="noopener noreferrer">c59e573</a></li>
+                    <li>Finish-plan Phase 6 quick wins (§2.1, §7.2, §9.2) <a href="https://github.com/dfakkeldy/Echo/commit/e318aaa" target="_blank" rel="noopener noreferrer">e318aaa</a></li>
+                    <li>Stream synthesized chunks straight to disk (stream-to-sink) <a href="https://github.com/dfakkeldy/Echo/commit/2f9afbf" target="_blank" rel="noopener noreferrer">2f9afbf</a></li>
+                    <li><em>...and 1 more improved item.</em></li>
+                </ul>
+                <h3>Build, docs, and housekeeping</h3>
+                <ul>
+                    <li>Disable code signing for simulator test targets <a href="https://github.com/dfakkeldy/Echo/commit/8a5440a" target="_blank" rel="noopener noreferrer">8a5440a</a></li>
+                    <li>Document nightly What-to-Test auto-draft <a href="https://github.com/dfakkeldy/Echo/commit/61a1baa" target="_blank" rel="noopener noreferrer">61a1baa</a></li>
+                    <li>Nightly What-to-Test automation implementation plan <a href="https://github.com/dfakkeldy/Echo/commit/83954cb" target="_blank" rel="noopener noreferrer">83954cb</a></li>
+                    <li>Fix Anki/FSRS claims, add narration + Audiobookshelf product pages <a href="https://github.com/dfakkeldy/Echo/commit/17417db" target="_blank" rel="noopener noreferrer">17417db</a></li>
+                    <li>Add GPLv3 §7 App Store distribution exception <a href="https://github.com/dfakkeldy/Echo/commit/f134f70" target="_blank" rel="noopener noreferrer">f134f70</a></li>
+                    <li>Nightly What-to-Test automation design <a href="https://github.com/dfakkeldy/Echo/commit/cbbbe77" target="_blank" rel="noopener noreferrer">cbbbe77</a></li>
+                    <li>Surface m4b export + shipped features; fix stale SM-2→FSRS <a href="https://github.com/dfakkeldy/Echo/commit/e628c3d" target="_blank" rel="noopener noreferrer">e628c3d</a></li>
+                    <li>Sync narration docs for all-voices + voiced OOV fallback <a href="https://github.com/dfakkeldy/Echo/commit/3177d9c" target="_blank" rel="noopener noreferrer">3177d9c</a></li>
+                    <li><em>...and 141 more housekeeping items.</em></li>
+                </ul>
+            </article>
+            <!-- AUTO-DEVLOG:END -->
+
             <article class="week-entry">
                 <p class="week-meta">Now · June 2026 · in progress</p>
                 <h2>The road to 1.0</h2>
