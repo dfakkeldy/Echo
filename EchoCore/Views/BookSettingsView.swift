@@ -140,6 +140,7 @@ struct BookSettingsView: View {
     @Bindable var model: PlayerModel
     @Environment(\.dismiss) private var dismiss
     @State private var studyPlanPresentation: StudyPlanSheetPresentation?
+    @State private var studyDeckGenerationPresentation: StudyDeckGenerationSheetPresentation?
 
     var body: some View {
         NavigationStack {
@@ -147,6 +148,13 @@ struct BookSettingsView: View {
                 Section("Study") {
                     Button("Study Plan", systemImage: "rectangle.stack.badge.play") {
                         studyPlanPresentation = StudyPlanSheetPresentation(model: model)
+                    }
+                    .disabled(model.databaseService == nil || model.folderURL == nil)
+
+                    Button("Generate Study Deck", systemImage: "rectangle.stack.badge.plus") {
+                        studyDeckGenerationPresentation = StudyDeckGenerationSheetPresentation(
+                            model: model
+                        )
                     }
                     .disabled(model.databaseService == nil || model.folderURL == nil)
                 }
@@ -163,6 +171,9 @@ struct BookSettingsView: View {
         }
         .sheet(item: $studyPlanPresentation) { presentation in
             StudyPlanSheetHost(presentation: presentation)
+        }
+        .sheet(item: $studyDeckGenerationPresentation) { presentation in
+            StudyDeckGenerationSheetHost(presentation: presentation)
         }
         .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
     }
@@ -208,6 +219,49 @@ private struct StudyPlanSheetHost: View {
 
     var body: some View {
         StudyPlanSheet(viewModel: viewModel)
+    }
+}
+
+private struct StudyDeckGenerationSheetPresentation: Identifiable {
+    let audiobookID: String
+    let bookTitle: String
+    let db: DatabaseWriter
+
+    var id: String { audiobookID }
+
+    init?(model: PlayerModel) {
+        guard let db = model.databaseService?.writer,
+              let folderURL = model.folderURL else {
+            return nil
+        }
+
+        let audiobookID = folderURL.absoluteString
+        self.audiobookID = audiobookID
+        self.bookTitle = StudyPlanBookTitleResolver.resolve(
+            audiobookID: audiobookID,
+            folderURL: folderURL,
+            db: db,
+            currentTitle: model.currentTitle
+        )
+        self.db = db
+    }
+}
+
+private struct StudyDeckGenerationSheetHost: View {
+    @State private var viewModel: StudyDeckGenerationViewModel
+
+    init(presentation: StudyDeckGenerationSheetPresentation) {
+        _viewModel = State(
+            wrappedValue: StudyDeckGenerationViewModel(
+                audiobookID: presentation.audiobookID,
+                bookTitle: presentation.bookTitle,
+                db: presentation.db
+            )
+        )
+    }
+
+    var body: some View {
+        StudyDeckGenerationSheet(viewModel: viewModel)
     }
 }
 
