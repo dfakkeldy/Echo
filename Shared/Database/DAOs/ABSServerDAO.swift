@@ -33,7 +33,10 @@ struct ABSServerDAO {
 
     func save(_ server: ABSServerRecord) throws {
         var copy = server
-        try db.write { db in try copy.save(db) }
+        try db.write { db in
+            try db.execute(sql: "DELETE FROM abs_server")
+            try copy.insert(db)
+        }
     }
 
     func delete(_ id: String) throws {

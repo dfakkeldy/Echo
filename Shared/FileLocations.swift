@@ -55,9 +55,20 @@ enum FileLocations {
     /// ABS book becomes indistinguishable from a local import and every study feature works.
     /// ABS item IDs are server UUIDs (filesystem-safe), used verbatim.
     static func absLibraryDirectory(remoteItemID: String) -> URL {
+        absLibraryRootDirectory
+            .appending(path: remoteItemID, directoryHint: .isDirectory)
+    }
+
+    static var absLibraryRootDirectory: URL {
         applicationSupportDirectory
             .appending(path: "ABSLibrary", directoryHint: .isDirectory)
-            .appending(path: remoteItemID, directoryHint: .isDirectory)
+    }
+
+    static func absImportStagingDirectory(remoteItemID: String, id: UUID = UUID()) -> URL {
+        absLibraryRootDirectory
+            .appending(
+                path: ".\(remoteItemID)-staging-\(id.uuidString)",
+                directoryHint: .isDirectory)
     }
 
     /// Cache directory for cover images extracted during Library root rescans.
