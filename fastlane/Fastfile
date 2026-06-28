@@ -40,7 +40,7 @@ platform :ios do
     # Load the App Store Connect API key from your local git-ignored JSON file.
     # On CI, ensure these variables are mapped via env vars.
     #
-    # Guarded so key-free lanes (screenshots, frame_screenshots) still run when
+    # Guarded so key-free lanes (screenshots, frame_app_store_screenshots) still run when
     # fastlane/api_key.json is absent. Lanes that talk to App Store Connect
     # (beta, upload_screenshots) check `@api_key` and fail with a clear message.
     require 'json'
@@ -279,7 +279,7 @@ platform :ios do
       if `BIFF.m4b` is bundled into the Echo app target. Without it the library
       is empty and content-gated screens (Reader/Timeline) show empty states.
       See fastlane/screenshots/en-US/README_SCREENSHOTS.md.
-    - Device names in Snapfile must match `xcrun simctl list devices`.
+    - Snapfile resolves current Xcode simulator names for the required sizes.
 
     Tip: stage the trickier shots by hand with Scripts/capture_screenshots.sh.
   DESC
@@ -289,7 +289,7 @@ platform :ios do
   end
 
   desc "Wrap the captured screenshots in device frames (requires `brew install imagemagick`)."
-  lane :frame_screenshots do
+  lane :frame_app_store_screenshots do
     frameit(path: "./fastlane/screenshots")
   end
 

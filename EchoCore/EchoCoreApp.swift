@@ -72,7 +72,6 @@ struct EchoCoreApp: App {
             )
         }
 
-        ReviewNotificationService.requestAuthorization()
         MetricKitDiagnosticsController.shared.start()
     }
 

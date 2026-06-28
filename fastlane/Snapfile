@@ -7,12 +7,33 @@
 # every smaller size is derived from those. Add more lines if you want native
 # captures at other sizes — but keep the list short on a 16 GB machine.
 #
-# Device names MUST match `xcrun simctl list devices` exactly (they change with
-# each Xcode release). If a run errors with "device not found", update these.
+require "json"
+
+def available_simulator_names
+  JSON.parse(`xcrun simctl list devices available --json`)
+    .fetch("devices")
+    .values
+    .flatten
+    .select { |device| device["isAvailable"] }
+    .map { |device| device.fetch("name") }
+end
+
+def first_available_device(*preferred_names, matching: nil)
+  available = available_simulator_names
+  preferred_names.find { |name| available.include?(name) } ||
+    available.find { |name| matching && name.match?(matching) } ||
+    preferred_names.first
+end
+
 devices([
-  "iPhone 16 Pro Max",       # 6.9" — 1320 × 2868 (required)
-  "iPad Pro 13-inch (M4)"    # 13"  — 2064 × 2752 (required)
-  # "iPhone 16 Pro",         # 6.3" — 1206 × 2622 (optional)
+  first_available_device(
+    "iPhone 17 Pro Max",
+    matching: /^iPhone .* Pro Max$/
+  ), # 6.9" iPhone class (required)
+  first_available_device(
+    "iPad Pro 13-inch (M5)",
+    matching: /^iPad Pro 13-inch/
+  ) # 13" iPad class (required)
 ])
 
 languages([

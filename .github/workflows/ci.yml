@@ -53,32 +53,63 @@ jobs:
           echo "=== available devices ==="
           xcrun simctl list devices available | grep -E "iPhone|Watch" || true
 
-      - name: Select iOS 26.4 test simulator
+      - name: Select iOS 26 test simulator
         id: ios-sim
         run: |
           set -euo pipefail
-          IOS_SIM_UDID="$(
+          IOS_SIM_SELECTION="$(
             xcrun simctl list devices available --json |
               jq -r '
                 .devices
-                | to_entries[]
-                | select(.key | test("iOS-26-4"))
-                | .value[]
-                | select(.name | test("^iPhone 17( \\(|$)"))
-                | .udid
+                | to_entries
+                | map(
+                    select(.key | test("SimRuntime\\.iOS-26-"))
+                    | . + {
+                        version: (
+                          .key
+                          | capture("iOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                          | [.major, .minor]
+                          | map(tonumber)
+                        )
+                      }
+                  )
+                | sort_by(.version[0], .version[1])
+                | reverse
+                | [
+                    .[]
+                    | .value
+                    | map(
+                        select(.isAvailable == true and (.name | test("^iPhone")))
+                        | . + {
+                            preference: (
+                              if .name == "iPhone 17 Pro Max" then 0
+                              elif .name == "iPhone 17 Pro" then 1
+                              elif .name == "iPhone 17" then 2
+                              elif .name == "iPhone Air" then 3
+                              else 4
+                              end
+                            )
+                          }
+                      )
+                    | sort_by(.preference)[]
+                  ]
+                | first
+                | if . then [.udid, .name] | @tsv else empty end
               ' |
               head -n 1
           )"
+          IOS_SIM_UDID="${IOS_SIM_SELECTION%%$'\t'*}"
+          IOS_SIM_NAME="${IOS_SIM_SELECTION#*$'\t'}"
 
-          if [ -z "$IOS_SIM_UDID" ]; then
-            echo "::error title=iOS 26.4 iPhone 17 simulator missing::The CI runner no longer exposes the pinned test runtime. Update ci.yml after checking the runner image inventory."
+          if [ -z "$IOS_SIM_UDID" ] || [ "$IOS_SIM_UDID" = "$IOS_SIM_NAME" ]; then
+            echo "::error title=iOS 26 iPhone simulator missing::The CI runner does not expose a compatible iOS 26 iPhone simulator."
             xcrun simctl list runtimes
             xcrun simctl list devices available
             exit 1
           fi
 
           echo "destination=platform=iOS Simulator,id=$IOS_SIM_UDID" >> "$GITHUB_OUTPUT"
-          echo "Selected iOS test destination: platform=iOS Simulator,id=$IOS_SIM_UDID"
+          echo "Selected iOS test destination: platform=iOS Simulator,id=$IOS_SIM_UDID ($IOS_SIM_NAME)"
 
       - name: Resolve package dependencies
         run: |

@@ -22,12 +22,24 @@ final class DatabaseService {
     let dbPath: String
     private let logger = Logger(category: "DatabaseService")
 
-    init(appGroupIdentifier: String = AppGroupDefaults.suiteName) throws {
-        guard
-            let containerURL = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    init(
+        appGroupIdentifier: String = AppGroupDefaults.suiteName,
+        appGroupFallbackDirectory: URL? = DatabaseServiceAppGroupFallback.defaultDirectory,
+        allowAppGroupFallback: Bool = DatabaseServiceAppGroupFallback.isAllowed
+    ) throws {
+        let containerURL: URL
+        if let appGroupURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) {
+            containerURL = appGroupURL
+        } else if DatabaseServiceAppGroupFallback.isAllowed, allowAppGroupFallback,
+            let appGroupFallbackDirectory
+        {
+            containerURL = appGroupFallbackDirectory
+            Logger(category: "DatabaseService").warning(
+                "Using debug simulator database fallback because App Group container is unavailable."
             )
-        else {
+        } else {
             throw DatabaseError.appGroupNotFound(appGroupIdentifier)
         }
 
@@ -101,4 +113,21 @@ final class DatabaseService {
         }
         try migrator.migrate(writer)
     }
+}
+
+private enum DatabaseServiceAppGroupFallback {
+    #if DEBUG && targetEnvironment(simulator)
+        static var isAllowed: Bool { true }
+        static var defaultDirectory: URL? {
+            FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first?
+                .appending(path: "Echo", directoryHint: .isDirectory)
+                .appending(path: "DebugAppGroupFallback", directoryHint: .isDirectory)
+        }
+    #else
+        static var isAllowed: Bool { false }
+        static var defaultDirectory: URL? { nil }
+    #endif
 }
