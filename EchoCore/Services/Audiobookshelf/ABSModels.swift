@@ -160,6 +160,7 @@ struct ABSLibraryItem: Decodable, Identifiable {
     var numTracks: Int? { media?.numTracks }
     var duration: Double? { media?.duration }
     var coverPath: String? { media?.coverPath }
+    var hasAudioContent: Bool { media?.hasAudioContent == true }
 
     /// Genre + tag + series, deduped — the "topics" Echo persists on import.
     var topics: [String] {
@@ -178,10 +179,22 @@ struct ABSLibraryItem: Decodable, Identifiable {
         let numTracks: Int?
         let duration: Double?
         let tracks: [ABSTrack]?
+        let audioFiles: [ABSFile]?
+        let files: [ABSFile]?
+        let ebookFile: ABSFile?
+        let pdfFile: ABSFile?
         let chapters: [ABSChapter]?
 
         enum CodingKeys: String, CodingKey {
-            case id, metadata, coverPath, tags, numTracks, duration, tracks, chapters
+            case id, metadata, coverPath, tags, numTracks, duration, tracks, audioFiles, files
+            case ebookFile, pdfFile, chapters
+        }
+
+        var hasAudioContent: Bool {
+            if let numTracks, numTracks > 0 { return true }
+            if let tracks, !tracks.isEmpty { return true }
+            if let audioFiles, !audioFiles.isEmpty { return true }
+            return files?.contains { $0.isAudio } == true
         }
     }
 
@@ -200,6 +213,9 @@ struct ABSLibraryItem: Decodable, Identifiable {
         let explicit: Bool?
 
         var authorName: String? { author }
+        var userReadableDescription: String? {
+            Self.plainText(fromHTML: description)
+        }
 
         enum CodingKeys: String, CodingKey {
             case title, author, authors, narrator, narrators, series, description, genres,
@@ -285,6 +301,127 @@ struct ABSLibraryItem: Decodable, Identifiable {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
+
+        private static func plainText(fromHTML value: String?) -> String? {
+            guard var text = normalized(value) else { return nil }
+            text = Self.replacingPattern(
+                #"(?i)<\s*br\s*/?\s*>|<\s*/\s*p\s*>|<\s*/\s*div\s*>"#,
+                in: text,
+                with: "\n")
+            text = Self.replacingPattern(#"<[^>]+>"#, in: text, with: "")
+            text = Self.unescapeHTMLEntities(in: text)
+
+            let lines = text
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            return normalized(lines.filter { !$0.isEmpty }.joined(separator: "\n\n"))
+        }
+
+        private static func replacingPattern(
+            _ pattern: String,
+            in value: String,
+            with replacement: String
+        ) -> String {
+            value.replacingOccurrences(
+                of: pattern,
+                with: replacement,
+                options: .regularExpression)
+        }
+
+        private static func unescapeHTMLEntities(in value: String) -> String {
+            var output = ""
+            var index = value.startIndex
+
+            while index < value.endIndex {
+                guard value[index] == "&",
+                    let semicolon = value[index...].firstIndex(of: ";")
+                else {
+                    output.append(value[index])
+                    index = value.index(after: index)
+                    continue
+                }
+
+                let entityStart = value.index(after: index)
+                let entity = String(value[entityStart..<semicolon])
+                if let decoded = Self.decodedHTMLEntity(entity) {
+                    output.append(decoded)
+                    index = value.index(after: semicolon)
+                } else {
+                    output.append(value[index])
+                    index = value.index(after: index)
+                }
+            }
+
+            return output
+        }
+
+        private static func decodedHTMLEntity(_ entity: String) -> String? {
+            switch entity {
+            case "amp": return "&"
+            case "apos": return "'"
+            case "gt": return ">"
+            case "lt": return "<"
+            case "nbsp": return " "
+            case "quot": return "\""
+            default:
+                if entity.hasPrefix("#x"),
+                    let value = UInt32(entity.dropFirst(2), radix: 16),
+                    let scalar = UnicodeScalar(value)
+                {
+                    return String(scalar)
+                }
+                if entity.hasPrefix("#"),
+                    let value = UInt32(entity.dropFirst()),
+                    let scalar = UnicodeScalar(value)
+                {
+                    return String(scalar)
+                }
+                return nil
+            }
+        }
+    }
+
+    struct ABSFile: Decodable {
+        let ino: String?
+        let metadata: ABSFileMetadata?
+        let addedAt: Int64?
+        let updatedAt: Int64?
+        let trackNumFromMeta: Int?
+        let discNumFromMeta: Int?
+        let trackNumFromFilename: Int?
+        let discNumFromFilename: Int?
+        let manuallyVerified: Bool?
+        let invalid: Bool?
+        let exclude: Bool?
+        let error: String?
+        let format: String?
+        let duration: Double?
+        let bitRate: Int?
+        let language: String?
+        let codec: String?
+        let timeBase: String?
+        let channels: Int?
+        let channelLayout: String?
+        let chapters: [ABSChapter]?
+        let embeddedCoverArt: String?
+        let mimeType: String?
+        let path: String?
+        let relPath: String?
+        let size: Int64?
+
+        var isAudio: Bool {
+            if mimeType?.hasPrefix("audio/") == true { return true }
+            if let codec, !codec.isEmpty { return true }
+            return duration.map { $0 > 0 } == true
+        }
+    }
+
+    struct ABSFileMetadata: Decodable {
+        let filename: String?
+        let ext: String?
+        let path: String?
+        let relPath: String?
+        let size: Int64?
     }
 
     struct ABSTrack: Decodable {
