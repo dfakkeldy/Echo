@@ -108,7 +108,7 @@ import ZIPFoundation
             (try? FileManager.default.contentsOfDirectory(
                 at: parent,
                 includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
+                options: []
             )) ?? []
         return siblings.filter {
             $0.standardizedFileURL != finalFolder.standardizedFileURL
@@ -130,6 +130,40 @@ import ZIPFoundation
             directory.deleteLastPathComponent()
         }
         throw CocoaError(.fileNoSuchFile)
+    }
+
+    @Test func itemSpecificImportResiduesReportsHiddenStagingAndBackupFolders() throws {
+        let remoteItemID = "item-\(UUID().uuidString)"
+        let finalFolder = FileLocations.absLibraryDirectory(remoteItemID: remoteItemID)
+        let parent = finalFolder.deletingLastPathComponent()
+        let stagingFolder = FileLocations.absImportStagingDirectory(remoteItemID: remoteItemID)
+        let backupFolder = parent.appending(
+            path: ".\(remoteItemID)-backup-test",
+            directoryHint: .isDirectory)
+
+        try? FileManager.default.removeItem(at: stagingFolder)
+        try? FileManager.default.removeItem(at: backupFolder)
+        defer {
+            try? FileManager.default.removeItem(at: stagingFolder)
+            try? FileManager.default.removeItem(at: backupFolder)
+        }
+
+        try FileManager.default.createDirectory(at: stagingFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: backupFolder, withIntermediateDirectories: true)
+
+        let residues = itemSpecificImportResidues(remoteItemID: remoteItemID)
+            .map(\.lastPathComponent)
+
+        #expect(residues.contains(stagingFolder.lastPathComponent))
+        #expect(residues.contains(backupFolder.lastPathComponent))
+    }
+
+    @Test func commitPreparedFolderUsesFoundationAtomicReplacementForExistingFolders() throws {
+        let src = try source("EchoCore/Services/Audiobookshelf/ABSImportService.swift")
+
+        #expect(src.contains("replaceItem("))
+        #expect(!src.contains("moveItem(at: finalFolder, to: backupFolder)"))
+        #expect(!src.contains("movedExistingToBackup"))
     }
 
     @Test func prepareLocalFolderDownloadsUnzipsAndStamps() async throws {
@@ -185,6 +219,61 @@ import ZIPFoundation
         }
 
         #expect((try? Data(contentsOf: existingFile)) == existingData)
+        #expect(itemSpecificImportResidues(remoteItemID: item.id).isEmpty)
+    }
+
+    @Test func successfulReimportAtomicallyReplacesExistingFolderWithoutResidue() async throws {
+        let dbService = try DatabaseService(inMemory: ())
+        let svc = makeService()
+        let zipBytes = try makeZip(entry: "new.m4b", contents: "new-import")
+        URLProtocolStub.stub(
+            pathSuffix: "/download", status: 200, data: zipBytes,
+            headers: ["Content-Type": "application/zip"])
+
+        let item = try makeItem(id: "item-\(UUID().uuidString)")
+        let folder = FileLocations.absLibraryDirectory(remoteItemID: item.id)
+        try? FileManager.default.removeItem(at: folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let existingFile = folder.appending(path: "existing.m4b")
+        try Data("old-import".utf8).write(to: existingFile)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        let importedFolder = try await importer.prepareLocalFolder(for: item)
+
+        #expect(importedFolder.standardizedFileURL == folder.standardizedFileURL)
+        #expect(!FileManager.default.fileExists(atPath: existingFile.path))
+        #expect((try? String(contentsOf: folder.appending(path: "new.m4b"), encoding: .utf8)) == "new-import")
+        #expect(itemSpecificImportResidues(remoteItemID: item.id).isEmpty)
+    }
+
+    @Test func failedReimportAfterFolderPublishRestoresExistingFolderAndCleansBackup() async throws {
+        let dbService = try DatabaseService(inMemory: ())
+        try dbService.write { db in try db.execute(sql: "DROP TABLE audiobook") }
+        let svc = makeService()
+        let zipBytes = try makeZip(entry: "new.m4b", contents: "new-import")
+        URLProtocolStub.stub(
+            pathSuffix: "/download", status: 200, data: zipBytes,
+            headers: ["Content-Type": "application/zip"])
+
+        let item = try makeItem(id: "item-\(UUID().uuidString)")
+        let folder = FileLocations.absLibraryDirectory(remoteItemID: item.id)
+        try? FileManager.default.removeItem(at: folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let existingFile = folder.appending(path: "existing.m4b")
+        let existingData = Data("completed-local-import".utf8)
+        try existingData.write(to: existingFile)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let importer = ABSImportService(service: svc, db: dbService, serverID: "srvX")
+        await #expect {
+            try await importer.prepareLocalFolder(for: item)
+        } throws: { _ in
+            true
+        }
+
+        #expect((try? Data(contentsOf: existingFile)) == existingData)
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "new.m4b").path))
         #expect(itemSpecificImportResidues(remoteItemID: item.id).isEmpty)
     }
 

@@ -98,38 +98,74 @@ final class ABSImportService {
     ) throws {
         let fileManager = FileManager.default
         let parent = finalFolder.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+
+        // Existing folder replacement is atomic at the filesystem level: readers see the
+        // old completed directory or the new completed directory, never an empty gap.
         let backupFolder = parent.appending(
             path: ".\(finalFolder.lastPathComponent)-backup-\(UUID().uuidString)",
             directoryHint: .isDirectory)
-        let hadExistingFolder = fileManager.fileExists(atPath: finalFolder.path)
-        var movedExistingToBackup = false
-        var movedStagingToFinal = false
+        let replacedExistingFolder = fileManager.fileExists(atPath: finalFolder.path)
+        var publishedNewFolder = false
 
         do {
-            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-            if hadExistingFolder {
-                try? fileManager.removeItem(at: backupFolder)
-                try fileManager.moveItem(at: finalFolder, to: backupFolder)
-                movedExistingToBackup = true
+            if replacedExistingFolder {
+                try replaceExistingFolder(
+                    finalFolder,
+                    with: stagingFolder,
+                    backupFolder: backupFolder,
+                    fileManager: fileManager)
+            } else {
+                try fileManager.moveItem(at: stagingFolder, to: finalFolder)
+                publishedNewFolder = true
             }
-
-            try fileManager.moveItem(at: stagingFolder, to: finalFolder)
-            movedStagingToFinal = true
             try AudiobookDAO(db: db.writer).save(record)
-            if movedExistingToBackup {
+            if replacedExistingFolder {
                 try? fileManager.removeItem(at: backupFolder)
             }
         } catch {
-            if movedStagingToFinal {
-                try? fileManager.removeItem(at: finalFolder)
-            }
-            if movedExistingToBackup {
-                try? fileManager.moveItem(at: backupFolder, to: finalFolder)
-            } else {
+            if replacedExistingFolder {
+                try? restoreExistingFolder(
+                    from: backupFolder,
+                    to: finalFolder,
+                    fileManager: fileManager)
                 try? fileManager.removeItem(at: backupFolder)
+            } else if publishedNewFolder {
+                try? fileManager.removeItem(at: finalFolder)
             }
             throw error
         }
+    }
+
+    private func replaceExistingFolder(
+        _ finalFolder: URL,
+        with stagingFolder: URL,
+        backupFolder: URL,
+        fileManager: FileManager
+    ) throws {
+        try? fileManager.removeItem(at: backupFolder)
+        var resultingURL: NSURL?
+        try fileManager.replaceItem(
+            at: finalFolder,
+            withItemAt: stagingFolder,
+            backupItemName: backupFolder.lastPathComponent,
+            options: [.withoutDeletingBackupItem],
+            resultingItemURL: &resultingURL)
+    }
+
+    private func restoreExistingFolder(
+        from backupFolder: URL,
+        to finalFolder: URL,
+        fileManager: FileManager
+    ) throws {
+        guard fileManager.fileExists(atPath: backupFolder.path) else { return }
+        var resultingURL: NSURL?
+        try fileManager.replaceItem(
+            at: finalFolder,
+            withItemAt: backupFolder,
+            backupItemName: nil,
+            options: [],
+            resultingItemURL: &resultingURL)
     }
 
     @concurrent
