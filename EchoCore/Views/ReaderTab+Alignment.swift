@@ -130,8 +130,10 @@
 
             guard !chapters.isEmpty, !blocks.isEmpty else {
                 vm.showAutoAlignmentFailedAlert = true
-                vm.autoAlignmentErrorMessage = String(
-                    localized: "No chapters or EPUB blocks found.")
+                // Kept on one line (fits lineLength 100) so the localized-string
+                // guard in LocalizationFormattingTests matches the exact call.
+                let message = String(localized: "No chapters or EPUB blocks found.")
+                vm.autoAlignmentErrorMessage = message
                 return
             }
 

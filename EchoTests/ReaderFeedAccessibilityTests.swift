@@ -210,7 +210,7 @@ struct ReaderFeedAccessibilityTests {
         cell.setNeedsLayout()
         cell.layoutIfNeeded()
 
-        let label = try #require(mainLabel(in: cell))
+        let textView = try #require(mainTextView(in: cell))
         let fittingSize = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
         let cellSize = cell.contentView.systemLayoutSizeFitting(
             fittingSize,
@@ -218,10 +218,10 @@ struct ReaderFeedAccessibilityTests {
             verticalFittingPriority: .fittingSizeLevel
         )
         let labelWidth = width - 28
-        let labelSize = label.sizeThatFits(
+        let labelSize = textView.sizeThatFits(
             CGSize(width: labelWidth, height: .greatestFiniteMagnitude))
 
-        let attributed = label.attributedText
+        let attributed = textView.attributedText
         let baseFont = attributed?.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
         let paragraphStyle =
             attributed?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
@@ -235,7 +235,7 @@ struct ReaderFeedAccessibilityTests {
         return TextCellMeasurement(
             cellHeight: cellSize.height,
             labelRequiredHeight: labelSize.height,
-            numberOfLines: label.numberOfLines,
+            numberOfLines: textView.textContainer.maximumNumberOfLines,
             contentSizeCategory: cell.traitCollection.preferredContentSizeCategory,
             baseFontPointSize: baseFont?.pointSize,
             searchFontPointSize: searchFont?.pointSize,
@@ -243,10 +243,14 @@ struct ReaderFeedAccessibilityTests {
         )
     }
 
-    private static func mainLabel(in cell: UICollectionViewCell) -> UILabel? {
+    // The reader text cells render through a non-scrolling UITextView (it gives
+    // TextKit per-word hit-testing for word-tap-to-seek). `maximumNumberOfLines
+    // == 0` is the UITextView analogue of a UILabel's `numberOfLines == 0`:
+    // unlimited lines, so the cell self-sizes to fit all Dynamic Type content.
+    private static func mainTextView(in cell: UICollectionViewCell) -> UITextView? {
         cell.contentView.subviews
-            .compactMap { $0 as? UILabel }
-            .first { $0.numberOfLines == 0 }
+            .compactMap { $0 as? UITextView }
+            .first
     }
 
     private static func block(kind: EPubBlockRecord.Kind, text: String) -> EPubBlockRecord {
@@ -365,8 +369,8 @@ struct ReaderFeedAccessibilityTests {
                 "\(file) must opt its main label into Dynamic Type."
             )
             #expect(
-                source.contains("label.numberOfLines = 0"),
-                "\(file) must allow reader text to grow vertically at accessibility sizes."
+                source.contains("isScrollEnabled = false"),
+                "\(file) must use a non-scrolling text view so reader text self-sizes and grows vertically at accessibility sizes."
             )
             #expect(
                 source.contains(
@@ -397,7 +401,7 @@ struct ReaderFeedAccessibilityTests {
         let collectionSource = try Self.source("EchoCore/Views/ReaderFeedCollectionView.swift")
 
         #expect(
-            collectionSource.contains("fileprivate struct ReaderSettingsSnapshot: Equatable"),
+            collectionSource.contains("private struct ReaderSettingsSnapshot: Equatable"),
             "Reader feed must compare reader setting values instead of the mutable settings object identity."
         )
         #expect(
