@@ -460,8 +460,10 @@ struct DeckImportServiceTests {
         _ = try DeckImportService().importDeck(from: url, db: writer)
 
         try writer.read { db in
-            #expect((try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") ?? 0) == 1)
-            #expect((try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") ?? 0) == 2)
+            let decks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") ?? 0
+            let cards = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") ?? 0
+            #expect(decks == 1)
+            #expect(cards == 2)
         }
     }
 
