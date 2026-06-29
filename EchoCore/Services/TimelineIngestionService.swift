@@ -24,11 +24,12 @@ struct TimelineIngestionService {
         do {
             let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
             let isABS = existing?.sourceType == "audiobookshelf"
+            let resolvedDuration = duration.flatMap(Self.validDuration) ?? existing?.duration ?? 0
             let audiobook = AudiobookRecord(
                 id: audiobookID,
                 title: isABS ? (existing?.title ?? title) : title,
                 author: isABS ? existing?.author : nil,
-                duration: duration ?? 0,
+                duration: resolvedDuration,
                 fileCount: tracks.count,
                 addedAt: existing?.addedAt ?? Date().ISO8601Format(),
                 sourceType: existing?.sourceType,
@@ -57,6 +58,55 @@ struct TimelineIngestionService {
         } catch {
             logger.error("Failed to persist audiobook to SQL: \(error.localizedDescription)")
         }
+    }
+
+    static func updateAudiobookDuration(
+        db: DatabaseService,
+        audiobookID: String,
+        duration: TimeInterval
+    ) {
+        guard let duration = validDuration(duration) else { return }
+        do {
+            guard var audiobook = try AudiobookDAO(db: db.writer).get(audiobookID) else { return }
+            audiobook.duration = duration
+            try AudiobookDAO(db: db.writer).save(audiobook)
+        } catch {
+            logger.error("Failed to update audiobook duration: \(error.localizedDescription)")
+        }
+    }
+
+    static func persistChapters(
+        db: DatabaseService,
+        audiobookID: String,
+        chapters: [Chapter]
+    ) {
+        let records = chapterRecords(from: chapters, audiobookID: audiobookID)
+        do {
+            try ChapterDAO(db: db.writer).deleteAll(for: audiobookID)
+            try ChapterDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
+        } catch {
+            logger.error("Failed to persist chapters: \(error.localizedDescription)")
+        }
+    }
+
+    static func chapterRecords(from chapters: [Chapter], audiobookID: String) -> [ChapterRecord] {
+        chapters.enumerated().map { (i, ch) in
+            ChapterRecord(
+                id: nil,
+                audiobookID: audiobookID,
+                title: ch.title ?? "Chapter \(i + 1)",
+                startSeconds: ch.startSeconds,
+                endSeconds: ch.endSeconds,
+                isEnabled: ch.isEnabled,
+                sortOrder: i,
+                playlistPosition: nil
+            )
+        }
+    }
+
+    private static func validDuration(_ duration: TimeInterval) -> TimeInterval? {
+        guard duration.isFinite, duration > 0 else { return nil }
+        return duration
     }
 
     // MARK: - Transcript persistence
