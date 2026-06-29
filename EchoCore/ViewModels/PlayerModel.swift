@@ -1191,7 +1191,13 @@ final class PlayerModel {
         case .missing:
             showingMissingBookWarning = true
         case .none:
-            restoreLastLibraryBookIfPossible()
+            if !restoreLastLibraryBookIfPossible() {
+                #if DEBUG && targetEnvironment(simulator)
+                    if let sampleURL = MockMediaProvider.sampleMediaURL() {
+                        loadFolder(sampleURL, autoplay: false)
+                    }
+                #endif
+            }
         }
     }
 

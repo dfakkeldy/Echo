@@ -59,6 +59,9 @@ clear_previous_screenshots(true)
 # Clean status bar in every shot: 9:41, full bars, 100% battery, no carrier text.
 override_status_bar(true)
 
+# Keep App Store screenshots in Echo's dark, cover-tonal presentation.
+dark_mode(true)
+
 # RAM-friendly on a 16 GB machine: never boot simulators in parallel.
 # (CLAUDE.md: never run xcodebuild with parallel testing enabled.)
 concurrent_simulators(false)

@@ -275,9 +275,9 @@ platform :ios do
     No App Store Connect key required.
 
     Prerequisites:
-    - The app auto-seeds a sample audiobook in DEBUG simulator builds, but ONLY
-      if `BIFF.m4b` is bundled into the Echo app target. Without it the library
-      is empty and content-gated screens (Reader/Timeline) show empty states.
+    - The app auto-seeds screenshot media in DEBUG simulator builds. It prefers
+      a local, rights-cleared `EchoScreenshotSample.m4b` when one is bundled,
+      otherwise it loads the bundled Standard Ebooks Great Gatsby EPUB fixture.
       See fastlane/screenshots/en-US/README_SCREENSHOTS.md.
     - Snapfile resolves current Xcode simulator names for the required sizes.
 

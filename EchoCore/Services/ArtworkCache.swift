@@ -83,6 +83,28 @@ struct ArtworkCache {
         return UIImage(cgImage: cgImage)
     }
 
+    /// Loads the OPF-declared cover from a standalone EPUB archive.
+    static func epubCoverImage(for epubURL: URL) async -> UIImage? {
+        await ensureItemIsAvailable(url: epubURL)
+
+        let didStart = epubURL.startAccessingSecurityScopedResource()
+        defer { if didStart { epubURL.stopAccessingSecurityScopedResource() } }
+
+        guard let data = EpubCoverResolver.coverData(epubArchiveURL: epubURL),
+            let source = CGImageSourceCreateWithData(data as CFData, nil)
+        else { return nil }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 600
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
     /// Scans the folder containing an audio file for cover artwork images.
     static func folderArtworkImage(near url: URL) async -> UIImage? {
         let folderURL = url.deletingLastPathComponent()

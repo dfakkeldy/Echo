@@ -259,16 +259,18 @@ xcodebuild test \
 
 ### MockMediaProvider
 
-[`MockMediaProvider.swift`](EchoCore/MockMediaProvider.swift) is a `#if DEBUG`-only utility that seeds a sample audiobook (`BIFF.m4b`) into the simulator's Documents directory on first launch. It is automatically invoked during `DEBUG && targetEnvironment(simulator)` builds in the app's `init()`.
+[`MockMediaProvider.swift`](EchoCore/Services/MockMediaProvider.swift) is a `#if DEBUG`-only utility that seeds screenshot/development media into the simulator's Documents directory on first launch. It prefers a local, rights-cleared sample audiobook (`EchoScreenshotSample.m4b`) when one is bundled, and otherwise falls back to the bundled Standard Ebooks copy of *The Great Gatsby*. Audio samples are intentionally git-ignored; use public-domain or otherwise rights-cleared media for screenshots and testing.
 
-A development EPUB fixture is also available for testing the reader pipeline:
+Development EPUB fixtures are also available for testing the reader pipeline:
 
 ```
+EchoCore/Development Assets/standardebooks_great_gatsby/
+└── f-scott-fitzgerald_the-great-gatsby.epub  ← F. Scott Fitzgerald (EPUB)
 EchoCore/Development Assets/aliceinwonderland_1102_librivox/
 └── Alice's Adventures in Wonderland.epub  ← Lewis Carroll (EPUB)
 ```
 
-In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, seeding the sample audiobook for immediate testing of the reader, alignment, and search features without requiring external file selection.
+In `#if DEBUG` builds, `SettingsView` exposes a "Load Development Assets" button under a "Debug Menu" section. This invokes `PlayerModel.loadFolder()` with the main bundle URL, seeding bundled development media for immediate testing of the reader, alignment, and search features without requiring external file selection.
 
 This allows developers to test the full playback, bookmarking, and chapter-navigation pipeline without any network dependency or real audiobook files.
 

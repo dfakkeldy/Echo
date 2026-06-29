@@ -68,12 +68,19 @@ final class BookmarkArtworkCoordinator {
         let scale = displayScale
         let result = ArtworkCache.generateThumbnails(from: sourceImage, displayScale: scale)
 
-        await MainActor.run {
-            state?.thumbnailImage = result.0
-            baseWatchThumbnailData = result.1
-            let currentTime = currentPlaybackTimeProvider?() ?? 0
-            updateCurrentDisplayArtwork(at: currentTime, force: true)
-        }
+        applyBaseArtwork(thumbnail: result.0, watchData: result.1)
+    }
+
+    func applyBaseArtwork(_ sourceImage: UIImage) {
+        let result = ArtworkCache.generateThumbnails(from: sourceImage, displayScale: displayScale)
+        applyBaseArtwork(thumbnail: result.0, watchData: result.1)
+    }
+
+    private func applyBaseArtwork(thumbnail: UIImage, watchData: Data?) {
+        state?.thumbnailImage = thumbnail
+        baseWatchThumbnailData = watchData
+        let currentTime = currentPlaybackTimeProvider?() ?? 0
+        updateCurrentDisplayArtwork(at: currentTime, force: true)
     }
 
     // MARK: - Display artwork selection

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import ZIPFoundation
 
 /// Resolves an EPUB's cover image to raw JPEG/PNG bytes, suitable for embedding as
 /// MP4 cover art. The cover is usually declared in the OPF as a manifest item —
@@ -7,6 +8,29 @@ import Foundation
 /// `properties="cover-image"` (EPUB 3) — NOT as an inline content image block, which
 /// is why scanning `epub_block` image rows misses it. Cross-platform (no UIKit).
 enum EpubCoverResolver {
+
+    /// Cover bytes for a zipped EPUB archive, or nil if none is declared / the
+    /// referenced file is not a JPEG/PNG in the archive.
+    static func coverData(epubArchiveURL: URL) -> Data? {
+        guard let archive = try? Archive(url: epubArchiveURL, accessMode: .read),
+            let opfPath = locateOPF(in: archive),
+            let opfEntry = archive[opfPath],
+            let opfData = data(for: opfEntry, in: archive)
+        else { return nil }
+
+        let delegate = CoverOPFDelegate()
+        let parser = XMLParser(data: opfData)
+        parser.delegate = delegate
+        parser.parse()
+        guard let href = delegate.resolvedCoverHref else { return nil }
+
+        let opfDirectory = deletingLastPathComponent(opfPath)
+        guard let imagePath = normalizedArchivePath(basePath: opfDirectory, relativePath: href),
+            ["jpg", "jpeg", "png"].contains(pathExtension(imagePath).lowercased()),
+            let imageEntry = archive[imagePath]
+        else { return nil }
+        return data(for: imageEntry, in: archive)
+    }
 
     /// Cover bytes for an *expanded* (unzipped) EPUB directory, or nil if none is
     /// declared / the referenced file isn't a JPEG/PNG that exists on disk.
@@ -56,6 +80,70 @@ enum EpubCoverResolver {
             if url.pathExtension.lowercased() == "opf" { return url }
         }
         return nil
+    }
+
+    /// Finds the OPF in a ZIP archive: first via `META-INF/container.xml`, then
+    /// via the first `*.opf` entry.
+    private static func locateOPF(in archive: Archive) -> String? {
+        if let containerEntry = archive["META-INF/container.xml"],
+            let data = data(for: containerEntry, in: archive)
+        {
+            let delegate = ContainerDelegate()
+            let parser = XMLParser(data: data)
+            parser.delegate = delegate
+            parser.parse()
+            if let path = delegate.rootfilePath,
+                let normalized = normalizedArchivePath(basePath: "", relativePath: path),
+                archive[normalized] != nil
+            {
+                return normalized
+            }
+        }
+
+        return archive.first { pathExtension($0.path).lowercased() == "opf" }?.path
+    }
+
+    private static func data(for entry: Entry, in archive: Archive) -> Data? {
+        var result = Data()
+        do {
+            _ = try archive.extract(entry) { chunk in
+                result.append(chunk)
+            }
+        } catch {
+            return nil
+        }
+        return result
+    }
+
+    private static func normalizedArchivePath(basePath: String, relativePath: String) -> String? {
+        let decoded = relativePath.removingPercentEncoding ?? relativePath
+        guard !decoded.hasPrefix("/") else { return nil }
+
+        var components = basePath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        for component in decoded.split(separator: "/", omittingEmptySubsequences: true) {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                guard !components.isEmpty else { return nil }
+                components.removeLast()
+            default:
+                components.append(String(component))
+            }
+        }
+        return components.joined(separator: "/")
+    }
+
+    private static func deletingLastPathComponent(_ path: String) -> String {
+        guard let slashIndex = path.lastIndex(of: "/") else { return "" }
+        return String(path[..<slashIndex])
+    }
+
+    private static func pathExtension(_ path: String) -> String {
+        guard let dotIndex = path.lastIndex(of: ".") else { return "" }
+        return String(path[path.index(after: dotIndex)...])
     }
 }
 
