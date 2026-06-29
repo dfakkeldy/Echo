@@ -28,6 +28,9 @@ struct WatchReviewView: View {
                             .padding(.horizontal)
 
                         if isRevealed {
+                            // Canonical ReviewGrade scale (again=1, good=3, easy=4).
+                            // The old 0/3/5 (SM-2) values persisted an invalid
+                            // lastGrade that ReviewGrade(rawValue:) can't represent.
                             HStack(spacing: 8) {
                                 gradeButton("Again", grade: ReviewGrade.again.rawValue, color: .red)
                                 WatchReviewPrimaryActionButton(

@@ -234,7 +234,9 @@ private struct ABSItemDetailView: View {
     let item: ABSLibraryItem
     let onImported: () -> Void
     @Environment(PlayerModel.self) private var model
-    @State private var isImporting = false
+    @State private var importTask: Task<Void, Never>?
+    @State private var importStartedAt: Date?
+    @State private var isCancelingImport = false
     @State private var importError: String?
 
     var body: some View {
@@ -268,14 +270,11 @@ private struct ABSItemDetailView: View {
                 Section("Description") { Text(description).font(.callout) }
             }
             Section {
-                if isImporting {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("Downloading…")
-                    }
+                if let importStartedAt {
+                    importProgressView(startedAt: importStartedAt)
                 } else {
                     Button {
-                        Task { await importBook() }
+                        beginImport()
                     } label: {
                         Label("Add to Library", systemImage: "arrow.down.circle")
                     }
@@ -293,14 +292,64 @@ private struct ABSItemDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func importBook() async {
-        isImporting = true
+    @ViewBuilder
+    private func importProgressView(startedAt: Date) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ProgressView()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(isCancelingImport ? "Canceling…" : "Downloading…")
+                    TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                        Text("Elapsed \(Self.formattedElapsed(from: startedAt, to: context.date))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Text("Large Audiobookshelf books may take a while. If the connection stalls, cancel and retry.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button(role: .destructive) {
+                cancelImport()
+            } label: {
+                Label("Cancel Import", systemImage: "xmark.circle")
+            }
+            .disabled(isCancelingImport)
+        }
+    }
+
+    private func beginImport() {
+        guard importTask == nil else { return }
         importError = nil
-        defer { isImporting = false }
+        isCancelingImport = false
+        importStartedAt = Date()
+        importTask = Task { await importBook() }
+    }
+
+    private func cancelImport() {
+        isCancelingImport = true
+        importTask?.cancel()
+    }
+
+    private func importBook() async {
+        defer {
+            importTask = nil
+            importStartedAt = nil
+            isCancelingImport = false
+        }
         do {
             try await model.addFromAudiobookshelf(item)
+            guard !Task.isCancelled else { return }
             onImported()
+        } catch is CancellationError {
+            importError = String(
+                localized: "Import canceled. Partial download data was removed; you can retry.")
         } catch {
+            if Task.isCancelled {
+                importError = String(
+                    localized: "Import canceled. Partial download data was removed; you can retry.")
+                return
+            }
             importError = error.localizedDescription
         }
     }
@@ -309,6 +358,21 @@ private struct ABSItemDetailView: View {
         let h = Int(seconds) / 3600
         let m = (Int(seconds) % 3600) / 60
         return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+
+    private static func formattedElapsed(from startedAt: Date, to now: Date) -> String {
+        let elapsed = max(0, Int(now.timeIntervalSince(startedAt)))
+        let hours = elapsed / 3600
+        let minutes = (elapsed % 3600) / 60
+        let seconds = elapsed % 60
+        if hours > 0 {
+            return "\(hours):\(twoDigit(minutes)):\(twoDigit(seconds))"
+        }
+        return "\(minutes):\(twoDigit(seconds))"
+    }
+
+    private static func twoDigit(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
     }
 }
 

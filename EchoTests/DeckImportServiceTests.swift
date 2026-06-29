@@ -523,4 +523,53 @@ struct DeckImportServiceTests {
             }
         }
     }
+
+    @Test func reimportingSameDeckDoesNotDuplicateCards() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let json = """
+            {
+              "deckName": "Vocabulary",
+              "targetMediaID": "book-x.m4b",
+              "cards": [
+                {"frontText": "Q1", "backText": "A1", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"},
+                {"frontText": "Q2", "backText": "A2", "startTime": 5, "endTime": 10, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """
+        let url = try writeDeckJSON(json)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try DeckImportService().importDeck(from: url, db: writer)
+        _ = try DeckImportService().importDeck(from: url, db: writer)
+
+        try writer.read { db in
+            let decks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") ?? 0
+            let cards = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") ?? 0
+            #expect(decks == 1)
+            #expect(cards == 2)
+        }
+    }
+
+    @Test func invalidTriggerTimingThrowsCardNumberedError() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let json = """
+            {
+              "deckName": "Deck",
+              "targetMediaID": "book-y.m4b",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5, "triggerTiming": "start"}
+              ]
+            }
+            """
+        let url = try writeDeckJSON(json)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        do {
+            _ = try DeckImportService().importDeck(from: url, db: writer)
+            Issue.record("expected importDeck to throw")
+        } catch DeckImportError.invalidTriggerTiming(let value, let cardIndex) {
+            #expect(value == "start")
+            #expect(cardIndex == 0)
+        }
+    }
 }

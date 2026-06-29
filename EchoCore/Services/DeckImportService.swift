@@ -115,6 +115,8 @@ struct DeckImportService {
             )
         }
 
+        // Re-import replaces existing cards for this deck so corrected front/back
+        // text, timings, and source anchors are applied instead of skipped.
         try replaceExistingCards(in: writer, deckID: deckID)
 
         let dao = FlashcardDAO(db: writer)

@@ -73,6 +73,9 @@ nonisolated struct FSRSScheduler: SchedulingAlgorithm {
         updated.intervalDays = interval
         updated.repetitions = card.repetitions + 1
         updated.lastReviewedAt = now.ISO8601Format()
+        // Persist the clamped grade so `lastGrade` is always a valid ReviewGrade
+        // (1...4); an off-scale input (e.g. a legacy 0/5 sender) must not be
+        // stored raw.
         updated.lastGrade = g
         updated.modifiedAt = now.ISO8601Format()
 

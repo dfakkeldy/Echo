@@ -29,6 +29,26 @@ import UIKit
 
         #expect(image.size == .zero)
     }
+
+    @Test func clearsStaleChapterNumberOnNonChapteredBook() {
+        let controller = NowPlayingController()
+
+        var chaptered = NowPlayingController.NowPlayingParams()
+        chaptered.title = "Chaptered"
+        chaptered.chapterIndex = 2
+        controller.updateNowPlayingInfo(chaptered)
+        #expect(
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyChapterNumber]
+                as? Int == 3)
+
+        var plain = NowPlayingController.NowPlayingParams()
+        plain.title = "Plain"
+        plain.chapterIndex = nil
+        controller.updateNowPlayingInfo(plain)
+        #expect(
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyChapterNumber]
+                == nil)
+    }
 }
 
 /// Test-only bridge for the Obj-C artwork object that MediaPlayer itself invokes cross-queue.

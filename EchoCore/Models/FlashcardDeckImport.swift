@@ -33,6 +33,9 @@ struct FlashcardDeckImport: Codable, Sendable {
         let backText: String
         let startTime: Double?
         let endTime: Double?
+        /// Raw string (not the enum) so an unknown value is caught by the
+        /// dedicated `invalidTriggerTiming` validation with a card-numbered
+        /// message, rather than failing decode as a generic `invalidJSON`.
         let triggerTiming: String
         let sourceAnchor: String?
     }
