@@ -141,6 +141,8 @@ struct BookSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var studyPlanPresentation: StudyPlanSheetPresentation?
     @State private var studyDeckGenerationPresentation: StudyDeckGenerationSheetPresentation?
+    @State private var echoDeckBuilderExportURL: URL?
+    @State private var echoDeckBuilderAlert: EchoDeckBuilderAlert?
 
     var body: some View {
         NavigationStack {
@@ -157,6 +159,23 @@ struct BookSettingsView: View {
                         )
                     }
                     .disabled(model.databaseService == nil || model.folderURL == nil)
+
+                    #if os(iOS)
+                        if let echoDeckBuilderExportURL {
+                            ShareLink(item: echoDeckBuilderExportURL) {
+                                Label(
+                                    "Make Flashcards in EchoDeckBuilder",
+                                    systemImage: "square.and.arrow.up"
+                                )
+                            }
+                            .disabled(!canMakeFlashcardsInEchoDeckBuilder)
+                        } else {
+                            Button("Make Flashcards in EchoDeckBuilder", systemImage: "square.and.arrow.up") {
+                                refreshEchoDeckBuilderExportURL(showError: true)
+                            }
+                            .disabled(!canMakeFlashcardsInEchoDeckBuilder)
+                        }
+                    #endif
                 }
 
                 BookOverridesSections(model: model)
@@ -175,8 +194,72 @@ struct BookSettingsView: View {
         .sheet(item: $studyDeckGenerationPresentation) { presentation in
             StudyDeckGenerationSheetHost(presentation: presentation)
         }
+        .task(id: echoDeckBuilderRefreshKey) {
+            refreshEchoDeckBuilderExportURL(showError: false)
+        }
+        .alert("EchoDeckBuilder", isPresented: Binding(
+            get: { echoDeckBuilderAlert != nil },
+            set: { if !$0 { echoDeckBuilderAlert = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let message = echoDeckBuilderAlert?.message {
+                Text(message)
+            }
+        }
         .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
     }
+
+    private var canMakeFlashcardsInEchoDeckBuilder: Bool {
+        model.folderURL != nil && model.hasEPUB
+    }
+
+    private var echoDeckBuilderRefreshKey: EchoDeckBuilderRefreshKey {
+        EchoDeckBuilderRefreshKey(
+            folderURL: model.folderURL,
+            sourceDocumentURL: model.state.sourceDocumentURL,
+            currentTrackURL: currentTrackURL,
+            documentIngestionTrigger: model.state.documentIngestionTrigger
+        )
+    }
+
+    private var currentTrackURL: URL? {
+        model.tracks.indices.contains(model.currentIndex)
+            ? model.tracks[model.currentIndex].url
+            : nil
+    }
+
+    private func refreshEchoDeckBuilderExportURL(showError: Bool) {
+        guard canMakeFlashcardsInEchoDeckBuilder else {
+            echoDeckBuilderExportURL = nil
+            return
+        }
+
+        do {
+            echoDeckBuilderExportURL = try EchoDeckBuilderHandoffService.currentEPUBURL(
+                bookURL: model.folderURL,
+                preferredEPUBURL: model.state.sourceDocumentURL,
+                currentTrackURL: currentTrackURL
+            )
+        } catch {
+            echoDeckBuilderExportURL = nil
+            if showError {
+                echoDeckBuilderAlert = EchoDeckBuilderAlert(message: error.localizedDescription)
+            }
+        }
+    }
+}
+
+private struct EchoDeckBuilderAlert: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
+private struct EchoDeckBuilderRefreshKey: Equatable {
+    var folderURL: URL?
+    var sourceDocumentURL: URL?
+    var currentTrackURL: URL?
+    var documentIngestionTrigger: Int
 }
 
 private struct StudyPlanSheetPresentation: Identifiable {

@@ -28,6 +28,15 @@ struct CloudKitSyncSourceTests {
         #expect(source.contains("(record?.duration).flatMap"))
     }
 
+    @Test func bookSettingsRefreshesEchoDeckBuilderExportAfterDocumentImport() throws {
+        let source = try Self.source("EchoCore/Views/BookSettingsView.swift")
+
+        #expect(source.contains("Make Flashcards in EchoDeckBuilder"))
+        #expect(source.contains("EchoDeckBuilderRefreshKey"))
+        #expect(source.contains("sourceDocumentURL: model.state.sourceDocumentURL"))
+        #expect(source.contains("documentIngestionTrigger: model.state.documentIngestionTrigger"))
+    }
+
     private static func source(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {

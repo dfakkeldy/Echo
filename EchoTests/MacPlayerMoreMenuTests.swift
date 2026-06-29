@@ -18,6 +18,11 @@ struct MacPlayerMoreMenuTests {
         #expect(src.contains("player.seekToChapter"))
         #expect(src.contains("player.jumpTo"))
         #expect(src.contains("player.addBookmarkAtCurrentTime"))
+        #expect(src.contains("Open in EchoDeckBuilder"))
+        #expect(src.contains("EchoDeckBuilderHandoffService.currentEPUBURL"))
+        #expect(src.contains(".disabled(!canOpenInEchoDeckBuilder)"))
+        #expect(src.contains(".task(id: echoDeckBuilderAvailabilityKey)"))
+        #expect(src.contains("startAccessingSecurityScopedResource()"))
         #expect(src.contains("player.sleepTimerMode"))
         #expect(src.contains("SettingsLink"))
     }

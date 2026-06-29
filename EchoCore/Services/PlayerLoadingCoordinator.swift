@@ -99,6 +99,7 @@ final class PlayerLoadingCoordinator {
         // playback position is shared across both entry points.
         if isDir {
             state.folderURL = url
+            state.sourceDocumentURL = nil
             // Opening a folder grants recursive access via the selection scope,
             // so no separate parent scope is needed; release any held from a
             // previous single-file open.
@@ -106,6 +107,7 @@ final class PlayerLoadingCoordinator {
         } else {
             let parentDir = url.deletingLastPathComponent()
             state.folderURL = parentDir
+            state.sourceDocumentURL = PlaylistManager.isDocumentFile(url) ? url : nil
             // Track security-scoped access on the parent directory so EPUB
             // auto-import can enumerate sibling files. Tracked (not a bare
             // start) so it's released on the next loadFolder / on teardown,
