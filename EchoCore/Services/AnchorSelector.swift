@@ -24,17 +24,25 @@ nonisolated enum AnchorSelector {
         var kept: [TokenDTW.AnchorCandidate] = []
 
         for candidate in candidates where candidate.exactRunLength >= minRunLength {
-            // A candidate earlier in time than its predecessors is a
-            // conflict: evict strictly weaker predecessors, otherwise drop
-            // the newcomer.
-            while let last = kept.last,
-                  candidate.time + epsilon < last.time,
-                  candidate.exactRunLength > last.exactRunLength {
-                kept.removeLast()
+            // A candidate earlier in time than its predecessors is a conflict.
+            // Decide the outcome *before* mutating `kept`: the candidate may
+            // only displace conflicting predecessors if it is strictly
+            // stronger than every one of them. Otherwise it loses and nothing
+            // is evicted — so a monotonic middle anchor is never dropped as
+            // collateral for a newcomer that is itself rejected.
+            var conflicting = 0
+            var candidateWins = true
+            for predecessor in kept.reversed() {
+                guard candidate.time + epsilon < predecessor.time else { break }
+                if candidate.exactRunLength > predecessor.exactRunLength {
+                    conflicting += 1
+                } else {
+                    candidateWins = false
+                    break
+                }
             }
-            if let last = kept.last, candidate.time + epsilon < last.time {
-                continue
-            }
+            guard candidateWins else { continue }
+            kept.removeLast(conflicting)
             kept.append(candidate)
         }
         return kept
