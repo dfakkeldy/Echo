@@ -163,7 +163,27 @@ final class AudiobookshelfService {
     {
         let request = URLRequest(
             url: endpoints.search(libraryID: libraryID, query: query, limit: limit))
-        return try await authorized(request, decode: ABSSearchResponse.self).libraryItems
+        let response = try await authorized(request, decode: ABSSearchResponse.self)
+        let directResults = response.libraryItems
+        guard directResults.isEmpty, !response.authorNames.isEmpty else { return directResults }
+        return try await authorSearchFallbackItems(
+            libraryID: libraryID, authorNames: response.authorNames, limit: limit)
+    }
+
+    private func authorSearchFallbackItems(
+        libraryID: String,
+        authorNames: [String],
+        limit: Int
+    ) async throws -> [ABSLibraryItem] {
+        let items = try await allItems(libraryID: libraryID, pageSize: max(limit, 25))
+        var seen = Set<String>()
+        let matches = items.filter { item in
+            guard let author = item.author else { return false }
+            return authorNames.contains { name in
+                author.localizedStandardContains(name) || name.localizedStandardContains(author)
+            } && seen.insert(item.id).inserted
+        }
+        return Array(matches.prefix(max(limit, 1)))
     }
 
     /// Loads cover bytes using header auth. The request deliberately bypasses URL caches because

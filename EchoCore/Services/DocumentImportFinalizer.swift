@@ -23,9 +23,7 @@ enum DocumentImportFinalizer {
             db: databaseService.writer, audiobookID: audiobookID)
         let anchorDAO = AlignmentAnchorDAO(db: databaseService.writer)
 
-        let alignmentSidecarURL = fileURL.deletingPathExtension().appendingPathExtension(
-            "alignment.json")
-        if FileManager.default.fileExists(atPath: alignmentSidecarURL.path) {
+        if let alignmentSidecarURL = alignmentSidecarURL(for: fileURL) {
             do {
                 let data = try Data(contentsOf: alignmentSidecarURL)
                 let exports = try AlignmentSidecar.decode(data)
@@ -153,5 +151,32 @@ enum DocumentImportFinalizer {
             )
         }
         return true
+    }
+
+    static func alignmentSidecarURL(
+        for fileURL: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let exactURL = AlignmentSidecar.url(forEPUB: fileURL)
+        if fileManager.fileExists(atPath: exactURL.path) { return exactURL }
+
+        let directory = fileURL.deletingLastPathComponent()
+        guard
+            let siblings = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+        else { return nil }
+
+        let exactName = exactURL.lastPathComponent
+        let sidecars = siblings
+            .filter { $0.lastPathComponent.localizedCaseInsensitiveCompare(exactName) == .orderedSame }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        if let match = sidecars.first { return match }
+
+        return siblings
+            .filter { $0.lastPathComponent.lowercased().hasSuffix(".alignment.json") }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .first
     }
 }
