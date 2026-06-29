@@ -12,7 +12,11 @@ enum EpubCoverResolver {
     /// Cover bytes for a zipped EPUB archive, or nil if none is declared / the
     /// referenced file is not a JPEG/PNG in the archive.
     static func coverData(epubArchiveURL: URL) -> Data? {
-        guard let archive = try? Archive(url: epubArchiveURL, accessMode: .read),
+        guard let archive = try? Archive(
+            url: epubArchiveURL,
+            accessMode: .read,
+            pathEncoding: nil
+        ),
             let opfPath = locateOPF(in: archive),
             let opfEntry = archive[opfPath],
             let opfData = data(for: opfEntry, in: archive)

@@ -132,31 +132,43 @@ final class DefaultVisualizerTap: VisualizerDataProviding {
             return fallbackSpectrum(samples: samples, bands: bands)
         }
 
-        // Prepare split-complex buffers.
+        // Prepare split-complex buffers whose pointers stay valid for every
+        // vDSP call that receives the split complex.
         var realp = [Float](repeating: 0, count: n / 2)
         var imagp = [Float](repeating: 0, count: n / 2)
-        var splitComplex = DSPSplitComplex(realp: &realp, imagp: &imagp)
+        return realp.withUnsafeMutableBufferPointer { realBuffer in
+            imagp.withUnsafeMutableBufferPointer { imagBuffer in
+                guard let realBase = realBuffer.baseAddress,
+                    let imagBase = imagBuffer.baseAddress
+                else {
+                    return fallbackSpectrum(samples: samples, bands: bands)
+                }
+                var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
 
-        // Pack real samples into split-complex (odd-index = imag, even = real).
-        base.withMemoryRebound(to: DSPComplex.self, capacity: n / 2) { complexPtr in
-            vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(n / 2))
+                // Pack real samples into split-complex (odd-index = imag, even = real).
+                base.withMemoryRebound(to: DSPComplex.self, capacity: n / 2) { complexPtr in
+                    vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(n / 2))
+                }
+
+                // Forward FFT (reusing the setup created in init).
+                vDSP_fft_zrip(
+                    fftSetup, &splitComplex, 1, fftLog2n,
+                    FFTDirection(kFFTDirection_Forward))
+
+                // Compute magnitudes (|Re|² + |Im|²).
+                var magnitudes = [Float](repeating: 0, count: n / 2)
+                vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(n / 2))
+
+                // Convert to dB: 20 * log10(magnitude) with floor at 1e-10.
+                var one: Float = 1
+                var clipMin: Float = 1e-10
+                vDSP_vdbcon(magnitudes, 1, &one, &magnitudes, 1, vDSP_Length(n / 2), 0)
+                vDSP_vthr(magnitudes, 1, &clipMin, &magnitudes, 1, vDSP_Length(n / 2))
+
+                // Bin into `bands` frequency bins.
+                return binMagnitudes(magnitudes, bands: bands)
+            }
         }
-
-        // Forward FFT (reusing the setup created in init).
-        vDSP_fft_zrip(fftSetup, &splitComplex, 1, fftLog2n, FFTDirection(kFFTDirection_Forward))
-
-        // Compute magnitudes (|Re|² + |Im|²).
-        var magnitudes = [Float](repeating: 0, count: n / 2)
-        vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(n / 2))
-
-        // Convert to dB: 20 * log10(magnitude) with floor at 1e-10.
-        var one: Float = 1
-        var clipMin: Float = 1e-10
-        vDSP_vdbcon(magnitudes, 1, &one, &magnitudes, 1, vDSP_Length(n / 2), 0)
-        vDSP_vthr(magnitudes, 1, &clipMin, &magnitudes, 1, vDSP_Length(n / 2))
-
-        // Bin into `bands` frequency bins.
-        return binMagnitudes(magnitudes, bands: bands)
     }
 
     private func binMagnitudes(_ magnitudes: [Float], bands: Int) -> [Float] {
