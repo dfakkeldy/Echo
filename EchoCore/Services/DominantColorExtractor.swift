@@ -14,7 +14,11 @@ nonisolated struct CoverSignature: Equatable {
     }
     /// Ranked by weight, descending. Empty for neutral covers.
     let candidates: [HueCandidate]
-    /// True when vivid pixels cover < 2% of the sample (or none at all).
+    /// True when the cover carries no usable identity hue: either too few vivid
+    /// pixels in absolute terms (a stray speck), or vivid pixels don't dominate
+    /// the *colourable* (non-black/white) region. High-contrast covers — a bold
+    /// accent on black/white — are NOT neutral even though the accent is a small
+    /// fraction of the whole canvas.
     let isNeutral: Bool
 
     static let neutral = CoverSignature(candidates: [], isNeutral: true)
@@ -46,9 +50,18 @@ nonisolated enum DominantColorExtractor {
     /// Pixels with saturation below this are treated as near-grey and skipped.
     private static let minSaturation: Float = 0.12
 
-    /// Minimum fraction of sampled pixels that must be vivid for the cover to
-    /// count as colourful — below this, a stray pixel could theme a book.
+    /// Minimum share of the *colourable* (non-black/white) pixels that must be
+    /// vivid for the cover to count as colourful. Measuring against the colourable
+    /// region — not the whole canvas — is what lets a bold accent on a
+    /// high-contrast black/white cover register: the black/white bulk is excluded,
+    /// so the accent dominates what remains.
     private static let minVividCoverage: Double = 0.02
+
+    /// Absolute floor (as a fraction of all sampled pixels) on the vivid-pixel
+    /// count. Guards against a stray speck theming a book on covers where the
+    /// colourable region is itself tiny (e.g. a single colour pixel on pure
+    /// white, where the colourable share would otherwise be 100%).
+    private static let minVividPixelFraction: Double = 0.004
 
     // MARK: - Public API
 
@@ -65,6 +78,7 @@ nonisolated enum DominantColorExtractor {
         var gSums = [Float](repeating: 0, count: hueBuckets)
         var bSums = [Float](repeating: 0, count: hueBuckets)
         var vividCount = 0
+        var colorableCount = 0
 
         let centre = sampleSize / 2
         let maxDistance = Float(sqrt(Double(centre * centre + centre * centre)))
@@ -78,6 +92,8 @@ nonisolated enum DominantColorExtractor {
 
             let (h, s, l) = rgbToHSL(r: r, g: g, b: b)
             guard l > minLightness && l < maxLightness else { continue }
+            // This pixel could carry a hue (it isn't near-black or near-white).
+            colorableCount += 1
             guard s > minSaturation else { continue }
             vividCount += 1
 
@@ -97,7 +113,13 @@ nonisolated enum DominantColorExtractor {
             bSums[bucket] += b * weight
         }
 
-        let coverage = Double(vividCount) / Double(pixelCount)
+        // Two gates: enough vivid pixels in absolute terms (stray-speck guard),
+        // AND vivid pixels dominate the colourable (non-black/white) region. The
+        // second gate is what admits a bold accent on a high-contrast cover.
+        guard Double(vividCount) >= minVividPixelFraction * Double(pixelCount) else {
+            return .neutral
+        }
+        let coverage = Double(vividCount) / Double(max(1, colorableCount))
         guard coverage >= minVividCoverage else { return .neutral }
 
         let candidates = (0..<hueBuckets)
