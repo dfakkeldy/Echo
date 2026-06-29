@@ -98,6 +98,7 @@ final class PlaybackState {
     // MARK: - Playlist
 
     var folderURL: URL? = nil
+    var sourceDocumentURL: URL? = nil
     var tracks: [Track] = []
     var currentIndex: Int = 0
 

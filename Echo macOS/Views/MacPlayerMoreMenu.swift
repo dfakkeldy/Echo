@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import AppKit
 import SwiftUI
 
 /// The "More" menu for the macOS player bar: chapter navigation, bookmark
@@ -8,6 +9,8 @@ import SwiftUI
 /// MacTriPaneView), not the player model.
 struct MacPlayerMoreMenu: View {
     @Environment(MacPlayerModel.self) private var player
+    @State private var echoDeckBuilderAlert: EchoDeckBuilderAlert?
+    @State private var canOpenInEchoDeckBuilder = false
 
     var onMarkPassage: () -> Void
 
@@ -32,6 +35,13 @@ struct MacPlayerMoreMenu: View {
             }
             .disabled(!player.hasMedia)
 
+            Button {
+                openInEchoDeckBuilder()
+            } label: {
+                Label("Open in EchoDeckBuilder", systemImage: "square.and.arrow.up")
+            }
+            .disabled(!canOpenInEchoDeckBuilder)
+
             Divider()
 
             sleepSection
@@ -47,6 +57,19 @@ struct MacPlayerMoreMenu: View {
         .menuStyle(.borderlessButton)
         .help("More")
         .frame(width: 28)
+        .alert("EchoDeckBuilder", isPresented: Binding(
+            get: { echoDeckBuilderAlert != nil },
+            set: { if !$0 { echoDeckBuilderAlert = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let message = echoDeckBuilderAlert?.message {
+                Text(message)
+            }
+        }
+        .task(id: echoDeckBuilderAvailabilityKey) {
+            refreshEchoDeckBuilderAvailability()
+        }
     }
 
     @ViewBuilder
@@ -121,4 +144,118 @@ struct MacPlayerMoreMenu: View {
             )
         }
     }
+
+    private var currentTrackURL: URL? {
+        player.tracks.indices.contains(player.currentTrackIndex)
+            ? player.tracks[player.currentTrackIndex]
+            : nil
+    }
+
+    private var echoDeckBuilderAvailabilityKey: EchoDeckBuilderAvailabilityKey {
+        EchoDeckBuilderAvailabilityKey(
+            folderURL: player.folderURL,
+            currentTrackURL: currentTrackURL
+        )
+    }
+
+    private func refreshEchoDeckBuilderAvailability() {
+        guard let bookURL = player.folderURL else {
+            canOpenInEchoDeckBuilder = false
+            return
+        }
+
+        let didStartBookScope = bookURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartBookScope {
+                bookURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        canOpenInEchoDeckBuilder =
+            (try? EchoDeckBuilderHandoffService.currentEPUBURL(
+                bookURL: bookURL,
+                currentTrackURL: currentTrackURL
+            )) != nil
+    }
+
+    private func openInEchoDeckBuilder() {
+        let bookURL = player.folderURL
+        let didStartBookScope = bookURL?.startAccessingSecurityScopedResource() ?? false
+
+        do {
+            let epubURL = try EchoDeckBuilderHandoffService.currentEPUBURL(
+                bookURL: bookURL,
+                currentTrackURL: currentTrackURL
+            )
+            let didStartEPUBScope = epubURL.startAccessingSecurityScopedResource()
+
+            guard let appURL = echoDeckBuilderApplicationURL() else {
+                if didStartEPUBScope {
+                    epubURL.stopAccessingSecurityScopedResource()
+                }
+                if didStartBookScope, let bookURL {
+                    bookURL.stopAccessingSecurityScopedResource()
+                }
+                echoDeckBuilderAlert = EchoDeckBuilderAlert(
+                    message: "Install EchoDeckBuilder, then open \(epubURL.lastPathComponent) from that app."
+                )
+                return
+            }
+
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open(
+                [epubURL],
+                withApplicationAt: appURL,
+                configuration: configuration
+            ) { _, error in
+                if didStartEPUBScope {
+                    epubURL.stopAccessingSecurityScopedResource()
+                }
+                if didStartBookScope, let bookURL {
+                    bookURL.stopAccessingSecurityScopedResource()
+                }
+                guard let error else { return }
+                Task { @MainActor in
+                    echoDeckBuilderAlert = EchoDeckBuilderAlert(
+                        message: error.localizedDescription
+                    )
+                }
+            }
+        } catch {
+            if didStartBookScope, let bookURL {
+                bookURL.stopAccessingSecurityScopedResource()
+            }
+            canOpenInEchoDeckBuilder = false
+            echoDeckBuilderAlert = EchoDeckBuilderAlert(message: error.localizedDescription)
+        }
+    }
+
+    private func echoDeckBuilderApplicationURL() -> URL? {
+        if let appURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: "com.dfakkeldy.EchoDeckBuilder"
+        ) {
+            return appURL
+        }
+
+        let applicationURLs = [
+            URL(fileURLWithPath: "/Applications/EchoDeckBuilder.app"),
+            FileManager.default.homeDirectoryForCurrentUser
+                .appending(path: "Applications", directoryHint: .isDirectory)
+                .appending(path: "EchoDeckBuilder.app", directoryHint: .isDirectory),
+        ]
+
+        return applicationURLs.first {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+    }
+}
+
+private struct EchoDeckBuilderAlert: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
+private struct EchoDeckBuilderAvailabilityKey: Equatable {
+    var folderURL: URL?
+    var currentTrackURL: URL?
 }
