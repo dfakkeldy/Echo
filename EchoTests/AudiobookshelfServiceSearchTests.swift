@@ -58,6 +58,32 @@ import Testing
         #expect(results.first?.topics == ["Conflict Studies", "Psychology", "Relationships"])
     }
 
+    @Test func searchFallsBackToLibraryItemsForAuthorOnlyResults() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/search",
+            json: """
+                {"book":[],"podcast":[],"authors":[{"id":"aut1","name":"Daniel Kahneman"}],
+                 "genres":[],"narrators":[],"series":[],"tags":[]}
+                """)
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "0", "limit": "25"],
+            json: """
+                {"total":2,"limit":25,"page":0,"results":[
+                  {"id":"it1","libraryId":"lib1","media":{"metadata":{"title":"Thinking, Fast and Slow",
+                   "authors":[{"id":"aut1","name":"Daniel Kahneman"}]}}},
+                  {"id":"it2","libraryId":"lib1","media":{"metadata":{"title":"High Conflict",
+                   "authors":[{"id":"aut2","name":"Amanda Ripley"}]}}}
+                ]}
+                """)
+
+        let results = try await service.search(libraryID: "lib1", query: "Kahneman")
+
+        #expect(results.map(\.id) == ["it1"])
+        #expect(URLProtocolStub.requests.contains { $0.url?.path.hasSuffix("/items") == true })
+    }
+
     @Test func emptyBookArrayReturnsEmpty() async throws {
         let service = makeService()
         URLProtocolStub.stub(

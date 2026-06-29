@@ -458,22 +458,73 @@ struct ABSLibraryItem: Decodable, Identifiable {
 struct ABSSearchResponse: Decodable {
     let book: [ABSSearchBookResult]
     let podcast: [ABSSearchBookResult]
+    let authors: [ABSSearchAuthorResult]
 
-    var libraryItems: [ABSLibraryItem] { book.map(\.libraryItem) + podcast.map(\.libraryItem) }
+    var libraryItems: [ABSLibraryItem] {
+        deduped(book.map(\.libraryItem) + podcast.map(\.libraryItem) + authors.flatMap(\.libraryItems))
+    }
+
+    var authorNames: [String] {
+        authors.compactMap(\.name).filter { !$0.isEmpty }
+    }
 
     enum CodingKeys: String, CodingKey {
-        case book, podcast
+        case book, podcast, authors
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         book = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .book) ?? []
         podcast = try container.decodeIfPresent([ABSSearchBookResult].self, forKey: .podcast) ?? []
+        authors =
+            try container.decodeIfPresent([ABSSearchAuthorResult].self, forKey: .authors) ?? []
+    }
+
+    private func deduped(_ items: [ABSLibraryItem]) -> [ABSLibraryItem] {
+        var seen = Set<String>()
+        return items.filter { seen.insert($0.id).inserted }
     }
 }
 
 struct ABSSearchBookResult: Decodable {
     let libraryItem: ABSLibraryItem
+}
+
+struct ABSSearchAuthorResult: Decodable {
+    let name: String?
+    let libraryItems: [ABSLibraryItem]
+
+    enum CodingKeys: String, CodingKey {
+        case name, libraryItem, libraryItems, items, book, books, podcast, podcasts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+
+        var decodedItems: [ABSLibraryItem] = []
+        if let item = try? container.decodeIfPresent(ABSLibraryItem.self, forKey: .libraryItem) {
+            decodedItems.append(item)
+        }
+        decodedItems +=
+            (try? container.decodeIfPresent([ABSLibraryItem].self, forKey: .libraryItems)) ?? []
+        decodedItems += Self.searchItems(in: container, forKey: .items)
+        decodedItems += Self.searchItems(in: container, forKey: .book)
+        decodedItems += Self.searchItems(in: container, forKey: .books)
+        decodedItems += Self.searchItems(in: container, forKey: .podcast)
+        decodedItems += Self.searchItems(in: container, forKey: .podcasts)
+        libraryItems = decodedItems
+    }
+
+    private static func searchItems(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> [ABSLibraryItem] {
+        if let results = try? container.decodeIfPresent([ABSSearchBookResult].self, forKey: key) {
+            return results.map(\.libraryItem)
+        }
+        return (try? container.decodeIfPresent([ABSLibraryItem].self, forKey: key)) ?? []
+    }
 }
 
 // MARK: - Media Progress (Milestone D)

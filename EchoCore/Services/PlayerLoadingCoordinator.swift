@@ -249,10 +249,22 @@ final class PlayerLoadingCoordinator {
             let hasDocument =
                 didImport || (self.timelinePersistence?.hasEPUB(for: audiobookID) ?? false)
             if hasDocument {
-                state.currentTitle = folderURL.deletingPathExtension().lastPathComponent
+                state.currentTitle = Self.audiolessDocumentDisplayTitle(
+                    folderURL: folderURL, audiobookID: audiobookID, db: db)
             }
             state.documentIngestionTrigger += 1
         }
+    }
+
+    static func audiolessDocumentDisplayTitle(
+        folderURL: URL,
+        audiobookID: String,
+        db: DatabaseService
+    ) -> String {
+        let persistedTitle = (try? AudiobookDAO(db: db.writer).get(audiobookID)?.title)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let persistedTitle, !persistedTitle.isEmpty { return persistedTitle }
+        return folderURL.deletingPathExtension().lastPathComponent
     }
 
     private func epubArtworkURL(pickedURL: URL, isDirectory: Bool, folderURL: URL) -> URL? {
