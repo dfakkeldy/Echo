@@ -115,6 +115,8 @@ struct LibraryService {
     func rescan(
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
+        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
+        stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
     ) throws -> RescanResult {
         // A stale/unresolvable bookmark (the missing-root scenario) must NOT fall
@@ -123,6 +125,12 @@ struct LibraryService {
         guard let rootURL = LibraryAccess.resolveURL(from: root.bookmark)?.url else {
             logger.warning("Root \(root.id) bookmark unresolved; skipping rescan.")
             return RescanResult(added: 0, updated: 0, hidden: 0)
+        }
+        let didStartScope = startScope(rootURL)
+        defer {
+            if didStartScope {
+                stopScope(rootURL)
+            }
         }
 
         let dao = AudiobookDAO(db: db.writer)
@@ -189,11 +197,19 @@ struct LibraryService {
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
         readMetadata: (DiscoveredBook) async -> LibraryScanner.ScannedMetadata,
         coversDir: URL,
+        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
+        stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
     ) async throws -> RescanResult {
         guard let rootURL = LibraryAccess.resolveURL(from: root.bookmark)?.url else {
             logger.warning("Root \(root.id) bookmark unresolved; skipping metadata rescan.")
             return RescanResult(added: 0, updated: 0, hidden: 0)
+        }
+        let didStartScope = startScope(rootURL)
+        defer {
+            if didStartScope {
+                stopScope(rootURL)
+            }
         }
         try FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
 
@@ -339,7 +355,13 @@ struct LibraryService {
             return [LibrarySection(title: "Recently Added", books: all)]
         case .author:
             return grouped(
-                all, key: { $0.authorSort ?? "unknown" },
+                all,
+                key: {
+                    if let authorSort = $0.authorSort, !authorSort.isEmpty {
+                        return authorSort
+                    }
+                    return LibraryAccess.authorSort($0.author) ?? "unknown"
+                },
                 title: { $0.author ?? "Unknown Author" })
         case .topic:
             return groupedByTopic(all)

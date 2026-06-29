@@ -121,6 +121,7 @@ struct ChapterTitleMatcherTests {
         "Understanding Emotion in Relationships",
         "Foreword", "Epilogue", "Acknowledgments",
         "Opening Credits", "Mix",  // bare roman-letter words are real titles
+        "Chapter Civil", "Part Mild",
         "1984: A Retrospective",   // number plus real words
     ])
     func keepsRealTitles(title: String) {

@@ -25,15 +25,19 @@ nonisolated enum AnchorSelector {
 
         for candidate in candidates where candidate.exactRunLength >= minRunLength {
             // A candidate earlier in time than its predecessors is a
-            // conflict: evict strictly weaker predecessors, otherwise drop
-            // the newcomer.
-            while let last = kept.last,
-                  candidate.time + epsilon < last.time,
-                  candidate.exactRunLength > last.exactRunLength {
-                kept.removeLast()
-            }
-            if let last = kept.last, candidate.time + epsilon < last.time {
-                continue
+            // conflict: evict strictly weaker conflicting predecessors only
+            // when the newcomer beats all of them; otherwise keep the valid
+            // monotonic prefix intact and drop the newcomer.
+            if let firstConflict = kept.firstIndex(where: {
+                candidate.time + epsilon < $0.time
+            }) {
+                let conflicts = kept[firstConflict...]
+                guard conflicts.allSatisfy({
+                    candidate.exactRunLength > $0.exactRunLength
+                }) else {
+                    continue
+                }
+                kept.removeSubrange(firstConflict...)
             }
             kept.append(candidate)
         }

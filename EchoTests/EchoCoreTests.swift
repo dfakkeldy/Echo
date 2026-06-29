@@ -75,6 +75,14 @@ struct EchoCoreTests {
         #expect(!markdown.contains("orbitaudio"))
     }
 
+    @Test func bookmarkMarkdownKeepsHourComponent() {
+        let markdown = Bookmark.markdownExport(for: [
+            Bookmark(title: "Long", timestamp: 3_661, note: "Past the hour")
+        ])
+
+        #expect(markdown.contains("## 1:01:01"))
+    }
+
     @Test func bookmarkSidecarURLUsesFolderNameForDirectoryBooks() throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -107,6 +115,25 @@ struct EchoCoreTests {
         let bookmark = try JSONDecoder().decode(Bookmark.self, from: Data(json.utf8))
 
         #expect(bookmark.bookmarkImageFileName == nil)
+    }
+
+    @Test func bookmarkDecodingPreservesLocationFields() throws {
+        let json = """
+            {
+              "id": "\(UUID().uuidString)",
+              "title": "Located",
+              "timestamp": 12.5,
+              "latitude": 44.65,
+              "longitude": -63.57,
+              "placeName": "Halifax"
+            }
+            """
+
+        let bookmark = try JSONDecoder().decode(Bookmark.self, from: Data(json.utf8))
+
+        #expect(bookmark.latitude == 44.65)
+        #expect(bookmark.longitude == -63.57)
+        #expect(bookmark.placeName == "Halifax")
     }
 
     @Test func bookmarkImageURLPrefersAudiobookDirectory() throws {

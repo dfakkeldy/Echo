@@ -103,6 +103,7 @@ struct EPubBlockDAO {
         return try db.read { db in
             try EPubBlockRecord
                 .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("is_hidden") == false)
                 .filter(Column("text").like("%\(escaped)%", escape: "\\"))
                 .order(Column("sequence_index"))
                 .fetchAll(db)

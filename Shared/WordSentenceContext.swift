@@ -12,12 +12,22 @@ enum WordSentenceContext {
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         let terminators = CharacterSet(charactersIn: ".!?")
+        func isSentenceBoundary(at index: Int) -> Bool {
+            guard index >= 0, index < ns.length else { return false }
+            let c = ns.character(at: index)
+            guard let scalar = Unicode.Scalar(c), terminators.contains(scalar) else {
+                return false
+            }
+            let nextIndex = index + 1
+            guard nextIndex < ns.length else { return true }
+            let next = ns.character(at: nextIndex)
+            return Unicode.Scalar(next)?.properties.isWhitespace == true
+        }
         // Start: just after the previous terminator before the word.
         var start = 0
         var i = wordRange.location - 1
         while i >= 0 {
-            let c = ns.character(at: i)
-            if let scalar = Unicode.Scalar(c), terminators.contains(scalar) {
+            if isSentenceBoundary(at: i) {
                 start = i + 1
                 break
             }
@@ -25,10 +35,9 @@ enum WordSentenceContext {
         }
         // End: the first terminator at or after the word's end (inclusive).
         var end = ns.length
-        var j = NSMaxRange(wordRange)
+        var j = min(max(wordRange.location, 0), ns.length)
         while j < ns.length {
-            let c = ns.character(at: j)
-            if let scalar = Unicode.Scalar(c), terminators.contains(scalar) {
+            if isSentenceBoundary(at: j) {
                 end = j + 1
                 break
             }

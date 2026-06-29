@@ -305,4 +305,69 @@ struct ApkgExportServiceTests {
         #expect(!source.contains("hashValue % 1000"))
         #expect(!source.contains("timeIntervalSince1970 * 1000) +"))
     }
+
+    @Test func reviewCardsExportDueFromNextReviewDate() throws {
+        let writer = try makeTestDB()
+        let deckID = UUID().uuidString
+        let audiobookID = "apkg-due-\(deckID.prefix(8))"
+        let nextReviewDate = Date().addingTimeInterval(3 * 86_400).ISO8601Format()
+        try writer.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO audiobook (id, title, author, duration, added_at)
+                    VALUES (?, 'Due Book', 'Author', 3600, ?)
+                    """, arguments: [audiobookID, Date().ISO8601Format()])
+            try db.execute(
+                sql: """
+                    INSERT INTO deck (id, name, source, created_at, modified_at)
+                    VALUES (?, 'Due Deck', 'manual', ?, ?)
+                    """, arguments: [deckID, Date().ISO8601Format(), Date().ISO8601Format()])
+            try db.execute(
+                sql: """
+                    INSERT INTO flashcard (id, audiobook_id, front_text, back_text,
+                        media_timestamp, trigger_timing, next_review_date,
+                        interval_days, ease_factor, repetitions, is_enabled, deck_id,
+                        created_at, modified_at, card_type)
+                    VALUES (?, ?, 'Review', 'Back', 0, 'manualOnly', ?, 30, 2.5, 4, 1, ?, ?, ?, 'normal')
+                    """,
+                arguments: [
+                    UUID().uuidString, audiobookID, nextReviewDate, deckID,
+                    Date().ISO8601Format(), Date().ISO8601Format(),
+                ])
+        }
+
+        let apkgURL = try ApkgExportService().export(deckID: deckID, db: writer)
+        defer { try? FileManager.default.removeItem(at: apkgURL) }
+        let extracted = try extractApkg(apkgURL)
+        defer { try? FileManager.default.removeItem(at: extracted) }
+        var config = Configuration()
+        config.readonly = true
+        let queue = try DatabaseQueue(
+            path: extracted.appendingPathComponent("collection.anki21").path,
+            configuration: config
+        )
+
+        let due = try queue.read { db in
+            try Int.fetchOne(db, sql: "SELECT due FROM cards LIMIT 1")
+        }
+
+        #expect(due == 3)
+    }
+
+    private func extractApkg(_ apkgURL: URL) throws -> URL {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("apkg_export_extract_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        let archive = try Archive(url: apkgURL, accessMode: .read)
+        for entry in archive where entry.type == .file {
+            let entryURL = destination.appendingPathComponent(entry.path)
+            try FileManager.default.createDirectory(
+                at: entryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            _ = try archive.extract(entry, to: entryURL)
+        }
+        return destination
+    }
 }

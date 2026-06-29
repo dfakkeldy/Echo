@@ -774,22 +774,35 @@ nonisolated struct ApkgImportService {
             let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
 
-        // Anki stores the default deck with id 1.
-        if let defaultDeck = dict["1"] as? [String: Any],
-            let name = defaultDeck["name"] as? String
-        {
-            return name
-        }
-
-        // Fall back to the first deck in the dictionary.
-        for (_, value) in dict {
-            if let deck = value as? [String: Any],
-                let name = deck["name"] as? String
-            {
-                return name
+        let decks: [(id: String, name: String)] = dict.compactMap { id, value in
+            guard
+                let deck = value as? [String: Any],
+                let name = deck["name"] as? String,
+                !name.isEmpty
+            else {
+                return nil
             }
+            return (id, name)
         }
 
-        return nil
+        let sortedDecks = decks.sorted { lhs, rhs in
+            deckID(lhs.id, sortsBefore: rhs.id)
+        }
+        return sortedDecks.first { $0.id != "1" }?.name
+            ?? sortedDecks.first { $0.id == "1" }?.name
+            ?? sortedDecks.first?.name
+    }
+
+    private func deckID(_ lhs: String, sortsBefore rhs: String) -> Bool {
+        switch (Int64(lhs), Int64(rhs)) {
+        case (.some(let lhsNumber), .some(let rhsNumber)):
+            return lhsNumber < rhsNumber
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            return lhs < rhs
+        }
     }
 }

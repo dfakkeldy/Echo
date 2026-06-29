@@ -128,7 +128,7 @@ struct ChapterTitleMatcher {
     }
 
     private static let keywordNumberPattern =
-        #"^(chapter|chap|ch|part|pt|track|section|sec|disc|book)[\s.:#\-–—]*([0-9]+|[ivxlcdm]+)[\s.:#\-–—]*$"#
+        #"^(chapter|chap|ch|part|pt|track|section|sec|disc|book)[\s.:#\-–—]*([0-9]+|(?=[ivxlcdm])m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3}))[\s.:#\-–—]*$"#
 
     // MARK: - Similarity
 

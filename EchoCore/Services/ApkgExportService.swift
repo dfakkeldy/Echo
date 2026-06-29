@@ -238,6 +238,7 @@ struct ApkgExportService {
                 // Allocate note/card IDs from one base timestamp, strided by 2
                 // so INTEGER PRIMARY KEYs never collide.
                 let idAllocator = ApkgIDAllocator()
+                let exportDate = Date(timeIntervalSince1970: Double(now))
                 for (index, card) in cards.enumerated() {
                     let ids = idAllocator.ids(forCardAt: index)
                     let noteID = ids.noteID
@@ -267,7 +268,8 @@ struct ApkgExportService {
                             """,
                         arguments: [
                             cardID, noteID, ankiDeckID, 0, now, 0,
-                            cardType(card), queueType(card), dueValue(card),
+                            cardType(card), queueType(card),
+                            dueValue(card, newCardOrdinal: index, exportDate: exportDate),
                             card.intervalDays, factor, card.repetitions, 0, 0, 0, 0, 0, "",
                         ])
                 }
@@ -339,12 +341,26 @@ struct ApkgExportService {
         card.intervalDays > 0 ? 2 : 0
     }
 
-    private func dueValue(_ card: Flashcard) -> Int {
-        card.intervalDays > 0 ? card.intervalDays : daysSinceEpoch()
+    private func dueValue(
+        _ card: Flashcard,
+        newCardOrdinal: Int,
+        exportDate: Date
+    ) -> Int {
+        guard card.intervalDays > 0 else {
+            return newCardOrdinal
+        }
+        guard
+            let nextReviewDate = card.nextReviewDate,
+            let parsedReviewDate = parseISO8601Date(nextReviewDate)
+        else {
+            return card.intervalDays
+        }
+        let secondsUntilReview = parsedReviewDate.timeIntervalSince(exportDate)
+        return max(0, Int(secondsUntilReview / 86_400))
     }
 
-    private func daysSinceEpoch() -> Int {
-        Int(Date().timeIntervalSince1970 / 86400)
+    private func parseISO8601Date(_ value: String) -> Date? {
+        try? Date(value, strategy: .iso8601)
     }
 
     private func sanitize(_ name: String) -> String {
