@@ -71,8 +71,9 @@ final class PlaybackController {
     static func forwardSkipTarget(
         current: TimeInterval, amount: TimeInterval, duration: TimeInterval?
     ) -> TimeInterval {
-        if let duration, duration > 0 { return min(duration, current + amount) }
-        return current + amount
+        let target = current + amount
+        guard let duration, duration.isFinite, duration > 0 else { return target }
+        return min(duration, target)
     }
 
     func findNextEnabledTrackIndex(in tracks: [Track], currentIndex: Int) -> Int? {
@@ -80,7 +81,9 @@ final class PlaybackController {
         // shrinkable). Guard the lower bound or `(currentIndex+1)..<count` traps
         // when currentIndex >= count — matching the crash-safe `stride`-based
         // `findPrevEnabledTrackIndex`.
-        guard currentIndex + 1 < tracks.count else { return nil }
+        guard !tracks.isEmpty, currentIndex >= -1, currentIndex < tracks.count - 1 else {
+            return nil
+        }
         for i in (currentIndex + 1)..<tracks.count {
             if tracks[i].isEnabled { return i }
         }

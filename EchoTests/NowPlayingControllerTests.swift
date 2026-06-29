@@ -30,24 +30,31 @@ import UIKit
         #expect(image.size == .zero)
     }
 
-    @Test func clearsStaleChapterNumberOnNonChapteredBook() {
+    @Test func chapterNumberClearsWhenNextUpdateHasNoChapter() throws {
         let controller = NowPlayingController()
+        defer { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
 
-        var chaptered = NowPlayingController.NowPlayingParams()
-        chaptered.title = "Chaptered"
-        chaptered.chapterIndex = 2
-        controller.updateNowPlayingInfo(chaptered)
-        #expect(
-            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyChapterNumber]
-                as? Int == 3)
+        var chapteredParams = NowPlayingController.NowPlayingParams()
+        chapteredParams.title = "Chaptered Book"
+        chapteredParams.subtitle = "Chapter Three"
+        chapteredParams.duration = 100
+        chapteredParams.elapsed = 30
+        chapteredParams.chapterIndex = 2
+        chapteredParams.chapterElapsed = 5
+        chapteredParams.chapterDuration = 20
+        controller.updateNowPlayingInfo(chapteredParams)
 
-        var plain = NowPlayingController.NowPlayingParams()
-        plain.title = "Plain"
-        plain.chapterIndex = nil
-        controller.updateNowPlayingInfo(plain)
-        #expect(
-            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyChapterNumber]
-                == nil)
+        let chapteredInfo = try #require(MPNowPlayingInfoCenter.default().nowPlayingInfo)
+        #expect(chapteredInfo[MPNowPlayingInfoPropertyChapterNumber] as? Int == 3)
+
+        var plainParams = NowPlayingController.NowPlayingParams()
+        plainParams.title = "Plain Book"
+        plainParams.duration = 50
+        plainParams.elapsed = 1
+        controller.updateNowPlayingInfo(plainParams)
+
+        let plainInfo = try #require(MPNowPlayingInfoCenter.default().nowPlayingInfo)
+        #expect(plainInfo[MPNowPlayingInfoPropertyChapterNumber] == nil)
     }
 }
 
