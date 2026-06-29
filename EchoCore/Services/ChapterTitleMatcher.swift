@@ -58,7 +58,8 @@ struct ChapterTitleMatcher {
 
         for chapter in chapters {
             guard let title = chapter.title?.trimmingCharacters(in: .whitespaces),
-                  !title.isEmpty else {
+                !title.isEmpty
+            else {
                 continue
             }
 
@@ -80,11 +81,12 @@ struct ChapterTitleMatcher {
             }
 
             if let best, best.confidence >= Threshold.mediumConfidence {
-                matches.append(Match(
-                    chapter: chapter,
-                    block: best.block,
-                    confidence: best.confidence
-                ))
+                matches.append(
+                    Match(
+                        chapter: chapter,
+                        block: best.block,
+                        confidence: best.confidence
+                    ))
             }
         }
 
@@ -93,7 +95,8 @@ struct ChapterTitleMatcher {
         var bestByBlockID: [String: Match] = [:]
         for match in matches {
             if let existing = bestByBlockID[match.block.id],
-               existing.confidence >= match.confidence {
+                existing.confidence >= match.confidence
+            {
                 continue
             }
             bestByBlockID[match.block.id] = match
@@ -118,17 +121,25 @@ struct ChapterTitleMatcher {
         guard !normalized.isEmpty else { return false }
 
         // Structural keyword followed by an arabic or roman number.
-        if normalized.range(of: Self.keywordNumberPattern,
-                            options: .regularExpression) != nil {
+        if normalized.range(
+            of: Self.keywordNumberPattern,
+            options: .regularExpression) != nil
+        {
             return true
         }
         // A bare number, optionally decorated with separators ("12", "07.").
-        return normalized.range(of: #"^[\s.:#\-–—]*[0-9]+[\s.:#\-–—]*$"#,
-                                options: .regularExpression) != nil
+        return normalized.range(
+            of: #"^[\s.:#\-–—]*[0-9]+[\s.:#\-–—]*$"#,
+            options: .regularExpression) != nil
     }
 
+    // The roman alternative is a STRICT numeral grammar (1–3999), not just a
+    // run of roman-numeral letters, so ordinary words made of those letters
+    // ("Civil", "Mild") are not mistaken for "Chapter IX"-style track labels.
+    // (Words that are themselves valid numerals, e.g. "Mix" == MIX == 1009,
+    // remain inherently ambiguous.)
     private static let keywordNumberPattern =
-        #"^(chapter|chap|ch|part|pt|track|section|sec|disc|book)[\s.:#\-–—]*([0-9]+|[ivxlcdm]+)[\s.:#\-–—]*$"#
+        #"^(chapter|chap|ch|part|pt|track|section|sec|disc|book)[\s.:#\-–—]*([0-9]+|(?=[mdclxvi])m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3}))[\s.:#\-–—]*$"#
 
     // MARK: - Similarity
 
@@ -152,7 +163,8 @@ struct ChapterTitleMatcher {
         let numbersA = numberTokens(in: normalizedA)
         let numbersB = numberTokens(in: normalizedB)
         if !numbersA.isEmpty, !numbersB.isEmpty,
-           !numbersA.isSubset(of: numbersB), !numbersB.isSubset(of: numbersA) {
+            !numbersA.isSubset(of: numbersB), !numbersB.isSubset(of: numbersA)
+        {
             return 0.0
         }
 

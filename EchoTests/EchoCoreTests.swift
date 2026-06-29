@@ -75,6 +75,18 @@ struct EchoCoreTests {
         #expect(!markdown.contains("orbitaudio"))
     }
 
+    @Test func bookmarkMarkdownIncludesHoursForLongTimestamps() {
+        // 3930s == 1:05:30. The header must keep the hour; two bookmarks an
+        // hour apart (330s == 0:05:30) must not collapse onto the same header.
+        let markdown = Bookmark.markdownExport(for: [
+            Bookmark(title: "Deep", timestamp: 3930),
+            Bookmark(title: "Early", timestamp: 330),
+        ])
+
+        #expect(markdown.contains("## 1:05:30"))
+        #expect(markdown.contains("## 05:30"))
+    }
+
     @Test func bookmarkSidecarURLUsesFolderNameForDirectoryBooks() throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -107,6 +119,18 @@ struct EchoCoreTests {
         let bookmark = try JSONDecoder().decode(Bookmark.self, from: Data(json.utf8))
 
         #expect(bookmark.bookmarkImageFileName == nil)
+    }
+
+    @Test func bookmarkCodableRoundTripPreservesLocation() throws {
+        let original = Bookmark(
+            timestamp: 10, latitude: 51.5, longitude: -0.1, placeName: "London")
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Bookmark.self, from: data)
+
+        #expect(decoded.latitude == 51.5)
+        #expect(decoded.longitude == -0.1)
+        #expect(decoded.placeName == "London")
     }
 
     @Test func bookmarkImageURLPrefersAudiobookDirectory() throws {
@@ -318,7 +342,9 @@ struct EchoCoreTests {
 
         let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
-        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            settings.studyGlobalNewChapterLimit
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
 
         settings.studyGlobalNewChapterLimit = 4
         #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 4)
@@ -328,8 +354,12 @@ struct EchoCoreTests {
         #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 1)
 
         settings.studyGlobalNewChapterLimit = 99
-        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
-        #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            settings.studyGlobalNewChapterLimit
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            defaults.integer(forKey: "studyGlobalNewChapterLimit")
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
     }
 
     @Test func settingsPersistsAndReloadsReaderDefaults() {
@@ -367,10 +397,12 @@ struct EchoCoreTests {
     }
 
     @Test func settingsReaderDefaultsUseObservedStoredProperties() throws {
-        let source = try Self.source(pathComponents: "EchoCore", "Services", "SettingsManager.swift")
+        let source = try Self.source(
+            pathComponents: "EchoCore", "Services", "SettingsManager.swift")
 
         #expect(source.contains("var readerFontSize: Double {"))
-        #expect(source.contains("didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }"))
+        #expect(
+            source.contains("didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }"))
         #expect(!source.contains("get { defaults.double(forKey: Keys.readerFontSize)"))
         #expect(!source.contains("get { defaults.string(forKey: Keys.readerCardTint)"))
     }
@@ -453,6 +485,34 @@ struct EchoCoreTests {
         try dao.delete(id: id)
         let results = try dao.bookmarks(for: "book-1")
         #expect(results.isEmpty)
+    }
+
+    @Test func searchBlocksExcludesHiddenBlocks() throws {
+        // In-book search must not surface blocks the reading feed hides: the
+        // feed loads via `visibleBlocks` (which excludes `is_hidden`), so a
+        // hidden hit would be a tappable result with no place in the feed.
+        let db = try DatabaseService(inMemory: ())
+        try db.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+        }
+        let dao = EPubBlockDAO(db: db.writer)
+        try dao.insertAll([
+            EPubBlockRecord(
+                id: "visible", audiobookID: "book-1", spineHref: "ch1.xhtml",
+                spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+                blockKind: "paragraph", text: "the phoenix rises",
+                chapterIndex: 0, isHidden: false),
+            EPubBlockRecord(
+                id: "hidden", audiobookID: "book-1", spineHref: "ch1.xhtml",
+                spineIndex: 0, blockIndex: 1, sequenceIndex: 1,
+                blockKind: "paragraph", text: "phoenix ashes",
+                chapterIndex: 0, isHidden: true),
+        ])
+
+        let results = try dao.searchBlocks(for: "book-1", query: "phoenix")
+
+        #expect(results.map(\.id) == ["visible"])
     }
 
     @Test func databaseTimelineViewUnionsAllTypes() throws {

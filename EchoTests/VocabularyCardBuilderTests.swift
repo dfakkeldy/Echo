@@ -46,4 +46,20 @@ import Testing
         let wordRange = (text as NSString).range(of: "terminal")
         #expect(WordSentenceContext.sentence(containing: wordRange, in: text) == text)
     }
+
+    @Test func decimalPointInsideTokenIsNotASentenceBoundary() {
+        let text = "The value is 3.14 today. Next sentence."
+        let wordRange = (text as NSString).range(of: "value")
+        #expect(
+            WordSentenceContext.sentence(containing: wordRange, in: text)
+                == "The value is 3.14 today.")
+    }
+
+    @Test func wordFinalTerminatorEndsTheSentence() {
+        let text = "Alpha beta gamma! Next part."
+        let wordRange = (text as NSString).range(of: "gamma!")
+        #expect(
+            WordSentenceContext.sentence(containing: wordRange, in: text)
+                == "Alpha beta gamma!")
+    }
 }

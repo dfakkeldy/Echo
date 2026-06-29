@@ -132,7 +132,8 @@ struct MacApkgExportService {
         // 4. Write the media mapping file
         let mediaURL = tmpDir.appendingPathComponent("media")
         if let data = try? JSONSerialization.data(withJSONObject: mediaMap),
-           let json = String(data: data, encoding: .utf8) {
+            let json = String(data: data, encoding: .utf8)
+        {
             try json.write(to: mediaURL, atomically: true, encoding: .utf8)
         }
 
@@ -156,7 +157,8 @@ struct MacApkgExportService {
     /// appear at the archive root (as required by the .apkg format),
     /// without requiring the ZIPFoundation package on the macOS target.
     private func createZipArchive(from sourceDir: URL, to destURL: URL) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
             process.arguments = ["-r", "-X", destURL.path, "."]
@@ -165,9 +167,13 @@ struct MacApkgExportService {
                 if p.terminationStatus == 0 {
                     continuation.resume()
                 } else {
-                    let error = NSError(domain: "MacApkgExport",
-                                       code: Int(p.terminationStatus),
-                                       userInfo: [NSLocalizedDescriptionKey: "zip exited with status \(p.terminationStatus)"])
+                    let error = NSError(
+                        domain: "MacApkgExport",
+                        code: Int(p.terminationStatus),
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "zip exited with status \(p.terminationStatus)"
+                        ])
                     continuation.resume(throwing: error)
                 }
             }
@@ -188,57 +194,63 @@ struct MacApkgExportService {
             let queue = try DatabaseQueue(path: dbURL.path)
             try queue.write { db in
                 // Create schema
-                try db.execute(sql: """
-                    CREATE TABLE col (
-                        id INTEGER PRIMARY KEY,
-                        crt INTEGER NOT NULL, mod INTEGER NOT NULL, scm INTEGER NOT NULL,
-                        ver INTEGER NOT NULL, dty INTEGER NOT NULL, usn INTEGER NOT NULL,
-                        ls INTEGER NOT NULL, conf TEXT NOT NULL, models TEXT NOT NULL,
-                        decks TEXT NOT NULL, dconf TEXT NOT NULL, tags TEXT NOT NULL
-                    )
-                """)
-                try db.execute(sql: """
-                    CREATE TABLE notes (
-                        id INTEGER PRIMARY KEY, guid TEXT NOT NULL, mid INTEGER NOT NULL,
-                        mod INTEGER NOT NULL, usn INTEGER NOT NULL, tags TEXT NOT NULL,
-                        flds TEXT NOT NULL, sfld TEXT NOT NULL, csum INTEGER NOT NULL,
-                        flags INTEGER NOT NULL, data TEXT NOT NULL
-                    )
-                """)
-                try db.execute(sql: """
-                    CREATE TABLE cards (
-                        id INTEGER PRIMARY KEY, nid INTEGER NOT NULL REFERENCES notes(id),
-                        did INTEGER NOT NULL, ord INTEGER NOT NULL, mod INTEGER NOT NULL,
-                        usn INTEGER NOT NULL, type INTEGER NOT NULL, queue INTEGER NOT NULL,
-                        due INTEGER NOT NULL, ivl INTEGER NOT NULL, factor INTEGER NOT NULL,
-                        reps INTEGER NOT NULL, lapses INTEGER NOT NULL, left INTEGER NOT NULL,
-                        odue INTEGER NOT NULL, odid INTEGER NOT NULL, flags INTEGER NOT NULL,
-                        data TEXT NOT NULL
-                    )
-                """)
-                try db.execute(sql: """
-                    CREATE TABLE revlog (
-                        id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, usn INTEGER NOT NULL,
-                        ease INTEGER NOT NULL, ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL,
-                        factor INTEGER NOT NULL, time INTEGER NOT NULL, type INTEGER NOT NULL
-                    )
-                """)
+                try db.execute(
+                    sql: """
+                            CREATE TABLE col (
+                                id INTEGER PRIMARY KEY,
+                                crt INTEGER NOT NULL, mod INTEGER NOT NULL, scm INTEGER NOT NULL,
+                                ver INTEGER NOT NULL, dty INTEGER NOT NULL, usn INTEGER NOT NULL,
+                                ls INTEGER NOT NULL, conf TEXT NOT NULL, models TEXT NOT NULL,
+                                decks TEXT NOT NULL, dconf TEXT NOT NULL, tags TEXT NOT NULL
+                            )
+                        """)
+                try db.execute(
+                    sql: """
+                            CREATE TABLE notes (
+                                id INTEGER PRIMARY KEY, guid TEXT NOT NULL, mid INTEGER NOT NULL,
+                                mod INTEGER NOT NULL, usn INTEGER NOT NULL, tags TEXT NOT NULL,
+                                flds TEXT NOT NULL, sfld TEXT NOT NULL, csum INTEGER NOT NULL,
+                                flags INTEGER NOT NULL, data TEXT NOT NULL
+                            )
+                        """)
+                try db.execute(
+                    sql: """
+                            CREATE TABLE cards (
+                                id INTEGER PRIMARY KEY, nid INTEGER NOT NULL REFERENCES notes(id),
+                                did INTEGER NOT NULL, ord INTEGER NOT NULL, mod INTEGER NOT NULL,
+                                usn INTEGER NOT NULL, type INTEGER NOT NULL, queue INTEGER NOT NULL,
+                                due INTEGER NOT NULL, ivl INTEGER NOT NULL, factor INTEGER NOT NULL,
+                                reps INTEGER NOT NULL, lapses INTEGER NOT NULL, left INTEGER NOT NULL,
+                                odue INTEGER NOT NULL, odid INTEGER NOT NULL, flags INTEGER NOT NULL,
+                                data TEXT NOT NULL
+                            )
+                        """)
+                try db.execute(
+                    sql: """
+                            CREATE TABLE revlog (
+                                id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, usn INTEGER NOT NULL,
+                                ease INTEGER NOT NULL, ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL,
+                                factor INTEGER NOT NULL, time INTEGER NOT NULL, type INTEGER NOT NULL
+                            )
+                        """)
 
                 // Prepare data
                 let now = Int(Date().timeIntervalSince1970)
-                let ankiDeckID = Int(deck.ankiDeckID ?? Int(Int64(deck.id.hashValue) & 0x7FFFFFFF))
-                let modelID: Int64 = 1547929172779
+                let ankiDeckID = Int(deck.ankiDeckID ?? Int(Int64(deck.id.hashValue) & 0x7FFF_FFFF))
+                let modelID: Int64 = 1_547_929_172_779
 
                 let decksJSON = makeDeckJSON(ankiDeckID: ankiDeckID, name: deck.name)
                 let modelsJSON = makeBasicModelJSON(modelID: modelID)
 
-                try db.execute(sql: """
-                    INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [
-                    1, now, now, now, 21, 0, 0, now,
-                    "{}", modelsJSON, decksJSON, "{}", ""
-                ])
+                try db.execute(
+                    sql: """
+                            INSERT INTO col (id, crt, mod, scm, ver, dty, usn, ls, conf, models, decks, dconf, tags)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        1, now, now, now, 21, 0, 0, now,
+                        "{}", modelsJSON, decksJSON, "{}", "",
+                    ])
 
                 // Allocate note/card IDs from one base timestamp, strided by 2
                 // so INTEGER PRIMARY KEYs never collide.
@@ -246,30 +258,36 @@ struct MacApkgExportService {
                 for (index, card) in cards.enumerated() {
                     let ids = idAllocator.ids(forCardAt: index)
                     let noteID = ids.noteID
-                    let guid = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(32))
+                    let guid = String(
+                        UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(32))
                     let tags = card.tags ?? ""
                     let flds = "\(card.frontText)\u{1f}\(card.backText)"
                     let sfld = card.frontText
                     let csum = Int(crc32Checksum(sfld))
 
-                    try db.execute(sql: """
-                        INSERT INTO notes (id, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [
-                        noteID, guid, modelID, now, 0,
-                        tags, flds, sfld, csum, 0, ""
-                    ])
+                    try db.execute(
+                        sql: """
+                                INSERT INTO notes (id, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                        arguments: [
+                            noteID, guid, modelID, now, 0,
+                            tags, flds, sfld, csum, 0, "",
+                        ])
 
                     let cardID = ids.cardID
                     let factor = Int(card.easeFactor * 1000)
-                    try db.execute(sql: """
-                        INSERT INTO cards (id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [
-                        cardID, noteID, ankiDeckID, 0, now, 0,
-                        cardType(card), queueType(card), dueValue(card),
-                        card.intervalDays, factor, card.repetitions, 0, 0, 0, 0, 0, ""
-                    ])
+                    try db.execute(
+                        sql: """
+                                INSERT INTO cards (id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                        arguments: [
+                            cardID, noteID, ankiDeckID, 0, now, 0,
+                            cardType(card), queueType(card),
+                            dueValue(card, crt: now, newCardOrdinal: index),
+                            card.intervalDays, factor, card.repetitions, 0, 0, 0, 0, 0, "",
+                        ])
                 }
             }
         } catch {
@@ -286,8 +304,8 @@ struct MacApkgExportService {
 
         for card in cards {
             guard let json = card.mediaJSON,
-                  let data = json.data(using: .utf8),
-                  let entries = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+                let data = json.data(using: .utf8),
+                let entries = try? JSONSerialization.jsonObject(with: data) as? [String: String]
             else { continue }
 
             for (fileName, sourcePath) in entries {
@@ -298,7 +316,8 @@ struct MacApkgExportService {
                 do {
                     try FileManager.default.copyItem(at: sourceURL, to: destURL)
                 } catch {
-                    logger.warning("Failed to copy media '\(fileName)': \(error.localizedDescription)")
+                    logger.warning(
+                        "Failed to copy media '\(fileName)': \(error.localizedDescription)")
                     continue
                 }
                 mapping[indexKey] = fileName
@@ -313,15 +332,15 @@ struct MacApkgExportService {
     private func makeDeckJSON(ankiDeckID: Int, name: String) -> String {
         let now = Int(Date().timeIntervalSince1970)
         return """
-        {"\(ankiDeckID)":{"id":\(ankiDeckID),"name":"\(escaped(name))","desc":"","collapsed":false,"conf":1,"dyn":0,"extendNew":0,"extendRev":0,"mid":null,"mod":\(now),"usn":0,"lrnToday":[0,0],"revToday":[0,0],"newToday":[0,0],"timeToday":[0,0],"browserCollapsed":false,"previewDelay":null}}
-        """
+            {"\(ankiDeckID)":{"id":\(ankiDeckID),"name":"\(escaped(name))","desc":"","collapsed":false,"conf":1,"dyn":0,"extendNew":0,"extendRev":0,"mid":null,"mod":\(now),"usn":0,"lrnToday":[0,0],"revToday":[0,0],"newToday":[0,0],"timeToday":[0,0],"browserCollapsed":false,"previewDelay":null}}
+            """
     }
 
     private func makeBasicModelJSON(modelID: Int64) -> String {
         let now = Int(Date().timeIntervalSince1970)
         return """
-        {"\(modelID)":{"id":\(modelID),"name":"Basic","type":0,"mod":\(now),"usn":0,"sortf":0,"did":1,"tags":[],"flds":[{"name":"Front","ord":0,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20},{"name":"Back","ord":1,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20}],"css":"","latexPre":"","latexPost":"","latexsvg":false,"req":[[0,"any",[0]]],"tmpls":[{"name":"Card 1","ord":0,"qfmt":"{{Front}}","afmt":"{{FrontSide}}\\n\\n<hr id=\\"answer\\">\\n\\n{{Back}}","did":null,"bfont":"","bsize":0}]}}
-        """
+            {"\(modelID)":{"id":\(modelID),"name":"Basic","type":0,"mod":\(now),"usn":0,"sortf":0,"did":1,"tags":[],"flds":[{"name":"Front","ord":0,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20},{"name":"Back","ord":1,"rtl":false,"sticky":false,"media":[],"font":"Arial","size":20}],"css":"","latexPre":"","latexPost":"","latexsvg":false,"req":[[0,"any",[0]]],"tmpls":[{"name":"Card 1","ord":0,"qfmt":"{{Front}}","afmt":"{{FrontSide}}\\n\\n<hr id=\\"answer\\">\\n\\n{{Back}}","did":null,"bfont":"","bsize":0}]}}
+            """
     }
 
     private func escaped(_ s: String) -> String {
@@ -338,13 +357,29 @@ struct MacApkgExportService {
         card.intervalDays > 0 ? 2 : 0
     }
 
-    private func dueValue(_ card: Flashcard) -> Int {
-        card.intervalDays > 0 ? card.intervalDays : daysSinceEpoch()
+    /// Anki `cards.due`: review cards (`queue==2`) use the absolute day number
+    /// (days since `col.crt`) on which the card is next due; new cards
+    /// (`queue==0`) use their position in the new queue. Mirrors the iOS
+    /// `ApkgExportService` fix.
+    private func dueValue(_ card: Flashcard, crt: Int, newCardOrdinal: Int) -> Int {
+        guard card.intervalDays > 0 else { return newCardOrdinal }
+        if let iso = card.nextReviewDate, let date = Self.parseISODate(iso) {
+            let days = (Int(date.timeIntervalSince1970) - crt) / 86400
+            return max(0, days)
+        }
+        return card.intervalDays
     }
 
-    private func daysSinceEpoch() -> Int {
-        Int(Date().timeIntervalSince1970 / 86400)
+    private static func parseISODate(_ string: String) -> Date? {
+        isoPlain.date(from: string) ?? isoFractional.date(from: string)
     }
+
+    private static let isoPlain = ISO8601DateFormatter()
+    private static let isoFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private func sanitize(_ name: String) -> String {
         SafeFileName.sanitizeForFilename(name)
@@ -364,7 +399,7 @@ struct MacApkgExportService {
             var crc = UInt32(i)
             for _ in 0..<8 {
                 if crc & 1 == 1 {
-                    crc = (crc >> 1) ^ 0xEDB88320
+                    crc = (crc >> 1) ^ 0xEDB8_8320
                 } else {
                     crc >>= 1
                 }

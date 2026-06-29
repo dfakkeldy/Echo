@@ -115,6 +115,7 @@ struct LibraryService {
     func rescan(
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
+        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
     ) throws -> RescanResult {
         // A stale/unresolvable bookmark (the missing-root scenario) must NOT fall
@@ -124,6 +125,12 @@ struct LibraryService {
             logger.warning("Root \(root.id) bookmark unresolved; skipping rescan.")
             return RescanResult(added: 0, updated: 0, hidden: 0)
         }
+        // User-picked folders live outside the sandbox; enumeration returns
+        // nothing unless the security scope is active. Without this a cold
+        // rescan (e.g. after relaunch) finds zero books and the hide pass below
+        // marks the entire shelf unavailable.
+        let scopeStarted = startScope(rootURL)
+        defer { if scopeStarted { rootURL.stopAccessingSecurityScopedResource() } }
 
         let dao = AudiobookDAO(db: db.writer)
         let found = discover(rootURL)
@@ -187,6 +194,7 @@ struct LibraryService {
     func rescan(
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
+        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         readMetadata: (DiscoveredBook) async -> LibraryScanner.ScannedMetadata,
         coversDir: URL,
         now: () -> String = { Date().ISO8601Format() }
@@ -195,6 +203,10 @@ struct LibraryService {
             logger.warning("Root \(root.id) bookmark unresolved; skipping metadata rescan.")
             return RescanResult(added: 0, updated: 0, hidden: 0)
         }
+        // Keep the security scope active across discovery AND metadata reads
+        // (cover/AVAsset file access) for sandbox-external user folders.
+        let scopeStarted = startScope(rootURL)
+        defer { if scopeStarted { rootURL.stopAccessingSecurityScopedResource() } }
         try FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
 
         let dao = AudiobookDAO(db: db.writer)
@@ -270,7 +282,8 @@ struct LibraryService {
     func removeRoot(rootID: String, forgetBooks: Bool) throws {
         try db.writer.write { db in
             if forgetBooks {
-                try db.execute(sql: "DELETE FROM audiobook WHERE source_root_id = ?", arguments: [rootID])
+                try db.execute(
+                    sql: "DELETE FROM audiobook WHERE source_root_id = ?", arguments: [rootID])
             } else {
                 try db.execute(
                     sql: """
@@ -338,8 +351,12 @@ struct LibraryService {
         case .recentlyAdded:
             return [LibrarySection(title: "Recently Added", books: all)]
         case .author:
+            // Derive the sort key from `author` at query time. The stored
+            // `author_sort` column is only written during the local-folder
+            // metadata rescan, so ABS/single-imported/pre-V27 books leave it
+            // NULL and would otherwise all collapse into one "unknown" section.
             return grouped(
-                all, key: { $0.authorSort ?? "unknown" },
+                all, key: { LibraryAccess.authorSort($0.author) ?? "unknown" },
                 title: { $0.author ?? "Unknown Author" })
         case .topic:
             return groupedByTopic(all)
@@ -574,10 +591,11 @@ struct LibraryService {
                 WHERE audiobook_id IN \(sqlIn(bookIDs)) \(extraPredicate)
                 """,
             arguments: StatementArguments(bookIDs))
-        return Set(rows.map { row in
-            let id: String = row["id"]
-            return id
-        })
+        return Set(
+            rows.map { row in
+                let id: String = row["id"]
+                return id
+            })
     }
 
     private func counts(_ db: Database, table: String, bookIDs: [String]) throws -> [String: Int] {
@@ -590,10 +608,11 @@ struct LibraryService {
                 GROUP BY audiobook_id
                 """,
             arguments: StatementArguments(bookIDs))
-        return Dictionary(uniqueKeysWithValues: rows.map { row in
-            let id: String = row["id"]
-            let count: Int = row["count"]
-            return (id, count)
-        })
+        return Dictionary(
+            uniqueKeysWithValues: rows.map { row in
+                let id: String = row["id"]
+                let count: Int = row["count"]
+                return (id, count)
+            })
     }
 }
