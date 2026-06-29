@@ -270,7 +270,8 @@ struct LibraryService {
     func removeRoot(rootID: String, forgetBooks: Bool) throws {
         try db.writer.write { db in
             if forgetBooks {
-                try db.execute(sql: "DELETE FROM audiobook WHERE source_root_id = ?", arguments: [rootID])
+                try db.execute(
+                    sql: "DELETE FROM audiobook WHERE source_root_id = ?", arguments: [rootID])
             } else {
                 try db.execute(
                     sql: """
@@ -338,8 +339,12 @@ struct LibraryService {
         case .recentlyAdded:
             return [LibrarySection(title: "Recently Added", books: all)]
         case .author:
+            // Derive the sort key from `author` at query time. The stored
+            // `author_sort` column is only written during the local-folder
+            // metadata rescan, so ABS/single-imported/pre-V27 books leave it
+            // NULL and would otherwise all collapse into one "unknown" section.
             return grouped(
-                all, key: { $0.authorSort ?? "unknown" },
+                all, key: { LibraryAccess.authorSort($0.author) ?? "unknown" },
                 title: { $0.author ?? "Unknown Author" })
         case .topic:
             return groupedByTopic(all)
@@ -574,10 +579,11 @@ struct LibraryService {
                 WHERE audiobook_id IN \(sqlIn(bookIDs)) \(extraPredicate)
                 """,
             arguments: StatementArguments(bookIDs))
-        return Set(rows.map { row in
-            let id: String = row["id"]
-            return id
-        })
+        return Set(
+            rows.map { row in
+                let id: String = row["id"]
+                return id
+            })
     }
 
     private func counts(_ db: Database, table: String, bookIDs: [String]) throws -> [String: Int] {
@@ -590,10 +596,11 @@ struct LibraryService {
                 GROUP BY audiobook_id
                 """,
             arguments: StatementArguments(bookIDs))
-        return Dictionary(uniqueKeysWithValues: rows.map { row in
-            let id: String = row["id"]
-            let count: Int = row["count"]
-            return (id, count)
-        })
+        return Dictionary(
+            uniqueKeysWithValues: rows.map { row in
+                let id: String = row["id"]
+                let count: Int = row["count"]
+                return (id, count)
+            })
     }
 }
