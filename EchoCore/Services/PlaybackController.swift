@@ -66,10 +66,19 @@ final class PlaybackController {
 
     func findNextEnabledTrackIndex(in tracks: [Track], currentIndex: Int) -> Int? {
         guard !tracks.isEmpty else { return nil }
+        guard currentIndex < tracks.count - 1 else { return nil }
         for i in (currentIndex + 1)..<tracks.count {
             if tracks[i].isEnabled { return i }
         }
         return nil
+    }
+
+    static func forwardSkipTarget(
+        current: TimeInterval, amount: TimeInterval, duration: TimeInterval?
+    ) -> TimeInterval {
+        let target = current + amount
+        guard let duration, duration.isFinite, duration > 0 else { return target }
+        return min(duration, target)
     }
 
     /// Next-chapter target index for an aggregated (multi-M4B) book, or nil when
@@ -375,11 +384,6 @@ final class PlaybackController {
             // waiting for an auto-advance that never fires.
             pause()
             state.awaitingNarrationChapter = true
-        } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(
-                coordinator_loadTrack != nil,
-                "coordinator_loadTrack must be wired — track navigation required")
-            coordinator_loadTrack?(firstEnabled, true)
         }
     }
 
@@ -435,11 +439,6 @@ final class PlaybackController {
                 coordinator_loadTrack != nil,
                 "coordinator_loadTrack must be wired — chapter navigation fallback")
             coordinator_loadTrack?(newIndex, true)
-        } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(
-                coordinator_loadTrack != nil,
-                "coordinator_loadTrack must be wired — chapter navigation fallback")
-            coordinator_loadTrack?(firstEnabled, true)
         }
     }
 
@@ -762,8 +761,8 @@ final class PlaybackController {
         }
 
         let durationAmount = coordinator_seekForwardDuration?() ?? 30.0
-        let duration = state.durationSeconds ?? 0
-        let target = min(duration, current + durationAmount)
+        let target = Self.forwardSkipTarget(
+            current: current, amount: durationAmount, duration: state.durationSeconds)
         state.isManualSeeking = true
         audioEngine.seek(to: target) { [weak self] _ in
             self?.state.isManualSeeking = false

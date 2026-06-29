@@ -160,6 +160,8 @@ final class NowPlayingController {
 
         if let chapterIdx = params.chapterIndex {
             info[MPNowPlayingInfoPropertyChapterNumber] = chapterIdx + 1
+        } else {
+            info.removeValue(forKey: MPNowPlayingInfoPropertyChapterNumber)
         }
         if params.duration.isFinite, params.duration > 0 {
             info[MPNowPlayingInfoPropertyPlaybackProgress] =
