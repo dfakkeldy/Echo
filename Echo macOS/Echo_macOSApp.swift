@@ -6,22 +6,22 @@
 //  Native macOS entry point for the Echo AudioBooks Mac app.
 //
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
-import AppKit
 
 @main
 struct Echo_macOSApp: App {
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
-    @State private var player = MacPlayerModel()
+    @State private var player: MacPlayerModel
     /// Shared user-preferences store. macOS had no SettingsManager instance
     /// before the Settings scene existed; this is the single source of truth
     /// injected into the main window, the Settings scene, and the batch service
     /// (which reads the narration-voice preference). Created in `init` so the
     /// same instance can be handed to `MacBatchProcessingService`.
     @State private var settings: SettingsManager
-    @State private var transcriptionManager = TranscriptionManager()
-    @State private var transcriptStore = TranscriptStore()
+    @State private var transcriptionManager: TranscriptionManager
+    @State private var transcriptStore: TranscriptStore
     /// Shared database — falls back to in-memory if the App Group DB is unavailable.
     @State private var dbService: DatabaseService
     @State private var lastOpenToken: UUID = UUID()
@@ -59,14 +59,13 @@ struct Echo_macOSApp: App {
         ) { _ in
             Task { @MainActor in
                 NSApp.setActivationPolicy(.regular)
-                MacAppDelegate.orderMainWindowFront()
-                NSApp.activate(ignoringOtherApps: true)
+                MacAppDelegate.scheduleWindowActivationPasses()
             }
         }
     }
 
     var body: some Scene {
-        WindowGroup("Echo AudioBooks") {
+        Window("Echo AudioBooks", id: "main") {
             MacTriPaneView()
                 .environment(player)
                 .environment(transcriptionManager)
@@ -78,8 +77,12 @@ struct Echo_macOSApp: App {
                 .tint(Self.tintColor(for: settings.themeColor))
                 .customFont(.body, appFont: settings.appFont)
                 .frame(minWidth: 900, minHeight: 560)
-                // Reset any items interrupted by a previous quit, then resume.
-                .task { batchService.resumeOnLaunch() }
+                .background(MacMainWindowActivator())
+                // Restore after the window exists so startup cannot block launch/quit handling.
+                .task {
+                    player.restoreLastFileAfterLaunch()
+                    batchService.resumeOnLaunch()
+                }
                 .onChange(of: player.openFileRequestToken) { _, newValue in
                     if newValue != lastOpenToken {
                         lastOpenToken = newValue
@@ -109,6 +112,7 @@ struct Echo_macOSApp: App {
                     }
                 }
         }
+        .defaultLaunchBehavior(.presented)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open Audiobook…") {
@@ -408,12 +412,36 @@ struct Echo_macOSApp: App {
     }
 }
 
+private struct MacMainWindowActivator: NSViewRepresentable {
+    func makeNSView(context: Context) -> MainWindowHostingView {
+        MainWindowHostingView()
+    }
+
+    func updateNSView(_ nsView: MainWindowHostingView, context: Context) {
+        nsView.activateAttachedWindow()
+    }
+
+    final class MainWindowHostingView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            activateAttachedWindow()
+        }
+
+        @MainActor
+        func activateAttachedWindow() {
+            Task { @MainActor in
+                await Task.yield()
+                MacAppDelegate.orderMainWindowFront(preferred: window)
+            }
+        }
+    }
+}
+
 private final class MacAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        Self.orderMainWindowFront()
-        NSApp.activate(ignoringOtherApps: true)
+        Self.scheduleWindowActivationPasses()
     }
 
     @MainActor
@@ -432,20 +460,45 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    fileprivate static func orderMainWindowFront() {
+    fileprivate static func scheduleWindowActivationPasses() {
+        orderMainWindowFront()
+        let delays: [Duration] = [.milliseconds(250), .seconds(1), .seconds(2)]
+        for delay in delays {
+            Task { @MainActor in
+                try? await Task.sleep(for: delay)
+                orderMainWindowFront()
+            }
+        }
+    }
+
+    @MainActor
+    fileprivate static func orderMainWindowFront(preferred: NSWindow? = nil) {
+        if let window = preferred, window.canBecomeMain {
+            orderFront(window)
+            return
+        }
+
         if let window = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isVisible }) {
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            orderFront(window)
             return
         }
 
         if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-            NSRunningApplication.current.activate(options: [.activateAllWindows])
-            return
+            orderFront(window)
         }
+    }
+
+    @MainActor
+    private static func orderFront(_ window: NSWindow) {
+        window.title = "Echo AudioBooks"
+        window.setAccessibilityRole(.window)
+        window.setAccessibilitySubrole(.standardWindow)
+        window.setAccessibilityLabel("Echo AudioBooks")
+        window.setAccessibilityIdentifier("main")
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 }
 
