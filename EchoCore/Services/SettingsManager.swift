@@ -448,7 +448,13 @@ final class SettingsManager {
                 ),
             ]
             for (key, read) in watchKeys {
-                if appGroupDefaults.object(forKey: key) == nil, let value = read() {
+                // Copy whenever standard defaults hold a persisted value. Watch
+                // keys are registered ONLY into the app-group suite (not
+                // `defaults`), so `read()` is non-nil exactly when the user set
+                // an override pre-migration. The previous
+                // `appGroupDefaults.object(forKey:) == nil` guard was always
+                // false after registration, so nothing ever migrated.
+                if let value = read() {
                     appGroupDefaults.set(value, forKey: key)
                 }
             }
