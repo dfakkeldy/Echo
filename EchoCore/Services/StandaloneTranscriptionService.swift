@@ -19,6 +19,8 @@ final class StandaloneTranscriptionService {
 
     private weak var db: DatabaseWriter?
     @ObservationIgnored private nonisolated let currentTask = StandaloneTranscriptionTaskHandle()
+    @ObservationIgnored private var lastStartArgs:
+        (audiobookID: String, audioFileURL: URL, chapters: [Chapter])?
     private let logger = Logger(category: "StandaloneTranscription")
     private static let isoFormatter = ISO8601DateFormatter()
 
@@ -36,8 +38,11 @@ final class StandaloneTranscriptionService {
     ///   - audioFileURL: The single audio file for the audiobook.
     ///   - chapters: All chapters to transcribe. Chapter 0 is transcribed
     ///     on the caller's actor; the rest run in the background.
-    func start(audioFileURL: URL, chapters: [Chapter]) async {
+    func start(
+        audiobookID: String, audioFileURL: URL, chapters: [Chapter], resume: Bool = true
+    ) async {
         guard let db else { return }
+        lastStartArgs = (audiobookID, audioFileURL, chapters)
         progress.reset()
         progress.chaptersTotal = chapters.count
         progress.isRunning = true
@@ -49,9 +54,11 @@ final class StandaloneTranscriptionService {
 
         // Chapter 0: transcribe immediately on the caller's executor.
         await transcribeChapter(
+            audiobookID: audiobookID,
             audioFileURL: audioFileURL,
             chapter: chapters[0],
             chapterIndex: 0,
+            resume: resume,
             db: db
         )
         progress.chaptersComplete = 1
@@ -62,29 +69,75 @@ final class StandaloneTranscriptionService {
         }
 
         // Remaining chapters: background, one at a time.
-        currentTask.set(Task.detached(priority: .background) { [weak self] in
-            guard let self else { return }
-            defer {
-                Task { @MainActor in
-                    self.progress.isRunning = false
+        currentTask.set(
+            Task.detached(priority: .background) { [weak self] in
+                guard let self else { return }
+                defer {
+                    Task { @MainActor in
+                        self.progress.isRunning = false
+                    }
                 }
-            }
-            for i in 1..<chapters.count {
-                guard !Task.isCancelled else { break }
-                await self.transcribeChapter(
-                    audioFileURL: audioFileURL,
-                    chapter: chapters[i],
-                    chapterIndex: i,
-                    db: db
-                )
-                await MainActor.run { self.progress.chaptersComplete = i + 1 }
-            }
-        })
+                for i in 1..<chapters.count {
+                    guard !Task.isCancelled else { break }
+                    await self.transcribeChapter(
+                        audiobookID: audiobookID,
+                        audioFileURL: audioFileURL,
+                        chapter: chapters[i],
+                        chapterIndex: i,
+                        resume: resume,
+                        db: db
+                    )
+                    await MainActor.run { self.progress.chaptersComplete = i + 1 }
+                }
+            })
     }
 
-    /// Pauses (cancels) any background transcription still in progress.
+    /// Stops the running pipeline without marking it cancelled, so it can be
+    /// resumed from the first incomplete chapter via `resume()`.
     func pause() {
         currentTask.cancel()
+        progress.isRunning = false
+    }
+
+    /// Continues from the first chapter without persisted rows, reusing the
+    /// last `start(...)` arguments. No-op if nothing was started yet.
+    func resume() {
+        guard let args = lastStartArgs else { return }
+        Task { @MainActor in
+            await self.start(
+                audiobookID: args.audiobookID,
+                audioFileURL: args.audioFileURL,
+                chapters: args.chapters,
+                resume: true)
+        }
+    }
+
+    /// Deletes the book's raw ASR rows and its materialized reader projection,
+    /// then resets progress so a subsequent `start(resume:false)`-style run
+    /// produces a single clean copy.
+    func clearTranscript(audiobookID: String) async {
+        guard let db else { return }
+        do {
+            try await db.write { database in
+                try StandaloneTranscriptRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .deleteAll(database)
+                try database.execute(
+                    sql:
+                        "DELETE FROM word_timing WHERE audiobook_id = ? AND epub_block_id LIKE 'transcript-%'",
+                    arguments: [audiobookID])
+                try database.execute(
+                    sql:
+                        "DELETE FROM timeline_item WHERE audiobook_id = ? AND source_table = 'standalone_transcript'",
+                    arguments: [audiobookID])
+                try database.execute(
+                    sql: "DELETE FROM epub_block WHERE audiobook_id = ? AND id LIKE 'transcript-%'",
+                    arguments: [audiobookID])
+            }
+            progress.reset()
+        } catch {
+            logger.error("clearTranscript failed: \(error.localizedDescription)")
+        }
     }
 
     /// Cancels the entire pipeline and resets progress state.
@@ -100,9 +153,11 @@ final class StandaloneTranscriptionService {
     /// WhisperKit with VAD chunking, and writing the resulting segments
     /// to the `standalone_transcript` table.
     private func transcribeChapter(
+        audiobookID: String,
         audioFileURL: URL,
         chapter: Chapter,
         chapterIndex: Int,
+        resume: Bool,
         db: DatabaseWriter
     ) async {
         let chapterDuration = chapter.endSeconds - chapter.startSeconds
@@ -110,7 +165,20 @@ final class StandaloneTranscriptionService {
             logger.debug("Skipping empty chapter \(chapterIndex)")
             return
         }
-
+        // --- ADD RESUME GUARD HERE ---
+        if resume {
+            let existing = try? await db.read { database in
+                try StandaloneTranscriptRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .filter(Column("chapter_index") == chapterIndex)
+                    .fetchCount(database)
+            }
+            if let existing, existing > 0 {
+                logger.debug("Resume: chapter \(chapterIndex) already has rows; skipping")
+                return
+            }
+        }
+        // --- END RESUME GUARD ---
         do {
             // 1. Read audio for this chapter.
             let samples = try await AudioSegmentReader.samples(
@@ -152,7 +220,7 @@ final class StandaloneTranscriptionService {
                 from: results,
                 captureStart: chapter.startSeconds,
                 chapterIndex: chapterIndex,
-                audiobookID: audioFileURL.absoluteString
+                audiobookID: audiobookID
             )
             guard !records.isEmpty else {
                 logger.debug("No transcribed segments for chapter \(chapterIndex)")
