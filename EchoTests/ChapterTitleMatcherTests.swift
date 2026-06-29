@@ -130,7 +130,7 @@ struct ChapterTitleMatcherTests {
         "Foreword", "Epilogue", "Acknowledgments",
         "Opening Credits", "Mix",  // bare roman-letter words are real titles
         "1984: A Retrospective",  // number plus real words
-        "Chapter Civil", "Book Mild",  // keyword + word of roman letters, not a numeral
+        "Chapter Civil", "Part Mild", "Book Mild",  // keyword + roman-letter word
     ])
     func keepsRealTitles(title: String) {
         #expect(!ChapterTitleMatcher.isGenericNumericTitle(title), "'\(title)'")

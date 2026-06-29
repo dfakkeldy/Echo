@@ -41,6 +41,14 @@ import Testing
                 == "The ephemeral moment passed!")
     }
 
+    @Test func ignoresDecimalPunctuationInsideSentence() {
+        let text = "The value is 3.14 today. Next sentence."
+        let wordRange = (text as NSString).range(of: "value")
+        #expect(
+            WordSentenceContext.sentence(containing: wordRange, in: text)
+                == "The value is 3.14 today.")
+    }
+
     @Test func fallsBackToWholeTextWhenNoBoundary() {
         let text = "no terminal punctuation here"
         let wordRange = (text as NSString).range(of: "terminal")

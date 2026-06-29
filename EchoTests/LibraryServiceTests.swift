@@ -83,6 +83,35 @@ struct LibraryServiceTests {
         #expect(try AudiobookDAO(db: db.writer).get("file:///Lib/Dune/")?.isAvailable == false)
     }
 
+    @Test func rescanStartsSecurityScopeAroundDiscovery() throws {
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-scope-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+        var startedURL: URL?
+        var stoppedURL: URL?
+        var discoverSawScope = false
+
+        _ = try service.rescan(
+            root: root,
+            discover: { url in
+                discoverSawScope = startedURL == url
+                return []
+            },
+            startScope: { url in
+                startedURL = url
+                return true
+            },
+            stopScope: { stoppedURL = $0 },
+            now: fixedNow)
+
+        #expect(discoverSawScope)
+        #expect(stoppedURL == startedURL)
+    }
+
     @Test func rescanAppliesInjectedMetadata() async throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
@@ -120,6 +149,44 @@ struct LibraryServiceTests {
         #expect(book?.duration == 4242)
         #expect(book?.authorSort == "j.r.r. tolkien")
         #expect(book?.coverArtPath != nil)
+    }
+
+    @Test func metadataRescanStartsSecurityScopeAroundDiscovery() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-meta-scope-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+        let covers = FileManager.default.temporaryDirectory
+            .appendingPathComponent("covers-scope-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: covers) }
+        var startedURL: URL?
+        var stoppedURL: URL?
+        var discoverSawScope = false
+
+        _ = try await service.rescan(
+            root: root,
+            discover: { url in
+                discoverSawScope = startedURL == url
+                return []
+            },
+            readMetadata: { _ in
+                LibraryScanner.ScannedMetadata(
+                    title: "Ignored", author: nil, narrator: nil,
+                    duration: 0, coverImageData: nil)
+            },
+            coversDir: covers,
+            startScope: { url in
+                startedURL = url
+                return true
+            },
+            stopScope: { stoppedURL = $0 },
+            now: fixedNow)
+
+        #expect(discoverSawScope)
+        #expect(stoppedURL == startedURL)
     }
 
     @Test func rescanPreservesExistingMetadataWhenScannedIsNil() async throws {
@@ -217,7 +284,7 @@ struct LibraryServiceTests {
         #expect(sections.first?.books.count == 2)
     }
 
-    @Test func sectionsByAuthorDeriveKeyWhenAuthorSortIsNull() throws {
+    @Test func sectionsByAuthorDerivesKeyWhenAuthorSortMissing() throws {
         // ABS / single-imported / pre-V27 books leave author_sort NULL; they
         // must still group by their distinct authors rather than collapsing
         // into one mislabeled "unknown" section.
@@ -225,17 +292,20 @@ struct LibraryServiceTests {
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(
             AudiobookRecord(
-                id: "1", title: "Dune", author: "Frank Herbert", duration: 0, fileCount: nil,
-                addedAt: "2026-06-27T00:00:00Z", isAvailable: true, authorSort: nil))
+                id: "1", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: true,
+                authorSort: nil))
         try dao.save(
             AudiobookRecord(
-                id: "2", title: "The Hobbit", author: "J.R.R. Tolkien", duration: 0, fileCount: nil,
-                addedAt: "2026-06-26T00:00:00Z", isAvailable: true, authorSort: nil))
+                id: "2", title: "Left Hand", author: "Ursula K. Le Guin", duration: 0,
+                fileCount: nil, addedAt: "2026-06-26T00:00:00Z", isAvailable: true,
+                authorSort: nil))
 
         let service = LibraryService(db: db)
         let sections = try service.sections(by: .author, includeUnavailable: false)
-        #expect(sections.count == 2)
-        #expect(sections.allSatisfy { $0.books.count == 1 })
+
+        #expect(sections.map(\.title) == ["Frank Herbert", "Ursula K. Le Guin"])
+        #expect(sections.map(\.books.count) == [1, 1])
     }
 
     // MARK: - Task 10: derived study + processing status

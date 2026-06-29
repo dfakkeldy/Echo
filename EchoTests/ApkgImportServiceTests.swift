@@ -239,6 +239,46 @@ struct ApkgImportServiceTests {
         #expect(cards[0].backText == "Answer")
     }
 
+    @Test func importPrefersRealDeckOverDefaultDeck() async throws {
+        let apkgURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("real_deck_\(UUID().uuidString).apkg")
+        try await createFixtureApkg(destURL: apkgURL, deckName: "Real Deck")
+        defer { try? FileManager.default.removeItem(at: apkgURL) }
+
+        let extracted = try extractApkg(apkgURL)
+        defer { try? FileManager.default.removeItem(at: extracted) }
+        let collectionURL = extracted.appendingPathComponent("collection.anki21")
+        let queue = try DatabaseQueue(path: collectionURL.path)
+        try await queue.write { db in
+            let now = 1_712_345_678
+            let decksJSON = """
+                {
+                  "1":{"id":1,"name":"Default","desc":"","collapsed":false,"conf":1,"dyn":0},
+                  "42":{"id":42,"name":"Real Deck","desc":"","collapsed":false,"conf":1,"dyn":0}
+                }
+                """
+            try db.execute(
+                sql: "UPDATE col SET decks = ?, mod = ? WHERE id = 1",
+                arguments: [decksJSON, now])
+        }
+        try? FileManager.default.removeItem(at: apkgURL)
+        let archive = try Archive(url: apkgURL, accessMode: .create)
+        let items = try FileManager.default.contentsOfDirectory(
+            at: extracted, includingPropertiesForKeys: nil)
+        for item in items {
+            try archive.addEntry(with: item.lastPathComponent, relativeTo: extracted)
+        }
+
+        let writer = try makeTestDB()
+        let count = try await ApkgImportService().import(from: apkgURL, into: writer)
+
+        #expect(count == 1)
+        let deckName = try await writer.read { db in
+            try String.fetchOne(db, sql: "SELECT name FROM deck LIMIT 1")
+        }
+        #expect(deckName == "Real Deck")
+    }
+
     @Test func importedMediaRoundTripsThroughApkgExport() async throws {
         let apkgURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("test_media_roundtrip.apkg")

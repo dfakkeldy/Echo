@@ -45,6 +45,16 @@ struct AnchorSelectorTests {
         #expect(AnchorSelector.select(candidates: candidates).map(\.blockID) == ["b-2", "b-3"])
     }
 
+    @Test func rejectedRegressionDoesNotEvictValidPredecessor() {
+        let candidates = [
+            cand("b-1", 10, run: 10),
+            cand("b-2", 20, run: 4),
+            cand("b-3", 5, run: 5),
+        ]
+
+        #expect(AnchorSelector.select(candidates: candidates).map(\.blockID) == ["b-1", "b-2"])
+    }
+
     @Test func nearTiesWithinEpsilonAreNotRegressions() {
         let candidates = [cand("b-1", 100.0, run: 3), cand("b-2", 99.9, run: 3)]
         #expect(AnchorSelector.select(candidates: candidates).count == 2)

@@ -116,6 +116,7 @@ struct LibraryService {
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
         startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
+        stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
     ) throws -> RescanResult {
         // A stale/unresolvable bookmark (the missing-root scenario) must NOT fall
@@ -130,7 +131,7 @@ struct LibraryService {
         // rescan (e.g. after relaunch) finds zero books and the hide pass below
         // marks the entire shelf unavailable.
         let scopeStarted = startScope(rootURL)
-        defer { if scopeStarted { rootURL.stopAccessingSecurityScopedResource() } }
+        defer { if scopeStarted { stopScope(rootURL) } }
 
         let dao = AudiobookDAO(db: db.writer)
         let found = discover(rootURL)
@@ -194,9 +195,10 @@ struct LibraryService {
     func rescan(
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
-        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         readMetadata: (DiscoveredBook) async -> LibraryScanner.ScannedMetadata,
         coversDir: URL,
+        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
+        stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
     ) async throws -> RescanResult {
         guard let rootURL = LibraryAccess.resolveURL(from: root.bookmark)?.url else {
@@ -206,7 +208,7 @@ struct LibraryService {
         // Keep the security scope active across discovery AND metadata reads
         // (cover/AVAsset file access) for sandbox-external user folders.
         let scopeStarted = startScope(rootURL)
-        defer { if scopeStarted { rootURL.stopAccessingSecurityScopedResource() } }
+        defer { if scopeStarted { stopScope(rootURL) } }
         try FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
 
         let dao = AudiobookDAO(db: db.writer)
@@ -351,12 +353,16 @@ struct LibraryService {
         case .recentlyAdded:
             return [LibrarySection(title: "Recently Added", books: all)]
         case .author:
-            // Derive the sort key from `author` at query time. The stored
-            // `author_sort` column is only written during the local-folder
-            // metadata rescan, so ABS/single-imported/pre-V27 books leave it
-            // NULL and would otherwise all collapse into one "unknown" section.
+            // Prefer persisted author sort keys, but derive the key from
+            // `author` when older/imported rows have NULL `author_sort`.
             return grouped(
-                all, key: { LibraryAccess.authorSort($0.author) ?? "unknown" },
+                all,
+                key: {
+                    if let authorSort = $0.authorSort, !authorSort.isEmpty {
+                        return authorSort
+                    }
+                    return LibraryAccess.authorSort($0.author) ?? "unknown"
+                },
                 title: { $0.author ?? "Unknown Author" })
         case .topic:
             return groupedByTopic(all)
