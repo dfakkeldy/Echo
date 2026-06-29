@@ -171,7 +171,8 @@ final class CloudKitSyncService {
         switch AlignmentAnchorRecord.Source(rawValue: source) {
         case .moveToNow, .searchResult, .chapterBoundary: return 2
         case .imported: return 1
-        case .autoAlignment, .continuousBackground, .synthesized, nil: return 0
+        case .autoAlignment, .continuousBackground, .synthesized, .transcriptAlignment, nil:
+            return 0
         }
     }
 
@@ -234,7 +235,9 @@ final class CloudKitSyncService {
         do {
             _ = try await publicDatabase.save(record)
             markUploadCompleted(recordName: recordName)
-            logger.info("Successfully uploaded \(anchors.count) anchors to CloudKit record \(recordName, privacy: .public).")
+            logger.info(
+                "Successfully uploaded \(anchors.count) anchors to CloudKit record \(recordName, privacy: .public)."
+            )
             return .uploaded(anchorCount: anchors.count)
         } catch let error as CKError where error.code == .serverRecordChanged {
             // Merge instead of overwrite: the record name is a deterministic hash
