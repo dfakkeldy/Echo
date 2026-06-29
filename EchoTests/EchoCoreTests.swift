@@ -222,6 +222,23 @@ struct EchoCoreTests {
         #expect(reloaded.debugLoggingEnabled == true)
     }
 
+    @Test func reviewNotificationsDefaultOffAndPersist() throws {
+        let suiteName = "test-review-notifications-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: defaults)
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+
+        #expect(SettingsManager.Defaults.reviewNotificationsEnabled == false)
+        #expect(settings.reviewNotificationsEnabled == false)
+
+        settings.reviewNotificationsEnabled = true
+
+        let reloaded = SettingsManager(defaults: defaults, appGroupDefaults: defaults)
+        #expect(reloaded.reviewNotificationsEnabled == true)
+    }
+
     @Test func settingsPersistsWatchBackgroundStyle() {
         let suiteName = "watch-background-style-\(UUID().uuidString)"
         let appGroupName = "watch-background-style-ag-\(UUID().uuidString)"

@@ -291,7 +291,15 @@ struct StatsView: View {
                 localized: "The app database is unavailable. Reopen the book and try again.")
             return
         }
-        let vm = StudySessionViewModel(db: db.writer)
+        let vm = StudySessionViewModel(
+            db: db.writer,
+            updateReviewNotification: { [weak model] dueCount in
+                ReviewNotificationService.updateNotification(
+                    dueCount: dueCount,
+                    isEnabled: model?.settingsManager?.reviewNotificationsEnabled ?? false
+                )
+            }
+        )
         vm.onRequestAssignmentPlayback = { [weak model] card in
             guard let model else { return }
             playStudyAssignment(card, model: model)

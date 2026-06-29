@@ -15,6 +15,7 @@ final class DailyReviewViewModel {
     private let db: DatabaseWriter
     private let folderURL: URL?
     private let logger = Logger(category: "DailyReviewViewModel")
+    @ObservationIgnored private let reviewNotificationsEnabled: @MainActor () -> Bool
 
     @ObservationIgnored var snippetPlayer: SnippetPlayer?
     @ObservationIgnored var onRequestSnippetPlay: ((URL, TimeInterval, TimeInterval) -> Void)?
@@ -32,10 +33,16 @@ final class DailyReviewViewModel {
         currentIndex >= dueCards.count
     }
 
-    init(db: DatabaseWriter, folderURL: URL?, snippetPlayer: SnippetPlayer? = nil) {
+    init(
+        db: DatabaseWriter,
+        folderURL: URL?,
+        snippetPlayer: SnippetPlayer? = nil,
+        reviewNotificationsEnabled: @escaping @MainActor () -> Bool = { false }
+    ) {
         self.db = db
         self.folderURL = folderURL
         self.snippetPlayer = snippetPlayer
+        self.reviewNotificationsEnabled = reviewNotificationsEnabled
     }
 
     func loadDueCards() {
@@ -44,7 +51,10 @@ final class DailyReviewViewModel {
             dueCards = try dao.allDueCards()
             currentIndex = 0
             isRevealed = false
-            ReviewNotificationService.updateNotification(dueCount: dueCards.count)
+            ReviewNotificationService.updateNotification(
+                dueCount: dueCards.count,
+                isEnabled: reviewNotificationsEnabled()
+            )
         } catch {
             logger.error("Failed to load due cards: \(error.localizedDescription)")
             dueCards = []
@@ -71,7 +81,10 @@ final class DailyReviewViewModel {
             logFlashcardReviewed(card: card, grade: grade)
             ReviewPromptManager.shared.recordActivationEvent(.flashcardReviewed)
             let remaining = dueCards.count - (currentIndex + 1)
-            ReviewNotificationService.updateNotification(dueCount: remaining)
+            ReviewNotificationService.updateNotification(
+                dueCount: remaining,
+                isEnabled: reviewNotificationsEnabled()
+            )
         } catch {
             logger.error("Failed to grade card \(card.id): \(error.localizedDescription)")
         }

@@ -79,22 +79,37 @@ nonisolated enum ReviewNotificationService {
 
     /// Updates (or removes) the daily review notification based on current due count.
     /// Call this after grading a card or loading the review queue.
-    static func updateNotification(dueCount: Int) {
+    static func updateNotification(dueCount: Int, isEnabled: Bool) {
         Task {
             await updateNotification(
                 dueCount: dueCount,
+                isEnabled: isEnabled,
                 scheduler: UserNotificationScheduler()
             )
+        }
+    }
+
+    static func removeScheduledNotification() {
+        Task {
+            await UserNotificationScheduler()
+                .removePendingNotificationRequests(withIdentifiers: [notificationIdentifier])
         }
     }
 
     @MainActor
     static func updateNotification(
         dueCount: Int,
+        isEnabled: Bool,
         scheduler: ReviewNotificationScheduling,
         now: Date = .now,
         calendar: Calendar = .current
     ) async {
+        guard isEnabled else {
+            await scheduler.removePendingNotificationRequests(
+                withIdentifiers: [notificationIdentifier])
+            return
+        }
+
         guard dueCount > 0 else {
             await scheduler.removePendingNotificationRequests(
                 withIdentifiers: [notificationIdentifier])
@@ -130,15 +145,15 @@ nonisolated enum ReviewNotificationService {
     }
 
     /// Requests notification authorization from the user.
-    static func requestAuthorization() {
-        Task {
-            do {
-                let granted = try await UNUserNotificationCenter.current()
-                    .requestAuthorization(options: [.alert, .sound, .badge])
-                logger.info("Notification authorization \(granted ? "granted" : "denied")")
-            } catch {
-                logger.error("Notification authorization error: \(error.localizedDescription)")
-            }
+    static func requestAuthorization() async -> ReviewNotificationAuthorizationStatus {
+        do {
+            let granted = try await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound, .badge])
+            logger.info("Notification authorization \(granted ? "granted" : "denied")")
+            return await UserNotificationScheduler().authorizationStatus()
+        } catch {
+            logger.error("Notification authorization error: \(error.localizedDescription)")
+            return .unknown
         }
     }
 }

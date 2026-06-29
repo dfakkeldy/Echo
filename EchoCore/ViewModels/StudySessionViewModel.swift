@@ -33,7 +33,7 @@ final class StudySessionViewModel {
     init(
         db: DatabaseWriter,
         updateReviewNotification: @escaping @MainActor (Int) -> Void = {
-            ReviewNotificationService.updateNotification(dueCount: $0)
+            ReviewNotificationService.updateNotification(dueCount: $0, isEnabled: false)
         }
     ) {
         self.db = db

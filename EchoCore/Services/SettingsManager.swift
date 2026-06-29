@@ -60,6 +60,7 @@ final class SettingsManager {
         static let readerLineSpacing: Double = 1.4
         static let readerCardTint: String = "#F5F0E8"
         static let studyGlobalNewChapterLimit = 12
+        static let reviewNotificationsEnabled = false
         static let autoAlignmentEnabled = true
         static let locationCaptureEnabled = false
         static let debugLoggingEnabled = false
@@ -124,6 +125,7 @@ final class SettingsManager {
         static let readerLineSpacing = "readerLineSpacing"
         static let readerCardTint = "readerCardTint"
         static let studyGlobalNewChapterLimit = "studyGlobalNewChapterLimit"
+        static let reviewNotificationsEnabled = "reviewNotificationsEnabled"
         static let autoAlignmentEnabled = "autoAlignmentEnabled"
         static let locationCaptureEnabled = "locationCaptureEnabled"
         static let debugLoggingEnabled = "debugLoggingEnabled"
@@ -327,6 +329,9 @@ final class SettingsManager {
             }
             defaults.set(boundedValue, forKey: Keys.studyGlobalNewChapterLimit)
         }
+    }
+    var reviewNotificationsEnabled: Bool {
+        didSet { defaults.set(reviewNotificationsEnabled, forKey: Keys.reviewNotificationsEnabled) }
     }
 
     // MARK: - Auto-Alignment
@@ -648,6 +653,9 @@ final class SettingsManager {
             phonePresets = []
         }
 
+        reviewNotificationsEnabled =
+            defaults.object(forKey: Keys.reviewNotificationsEnabled) as? Bool
+            ?? Defaults.reviewNotificationsEnabled
         autoAlignmentEnabled =
             defaults.object(forKey: Keys.autoAlignmentEnabled) as? Bool
             ?? Defaults.autoAlignmentEnabled
@@ -746,6 +754,7 @@ final class SettingsManager {
             Keys.readerLineSpacing: Defaults.readerLineSpacing,
             Keys.readerCardTint: Defaults.readerCardTint,
             Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
+            Keys.reviewNotificationsEnabled: Defaults.reviewNotificationsEnabled,
             Keys.autoAlignmentEnabled: Defaults.autoAlignmentEnabled,
             Keys.locationCaptureEnabled: Defaults.locationCaptureEnabled,
             Keys.debugLoggingEnabled: Defaults.debugLoggingEnabled,

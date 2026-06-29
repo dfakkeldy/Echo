@@ -240,10 +240,26 @@ struct SettingsView: View {
 }
 
 private struct SettingsStudyRows: View {
+    @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
+    @State private var reviewReminderStatus: String?
 
     var body: some View {
         @Bindable var settings = settings
+
+        Toggle(
+            "Daily Review Reminder",
+            isOn: Binding(
+                get: { settings.reviewNotificationsEnabled },
+                set: { isEnabled in setReviewNotificationsEnabled(isEnabled) }
+            )
+        )
+
+        if let reviewReminderStatus {
+            Text(reviewReminderStatus)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
 
         Stepper(value: $settings.studyGlobalNewChapterLimit, in: 1...12) {
             LabeledContent("Global New Chapters") {
@@ -257,6 +273,49 @@ private struct SettingsStudyRows: View {
         let limit = settings.studyGlobalNewChapterLimit
         let unit = limit == 1 ? "chapter" : "chapters"
         return "\(limit) \(unit) per day"
+    }
+
+    private func setReviewNotificationsEnabled(_ isEnabled: Bool) {
+        guard isEnabled else {
+            settings.reviewNotificationsEnabled = false
+            ReviewNotificationService.removeScheduledNotification()
+            reviewReminderStatus = "Daily review reminders are off."
+            return
+        }
+
+        Task { @MainActor in
+            let status = await ReviewNotificationService.requestAuthorization()
+            guard status.canScheduleNotifications else {
+                settings.reviewNotificationsEnabled = false
+                ReviewNotificationService.removeScheduledNotification()
+                reviewReminderStatus =
+                    "Notifications are not allowed. Enable notifications for Echo in Settings."
+                return
+            }
+
+            settings.reviewNotificationsEnabled = true
+            reviewReminderStatus = "Daily review reminders are on."
+            updateDailyReviewReminder()
+        }
+    }
+
+    private func updateDailyReviewReminder() {
+        guard let db = model.databaseService else {
+            ReviewNotificationService.updateNotification(dueCount: 0, isEnabled: true)
+            return
+        }
+
+        do {
+            let queue = try StudyQueueBuilder(db: db.writer).build(
+                globalNewChapterLimit: settings.studyGlobalNewChapterLimit
+            )
+            ReviewNotificationService.updateNotification(
+                dueCount: queue.dueReviewCount + queue.inProgressAssignmentCount,
+                isEnabled: settings.reviewNotificationsEnabled
+            )
+        } catch {
+            ReviewNotificationService.updateNotification(dueCount: 0, isEnabled: true)
+        }
     }
 }
 

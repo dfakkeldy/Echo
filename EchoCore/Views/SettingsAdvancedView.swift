@@ -35,13 +35,7 @@ struct SettingsAdvancedView: View {
                     "Context Memory",
                     isOn: Binding(
                         get: { settings.locationCaptureEnabled },
-                        set: { isEnabled in
-                            settings.locationCaptureEnabled = isEnabled
-                            contextMemoryStatus =
-                                isEnabled
-                                ? "New bookmarks can receive approximate place names."
-                                : "Location capture is off."
-                        }
+                        set: { isEnabled in setLocationCaptureEnabled(isEnabled) }
                     ))
 
                 Button(role: .destructive, action: deleteContextMemory) {
@@ -95,5 +89,40 @@ struct SettingsAdvancedView: View {
         } catch {
             contextMemoryStatus = "Could not delete Context Memory: \(error.localizedDescription)"
         }
+    }
+
+    private func setLocationCaptureEnabled(_ isEnabled: Bool) {
+        guard isEnabled else {
+            settings.locationCaptureEnabled = false
+            contextMemoryStatus = "Location capture is off."
+            return
+        }
+
+        #if os(iOS)
+            switch LocationCaptureAuthorizationService.status() {
+            case .authorized:
+                settings.locationCaptureEnabled = true
+                contextMemoryStatus = "New bookmarks can receive approximate place names."
+            case .notDetermined:
+                Task { @MainActor in
+                    let status = await LocationCaptureAuthorizationService.requestAuthorization()
+                    settings.locationCaptureEnabled = status.canCaptureLocation
+                    contextMemoryStatus =
+                        status.canCaptureLocation
+                        ? "New bookmarks can receive approximate place names."
+                        : "Location access is required for Context Memory."
+                }
+            case .denied, .restricted:
+                settings.locationCaptureEnabled = false
+                contextMemoryStatus =
+                    "Location access is denied. Enable location access for Echo in Settings."
+            case .unknown:
+                settings.locationCaptureEnabled = false
+                contextMemoryStatus = "Location access is unavailable."
+            }
+        #else
+            settings.locationCaptureEnabled = false
+            contextMemoryStatus = "Location capture is unavailable on this platform."
+        #endif
     }
 }

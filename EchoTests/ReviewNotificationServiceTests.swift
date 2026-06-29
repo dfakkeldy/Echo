@@ -6,11 +6,28 @@ import Testing
 
 @MainActor
 struct ReviewNotificationServiceTests {
+    @Test func updateNotificationRemovesPendingRequestWhenFeatureIsDisabled() async {
+        let scheduler = RecordingReviewNotificationScheduler(status: .authorized)
+
+        await ReviewNotificationService.updateNotification(
+            dueCount: 3,
+            isEnabled: false,
+            scheduler: scheduler,
+            now: Date(timeIntervalSince1970: 1_800_000),
+            calendar: .gregorianUTC
+        )
+
+        let snapshot = scheduler.snapshot()
+        #expect(snapshot.addedRequests.isEmpty)
+        #expect(snapshot.removedIdentifiers == [ReviewNotificationService.notificationIdentifier])
+    }
+
     @Test func updateNotificationDoesNotScheduleWhenNotificationsAreNotAuthorized() async {
         let scheduler = RecordingReviewNotificationScheduler(status: .denied)
 
         await ReviewNotificationService.updateNotification(
             dueCount: 3,
+            isEnabled: true,
             scheduler: scheduler,
             now: Date(timeIntervalSince1970: 1_800_000),
             calendar: .gregorianUTC
@@ -26,6 +43,7 @@ struct ReviewNotificationServiceTests {
 
         await ReviewNotificationService.updateNotification(
             dueCount: 4,
+            isEnabled: true,
             scheduler: scheduler,
             now: Date(timeIntervalSince1970: 0),
             calendar: .gregorianUTC
@@ -44,6 +62,7 @@ struct ReviewNotificationServiceTests {
 
         await ReviewNotificationService.updateNotification(
             dueCount: 0,
+            isEnabled: true,
             scheduler: scheduler,
             now: Date(timeIntervalSince1970: 1_800_000),
             calendar: .gregorianUTC

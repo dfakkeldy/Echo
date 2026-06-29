@@ -90,6 +90,7 @@ struct SettingsExtractionTests {
     @Test func advancedSubViewOwnsContextMemoryPrivacyControls() throws {
         let source = try Self.source(named: "SettingsAdvancedView.swift")
         #expect(source.contains("locationCaptureEnabled"))
+        #expect(source.contains("LocationCaptureAuthorizationService.requestAuthorization()"))
         #expect(source.contains("ContextMemoryDAO"))
         #expect(source.contains("Delete Context Memory"))
     }
@@ -130,6 +131,13 @@ struct SettingsExtractionTests {
         #expect(source.contains("SettingsStudyRows()"))
         #expect(source.contains("$settings.studyGlobalNewChapterLimit"))
         #expect(source.contains("Global New Chapters"))
+    }
+
+    @Test func settingsShellExposesDailyReviewReminderOptIn() throws {
+        let source = try Self.source(named: "SettingsView.swift")
+        #expect(source.contains("Daily Review Reminder"))
+        #expect(source.contains("reviewNotificationsEnabled"))
+        #expect(source.contains("ReviewNotificationService.requestAuthorization()"))
     }
 
     private static func source(named fileName: String) throws -> String {
