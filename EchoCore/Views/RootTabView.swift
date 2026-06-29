@@ -460,6 +460,9 @@ struct RootTabView: View {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 ReviewPromptManager.shared.recordSessionStart()
+                // Widget/Siri "Create Bookmark" can only stage into the App Group;
+                // pull those into the real per-book store now that we're foreground.
+                model.drainPendingWidgetBookmarks()
             } else if newPhase == .background || newPhase == .inactive {
                 // Persist navigation paths
                 if let codable = nowPlayingPath.codable,

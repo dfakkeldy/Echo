@@ -41,6 +41,8 @@ extension PlayerModel {
         bookmarkStore.bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted {
             $0.timestamp < $1.timestamp
         }
+        // Surface any widget/Siri bookmarks the app group staged for this book.
+        drainPendingWidgetBookmarks()
         artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
     }
 
@@ -258,6 +260,62 @@ extension PlayerModel {
         if isCurrentBook {
             bookmarkStore.bookmarks = targetBookmarks
 
+        }
+    }
+
+    /// Drains widget/Siri-created bookmarks staged in the App Group into the real
+    /// per-book bookmark store. `CreateBookmarkIntent` (widget extension) can only
+    /// write to App Group `UserDefaults` under `bookmarks_<folderKey>`; the app
+    /// otherwise never reads that store, so those bookmarks would silently never
+    /// appear. Call on foreground and after a book loads.
+    ///
+    /// - Parameter appGroupDefaults: the store the widget wrote to. Injectable for
+    ///   tests; defaults to the shared app-group suite.
+    func drainPendingWidgetBookmarks(from appGroupDefaults: UserDefaults = AppGroupDefaults.shared) {
+        let prefix = "bookmarks_"
+        let pendingKeys = appGroupDefaults.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix(prefix) }
+        guard !pendingKeys.isEmpty else { return }
+
+        for defaultsKey in pendingKeys {
+            // Always clear the staged entry — even if it is unreadable or all
+            // duplicates — so it is never re-imported on the next foreground.
+            defer { appGroupDefaults.removeObject(forKey: defaultsKey) }
+            guard let data = appGroupDefaults.data(forKey: defaultsKey),
+                let incoming = try? JSONDecoder().decode([Bookmark].self, from: data),
+                !incoming.isEmpty
+            else { continue }
+
+            let storageKey = String(defaultsKey.dropFirst(prefix.count))
+            mergePendingBookmarks(incoming, into: storageKey)
+        }
+    }
+
+    /// Merges staged widget bookmarks into one book's store, de-duplicating by
+    /// `id`. Mirrors `addWatchBookmark(from:)`: the current book merges into the
+    /// live `bookmarkStore` + sidecar (it alone holds live security scope); any
+    /// other book falls back to its `UserDefaults`-backed storage.
+    private func mergePendingBookmarks(_ incoming: [Bookmark], into storageKey: String) {
+        let isCurrentBook = storageKey == bookmarksStorageKey
+        let targetFolderURL: URL? = isCurrentBook ? folderURL : nil
+        var targetBookmarks =
+            isCurrentBook
+            ? bookmarkStore.bookmarks
+            : persistence.loadBookmarks(for: storageKey, folderURL: targetFolderURL)
+
+        var seenIDs = Set(targetBookmarks.map(\.id))
+        var didAppend = false
+        for bookmark in incoming where seenIDs.insert(bookmark.id).inserted {
+            targetBookmarks.append(bookmark)
+            didAppend = true
+        }
+        guard didAppend else { return }
+
+        targetBookmarks.sort { $0.timestamp < $1.timestamp }
+        persistence.saveBookmarks(targetBookmarks, for: storageKey, folderURL: targetFolderURL)
+
+        if isCurrentBook {
+            bookmarkStore.bookmarks = targetBookmarks
         }
     }
 
