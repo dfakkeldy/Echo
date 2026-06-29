@@ -165,10 +165,10 @@ nonisolated struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     static func markdownExport(for bookmarks: [Bookmark]) -> String {
         var output = "# Audiobook Bookmarks\n\n"
         for bookmark in bookmarks {
-            let timestamp = Int(bookmark.timestamp)
-            let mins = (timestamp % 3600) / 60
-            let secs = timestamp % 60
-            let timeString = String(format: "%02d:%02d", mins, secs)
+            // Use the canonical H:MM:SS formatter; the previous hand-rolled
+            // `(ts % 3600)/60` dropped the hours component, collapsing distinct
+            // timestamps an hour apart onto the same header.
+            let timeString = formatHMS(bookmark.timestamp)
             output += "## \(timeString)\n"
             if let note = bookmark.note { output += "\(note)\n\n" }
             if let memo = bookmark.voiceMemoFileName { output += "- [Voice Memo](\(memo))\n" }

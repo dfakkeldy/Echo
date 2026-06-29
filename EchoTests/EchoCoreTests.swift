@@ -75,6 +75,18 @@ struct EchoCoreTests {
         #expect(!markdown.contains("orbitaudio"))
     }
 
+    @Test func bookmarkMarkdownIncludesHoursForLongTimestamps() {
+        // 3930s == 1:05:30. The header must keep the hour; two bookmarks an
+        // hour apart (330s == 0:05:30) must not collapse onto the same header.
+        let markdown = Bookmark.markdownExport(for: [
+            Bookmark(title: "Deep", timestamp: 3930),
+            Bookmark(title: "Early", timestamp: 330),
+        ])
+
+        #expect(markdown.contains("## 1:05:30"))
+        #expect(markdown.contains("## 05:30"))
+    }
+
     @Test func bookmarkSidecarURLUsesFolderNameForDirectoryBooks() throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
