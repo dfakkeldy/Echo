@@ -36,9 +36,9 @@ struct DeckImportService {
             guard !card.frontText.isEmpty, !card.backText.isEmpty else {
                 throw DeckImportError.emptyCardText(cardIndex: index)
             }
-            guard validTriggerTimings.contains(card.triggerTiming.rawValue) else {
+            guard validTriggerTimings.contains(card.triggerTiming) else {
                 throw DeckImportError.invalidTriggerTiming(
-                    card.triggerTiming.rawValue, cardIndex: index)
+                    card.triggerTiming, cardIndex: index)
             }
         }
 
@@ -110,8 +110,29 @@ struct DeckImportService {
             )
         }
 
+        // Idempotent re-import: the deck row is reused by name (non-unique by
+        // design), so cards must dedupe too — otherwise re-importing the same
+        // .echo-deck.json duplicates every card (and its timeline row). Skip any
+        // card already present in this deck, keyed on front/back text.
+        let existingKeys: Set<String> = try writer.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql:
+                    "SELECT front_text, back_text FROM flashcard WHERE deck_id = ? AND audiobook_id = ?",
+                arguments: [deckID, deck.targetMediaID])
+            return Set(
+                rows.map {
+                    Self.cardKey(
+                        ($0["front_text"] as String?) ?? "", ($0["back_text"] as String?) ?? "")
+                })
+        }
+
         let dao = FlashcardDAO(db: writer)
+        var importedCount = 0
         for (index, card) in deck.cards.enumerated() {
+            guard !existingKeys.contains(Self.cardKey(card.frontText, card.backText)) else {
+                continue
+            }
             let flashcard = Flashcard(
                 id: UUID().uuidString,
                 audiobookID: deck.targetMediaID,
@@ -119,7 +140,7 @@ struct DeckImportService {
                 backText: card.backText,
                 mediaTimestamp: startTimestamp(for: card),
                 endTimestamp: endTimestamp(for: card),
-                triggerTiming: card.triggerTiming,
+                triggerTiming: FlashcardTriggerTiming(rawValue: card.triggerTiming) ?? .beginning,
                 nextReviewDate: Date().ISO8601Format(),
                 intervalDays: 0,
                 easeFactor: 2.5,
@@ -136,10 +157,11 @@ struct DeckImportService {
                 modifiedAt: Date().ISO8601Format()
             )
             try dao.insert(flashcard)
+            importedCount += 1
         }
 
         return ImportDeckResult(
-            importedCount: deck.cards.count,
+            importedCount: importedCount,
             anchoredCount: anchoredCount,
             warnings: warnings
         )
@@ -153,6 +175,12 @@ struct DeckImportService {
     /// - Returns: The number of cards successfully imported.
     func importDeck(from url: URL, db: DatabaseWriter) throws -> Int {
         try importDeckVNext(from: url, db: db).importedCount
+    }
+
+    /// Content key for card-level dedupe on re-import (unit separator joins the
+    /// two fields so distinct front/back pairs can't collide).
+    private static func cardKey(_ front: String, _ back: String) -> String {
+        "\(front)\u{1f}\(back)"
     }
 
     private func findDeck(named name: String, db: DatabaseWriter) throws -> String? {

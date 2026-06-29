@@ -64,8 +64,23 @@ final class PlaybackController {
 
     // MARK: - Pure Helpers
 
+    /// Target time for a forward skip. When the track duration is unknown/0
+    /// (briefly true right after a track load, before metadata resolves) the old
+    /// `min(duration ?? 0, …)` collapsed to 0 and seeked to the start. Return the
+    /// raw target instead and let `AudioEngine.seek` clamp to the file length.
+    static func forwardSkipTarget(
+        current: TimeInterval, amount: TimeInterval, duration: TimeInterval?
+    ) -> TimeInterval {
+        if let duration, duration > 0 { return min(duration, current + amount) }
+        return current + amount
+    }
+
     func findNextEnabledTrackIndex(in tracks: [Track], currentIndex: Int) -> Int? {
-        guard !tracks.isEmpty else { return nil }
+        // `currentIndex` can be stale/past-end (track lists are reorderable and
+        // shrinkable). Guard the lower bound or `(currentIndex+1)..<count` traps
+        // when currentIndex >= count — matching the crash-safe `stride`-based
+        // `findPrevEnabledTrackIndex`.
+        guard currentIndex + 1 < tracks.count else { return nil }
         for i in (currentIndex + 1)..<tracks.count {
             if tracks[i].isEnabled { return i }
         }
@@ -101,8 +116,9 @@ final class PlaybackController {
         let safePosition = max(0, positionTime)
         // Now Playing publishes chapter-relative duration/elapsed when chapter metadata is active.
         if chapters.count >= 2,
-           let currentChapterIndex,
-           chapters.indices.contains(currentChapterIndex) {
+            let currentChapterIndex,
+            chapters.indices.contains(currentChapterIndex)
+        {
             let chapter = chapters[currentChapterIndex]
             let chapterDuration = max(0, chapter.endSeconds - chapter.startSeconds)
             let chapterRelativePosition = min(safePosition, chapterDuration)
@@ -375,12 +391,9 @@ final class PlaybackController {
             // waiting for an auto-advance that never fires.
             pause()
             state.awaitingNarrationChapter = true
-        } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(
-                coordinator_loadTrack != nil,
-                "coordinator_loadTrack must be wired — track navigation required")
-            coordinator_loadTrack?(firstEnabled, true)
         }
+        // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
+        // that would auto-restart a finished book with loopMode == .off.
     }
 
     func previousTrackOrRestart() {
@@ -435,12 +448,9 @@ final class PlaybackController {
                 coordinator_loadTrack != nil,
                 "coordinator_loadTrack must be wired — chapter navigation fallback")
             coordinator_loadTrack?(newIndex, true)
-        } else if let firstEnabled = state.tracks.firstIndex(where: { $0.isEnabled }) {
-            assert(
-                coordinator_loadTrack != nil,
-                "coordinator_loadTrack must be wired — chapter navigation fallback")
-            coordinator_loadTrack?(firstEnabled, true)
         }
+        // End of book: stay put (§5.2). Do NOT wrap to the first enabled track —
+        // that would auto-restart a finished book with loopMode == .off.
     }
 
     private func nextAggregatedChapter() {
@@ -762,8 +772,8 @@ final class PlaybackController {
         }
 
         let durationAmount = coordinator_seekForwardDuration?() ?? 30.0
-        let duration = state.durationSeconds ?? 0
-        let target = min(duration, current + durationAmount)
+        let target = Self.forwardSkipTarget(
+            current: current, amount: durationAmount, duration: state.durationSeconds)
         state.isManualSeeking = true
         audioEngine.seek(to: target) { [weak self] _ in
             self?.state.isManualSeeking = false
