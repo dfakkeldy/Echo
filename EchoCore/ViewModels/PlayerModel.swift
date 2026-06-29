@@ -1058,6 +1058,28 @@ final class PlayerModel {
             widgetStatePublisher.publish(
                 context: watchStateContext(), thumbnailData: state.watchThumbnailData)
         }
+        // The "Bookmark this in Echo" Siri / App Intent needs the live PER-TRACK
+        // position, so publish it on every sync (reload-free) — a position only
+        // refreshed on `.significant` would be minutes stale mid-chapter and
+        // mis-place the bookmark.
+        widgetStatePublisher.publishPlaybackPosition(currentWidgetPlaybackState())
+    }
+
+    /// Snapshot of the live per-track playback position for the widget / Siri
+    /// bookmark intent, or `nil` when no book is loaded (which clears the keys).
+    /// `currentPlaybackTime` (`audioEngine.currentTime`) is the per-track offset
+    /// `Bookmark.timestamp` stores — the same value the in-app
+    /// `addBookmarkAtCurrentTime()` records, never the cumulative book time.
+    private func currentWidgetPlaybackState() -> WidgetPlaybackState? {
+        guard audioEngine.isItemLoaded,
+            currentPlaybackTime.isFinite,
+            let folderKey = folderURL?.absoluteString,
+            tracks.indices.contains(currentIndex)
+        else { return nil }
+        return WidgetPlaybackState(
+            folderKey: folderKey,
+            trackId: tracks[currentIndex].id,
+            perTrackTime: currentPlaybackTime)
     }
 
     /// Persists the current playback progress and pause timestamp.
