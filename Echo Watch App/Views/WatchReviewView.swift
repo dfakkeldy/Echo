@@ -32,15 +32,15 @@ struct WatchReviewView: View {
                             // The old 0/3/5 (SM-2) values persisted an invalid
                             // lastGrade that ReviewGrade(rawValue:) can't represent.
                             HStack(spacing: 8) {
-                                gradeButton("Again", grade: 1, color: .red)
+                                gradeButton("Again", grade: ReviewGrade.again.rawValue, color: .red)
                                 WatchReviewPrimaryActionButton(
                                     title: "Good",
                                     systemImage: "hand.thumbsup.fill",
                                     isPrimaryActionEnabled: isPrimaryActionEnabled
                                 ) {
-                                    gradeAndAdvance(grade: 3)
+                                    gradeAndAdvance(grade: ReviewGrade.good.rawValue)
                                 }
-                                gradeButton("Easy", grade: 4, color: .blue)
+                                gradeButton("Easy", grade: ReviewGrade.easy.rawValue, color: .blue)
                             }
                             .padding(.horizontal)
                         } else {
