@@ -30,7 +30,7 @@ struct EchoCoreApp: App {
 
     init() {
         #if DEBUG && targetEnvironment(simulator)
-            MockMediaProvider.seedSampleAudiobookIfNeeded()
+            MockMediaProvider.seedSampleMediaIfNeeded()
         #endif
 
         let initialSettings = SettingsManager()

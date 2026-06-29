@@ -214,6 +214,12 @@ final class PlayerLoadingCoordinator {
         let importedTextFile = !isDirectory && ["md", "markdown", "txt", "text"].contains(ext)
         let importedPDFFile = !isDirectory && ext == "pdf"
         documentImportTask = Task { @MainActor in
+            if let artworkURL = self.epubArtworkURL(
+                pickedURL: pickedURL, isDirectory: isDirectory, folderURL: folderURL)
+            {
+                await self.loadEPUBCoverArtwork(from: artworkURL)
+            }
+
             let didImport: Bool
             if importedEPUBFile {
                 didImport = await EPUBAutoImportScanner.importEPUBFile(
@@ -247,6 +253,26 @@ final class PlayerLoadingCoordinator {
             }
             state.documentIngestionTrigger += 1
         }
+    }
+
+    private func epubArtworkURL(pickedURL: URL, isDirectory: Bool, folderURL: URL) -> URL? {
+        if !isDirectory && pickedURL.pathExtension.lowercased() == "epub" {
+            return pickedURL
+        }
+        guard isDirectory else { return nil }
+        let urls =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: .skipsHiddenFiles
+            )) ?? []
+        return urls.first { $0.pathExtension.lowercased() == "epub" }
+    }
+
+    @MainActor
+    private func loadEPUBCoverArtwork(from epubURL: URL) async {
+        guard let image = await ArtworkCache.epubCoverImage(for: epubURL) else { return }
+        artworkCoordinator?.applyBaseArtwork(image)
     }
 
     // MARK: - loadFolder helpers

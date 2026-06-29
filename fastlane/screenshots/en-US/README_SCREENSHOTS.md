@@ -42,24 +42,28 @@ status bar (9:41, full bars, 100% battery). No App Store Connect key needed.
 
 The screens are content-gated: the Reader needs an EPUB, the player needs an
 audiobook, etc. In **DEBUG simulator** builds the app auto-seeds a sample on
-launch (`EchoCoreApp.init` → `MockMediaProvider.seedSampleAudiobookIfNeeded`,
-then `PlayerModel.restoreLastSelectionIfPossible`), **but only if `BIFF.m4b` is
-bundled into the Echo app target.** `*.m4b` is git-ignored, so:
+launch (`EchoCoreApp.init` → `MockMediaProvider.seedSampleMediaIfNeeded`,
+then `PlayerModel.restoreLastSelectionIfPossible`). It prefers a local,
+rights-cleared `EchoScreenshotSample.m4b` when one is bundled, and otherwise
+falls back to the bundled Standard Ebooks copy of *The Great Gatsby*.
+`*.m4b` is git-ignored, so the optional audio path is:
 
-1. Add a short sample `BIFF.m4b` to the Echo app target's "Copy Bundle
-   Resources" (a bundled EPUB sample already lives in
-   `EchoCore/Development Assets/`).
-2. Then `fastlane screenshots` will have real content on screen.
+1. Add a short public-domain or otherwise rights-cleared sample named
+   `EchoScreenshotSample.m4b` to the Echo app target's "Copy Bundle Resources"
+   (bundled EPUB samples already live in `EchoCore/Development Assets/`).
+2. Then `fastlane screenshots` will have real audio-backed player content on
+   screen; without it, the Gatsby EPUB still gives the reader and cover-derived
+   colour system real content.
 
-Without it, content-gated screens show their empty states — fine for a
-privacy/settings shot, not for the player. The UI test now fails if any expected
+Without the optional audio file, Gatsby still gives the reader and
+cover-derived colour system real content. The UI test fails if any expected
 automated category is missing, so a screenshot run cannot silently pass with a
 partial set.
 
 Recommended local fixture path:
 
 ```
-fastlane/fixtures/BIFF.m4b
+fastlane/fixtures/EchoScreenshotSample.m4b
 ```
 
 Keep fixture media out of git unless it is sanitized and licensed for

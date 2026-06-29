@@ -12,15 +12,14 @@
 //  fastlane/Snapfile, runs ONLY this test class, and writes the PNGs into
 //  fastlane/screenshots/<locale>/.
 //
-//  CONTENT NOTE: In DEBUG simulator builds the app auto-seeds a sample
-//  audiobook (EchoCoreApp.init → MockMediaProvider.seedSampleAudiobookIfNeeded,
-//  then PlayerModel.restoreLastSelectionIfPossible loads it). That only happens
-//  if `BIFF.m4b` is bundled into the app — see fastlane/screenshots README.
-//  Without it the library is empty and the content-gated screens (Reader,
-//  Timeline) fall back to their empty states. This test is deliberately
-//  defensive: every navigation step is guarded, so one missing screen doesn't
-//  stop later captures, but the test fails at the end if any expected category
-//  is absent.
+//  CONTENT NOTE: In DEBUG simulator builds the app auto-seeds screenshot media
+//  (EchoCoreApp.init → MockMediaProvider.seedSampleMediaIfNeeded, then
+//  PlayerModel.restoreLastSelectionIfPossible loads it). It prefers a local,
+//  rights-cleared `EchoScreenshotSample.m4b` when one is bundled, and otherwise
+//  falls back to the bundled Standard Ebooks Great Gatsby EPUB — see
+//  fastlane/screenshots README. This test is deliberately defensive: every
+//  navigation step is guarded, so one missing screen doesn't stop later
+//  captures, but the test fails at the end if any expected category is absent.
 //
 //  NAVIGATION NOTE: The app uses a custom bottom dock, not a standard TabView,
 //  and ships no accessibility identifiers, so we navigate by the accessibility

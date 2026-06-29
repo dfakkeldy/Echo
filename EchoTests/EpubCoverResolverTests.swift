@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+import ZIPFoundation
 
 @testable import Echo
 
@@ -36,6 +37,36 @@ import Testing
         return dir
     }
 
+    private func makeEPUBArchive(
+        opf: String, coverRelPath: String?, coverBytes: Data?
+    ) throws -> URL {
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).epub")
+        let archive = try Archive(url: archiveURL, accessMode: .create)
+
+        try addEntry(
+            "META-INF/container.xml",
+            data: Data(
+                """
+                <?xml version="1.0"?><container><rootfiles>
+                <rootfile full-path="OEBPS/content.opf"/></rootfiles></container>
+                """.utf8),
+            to: archive)
+        try addEntry("OEBPS/content.opf", data: Data(opf.utf8), to: archive)
+        if let coverRelPath, let coverBytes {
+            try addEntry("OEBPS/\(coverRelPath)", data: coverBytes, to: archive)
+        }
+        return archiveURL
+    }
+
+    private func addEntry(_ path: String, data: Data, to archive: Archive) throws {
+        try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(data.count)) {
+            position, size in
+            let start = Int(position)
+            return data.subdata(in: start..<min(start + size, data.count))
+        }
+    }
+
     @Test func resolvesEpub2CoverViaMeta() throws {
         let dir = try makeEPUB(
             opf: """
@@ -66,5 +97,31 @@ import Testing
             coverRelPath: nil, coverBytes: nil)
         defer { try? FileManager.default.removeItem(at: dir) }
         #expect(EpubCoverResolver.coverData(expandedEPUBDir: dir) == nil)
+    }
+
+    @Test func resolvesCoverFromZippedEPUBArchive() throws {
+        let archiveURL = try makeEPUBArchive(
+            opf: """
+                <?xml version="1.0"?><package><manifest>
+                <item id="c" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+                </manifest></package>
+                """,
+            coverRelPath: "images/cover.jpg", coverBytes: jpeg)
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+
+        #expect(EpubCoverResolver.coverData(epubArchiveURL: archiveURL) == jpeg)
+    }
+
+    @Test func rejectsArchiveCoverPathEscapingEPUBRoot() throws {
+        let archiveURL = try makeEPUBArchive(
+            opf: """
+                <?xml version="1.0"?><package><manifest>
+                <item id="c" href="../../cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+                </manifest></package>
+                """,
+            coverRelPath: nil, coverBytes: nil)
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+
+        #expect(EpubCoverResolver.coverData(epubArchiveURL: archiveURL) == nil)
     }
 }
