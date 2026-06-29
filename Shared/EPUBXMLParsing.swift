@@ -394,6 +394,8 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private var isInsideTitle = false
     private var currentBlockClasses: [String] = []
     private var currentBlockTags: String = ""
+    private var blockquoteDepth = 0
+    private var currentBlockHasBlockquote = false
     private let skipTags: Set<String> = ["script", "style", "figcaption"]
     private let blockTags: Set<String> = [
         "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section",
@@ -491,13 +493,13 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             currentBlockTags = elementName
             currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(
                 String.init)
+            if elementName == "blockquote" {
+                blockquoteDepth += 1
+                currentBlockHasBlockquote = true
+            }
         } else if elementName == "a", let href = attributeDict["href"] {
             let marker = SyncMarker(
                 type: .hyperlink, payload: href, epubCharOffset: currentCharOffset)
-            blockMarkers.append(marker)
-        } else if elementName == "blockquote" {
-            let marker = SyncMarker(
-                type: .blockquote, payload: "", epubCharOffset: currentCharOffset)
             blockMarkers.append(marker)
         } else if elementName == "hr" {
             let marker = SyncMarker(
@@ -618,6 +620,12 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         // and desyncs inlineDepth.
         if elementName == "a" { return }
 
+        if elementName == "blockquote" {
+            blockquoteDepth = max(0, blockquoteDepth - 1)
+            flushBlock()
+            return
+        }
+
         if inlineTags.contains(elementName) {
             currentHTML += "</\(elementName)>"
             inlineDepth = max(0, inlineDepth - 1)
@@ -689,10 +697,18 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             return
         }
         let markers = blockMarkers
+            + (
+                currentBlockHasBlockquote
+                    ? [SyncMarker(type: .blockquote, payload: "", epubCharOffset: 0)]
+                    : []
+            )
         let formats = blockFormats
         blockMarkers = []
         blockFormats = []
         currentCharOffset = 0
+        if blockquoteDepth == 0 {
+            currentBlockHasBlockquote = false
+        }
         let classes = currentBlockClasses
         let tags = currentBlockTags
         currentBlockClasses = []

@@ -73,7 +73,7 @@ nonisolated struct FSRSScheduler: SchedulingAlgorithm {
         updated.intervalDays = interval
         updated.repetitions = card.repetitions + 1
         updated.lastReviewedAt = now.ISO8601Format()
-        updated.lastGrade = grade
+        updated.lastGrade = g
         updated.modifiedAt = now.ISO8601Format()
 
         if let nextDate = Calendar.current.date(byAdding: .day, value: interval, to: now) {

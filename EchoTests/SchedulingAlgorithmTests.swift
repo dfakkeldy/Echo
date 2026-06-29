@@ -114,6 +114,20 @@ struct SchedulingAlgorithmTests {
         #expect((lowGrade.difficulty ?? 10) <= 10.0)
     }
 
+    @Test func fsrsPersistsClampedLowGrade() {
+        let scheduler = FSRSScheduler()
+        let result = scheduler.review(card: makeCard(), grade: 0, now: now)
+
+        #expect(result.lastGrade == ReviewGrade.again.rawValue)
+    }
+
+    @Test func fsrsPersistsClampedHighGrade() {
+        let scheduler = FSRSScheduler()
+        let result = scheduler.review(card: makeCard(), grade: 5, now: now)
+
+        #expect(result.lastGrade == ReviewGrade.easy.rawValue)
+    }
+
     // ── Helpers ──
 
     private func makeCard(

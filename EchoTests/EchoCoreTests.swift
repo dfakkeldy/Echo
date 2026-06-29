@@ -286,6 +286,35 @@ struct EchoCoreTests {
         #expect(settings.circularRingMode == "chapter")
     }
 
+    @Test func settingsMigratesPersistedWatchChoicesDespiteRegisteredDefaults() throws {
+        let suiteName = "watch-migration-\(UUID().uuidString)"
+        let appGroupName = "watch-migration-ag-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let appGroupDefaults = try #require(UserDefaults(suiteName: appGroupName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        let customPage: [WatchAction] = [.bookmark, .empty, .playPause, .speed, .sleepTimer]
+        let customPageData = try JSONEncoder().encode(customPage)
+        defaults.set(customPageData, forKey: "watchPage1")
+        defaults.set("scrub", forKey: "crownAction")
+
+        let settings = SettingsManager(
+            defaults: defaults,
+            appGroupDefaults: appGroupDefaults,
+            defaultsDomainName: suiteName,
+            appGroupDefaultsDomainName: appGroupName
+        )
+
+        #expect(settings.watchPage1 == customPage)
+        #expect(appGroupDefaults.data(forKey: "watchPage1") == customPageData)
+        #expect(appGroupDefaults.string(forKey: "crownAction") == "scrub")
+        #expect(appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2"))
+    }
+
     @Test func settingsPersistsSeekDurationsAndLayoutCustomizations() {
         let suiteName = "seek-durations-\(UUID().uuidString)"
         let appGroupName = "seek-durations-ag-\(UUID().uuidString)"
@@ -411,6 +440,17 @@ struct EchoCoreTests {
         #expect(SettingsManager.normalizedAppFont("Helvetica") == SettingsManager.systemFontName)
     }
 
+    @Test func watchReviewUsesFSRSGradeScale() throws {
+        let source = try Self.source(
+            pathComponents: "Echo Watch App", "Views", "WatchReviewView.swift")
+
+        #expect(source.contains("ReviewGrade.again.rawValue"))
+        #expect(source.contains("ReviewGrade.good.rawValue"))
+        #expect(source.contains("ReviewGrade.easy.rawValue"))
+        #expect(!source.contains("grade: 0"))
+        #expect(!source.contains("grade: 5"))
+    }
+
     // MARK: - Database Tests
 
     @Test func databaseBaselineSchemaCreatesAllTables() throws {
@@ -513,6 +553,23 @@ struct EchoCoreTests {
         let results = try dao.searchBlocks(for: "book-1", query: "phoenix")
 
         #expect(results.map(\.id) == ["visible"])
+    }
+
+    @Test func parseXHTMLMarksBlockquoteBlocks() throws {
+        let data = Data(
+            """
+            <html><body>
+              <blockquote><p>Quoted line.</p></blockquote>
+              <p>Plain line.</p>
+            </body></html>
+            """.utf8)
+
+        let blocks = parseXHTML(from: data).blocks
+        let quoted = try #require(blocks.first { $0.text == "Quoted line." })
+        let plain = try #require(blocks.first { $0.text == "Plain line." })
+
+        #expect(quoted.markers.contains { $0.type == .blockquote })
+        #expect(!plain.markers.contains { $0.type == .blockquote })
     }
 
     @Test func databaseTimelineViewUnionsAllTypes() throws {

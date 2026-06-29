@@ -29,15 +29,15 @@ struct WatchReviewView: View {
 
                         if isRevealed {
                             HStack(spacing: 8) {
-                                gradeButton("Again", grade: 0, color: .red)
+                                gradeButton("Again", grade: ReviewGrade.again.rawValue, color: .red)
                                 WatchReviewPrimaryActionButton(
                                     title: "Good",
                                     systemImage: "hand.thumbsup.fill",
                                     isPrimaryActionEnabled: isPrimaryActionEnabled
                                 ) {
-                                    gradeAndAdvance(grade: 3)
+                                    gradeAndAdvance(grade: ReviewGrade.good.rawValue)
                                 }
-                                gradeButton("Easy", grade: 5, color: .blue)
+                                gradeButton("Easy", grade: ReviewGrade.easy.rawValue, color: .blue)
                             }
                             .padding(.horizontal)
                         } else {
