@@ -37,6 +37,9 @@ final class ChapterLoadingCoordinator {
         guard let audioEngine, let state, let persistence else { return }
         guard audioEngine.isItemLoaded,
               state.tracks.indices.contains(state.currentIndex) else { return }
+        if state.durationSeconds == nil, let seconds = audioEngine.duration, seconds > 0 {
+            state.durationSeconds = seconds
+        }
 
         // Capture all necessary track information safely BEFORE any yield point (await)
         let track = state.tracks[state.currentIndex]
@@ -116,33 +119,13 @@ final class ChapterLoadingCoordinator {
             onSyncToWatch?()
         }
 
-        // Persist chapters and ingest timeline items for every book,
-        // regardless of chapter count or file type.
         if let db = databaseServiceProvider?(),
            let audiobookID = state.folderURL?.absoluteString {
-            let records = built.enumerated().map { (i, ch) in
-                ChapterRecord(
-                    id: nil,
-                    audiobookID: audiobookID,
-                    title: ch.title ?? "Chapter \(i + 1)",
-                    startSeconds: ch.startSeconds,
-                    endSeconds: ch.endSeconds,
-                    isEnabled: ch.isEnabled,
-                    sortOrder: i,
-                    playlistPosition: nil
-                )
-            }
-            do {
-                try ChapterDAO(db: db.writer).deleteAll(for: audiobookID)
-                try ChapterDAO(db: db.writer).insertAll(records, audiobookID: audiobookID)
-            } catch {
-                Logger(category: "PlayerModel")
-                    .error("Failed to persist chapters: \(error.localizedDescription)")
-            }
-
             // Multi-file folders get a full ingestion pass in loadFolder;
-            // avoid wiping all items on every track switch for those cases.
+            // avoid wiping whole-book chapter rows on every track switch.
             if trackCount <= 1 {
+                TimelineIngestionService.persistChapters(
+                    db: db, audiobookID: audiobookID, chapters: built)
                 let transcription = state.transcription
                 let enhanced = state.enhancedTranscription
                 let fURL = state.folderURL
@@ -168,6 +151,13 @@ final class ChapterLoadingCoordinator {
         guard let audioEngine, let state else { return }
         guard let seconds = audioEngine.duration, seconds > 0 else { return }
         state.durationSeconds = seconds
+        if let db = databaseServiceProvider?(),
+           let audiobookID = state.folderURL?.absoluteString {
+            let audiobookDuration =
+                state.isMultiM4B && state.totalBookDuration > 0 ? state.totalBookDuration : seconds
+            TimelineIngestionService.updateAudiobookDuration(
+                db: db, audiobookID: audiobookID, duration: audiobookDuration)
+        }
         onUpdateNowPlayingInfo?(!(isPlayingProvider?() ?? false))
         onUpdateProgress?()
         // Deep-link seek and saved-progress restoration are handled by

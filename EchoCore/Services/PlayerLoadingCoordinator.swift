@@ -78,6 +78,7 @@ final class PlayerLoadingCoordinator {
         }
 
         playbackController.stop()
+        state.durationSeconds = nil
 
         // Start security-scoped access for the entire folder loading flow.
         // Must stay alive through async EPUB import, which runs after this method returns.
@@ -313,6 +314,12 @@ final class PlayerLoadingCoordinator {
                     startSeconds: agg.startSeconds, endSeconds: agg.endSeconds, isEnabled: true)
             }
             let audioURL = parsed.books.first?.url ?? folderURL
+            if let db = timelinePersistence.databaseService {
+                TimelineIngestionService.persistChapters(
+                    db: db, audiobookID: folderURL.absoluteString, chapters: chapters)
+                TimelineIngestionService.updateAudiobookDuration(
+                    db: db, audiobookID: folderURL.absoluteString, duration: parsed.totalDuration)
+            }
             await timelinePersistence.ingestTimelineItems(
                 audiobookID: folderURL.absoluteString, audioURL: audioURL, chapters: chapters,
                 transcription: state.transcription,
@@ -353,6 +360,12 @@ final class PlayerLoadingCoordinator {
             state.bookTimeIndex = PlaybackBookTimeIndex(
                 orderedTracks: zip(tracks, durations).map { ($0.0, $0.1) })
             applyPendingBookTimeSeekIfPossible(state: state)
+            if let db = timelinePersistence.databaseService {
+                TimelineIngestionService.persistChapters(
+                    db: db, audiobookID: folderURL.absoluteString, chapters: allChapters)
+                TimelineIngestionService.updateAudiobookDuration(
+                    db: db, audiobookID: folderURL.absoluteString, duration: durations.reduce(0, +))
+            }
             await timelinePersistence.ingestTimelineItems(
                 audiobookID: folderURL.absoluteString, audioURL: tracks[0].url,
                 chapters: allChapters,
@@ -580,8 +593,8 @@ final class PlayerLoadingCoordinator {
         let trackURL = state.tracks[state.currentIndex].url
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await chapterLoadingCoordinator.loadChaptersForCurrentItem()
             await chapterLoadingCoordinator.loadDurationForNowPlaying()
+            await chapterLoadingCoordinator.loadChaptersForCurrentItem()
             await artworkCoordinator.generateThumbnail(for: trackURL)
 
             if let pending = state.pendingAggregatedChapter {

@@ -49,4 +49,39 @@ import Testing
         #expect(after?.title == "Real ABS Title")  // NOT "uuid-123"
         #expect(after?.author == "Real Author")
     }
+
+    @Test func reingestWithoutLoadedDurationPreservesABSDuration() throws {
+        let db = try DatabaseService(inMemory: ())
+        let folder = URL(fileURLWithPath: "/tmp/ABSLibrary/duration-item")
+        let id = folder.absoluteString
+        let seeded = AudiobookRecord(
+            id: id, title: "ABS Duration", author: "Author", duration: 1200, fileCount: 1,
+            addedAt: "seed", sourceType: "audiobookshelf", serverID: "s", remoteItemID: "r",
+            topicsJSON: nil)
+        try AudiobookDAO(db: db.writer).save(seeded)
+
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: folder, tracks: [], duration: nil)
+        #expect((try AudiobookDAO(db: db.writer).get(id))?.duration == 1200)
+
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: folder, tracks: [], duration: 0)
+        #expect((try AudiobookDAO(db: db.writer).get(id))?.duration == 1200)
+    }
+
+    @Test func loadedDurationReplacesPreservedABSDuration() throws {
+        let db = try DatabaseService(inMemory: ())
+        let folder = URL(fileURLWithPath: "/tmp/ABSLibrary/current-duration-item")
+        let id = folder.absoluteString
+        let seeded = AudiobookRecord(
+            id: id, title: "ABS Duration", author: "Author", duration: 1200, fileCount: 1,
+            addedAt: "seed", sourceType: "audiobookshelf", serverID: "s", remoteItemID: "r",
+            topicsJSON: nil)
+        try AudiobookDAO(db: db.writer).save(seeded)
+
+        TimelineIngestionService.updateAudiobookDuration(
+            db: db, audiobookID: id, duration: 1305.5)
+
+        #expect((try AudiobookDAO(db: db.writer).get(id))?.duration == 1305.5)
+    }
 }
