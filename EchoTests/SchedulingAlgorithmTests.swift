@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 struct SchedulingAlgorithmTests {
@@ -65,6 +66,16 @@ struct SchedulingAlgorithmTests {
         #expect(result.stability != nil)
         #expect(result.difficulty != nil)
         #expect(result.intervalDays >= 1)
+    }
+
+    @Test func fsrs_persistsClampedLastGradeForOffScaleInput() {
+        // Legacy/watch senders historically emitted 0 ("Again") / 5 ("Easy").
+        // lastGrade must be stored clamped to a valid ReviewGrade (1...4).
+        let scheduler = FSRSScheduler()
+        #expect(scheduler.review(card: makeCard(), grade: 5, now: now).lastGrade == 4)
+        #expect(scheduler.review(card: makeCard(), grade: 0, now: now).lastGrade == 1)
+        let stored = scheduler.review(card: makeCard(), grade: 5, now: now).lastGrade ?? -1
+        #expect(ReviewGrade(rawValue: stored) != nil)
     }
 
     @Test func fsrs_firstFail_lowStability() {

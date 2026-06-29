@@ -27,7 +27,8 @@ database/DAO layer.
 | Cycle | Start | Base nightly commit | Issues filed | PR | CI result | Merge | Quiet-timer at close |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-29 | d0c80ff | #282–#291 | #294 | Green (14m21s; incl. macOS + echo-cli) | Squash-merged → 094362c | n/a (10 found fast) |
-| 2 | 2026-06-29 (in progress) | 094362c | TBD | TBD | TBD | TBD | TBD |
+| 2 | 2026-06-29 | 094362c | #296–#305 | #307 | Green (10m58s; incl. macOS + echo-cli) | Squash-merged → 2c43046 | n/a (found fast); #297,#305 deferred-open |
+| 3 | 2026-06-29 (in progress) | 2c43046 | #311–#317 | TBD | TBD | TBD | TBD |
 
 ## Verification run log
 
@@ -62,3 +63,10 @@ database/DAO layer.
 | BL-018 | 2 | Sleep timer / format | Low | Fixed | #303 | b7f592f | Ambiguous "1:00" for the freshly-armed 1-hour preset | `sleepTimerCountdownText` |
 | BL-019 | 2 | EPUB parsing / hyperlink | Low | Fixed | #304 | 90114a0 | `<a>` emitted an orphan `</a>` in htmlContent | `EPUBXMLParsing` end handler |
 | BL-020 | 2 | EPUB parsing / blockquote | Low | Deferred (open) | #305 | — | Dead `else if`; correct fix entangled with deferred-flush — left for human review | `EPUBXMLParsing` |
+| BL-021 | 3 | Playback / auto-advance | High | Fixed | #311 | bb76c78 | End-of-book auto-restarted the whole book with loop off | `PlaybackController.nextChapter/nextTrack` |
+| BL-022 | 3 | Playback / track nav | Medium | Fixed | #312 | bb76c78 | `findNextEnabledTrackIndex` range trap (crash) when index past end | `PlaybackController.findNextEnabledTrackIndex` |
+| BL-023 | 3 | Flashcards / deck import | Medium | Fixed | #313 | afa52ce | `.echo-deck.json` re-import duplicated every card | `DeckImportService` |
+| BL-024 | 3 | Playback / skip-forward | Medium | Fixed | #314 | bb76c78 | `skipForward` seeked to 0 when duration unresolved | `PlaybackController.skipForward` |
+| BL-025 | 3 | Flashcards / watch review | Low | Fixed | #315 | 930f6d2 | Watch graded on 0/3/5; persisted invalid `lastGrade` | `WatchReviewView`, `FSRSScheduler` |
+| BL-026 | 3 | Now Playing | Low | Fixed | #316 | 068519d | Stale `ChapterNumber` leaked to lock screen | `NowPlayingController` |
+| BL-027 | 3 | Flashcards / deck validation | Low | Fixed | #317 | afa52ce | `invalidTriggerTiming` validation was dead code | `DeckImportService`, `FlashcardDeckImport` |

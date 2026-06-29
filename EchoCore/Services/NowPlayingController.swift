@@ -161,6 +161,9 @@ final class NowPlayingController {
         if let chapterIdx = params.chapterIndex {
             info[MPNowPlayingInfoPropertyChapterNumber] = chapterIdx + 1
         } else {
+            // `info` is seeded from the previously-published dict, so a stale
+            // chapter number would otherwise persist when switching from a
+            // chaptered book to a non-chaptered one.
             info.removeValue(forKey: MPNowPlayingInfoPropertyChapterNumber)
         }
         if params.duration.isFinite, params.duration > 0 {
