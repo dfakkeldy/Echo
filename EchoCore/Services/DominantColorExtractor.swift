@@ -21,6 +21,14 @@ nonisolated struct CoverSignature: Equatable {
     /// fraction of the whole canvas.
     let isNeutral: Bool
 
+    /// Share (0…1) of all sampled pixels that are near-black / near-white. When
+    /// both are large the cover is "high-contrast" (a bold accent on black/white),
+    /// which `CoverThemeBuilder` themes with a neutral graphite/paper background
+    /// ramp instead of a tonal hue ramp. Defaulted so existing constructions
+    /// (tests, `.neutral`) need no change.
+    var nearBlackShare: Double = 0
+    var nearWhiteShare: Double = 0
+
     static let neutral = CoverSignature(candidates: [], isNeutral: true)
 }
 
@@ -79,6 +87,8 @@ nonisolated enum DominantColorExtractor {
         var bSums = [Float](repeating: 0, count: hueBuckets)
         var vividCount = 0
         var colorableCount = 0
+        var nearBlackCount = 0
+        var nearWhiteCount = 0
 
         let centre = sampleSize / 2
         let maxDistance = Float(sqrt(Double(centre * centre + centre * centre)))
@@ -91,6 +101,8 @@ nonisolated enum DominantColorExtractor {
             let b = Float(pixelData[offset + 2]) / 255.0
 
             let (h, s, l) = rgbToHSL(r: r, g: g, b: b)
+            if l <= minLightness { nearBlackCount += 1 }
+            if l >= maxLightness { nearWhiteCount += 1 }
             guard l > minLightness && l < maxLightness else { continue }
             // This pixel could carry a hue (it isn't near-black or near-white).
             colorableCount += 1
@@ -137,7 +149,11 @@ nonisolated enum DominantColorExtractor {
             }
 
         guard !candidates.isEmpty else { return .neutral }
-        return CoverSignature(candidates: candidates, isNeutral: false)
+        return CoverSignature(
+            candidates: candidates,
+            isNeutral: false,
+            nearBlackShare: Double(nearBlackCount) / Double(pixelCount),
+            nearWhiteShare: Double(nearWhiteCount) / Double(pixelCount))
     }
 
     // MARK: - Downsampling

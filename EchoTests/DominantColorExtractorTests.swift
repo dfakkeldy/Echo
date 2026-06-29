@@ -121,4 +121,31 @@ nonisolated final class DominantColorExtractorTests: XCTestCase {
         }
         XCTAssertTrue(DominantColorExtractor.signature(from: image).isNeutral)
     }
+
+    func testHighContrastCoverReportsBlackAndWhiteShares() {
+        // The black/white + red fixture should report large near-black AND
+        // near-white shares — the signal CoverThemeBuilder uses to switch to the
+        // neutral graphite/paper background ramp.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.black.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 50, height: 100))  // left half black
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 70, y: 44, width: 12, height: 12))
+        }
+        let sig = DominantColorExtractor.signature(from: image)
+        XCTAssertGreaterThan(sig.nearBlackShare, 0.3, "left-half black → large near-black share")
+        XCTAssertGreaterThan(sig.nearWhiteShare, 0.3, "right-half white → large near-white share")
+        XCTAssertGreaterThan(
+            sig.nearBlackShare + sig.nearWhiteShare, 0.45, "cover reads as black/white-dominant")
+    }
+
+    func testColourfulCoverHasLowBlackWhiteShares() {
+        // A solid vivid cover has almost no near-black/near-white pixels, so it must
+        // NOT trip the neutral-ramp share gate.
+        let sig = DominantColorExtractor.signature(
+            from: solidImage(.systemRed, size: CGSize(width: 100, height: 100)))
+        XCTAssertLessThan(sig.nearBlackShare + sig.nearWhiteShare, 0.1)
+    }
 }
