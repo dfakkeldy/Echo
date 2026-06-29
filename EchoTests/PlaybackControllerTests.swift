@@ -56,7 +56,8 @@ import Testing
             Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
         ]
         c.state.currentChapterIndex = 1
-        c.state.isMultiM4B = false
+        // isMultiM4B is a computed get-only property; a single track with no
+        // aggregated chapters is already non-aggregated.
         var loaded: Int?
         c.coordinator_loadTrack = { idx, _ in loaded = idx }
 
