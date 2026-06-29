@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 @Suite struct StatsAggregatorTests {
@@ -10,7 +11,10 @@ import Testing
     @Test func bucketDayGroupsByCalendarDay() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 10; dc.hour = 10
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 10
+        dc.hour = 10
         let day1 = cal.date(from: dc)!
         dc.day = 11
         let day2 = cal.date(from: dc)!
@@ -54,9 +58,11 @@ import Testing
     @Test func bucketWeekGroupsByWeekOfYear() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 1 // Monday
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 1  // Monday
         let mon = cal.date(from: dc)!
-        dc.day = 10 // Wednesday next week
+        dc.day = 10  // Wednesday next week
         let wed = cal.date(from: dc)!
 
         let segments = [
@@ -96,7 +102,10 @@ import Testing
     @Test func streakConsecutiveDays() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 12; dc.hour = 12
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 12
+        dc.hour = 12
         let today = cal.date(from: dc)!
         dc.day = 11
         let yesterday = cal.date(from: dc)!
@@ -115,7 +124,10 @@ import Testing
     @Test func streakGracePeriodYesterdayCounts() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 12; dc.hour = 12
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 12
+        dc.hour = 12
         let today = cal.date(from: dc)!
         dc.day = 11
         let yesterday = cal.date(from: dc)!
@@ -135,7 +147,10 @@ import Testing
     @Test func streakLongestNotCurrent() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 12; dc.hour = 12
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 12
+        dc.hour = 12
         let today = cal.date(from: dc)!
         dc.day = 11
         let yesterday = cal.date(from: dc)!
@@ -156,7 +171,10 @@ import Testing
     @Test func streakTodayOnly() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 12; dc.hour = 12
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 12
+        dc.hour = 12
         let today = cal.date(from: dc)!
 
         let activeDays: Set<Date> = [today]
@@ -266,7 +284,8 @@ import Testing
             (id: 2, title: "Ch 2", startSeconds: 1000.0, endSeconds: 2000.0),
         ]
         let intervals: [ClosedRange<TimeInterval>] = [0...600, 1200...1800]
-        let result = StatsAggregator.chaptersCoverage(chapters: chapters, listenedIntervals: intervals)
+        let result = StatsAggregator.chaptersCoverage(
+            chapters: chapters, listenedIntervals: intervals)
         #expect(result.count == 2)
         #expect(result[0].coveredFraction == 0.6)
         #expect(result[1].coveredFraction == 0.6)
@@ -278,7 +297,8 @@ import Testing
         let cal = Calendar.current
         let now = Date()
         var dc = cal.dateComponents([.year, .month, .day], from: now)
-        dc.hour = 9; dc.minute = 0
+        dc.hour = 9
+        dc.minute = 0
         let start = cal.date(from: dc)!
         let end = cal.date(byAdding: .minute, value: 30, to: start)!
 
@@ -301,9 +321,10 @@ import Testing
         let cal = Calendar.current
         let now = Date()
         var dc = cal.dateComponents([.year, .month, .day], from: now)
-        dc.hour = 9; dc.minute = 30
+        dc.hour = 9
+        dc.minute = 30
         let start = cal.date(from: dc)!
-        let end = cal.date(byAdding: .minute, value: 60, to: start)! // 9:30–10:30
+        let end = cal.date(byAdding: .minute, value: 60, to: start)!  // 9:30–10:30
 
         let segments = [
             ListeningSegment(
@@ -328,12 +349,14 @@ import Testing
 
         let segments = [
             makeSegmentWithSpeed(audiobookID: "b1", startedAt: day, duration: 600, speed: 1.5),
-            makeSegmentWithSpeed(audiobookID: "b1", startedAt: day.addingTimeInterval(3600), duration: 300, speed: 2.0),
+            makeSegmentWithSpeed(
+                audiobookID: "b1", startedAt: day.addingTimeInterval(3600), duration: 300,
+                speed: 2.0),
         ]
 
         let trend = StatsAggregator.speedTrend(segments: segments, calendar: cal)
         #expect(trend.count == 1)
-        let expected = (600 * 1.5 + 300 * 2.0) / (600 + 300) // 1500/900 = 1.666...
+        let expected = (600 * 1.5 + 300 * 2.0) / (600 + 300)  // 1500/900 = 1.666...
         #expect(abs(trend[0].averageSpeed - expected) < 0.01)
     }
 
@@ -355,11 +378,24 @@ import Testing
 
         let dist = StatsAggregator.sessionLengthDistribution(segments: segments)
         #expect(dist.count == 5)
-        #expect(dist[0].count == 1) // 0-5m
-        #expect(dist[1].count == 1) // 5-15m
-        #expect(dist[2].count == 1) // 15-30m
-        #expect(dist[3].count == 0) // 30-60m
-        #expect(dist[4].count == 1) // 60m+
+        #expect(dist[0].count == 1)  // 0-5m
+        #expect(dist[1].count == 1)  // 5-15m
+        #expect(dist[2].count == 1)  // 15-30m
+        #expect(dist[3].count == 0)  // 30-60m
+        #expect(dist[4].count == 1)  // 60m+
+    }
+
+    @Test func sessionLengthDistributionUsesWallClockNotContentSeconds() {
+        let now = Date()
+        // A real 200s session at 2x covers 400s of content. It must bucket by
+        // the 200s elapsed time ("0–5m"), not the 400s content ("5–15m").
+        let seg = ListeningSegment(
+            audiobookID: "b1", trackID: nil,
+            startedAt: now, endedAt: now.addingTimeInterval(200),
+            startPosition: 0, endPosition: 400, speed: 2.0, source: nil)
+        let dist = StatsAggregator.sessionLengthDistribution(segments: [seg])
+        #expect(dist[0].count == 1)  // 0–5m (200s wall-clock)
+        #expect(dist[1].count == 0)  // not 5–15m (400s content)
     }
 
     @Test func sessionLengthDistributionEmpty() {
@@ -380,7 +416,7 @@ import Testing
         #expect(curve.count == 3)
 
         let at1 = curve.first { $0.intervalDays == 1 }!
-        #expect(abs(at1.retentionRate - 2.0/3.0) < 0.01)
+        #expect(abs(at1.retentionRate - 2.0 / 3.0) < 0.01)
 
         let at7 = curve.first { $0.intervalDays == 7 }!
         #expect(at7.retentionRate == 1.0)
@@ -396,8 +432,8 @@ import Testing
     @Test func retentionCurveAllGrades() {
         // Grade 3 is the threshold — at or above is "remembered"
         let reviews: [(intervalDays: Int, grade: Int)] = [
-            (1, 0), (1, 1), (1, 2), // not remembered
-            (1, 3), (1, 4), (1, 5), // remembered
+            (1, 0), (1, 1), (1, 2),  // not remembered
+            (1, 3), (1, 4), (1, 5),  // remembered
         ]
         let curve = StatsAggregator.retentionCurve(reviews: reviews)
         #expect(curve.count == 1)
@@ -409,7 +445,10 @@ import Testing
     @Test func dueForecastProjectsCorrectly() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 12; dc.hour = 12
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 12
+        dc.hour = 12
         let now = cal.date(from: dc)!
 
         let cards: [(nextReviewDate: Date, isEnabled: Bool)] = [
@@ -421,9 +460,9 @@ import Testing
 
         let forecast = StatsAggregator.dueForecast(cards: cards, days: 7, calendar: cal, now: now)
         #expect(forecast.count == 7)
-        #expect(forecast[0].dueCount == 1) // day 0: only the enabled due-today card
-        #expect(forecast[1].dueCount == 2) // day 1: today's + tomorrow's
-        #expect(forecast[5].dueCount == 3) // day 5: all 3 enabled cards
+        #expect(forecast[0].dueCount == 1)  // day 0: only the enabled due-today card
+        #expect(forecast[1].dueCount == 2)  // day 1: today's + tomorrow's
+        #expect(forecast[5].dueCount == 3)  // day 5: all 3 enabled cards
     }
 
     @Test func dueForecastEmpty() {
@@ -455,9 +494,13 @@ import Testing
     @Test func dailyTotalsGroupsByDay() {
         let cal = Calendar(identifier: .gregorian)
         var dc = DateComponents(timeZone: TimeZone(secondsFromGMT: 0))
-        dc.year = 2026; dc.month = 6; dc.day = 10; dc.hour = 10
+        dc.year = 2026
+        dc.month = 6
+        dc.day = 10
+        dc.hour = 10
         let day1 = cal.date(from: dc)!
-        dc.day = 11; dc.hour = 14
+        dc.day = 11
+        dc.hour = 14
         let day2 = cal.date(from: dc)!
 
         let segments = [
@@ -508,7 +551,10 @@ import Testing
     @Test func plannerAdherencePartialCompletion() {
         let now = Date()
         let plans = [
-            (startTime: now.addingTimeInterval(-7200), endTime: now.addingTimeInterval(-3600), isCompleted: true),
+            (
+                startTime: now.addingTimeInterval(-7200), endTime: now.addingTimeInterval(-3600),
+                isCompleted: true
+            ),
             (startTime: now.addingTimeInterval(-3600), endTime: now, isCompleted: false),
         ]
         let listening: [(startedAt: Date, playbackDuration: TimeInterval)] = []
