@@ -109,6 +109,18 @@ struct EchoCoreTests {
         #expect(bookmark.bookmarkImageFileName == nil)
     }
 
+    @Test func bookmarkCodableRoundTripPreservesLocation() throws {
+        let original = Bookmark(
+            timestamp: 10, latitude: 51.5, longitude: -0.1, placeName: "London")
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Bookmark.self, from: data)
+
+        #expect(decoded.latitude == 51.5)
+        #expect(decoded.longitude == -0.1)
+        #expect(decoded.placeName == "London")
+    }
+
     @Test func bookmarkImageURLPrefersAudiobookDirectory() throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -318,7 +330,9 @@ struct EchoCoreTests {
 
         let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
-        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            settings.studyGlobalNewChapterLimit
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
 
         settings.studyGlobalNewChapterLimit = 4
         #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 4)
@@ -328,8 +342,12 @@ struct EchoCoreTests {
         #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 1)
 
         settings.studyGlobalNewChapterLimit = 99
-        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
-        #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            settings.studyGlobalNewChapterLimit
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            defaults.integer(forKey: "studyGlobalNewChapterLimit")
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
     }
 
     @Test func settingsPersistsAndReloadsReaderDefaults() {
@@ -367,10 +385,12 @@ struct EchoCoreTests {
     }
 
     @Test func settingsReaderDefaultsUseObservedStoredProperties() throws {
-        let source = try Self.source(pathComponents: "EchoCore", "Services", "SettingsManager.swift")
+        let source = try Self.source(
+            pathComponents: "EchoCore", "Services", "SettingsManager.swift")
 
         #expect(source.contains("var readerFontSize: Double {"))
-        #expect(source.contains("didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }"))
+        #expect(
+            source.contains("didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }"))
         #expect(!source.contains("get { defaults.double(forKey: Keys.readerFontSize)"))
         #expect(!source.contains("get { defaults.string(forKey: Keys.readerCardTint)"))
     }

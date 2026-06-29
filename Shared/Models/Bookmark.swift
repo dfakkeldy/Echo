@@ -96,6 +96,12 @@ nonisolated struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         bookmarkImageFileName = try? c.decode(String.self, forKey: .bookmarkImageFileName)
         pdfViewState = try? c.decode(PDFViewState.self, forKey: .pdfViewState)
         isEnabled = (try? c.decode(Bool.self, forKey: .isEnabled)) ?? true
+        // The synthesized encoder writes these (they are in CodingKeys); the
+        // hand-written decoder must read them too or located bookmarks lose
+        // their coordinates on every JSON sidecar round-trip.
+        latitude = try? c.decode(Double.self, forKey: .latitude)
+        longitude = try? c.decode(Double.self, forKey: .longitude)
+        placeName = try? c.decode(String.self, forKey: .placeName)
     }
 
     func voiceMemoURL(in folderURL: URL?) -> URL? {
