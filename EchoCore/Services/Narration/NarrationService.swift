@@ -505,9 +505,17 @@ final class NarrationService {
 
     /// True for an error that means a single sub-chunk overran the model's input
     /// length cap, so the caller should skip it rather than abort the chapter.
-    /// The ONNX engine signals this via `NarrationError.lengthCapExceeded`.
+    /// The ONNX engine usually signals this via `NarrationError.lengthCapExceeded`.
+    /// Some malformed long fragments surface directly from ONNX Runtime as an
+    /// Expand-node shape error; treat that the same way so one bad fragment does
+    /// not discard an otherwise rendered chapter.
     private static func isLengthCapError(_ error: Error) -> Bool {
         if case NarrationError.lengthCapExceeded = error { return true }
+        let nsError = error as NSError
+        let message = "\(nsError.domain) \(nsError.localizedDescription) \(String(describing: error))"
+        if message.localizedCaseInsensitiveContains("invalid expand shape") {
+            return true
+        }
         return false
     }
 }

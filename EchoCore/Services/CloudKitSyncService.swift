@@ -4,6 +4,9 @@ import CryptoKit
 import Foundation
 import GRDB
 import os.log
+#if os(macOS) && canImport(Security)
+import Security
+#endif
 
 /// Syncs community-contributed alignment anchors via CloudKit.
 ///
@@ -14,8 +17,14 @@ import os.log
 /// merging or importing.
 @MainActor
 final class CloudKitSyncService {
+    private nonisolated static let containerIdentifier = "iCloud.com.echo.audiobooks"
+    private nonisolated static let containerIdentifiersEntitlement =
+        "com.apple.developer.icloud-container-identifiers"
+    private nonisolated static let iCloudServicesEntitlement =
+        "com.apple.developer.icloud-services"
+
     private let logger = Logger(category: "CloudKitSyncService")
-    private let container = CKContainer(identifier: "iCloud.com.echo.audiobooks")
+    private let container: CKContainer
     private var publicDatabase: CKDatabase { container.publicCloudDatabase }
 
     // Dependencies
@@ -23,6 +32,7 @@ final class CloudKitSyncService {
 
     init(db: DatabaseWriter) {
         self.db = db
+        self.container = CKContainer(identifier: Self.containerIdentifier)
     }
 
     // MARK: - Constants
@@ -33,6 +43,48 @@ final class CloudKitSyncService {
     nonisolated static let uploadThrottleInterval: TimeInterval = 12 * 60
     private nonisolated static let uploadDefaultsPrefix =
         "CloudKitSyncService.lastUpload.SharedAlignment"
+
+    nonisolated static func canAccessConfiguredContainer() -> Bool {
+#if targetEnvironment(simulator)
+        return false
+#elseif os(macOS) && canImport(Security)
+        guard
+            entitlementContains(
+                containerIdentifiersEntitlement,
+                expectedValue: containerIdentifier),
+            entitlementContains(iCloudServicesEntitlement, expectedValue: "CloudKit")
+        else {
+            return false
+        }
+        return true
+#elseif os(iOS)
+        return true
+#else
+        return false
+#endif
+    }
+
+#if os(macOS) && canImport(Security)
+    private nonisolated static func entitlementContains(
+        _ entitlement: String,
+        expectedValue: String
+    ) -> Bool {
+        guard
+            let task = SecTaskCreateFromSelf(nil),
+            let value = SecTaskCopyValueForEntitlement(task, entitlement as CFString, nil)
+        else {
+            return false
+        }
+
+        if let values = value as? [String] {
+            return values.contains(expectedValue)
+        }
+        if let value = value as? String {
+            return value == expectedValue
+        }
+        return false
+    }
+#endif
 
     /// Generates a deterministic, collision-resistant record name from audiobook metadata.
     /// Uses SHA-256 so the same title+author+duration produces the same ID across devices and launches.

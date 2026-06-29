@@ -79,17 +79,23 @@ enum DocumentImportFinalizer {
                     "Failed to ingest alignment.json sidecar: \(error.localizedDescription)")
             }
         } else if let duration {
-            // Try CloudKit sync
-            let syncService = CloudKitSyncService(db: databaseService.writer)
+            var downloadedAnchors: [AlignmentAnchorRecord] = []
             let folderURL = fileURL.deletingLastPathComponent()
             let record = try? AudiobookDAO(db: databaseService.writer).get(audiobookID)
             let (title, author) = EPUBAutoImportScanner.anchorLookupMetadata(
                 folderURL: folderURL, record: record)
 
-            let downloadedAnchors =
-                (try? await syncService.downloadAnchors(
-                    audiobookID: audiobookID, title: title, author: author,
-                    duration: duration)) ?? []
+            if CloudKitSyncService.canAccessConfiguredContainer() {
+                let syncService = CloudKitSyncService(db: databaseService.writer)
+                downloadedAnchors =
+                    (try? await syncService.downloadAnchors(
+                        audiobookID: audiobookID, title: title, author: author,
+                        duration: duration)) ?? []
+            } else {
+                logger.info(
+                    "Skipped CloudKit anchor lookup because the app is not entitled for the configured CloudKit container."
+                )
+            }
 
             if !downloadedAnchors.isEmpty {
                 try? anchorDAO.deleteAll(for: audiobookID)

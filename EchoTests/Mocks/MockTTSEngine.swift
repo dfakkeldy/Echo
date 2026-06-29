@@ -15,12 +15,24 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     /// Sub-chunk text that should raise the skippable length-cap error, so tests
     /// can verify a single over-long sub-chunk is skipped without aborting.
     var lengthCapOnText: String?
+    /// Sub-chunk text that should mimic ONNX Runtime's invalid Expand-shape
+    /// failure, which is another skippable over-long-fragment signal.
+    var invalidExpandShapeOnText: String?
 
     init(secondsPerChar: Double = 0.1) { self.secondsPerChar = secondsPerChar }
 
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
         calls.append((text, voice))
         if let cap = lengthCapOnText, text == cap { throw NarrationError.lengthCapExceeded }
+        if let bad = invalidExpandShapeOnText, text == bad {
+            throw NSError(
+                domain: "onnxruntime",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Non-zero status code returned while running Expand node. Status Message: invalid expand shape"
+                ])
+        }
         if let bad = throwOnText, text == bad { throw NarrationError.synthesisFailed }
         let duration = Double(text.count) * secondsPerChar
         return TTSChunk(
