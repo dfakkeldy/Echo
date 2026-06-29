@@ -315,6 +315,15 @@ final public class EnglishG2P {
       nsString.substring(with: match.range)
     }
   }
+
+  private func canCarryPendingCurrency(_ text: String) -> Bool {
+    let characters = Array(text)
+    guard characters.contains(where: { $0.isNumber }) else { return false }
+
+    return characters.enumerated().allSatisfy { index, character in
+      character.isNumber || character == "," || character == "." || (index == 0 && character == "-")
+    }
+  }
   
   func retokenize(_ tokens: [MToken]) -> [Any] {
     var words: [Any] = []
@@ -362,11 +371,11 @@ final public class EnglishG2P {
             token.phonemes = token.text.filter { EnglishG2P.punctuactions.contains($0) }
           }
           token.`_`.rating = 4
-        } else if currency != nil {
-          if token.tag != .number {
+        } else if let pendingCurrency = currency {
+          if canCarryPendingCurrency(token.text) {
+            token.`_`.currency = pendingCurrency
+          } else {
             currency = nil
-          } else if j + 1 == subtokens.count && (i + 1 == tokens.count || tokens[i + 1].tag != .number) {
-            token.`_`.currency = currency
           }
         } else if j > 0 && j < subtokens.count - 1 && token.text == "2" {
           let prev = subtokens[j - 1].text
