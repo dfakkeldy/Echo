@@ -415,89 +415,97 @@ final class SettingsManager {
         let targetDomain = appGroupDefaultsDomainName.flatMap {
             appGroupDefaults.persistentDomain(forName: $0)
         }
-        let didMigrate = (targetDomain?[migrationKey] as? Bool) ?? false
+        func sourceValue(for key: String) -> Any? {
+            defaults.object(forKey: key) ?? sourceDomain?[key]
+        }
+
+        func appGroupValue(for key: String) -> Any? {
+            appGroupDefaults.object(forKey: key) ?? targetDomain?[key]
+        }
+
+        let didMigrate = (appGroupDefaults.object(forKey: migrationKey) as? Bool) ?? false
         if isAppGroupAvailable, !didMigrate
         {
             let watchKeys: [(key: String, read: () -> Any?, defaultValue: Any)] = [
-                (Keys.crownAction, { sourceDomain?[Keys.crownAction] }, Defaults.crownAction),
+                (Keys.crownAction, { sourceValue(for: Keys.crownAction) }, Defaults.crownAction),
                 (
                     Keys.watchPage1,
-                    { sourceDomain?[Keys.watchPage1] },
+                    { sourceValue(for: Keys.watchPage1) },
                     (try? JSONEncoder().encode(Defaults.watchPage1)) ?? Data()
                 ),
                 (
                     Keys.watchPage2,
-                    { sourceDomain?[Keys.watchPage2] },
+                    { sourceValue(for: Keys.watchPage2) },
                     (try? JSONEncoder().encode(Defaults.watchPage2)) ?? Data()
                 ),
                 (
                     Keys.watchPage3,
-                    { sourceDomain?[Keys.watchPage3] },
+                    { sourceValue(for: Keys.watchPage3) },
                     (try? JSONEncoder().encode(Defaults.watchPage3)) ?? Data()
                 ),
                 (
                     Keys.watchPage4,
-                    { sourceDomain?[Keys.watchPage4] },
+                    { sourceValue(for: Keys.watchPage4) },
                     (try? JSONEncoder().encode(Defaults.watchPage4)) ?? Data()
                 ),
                 (
                     Keys.watchPage5,
-                    { sourceDomain?[Keys.watchPage5] },
+                    { sourceValue(for: Keys.watchPage5) },
                     (try? JSONEncoder().encode(Defaults.watchPage5)) ?? Data()
                 ),
                 (
                     Keys.linearBarMode,
-                    { sourceDomain?[Keys.linearBarMode] },
+                    { sourceValue(for: Keys.linearBarMode) },
                     Defaults.linearBarMode
                 ),
                 (
                     Keys.linearBarHidden,
-                    { sourceDomain?[Keys.linearBarHidden] },
+                    { sourceValue(for: Keys.linearBarHidden) },
                     Defaults.linearBarHidden
                 ),
                 (
                     Keys.circularRingMode,
-                    { sourceDomain?[Keys.circularRingMode] },
+                    { sourceValue(for: Keys.circularRingMode) },
                     Defaults.circularRingMode
                 ),
                 (
                     Keys.circularRingHidden,
-                    { sourceDomain?[Keys.circularRingHidden] },
+                    { sourceValue(for: Keys.circularRingHidden) },
                     Defaults.circularRingHidden
                 ),
                 (
                     Keys.watchArtworkLayout,
-                    { sourceDomain?[Keys.watchArtworkLayout] },
+                    { sourceValue(for: Keys.watchArtworkLayout) },
                     Defaults.watchArtworkLayout
                 ),
                 (
                     Keys.watchBackgroundStyle,
-                    { sourceDomain?[Keys.watchBackgroundStyle] },
+                    { sourceValue(for: Keys.watchBackgroundStyle) },
                     Defaults.watchBackgroundStyle
                 ),
                 (
                     Keys.watchTitleScrollEnabled,
-                    { sourceDomain?[Keys.watchTitleScrollEnabled] },
+                    { sourceValue(for: Keys.watchTitleScrollEnabled) },
                     Defaults.watchTitleScrollEnabled
                 ),
                 (
                     Keys.watchTitleScrollSpeed,
-                    { sourceDomain?[Keys.watchTitleScrollSpeed] },
+                    { sourceValue(for: Keys.watchTitleScrollSpeed) },
                     Defaults.watchTitleScrollSpeed
                 ),
                 (
                     Keys.isHapticFeedbackEnabled,
-                    { sourceDomain?[Keys.isHapticFeedbackEnabled] },
+                    { sourceValue(for: Keys.isHapticFeedbackEnabled) },
                     Defaults.isHapticFeedbackEnabled
                 ),
                 (
                     Keys.truncateChapterNamesEnabled,
-                    { sourceDomain?[Keys.truncateChapterNamesEnabled] },
+                    { sourceValue(for: Keys.truncateChapterNamesEnabled) },
                     Defaults.truncateChapterNamesEnabled
                 ),
                 (
                     Keys.watchQuickBookmarkTimeoutSeconds,
-                    { sourceDomain?[Keys.watchQuickBookmarkTimeoutSeconds] },
+                    { sourceValue(for: Keys.watchQuickBookmarkTimeoutSeconds) },
                     Defaults.watchQuickBookmarkTimeoutSeconds
                 ),
             ]
@@ -505,7 +513,7 @@ final class SettingsManager {
                 if let value = read(),
                    Self.shouldMigrateWatchValue(
                     value,
-                    appGroupValue: targetDomain?[key],
+                    appGroupValue: appGroupValue(for: key),
                     defaultValue: defaultValue
                    )
                 {
@@ -681,9 +689,9 @@ final class SettingsManager {
         appGroupValue: Any?,
         defaultValue: Any
     ) -> Bool {
+        guard !defaultsValue(value, equals: defaultValue) else { return false }
         guard let appGroupValue else { return true }
         return defaultsValue(appGroupValue, equals: defaultValue)
-            && !defaultsValue(value, equals: defaultValue)
     }
 
     private static func defaultsValue(_ lhs: Any, equals rhs: Any) -> Bool {
