@@ -71,6 +71,40 @@ struct Wedge3ClarityOnRampTests {
         #expect(landing.contains("it never copies them"))
     }
 
+    @Test func libraryEmptyStateAdaptsForLargestDynamicType() throws {
+        let landing = try Self.viewSource(named: "Library/LibraryView.swift")
+
+        #expect(
+            landing.contains("LibraryEmptyState"),
+            "The library empty state should own its adaptive layout instead of relying on ContentUnavailableView's fixed composition."
+        )
+        #expect(
+            landing.contains("ScrollView"),
+            "The empty state should scroll when accessibility Dynamic Type makes the title, copy, and actions taller than the viewport."
+        )
+        #expect(
+            landing.contains("dynamicTypeSize.isAccessibilitySize"),
+            "The empty state should branch layout for accessibility content sizes rather than capping Dynamic Type."
+        )
+        #expect(
+            landing.contains("VStackLayout(spacing: 12)"),
+            "The empty-state actions should reflow vertically at accessibility sizes so both buttons remain reachable."
+        )
+        #expect(
+            landing.contains("bottomDockClearance"),
+            "The empty state should reserve bottom clearance for the root-owned bottom dock."
+        )
+        #expect(
+            landing.contains(".lineLimit(nil)")
+                && landing.contains(".fixedSize(horizontal: false, vertical: true)"),
+            "Empty-state text should grow vertically instead of being clipped or forced onto one line."
+        )
+        #expect(
+            landing.contains(".frame(minHeight: 44)"),
+            "The empty-state actions should keep at least 44pt touch targets."
+        )
+    }
+
     private static func viewSource(named fileName: String) throws -> String {
         try Self.source(directoryName: "EchoCore/Views", fileName: fileName)
     }

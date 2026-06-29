@@ -112,16 +112,87 @@ struct LibraryView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("Your Library", systemImage: "books.vertical")
-        } description: {
-            Text("Add a folder of audiobooks to build your shelf. Echo plays your files where they live; it never copies them.")
-        } actions: {
-            Button("Open a Folder", systemImage: "folder", action: onAddFolder)
-                .buttonStyle(.borderedProminent)
-            Button("Connect a Server", systemImage: "externaldrive.connected.to.line.below",
-                   action: onConnectServer)
+        LibraryEmptyState(
+            onAddFolder: onAddFolder,
+            onConnectServer: onConnectServer
+        )
+    }
+}
+
+private struct LibraryEmptyState: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private let onAddFolder: () -> Void
+    private let onConnectServer: () -> Void
+
+    init(
+        onAddFolder: @escaping () -> Void,
+        onConnectServer: @escaping () -> Void
+    ) {
+        self.onAddFolder = onAddFolder
+        self.onConnectServer = onConnectServer
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Image(systemName: "books.vertical")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                Text("Your Library")
+                    .font(.title)
+                    .bold()
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+
+                Text(
+                    "Add a folder of audiobooks to build your shelf. Echo plays your files where they live; it never copies them."
+                )
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+
+                actionLayout {
+                    Button("Open a Folder", systemImage: "folder", action: onAddFolder)
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+
+                    Button(
+                        "Connect a Server",
+                        systemImage: "externaldrive.connected.to.line.below",
+                        action: onConnectServer
+                    )
+                    .buttonStyle(.bordered)
+                    .frame(minHeight: 44)
+                }
+                .controlSize(dynamicTypeSize.isAccessibilitySize ? .large : .regular)
+                .padding(.top, 6)
+            }
+            .frame(maxWidth: 430)
+            .padding(.horizontal)
+            .padding(.top, dynamicTypeSize.isAccessibilitySize ? 32 : 96)
+            .padding(.bottom, bottomDockClearance)
+            .frame(maxWidth: .infinity)
         }
+        .scrollIndicators(.hidden)
+    }
+
+    private var actionLayout: AnyLayout {
+        if dynamicTypeSize.isAccessibilitySize {
+            AnyLayout(VStackLayout(spacing: 12))
+        } else {
+            AnyLayout(HStackLayout(spacing: 12))
+        }
+    }
+
+    private var bottomDockClearance: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 180 : 120
     }
 }
 #endif
