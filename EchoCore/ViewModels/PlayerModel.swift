@@ -251,11 +251,9 @@ final class PlayerModel {
     var durationText: String { state.durationText }
     var durationSeconds: Double? { state.durationSeconds }
     var currentPlaybackTime: TimeInterval { audioEngine.currentTime }
-    /// Total playback position accounting for multi-M4B cumulative track offsets.
-    /// For single-M4B books, returns currentPlaybackTime directly.
+    /// Total playback position on the book-absolute time base.
     var cumulativePlaybackTime: TimeInterval {
-        guard isMultiM4B else { return currentPlaybackTime }
-        return state.currentBookStartOffset + currentPlaybackTime
+        state.bookTime(forCurrentTrackOffset: currentPlaybackTime)
     }
     /// Coarse 0–100 book progress that changes ~1 Hz, not per tick (§7.3).
     var bookProgressPercent: Int { state.bookProgressPercent }
@@ -773,23 +771,46 @@ final class PlayerModel {
                         self.seek(toSeconds: time)
                     }
                 }
-            } else if let folder = self.folderURL?.absoluteString,
-                let progress = self.persistence.getBookProgress(for: folder),
+            } else if let pendingBookTime = self.state.pendingBookTimeSeek,
+                self.state.tracks.indices.contains(self.currentIndex),
+                let offset = self.state.trackOffset(
+                    forBookTime: pendingBookTime,
+                    trackID: self.state.tracks[self.currentIndex].id),
+                offset <= seconds
+            {
+                self.state.pendingBookTimeSeek = nil
+                self.state.pendingBookTimeSeekSuppressesProgressPush = false
+                Task { @MainActor in self.seek(toSeconds: offset) }
+            } else if let folderURL = self.folderURL,
+                let progress = self.persistence.getBookProgress(
+                    for: folderURL.absoluteString, folderURL: folderURL),
                 self.state.tracks.indices.contains(self.currentIndex),
                 progress.trackId == self.state.tracks[self.currentIndex].id,
-                progress.time > 0, progress.time < seconds
+                progress.time > 0
             {
-                let savedTime = progress.time
-                Task { @MainActor in
-                    self.state.isManualSeeking = true
-                    self.audioEngine.seek(to: savedTime) { [weak self] _ in
-                        self?.state.isManualSeeking = false
-                        self?.chapterLoadingCoordinator.updateCurrentChapterFromPlayerTime()
-                        self?.progressPresenter.updateElapsedTime()
-                        self?.progressPresenter.updateProgress()
-                        if let self, self.isPlaying {
-                            self.audioEngine.playImmediately(atRate: self.speed)
-                            self.playbackController.applySpeedToCurrentItem()
+                let currentTrackID = self.state.tracks[self.currentIndex].id
+                let savedTime =
+                    self.state.trackOffset(forBookTime: progress.time, trackID: currentTrackID)
+                    ?? max(0, progress.time - self.state.currentTrackStartOffset)
+                if self.state.tracks.count > 1, self.state.bookTimeIndex.totalDuration == 0,
+                    savedTime >= seconds
+                {
+                    self.state.pendingBookTimeSeek = progress.time
+                    self.state.pendingBookTimeSeekSuppressesProgressPush = false
+                    return
+                }
+                if savedTime < seconds {
+                    Task { @MainActor in
+                        self.state.isManualSeeking = true
+                        self.audioEngine.seek(to: savedTime) { [weak self] _ in
+                            self?.state.isManualSeeking = false
+                            self?.chapterLoadingCoordinator.updateCurrentChapterFromPlayerTime()
+                            self?.progressPresenter.updateElapsedTime()
+                            self?.progressPresenter.updateProgress()
+                            if let self, self.isPlaying {
+                                self.audioEngine.playImmediately(atRate: self.speed)
+                                self.playbackController.applySpeedToCurrentItem()
+                            }
                         }
                     }
                 }
@@ -839,6 +860,12 @@ final class PlayerModel {
         playerLoadingCoordinator.onConfigureContinuousAlignment = { [weak self] in
             self?.configureContinuousAlignment()
         }
+        playerLoadingCoordinator.onSavedPlaybackProgress = { [weak self] in
+            guard self?.state.pendingBookTimeSeekSuppressesProgressPush != true else {
+                return
+            }
+            self?.maybePushABSProgress(force: true)
+        }
 
         // Wire PlaybackController coordination closures.
         playbackController.coordinator_seekBackwardDuration = { [weak self] in
@@ -880,11 +907,11 @@ final class PlayerModel {
                 .seeked(toPosition: self.audioEngine.currentTime, at: Date()))
         }
         playbackController.coordinator_persistSpeed = { [weak self] key, speed in
-            self?.persistence.saveSpeed(for: key, speed: speed)
+            self?.persistence.saveSpeed(for: key, speed: speed, folderURL: self?.folderURL)
             self?.sessionRecorder?.yield(.speedChanged(newSpeed: Double(speed), at: Date()))
         }
         playbackController.coordinator_persistLoopMode = { [weak self] key, mode in
-            self?.persistence.saveLoopMode(for: key, loopMode: mode)
+            self?.persistence.saveLoopMode(for: key, loopMode: mode, folderURL: self?.folderURL)
         }
         playbackController.coordinator_canBookmarkLoop = { [weak self] in
             self?.canBookmarkLoop ?? false
@@ -910,8 +937,11 @@ final class PlayerModel {
             self?.endBackgroundTask()
         }
         playbackController.coordinator_saveProgress = { [weak self] folder, trackId, time in
-            self?.persistence.saveBookProgress(for: folder, trackId: trackId, time: time)
-            self?.maybePushABSProgress()
+            guard let self else { return }
+            let bookTime = self.state.bookTime(forCurrentTrackOffset: time)
+            self.persistence.saveBookProgress(
+                for: folder, trackId: trackId, time: bookTime, folderURL: self.folderURL)
+            self.maybePushABSProgress()
         }
         playbackController.coordinator_stopSecurityScope = { [weak self] in
             self?.stopCurrentFileSecurityScopeIfNeeded()
@@ -1017,8 +1047,9 @@ final class PlayerModel {
         {
             persistence.saveBookProgress(
                 for: folder, trackId: state.tracks[state.currentIndex].id,
-                time: audioEngine.currentTime, folderURL: state.folderURL)
+                time: cumulativePlaybackTime, folderURL: state.folderURL)
             persistence.savePauseTimestamp(state.pauseTimestamp, for: folder)
+            maybePushABSProgress(force: true)
         }
     }
 
@@ -1086,6 +1117,9 @@ final class PlayerModel {
     ///   - url: The folder or file URL to load.
     ///   - autoplay: Whether to automatically begin playback after loading. Defaults to `true`.
     func loadFolder(_ url: URL, autoplay: Bool = true, persistBookmark: Bool = true) {
+        if audioEngine.isItemLoaded {
+            maybePushABSProgress(force: true)
+        }
         // Stop narrating the previous book before its tracks are replaced, so a
         // stale render can't append chapters onto the newly loaded book, and
         // clear its narration playback state so the new book starts fresh.

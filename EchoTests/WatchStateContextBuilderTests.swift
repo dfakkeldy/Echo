@@ -90,6 +90,21 @@ struct WatchStateContextBuilderTests {
         #expect(ctx["totalBookDuration"] as? Double == 3600)
     }
 
+    @Test("total progress uses supplied book-absolute time before track fallback")
+    func totalProgressUsesBookAbsoluteTime() {
+        var snap = WatchStateSnapshot()
+        snap.currentIndex = 1
+        snap.trackCount = 3
+        snap.progressFraction = 0.25
+        snap.currentPlaybackTime = 150
+        snap.durationSeconds = 300
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["totalProgressFraction"] as? Double == 0.5)
+        #expect(ctx["totalBookDuration"] as? Double == 300)
+    }
+
     @Test("total progress clamps to [0, 1]")
     func totalProgressClamped() {
         var snap = WatchStateSnapshot()

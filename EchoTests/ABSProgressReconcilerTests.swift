@@ -10,6 +10,12 @@ import Testing
                 localTime: 100, localUpdatedAt: 5, remoteTime: nil, remoteUpdatedAt: nil)
                 == .pushLocal)
     }
+    @Test func remoteTimeWithoutTimestampPushesLocal() {
+        #expect(
+            ABSProgressReconciler.decide(
+                localTime: 100, localUpdatedAt: 5, remoteTime: 300, remoteUpdatedAt: nil)
+                == .pushLocal)
+    }
     @Test func remoteNewerAndDifferentSeeksLocal() {
         #expect(
             ABSProgressReconciler.decide(

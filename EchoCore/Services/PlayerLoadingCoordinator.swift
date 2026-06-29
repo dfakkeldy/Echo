@@ -47,6 +47,7 @@ final class PlayerLoadingCoordinator {
     /// stale state bleeding across track boundaries.
     @ObservationIgnored var onResetBookmarkCheckSecond: (() -> Void)?
     @ObservationIgnored var onConfigureContinuousAlignment: (() -> Void)?
+    @ObservationIgnored var onSavedPlaybackProgress: (() -> Void)?
 
     // MARK: - Folder loading
 
@@ -70,9 +71,10 @@ final class PlayerLoadingCoordinator {
             let audioEngine
         {
             let oldTrackId = state.tracks[state.currentIndex].id
-            let oldTime = audioEngine.currentTime
+            let oldTime = state.bookTime(forCurrentTrackOffset: audioEngine.currentTime)
             persistence.saveBookProgress(
                 for: oldFolderKey, trackId: oldTrackId, time: oldTime, folderURL: state.folderURL)
+            onSavedPlaybackProgress?()
         }
 
         playbackController.stop()
@@ -84,6 +86,9 @@ final class PlayerLoadingCoordinator {
 
         let isDir = loadTracksAndDetectDirectory(
             url: url, state: state, playlistManager: playlistManager)
+        state.bookTimeIndex = .empty
+        state.pendingBookTimeSeek = nil
+        state.pendingBookTimeSeekSuppressesProgressPush = false
 
         // Normalize folderURL to always be a directory. When the user opens a
         // single file (e.g. an M4B), use its parent directory as the canonical
@@ -177,6 +182,9 @@ final class PlayerLoadingCoordinator {
         state.m4bBooks = []
         state.aggregatedChapters = []
         state.totalBookDuration = 0
+        state.bookTimeIndex = .empty
+        state.pendingBookTimeSeek = nil
+        state.pendingBookTimeSeekSuppressesProgressPush = false
         state.durationSeconds = nil
         state.thumbnailImage = nil
         state.transcription = []
@@ -286,6 +294,18 @@ final class PlayerLoadingCoordinator {
             state.m4bBooks = parsed.books
             state.aggregatedChapters = parsed.aggregatedChapters
             state.totalBookDuration = parsed.totalDuration
+            state.bookTimeIndex = PlaybackBookTimeIndex(tracks: parsed.books.compactMap { book in
+                guard let trackIndex = state.tracks.firstIndex(where: { $0.url == book.url }) else {
+                    return nil
+                }
+                return PlaybackBookTimeIndex.TrackTime(
+                    trackID: state.tracks[trackIndex].id,
+                    trackURL: book.url,
+                    trackIndex: trackIndex,
+                    startTime: book.cumulativeStartOffset,
+                    duration: book.duration)
+            })
+            applyPendingBookTimeSeekIfPossible(state: state)
 
             let chapters = parsed.aggregatedChapters.map { agg in
                 Chapter(
@@ -307,9 +327,13 @@ final class PlayerLoadingCoordinator {
     ) {
         Task {
             var allChapters: [Chapter] = []
+            var durations: [TimeInterval] = []
             for track in tracks {
                 let asset = AVURLAsset(url: track.url)
                 let parsed = await ChapterService.parseChapters(from: asset)
+                let loadedDuration = (try? await asset.load(.duration))?.seconds ?? 0
+                let duration = loadedDuration.isFinite ? loadedDuration : 0
+                durations.append(duration)
                 if parsed.count >= 2 {
                     for ch in parsed {
                         allChapters.append(
@@ -319,10 +343,6 @@ final class PlayerLoadingCoordinator {
                                 isEnabled: ch.isEnabled))
                     }
                 } else {
-                    let ext = track.url.pathExtension.lowercased()
-                    let duration: TimeInterval =
-                        (ext == "m4b" || ext == "m4a")
-                        ? ((try? await asset.load(.duration))?.seconds ?? 0) : 0
                     allChapters.append(
                         Chapter(
                             index: allChapters.count, title: track.title, startSeconds: 0,
@@ -330,6 +350,9 @@ final class PlayerLoadingCoordinator {
                 }
             }
             guard !allChapters.isEmpty, !tracks.isEmpty else { return }
+            state.bookTimeIndex = PlaybackBookTimeIndex(
+                orderedTracks: zip(tracks, durations).map { ($0.0, $0.1) })
+            applyPendingBookTimeSeekIfPossible(state: state)
             await timelinePersistence.ingestTimelineItems(
                 audiobookID: folderURL.absoluteString, audioURL: tracks[0].url,
                 chapters: allChapters,
@@ -339,13 +362,41 @@ final class PlayerLoadingCoordinator {
         }
     }
 
+    private func applyPendingBookTimeSeekIfPossible(state: PlaybackState) {
+        guard let pending = state.pendingBookTimeSeek,
+            state.tracks.indices.contains(state.currentIndex),
+            let resolved = state.bookTimeIndex.resolve(bookTime: pending)
+        else { return }
+
+        if resolved.trackID != state.tracks[state.currentIndex].id {
+            prepareToPlay(index: resolved.trackIndex, autoplay: state.isPlaying)
+            return
+        }
+
+        guard let audioEngine, audioEngine.isItemLoaded else { return }
+        state.pendingBookTimeSeek = nil
+        state.pendingBookTimeSeekSuppressesProgressPush = false
+        state.isManualSeeking = true
+        audioEngine.seek(to: resolved.offset) { [weak self] _ in
+            state.isManualSeeking = false
+            self?.chapterLoadingCoordinator?.updateCurrentChapterFromPlayerTime()
+            self?.progressPresenter?.updateElapsedTime()
+            self?.progressPresenter?.updateProgress()
+            if state.isPlaying {
+                self?.audioEngine?.playImmediately(atRate: self?.playbackController?.speed ?? 1.0)
+                self?.playbackController?.applySpeedToCurrentItem()
+            }
+        }
+    }
+
     /// Restores the last-played track index, or defaults to 0.
     private func restoreTrackPosition(
         folderURL: URL, state: PlaybackState, persistence: Persistence, autoplay: Bool
     ) {
         if let folderKey = state.folderURL?.absoluteString {
             state.pauseTimestamp = persistence.getPauseTimestamp(for: folderKey)
-            if let savedTrackId = persistence.getLastTrack(for: folderKey),
+            if let savedTrackId = persistence.getLastTrack(
+                for: folderKey, folderURL: state.folderURL),
                 let idx = state.tracks.firstIndex(where: { $0.id == savedTrackId })
             {
                 state.currentIndex = idx
@@ -430,11 +481,12 @@ final class PlayerLoadingCoordinator {
             state.tracks.indices.contains(state.currentIndex),
             audioEngine.isItemLoaded
         else { return }
-        let time = audioEngine.currentTime
+        let time = state.bookTime(forCurrentTrackOffset: audioEngine.currentTime)
         guard time > 0 else { return }
         persistence.saveBookProgress(
             for: folder, trackId: state.tracks[state.currentIndex].id, time: time,
             folderURL: state.folderURL)
+        onSavedPlaybackProgress?()
     }
 
     private func configureTrackState(
@@ -470,8 +522,9 @@ final class PlayerLoadingCoordinator {
         audioEngine.setSpeed(playbackController.speed)
 
         // Multi-M4B: load the correct book's chapter list and duration.
-        if state.isMultiM4B, state.m4bBooks.indices.contains(index) {
-            let book = state.m4bBooks[index]
+        if state.isMultiM4B,
+            let book = state.m4bBooks.first(where: { $0.url == state.tracks[index].url })
+        {
             state.chapters = book.chapters
             state.durationSeconds = book.duration
             state.totalBookDuration = state.m4bBooks.reduce(0) { $0 + $1.duration }

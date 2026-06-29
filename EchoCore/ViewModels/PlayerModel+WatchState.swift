@@ -24,13 +24,14 @@ extension PlayerModel {
         // Playback state
         s.isPlaying = isPlaying
         s.progressFraction = progressFraction
-        s.currentPlaybackTime = currentPlaybackTime
+        s.currentPlaybackTime = cumulativePlaybackTime
         s.currentIndex = currentIndex
         s.trackCount = tracks.count
         if tracks.indices.contains(currentIndex) {
             s.currentTrackId = tracks[currentIndex].id
         }
-        s.durationSeconds = durationSeconds
+        let bookDuration = state.effectiveBookDuration
+        s.durationSeconds = bookDuration > 0 ? bookDuration : durationSeconds
 
         // Display title
         s.chapterCount = chapters.count

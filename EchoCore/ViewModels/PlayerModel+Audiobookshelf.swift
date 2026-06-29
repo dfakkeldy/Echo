@@ -231,17 +231,39 @@ extension PlayerModel {
                 remoteUpdatedAt: remote.lastUpdate.map(Double.init))
             switch decision {
             case .seekLocalTo(let target):
-                // v1: only override-seek single-track books (book time == track time → safe).
-                if self.tracks.count == 1, target >= 0,
-                    target <= (self.durationSeconds ?? .greatestFiniteMagnitude)
-                {
-                    await MainActor.run { self.seek(toSeconds: target) }
+                await MainActor.run {
+                    self.seekToBookTimeFromABS(target)
                 }
             case .pushLocal:
                 self.maybePushABSProgress(force: true)
             case .noop:
                 break
             }
+        }
+    }
+
+    private func seekToBookTimeFromABS(_ target: Double) {
+        guard target >= 0 else { return }
+        if let resolved = state.bookTimeIndex.resolve(bookTime: target) {
+            if resolved.trackIndex == currentIndex {
+                seek(toSeconds: resolved.offset)
+            } else if tracks.indices.contains(resolved.trackIndex) {
+                state.pendingBookTimeSeek = target
+                state.pendingBookTimeSeekSuppressesProgressPush = true
+                playerLoadingCoordinator.prepareToPlay(
+                    index: resolved.trackIndex, autoplay: isPlaying)
+            }
+            return
+        }
+
+        if state.shouldDeferBookTimeSeek(target) {
+            state.pendingBookTimeSeek = target
+            state.pendingBookTimeSeekSuppressesProgressPush = true
+            return
+        }
+
+        if tracks.count == 1, target <= (durationSeconds ?? .greatestFiniteMagnitude) {
+            seek(toSeconds: target)
         }
     }
 
