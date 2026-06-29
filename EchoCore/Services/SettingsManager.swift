@@ -400,60 +400,130 @@ final class SettingsManager {
                 return UserDefaults(suiteName: "group.com.echo.audiobooks.fallback") ?? .standard
             }
             return d
-        }()
+        }(),
+        defaultsDomainName: String? = Bundle.main.bundleIdentifier,
+        appGroupDefaultsDomainName: String? = "group.com.echo.audiobooks"
     ) {
         self.defaults = defaults
         self.appGroupDefaults = appGroupDefaults
-        self.isAppGroupAvailable = appGroupDefaults != defaults
-
-        Self.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        self.isAppGroupAvailable = appGroupDefaults !== defaults
 
         // One-time migration: copy watch-facing settings from standard defaults
         // to the App Group suite so the Watch and Widget can read them directly.
-        if isAppGroupAvailable,
-            !appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2")
+        let migrationKey = "didMigrateWatchSettingsToAppGroup_v2"
+        let sourceDomain = defaultsDomainName.flatMap { defaults.persistentDomain(forName: $0) }
+        let targetDomain = appGroupDefaultsDomainName.flatMap {
+            appGroupDefaults.persistentDomain(forName: $0)
+        }
+        func sourceValue(for key: String) -> Any? {
+            defaults.object(forKey: key) ?? sourceDomain?[key]
+        }
+
+        func appGroupValue(for key: String) -> Any? {
+            appGroupDefaults.object(forKey: key) ?? targetDomain?[key]
+        }
+
+        let didMigrate = (appGroupDefaults.object(forKey: migrationKey) as? Bool) ?? false
+        if isAppGroupAvailable, !didMigrate
         {
-            let watchKeys: [(String, () -> Any?)] = [
-                (Keys.crownAction, { defaults.object(forKey: Keys.crownAction) }),
-                (Keys.watchPage1, { defaults.object(forKey: Keys.watchPage1) }),
-                (Keys.watchPage2, { defaults.object(forKey: Keys.watchPage2) }),
-                (Keys.watchPage3, { defaults.object(forKey: Keys.watchPage3) }),
-                (Keys.watchPage4, { defaults.object(forKey: Keys.watchPage4) }),
-                (Keys.watchPage5, { defaults.object(forKey: Keys.watchPage5) }),
-                (Keys.linearBarMode, { defaults.object(forKey: Keys.linearBarMode) }),
-                (Keys.linearBarHidden, { defaults.object(forKey: Keys.linearBarHidden) }),
-                (Keys.circularRingMode, { defaults.object(forKey: Keys.circularRingMode) }),
-                (Keys.circularRingHidden, { defaults.object(forKey: Keys.circularRingHidden) }),
-                (Keys.watchArtworkLayout, { defaults.object(forKey: Keys.watchArtworkLayout) }),
-                (Keys.watchBackgroundStyle, { defaults.object(forKey: Keys.watchBackgroundStyle) }),
+            let watchKeys: [(key: String, read: () -> Any?, defaultValue: Any)] = [
+                (Keys.crownAction, { sourceValue(for: Keys.crownAction) }, Defaults.crownAction),
+                (
+                    Keys.watchPage1,
+                    { sourceValue(for: Keys.watchPage1) },
+                    (try? JSONEncoder().encode(Defaults.watchPage1)) ?? Data()
+                ),
+                (
+                    Keys.watchPage2,
+                    { sourceValue(for: Keys.watchPage2) },
+                    (try? JSONEncoder().encode(Defaults.watchPage2)) ?? Data()
+                ),
+                (
+                    Keys.watchPage3,
+                    { sourceValue(for: Keys.watchPage3) },
+                    (try? JSONEncoder().encode(Defaults.watchPage3)) ?? Data()
+                ),
+                (
+                    Keys.watchPage4,
+                    { sourceValue(for: Keys.watchPage4) },
+                    (try? JSONEncoder().encode(Defaults.watchPage4)) ?? Data()
+                ),
+                (
+                    Keys.watchPage5,
+                    { sourceValue(for: Keys.watchPage5) },
+                    (try? JSONEncoder().encode(Defaults.watchPage5)) ?? Data()
+                ),
+                (
+                    Keys.linearBarMode,
+                    { sourceValue(for: Keys.linearBarMode) },
+                    Defaults.linearBarMode
+                ),
+                (
+                    Keys.linearBarHidden,
+                    { sourceValue(for: Keys.linearBarHidden) },
+                    Defaults.linearBarHidden
+                ),
+                (
+                    Keys.circularRingMode,
+                    { sourceValue(for: Keys.circularRingMode) },
+                    Defaults.circularRingMode
+                ),
+                (
+                    Keys.circularRingHidden,
+                    { sourceValue(for: Keys.circularRingHidden) },
+                    Defaults.circularRingHidden
+                ),
+                (
+                    Keys.watchArtworkLayout,
+                    { sourceValue(for: Keys.watchArtworkLayout) },
+                    Defaults.watchArtworkLayout
+                ),
+                (
+                    Keys.watchBackgroundStyle,
+                    { sourceValue(for: Keys.watchBackgroundStyle) },
+                    Defaults.watchBackgroundStyle
+                ),
                 (
                     Keys.watchTitleScrollEnabled,
-                    { defaults.object(forKey: Keys.watchTitleScrollEnabled) }
+                    { sourceValue(for: Keys.watchTitleScrollEnabled) },
+                    Defaults.watchTitleScrollEnabled
                 ),
                 (
                     Keys.watchTitleScrollSpeed,
-                    { defaults.object(forKey: Keys.watchTitleScrollSpeed) }
+                    { sourceValue(for: Keys.watchTitleScrollSpeed) },
+                    Defaults.watchTitleScrollSpeed
                 ),
                 (
                     Keys.isHapticFeedbackEnabled,
-                    { defaults.object(forKey: Keys.isHapticFeedbackEnabled) }
+                    { sourceValue(for: Keys.isHapticFeedbackEnabled) },
+                    Defaults.isHapticFeedbackEnabled
                 ),
                 (
                     Keys.truncateChapterNamesEnabled,
-                    { defaults.object(forKey: Keys.truncateChapterNamesEnabled) }
+                    { sourceValue(for: Keys.truncateChapterNamesEnabled) },
+                    Defaults.truncateChapterNamesEnabled
                 ),
                 (
                     Keys.watchQuickBookmarkTimeoutSeconds,
-                    { defaults.object(forKey: Keys.watchQuickBookmarkTimeoutSeconds) }
+                    { sourceValue(for: Keys.watchQuickBookmarkTimeoutSeconds) },
+                    Defaults.watchQuickBookmarkTimeoutSeconds
                 ),
             ]
-            for (key, read) in watchKeys {
-                if appGroupDefaults.object(forKey: key) == nil, let value = read() {
+            for (key, read, defaultValue) in watchKeys {
+                if let value = read(),
+                   Self.shouldMigrateWatchValue(
+                    value,
+                    appGroupValue: appGroupValue(for: key),
+                    defaultValue: defaultValue
+                   )
+                {
                     appGroupDefaults.set(value, forKey: key)
                 }
             }
-            appGroupDefaults.set(true, forKey: "didMigrateWatchSettingsToAppGroup_v2")
+            appGroupDefaults.set(true, forKey: migrationKey)
         }
+
+        Self.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
         if defaults.object(forKey: "isDarkMode") != nil {
             let dark = defaults.bool(forKey: "isDarkMode")
@@ -612,6 +682,29 @@ final class SettingsManager {
         chimeVolume = defaults.object(forKey: Keys.chimeVolume) as? Double ?? Defaults.chimeVolume
         soundscapeVolume =
             defaults.object(forKey: Keys.soundscapeVolume) as? Float ?? Defaults.soundscapeVolume
+    }
+
+    private static func shouldMigrateWatchValue(
+        _ value: Any,
+        appGroupValue: Any?,
+        defaultValue: Any
+    ) -> Bool {
+        guard !defaultsValue(value, equals: defaultValue) else { return false }
+        guard let appGroupValue else { return true }
+        return defaultsValue(appGroupValue, equals: defaultValue)
+    }
+
+    private static func defaultsValue(_ lhs: Any, equals rhs: Any) -> Bool {
+        switch (lhs, rhs) {
+        case let (lhs as Data, rhs as Data):
+            lhs == rhs
+        case let (lhs as String, rhs as String):
+            lhs == rhs
+        case let (lhs as NSNumber, rhs as NSNumber):
+            lhs == rhs
+        default:
+            String(describing: lhs) == String(describing: rhs)
+        }
     }
 
     static func registerDefaults(

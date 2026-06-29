@@ -28,14 +28,16 @@ enum StatsAggregator {
         switch bucket {
         case .all:
             let total = aggregate(segments: segments)
-            return [BucketTotal(
-                id: "all",
-                startDate: segments.map(\.startedAt).min() ?? now,
-                endDate: now,
-                totalPlaybackDuration: total.playback,
-                totalAdjustedDuration: total.adjusted,
-                segmentCount: segments.count
-            )]
+            return [
+                BucketTotal(
+                    id: "all",
+                    startDate: segments.map(\.startedAt).min() ?? now,
+                    endDate: now,
+                    totalPlaybackDuration: total.playback,
+                    totalAdjustedDuration: total.adjusted,
+                    segmentCount: segments.count
+                )
+            ]
 
         case .day, .week, .month, .year:
             var groups: [Date: [ListeningSegment]] = [:]
@@ -292,17 +294,19 @@ enum StatsAggregator {
         segments: [ListeningSegment]
     ) -> [SessionLengthBucket] {
         let boundaries: [(String, Range<TimeInterval>)] = [
-            ("0–5m",   0..<300),
-            ("5–15m",  300..<900),
+            ("0–5m", 0..<300),
+            ("5–15m", 300..<900),
             ("15–30m", 900..<1800),
             ("30–60m", 1800..<3600),
-            ("60m+",   3600..<TimeInterval.greatestFiniteMagnitude),
+            ("60m+", 3600..<TimeInterval.greatestFiniteMagnitude),
         ]
         return boundaries.map { label, range in
             SessionLengthBucket(
                 id: label,
                 range: range,
-                count: segments.filter { range.contains($0.playbackDuration) }.count
+                // Bucket by elapsed listening time, not content seconds, and
+                // clamp pathological negative wall-clock spans into the first bucket.
+                count: segments.filter { range.contains(max(0, $0.wallClockDuration)) }.count
             )
         }
     }
@@ -399,7 +403,9 @@ enum StatsAggregator {
 
     // MARK: - Internal Helpers
 
-    private static func aggregate(segments: [ListeningSegment]) -> (playback: TimeInterval, adjusted: TimeInterval) {
+    private static func aggregate(segments: [ListeningSegment]) -> (
+        playback: TimeInterval, adjusted: TimeInterval
+    ) {
         var playback: TimeInterval = 0
         var adjusted: TimeInterval = 0
         for seg in segments {
@@ -415,21 +421,30 @@ enum StatsAggregator {
 extension Calendar {
     func startOfPeriod(_ bucket: StatsBucket, for date: Date) -> Date {
         switch bucket {
-        case .day:   return startOfDay(for: date)
-        case .week:  return dateComponents([.calendar, .timeZone, .yearForWeekOfYear, .weekOfYear], from: date).date ?? date
-        case .month: return dateComponents([.calendar, .timeZone, .year, .month], from: date).date ?? date
-        case .year:  return dateComponents([.calendar, .timeZone, .year], from: date).date ?? date
-        case .all:   return .distantPast
+        case .day: return startOfDay(for: date)
+        case .week:
+            return dateComponents(
+                [.calendar, .timeZone, .yearForWeekOfYear, .weekOfYear], from: date
+            ).date ?? date
+        case .month:
+            return dateComponents([.calendar, .timeZone, .year, .month], from: date).date ?? date
+        case .year: return dateComponents([.calendar, .timeZone, .year], from: date).date ?? date
+        case .all: return .distantPast
         }
     }
 
     func endOfPeriod(_ bucket: StatsBucket, for date: Date) -> Date {
         switch bucket {
-        case .day:   return self.date(byAdding: .day, value: 1, to: startOfDay(for: date)) ?? date
-        case .week:  return self.date(byAdding: .weekOfYear, value: 1, to: startOfPeriod(.week, for: date)) ?? date
-        case .month: return self.date(byAdding: .month, value: 1, to: startOfPeriod(.month, for: date)) ?? date
-        case .year:  return self.date(byAdding: .year, value: 1, to: startOfPeriod(.year, for: date)) ?? date
-        case .all:   return .distantFuture
+        case .day: return self.date(byAdding: .day, value: 1, to: startOfDay(for: date)) ?? date
+        case .week:
+            return self.date(byAdding: .weekOfYear, value: 1, to: startOfPeriod(.week, for: date))
+                ?? date
+        case .month:
+            return self.date(byAdding: .month, value: 1, to: startOfPeriod(.month, for: date))
+                ?? date
+        case .year:
+            return self.date(byAdding: .year, value: 1, to: startOfPeriod(.year, for: date)) ?? date
+        case .all: return .distantFuture
         }
     }
 }

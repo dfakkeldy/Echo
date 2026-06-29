@@ -3,7 +3,12 @@ import Foundation
 
 /// Shared time formatting utility. Formats a TimeInterval as [H:]MM:SS.
 /// Returns "--:--" for non-finite or NaN values.
-nonisolated public func formatHMS(_ seconds: TimeInterval) -> String {
+///
+/// `nonisolated`: a pure value→String helper (no main-actor state). Under the
+/// Swift 6 `-default-isolation MainActor` mode it would otherwise be inferred
+/// `@MainActor`, which `nonisolated` callers (e.g. `Bookmark.markdownExport` on
+/// the nonisolated `Bookmark`) cannot invoke synchronously.
+public nonisolated func formatHMS(_ seconds: TimeInterval) -> String {
     guard seconds.isFinite, !seconds.isNaN else { return "--:--" }
     let total = max(0, Int(seconds.rounded(.down)))
     let h = total / 3600

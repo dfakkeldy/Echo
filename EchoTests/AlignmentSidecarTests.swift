@@ -67,4 +67,18 @@ import Testing
         #expect(
             AlignmentSidecar.url(forEPUB: epub).lastPathComponent == "My Book.alignment.json")
     }
+
+    @Test func documentFinalizerFindsCaseInsensitiveAlignmentSidecarSibling() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("alignment-case-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let epub = folder.appendingPathComponent("findable.epub")
+        let sidecar = folder.appendingPathComponent("Findable.alignment.json")
+        try Data().write(to: epub)
+        try Data("[]".utf8).write(to: sidecar)
+
+        #expect(DocumentImportFinalizer.alignmentSidecarURL(for: epub) == sidecar)
+    }
 }

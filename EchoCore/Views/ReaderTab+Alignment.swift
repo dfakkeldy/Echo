@@ -317,23 +317,25 @@
 
                 // ── Word actions (prepended when a word is resolved under the finger) ──
                 if let hit = word {
-                    let term = hit.word
-                    if DictionaryLookupPresenter.hasDefinition(for: term) {
+                    let term = DictionaryLookupTerm.sanitized(hit.word)
+                    if !term.isEmpty {
+                        if DictionaryLookupPresenter.hasDefinition(for: term) {
+                            actions.append(
+                                UIAction(
+                                    title: String(localized: "Look Up \u{201C}\(term)\u{201D}"),
+                                    image: UIImage(systemName: "character.book.closed")
+                                ) { _ in
+                                    DictionaryLookupPresenter.present(term: term)
+                                })
+                        }
                         actions.append(
                             UIAction(
-                                title: String(localized: "Look Up \u{201C}\(term)\u{201D}"),
-                                image: UIImage(systemName: "character.book.closed")
-                            ) { _ in
-                                DictionaryLookupPresenter.present(term: term)
+                                title: String(localized: "Save \u{201C}\(term)\u{201D}"),
+                                image: UIImage(systemName: "text.badge.plus")
+                            ) { [weak model] _ in
+                                saveVocabularyWord(hit, in: block, model: model)
                             })
                     }
-                    actions.append(
-                        UIAction(
-                            title: String(localized: "Save \u{201C}\(term)\u{201D}"),
-                            image: UIImage(systemName: "text.badge.plus")
-                        ) { [weak model] _ in
-                            saveVocabularyWord(hit, in: block, model: model)
-                        })
                 }
 
                 let autoAlignAction = UIAction(
@@ -490,6 +492,8 @@
             model: PlayerModel?
         ) {
             guard let model, let db = model.databaseService else { return }
+            let term = DictionaryLookupTerm.sanitized(hit.word)
+            guard !term.isEmpty else { return }
             let audiobookID = folderURL.absoluteString
             // Pro cap (D6)
             guard freeTierGate.canCreateFlashcards(adding: 1) else {
@@ -498,8 +502,10 @@
                 return
             }
             let dao = FlashcardDAO(db: db.writer)
+            // Strip attached punctuation so dedupe and the saved card key on the
+            // bare word (e.g. "world." → "world"); otherwise duplicates slip past.
             // Dedupe (D7): re-surface existing card with a light haptic, no duplicate
-            if (try? dao.vocabularyCard(for: audiobookID, word: hit.word)) != nil {
+            if (try? dao.vocabularyCard(for: audiobookID, word: term)) != nil {
                 Haptic.play(.light)
                 return
             }
@@ -521,7 +527,7 @@
             let card = VocabularyCardBuilder.make(
                 id: UUID().uuidString,
                 audiobookID: audiobookID,
-                word: hit.word,
+                word: term,
                 contextSentence: context.isEmpty ? nil : context,
                 blockID: hit.blockID,
                 audioStart: audioStart,

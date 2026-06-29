@@ -176,8 +176,17 @@ struct ContentView: View {
         .focusable(true, interactions: .edit)
         .focused($isFocused)
         .defaultFocus($isFocused, true)
-        .digitalCrownRotation($crownAccumulator) { event in
-            handleCrownRotation(offset: event.offset)
+        .digitalCrownRotation(
+            $crownAccumulator,
+            from: -1_000,
+            through: 1_000,
+            by: 0.01,
+            sensitivity: .medium,
+            isContinuous: true,
+            isHapticFeedbackEnabled: true
+        )
+        .onChange(of: crownAccumulator) { _, newValue in
+            handleCrownRotation(offset: newValue)
         }
         .sheet(isPresented: $isShowingNewBookmark) {
             NewBookmarkView(viewModel: viewModel)

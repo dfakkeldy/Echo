@@ -18,6 +18,30 @@ private final class AudiolessFixtureLocator {}
 @MainActor
 @Suite struct AudiolessEPUBImportTests {
 
+    @Test func audiolessABSDocumentTitleUsesPersistedMetadata() throws {
+        let db = try DatabaseService(inMemory: ())
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let audiobookID = folder.absoluteString
+        let expectedTitle = "Nonviolent Communication (Summary)"
+        try AudiobookDAO(db: db.writer).save(
+            AudiobookRecord(
+                id: audiobookID,
+                title: expectedTitle,
+                author: "Marshall Rosenberg",
+                duration: 0,
+                fileCount: 0,
+                addedAt: "2026-06-28T00:00:00Z",
+                sourceType: "audiobookshelf",
+                serverID: "server-1",
+                remoteItemID: folder.lastPathComponent))
+
+        let title = PlayerLoadingCoordinator.audiolessDocumentDisplayTitle(
+            folderURL: folder, audiobookID: audiobookID, db: db)
+
+        #expect(title == expectedTitle)
+    }
+
     @Test func epubOnlyFolderImportsAsAudioLessBookWithChapterZeroBlocks() async throws {
         let db = try DatabaseService(inMemory: ())
 

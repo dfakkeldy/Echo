@@ -14,6 +14,7 @@ import AVFoundation
 import AppKit
 import Foundation
 import Observation
+import Security
 import Synchronization
 import UniformTypeIdentifiers
 import os.log
@@ -184,16 +185,30 @@ final class MacPlayerModel {
     private var hasLibraryRootScope = false
     private let defaults = AppGroupDefaults.shared
     private let bookmarksKey = "mac.bookmarks.v1"
-    private let lastFileKey = "mac.lastFileBookmark.v1"
+    nonisolated private static let lastFileKey = "mac.lastFileBookmark.v1"
+    nonisolated private static let lastFileBookmarkAccount = "macLastFileBookmark"
     private let resumeStateKey = MacPlaybackResumeState.storageKey
     private let resumePersistInterval: TimeInterval = 5
     private var lastResumePersistDate: Date?
+    private var didStartLastFileRestore = false
 
     init() {
         migrateFromStandardUserDefaults()
-        restoreLastFile()
         configureBookmarkStore()
         configureSleepTimer()
+    }
+
+    func restoreLastFileAfterLaunch() {
+        guard !didStartLastFileRestore else { return }
+        didStartLastFileRestore = true
+
+        Task { [weak self] in
+            let data = await Task.detached(priority: .utility) {
+                Self.lastFileBookmarkData()
+            }.value
+            guard let data else { return }
+            self?.restoreLastFile(from: data)
+        }
     }
 
     private func configureSleepTimer() {
@@ -216,7 +231,7 @@ final class MacPlayerModel {
     /// suite so bookmark records are visible to iOS/watchOS/widgets.
     ///
     /// Security-scoped last-file bookmarks are migrated directly to Keychain in
-    /// `restoreLastFile()` so they do not get copied into another plaintext
+    /// `restoreLastFileAfterLaunch()` so they do not get copied into another plaintext
     /// defaults store.
     private func migrateFromStandardUserDefaults() {
         let migrationFlag = "mac.migratedToAppGroup.v1"
@@ -526,8 +541,7 @@ final class MacPlayerModel {
         refreshCurrentChapter()
     }
 
-    private func restoreLastFile() {
-        guard let data = lastFileBookmarkData() else { return }
+    private func restoreLastFile(from data: Data) {
         var stale = false
         guard
             let url = try? URL(
@@ -556,22 +570,22 @@ final class MacPlayerModel {
                 os_log(.error, "Mac last-file bookmark Keychain save failed; file must be reselected")
                 return
             }
-            removeLegacyLastFileBookmarkDefaults()
+            Self.removeLegacyLastFileBookmarkDefaults()
         } catch {
             os_log(.error, "Mac last-file bookmark save failed: %{private}@", error.localizedDescription)
         }
     }
 
-    private func lastFileBookmarkData() -> Data? {
-        if let data = KeychainStore.data(for: .macLastFileBookmark) {
+    nonisolated private static func lastFileBookmarkData() -> Data? {
+        if let data = keychainData(account: lastFileBookmarkAccount) {
             return data
         }
-        guard let legacy = defaults.data(forKey: lastFileKey)
+        guard let legacy = AppGroupDefaults.shared.data(forKey: lastFileKey)
             ?? UserDefaults.standard.data(forKey: lastFileKey)
         else {
             return nil
         }
-        guard KeychainStore.set(legacy, for: .macLastFileBookmark) else {
+        guard setKeychainData(legacy, account: lastFileBookmarkAccount) else {
             os_log(.error, "Mac last-file bookmark migration failed; file must be reselected")
             return nil
         }
@@ -579,8 +593,43 @@ final class MacPlayerModel {
         return legacy
     }
 
-    private func removeLegacyLastFileBookmarkDefaults() {
-        defaults.removeObject(forKey: lastFileKey)
+    nonisolated private static func keychainData(
+        account: String, service: String = "com.echo.audiobooks"
+    ) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    nonisolated private static func setKeychainData(
+        _ data: Data, account: String, service: String = "com.echo.audiobooks"
+    ) -> Bool {
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecAttrService as String: service,
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+        guard updateStatus == errSecItemNotFound else { return false }
+        let addQuery = baseQuery.merging(attributes) { _, new in new }
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
+
+    nonisolated private static func removeLegacyLastFileBookmarkDefaults() {
+        AppGroupDefaults.shared.removeObject(forKey: lastFileKey)
         UserDefaults.standard.removeObject(forKey: lastFileKey)
     }
 

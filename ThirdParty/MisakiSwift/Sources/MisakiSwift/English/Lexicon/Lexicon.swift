@@ -293,15 +293,12 @@ final class Lexicon {
   
   /// Spells out acronyms, abbreviations and proper nouns letter-by-letter
   private func getNNP(_ word: String) -> (phoneme: String?, rating: Int?) {
-    let pieces: [String?] = word.compactMap { ch in
-      if ch.isLetter {
-        let s = String(ch).uppercased()
-        if let v = golds[s] as? String { return v }
-      }
-      return nil
+    let pieces: [String?] = word.filter(\.isLetter).map { ch in
+      let s = String(ch).uppercased()
+      return golds[s] as? String
     }
     
-    if pieces.contains(where: { $0 == nil }) { return (nil, nil) }
+    if pieces.isEmpty || pieces.contains(where: { $0 == nil }) { return (nil, nil) }
     
     let joined = Lexicon.applyStress(pieces.compactMap{ $0 }.joined(separator: ""), stress: 0)
     if let joined {

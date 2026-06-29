@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 /// Tier 0 title matching must never produce confident anchors from generic
@@ -38,11 +39,12 @@ struct ChapterTitleMatcherTests {
         var blocks: [EPubBlockRecord] = []
         var seq = 0
         func heading(_ text: String) {
-            blocks.append(EPubBlockRecord(
-                id: "h\(seq)", audiobookID: "book-1", spineHref: "s\(seq).html",
-                spineIndex: seq, blockIndex: 0, sequenceIndex: seq,
-                blockKind: "heading", text: text,
-                chapterIndex: nil, isHidden: false))
+            blocks.append(
+                EPubBlockRecord(
+                    id: "h\(seq)", audiobookID: "book-1", spineHref: "s\(seq).html",
+                    spineIndex: seq, blockIndex: 0, sequenceIndex: seq,
+                    blockKind: "heading", text: text,
+                    chapterIndex: nil, isHidden: false))
             seq += 1
         }
         heading("Foreword")
@@ -59,13 +61,16 @@ struct ChapterTitleMatcherTests {
     /// The 12 audiobook tracks: generic labels, track 1 is 3m47s of credits,
     /// so track N actually contains book chapter N−1.
     private func genericTrackChapters() -> [Chapter] {
-        let starts: [Double] = [0, 227, 2109, 4122, 5379, 7534, 9546,
-                                12358, 14190, 16706, 18900, 20737]
+        let starts: [Double] = [
+            0, 227, 2109, 4122, 5379, 7534, 9546,
+            12358, 14190, 16706, 18900, 20737,
+        ]
         let bookEnd: Double = 22978
         return starts.enumerated().map { i, start in
-            Chapter(index: i, title: "Chapter \(i + 1)",
-                    startSeconds: start,
-                    endSeconds: i + 1 < starts.count ? starts[i + 1] : bookEnd)
+            Chapter(
+                index: i, title: "Chapter \(i + 1)",
+                startSeconds: start,
+                endSeconds: i + 1 < starts.count ? starts[i + 1] : bookEnd)
         }
     }
 
@@ -76,8 +81,10 @@ struct ChapterTitleMatcherTests {
             chapters: genericTrackChapters(),
             blocks: highConflictCoupleHeadings()
         )
-        #expect(matches.isEmpty,
-                "Generic 'Chapter N' track labels carry no alignment signal; got \(matches.count) matches")
+        #expect(
+            matches.isEmpty,
+            "Generic 'Chapter N' track labels carry no alignment signal; got \(matches.count) matches"
+        )
     }
 
     // MARK: - Similarity must respect numbers
@@ -86,8 +93,9 @@ struct ChapterTitleMatcherTests {
         // Digit-blind tokenization made these score 1.0 (both → {"chapter"}).
         #expect(ChapterTitleMatcher.similarity(between: "Chapter 2", and: "Chapter 1") < 0.1)
         // A contradicting number is disqualifying even when words overlap.
-        #expect(ChapterTitleMatcher.similarity(
-            between: "Chapter 7: Validating Responses", and: "Chapter 17") < 0.1)
+        #expect(
+            ChapterTitleMatcher.similarity(
+                between: "Chapter 7: Validating Responses", and: "Chapter 17") < 0.1)
     }
 
     @Test func similarityToleratesNumberOnOneSideOnly() {
@@ -121,8 +129,8 @@ struct ChapterTitleMatcherTests {
         "Understanding Emotion in Relationships",
         "Foreword", "Epilogue", "Acknowledgments",
         "Opening Credits", "Mix",  // bare roman-letter words are real titles
-        "Chapter Civil", "Part Mild",
-        "1984: A Retrospective",   // number plus real words
+        "1984: A Retrospective",  // number plus real words
+        "Chapter Civil", "Part Mild", "Book Mild",  // keyword + roman-letter word
     ])
     func keepsRealTitles(title: String) {
         #expect(!ChapterTitleMatcher.isGenericNumericTitle(title), "'\(title)'")
@@ -132,9 +140,10 @@ struct ChapterTitleMatcherTests {
 
     @Test func fullChapterTitlesMatchTheirOwnSubtitleHeadings() throws {
         let chapters = Self.subtitles.enumerated().map { i, subtitle in
-            Chapter(index: i, title: "Chapter \(i + 1): \(subtitle)",
-                    startSeconds: Double(i) * 1000,
-                    endSeconds: Double(i + 1) * 1000)
+            Chapter(
+                index: i, title: "Chapter \(i + 1): \(subtitle)",
+                startSeconds: Double(i) * 1000,
+                endSeconds: Double(i + 1) * 1000)
         }
         let blocks = highConflictCoupleHeadings()
         let matches = ChapterTitleMatcher.matchChapterTitles(
@@ -144,8 +153,9 @@ struct ChapterTitleMatcherTests {
         for match in matches {
             let expectedSubtitle = Self.subtitles[match.chapter.index]
             let text = try #require(match.block.text)
-            #expect(text == expectedSubtitle || text == "Chapter \(match.chapter.index + 1)",
-                    "chapter \(match.chapter.index) matched '\(text)'")
+            #expect(
+                text == expectedSubtitle || text == "Chapter \(match.chapter.index + 1)",
+                "chapter \(match.chapter.index) matched '\(text)'")
         }
         // Matched blocks must advance with chapter order — a collapsed or
         // shuffled mapping means the matcher latched onto the wrong headings.
@@ -163,16 +173,18 @@ struct ChapterTitleMatcherTests {
             Chapter(index: 1, title: "The Foreword", startSeconds: 100, endSeconds: 200),
         ]
         let blocks = [
-            EPubBlockRecord(id: "h0", audiobookID: "book-1", spineHref: "s0.html",
-                            spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
-                            blockKind: "heading", text: "Foreword",
-                            chapterIndex: nil, isHidden: false),
+            EPubBlockRecord(
+                id: "h0", audiobookID: "book-1", spineHref: "s0.html",
+                spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+                blockKind: "heading", text: "Foreword",
+                chapterIndex: nil, isHidden: false)
         ]
         let matches = ChapterTitleMatcher.matchChapterTitles(
             chapters: chapters, blocks: blocks)
 
-        #expect(matches.count <= 1,
-                "Two chapters anchored to the same block produce a non-monotonic timeline")
+        #expect(
+            matches.count <= 1,
+            "Two chapters anchored to the same block produce a non-monotonic timeline")
         #expect(matches.first?.chapter.index == 0)
     }
 }

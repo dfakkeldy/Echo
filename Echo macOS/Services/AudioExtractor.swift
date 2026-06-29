@@ -22,7 +22,7 @@ actor AudioExtractor {
     }
     
     func prepare() async throws -> TimeInterval {
-        let asset = AVAsset(url: url)
+        let asset = AVURLAsset(url: url)
         let isPlayable = try await asset.load(.isPlayable)
         guard isPlayable else { throw AudioExtractorError.assetNotPlayable }
         let duration = try await asset.load(.duration)

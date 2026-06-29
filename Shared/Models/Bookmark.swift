@@ -96,6 +96,9 @@ nonisolated struct Bookmark: Identifiable, Codable, Equatable, Hashable {
         bookmarkImageFileName = try? c.decode(String.self, forKey: .bookmarkImageFileName)
         pdfViewState = try? c.decode(PDFViewState.self, forKey: .pdfViewState)
         isEnabled = (try? c.decode(Bool.self, forKey: .isEnabled)) ?? true
+        // The synthesized encoder writes these (they are in CodingKeys); the
+        // hand-written decoder must read them too or located bookmarks lose
+        // their coordinates on every JSON sidecar round-trip.
         latitude = try? c.decode(Double.self, forKey: .latitude)
         longitude = try? c.decode(Double.self, forKey: .longitude)
         placeName = try? c.decode(String.self, forKey: .placeName)
@@ -162,6 +165,9 @@ nonisolated struct Bookmark: Identifiable, Codable, Equatable, Hashable {
     static func markdownExport(for bookmarks: [Bookmark]) -> String {
         var output = "# Audiobook Bookmarks\n\n"
         for bookmark in bookmarks {
+            // Use the canonical H:MM:SS formatter; the previous hand-rolled
+            // `(ts % 3600)/60` dropped the hours component, collapsing distinct
+            // timestamps an hour apart onto the same header.
             let timeString = formatHMS(bookmark.timestamp)
             output += "## \(timeString)\n"
             if let note = bookmark.note { output += "\(note)\n\n" }

@@ -75,12 +75,16 @@ struct EchoCoreTests {
         #expect(!markdown.contains("orbitaudio"))
     }
 
-    @Test func bookmarkMarkdownKeepsHourComponent() {
+    @Test func bookmarkMarkdownIncludesHoursForLongTimestamps() {
+        // 3930s == 1:05:30. The header must keep the hour; two bookmarks an
+        // hour apart (330s == 0:05:30) must not collapse onto the same header.
         let markdown = Bookmark.markdownExport(for: [
-            Bookmark(title: "Long", timestamp: 3_661, note: "Past the hour")
+            Bookmark(title: "Deep", timestamp: 3930),
+            Bookmark(title: "Early", timestamp: 330),
         ])
 
-        #expect(markdown.contains("## 1:01:01"))
+        #expect(markdown.contains("## 1:05:30"))
+        #expect(markdown.contains("## 05:30"))
     }
 
     @Test func bookmarkSidecarURLUsesFolderNameForDirectoryBooks() throws {
@@ -117,23 +121,16 @@ struct EchoCoreTests {
         #expect(bookmark.bookmarkImageFileName == nil)
     }
 
-    @Test func bookmarkDecodingPreservesLocationFields() throws {
-        let json = """
-            {
-              "id": "\(UUID().uuidString)",
-              "title": "Located",
-              "timestamp": 12.5,
-              "latitude": 44.65,
-              "longitude": -63.57,
-              "placeName": "Halifax"
-            }
-            """
+    @Test func bookmarkCodableRoundTripPreservesLocation() throws {
+        let original = Bookmark(
+            timestamp: 10, latitude: 51.5, longitude: -0.1, placeName: "London")
 
-        let bookmark = try JSONDecoder().decode(Bookmark.self, from: Data(json.utf8))
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Bookmark.self, from: data)
 
-        #expect(bookmark.latitude == 44.65)
-        #expect(bookmark.longitude == -63.57)
-        #expect(bookmark.placeName == "Halifax")
+        #expect(decoded.latitude == 51.5)
+        #expect(decoded.longitude == -0.1)
+        #expect(decoded.placeName == "London")
     }
 
     @Test func bookmarkImageURLPrefersAudiobookDirectory() throws {
@@ -244,6 +241,25 @@ struct EchoCoreTests {
         #expect(appGroupDefaults.string(forKey: "watchBackgroundStyle") == "black")
     }
 
+    @Test func settingsMigratesWatchValuesBeforeRegisteringAppGroupDefaults() throws {
+        let suiteName = "watch-migration-\(UUID().uuidString)"
+        let appGroupName = "watch-migration-ag-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let appGroupDefaults = try #require(UserDefaults(suiteName: appGroupName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        defaults.set("black", forKey: "watchBackgroundStyle")
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(settings.watchBackgroundStyle == "black")
+        #expect(appGroupDefaults.string(forKey: "watchBackgroundStyle") == "black")
+        #expect(appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2"))
+    }
+
     @Test func settingsUsesClassicWatchFaceAndProgressDefaults() {
         let suiteName = "watch-progress-defaults-\(UUID().uuidString)"
         let appGroupName = "watch-progress-defaults-ag-\(UUID().uuidString)"
@@ -287,6 +303,35 @@ struct EchoCoreTests {
         #expect(settings.watchArtworkLayout == "immersive")
         #expect(settings.linearBarMode == "total")
         #expect(settings.circularRingMode == "chapter")
+    }
+
+    @Test func settingsMigratesPersistedWatchChoicesDespiteRegisteredDefaults() throws {
+        let suiteName = "watch-migration-\(UUID().uuidString)"
+        let appGroupName = "watch-migration-ag-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let appGroupDefaults = try #require(UserDefaults(suiteName: appGroupName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        SettingsManager.registerDefaults(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        let customPage: [WatchAction] = [.bookmark, .empty, .playPause, .speed, .sleepTimer]
+        let customPageData = try JSONEncoder().encode(customPage)
+        defaults.set(customPageData, forKey: "watchPage1")
+        defaults.set("scrub", forKey: "crownAction")
+
+        let settings = SettingsManager(
+            defaults: defaults,
+            appGroupDefaults: appGroupDefaults,
+            defaultsDomainName: suiteName,
+            appGroupDefaultsDomainName: appGroupName
+        )
+
+        #expect(settings.watchPage1 == customPage)
+        #expect(appGroupDefaults.data(forKey: "watchPage1") == customPageData)
+        #expect(appGroupDefaults.string(forKey: "crownAction") == "scrub")
+        #expect(appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2"))
     }
 
     @Test func settingsPersistsSeekDurationsAndLayoutCustomizations() {
@@ -345,7 +390,9 @@ struct EchoCoreTests {
 
         let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
 
-        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            settings.studyGlobalNewChapterLimit
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
 
         settings.studyGlobalNewChapterLimit = 4
         #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 4)
@@ -355,8 +402,12 @@ struct EchoCoreTests {
         #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == 1)
 
         settings.studyGlobalNewChapterLimit = 99
-        #expect(settings.studyGlobalNewChapterLimit == SettingsManager.Defaults.studyGlobalNewChapterLimit)
-        #expect(defaults.integer(forKey: "studyGlobalNewChapterLimit") == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            settings.studyGlobalNewChapterLimit
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
+        #expect(
+            defaults.integer(forKey: "studyGlobalNewChapterLimit")
+                == SettingsManager.Defaults.studyGlobalNewChapterLimit)
     }
 
     @Test func settingsPersistsAndReloadsReaderDefaults() {
@@ -394,16 +445,29 @@ struct EchoCoreTests {
     }
 
     @Test func settingsReaderDefaultsUseObservedStoredProperties() throws {
-        let source = try Self.source(pathComponents: "EchoCore", "Services", "SettingsManager.swift")
+        let source = try Self.source(
+            pathComponents: "EchoCore", "Services", "SettingsManager.swift")
 
         #expect(source.contains("var readerFontSize: Double {"))
-        #expect(source.contains("didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }"))
+        #expect(
+            source.contains("didSet { defaults.set(readerFontSize, forKey: Keys.readerFontSize) }"))
         #expect(!source.contains("get { defaults.double(forKey: Keys.readerFontSize)"))
         #expect(!source.contains("get { defaults.string(forKey: Keys.readerCardTint)"))
     }
 
     @Test func settingsNormalizeLegacyHelveticaToSystemFont() {
         #expect(SettingsManager.normalizedAppFont("Helvetica") == SettingsManager.systemFontName)
+    }
+
+    @Test func watchReviewUsesFSRSGradeScale() throws {
+        let source = try Self.source(
+            pathComponents: "Echo Watch App", "Views", "WatchReviewView.swift")
+
+        #expect(source.contains("ReviewGrade.again.rawValue"))
+        #expect(source.contains("ReviewGrade.good.rawValue"))
+        #expect(source.contains("ReviewGrade.easy.rawValue"))
+        #expect(!source.contains("grade: 0"))
+        #expect(!source.contains("grade: 5"))
     }
 
     // MARK: - Database Tests
@@ -480,6 +544,51 @@ struct EchoCoreTests {
         try dao.delete(id: id)
         let results = try dao.bookmarks(for: "book-1")
         #expect(results.isEmpty)
+    }
+
+    @Test func searchBlocksExcludesHiddenBlocks() throws {
+        // In-book search must not surface blocks the reading feed hides: the
+        // feed loads via `visibleBlocks` (which excludes `is_hidden`), so a
+        // hidden hit would be a tappable result with no place in the feed.
+        let db = try DatabaseService(inMemory: ())
+        try db.write { db in
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'Test', 3600)")
+        }
+        let dao = EPubBlockDAO(db: db.writer)
+        try dao.insertAll([
+            EPubBlockRecord(
+                id: "visible", audiobookID: "book-1", spineHref: "ch1.xhtml",
+                spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
+                blockKind: "paragraph", text: "the phoenix rises",
+                chapterIndex: 0, isHidden: false),
+            EPubBlockRecord(
+                id: "hidden", audiobookID: "book-1", spineHref: "ch1.xhtml",
+                spineIndex: 0, blockIndex: 1, sequenceIndex: 1,
+                blockKind: "paragraph", text: "phoenix ashes",
+                chapterIndex: 0, isHidden: true),
+        ])
+
+        let results = try dao.searchBlocks(for: "book-1", query: "phoenix")
+
+        #expect(results.map(\.id) == ["visible"])
+    }
+
+    @Test func parseXHTMLMarksBlockquoteBlocks() throws {
+        let data = Data(
+            """
+            <html><body>
+              <blockquote><p>Quoted line.</p></blockquote>
+              <p>Plain line.</p>
+            </body></html>
+            """.utf8)
+
+        let blocks = parseXHTML(from: data).blocks
+        let quoted = try #require(blocks.first { $0.text == "Quoted line." })
+        let plain = try #require(blocks.first { $0.text == "Plain line." })
+
+        #expect(quoted.markers.contains { $0.type == .blockquote })
+        #expect(!plain.markers.contains { $0.type == .blockquote })
     }
 
     @Test func databaseTimelineViewUnionsAllTypes() throws {

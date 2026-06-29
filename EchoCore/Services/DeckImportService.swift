@@ -32,14 +32,19 @@ struct DeckImportService {
             throw DeckImportError.emptyDeck
         }
 
+        var triggerTimings: [FlashcardTriggerTiming] = []
+        triggerTimings.reserveCapacity(deck.cards.count)
         for (index, card) in deck.cards.enumerated() {
             guard !card.frontText.isEmpty, !card.backText.isEmpty else {
                 throw DeckImportError.emptyCardText(cardIndex: index)
             }
-            guard validTriggerTimings.contains(card.triggerTiming.rawValue) else {
+            guard validTriggerTimings.contains(card.triggerTiming),
+                let triggerTiming = FlashcardTriggerTiming(rawValue: card.triggerTiming)
+            else {
                 throw DeckImportError.invalidTriggerTiming(
-                    card.triggerTiming.rawValue, cardIndex: index)
+                    card.triggerTiming, cardIndex: index)
             }
+            triggerTimings.append(triggerTiming)
         }
 
         var warnings: [ImportDeckWarning] = []
@@ -110,6 +115,10 @@ struct DeckImportService {
             )
         }
 
+        // Re-import replaces existing cards for this deck so corrected front/back
+        // text, timings, and source anchors are applied instead of skipped.
+        try replaceExistingCards(in: writer, deckID: deckID)
+
         let dao = FlashcardDAO(db: writer)
         for (index, card) in deck.cards.enumerated() {
             let flashcard = Flashcard(
@@ -119,7 +128,7 @@ struct DeckImportService {
                 backText: card.backText,
                 mediaTimestamp: startTimestamp(for: card),
                 endTimestamp: endTimestamp(for: card),
-                triggerTiming: card.triggerTiming,
+                triggerTiming: triggerTimings[index],
                 nextReviewDate: Date().ISO8601Format(),
                 intervalDays: 0,
                 easeFactor: 2.5,
@@ -158,6 +167,30 @@ struct DeckImportService {
     private func findDeck(named name: String, db: DatabaseWriter) throws -> String? {
         try db.read { db in
             try String.fetchOne(db, sql: "SELECT id FROM deck WHERE name = ?", arguments: [name])
+        }
+    }
+
+    private func replaceExistingCards(in writer: DatabaseWriter, deckID: String) throws {
+        let now = Date().ISO8601Format()
+        try writer.write { db in
+            try db.execute(
+                sql: """
+                    DELETE FROM timeline_item
+                    WHERE source_table = 'flashcard'
+                      AND source_rowid IN (
+                          SELECT id FROM flashcard WHERE deck_id = ?
+                      )
+                    """,
+                arguments: [deckID]
+            )
+            try db.execute(
+                sql: "DELETE FROM flashcard WHERE deck_id = ?",
+                arguments: [deckID]
+            )
+            try db.execute(
+                sql: "UPDATE deck SET modified_at = ? WHERE id = ?",
+                arguments: [now, deckID]
+            )
         }
     }
 

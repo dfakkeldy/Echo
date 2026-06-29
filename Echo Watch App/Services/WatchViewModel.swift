@@ -7,6 +7,18 @@ import WatchKit
 import WidgetKit
 import os.log
 
+nonisolated private struct WatchConnectivityDictionary: @unchecked Sendable {
+    let value: [String: Any]
+}
+
+nonisolated private struct WatchConnectivityReplyHandler: @unchecked Sendable {
+    let value: ([String: Any]) -> Void
+
+    func callAsFunction(_ response: [String: Any]) {
+        value(response)
+    }
+}
+
 /// Mutable playback state captured before an optimistic local update.
 /// If the iPhone doesn't confirm within 3 seconds or reports an error,
 /// the view model rolls back to this snapshot.
@@ -372,40 +384,45 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(
-        _ session: WCSession, didReceiveApplicationContext applicationContext: sending [String: Any]
+        _ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]
     ) {
         guard session.activationState == .activated else { return }
-        Task { @MainActor [weak self] in
-            self?.applyReceivedApplicationContext(applicationContext)
+        let payload = WatchConnectivityDictionary(value: applicationContext)
+        Task { @MainActor [weak self, payload] in
+            self?.applyReceivedApplicationContext(payload.value)
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveMessage message: sending [String: Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         guard session.activationState == .activated else { return }
-        Task { @MainActor [weak self] in
-            self?.applyState(message)
+        let payload = WatchConnectivityDictionary(value: message)
+        Task { @MainActor [weak self, payload] in
+            self?.applyState(payload.value)
         }
     }
 
     nonisolated func session(
-        _ session: WCSession, didReceiveMessage message: sending [String: Any],
-        replyHandler: sending @escaping ([String: Any]) -> Void
+        _ session: WCSession, didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
     ) {
         guard session.activationState == .activated else {
             replyHandler([:])
             return
         }
-        Task { @MainActor [weak self] in
-            self?.applyState(message)
-            replyHandler(["handled": true])
+        let payload = WatchConnectivityDictionary(value: message)
+        let reply = WatchConnectivityReplyHandler(value: replyHandler)
+        Task { @MainActor [weak self, payload, reply] in
+            self?.applyState(payload.value)
+            reply(["handled": true])
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: sending [String: Any] = [:])
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any])
     {
         guard session.activationState == .activated else { return }
-        Task { @MainActor [weak self] in
-            self?.applyState(userInfo)
+        let payload = WatchConnectivityDictionary(value: userInfo)
+        Task { @MainActor [weak self, payload] in
+            self?.applyState(payload.value)
             // userInfo deliveries can be minutes stale (queued while unreachable).
             // Request the phone's current state so the watch converges to the
             // authoritative position instead of displaying an outdated snapshot.

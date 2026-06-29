@@ -238,7 +238,6 @@ struct ApkgExportService {
                 // Allocate note/card IDs from one base timestamp, strided by 2
                 // so INTEGER PRIMARY KEYs never collide.
                 let idAllocator = ApkgIDAllocator()
-                let exportDate = Date(timeIntervalSince1970: Double(now))
                 for (index, card) in cards.enumerated() {
                     let ids = idAllocator.ids(forCardAt: index)
                     let noteID = ids.noteID
@@ -269,7 +268,7 @@ struct ApkgExportService {
                         arguments: [
                             cardID, noteID, ankiDeckID, 0, now, 0,
                             cardType(card), queueType(card),
-                            dueValue(card, newCardOrdinal: index, exportDate: exportDate),
+                            dueValue(card, crt: now, newCardOrdinal: index),
                             card.intervalDays, factor, card.repetitions, 0, 0, 0, 0, 0, "",
                         ])
                 }
@@ -341,27 +340,32 @@ struct ApkgExportService {
         card.intervalDays > 0 ? 2 : 0
     }
 
-    private func dueValue(
-        _ card: Flashcard,
-        newCardOrdinal: Int,
-        exportDate: Date
-    ) -> Int {
-        guard card.intervalDays > 0 else {
-            return newCardOrdinal
+    /// Anki `cards.due` semantics:
+    /// - review cards (`queue==2`): the absolute day number (days since
+    ///   `col.crt`) on which the card is next due;
+    /// - new cards (`queue==0`): the card's position in the new queue.
+    /// The previous implementation wrote the cards last *interval length* for
+    /// review cards (so a card due tomorrow re-scheduled `intervalDays` out) and
+    /// `daysSinceEpoch()` for new cards (an absurd new-queue position).
+    private func dueValue(_ card: Flashcard, crt: Int, newCardOrdinal: Int) -> Int {
+        guard card.intervalDays > 0 else { return newCardOrdinal }
+        if let iso = card.nextReviewDate, let date = Self.parseISODate(iso) {
+            let days = (Int(date.timeIntervalSince1970) - crt) / 86400
+            return max(0, days)
         }
-        guard
-            let nextReviewDate = card.nextReviewDate,
-            let parsedReviewDate = parseISO8601Date(nextReviewDate)
-        else {
-            return card.intervalDays
-        }
-        let secondsUntilReview = parsedReviewDate.timeIntervalSince(exportDate)
-        return max(0, Int(secondsUntilReview / 86_400))
+        return card.intervalDays
     }
 
-    private func parseISO8601Date(_ value: String) -> Date? {
-        try? Date(value, strategy: .iso8601)
+    private static func parseISODate(_ string: String) -> Date? {
+        isoPlain.date(from: string) ?? isoFractional.date(from: string)
     }
+
+    private static let isoPlain = ISO8601DateFormatter()
+    private static let isoFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private func sanitize(_ name: String) -> String {
         SafeFileName.sanitizeForFilename(name)

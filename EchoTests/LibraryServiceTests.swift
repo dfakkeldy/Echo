@@ -35,6 +35,34 @@ struct LibraryServiceTests {
         #expect(book?.sourceRootID == root.id)
     }
 
+    @Test func rescanStartsSecurityScopeBeforeDiscovery() throws {
+        // A sandbox-external root must have its security scope started before
+        // enumeration, or discovery returns nothing and the whole shelf is
+        // hidden. Assert the scope seam runs, and runs before discover.
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-rescan-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+
+        var events: [String] = []
+        _ = try service.rescan(
+            root: root,
+            discover: { _ in
+                events.append("discover")
+                return []
+            },
+            startScope: { _ in
+                events.append("scope")
+                return true
+            },
+            now: fixedNow)
+
+        #expect(events == ["scope", "discover"])
+    }
+
     @Test func rescanHidesBooksThatVanished() throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
@@ -257,6 +285,9 @@ struct LibraryServiceTests {
     }
 
     @Test func sectionsByAuthorDerivesKeyWhenAuthorSortMissing() throws {
+        // ABS / single-imported / pre-V27 books leave author_sort NULL; they
+        // must still group by their distinct authors rather than collapsing
+        // into one mislabeled "unknown" section.
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
         try dao.save(

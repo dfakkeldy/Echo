@@ -3,6 +3,22 @@ import Foundation
 import WatchConnectivity
 import os.log
 
+nonisolated private struct WatchConnectivityDictionary: @unchecked Sendable {
+    let value: [String: Any]
+}
+
+nonisolated private struct WatchConnectivityReplyHandler: @unchecked Sendable {
+    let value: ([String: Any]) -> Void
+
+    func callAsFunction(_ response: [String: Any]) {
+        value(response)
+    }
+}
+
+nonisolated private struct WatchConnectivityFile: @unchecked Sendable {
+    let value: WCSessionFile
+}
+
 /// Manages bidirectional WatchConnectivity communication with the Apple Watch companion.
 ///
 /// Uses closure-based callbacks rather than a delegate protocol so PlayerModel can wire
@@ -162,46 +178,45 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         session.activate()
     }
 
-    // Each WCSessionDelegate callback receives a non-Sendable payload (a
-    // `[String: Any]`, `WCSessionFile`, or reply closure) and immediately hands it
-    // off to a `@MainActor` Task. Marking the forwarded parameter `sending` lets the
-    // compiler verify the value is transferred exclusively into the actor rather than
-    // shared across isolation domains — no `@unchecked`/`nonisolated(unsafe)` needed.
-    nonisolated func session(_ session: WCSession, didReceiveMessage message: sending [String: Any])
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any])
     {
-        Task { @MainActor [weak self] in
-            self?.onMessage?(message, nil)
+        let payload = WatchConnectivityDictionary(value: message)
+        Task { @MainActor [weak self, payload] in
+            self?.onMessage?(payload.value, nil)
         }
     }
 
     nonisolated func session(
-        _ session: WCSession, didReceiveMessage message: sending [String: Any],
-        replyHandler: sending @escaping ([String: Any]) -> Void
+        _ session: WCSession, didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
     ) {
-        Task { @MainActor [weak self] in
-            self?.onMessage?(message, replyHandler)
+        let payload = WatchConnectivityDictionary(value: message)
+        let reply = WatchConnectivityReplyHandler(value: replyHandler)
+        Task { @MainActor [weak self, payload, reply] in
+            self?.onMessage?(payload.value, reply.value)
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        let payload = WatchConnectivityDictionary(value: userInfo)
+        Task { @MainActor [weak self, payload] in
+            self?.onQueuedMessage?(payload.value)
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        let payload = WatchConnectivityFile(value: file)
+        Task { @MainActor [weak self, payload] in
+            self?.onReceiveFile?(payload.value)
         }
     }
 
     nonisolated func session(
-        _ session: WCSession, didReceiveUserInfo userInfo: sending [String: Any] = [:]
+        _ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]
     ) {
-        Task { @MainActor [weak self] in
-            self?.onQueuedMessage?(userInfo)
-        }
-    }
-
-    nonisolated func session(_ session: WCSession, didReceive file: sending WCSessionFile) {
-        Task { @MainActor [weak self] in
-            self?.onReceiveFile?(file)
-        }
-    }
-
-    nonisolated func session(
-        _ session: WCSession, didReceiveApplicationContext applicationContext: sending [String: Any]
-    ) {
-        Task { @MainActor [weak self] in
-            self?.onReceiveApplicationContext?(applicationContext)
+        let payload = WatchConnectivityDictionary(value: applicationContext)
+        Task { @MainActor [weak self, payload] in
+            self?.onReceiveApplicationContext?(payload.value)
         }
     }
 

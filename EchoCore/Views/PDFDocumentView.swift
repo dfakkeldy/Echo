@@ -43,6 +43,70 @@ private enum PDFDocumentAction: CaseIterable, Identifiable {
     }
 }
 
+nonisolated enum PDFCompanionSelector {
+    static func preferredPDF(from urls: [URL], bookTitle: String?) -> URL? {
+        let candidates = urls
+            .filter { $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
+        guard let target = normalizedStem(bookTitle), !target.isEmpty else {
+            return candidates.sorted(by: compareByCopyPenaltyThenName).first
+        }
+
+        return candidates
+            .sorted { lhs, rhs in
+                let lhsScore = score(lhs, target: target)
+                let rhsScore = score(rhs, target: target)
+                if lhsScore != rhsScore { return lhsScore < rhsScore }
+                return compareByCopyPenaltyThenName(lhs, rhs)
+            }
+            .first
+    }
+
+    private static func score(_ url: URL, target: String) -> Int {
+        let stem = normalizedStem(url.deletingPathExtension().lastPathComponent) ?? ""
+        if stem == target { return 0 }
+        if removingCopySuffix(from: stem) == target { return 1 }
+        if stem.localizedStandardContains(target) || target.localizedStandardContains(stem) {
+            return 2
+        }
+        return 3
+    }
+
+    private static func compareByCopyPenaltyThenName(_ lhs: URL, _ rhs: URL) -> Bool {
+        let lhsStem = normalizedStem(lhs.deletingPathExtension().lastPathComponent) ?? ""
+        let rhsStem = normalizedStem(rhs.deletingPathExtension().lastPathComponent) ?? ""
+        let lhsPenalty = lhsStem == removingCopySuffix(from: lhsStem) ? 0 : 1
+        let rhsPenalty = rhsStem == removingCopySuffix(from: rhsStem) ? 0 : 1
+        if lhsPenalty != rhsPenalty { return lhsPenalty < rhsPenalty }
+        return lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent)
+            == .orderedAscending
+    }
+
+    private static func normalizedStem(_ value: String?) -> String? {
+        guard let value else { return nil }
+        var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count > 4, trimmed.lowercased().hasSuffix(".pdf") {
+            trimmed.removeLast(4)
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    private static func removingCopySuffix(from stem: String) -> String {
+        guard let range = stem.range(
+            of: #"\s+\(\d+\)$"#,
+            options: [.regularExpression, .caseInsensitive])
+        else { return stem }
+        return String(stem[..<range.lowerBound])
+    }
+}
+
 struct PDFDocumentView: View {
     let folderURL: URL
     @Environment(PlayerModel.self) private var model
@@ -54,6 +118,7 @@ struct PDFDocumentView: View {
     @State private var showingManualAlignment = false
     @State private var capturedState: PDFViewState?
     @State private var currentPDFViewState: PDFViewState?
+    @State private var restorePDFViewState: PDFViewState?
     /// Long-press hit carrying state + resolved word + context.
     @State private var longPressHit: PDFLongPressHit?
     /// Whether to show the word-action dialog (Look Up + Save + Alignment).
@@ -75,8 +140,11 @@ struct PDFDocumentView: View {
                 PDFKitView(
                     document: document,
                     restoreState: Binding(
-                        get: { model.pendingPDFViewStateRestore },
-                        set: { if $0 == nil { model.pendingPDFViewStateRestore = nil } }
+                        get: { restorePDFViewState },
+                        set: { newValue in
+                            restorePDFViewState = newValue
+                            if newValue == nil { model.pendingPDFViewStateRestore = nil }
+                        }
                     ),
                     activePageIndex: activePageIndex,
                     activeWordTerm: activeWordTerm,
@@ -120,6 +188,11 @@ struct PDFDocumentView: View {
                 let controller = PDFReadAlongController()
                 controller.load(audiobookID: folderURL.absoluteString, db: db)
                 readAlong = controller
+            }
+        }
+        .onChange(of: model.pendingPDFViewStateRestore) { _, state in
+            if let state {
+                restorePDFViewState = state
             }
         }
         // M3 Task 3: Page auto-follow + best-effort word highlight.
@@ -166,13 +239,16 @@ struct PDFDocumentView: View {
             titleVisibility: .visible
         ) {
             if let hit = longPressHit, let word = hit.word {
-                if DictionaryLookupPresenter.hasDefinition(for: word) {
-                    Button("Look Up \"\(word)\"") {
-                        DictionaryLookupPresenter.present(term: word)
+                let term = DictionaryLookupTerm.sanitized(word)
+                if !term.isEmpty {
+                    if DictionaryLookupPresenter.hasDefinition(for: term) {
+                        Button("Look Up \"\(term)\"") {
+                            DictionaryLookupPresenter.present(term: term)
+                        }
                     }
-                }
-                Button("Save \"\(word)\"") {
-                    savePDFVocabularyWord(word: word, context: hit.context)
+                    Button("Save \"\(term)\"") {
+                        savePDFVocabularyWord(word: term, context: hit.context)
+                    }
                 }
                 Button("Alignment options\u{2026}") {
                     // Re-trigger the alignment dialog with the same captured state.
@@ -200,11 +276,16 @@ struct PDFDocumentView: View {
 
     private func loadPDF(for folderURL: URL) async {
         do {
-            let pdfURL = try await Self.firstPDFURL(in: folderURL)
+            let currentTitle = model.currentTitle
+            let pdfURL = try await Self.preferredPDFURL(in: folderURL, bookTitle: currentTitle)
             try Task.checkCancellation()
             guard self.folderURL == folderURL else { return }
 
             let document = pdfURL.flatMap(PDFDocument.init(url:))
+            let savedState = model.pendingPDFViewStateRestore ?? model.pdfViewState(for: folderURL)
+            restorePDFViewState = savedState
+            currentPDFViewState = savedState
+            model.currentPDFViewState = savedState
             try Task.checkCancellation()
             pdfDocument = document
         } catch is CancellationError {
@@ -289,7 +370,7 @@ struct PDFDocumentView: View {
         if currentPDFViewState != state {
             currentPDFViewState = state
         }
-        model.currentPDFViewState = state
+        model.updatePDFViewState(state, for: folderURL)
     }
 
     @discardableResult
@@ -310,7 +391,7 @@ struct PDFDocumentView: View {
     }
 
     @concurrent
-    private static func firstPDFURL(in folderURL: URL) async throws -> URL? {
+    static func preferredPDFURL(in folderURL: URL, bookTitle: String?) async throws -> URL? {
         try Task.checkCancellation()
         let files = try FileManager.default.contentsOfDirectory(
             at: folderURL,
@@ -318,14 +399,14 @@ struct PDFDocumentView: View {
             options: [.skipsHiddenFiles]
         )
         try Task.checkCancellation()
-        return
-            files
+        return PDFCompanionSelector.preferredPDF(
+            from: files
             .filter { $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame }
             .sorted {
                 $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
                     == .orderedAscending
-            }
-            .first
+            },
+            bookTitle: bookTitle)
     }
 
     @discardableResult
@@ -371,6 +452,8 @@ struct PDFDocumentView: View {
     /// Audio anchor = the active block's start time (block-level; per-word timing is
     /// unavailable in the PDF page context).
     private func savePDFVocabularyWord(word: String, context: String?) {
+        let word = DictionaryLookupTerm.sanitized(word)
+        guard !word.isEmpty else { return }
         guard let db = model.databaseService else { return }
         let audiobookID = folderURL.absoluteString
 
