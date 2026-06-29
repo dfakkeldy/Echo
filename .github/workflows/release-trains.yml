@@ -41,10 +41,18 @@ on:
         options: [nightly, weekly]
         default: nightly
 
-# Don't pile up overlapping builds of the same channel, but never cancel an
-# in-flight upload (an interrupted TestFlight submission is messy to recover).
+# Serialise ALL release-train runs (every channel) into one queue, and never
+# cancel an in-flight upload (an interrupted TestFlight submission is messy to
+# recover). A single shared group is deliberate, NOT per-channel: the build
+# number is `latest_testflight_build_number + 1` (fastlane/Fastfile), so two runs
+# that overlap both read the same number and collide on upload ("Redundant Binary
+# Upload — build N already taken"). That is *guaranteed* on Mondays, when the
+# daily nightly cron and the weekly cron fire at the same minute. Serialising
+# makes the second run read the number only after the first has finished
+# uploading. (Previously the group was keyed on the cron string, so nightly and
+# weekly were different groups and ran concurrently — the 2026-06-29 race.)
 concurrency:
-  group: release-trains-${{ github.event.inputs.channel || github.event.schedule }}
+  group: release-trains
   cancel-in-progress: false
 
 jobs:
