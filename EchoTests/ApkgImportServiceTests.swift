@@ -36,7 +36,9 @@ struct ApkgImportServiceTests {
         noteID: Int64 = 1_712_345_678_000,
         cardID: Int64 = 1_712_345_678_001,
         noteGUID: String = "echo-note-guid",
-        sidecarJSON: String? = nil
+        sidecarJSON: String? = nil,
+        decksJSONOverride: String? = nil,
+        cardDID: Int64 = 1
     ) async throws -> FixtureApkgIdentity {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("apkg_fixture_\(UUID().uuidString)", isDirectory: true)
@@ -93,9 +95,11 @@ struct ApkgImportServiceTests {
                     """)
 
             let now = 1_712_345_678
-            let decksJSON = """
-                {"1":{"id":1,"name":"\(deckName)","desc":"","collapsed":false,"conf":1,"dyn":0}}
-                """
+            let decksJSON =
+                decksJSONOverride
+                    ?? """
+                    {"1":{"id":1,"name":"\(deckName)","desc":"","collapsed":false,"conf":1,"dyn":0}}
+                    """
             let modelsJSON = """
                 {"1547929172779":{"id":1547929172779,"name":"Basic","type":0,"mod":\(now),"usn":0,"sortf":0,"did":1,"tags":[],"flds":[{"name":"Front","ord":0},{"name":"Back","ord":1}],"tmpls":[{"name":"Card 1","ord":0,"qfmt":"{{Front}}","afmt":"{{Back}}"}]}}
                 """
@@ -118,8 +122,8 @@ struct ApkgImportServiceTests {
             try db.execute(
                 sql: """
                     INSERT INTO cards (id, nid, did, ord, mod, usn, type, queue, due, ivl, factor, reps, lapses, left, odue, odid, flags, data)
-                    VALUES (?, ?, 1, 0, ?, 0, 0, 0, 0, 0, 2500, 0, 0, 0, 0, 0, 0, '')
-                    """, arguments: [cardID, noteID, now])
+                    VALUES (?, ?, ?, 0, ?, 0, 0, 0, 0, 0, 2500, 0, 0, 0, 0, 0, 0, '')
+                    """, arguments: [cardID, noteID, cardDID, now])
         }
 
         // Write Anki's media manifest and numbered media files.
@@ -183,6 +187,31 @@ struct ApkgImportServiceTests {
     }
 
     // MARK: - anki21 import
+
+    @Test func importPrefersRealDeckOverAnkiDefault() async throws {
+        // A real single-deck export ships the un-deletable Default deck (id 1)
+        // alongside the user's timestamp-id deck, with cards pointing at the
+        // latter. The import must name the deck after the real deck, not
+        // "Default".
+        let apkgURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("two_deck_\(UUID().uuidString).apkg")
+        defer { try? FileManager.default.removeItem(at: apkgURL) }
+        let realDeckID: Int64 = 1_678_901_234_567
+        let decksJSON = """
+            {"1":{"id":1,"name":"Default","desc":"","collapsed":false,"conf":1,"dyn":0},"\(realDeckID)":{"id":\(realDeckID),"name":"Spanish Vocab","desc":"","collapsed":false,"conf":1,"dyn":0}}
+            """
+        try await createFixtureApkg(
+            destURL: apkgURL, decksJSONOverride: decksJSON, cardDID: realDeckID)
+
+        let writer = try makeTestDB()
+        let count = try await ApkgImportService().import(from: apkgURL, into: writer)
+        #expect(count == 1)
+
+        let deckName = try await writer.read { db in
+            try String.fetchOne(db, sql: "SELECT name FROM deck LIMIT 1")
+        }
+        #expect(deckName == "Spanish Vocab")
+    }
 
     @Test func importsAnki21Apkg() async throws {
         let apkgURL = FileManager.default.temporaryDirectory

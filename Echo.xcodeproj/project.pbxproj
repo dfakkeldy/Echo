@@ -41,6 +41,9 @@
 		D200EDB889EAEE8A41B581DA /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 756754EC2DEBE3CB3DA81491 /* Cocoa.framework */; };
 		D65097502BC5B75CCE4010CD /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 193825D5E9C5E9D598559FCA /* GRDB */; };
 		DC21C519E843AA3D2CAA2C7A /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 0FC84089B8B47926290BEA94 /* MisakiSwift */; };
+		E4420000000000000000000A /* MisakiSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000FMSKI0000000 /* MisakiSwift */; };
+		E4420000000000000000000B /* us_gold.json in Resources */ = {isa = PBXBuildFile; fileRef = 486ED82EADFDDE51ED2283A1 /* us_gold.json */; };
+		E4420000000000000000000C /* us_silver.json in Resources */ = {isa = PBXBuildFile; fileRef = A3CB4FF9D3E73BABC2FE8E7B /* us_silver.json */; };
 		F60DA9BFC6CB8E3C7056C54E /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 04B720FB270E911EFF290AEA /* WhisperKit */; };
 		F74C018CF5E291A818C03BAF /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 4F2D20FF9F54B5D9915C604A /* ZIPFoundation */; };
 /* End PBXBuildFile section */
@@ -150,6 +153,7 @@
 		CCC48EA72FA6AB340003458B /* Echo Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Echo Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CCC48EB12FA6AB340003458B /* Echo Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Echo Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA1F191B4998A1FB7A21E53 /* echo-cli */ = {isa = PBXFileReference; includeInIndex = 0; path = "echo-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E44200000000000000000001 /* MisakiSwiftTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MisakiSwiftTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3831A65448E14AF9E50D78F /* af_heart.rows */ = {isa = PBXFileReference; includeInIndex = 1; name = af_heart.rows; path = EchoCore/Resources/af_heart.rows; sourceTree = SOURCE_ROOT; };
 		E6243FBB0511F01F7F480630 /* NarrateCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NarrateCommand.swift; path = "Tools/echo-cli/NarrateCommand.swift"; sourceTree = SOURCE_ROOT; };
 		F0CFF53D74979F5CF21850A4 /* EchoCLI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EchoCLI.swift; path = "Tools/echo-cli/EchoCLI.swift"; sourceTree = SOURCE_ROOT; };
@@ -503,6 +507,14 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		E44200000000000000000002 /* MisakiSwiftTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			name = MisakiSwiftTests;
+			path = ThirdParty/MisakiSwift/Tests/MisakiSwiftTests;
+			sourceTree = SOURCE_ROOT;
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -594,6 +606,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E44200000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E4420000000000000000000A /* MisakiSwift in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -621,6 +641,7 @@
 				CC08EC5B2F9522F600206D2F /* EchoCore */,
 				CC08EC692F9522F800206D2F /* EchoTests */,
 				CC08EC732F9522F800206D2F /* EchoUITests */,
+				E44200000000000000000002 /* MisakiSwiftTests */,
 				CCC48E9C2FA6AB330003458B /* Echo Watch App */,
 				CCC48EAA2FA6AB340003458B /* Echo Watch AppTests */,
 				CCC48EB42FA6AB340003458B /* Echo Watch AppUITests */,
@@ -653,6 +674,7 @@
 				CC00BC4D2FA6B66400323F38 /* Echo WidgetExtension.appex */,
 				AA0100000000000000000001 /* Echo macOS.app */,
 				DCA1F191B4998A1FB7A21E53 /* echo-cli */,
+				E44200000000000000000001 /* MisakiSwiftTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -875,6 +897,29 @@
 			productReference = CCC48EB12FA6AB340003458B /* Echo Watch AppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		E44200000000000000000006 /* MisakiSwiftTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E44200000000000000000007 /* Build configuration list for PBXNativeTarget "MisakiSwiftTests" */;
+			buildPhases = (
+				E44200000000000000000004 /* Sources */,
+				E44200000000000000000003 /* Frameworks */,
+				E44200000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E44200000000000000000002 /* MisakiSwiftTests */,
+			);
+			name = MisakiSwiftTests;
+			packageProductDependencies = (
+				CC0000000000FMSKI0000000 /* MisakiSwift */,
+			);
+			productName = MisakiSwiftTests;
+			productReference = E44200000000000000000001 /* MisakiSwiftTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -910,6 +955,9 @@
 						CreatedOnToolsVersion = 26.4.1;
 						TestTargetID = CCC48E9A2FA6AB330003458B;
 					};
+					E44200000000000000000006 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
 				};
 			};
 			buildConfigurationList = CC08EC542F9522F600206D2F /* Build configuration list for PBXProject "Echo" */;
@@ -938,6 +986,7 @@
 				CC08EC582F9522F600206D2F /* Echo */,
 				CC08EC652F9522F800206D2F /* EchoTests */,
 				CC08EC6F2F9522F800206D2F /* EchoUITests */,
+				E44200000000000000000006 /* MisakiSwiftTests */,
 				CCC48E9A2FA6AB330003458B /* Echo Watch App */,
 				CCC48EA62FA6AB340003458B /* Echo Watch AppTests */,
 				CCC48EB02FA6AB340003458B /* Echo Watch AppUITests */,
@@ -1002,6 +1051,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E44200000000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E4420000000000000000000B /* us_gold.json in Resources */,
+				E4420000000000000000000C /* us_silver.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1147,6 +1205,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CCC48EAD2FA6AB340003458B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E44200000000000000000004 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -1901,6 +1966,51 @@
 			};
 			name = Release;
 		};
+		E44200000000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8AXNA5B37R;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.misakiswifttests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		E44200000000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8AXNA5B37R;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.echo.audiobooks.misakiswifttests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1981,6 +2091,15 @@
 			buildConfigurations = (
 				CCC48EC32FA6AB350003458B /* Debug */,
 				CCC48EC42FA6AB350003458B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E44200000000000000000007 /* Build configuration list for PBXNativeTarget "MisakiSwiftTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E44200000000000000000008 /* Debug */,
+				E44200000000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

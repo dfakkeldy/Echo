@@ -84,6 +84,17 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
             flushParagraph()
             continue
         }
+        // CommonMark thematic break (`---`, `***`, `___`): a block separator,
+        // not content. Drop it so narration/the reader don't get a junk card.
+        let condensed = trimmed.filter { !$0.isWhitespace }
+        if condensed.count >= 3,
+            condensed.allSatisfy({ $0 == "-" })
+                || condensed.allSatisfy({ $0 == "*" })
+                || condensed.allSatisfy({ $0 == "_" })
+        {
+            flushParagraph()
+            continue
+        }
 
         if let heading = parseHeading(trimmed) {
             flushParagraph()

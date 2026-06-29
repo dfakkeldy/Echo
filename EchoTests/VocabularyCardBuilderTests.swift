@@ -46,4 +46,33 @@ import Testing
         let wordRange = (text as NSString).range(of: "terminal")
         #expect(WordSentenceContext.sentence(containing: wordRange, in: text) == text)
     }
+
+    @Test func decimalPointInsideTokenIsNotASentenceBoundary() {
+        let text = "The value is 3.14 today. Next sentence."
+        let wordRange = (text as NSString).range(of: "value")
+        #expect(
+            WordSentenceContext.sentence(containing: wordRange, in: text)
+                == "The value is 3.14 today.")
+    }
+
+    @Test func wordFinalTerminatorEndsTheSentence() {
+        let text = "Alpha beta gamma! Next part."
+        let wordRange = (text as NSString).range(of: "gamma!")
+        #expect(
+            WordSentenceContext.sentence(containing: wordRange, in: text)
+                == "Alpha beta gamma!")
+    }
+}
+
+@Suite struct DictionaryLookupTermTests {
+    @Test(arguments: [
+        ("world.", "world"),
+        ("\u{201C}Hello\u{201D}", "Hello"),  // curly quotes
+        ("mother-in-law,", "mother-in-law"),  // internal hyphens kept
+        ("don\u{2019}t.", "don\u{2019}t"),  // internal apostrophe kept
+        ("word", "word"),
+    ])
+    func stripsLeadingAndTrailingPunctuation(input: String, expected: String) {
+        #expect(DictionaryLookupPresenter.sanitizedTerm(input) == expected)
+    }
 }

@@ -774,20 +774,26 @@ nonisolated struct ApkgImportService {
             let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
 
-        // Anki stores the default deck with id 1.
+        // Prefer a real (non-Default) deck. Anki always ships the un-deletable
+        // Default deck at id "1", and single-deck exports include it alongside
+        // the user's timestamp-id deck. Returning "1" would name every import
+        // "Default" and merge later imports into that one deck. Sort for
+        // determinism when several real decks exist.
+        let nonDefaultNames =
+            dict
+            .filter { $0.key != "1" }
+            .compactMap { ($0.value as? [String: Any])?["name"] as? String }
+            .sorted()
+        if let name = nonDefaultNames.first {
+            return name
+        }
+
+        // Only the Default deck is present — use it (covers genanki single-deck
+        // files that place the real deck at id 1).
         if let defaultDeck = dict["1"] as? [String: Any],
             let name = defaultDeck["name"] as? String
         {
             return name
-        }
-
-        // Fall back to the first deck in the dictionary.
-        for (_, value) in dict {
-            if let deck = value as? [String: Any],
-                let name = deck["name"] as? String
-            {
-                return name
-            }
         }
 
         return nil
