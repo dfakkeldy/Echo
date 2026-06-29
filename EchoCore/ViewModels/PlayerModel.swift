@@ -132,9 +132,19 @@ final class PlayerModel {
 
     /// The current state of the PDF view, updated as the user scrolls or zooms.
     @ObservationIgnored var currentPDFViewState: PDFViewState? = nil
+    @ObservationIgnored private var pdfViewStatesByAudiobookID: [String: PDFViewState] = [:]
 
     /// When a bookmark is tapped, this stores its PDF view state so the PDFDocumentView can restore it.
     var pendingPDFViewStateRestore: PDFViewState? = nil
+
+    func pdfViewState(for folderURL: URL) -> PDFViewState? {
+        pdfViewStatesByAudiobookID[folderURL.absoluteString]
+    }
+
+    func updatePDFViewState(_ state: PDFViewState, for folderURL: URL) {
+        currentPDFViewState = state
+        pdfViewStatesByAudiobookID[folderURL.absoluteString] = state
+    }
 
     // MARK: - UI state (pass-through to PlaybackController)
 
