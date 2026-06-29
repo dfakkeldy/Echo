@@ -382,6 +382,89 @@ struct DeckImportServiceTests {
         #expect(cards.map(\.sourceBlockID) == [nil, nil])
     }
 
+    @Test
+    func importDeckVNextReportsInvalidTriggerTiming() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Bad Trigger Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "startTime": 0,
+                  "endTime": 5,
+                  "triggerTiming": "middle"
+                }
+              ]
+            }
+            """)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect {
+            try DeckImportService().importDeckVNext(from: url, db: writer)
+        } throws: { error in
+            guard case DeckImportError.invalidTriggerTiming("middle", cardIndex: 0) = error else {
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
+    func reimportingSameDeckReplacesCardsAndTimelineRows() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let firstURL = try writeDeckJSON(
+            """
+            {
+              "deckName": "Replaceable Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {"frontText": "Old 1", "backText": "A1", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"},
+                {"frontText": "Old 2", "backText": "A2", "startTime": 5, "endTime": 10, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """)
+        let secondURL = try writeDeckJSON(
+            """
+            {
+              "deckName": "Replaceable Deck",
+              "targetMediaID": "book-a",
+              "cards": [
+                {"frontText": "New", "backText": "Answer", "startTime": 12, "endTime": 18, "triggerTiming": "end"}
+              ]
+            }
+            """)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let firstResult = try DeckImportService().importDeckVNext(from: firstURL, db: writer)
+        let secondResult = try DeckImportService().importDeckVNext(from: secondURL, db: writer)
+
+        #expect(firstResult.importedCount == 2)
+        #expect(secondResult.importedCount == 1)
+        try writer.read { db in
+            let cards = try Flashcard.fetchAll(db)
+            #expect(cards.count == 1)
+            #expect(cards.first?.frontText == "New")
+            #expect(cards.first?.triggerTiming == .end)
+
+            let timelineSourceRowIDs = try String.fetchAll(
+                db,
+                sql: """
+                    SELECT source_rowid
+                    FROM timeline_item
+                    WHERE source_table = 'flashcard'
+                    ORDER BY id
+                    """)
+            #expect(timelineSourceRowIDs == cards.map(\.id))
+        }
+    }
+
     // MARK: - Seed helpers
 
     private func seedAudiobook(_ writer: DatabaseWriter, id: String) throws {
@@ -438,6 +521,55 @@ struct DeckImportServiceTests {
                 )
                 try block.insert(db)
             }
+        }
+    }
+
+    @Test func reimportingSameDeckDoesNotDuplicateCards() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let json = """
+            {
+              "deckName": "Vocabulary",
+              "targetMediaID": "book-x.m4b",
+              "cards": [
+                {"frontText": "Q1", "backText": "A1", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"},
+                {"frontText": "Q2", "backText": "A2", "startTime": 5, "endTime": 10, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """
+        let url = try writeDeckJSON(json)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        _ = try DeckImportService().importDeck(from: url, db: writer)
+        _ = try DeckImportService().importDeck(from: url, db: writer)
+
+        try writer.read { db in
+            let decks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") ?? 0
+            let cards = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") ?? 0
+            #expect(decks == 1)
+            #expect(cards == 2)
+        }
+    }
+
+    @Test func invalidTriggerTimingThrowsCardNumberedError() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let json = """
+            {
+              "deckName": "Deck",
+              "targetMediaID": "book-y.m4b",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5, "triggerTiming": "start"}
+              ]
+            }
+            """
+        let url = try writeDeckJSON(json)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        do {
+            _ = try DeckImportService().importDeck(from: url, db: writer)
+            Issue.record("expected importDeck to throw")
+        } catch DeckImportError.invalidTriggerTiming(let value, let cardIndex) {
+            #expect(value == "start")
+            #expect(cardIndex == 0)
         }
     }
 }

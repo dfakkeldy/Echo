@@ -133,7 +133,9 @@ import Testing
         #expect(pieces.filter { $0.contains("kəm.pjuː.tər") }.count == 1)
     }
 
-    @Test func editorialSquareBracketsDoNotSuppressSentenceSplitting() {
+    @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
+        // `[sic]`/footnote brackets are not pronunciation links: sentence
+        // terminators after them must still split.
         let text = "First note [sic] here. Second sentence here. Third sentence here."
         let pieces = NarrationTextChunker.split(text, maxChars: 30)
         #expect(pieces == [

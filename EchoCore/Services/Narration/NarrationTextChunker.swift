@@ -75,17 +75,18 @@ enum NarrationTextChunker {
         // syllable separator "." is a legitimate terminator-looking character, and
         // splitting there would insert spaces inside the link and corrupt it.
         var inLink = false
-        var awaitingLinkTarget = false
-        for ch in text {
+        let chars = Array(text)
+        for i in chars.indices {
+            let ch = chars[i]
             current.append(ch)
-            if awaitingLinkTarget {
-                inLink = ch == "("
-                awaitingLinkTarget = false
-            }
             if ch == "[" {
                 inLink = true
             } else if ch == "]" {
-                awaitingLinkTarget = true
+                // Close the protected region on `]` UNLESS this is a real
+                // `[word](/ipa/)` link (next char is `(`), whose IPA dots must
+                // stay protected through the closing `)`. Editorial brackets
+                // like `[sic]`/`[1]` close here, so later sentences still split.
+                if i + 1 >= chars.count || chars[i + 1] != "(" { inLink = false }
             } else if ch == ")" {
                 inLink = false
             }

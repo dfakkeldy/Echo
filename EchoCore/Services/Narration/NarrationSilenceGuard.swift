@@ -35,8 +35,9 @@ enum NarrationSilenceGuard {
 
     /// True when `samples` is non-empty yet effectively silent (the zero-output
     /// bug). Empty is NOT silent — it's a legitimately empty fragment.
-    nonisolated static func isEffectivelySilent(_ samples: [Float], floor: Float = defaultSilenceFloor) -> Bool
-    {
+    nonisolated static func isEffectivelySilent(
+        _ samples: [Float], floor: Float = defaultSilenceFloor
+    ) -> Bool {
         guard !samples.isEmpty else { return false }
         var peak: Float = 0
         for sample in samples {
@@ -62,18 +63,19 @@ enum NarrationSilenceGuard {
         guard chars.count >= minLength else { return nil }
 
         // Mark every index inside a `[word](/ipa/)` link so we never split there.
+        // Close on `]` UNLESS it begins a real link (next char `(`), so editorial
+        // brackets like `[note]`/`[1]` don't latch the whole tail as in-link and
+        // block silence-recovery splitting.
         var inLink = [Bool](repeating: false, count: chars.count)
         var open = false
-        var awaitingLinkTarget = false
         for i in chars.indices {
-            if awaitingLinkTarget {
-                open = chars[i] == "("
-                awaitingLinkTarget = false
-            }
             if chars[i] == "[" { open = true }
             inLink[i] = open
-            if chars[i] == "]" { awaitingLinkTarget = true }
-            if chars[i] == ")" { open = false }
+            if chars[i] == "]" {
+                if i + 1 >= chars.count || chars[i + 1] != "(" { open = false }
+            } else if chars[i] == ")" {
+                open = false
+            }
         }
 
         let terminators: Set<Character> = [",", ";", ":", ".", "!", "?"]

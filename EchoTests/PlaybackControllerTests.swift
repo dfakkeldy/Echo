@@ -44,6 +44,46 @@ import Testing
         #expect(c.state.isPlaying == false)
     }
 
+    @Test func endOfBookDoesNotWrapToStart() {
+        // Last chapter of a single-track book: nextChapter() must stay put, not
+        // auto-restart the book from chapter 0 (§5.2). Previously it fell through
+        // to `firstEnabled` and reloaded index 0 with autoplay.
+        let c = PlaybackController()
+        c.state.tracks = [Track(url: URL(string: "file:///tmp/book.m4b")!, title: "Book")]
+        c.state.currentIndex = 0
+        c.state.chapters = [
+            Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+            Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+        ]
+        c.state.currentChapterIndex = 1
+        // isMultiM4B is a computed get-only property; a single track with no
+        // aggregated chapters is already non-aggregated.
+        var loaded: Int?
+        c.coordinator_loadTrack = { idx, _ in loaded = idx }
+
+        c.nextChapter()
+
+        #expect(loaded == nil)
+    }
+
+    @Test func findNextEnabledTrackIndexDoesNotTrapPastEnd() {
+        let c = PlaybackController()
+        let t = Track(url: URL(string: "file:///tmp/a.m4a")!, title: "A")
+        // currentIndex past the last valid index must return nil, not trap.
+        #expect(c.findNextEnabledTrackIndex(in: [t], currentIndex: 1) == nil)
+    }
+
+    @Test func forwardSkipTargetDoesNotCollapseToZeroWhenDurationUnknown() {
+        // Unknown duration (briefly nil right after a track load) must not clamp
+        // the target to 0 (which seeked to the track start).
+        #expect(
+            PlaybackController.forwardSkipTarget(current: 120, amount: 30, duration: nil) == 150)
+        #expect(
+            PlaybackController.forwardSkipTarget(current: 120, amount: 30, duration: 600) == 150)
+        #expect(
+            PlaybackController.forwardSkipTarget(current: 590, amount: 30, duration: 600) == 600)
+    }
+
     @Test func cycleSkipsBookmarkLoopWhenUnavailable() {
         let c = PlaybackController()
         c.loopMode = .chapter
@@ -62,5 +102,70 @@ import Testing
         c.cycleLoopMode()
 
         #expect(c.loopMode == .bookmark)
+    }
+
+    @Test func findNextEnabledTrackIndexReturnsNilForOutOfRangeIndex() {
+        let c = PlaybackController()
+        let tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/first.m4a"), title: "First"),
+            Track(url: URL(fileURLWithPath: "/tmp/second.m4a"), title: "Second"),
+        ]
+
+        #expect(c.findNextEnabledTrackIndex(in: tracks, currentIndex: tracks.count) == nil)
+    }
+
+    @Test func nextTrackAtEndDoesNotWrapToFirstEnabled() {
+        let c = PlaybackController()
+        c.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/first.m4a"), title: "First"),
+            Track(url: URL(fileURLWithPath: "/tmp/second.m4a"), title: "Second"),
+        ]
+        c.state.currentIndex = 1
+        var loadedIndex: Int?
+        c.coordinator_loadTrack = { index, _ in loadedIndex = index }
+
+        c.nextTrack()
+
+        #expect(loadedIndex == nil)
+    }
+
+    @Test func nextChapterAtEndDoesNotWrapToFirstEnabledTrack() {
+        let c = PlaybackController()
+        c.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/first.m4a"), title: "First"),
+            Track(url: URL(fileURLWithPath: "/tmp/second.m4a"), title: "Second"),
+        ]
+        c.state.currentIndex = 1
+        c.state.currentChapterIndex = 1
+        c.state.chapters = [
+            Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+            Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+        ]
+        var loadedIndex: Int?
+        c.coordinator_loadTrack = { index, _ in loadedIndex = index }
+
+        c.nextChapter()
+
+        #expect(loadedIndex == nil)
+    }
+
+    @Test func forwardSkipTargetUsesCurrentPositionWhenDurationIsUnknown() {
+        let target = PlaybackController.forwardSkipTarget(
+            current: 75,
+            amount: 30,
+            duration: nil
+        )
+
+        #expect(target == 105)
+    }
+
+    @Test func forwardSkipTargetClampsWhenDurationIsKnown() {
+        let target = PlaybackController.forwardSkipTarget(
+            current: 75,
+            amount: 30,
+            duration: 80
+        )
+
+        #expect(target == 80)
     }
 }

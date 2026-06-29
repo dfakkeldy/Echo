@@ -85,7 +85,7 @@ final class SnippetPlayer {
         }
         let duration = Double(file.length) / file.processingFormat.sampleRate
         let previousDidEnd = onPlaybackDidEnd
-        onPlaybackDidEnd = { [weak self] in
+        onPlaybackDidEnd = {
             previousDidEnd?()
             completion?()
         }

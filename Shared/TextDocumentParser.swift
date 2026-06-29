@@ -84,6 +84,8 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
             flushParagraph()
             continue
         }
+        // CommonMark thematic break (`---`, `***`, `___`): a block separator,
+        // not content. Drop it so narration/the reader don't get a junk card.
         if isMarkdownThematicBreak(trimmed) {
             flushParagraph()
             continue

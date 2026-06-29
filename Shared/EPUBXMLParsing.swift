@@ -79,9 +79,11 @@ struct TextBlockDescriptor: Sendable {
     /// block, in document order — used to resolve TOC fragment targets.
     let anchorIDs: [String]
 
-    init(kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?,
-         markers: [SyncMarker] = [], textFormats: [TextFormat] = [],
-         rawClasses: [String] = [], rawTags: String = "", anchorIDs: [String] = []) {
+    init(
+        kind: EPubBlockRecord.Kind, text: String?, imagePath: String?, htmlContent: String?,
+        markers: [SyncMarker] = [], textFormats: [TextFormat] = [],
+        rawClasses: [String] = [], rawTags: String = "", anchorIDs: [String] = []
+    ) {
         self.kind = kind
         self.text = text
         self.imagePath = imagePath
@@ -156,8 +158,9 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
         if elementName == "itemref", let idref = attributeDict["idref"] {
             spineRefs.append((idref: idref, linear: attributeDict["linear"]?.lowercased() != "no"))
         } else if elementName == "reference",
-                  let type = attributeDict["type"],
-                  let href = attributeDict["href"] {
+            let type = attributeDict["type"],
+            let href = attributeDict["href"]
+        {
             guideReferences.append(GuideReference(type: type, href: href))
         }
     }
@@ -169,9 +172,10 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
         qualifiedName qName: String?
     ) {
         if elementName == "item",
-           let id = currentAttributes["id"],
-           let href = currentAttributes["href"],
-           let mediaType = currentAttributes["media-type"] {
+            let id = currentAttributes["id"],
+            let href = currentAttributes["href"],
+            let mediaType = currentAttributes["media-type"]
+        {
             manifestItems[id] = SpineItemDescriptor(id: id, href: href, mediaType: mediaType)
 
             // `properties` is a space-separated list per spec (e.g. "nav scripted").
@@ -187,7 +191,8 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
     func parserDidEndDocument(_ parser: XMLParser) {
         spineItems = spineRefs.compactMap { ref in
             guard let item = manifestItems[ref.idref] else { return nil }
-            return SpineItemDescriptor(id: item.id, href: item.href, mediaType: item.mediaType, linear: ref.linear)
+            return SpineItemDescriptor(
+                id: item.id, href: item.href, mediaType: item.mediaType, linear: ref.linear)
         }
     }
 }
@@ -240,17 +245,20 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
         parser.parse()
     }
 
-    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes attributeDict: [String: String] = [:]) {
-        if elementName == "nav" { // NAV (EPUB3)
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+        qualifiedName: String?, attributes attributeDict: [String: String] = [:]
+    ) {
+        if elementName == "nav" {  // NAV (EPUB3)
             navTypes.append(attributeDict["epub:type"] ?? "")
-        } else if elementName == "navPoint" { // NCX
+        } else if elementName == "navPoint" {  // NCX
             ncxFrames.append(TOCEntryNode(title: "", href: ""))
-        } else if elementName == "ol" { // NAV (EPUB3)
+        } else if elementName == "ol" {  // NAV (EPUB3)
             if isInsideTOCNav { navLevelStack.append([]) }
-        } else if elementName == "text" { // NCX
+        } else if elementName == "text" {  // NCX
             isInsideNavLabelText = true
             currentText = ""
-        } else if elementName == "content" { // NCX
+        } else if elementName == "content" {  // NCX
             if let src = attributeDict["src"] {
                 currentSrc = src
                 let label = currentText.collapsedWhitespace()
@@ -272,13 +280,14 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
                     }
                 }
             }
-        } else if elementName == "a" { // NAV (EPUB3)
+        } else if elementName == "a" {  // NAV (EPUB3)
             if let href = attributeDict["href"] {
                 let navWords = (navTypes.last ?? "").split(separator: " ")
                 if navWords.contains("landmarks") {
                     let cleanHref = String(href.components(separatedBy: "#")[0])
                     let decoded = cleanHref.removingPercentEncoding ?? cleanHref
-                    landmarks.append(GuideReference(type: attributeDict["epub:type"] ?? "", href: decoded))
+                    landmarks.append(
+                        GuideReference(type: attributeDict["epub:type"] ?? "", href: decoded))
                 } else if navWords.isEmpty || navWords.contains("toc") {
                     currentSrc = href
                     isInsideNavLabelText = true
@@ -295,8 +304,11 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
         }
     }
 
-    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
-        if elementName == "nav" { // NAV (EPUB3)
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+        qualifiedName: String?
+    ) {
+        if elementName == "nav" {  // NAV (EPUB3)
             // Malformed docs may close the nav with <ol> levels still open;
             // flush them innermost-out so collected entries aren't lost.
             if isInsideTOCNav {
@@ -305,7 +317,7 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
                 }
             }
             if !navTypes.isEmpty { navTypes.removeLast() }
-        } else if elementName == "navPoint" { // NCX
+        } else if elementName == "navPoint" {  // NCX
             guard !ncxFrames.isEmpty else { return }
             let frame = ncxFrames.removeLast()
             // An entry without a display title or target file can't be a TOC
@@ -316,13 +328,13 @@ final class TOCParserDelegate: NSObject, XMLParserDelegate {
             } else {
                 ncxFrames[ncxFrames.count - 1].children.append(contentsOf: finished)
             }
-        } else if elementName == "ol" { // NAV (EPUB3)
+        } else if elementName == "ol" {  // NAV (EPUB3)
             guard isInsideTOCNav, !navLevelStack.isEmpty else { return }
             attachClosedNavLevel(navLevelStack.removeLast())
-        } else if elementName == "text" { // NCX end text
+        } else if elementName == "text" {  // NCX end text
             isInsideNavLabelText = false
-        } else if elementName == "a" { // NAV end a
-            guard isInsideNavLabelText else { return } // anchor was in a non-TOC nav
+        } else if elementName == "a" {  // NAV end a
+            guard isInsideNavLabelText else { return }  // anchor was in a non-TOC nav
             isInsideNavLabelText = false
             let href = String(currentSrc.components(separatedBy: "#")[0])
             let decodedHref = href.removingPercentEncoding ?? href
@@ -382,9 +394,15 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private var isInsideTitle = false
     private var currentBlockClasses: [String] = []
     private var currentBlockTags: String = ""
+    private var blockquoteDepth = 0
+    private var currentBlockHasBlockquote = false
     private let skipTags: Set<String> = ["script", "style", "figcaption"]
-    private let blockTags: Set<String> = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section"]
-    private let inlineTags: Set<String> = ["b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br", "u"]
+    private let blockTags: Set<String> = [
+        "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section",
+    ]
+    private let inlineTags: Set<String> = [
+        "b", "i", "em", "strong", "span", "small", "sub", "sup", "a", "br", "u",
+    ]
 
     /// Element `id`s seen since the last emitted block. Carried forward across
     /// empty flushes so an id on a wrapper (`<table id=…>` before any text)
@@ -415,7 +433,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         qualifiedName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        if skipTags.contains(elementName) { skipDepth += 1; return }
+        if skipTags.contains(elementName) {
+            skipDepth += 1
+            return
+        }
         guard skipDepth == 0 else { return }
 
         if elementName == "head" {
@@ -445,21 +466,24 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             currentHeading = ""
             currentHTML = ""
             currentBlockTags = elementName
-            currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(String.init)
+            currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(
+                String.init)
         } else if elementName == "img", let src = attributeDict["src"] {
             flushBlock()
             captureAnchorID(anchorID)
             let marker = SyncMarker(type: .image, payload: src, epubCharOffset: currentCharOffset)
-            textBlocks.append(TextBlockDescriptor(
-                kind: .image,
-                text: nil,
-                imagePath: src,
-                htmlContent: nil,
-                markers: [marker],
-                rawClasses: (attributeDict["class"] ?? "").split(separator: " ").map(String.init),
-                rawTags: "img",
-                anchorIDs: pendingAnchorIDs
-            ))
+            textBlocks.append(
+                TextBlockDescriptor(
+                    kind: .image,
+                    text: nil,
+                    imagePath: src,
+                    htmlContent: nil,
+                    markers: [marker],
+                    rawClasses: (attributeDict["class"] ?? "").split(separator: " ").map(
+                        String.init),
+                    rawTags: "img",
+                    anchorIDs: pendingAnchorIDs
+                ))
             pendingAnchorIDs = []
         } else if blockTags.contains(elementName) {
             flushBlock()
@@ -467,16 +491,19 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             isInBlock = true
             currentHTML = ""
             currentBlockTags = elementName
-            currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(String.init)
+            currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(
+                String.init)
             if elementName == "blockquote" {
-                let marker = SyncMarker(type: .blockquote, payload: "", epubCharOffset: currentCharOffset)
-                blockMarkers.append(marker)
+                blockquoteDepth += 1
+                currentBlockHasBlockquote = true
             }
         } else if elementName == "a", let href = attributeDict["href"] {
-            let marker = SyncMarker(type: .hyperlink, payload: href, epubCharOffset: currentCharOffset)
+            let marker = SyncMarker(
+                type: .hyperlink, payload: href, epubCharOffset: currentCharOffset)
             blockMarkers.append(marker)
         } else if elementName == "hr" {
-            let marker = SyncMarker(type: .horizontalRule, payload: "", epubCharOffset: currentCharOffset)
+            let marker = SyncMarker(
+                type: .horizontalRule, payload: "", epubCharOffset: currentCharOffset)
             blockMarkers.append(marker)
         } else if inlineTags.contains(elementName) {
             var tag = "<\(elementName)"
@@ -490,9 +517,9 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             let formatType: FormatType?
             switch elementName {
             case "b", "strong": formatType = .bold
-            case "i", "em":     formatType = .italic
-            case "u":           formatType = .underline
-            default:            formatType = nil
+            case "i", "em": formatType = .italic
+            case "u": formatType = .underline
+            default: formatType = nil
             }
             if let ft = formatType {
                 pendingFormatStack.append((ft, currentCharOffset))
@@ -508,7 +535,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             documentTitle = docTitle + string
             return
         }
-        if isInsideHead { return } // ignore all other text in head
+        if isInsideHead { return }  // ignore all other text in head
 
         if isInHeading { appendCollapsed(string, to: &currentHeading) }
         currentCharOffset += appendCollapsed(string, to: &currentText)
@@ -571,7 +598,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName: String?
     ) {
-        if skipTags.contains(elementName) { skipDepth = max(0, skipDepth - 1); return }
+        if skipTags.contains(elementName) {
+            skipDepth = max(0, skipDepth - 1)
+            return
+        }
         guard skipDepth == 0 else { return }
 
         if elementName == "head" {
@@ -585,7 +615,14 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
 
         insertSoftWordBreakIfStructural(elementName)
 
-        if elementName == "a" {
+        // `<a>` is opened as a hyperlink marker only (no HTML, no inlineDepth),
+        // so its close must be a no-op — otherwise it emits an orphan `</a>`
+        // and desyncs inlineDepth.
+        if elementName == "a" { return }
+
+        if elementName == "blockquote" {
+            blockquoteDepth = max(0, blockquoteDepth - 1)
+            flushBlock()
             return
         }
 
@@ -596,12 +633,13 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             let formatType: FormatType?
             switch elementName {
             case "b", "strong": formatType = .bold
-            case "i", "em":     formatType = .italic
-            case "u":           formatType = .underline
-            default:            formatType = nil
+            case "i", "em": formatType = .italic
+            case "u": formatType = .underline
+            default: formatType = nil
             }
             if let ft = formatType,
-               let idx = pendingFormatStack.lastIndex(where: { $0.0 == ft }) {
+                let idx = pendingFormatStack.lastIndex(where: { $0.0 == ft })
+            {
                 let (_, start) = pendingFormatStack.remove(at: idx)
                 let end = max(start, currentCharOffset - 1)
                 blockFormats.append(TextFormat(type: ft, range: start...end))
@@ -617,23 +655,29 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             // Emit chapterStart marker at the heading's position within the block.
             // We store the heading level (e.g. "2" for "h2") in the payload.
             let level = String(elementName.dropFirst())
-            let headingMarkers: [SyncMarker] = heading.isEmpty ? [] : [
-                SyncMarker(type: .chapterStart, payload: level, epubCharOffset: max(0, currentCharOffset - heading.count - 1))
-            ]
+            let headingMarkers: [SyncMarker] =
+                heading.isEmpty
+                ? []
+                : [
+                    SyncMarker(
+                        type: .chapterStart, payload: level,
+                        epubCharOffset: max(0, currentCharOffset - heading.count - 1))
+                ]
             currentText = ""
             currentHTML = ""
             if !heading.isEmpty {
-                textBlocks.append(TextBlockDescriptor(
-                    kind: .heading,
-                    text: heading,
-                    imagePath: nil,
-                    htmlContent: html.isEmpty ? nil : html,
-                    markers: headingMarkers,
-                    textFormats: [],
-                    rawClasses: currentBlockClasses,
-                    rawTags: currentBlockTags,
-                    anchorIDs: pendingAnchorIDs
-                ))
+                textBlocks.append(
+                    TextBlockDescriptor(
+                        kind: .heading,
+                        text: heading,
+                        imagePath: nil,
+                        htmlContent: html.isEmpty ? nil : html,
+                        markers: headingMarkers,
+                        textFormats: [],
+                        rawClasses: currentBlockClasses,
+                        rawTags: currentBlockTags,
+                        anchorIDs: pendingAnchorIDs
+                    ))
                 pendingAnchorIDs = []
             }
         }
@@ -653,25 +697,34 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             return
         }
         let markers = blockMarkers
+            + (
+                currentBlockHasBlockquote
+                    ? [SyncMarker(type: .blockquote, payload: "", epubCharOffset: 0)]
+                    : []
+            )
         let formats = blockFormats
         blockMarkers = []
         blockFormats = []
         currentCharOffset = 0
+        if blockquoteDepth == 0 {
+            currentBlockHasBlockquote = false
+        }
         let classes = currentBlockClasses
         let tags = currentBlockTags
         currentBlockClasses = []
         currentBlockTags = ""
-        textBlocks.append(TextBlockDescriptor(
-            kind: .paragraph,
-            text: text,
-            imagePath: nil,
-            htmlContent: html.isEmpty ? nil : html,
-            markers: markers,
-            textFormats: formats,
-            rawClasses: classes,
-            rawTags: tags,
-            anchorIDs: pendingAnchorIDs
-        ))
+        textBlocks.append(
+            TextBlockDescriptor(
+                kind: .paragraph,
+                text: text,
+                imagePath: nil,
+                htmlContent: html.isEmpty ? nil : html,
+                markers: markers,
+                textFormats: formats,
+                rawClasses: classes,
+                rawTags: tags,
+                anchorIDs: pendingAnchorIDs
+            ))
         pendingAnchorIDs = []
     }
 }
@@ -730,19 +783,22 @@ func concatenateBlocks(
 
         // Rebase marker offsets
         for marker in block.markers {
-            allMarkers.append(SyncMarker(
-                type: marker.type,
-                payload: marker.payload,
-                epubCharOffset: marker.epubCharOffset + baseOffset
-            ))
+            allMarkers.append(
+                SyncMarker(
+                    type: marker.type,
+                    payload: marker.payload,
+                    epubCharOffset: marker.epubCharOffset + baseOffset
+                ))
         }
 
         // Rebase format ranges
         for format in block.textFormats {
-            allFormats.append(TextFormat(
-                type: format.type,
-                range: (format.range.lowerBound + baseOffset)...(format.range.upperBound + baseOffset)
-            ))
+            allFormats.append(
+                TextFormat(
+                    type: format.type,
+                    range: (format.range.lowerBound + baseOffset)...(format.range.upperBound
+                        + baseOffset)
+                ))
         }
     }
 

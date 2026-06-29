@@ -502,6 +502,8 @@
                 return
             }
             let dao = FlashcardDAO(db: db.writer)
+            // Strip attached punctuation so dedupe and the saved card key on the
+            // bare word (e.g. "world." → "world"); otherwise duplicates slip past.
             // Dedupe (D7): re-surface existing card with a light haptic, no duplicate
             if (try? dao.vocabularyCard(for: audiobookID, word: term)) != nil {
                 Haptic.play(.light)

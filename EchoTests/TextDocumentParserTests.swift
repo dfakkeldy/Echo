@@ -69,6 +69,13 @@ import Testing
         #expect(!p.blocks.contains { ($0.text ?? "").contains("|") })
     }
 
+    @Test func thematicBreaksAreDroppedNotNarrated() {
+        let p = parse("## C\n\nAbove\n\n---\n\nBelow")
+        let paragraphs = p.blocks.filter { $0.blockKind == "paragraph" }.compactMap { $0.text }
+        #expect(paragraphs == ["Above", "Below"])
+        #expect(!p.blocks.contains { $0.text == "---" })
+    }
+
     @Test func boldSpanSurvivesIntoBlockTextFormats() throws {
         let p = parse("## C\n\nThis is **strong** prose.")
         let para = try #require(p.blocks.first { ($0.text ?? "").contains("strong") })

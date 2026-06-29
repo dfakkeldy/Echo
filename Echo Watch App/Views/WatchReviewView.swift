@@ -28,16 +28,19 @@ struct WatchReviewView: View {
                             .padding(.horizontal)
 
                         if isRevealed {
+                            // Canonical ReviewGrade scale (again=1, good=3, easy=4).
+                            // The old 0/3/5 (SM-2) values persisted an invalid
+                            // lastGrade that ReviewGrade(rawValue:) can't represent.
                             HStack(spacing: 8) {
-                                gradeButton("Again", grade: 0, color: .red)
+                                gradeButton("Again", grade: ReviewGrade.again.rawValue, color: .red)
                                 WatchReviewPrimaryActionButton(
                                     title: "Good",
                                     systemImage: "hand.thumbsup.fill",
                                     isPrimaryActionEnabled: isPrimaryActionEnabled
                                 ) {
-                                    gradeAndAdvance(grade: 3)
+                                    gradeAndAdvance(grade: ReviewGrade.good.rawValue)
                                 }
-                                gradeButton("Easy", grade: 5, color: .blue)
+                                gradeButton("Easy", grade: ReviewGrade.easy.rawValue, color: .blue)
                             }
                             .padding(.horizontal)
                         } else {
