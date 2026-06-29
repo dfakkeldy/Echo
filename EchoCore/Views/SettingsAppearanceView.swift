@@ -113,6 +113,7 @@ struct SettingsAppearanceView: View {
                 return "Default"
             }
             switch name {
+            case "AppIcon-CircuitBrain": return "Circuit Brain"
             case "AppIcon-ComplexWaves": return "Complex Waves"
             case "AppIcon-GoldSilver": return "Gold & Silver"
             case "AppIcon-SilverGold": return "Silver & Gold"
