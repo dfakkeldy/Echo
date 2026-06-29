@@ -75,10 +75,17 @@ enum NarrationTextChunker {
         // syllable separator "." is a legitimate terminator-looking character, and
         // splitting there would insert spaces inside the link and corrupt it.
         var inLink = false
+        var awaitingLinkTarget = false
         for ch in text {
             current.append(ch)
+            if awaitingLinkTarget {
+                inLink = ch == "("
+                awaitingLinkTarget = false
+            }
             if ch == "[" {
                 inLink = true
+            } else if ch == "]" {
+                awaitingLinkTarget = true
             } else if ch == ")" {
                 inLink = false
             }

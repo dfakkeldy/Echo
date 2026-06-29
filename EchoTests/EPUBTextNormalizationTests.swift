@@ -118,6 +118,33 @@ struct EPUBTextNormalizationTests {
         #expect(paragraph?.text == "You can undo this, it\u{2019}s reversible.")
     }
 
+    @Test func hyperlinkMarkerDoesNotLeaveOrphanClosingTagInHTML() throws {
+        let xhtml = """
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <body><p>Visit <a href="https://example.com">Example</a> today.</p></body>
+        </html>
+        """
+        let result = parseXHTML(from: Data(xhtml.utf8))
+        let paragraph = try #require(result.blocks.first { $0.kind == .paragraph })
+        #expect(paragraph.htmlContent?.contains("Example") == true)
+        #expect(paragraph.htmlContent?.contains("</a>") == false)
+        #expect(paragraph.markers.contains {
+            $0.type == .hyperlink && $0.payload == "https://example.com"
+        })
+    }
+
+    @Test func blockquoteEmitsSyncMarker() throws {
+        let xhtml = """
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <body><blockquote class="quote">Stay awhile.</blockquote></body>
+        </html>
+        """
+        let result = parseXHTML(from: Data(xhtml.utf8))
+        let quote = try #require(result.blocks.first { $0.rawTags == "blockquote" })
+        #expect(quote.text == "Stay awhile.")
+        #expect(quote.markers.contains { $0.type == .blockquote })
+    }
+
     @Test func ncxNavLabelsAreWhitespaceNormalized() {
         let ncx = """
         <?xml version="1.0" encoding="UTF-8"?>

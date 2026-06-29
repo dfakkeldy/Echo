@@ -51,7 +51,7 @@ extension View {
 /// Uses `m:ss` while ≤ 60 minutes; falls back to `h:mm` for longer.
 func sleepTimerCountdownText(_ seconds: Int) -> String {
     let s = max(0, seconds)
-    if s >= 3600 {
+    if s > 3600 {
         let h = s / 3600
         let m = (s % 3600) / 60
         return String(format: "%d:%02d", h, m)

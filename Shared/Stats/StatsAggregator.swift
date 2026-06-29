@@ -302,7 +302,7 @@ enum StatsAggregator {
             SessionLengthBucket(
                 id: label,
                 range: range,
-                count: segments.filter { range.contains($0.playbackDuration) }.count
+                count: segments.filter { range.contains(max(0, $0.wallClockDuration)) }.count
             )
         }
     }

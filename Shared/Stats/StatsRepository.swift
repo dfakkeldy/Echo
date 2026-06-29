@@ -216,8 +216,8 @@ struct StatsRepository: Sendable {
         let segs = try await segments
         let chs = try await chapters
 
-        let intervals = segs.map { seg in
-            seg.startPosition...seg.endPosition
+        let intervals = segs.map { seg -> ClosedRange<TimeInterval> in
+            min(seg.startPosition, seg.endPosition)...max(seg.startPosition, seg.endPosition)
         }
 
         return StatsAggregator.chaptersCoverage(chapters: chs, listenedIntervals: intervals)

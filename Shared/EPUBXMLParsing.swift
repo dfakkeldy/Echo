@@ -468,11 +468,12 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             currentHTML = ""
             currentBlockTags = elementName
             currentBlockClasses = (attributeDict["class"] ?? "").split(separator: " ").map(String.init)
+            if elementName == "blockquote" {
+                let marker = SyncMarker(type: .blockquote, payload: "", epubCharOffset: currentCharOffset)
+                blockMarkers.append(marker)
+            }
         } else if elementName == "a", let href = attributeDict["href"] {
             let marker = SyncMarker(type: .hyperlink, payload: href, epubCharOffset: currentCharOffset)
-            blockMarkers.append(marker)
-        } else if elementName == "blockquote" {
-            let marker = SyncMarker(type: .blockquote, payload: "", epubCharOffset: currentCharOffset)
             blockMarkers.append(marker)
         } else if elementName == "hr" {
             let marker = SyncMarker(type: .horizontalRule, payload: "", epubCharOffset: currentCharOffset)
@@ -583,6 +584,10 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         }
 
         insertSoftWordBreakIfStructural(elementName)
+
+        if elementName == "a" {
+            return
+        }
 
         if inlineTags.contains(elementName) {
             currentHTML += "</\(elementName)>"

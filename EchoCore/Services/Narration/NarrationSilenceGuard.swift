@@ -64,9 +64,15 @@ enum NarrationSilenceGuard {
         // Mark every index inside a `[word](/ipa/)` link so we never split there.
         var inLink = [Bool](repeating: false, count: chars.count)
         var open = false
+        var awaitingLinkTarget = false
         for i in chars.indices {
+            if awaitingLinkTarget {
+                open = chars[i] == "("
+                awaitingLinkTarget = false
+            }
             if chars[i] == "[" { open = true }
             inLink[i] = open
+            if chars[i] == "]" { awaitingLinkTarget = true }
             if chars[i] == ")" { open = false }
         }
 

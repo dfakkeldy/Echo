@@ -4,11 +4,15 @@ import UIKit
 /// Presents the on-device dictionary (`UIReferenceLibraryViewController`) for a term.
 enum DictionaryLookupPresenter {
     static func hasDefinition(for term: String) -> Bool {
-        UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: term)
+        let term = DictionaryLookupTerm.sanitized(term)
+        guard !term.isEmpty else { return false }
+        return UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: term)
     }
 
     @MainActor
     static func present(term: String) {
+        let term = DictionaryLookupTerm.sanitized(term)
+        guard !term.isEmpty else { return }
         guard
             let scene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene })

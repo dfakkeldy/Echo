@@ -54,6 +54,14 @@ import Testing
         #expect(paras == ["first", "second", "third"])
     }
 
+    @Test func thematicBreaksAreDropped() {
+        let p = parse("## C\n\nAbove\n\n---\n\nBelow\n\n* * *\n\nAfter")
+        let paras = p.blocks.filter { $0.blockKind == "paragraph" }.map(\.text)
+        #expect(paras == ["Above", "Below", "After"])
+        #expect(!paras.contains("---"))
+        #expect(!paras.contains("* * *"))
+    }
+
     @Test func fencedCodeAndTablesAreDropped() {
         let p = parse("## C\n\nReal text.\n\n```\nlet x = 1\n```\n\n| a | b |\n| - | - |\n")
         #expect(p.blocks.contains { $0.text == "Real text." })

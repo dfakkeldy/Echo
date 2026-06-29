@@ -166,13 +166,16 @@ struct PDFDocumentView: View {
             titleVisibility: .visible
         ) {
             if let hit = longPressHit, let word = hit.word {
-                if DictionaryLookupPresenter.hasDefinition(for: word) {
-                    Button("Look Up \"\(word)\"") {
-                        DictionaryLookupPresenter.present(term: word)
+                let term = DictionaryLookupTerm.sanitized(word)
+                if !term.isEmpty {
+                    if DictionaryLookupPresenter.hasDefinition(for: term) {
+                        Button("Look Up \"\(term)\"") {
+                            DictionaryLookupPresenter.present(term: term)
+                        }
                     }
-                }
-                Button("Save \"\(word)\"") {
-                    savePDFVocabularyWord(word: word, context: hit.context)
+                    Button("Save \"\(term)\"") {
+                        savePDFVocabularyWord(word: term, context: hit.context)
+                    }
                 }
                 Button("Alignment options\u{2026}") {
                     // Re-trigger the alignment dialog with the same captured state.
@@ -371,6 +374,8 @@ struct PDFDocumentView: View {
     /// Audio anchor = the active block's start time (block-level; per-word timing is
     /// unavailable in the PDF page context).
     private func savePDFVocabularyWord(word: String, context: String?) {
+        let word = DictionaryLookupTerm.sanitized(word)
+        guard !word.isEmpty else { return }
         guard let db = model.databaseService else { return }
         let audiobookID = folderURL.absoluteString
 

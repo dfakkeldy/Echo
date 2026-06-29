@@ -132,4 +132,14 @@ import Testing
         // Exactly one piece carries the whole link (it wasn't torn across chunks).
         #expect(pieces.filter { $0.contains("kəm.pjuː.tər") }.count == 1)
     }
+
+    @Test func editorialSquareBracketsDoNotSuppressSentenceSplitting() {
+        let text = "First note [sic] here. Second sentence here. Third sentence here."
+        let pieces = NarrationTextChunker.split(text, maxChars: 30)
+        #expect(pieces == [
+            "First note [sic] here.",
+            "Second sentence here.",
+            "Third sentence here.",
+        ])
+    }
 }

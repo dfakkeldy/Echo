@@ -241,6 +241,25 @@ struct EchoCoreTests {
         #expect(appGroupDefaults.string(forKey: "watchBackgroundStyle") == "black")
     }
 
+    @Test func settingsMigratesWatchValuesBeforeRegisteringAppGroupDefaults() throws {
+        let suiteName = "watch-migration-\(UUID().uuidString)"
+        let appGroupName = "watch-migration-ag-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let appGroupDefaults = try #require(UserDefaults(suiteName: appGroupName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        defaults.set("black", forKey: "watchBackgroundStyle")
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(settings.watchBackgroundStyle == "black")
+        #expect(appGroupDefaults.string(forKey: "watchBackgroundStyle") == "black")
+        #expect(appGroupDefaults.bool(forKey: "didMigrateWatchSettingsToAppGroup_v2"))
+    }
+
     @Test func settingsUsesClassicWatchFaceAndProgressDefaults() {
         let suiteName = "watch-progress-defaults-\(UUID().uuidString)"
         let appGroupName = "watch-progress-defaults-ag-\(UUID().uuidString)"

@@ -11,6 +11,10 @@ struct SleepTimerPillStateTests {
         #expect(SleepTimerPillState.labelText(mode: .minutes(30), remainingSeconds: 1335) == "22:15")
     }
 
+    @Test func minutesModeShowsSixtyMinutesAtOneHourBoundary() {
+        #expect(SleepTimerPillState.labelText(mode: .minutes(60), remainingSeconds: 3600) == "60:00")
+    }
+
     @Test func minutesModeOverAnHourUsesHoursMinutes() {
         // 3725s = 1h 02m → "1:02" (sleepTimerCountdownText's h:mm fallback)
         #expect(SleepTimerPillState.labelText(mode: .minutes(90), remainingSeconds: 3725) == "1:02")
