@@ -35,7 +35,7 @@ final class ABSImportService {
             try await Self.extractWholeAudiobookArchive(zipURL: zipURL, to: stagingFolder)
             try? FileManager.default.removeItem(at: zipURL)
             try Self.validatePreparedFolder(stagingFolder)
-            coverArtPath = try await downloadCoverIfAvailable(
+            coverArtPath = await downloadCoverIfAvailable(
                 for: item,
                 into: stagingFolder,
                 finalAudiobookID: folder.absoluteString)

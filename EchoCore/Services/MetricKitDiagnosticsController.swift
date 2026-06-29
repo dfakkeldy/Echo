@@ -69,14 +69,15 @@ final class MetricKitDiagnosticsController: NSObject {
 }
 
 #if canImport(MetricKit)
+    nonisolated private struct MetricDiagnosticPayloadBatch: @unchecked Sendable {
+        let payloads: [MXDiagnosticPayload]
+    }
+
     extension MetricKitDiagnosticsController: MXMetricManagerSubscriber {
-        // `sending payloads`: the non-Sendable `[MXDiagnosticPayload]` arrives on this
-        // nonisolated callback and is transferred into the `@MainActor` Task. Marking
-        // the parameter `sending` lets the compiler verify the array is handed off
-        // exclusively (it is never used again here) rather than shared across actors.
-        nonisolated func didReceive(_ payloads: sending [MXDiagnosticPayload]) {
-            Task { @MainActor [weak self] in
-                self?.storeDiagnosticPayloads(payloads)
+        nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
+            let batch = MetricDiagnosticPayloadBatch(payloads: payloads)
+            Task { @MainActor [weak self, batch] in
+                self?.storeDiagnosticPayloads(batch.payloads)
             }
         }
 

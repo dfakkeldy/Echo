@@ -6,6 +6,21 @@
 	<string>Echo records short voice memos so you can attach narrated notes to your audiobook bookmarks.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Echo lets you dictate short text notes for audiobook bookmarks.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

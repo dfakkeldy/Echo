@@ -62,10 +62,11 @@ final class DefaultChimePlayer: ChimeScheduling {
 
         do {
             let file = try AVAudioFile(forReading: chimeURL)
-            // Pass an explicit completion handler to select the non-blocking
-            // overload; the bare `scheduleFile(_:at:)` now resolves to the
-            // `async` variant that suspends until playback finishes.
-            playerNode.scheduleFile(file, at: nil, completionHandler: nil)
+            playerNode.scheduleFile(
+                file,
+                at: nil,
+                completionCallbackType: .dataPlayedBack
+            ) { _ in }
             startEngineIfNeeded()
             playerNode.play()
         } catch {
