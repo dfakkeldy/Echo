@@ -63,3 +63,16 @@ import Testing
                 == "Alpha beta gamma!")
     }
 }
+
+@Suite struct DictionaryLookupTermTests {
+    @Test(arguments: [
+        ("world.", "world"),
+        ("\u{201C}Hello\u{201D}", "Hello"),  // curly quotes
+        ("mother-in-law,", "mother-in-law"),  // internal hyphens kept
+        ("don\u{2019}t.", "don\u{2019}t"),  // internal apostrophe kept
+        ("word", "word"),
+    ])
+    func stripsLeadingAndTrailingPunctuation(input: String, expected: String) {
+        #expect(DictionaryLookupPresenter.sanitizedTerm(input) == expected)
+    }
+}
