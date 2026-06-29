@@ -44,6 +44,33 @@ import Testing
         #expect(page.results.first?.duration == 3600)
     }
 
+    @Test func fetchItemsDecodesCurrentABSFilePayloadShapesAndMissingCoverPath() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            json: """
+                {"total":1,"page":0,"results":[
+                  {"id":"it1","libraryId":"lib1","media":{
+                    "duration":0,
+                    "audioFiles":[{"ino":"a1","mimeType":"audio/mp4","duration":120}],
+                    "files":[{"ino":"f1","mimeType":"application/epub+zip","relPath":"book.epub"}],
+                    "ebookFile":{"ino":"e1","mimeType":"application/epub+zip","relPath":"book.epub"},
+                    "pdfFile":{"ino":"p1","mimeType":"application/pdf","relPath":"book.pdf"},
+                    "metadata":{"title":"Mixed Media"}}}
+                ]}
+                """)
+
+        let item = try #require(try await service.items(libraryID: "lib1").results.first)
+
+        #expect(item.title == "Mixed Media")
+        #expect(item.coverPath == nil)
+        #expect(item.media?.audioFiles?.first?.mimeType == "audio/mp4")
+        #expect(item.media?.files?.first?.relPath == "book.epub")
+        #expect(item.media?.ebookFile?.relPath == "book.epub")
+        #expect(item.media?.pdfFile?.relPath == "book.pdf")
+        #expect(item.hasAudioContent)
+    }
+
     @Test func fetchAllItemsRequestsPagesUntilTotalIsReached() async throws {
         let service = makeService()
         URLProtocolStub.stub(
@@ -76,6 +103,37 @@ import Testing
 
         #expect(items.map(\.id) == ["itA", "itB", "itC"])
         #expect(requestedPages == ["0", "1"])
+    }
+
+    @Test func pagedItemsEmitsPagesBeforeLaterPageFails() async throws {
+        let service = makeService()
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "0", "limit": "2"],
+            json: """
+                {"total":3,"limit":2,"page":0,"results":[
+                  {"id":"itA","libraryId":"lib1","media":{"metadata":{"title":"A Book"}}},
+                  {"id":"itB","libraryId":"lib1","media":{"metadata":{"title":"B Book"}}}
+                ]}
+                """)
+        URLProtocolStub.stub(
+            pathSuffix: "/items",
+            queryItems: ["page": "1", "limit": "2"],
+            status: 500,
+            json: #"{"error":"boom"}"#)
+
+        var emittedIDs: [String] = []
+
+        do {
+            _ = try await service.pagedItems(libraryID: "lib1", pageSize: 2) { pageItems in
+                emittedIDs.append(contentsOf: pageItems.map(\.id))
+            }
+            Issue.record("Expected the second page to fail")
+        } catch ABSError.http(let status, _) {
+            #expect(status == 500)
+        }
+
+        #expect(emittedIDs == ["itA", "itB"])
     }
 
     @Test func fetchItemDetailDecodes() async throws {

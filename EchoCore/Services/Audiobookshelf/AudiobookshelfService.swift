@@ -122,6 +122,15 @@ final class AudiobookshelfService {
     func allItems(libraryID: String, pageSize: Int = 100, filter: String? = nil)
         async throws -> [ABSLibraryItem]
     {
+        try await pagedItems(libraryID: libraryID, pageSize: pageSize, filter: filter) { _ in }
+    }
+
+    func pagedItems(
+        libraryID: String,
+        pageSize: Int = 100,
+        filter: String? = nil,
+        onPage: ([ABSLibraryItem]) async throws -> Void
+    ) async throws -> [ABSLibraryItem] {
         let limit = max(1, pageSize)
         var page = 0
         var results: [ABSLibraryItem] = []
@@ -132,6 +141,7 @@ final class AudiobookshelfService {
             guard !response.results.isEmpty else { return results }
 
             results.append(contentsOf: response.results)
+            try await onPage(response.results)
             if let total = response.total, results.count >= total { return results }
             if let numPages = response.numPages, page + 1 >= numPages { return results }
             if response.total == nil, response.numPages == nil, response.results.count < limit {

@@ -17,7 +17,8 @@ struct ABSBrowseView: View {
     @State private var isLoading = false
     @State private var isLoadingItems = false
     @State private var isSearching = false
-    @State private var errorMessage: String?
+    @State private var browseErrorMessage: String?
+    @State private var searchErrorMessage: String?
     @State private var searchQuery = ""
     @State private var searchResults: [ABSLibraryItem]? = nil
 
@@ -26,10 +27,10 @@ struct ABSBrowseView: View {
             Group {
                 if isLoading {
                     ProgressView("Loading…")
-                } else if let errorMessage {
+                } else if let browseErrorMessage, libraries.isEmpty {
                     ContentUnavailableView(
                         "Couldn't load", systemImage: "wifi.slash",
-                        description: Text(errorMessage))
+                        description: Text(browseErrorMessage))
                 } else {
                     List {
                         if libraries.count > 1 {
@@ -44,34 +45,63 @@ struct ABSBrowseView: View {
                                 )
                             )
                             .listRowSeparator(.hidden)
-                        } else if isLoadingItems {
-                            ProgressView("Loading books...")
-                        } else if isSearching {
-                            ProgressView("Searching...")
-                        } else if displayedItems.isEmpty {
-                            if isShowingSearchResults {
-                                ContentUnavailableView("No Results", systemImage: "magnifyingglass",
-                                    description: Text(
-                                        "No books matched \"\(trimmedSearchQuery)\"."
-                                    )
-                                )
-                                .listRowSeparator(.hidden)
-                            } else {
-                                ContentUnavailableView("No Books", systemImage: "book.closed",
-                                    description: Text(
-                                        "This Audiobookshelf library does not contain any books yet."
-                                    )
-                                )
+                        } else {
+                            if let searchErrorMessage {
+                                ContentUnavailableView(
+                                    "Couldn't search", systemImage: "magnifyingglass",
+                                    description: Text(searchErrorMessage))
                                 .listRowSeparator(.hidden)
                             }
-                        } else {
-                            ForEach(displayedItems) { item in
-                                NavigationLink {
-                                    ABSItemDetailView(item: item, onImported: { dismiss() })
-                                } label: {
-                                    ABSItemRow(
-                                        item: item,
-                                        service: model.makeAudiobookshelfService())
+
+                            if displayedItems.isEmpty {
+                                if isLoadingItems {
+                                    ProgressView("Loading books...")
+                                } else if isSearching {
+                                    ProgressView("Searching...")
+                                } else if let browseErrorMessage {
+                                    ContentUnavailableView(
+                                        "Couldn't load books", systemImage: "wifi.slash",
+                                        description: Text(browseErrorMessage))
+                                    .listRowSeparator(.hidden)
+                                } else if isShowingSearchResults, searchErrorMessage == nil {
+                                    ContentUnavailableView(
+                                        "No Results", systemImage: "magnifyingglass",
+                                        description: Text(
+                                            "No books matched \"\(trimmedSearchQuery)\"."
+                                        )
+                                    )
+                                    .listRowSeparator(.hidden)
+                                } else if searchErrorMessage == nil {
+                                    ContentUnavailableView(
+                                        "No Books", systemImage: "book.closed",
+                                        description: Text(
+                                            "This Audiobookshelf library does not contain any books yet."
+                                        )
+                                    )
+                                    .listRowSeparator(.hidden)
+                                }
+                            } else {
+                                ForEach(displayedItems) { item in
+                                    NavigationLink {
+                                        ABSItemDetailView(item: item, onImported: { dismiss() })
+                                    } label: {
+                                        ABSItemRow(
+                                            item: item,
+                                            service: model.makeAudiobookshelfService())
+                                    }
+                                }
+
+                                if isLoadingItems {
+                                    ProgressView("Loading books...")
+                                }
+                                if isSearching {
+                                    ProgressView("Searching...")
+                                }
+                                if let browseErrorMessage {
+                                    ContentUnavailableView(
+                                        "Couldn't load books", systemImage: "wifi.slash",
+                                        description: Text(browseErrorMessage))
+                                    .listRowSeparator(.hidden)
                                 }
                             }
                         }
@@ -99,6 +129,7 @@ struct ABSBrowseView: View {
         let q = trimmedSearchQuery
         guard !q.isEmpty else {
             searchResults = nil
+            searchErrorMessage = nil
             isSearching = false
             return
         }
@@ -114,17 +145,18 @@ struct ABSBrowseView: View {
             let results = try await service.search(libraryID: lib.id, query: q)
             try Task.checkCancellation()
             searchResults = results
-            errorMessage = nil
+            searchErrorMessage = nil
         } catch is CancellationError {
             // superseded by a newer keystroke — ignore
         } catch {
-            errorMessage = error.localizedDescription
+            searchResults = nil
+            searchErrorMessage = error.localizedDescription
         }
     }
 
     private func loadLibraries() async {
         guard let service = model.makeAudiobookshelfService() else {
-            errorMessage = "No server connected."
+            browseErrorMessage = "No server connected."
             return
         }
         isLoading = true
@@ -132,9 +164,9 @@ struct ABSBrowseView: View {
         do {
             libraries = try await service.libraries()
             selectedLibrary = libraries.first
-            errorMessage = nil
+            browseErrorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            browseErrorMessage = error.localizedDescription
         }
     }
 
@@ -146,14 +178,18 @@ struct ABSBrowseView: View {
         do {
             isLoadingItems = true
             defer { isLoadingItems = false }
-            let result = try await service.allItems(libraryID: lib.id)
+            items = []
+            browseErrorMessage = nil
+            _ = try await service.pagedItems(libraryID: lib.id) { pageItems in
+                try Task.checkCancellation()
+                items.append(contentsOf: pageItems)
+            }
             try Task.checkCancellation()  // bail if the selection already moved on
-            items = result
-            errorMessage = nil
+            browseErrorMessage = nil
         } catch is CancellationError {
             // superseded by a newer selection — ignore
         } catch {
-            errorMessage = error.localizedDescription
+            browseErrorMessage = error.localizedDescription
         }
     }
 
@@ -177,7 +213,11 @@ private struct ABSItemRow: View {
     var body: some View {
         HStack(spacing: 12) {
             ABSAuthenticatedCoverImage(
-                service: service, itemID: item.id, contentMode: .fill, placeholderFont: nil)
+                service: service,
+                itemID: item.id,
+                hasCover: ABSBrowsePresentation.shouldLoadCover(for: item),
+                contentMode: .fill,
+                placeholderFont: nil)
             .frame(width: 44, height: 44)
             .clipShape(.rect(cornerRadius: 4))
             VStack(alignment: .leading, spacing: 2) {
@@ -205,6 +245,7 @@ private struct ABSItemDetailView: View {
                     ABSAuthenticatedCoverImage(
                         service: model.makeAudiobookshelfService(),
                         itemID: item.id,
+                        hasCover: ABSBrowsePresentation.shouldLoadCover(for: item),
                         contentMode: .fit,
                         placeholderFont: .largeTitle)
                     .frame(maxWidth: 200, maxHeight: 200)
@@ -218,12 +259,12 @@ private struct ABSItemDetailView: View {
                 if let narrator = item.media?.metadata?.narrator {
                     LabeledContent("Narrator", value: narrator)
                 }
-                if let duration = item.duration {
+                if let duration = ABSBrowsePresentation.displayDuration(for: item) {
                     LabeledContent("Duration", value: Self.formatted(duration))
                 }
                 if let n = item.numTracks { LabeledContent("Tracks", value: "\(n)") }
             }
-            if let description = item.media?.metadata?.description, !description.isEmpty {
+            if let description = ABSBrowsePresentation.displayDescription(for: item) {
                 Section("Description") { Text(description).font(.callout) }
             }
             Section {
@@ -274,6 +315,7 @@ private struct ABSItemDetailView: View {
 private struct ABSAuthenticatedCoverImage: View {
     let service: AudiobookshelfService?
     let itemID: String
+    let hasCover: Bool
     let contentMode: ContentMode
     let placeholderFont: Font?
 
@@ -315,7 +357,7 @@ private struct ABSAuthenticatedCoverImage: View {
     }
 
     private func loadCover() async {
-        guard let service else {
+        guard hasCover, let service else {
             imageData = nil
             return
         }
@@ -326,5 +368,19 @@ private struct ABSAuthenticatedCoverImage: View {
         } catch {
             imageData = nil
         }
+    }
+}
+
+enum ABSBrowsePresentation {
+    static func shouldLoadCover(for item: ABSLibraryItem) -> Bool {
+        item.coverPath?.isEmpty == false
+    }
+
+    static func displayDuration(for item: ABSLibraryItem) -> Double? {
+        item.duration.flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    static func displayDescription(for item: ABSLibraryItem) -> String? {
+        item.media?.metadata?.userReadableDescription
     }
 }
