@@ -29,9 +29,10 @@ enum StudyPlanItemKind: String, Codable, Sendable, CaseIterable {
 }
 
 enum StudyFlashcardType {
-    static let normal = "normal"
-    static let listeningAssignment = "listening_assignment"
-    static let imageAssignment = "image_assignment"
+    nonisolated static let normal = "normal"
+    nonisolated static let listeningAssignment = "listening_assignment"
+    nonisolated static let imageAssignment = "image_assignment"
+    nonisolated static let vocabulary = "vocabulary"
 }
 
 enum StudyAssignmentGradePolicy {

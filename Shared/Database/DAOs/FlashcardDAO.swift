@@ -75,6 +75,17 @@ nonisolated struct FlashcardDAO {
         }
     }
 
+    /// Existing vocabulary card for this book + word (case-insensitive), or nil.
+    func vocabularyCard(for audiobookID: String, word: String) throws -> Flashcard? {
+        try db.read { db in
+            try Flashcard
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("card_type") == StudyFlashcardType.vocabulary)
+                .filter(sql: "LOWER(front_text) = ?", arguments: [word.lowercased()])
+                .fetchOne(db)
+        }
+    }
+
     func insert(_ card: Flashcard) throws {
         try db.write { db in
             try Self.insert(card, in: db)

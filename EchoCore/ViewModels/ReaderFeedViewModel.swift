@@ -949,6 +949,18 @@ final class ReaderFeedViewModel {
         }) ?? false
     }
 
+    /// Per-word `(start, end)` timing for karaoke, sourced from the in-memory
+    /// `wordCache` (no DB hit on the menu hot path). Returns `nil` when the word
+    /// has not yet been assigned a timing row (e.g. book has no narration).
+    func wordTiming(blockID: String, wordIndex: Int) -> (start: TimeInterval, end: TimeInterval)? {
+        guard
+            let row = wordCache.first(where: {
+                $0.blockID == blockID && $0.wordIndex == wordIndex
+            })
+        else { return nil }
+        return (row.start, row.end)
+    }
+
     /// Fetch audio start time for a specific EPUB block.
     func audioStartTime(for epubBlockID: String, audiobookID: String) -> Double? {
         try? db.read { database in

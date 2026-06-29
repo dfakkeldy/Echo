@@ -5,12 +5,20 @@ import UIKit
 final class ParagraphCardCell: UICollectionViewCell {
     static let reuseIdentifier = "ParagraphCardCell"
 
-    private let label: UILabel = {
-        let label = UILabel()
-        label.numberOfLines = 0
-        label.adjustsFontForContentSizeCategory = true
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
+    // Read-only, NON-selectable UITextView: gives TextKit hit-testing for
+    // per-word interaction without installing selection gestures that would
+    // intercept the collection view's block tap / context menu.
+    private let label: UITextView = {
+        let tv = UITextView()
+        tv.isEditable = false
+        tv.isSelectable = false
+        tv.isScrollEnabled = false
+        tv.backgroundColor = .clear
+        tv.textContainerInset = .zero
+        tv.textContainer.lineFragmentPadding = 0
+        tv.adjustsFontForContentSizeCategory = true
+        tv.translatesAutoresizingMaskIntoConstraints = false
+        return tv
     }()
 
     private let activeBar: UIView = {
@@ -211,6 +219,21 @@ final class ParagraphCardCell: UICollectionViewCell {
     func applyWordHighlight(_ wordIndex: Int?) {
         textConfiguration?.highlightedWordIndex = wordIndex
         renderWordHighlight(wordIndex)
+    }
+
+    /// Maps a point in `contentView` coordinates to the index of the word under
+    /// it (over `wordRanges`), or nil if the point is outside any word glyph.
+    func wordIndex(at point: CGPoint) -> Int? {
+        let local = contentView.convert(point, to: label)
+        guard label.bounds.contains(local) else { return nil }
+        // Character index nearest the touch via the text view's layout manager.
+        // Touching .layoutManager on an iOS 18 TextKit-2 UITextView transparently
+        // falls back to TextKit 1, which is fine for this static read-only view.
+        let charIndex = label.layoutManager.characterIndex(
+            for: local, in: label.textContainer,
+            fractionOfDistanceBetweenInsertionPoints: nil)
+        guard charIndex < (label.attributedText?.length ?? 0) else { return nil }
+        return wordRanges.firstIndex { NSLocationInRange(charIndex, $0) }
     }
 
     private static func normalizedText(for block: EPubBlockRecord) -> String {

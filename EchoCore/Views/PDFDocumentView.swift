@@ -3,6 +3,16 @@ import PDFKit
 import SwiftUI
 import os.log
 
+/// Data carried from a long-press on the PDF page.
+/// `word` and `context` are resolved directly from the PDF at the touch point.
+private struct PDFLongPressHit {
+    let state: PDFViewState
+    /// The word at the press point (from `PDFPage.selectionForWord(at:)`), or nil.
+    let word: String?
+    /// The line of text containing the press point (best-effort context), or nil.
+    let context: String?
+}
+
 private enum PDFDocumentAction: CaseIterable, Identifiable {
     case alignToNow
     case alignToSpecificTime
@@ -36,6 +46,7 @@ private enum PDFDocumentAction: CaseIterable, Identifiable {
 struct PDFDocumentView: View {
     let folderURL: URL
     @Environment(PlayerModel.self) private var model
+    @Environment(FreeTierGate.self) private var freeTierGate
 
     @State private var pdfDocument: PDFDocument?
     @State private var pdfLoadToken = 0
@@ -43,6 +54,20 @@ struct PDFDocumentView: View {
     @State private var showingManualAlignment = false
     @State private var capturedState: PDFViewState?
     @State private var currentPDFViewState: PDFViewState?
+    /// Long-press hit carrying state + resolved word + context.
+    @State private var longPressHit: PDFLongPressHit?
+    /// Whether to show the word-action dialog (Look Up + Save + Alignment).
+    @State private var showingWordActions = false
+
+    // MARK: - Read-along state (M3 Task 3)
+
+    /// Controller that resolves active block → page index and word text.
+    /// Nil until the DB and document are ready (or if the book has no timeline).
+    @State private var readAlong: PDFReadAlongController?
+    /// 0-based PDF page index to auto-follow; nil = do not move.
+    @State private var activePageIndex: Int?
+    /// Word text to highlight on the current page (best-effort). nil = no highlight.
+    @State private var activeWordTerm: String?
 
     var body: some View {
         ZStack {
@@ -53,12 +78,22 @@ struct PDFDocumentView: View {
                         get: { model.pendingPDFViewStateRestore },
                         set: { if $0 == nil { model.pendingPDFViewStateRestore = nil } }
                     ),
+                    activePageIndex: activePageIndex,
+                    activeWordTerm: activeWordTerm,
+                    isPlaying: model.isPlaying,
                     onStateChange: { state in
                         updateCurrentPDFState(state)
                     },
-                    onLongPress: { state in
-                        capturedState = state
-                        showingAlignmentOptions = true
+                    onLongPress: { hit in
+                        capturedState = hit.state
+                        if let word = hit.word, !word.isEmpty {
+                            // Word resolved: offer Look Up + Save + Alignment options.
+                            longPressHit = hit
+                            showingWordActions = true
+                        } else {
+                            // No word at press point: fall through to alignment dialog.
+                            showingAlignmentOptions = true
+                        }
                     },
                     onAction: { action, state in
                         performPDFAction(action, state: state)
@@ -79,11 +114,69 @@ struct PDFDocumentView: View {
         }
         .task(id: PDFLoadRequest(folderURL: folderURL, reloadToken: pdfLoadToken)) {
             await loadPDF(for: folderURL)
+            // Load the read-along controller after the document is ready.
+            // Uses the same databaseService the rest of the reader uses.
+            if let db = model.databaseService?.writer {
+                let controller = PDFReadAlongController()
+                controller.load(audiobookID: folderURL.absoluteString, db: db)
+                readAlong = controller
+            }
+        }
+        // M3 Task 3: Page auto-follow + best-effort word highlight.
+        // Only fires on playback ticks; does NOT fight PDFViewState restore or
+        // user scroll/zoom (the guard below is model.isPlaying, enforced in the
+        // PDFKitView coordinator's go(to:) call).
+        .onChange(of: model.currentPlaybackTime) { _, time in
+            guard let ra = readAlong, model.isPlaying else { return }
+            guard
+                let active = ra.activeBlock(
+                    at: time,
+                    currentTrackSegmentKey: currentTrackSegmentKey,
+                    currentTrackChapterIndices: currentTrackChapterIndices)
+            else {
+                activeWordTerm = nil
+                return
+            }
+            if let page = ra.pageIndex(forBlock: active.blockID) {
+                activePageIndex = page
+            }
+            activeWordTerm = active.wordIndex.flatMap {
+                ra.wordText(blockID: active.blockID, wordIndex: $0)
+            }
+        }
+        // Clear highlight when paused so it does not persist stale.
+        .onChange(of: model.isPlaying) { _, playing in
+            if !playing {
+                activeWordTerm = nil
+            }
         }
         .confirmationDialog("Align PDF View", isPresented: $showingAlignmentOptions) {
             ForEach(PDFDocumentAction.allCases) { action in
                 Button(action.title) {
                     _ = performPDFAction(action, state: capturedState)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        // M3 Task 4: word-action dialog (Look Up + Save + Alignment options).
+        // Only shown when a word was resolved at the long-press point.
+        .confirmationDialog(
+            wordActionDialogTitle,
+            isPresented: $showingWordActions,
+            titleVisibility: .visible
+        ) {
+            if let hit = longPressHit, let word = hit.word {
+                if DictionaryLookupPresenter.hasDefinition(for: word) {
+                    Button("Look Up \"\(word)\"") {
+                        DictionaryLookupPresenter.present(term: word)
+                    }
+                }
+                Button("Save \"\(word)\"") {
+                    savePDFVocabularyWord(word: word, context: hit.context)
+                }
+                Button("Alignment options\u{2026}") {
+                    // Re-trigger the alignment dialog with the same captured state.
+                    showingAlignmentOptions = true
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -98,6 +191,10 @@ struct PDFDocumentView: View {
                 ingestedID == folderURL.absoluteString
             else { return }
             pdfLoadToken &+= 1
+            // Reload the read-along controller when new timeline data arrives.
+            if let db = model.databaseService?.writer {
+                readAlong?.load(audiobookID: folderURL.absoluteString, db: db)
+            }
         }
     }
 
@@ -115,6 +212,43 @@ struct PDFDocumentView: View {
         } catch {
             Self.logger.error("Failed to load PDF: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Track scoping (mirrors ReaderTab.currentTrackChapterIndices)
+    // Needed so the read-along controller resolves the correct block in multi-track books.
+
+    private var currentTrackChapterIndices: Set<Int>? {
+        let tracks = model.tracks
+        let currentIndex = model.currentIndex
+        var playingChapterIndex: Int?
+        if tracks.indices.contains(currentIndex) {
+            playingChapterIndex = NarrationFileNaming.chapterIndex(
+                fromFileName: tracks[currentIndex].url.lastPathComponent)
+        }
+        return ReaderActiveBlockResolver.trackChapterScope(
+            trackCount: tracks.count,
+            isMultiM4B: model.isMultiM4B,
+            currentIndex: currentIndex,
+            playingChapterIndex: playingChapterIndex)
+    }
+
+    private var currentTrackSegmentKey: String? {
+        let tracks = model.tracks
+        let currentIndex = model.currentIndex
+        guard tracks.indices.contains(currentIndex),
+            let location = NarrationFileNaming.segmentLocation(
+                fromFileName: tracks[currentIndex].url.lastPathComponent)
+        else { return nil }
+        return ReaderActiveBlockResolver.segmentKey(
+            forChapter: location.chapterIndex,
+            segment: location.segmentIndex)
+    }
+
+    // MARK: - Action menu
+
+    private var wordActionDialogTitle: String {
+        guard let word = longPressHit?.word else { return "" }
+        return "\"\(word)\""
     }
 
     private var pdfActionMenu: some View {
@@ -184,7 +318,8 @@ struct PDFDocumentView: View {
             options: [.skipsHiddenFiles]
         )
         try Task.checkCancellation()
-        return files
+        return
+            files
             .filter { $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame }
             .sorted {
                 $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
@@ -219,13 +354,73 @@ struct PDFDocumentView: View {
 
             if let draft = model.bookmarkDraftAtCurrentTime() {
                 model.appendBookmark(
-                    from: draft, title: String(localized: "PDF Bookmark"), timestamp: draft.timestamp, note: nil,
+                    from: draft, title: String(localized: "PDF Bookmark"),
+                    timestamp: draft.timestamp,
+                    note: nil,
                     voiceMemoFileName: nil, bookmarkImageFileName: imageName)
                 return true
             }
         }
 
         return false
+    }
+
+    // MARK: - M3 Task 4: Vocabulary word save
+
+    /// Saves `word` as a vocabulary flashcard, mirroring `ReaderTab.saveVocabularyWord`.
+    /// Audio anchor = the active block's start time (block-level; per-word timing is
+    /// unavailable in the PDF page context).
+    private func savePDFVocabularyWord(word: String, context: String?) {
+        guard let db = model.databaseService else { return }
+        let audiobookID = folderURL.absoluteString
+
+        guard freeTierGate.canCreateFlashcards(adding: 1) else {
+            model.paywallContext = .flashcardCap
+            model.showPaywall = true
+            return
+        }
+
+        let dao = FlashcardDAO(db: db.writer)
+
+        // Dedupe: re-surface existing card with light haptic, no duplicate.
+        if (try? dao.vocabularyCard(for: audiobookID, word: word)) != nil {
+            Haptic.play(.light)
+            return
+        }
+
+        // Audio anchor: active block start time, or current playback time as fallback.
+        let activeBlock = readAlong?.activeBlock(
+            at: model.currentPlaybackTime,
+            currentTrackSegmentKey: currentTrackSegmentKey,
+            currentTrackChapterIndices: currentTrackChapterIndices)
+        let blockID = activeBlock?.blockID
+        let audioStart: TimeInterval
+        if let bid = blockID,
+            let t = readAlong?.blockStartTime(forBlock: bid)
+        {
+            audioStart = t
+        } else {
+            audioStart = model.currentPlaybackTime
+        }
+
+        let card = VocabularyCardBuilder.make(
+            id: UUID().uuidString,
+            audiobookID: audiobookID,
+            word: word,
+            contextSentence: context.flatMap { $0.isEmpty ? nil : $0 },
+            blockID: blockID,
+            audioStart: audioStart,
+            audioEnd: nil,
+            createdAt: Date().ISO8601Format()
+        )
+
+        do {
+            try dao.insert(card)
+            Haptic.play(.medium)
+        } catch {
+            Self.logger.error("Failed to save PDF vocabulary word '\(word)': \(error)")
+            Haptic.play(.rigid)
+        }
     }
 
     private struct PDFLoadRequest: Equatable {
@@ -236,11 +431,20 @@ struct PDFDocumentView: View {
     private static let logger = Logger(category: "PDFDocumentView")
 }
 
+// MARK: - PDFKitView
+
 private struct PDFKitView: UIViewRepresentable {
     let document: PDFDocument
     @Binding var restoreState: PDFViewState?
+    /// Narration-driven page index to scroll to (nil = let user control).
+    /// Only acted on while `isPlaying`; cleared to nil by the parent's onChange.
+    let activePageIndex: Int?
+    /// Best-effort word term to highlight on the current page.
+    let activeWordTerm: String?
+    /// Whether narration is actively playing. Auto-follow is suppressed when false.
+    let isPlaying: Bool
     let onStateChange: (PDFViewState) -> Void
-    let onLongPress: (PDFViewState) -> Void
+    let onLongPress: (PDFLongPressHit) -> Void
     let onAction: (PDFDocumentAction, PDFViewState) -> Bool
 
     func makeUIView(context: Context) -> PDFView {
@@ -280,6 +484,9 @@ private struct PDFKitView: UIViewRepresentable {
         context.coordinator.configureAccessibilityActions(for: pdfView)
         context.coordinator.publishCurrentState()
 
+        // Add the word highlight overlay view (best-effort; hidden until a term matches).
+        context.coordinator.installHighlightView(on: pdfView)
+
         return pdfView
     }
 
@@ -303,18 +510,98 @@ private struct PDFKitView: UIViewRepresentable {
                 restoreState = nil
             }
         }
+
+        // Page auto-follow: only while playing and when the desired page differs.
+        // Guard: isPlaying prevents fighting user scroll/zoom while paused.
+        if isPlaying, let targetPage = activePageIndex,
+            let page = document.page(at: targetPage),
+            uiView.currentPage != page
+        {
+            uiView.go(to: page)
+        }
+
+        // Best-effort word highlight: search the current page for the term.
+        context.coordinator.updateWordHighlight(term: activeWordTerm, in: uiView)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
+    // MARK: - Coordinator
+
     final class Coordinator: NSObject {
         var parent: PDFKitView
         weak var pdfView: PDFView?
 
+        // MARK: Best-effort word highlight (M3 Task 3, secondary)
+        // A single semi-transparent UIView overlaid on the PDFView. Positioned via
+        // PDFKit coordinate conversion each time the active word changes.
+        // Throttled: we skip the update if the term has not changed since last paint.
+        private weak var highlightView: UIView?
+        private var lastHighlightedTerm: String?
+
         init(_ parent: PDFKitView) {
             self.parent = parent
+        }
+
+        /// Adds a reusable highlight overlay to `pdfView`. Called once from `makeUIView`.
+        func installHighlightView(on pdfView: PDFView) {
+            let view = UIView()
+            view.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.25)
+            view.layer.cornerRadius = 3
+            view.isUserInteractionEnabled = false
+            view.isHidden = true
+            pdfView.addSubview(view)
+            highlightView = view
+        }
+
+        /// Positions (or hides) the highlight overlay for `term` on the visible page.
+        /// Best-effort: if the search returns no match on the current page, hides.
+        /// Throttled: no-op when `term` matches `lastHighlightedTerm`.
+        func updateWordHighlight(term: String?, in pdfView: PDFView) {
+            // Throttle: skip if same term as last update.
+            guard term != lastHighlightedTerm else { return }
+            lastHighlightedTerm = term
+
+            guard let highlightView,
+                let term, !term.isEmpty,
+                let currentPage = pdfView.currentPage,
+                let document = pdfView.document
+            else {
+                highlightView?.isHidden = true
+                return
+            }
+
+            // Search the document for the term; filter to the current page.
+            // PDFKit's findString is synchronous and searches the whole document.
+            // For short single-word terms this is fast enough at ~12 Hz.
+            let selections = document.findString(term, withOptions: .caseInsensitive)
+            guard
+                let selection = selections.first(where: { sel in
+                    // A selection can span pages; check if it touches the current page.
+                    sel.pages.contains(currentPage)
+                })
+            else {
+                highlightView.isHidden = true
+                return
+            }
+
+            // Convert selection bounds (PDF page coordinates) → PDFView coordinates.
+            let pageBounds = selection.bounds(for: currentPage)
+            let viewBounds = pdfView.convert(pageBounds, from: currentPage)
+
+            // Clamp to visible area — the conversion may put it off-screen during scroll.
+            let visible = pdfView.bounds
+            guard visible.intersects(viewBounds) else {
+                highlightView.isHidden = true
+                return
+            }
+
+            highlightView.frame = viewBounds
+            highlightView.isHidden = false
+            // Keep the highlight above PDF content but below gesture recognizers.
+            pdfView.bringSubviewToFront(highlightView)
         }
 
         func configureAccessibilityActions(for pdfView: PDFView) {
@@ -337,21 +624,44 @@ private struct PDFKitView: UIViewRepresentable {
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            if gesture.state == .began, let state = currentState() {
-                parent.onLongPress(state)
+            guard gesture.state == .began, let pdfView, let state = currentState() else { return }
+
+            // Resolve the word at the press point directly from PDFKit.
+            // `selectionForWord(at:)` is available since PDFKit iOS 11 and
+            // compiles cleanly on the iOS 18 SDK.
+            let loc = gesture.location(in: pdfView)
+            var word: String?
+            var context: String?
+            if let page = pdfView.page(for: loc, nearest: true) {
+                let p = pdfView.convert(loc, to: page)
+                let wordSel = page.selectionForWord(at: p)
+                let raw = wordSel?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !raw.isEmpty {
+                    word = raw
+                    // Best-effort context sentence from the same line.
+                    context = page.selectionForLine(at: p)?.string?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
             }
+
+            parent.onLongPress(PDFLongPressHit(state: state, word: word, context: context))
         }
 
         @objc func handlePageChange() {
             if let state = currentState() {
                 parent.onStateChange(state)
             }
+            // Hide highlight on page change; updateUIView will re-position if still valid.
+            highlightView?.isHidden = true
+            lastHighlightedTerm = nil
         }
 
         @objc func handleScaleChange() {
             if let state = currentState() {
                 parent.onStateChange(state)
             }
+            // Reposition after zoom; force re-paint by resetting the throttle guard.
+            lastHighlightedTerm = nil
         }
 
         @objc func handleScroll() {

@@ -111,6 +111,9 @@ final class DatabaseService {
         migrator.registerMigration("v27_library") { db in
             try Schema_V27.migrate(db)
         }
+        migrator.registerMigration("v28_pdf_block_page") { db in
+            try Schema_V28.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }

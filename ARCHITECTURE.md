@@ -795,6 +795,7 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V23 | Audiobookshelf provenance columns on `audiobook` (`source_type` TEXT, `server_id` TEXT, `remote_item_id` TEXT, `topics_json` TEXT) — all nullable, additive `ALTER TABLE`, no re-import or re-alignment needed |
 | V24–V26 | Voice memos/notes in the reader feed (V24), study plans (V25), timeline segment key (V26) — see CHANGELOG.md |
 | V27 | Library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) + new `library_root` table — all additive; powers the local Library shelf/root manager with no re-import or re-alignment |
+| V28 | `pdf_block_page` table (`v28_pdf_block_page`) — per-block source **PDF page index** (`audiobook_id`, `epub_block_id`, `page_index`; indexed by book+block and book+page). Captured at import by `PDFBlockPageMapper`, it lets page-mode read-along auto-follow the narration page-by-page. Additive, but **already-imported PDFs must be re-imported** to populate it (until then page mode auto-follows by best-effort text search). Renumbered from V27 after `v27_library` landed on nightly first |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 
@@ -908,7 +909,7 @@ Imported flashcards can be linked to the EPUB text they came from, reusing the p
 
 ### PDF Companion Document Support (June 2026)
 
-When a PDF file is placed alongside an audiobook (alongside or instead of an EPUB), Echo provides a PDF reader with per-page alignment and bookmarking:
+When a PDF file is placed alongside an audiobook (alongside or instead of an EPUB), Echo provides a PDF reader with per-page alignment and bookmarking — and, for PDFs parsed into text, a read-along reading surface with per-word interaction (see *PDF Read-Along, Per-Word Define & Vocabulary* below):
 
 ```
 PDF in audiobook folder
@@ -945,6 +946,37 @@ Bookmark persistence (Schema V11):
 - `ScrubberJoystick` — Horizontal drag-track control with a spring-returning knob. Maps drag offset to a -1.0…1.0 value with exponential mapping (small pulls = slow, big pulls = fast) for precise scrubbing.
 
 **Reader tab routing:** `RootTabView` checks `model.hasPDF` when `model.hasEPUB` is false, routing to `PDFDocumentView` instead of `ReaderEmptyState`.
+
+### PDF Read-Along, Per-Word Define & Vocabulary (June 2026)
+
+A parsed PDF (one whose text was extracted into `epub_block` rows for narration/alignment) gains a second reading surface and per-word interaction, in four slices:
+
+```
+PDFReadingSurface (SwiftUI container)
+  └── segmented toggle: Page  ⇄  Reflow         ← persisted per book
+       ├── Page view   → PDFDocumentView + PDFReadAlongController
+       └── Reflow view → the EPUB-style card feed (ReaderFeedCollectionView)
+
+ReaderSurfaceMode / ReaderSurfaceResolver
+  └── decides which surfaces a book offers
+        parsed PDF    → page + reflow
+        un-parsed PDF → page only
+```
+
+- **M1 — Reading-surface toggle.** Parsed PDFs expose a Page ⇄ Reflow switch (defaults to Page), persisted per book via `BookPreferencesService` (`loadPDFViewMode`/`savePDFViewMode`). `ReaderSurfaceResolver` decides the available surfaces from the book's state.
+- **M2 — Per-word interaction (reflow, iOS).** `ParagraphCardCell`/`HeadingCardCell` render through a non-selectable, read-only `UITextView` (TextKit hit-testing) instead of a `UILabel`, so `wordIndex(at:)` can resolve the tapped/long-pressed word without selection gestures swallowing the block tap / context menu. Tap-a-word seeks to that word's audio time; long-press offers **Look Up** (`UIReferenceLibraryViewController`) and **Save word**.
+- **M3 — Page read-along (iOS).** `PDFReadAlongController` resolves the active block/word each playback tick; pages **auto-follow** the narration via the per-block `page_index` (Schema V28), and the active word is highlighted on the page by best-effort PDFKit text search (cached). Long-press on the page reads the word from the PDF and offers the same Look Up / Save actions.
+- **M4 — Vocabulary review.** Saved words become `cardType = "vocabulary"` flashcards (`VocabularyCardBuilder`, deduped per book + word via `FlashcardDAO.vocabularyCard(for:word:)`), scored by FSRS and surfaced in the study review feed with the word, its context sentence, a "Play in context" snippet, and on-demand Look Up. A **Narrate** button appears in the PDF reader when the book has parsable text but no audio.
+
+**Key types:**
+- `ReaderSurfaceMode` / `ReaderSurfaceResolver` — the page-vs-reflow surface model and the pure resolver that decides which surfaces a book offers.
+- `PDFReadingSurface` — SwiftUI container hosting the page and reflow views behind the persisted segmented toggle.
+- `PDFReadAlongController` — drives page auto-follow and word highlight from the playback clock plus the timeline/word caches.
+- `PDFBlockPageMapper` — pure import-time mapper assigning each `epub_block` to its source PDF page (whitespace-insensitive, monotonic cursor); persisted by `PDFAutoImportScanner` via `PDFBlockPageDAO`.
+- `PDFBlockPageRecord` / `PDFBlockPageDAO` — GRDB record + DAO over the `pdf_block_page` table (`pageIndex(for:epubBlockID:)`, `rows(for:)`, `insertAll`, `deleteAll(for:)`).
+- `VocabularyCardBuilder` / `WordSentenceContext` / `VocabularyCardContext` — build a vocabulary flashcard from a tapped word and its surrounding sentence, and decode that context back for review rendering.
+
+**Platform note:** M2 and M3 are **iOS-only** (the UIKit cell host and `PDFReadAlongController`); the macOS reader uses a separate SwiftUI text path, so per-word interaction and page read-along on macOS are follow-up parity work. M1 and M4 are cross-platform.
 
 ### Hierarchical Chapter Titles (June 2026)
 
