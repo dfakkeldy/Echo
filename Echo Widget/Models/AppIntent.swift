@@ -38,25 +38,21 @@ struct CreateBookmarkIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         let defaults = AppGroupDefaults.shared
 
-        guard let folderKey = defaults.string(forKey: "folderKey"),
-            let trackId = defaults.string(forKey: "trackId"),
-            let currentTime = defaults.object(forKey: "currentTime") as? TimeInterval
-        else {
+        // Read the PER-TRACK position the app publishes (`currentTrackTime`),
+        // not the cumulative whole-book `currentTime` the watch context carries.
+        // `Bookmark.timestamp` is a per-track offset, so on a multi-track book
+        // the cumulative value would land the bookmark in the wrong place.
+        guard let state = WidgetPlaybackStateStore.read(from: defaults) else {
             throw NSError(
                 domain: "CreateBookmarkIntent", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "No active audiobook found."])
         }
 
-        let newBookmark = Bookmark(
-            id: UUID(),
-            title: "Bookmark \(Date().formatted(date: .omitted, time: .shortened))",
-            folderKey: folderKey,
-            trackId: trackId,
-            timestamp: currentTime,
-            note: note
-        )
+        let title = "Bookmark \(Date().formatted(date: .omitted, time: .shortened))"
+        let newBookmark = WidgetPlaybackStateStore.bookmark(
+            from: state, note: note, title: title)
 
-        let bookmarksKey = "bookmarks_\(folderKey)"
+        let bookmarksKey = "bookmarks_\(state.folderKey)"
         var bookmarks =
             (try? JSONDecoder().decode(
                 [Bookmark].self, from: defaults.data(forKey: bookmarksKey) ?? Data())) ?? []

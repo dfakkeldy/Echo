@@ -103,5 +103,38 @@
 
             #expect(defaults.data(forKey: "thumbnailData") == Data([0x01]))
         }
+
+        // MARK: - Per-track bookmark position
+
+        @Test("publishing a position writes the per-track key without reloading widgets")
+        func publishPlaybackPositionWritesPerTrackKey() {
+            let defaults = makeDefaults()
+            var reloadCount = 0
+            let publisher = WidgetStatePublisher(defaults: defaults) { reloadCount += 1 }
+
+            publisher.publishPlaybackPosition(
+                WidgetPlaybackState(folderKey: "/books/dune", trackId: "track-3", perTrackTime: 30))
+
+            // The intent reads back the per-track offset, not the cumulative time.
+            #expect(defaults.object(forKey: "currentTrackTime") as? TimeInterval == 30)
+            #expect(defaults.string(forKey: "folderKey") == "/books/dune")
+            #expect(defaults.string(forKey: "trackId") == "track-3")
+            // Position freshness must not trigger a widget reload (it runs per tick).
+            #expect(reloadCount == 0)
+        }
+
+        @Test("publishing a nil position clears a previously published book")
+        func publishPlaybackPositionNilClears() {
+            let defaults = makeDefaults()
+            let publisher = WidgetStatePublisher(defaults: defaults) {}
+            publisher.publishPlaybackPosition(
+                WidgetPlaybackState(folderKey: "/b", trackId: "t", perTrackTime: 5))
+
+            publisher.publishPlaybackPosition(nil)
+
+            #expect(defaults.object(forKey: "currentTrackTime") == nil)
+            #expect(defaults.object(forKey: "folderKey") == nil)
+            #expect(defaults.object(forKey: "trackId") == nil)
+        }
     }
 #endif

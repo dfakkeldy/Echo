@@ -65,6 +65,21 @@ final class WidgetStatePublisher {
         reload()
     }
 
+    /// Mirrors the live PER-TRACK playback position into the App Group for the
+    /// "Bookmark this in Echo" Siri / App Intent, which stores a per-track
+    /// `Bookmark.timestamp`. This is the per-track counterpart `publish(...)`
+    /// deliberately left alone: it writes `currentTrackTime` (the offset within
+    /// the current track), **not** the cumulative `currentTime` the watch context
+    /// carries, so a multi-track bookmark lands in the right place.
+    ///
+    /// Reload-free by design, so the caller can run it on every sync (including
+    /// progress ticks) to keep the position fresh without the cost of a widget
+    /// reload — the displayed widget keys (above) don't depend on it. Passing
+    /// `nil` clears the keys so a stale, no-longer-open book can't be bookmarked.
+    func publishPlaybackPosition(_ state: WidgetPlaybackState?) {
+        WidgetPlaybackStateStore.write(state, to: defaults)
+    }
+
     /// Default reload: refresh the home-screen widget timeline and the Control
     /// Center toggle. Both are iOS-only surfaces, so the body is gated.
     static func reloadSharedWidgets() {
