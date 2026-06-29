@@ -1,28 +1,35 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-import XCTest
 import SwiftUI
 import UIKit
+// SPDX-License-Identifier: GPL-3.0-or-later
+import XCTest
+
 @testable import Echo
 
 // `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
 // init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
 nonisolated final class DominantColorExtractorTests: XCTestCase {
 
-    private func solidImage(_ color: UIColor, size: CGSize = CGSize(width: 16, height: 16)) -> UIImage {
+    private func solidImage(_ color: UIColor, size: CGSize = CGSize(width: 16, height: 16))
+        -> UIImage
+    {
         UIGraphicsImageRenderer(size: size).image { ctx in
             color.setFill()
             ctx.fill(CGRect(origin: .zero, size: size))
         }
     }
 
-    private func twoToneImage(left: UIColor, right: UIColor, leftFraction: CGFloat,
-                              size: CGSize = CGSize(width: 40, height: 40)) -> UIImage {
+    private func twoToneImage(
+        left: UIColor, right: UIColor, leftFraction: CGFloat,
+        size: CGSize = CGSize(width: 40, height: 40)
+    ) -> UIImage {
         UIGraphicsImageRenderer(size: size).image { ctx in
             left.setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: size.width * leftFraction, height: size.height))
             right.setFill()
-            ctx.fill(CGRect(x: size.width * leftFraction, y: 0,
-                            width: size.width * (1 - leftFraction), height: size.height))
+            ctx.fill(
+                CGRect(
+                    x: size.width * leftFraction, y: 0,
+                    width: size.width * (1 - leftFraction), height: size.height))
         }
     }
 
@@ -66,11 +73,11 @@ nonisolated final class DominantColorExtractorTests: XCTestCase {
         // Expect: not neutral, a warm primary (sat² favours the vivid gold), and
         // a navy-family candidate available for the secondary role.
         let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40)).image { ctx in
-            UIColor(red: 0.96, green: 0.94, blue: 0.90, alpha: 1).setFill()   // cream
+            UIColor(red: 0.96, green: 0.94, blue: 0.90, alpha: 1).setFill()  // cream
             ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
-            UIColor(red: 0.91, green: 0.76, blue: 0.17, alpha: 1).setFill()   // gold band
+            UIColor(red: 0.91, green: 0.76, blue: 0.17, alpha: 1).setFill()  // gold band
             ctx.fill(CGRect(x: 0, y: 30, width: 40, height: 10))
-            UIColor(red: 0.16, green: 0.28, blue: 0.39, alpha: 1).setFill()   // navy shapes
+            UIColor(red: 0.16, green: 0.28, blue: 0.39, alpha: 1).setFill()  // navy shapes
             ctx.fill(CGRect(x: 0, y: 0, width: 12, height: 30))
         }
         let sig = DominantColorExtractor.signature(from: image)
@@ -80,5 +87,38 @@ nonisolated final class DominantColorExtractorTests: XCTestCase {
             sig.candidates.contains { $0.hue > 230 && $0.hue < 290 },
             "expected a navy-family candidate for the secondary role"
         )
+    }
+
+    func testHighContrastCoverWithBoldAccentIsNotNeutral() {
+        // Models a high-contrast cover (à la "Everything But the Code"): a
+        // black/white field with a small but bold red accent. The red is < 2% of
+        // the whole canvas — so it would historically fall below the coverage
+        // floor — but it dominates the colourable (non-black/white) region, so the
+        // theme must derive from it rather than collapsing to neutral.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.black.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 50, height: 100))  // left half black
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 70, y: 44, width: 12, height: 12))  // 144 px ≈ 1.44% of canvas
+        }
+        let sig = DominantColorExtractor.signature(from: image)
+        XCTAssertFalse(sig.isNeutral, "a bold accent on a black/white cover must not be neutral")
+        XCTAssertFalse(sig.candidates.isEmpty)
+        XCTAssertEqual(sig.candidates[0].hue, 29.0, accuracy: 20.0)  // red leads (OKLCH ~29°)
+    }
+
+    func testSingleSaturatedSpeckOnWhiteStaysNeutral() {
+        // Guards the absolute vivid-pixel floor: a speck on pure white would have
+        // ~100% colourable-share, so the relative gate alone would admit it — the
+        // absolute floor must still reject it as a stray pixel.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100)).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            UIColor.systemRed.setFill()
+            ctx.fill(CGRect(x: 10, y: 10, width: 4, height: 4))  // 16 px ≈ 0.16% < 0.4% floor
+        }
+        XCTAssertTrue(DominantColorExtractor.signature(from: image).isNeutral)
     }
 }
