@@ -226,13 +226,10 @@ struct StatsRepository: Sendable {
         let segs = try await segments
         let chs = try await chapters
 
-        // Order the bounds and drop inverted/empty spans: `end_position` can be
-        // 0/NULL or less than `start_position`, and `lo...hi` traps when lo > hi.
-        // (Sibling sites already guard with `max(0, end - start)`.)
-        let intervals = segs.compactMap { seg -> ClosedRange<TimeInterval>? in
-            let lo = min(seg.startPosition, seg.endPosition)
-            let hi = max(seg.startPosition, seg.endPosition)
-            return lo <= hi ? lo...hi : nil
+        // Order the bounds so inverted persisted playback ranges cannot trap
+        // when forming a ClosedRange.
+        let intervals = segs.map { seg -> ClosedRange<TimeInterval> in
+            min(seg.startPosition, seg.endPosition)...max(seg.startPosition, seg.endPosition)
         }
 
         return StatsAggregator.chaptersCoverage(chapters: chs, listenedIntervals: intervals)

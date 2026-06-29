@@ -398,6 +398,20 @@ import Testing
         #expect(dist[1].count == 0)  // not 5–15m (400s content)
     }
 
+    @Test func sessionLengthDistributionBucketsByWallClockDuration() {
+        let now = Date()
+        let segment = ListeningSegment(
+            audiobookID: "b1", trackID: nil,
+            startedAt: now, endedAt: now.addingTimeInterval(200),
+            startPosition: 0, endPosition: 400, speed: 2.0, source: nil
+        )
+
+        let dist = StatsAggregator.sessionLengthDistribution(segments: [segment])
+
+        #expect(dist[0].count == 1)
+        #expect(dist[1...].allSatisfy { $0.count == 0 })
+    }
+
     @Test func sessionLengthDistributionEmpty() {
         let dist = StatsAggregator.sessionLengthDistribution(segments: [])
         #expect(dist.allSatisfy { $0.count == 0 })

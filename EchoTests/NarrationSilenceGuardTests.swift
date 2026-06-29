@@ -98,11 +98,11 @@ import Testing
 
     @Test func editorialBracketsDoNotBlockSilenceRetrySplit() {
         // `[note]` is not a pronunciation link, so the fragment must remain
-        // splittable for silence recovery. The bug latched in-link on `[` with
-        // no `)` to reset it, so every space looked in-link and split returned nil.
+        // splittable for silence recovery.
         let parts = NarrationSilenceGuard.splitForRetry(
             "[note] alpha beta gamma delta epsilon", minLength: 16)
-        #expect(parts != nil)
+        #expect(parts?.0 == "[note] alpha beta")
+        #expect(parts?.1 == "gamma delta epsilon")
     }
 
     // MARK: - Orchestration

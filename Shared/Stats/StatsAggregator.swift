@@ -304,10 +304,9 @@ enum StatsAggregator {
             SessionLengthBucket(
                 id: label,
                 range: range,
-                // Bucket by elapsed listening time, not content seconds:
-                // playbackDuration = wallClockDuration * speed, which would
-                // inflate every session by the playback-speed factor.
-                count: segments.filter { range.contains($0.wallClockDuration) }.count
+                // Bucket by elapsed listening time, not content seconds, and
+                // clamp pathological negative wall-clock spans into the first bucket.
+                count: segments.filter { range.contains(max(0, $0.wallClockDuration)) }.count
             )
         }
     }

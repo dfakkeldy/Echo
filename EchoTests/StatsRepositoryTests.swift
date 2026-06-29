@@ -477,6 +477,35 @@ import Testing
         #expect(coverage.map(\.listenPassCount) == [1, 1])
     }
 
+    @Test func fetchChapterCoverageNormalizesInvertedPlaybackRanges() async throws {
+        let db = try makeDB()
+        let repo = StatsRepository(reader: db.writer)
+
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO audiobook (id, title, duration, added_at)
+                VALUES ('b1', 'B1', 3600, '2026-06-25T08:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO chapter (audiobook_id, title, start_seconds, end_seconds, sort_order)
+                VALUES ('b1', 'Chapter One', 0, 100, 0)
+                """)
+            try db.execute(sql: """
+                INSERT INTO playback_event (
+                    audiobook_id, started_at, ended_at,
+                    start_position, end_position, speed, event_type
+                )
+                VALUES ('b1', '2026-06-25T08:00:00Z', '2026-06-25T08:02:00Z', 100, 50, 1.0, 'play')
+                """)
+        }
+
+        let coverage = try await repo.fetchChapterCoverage(audiobookID: "b1")
+
+        #expect(coverage.map(\.chapterTitle) == ["Chapter One"])
+        #expect(abs((coverage.first?.coveredFraction ?? 0) - 0.5) < 0.01)
+        #expect(coverage.first?.listenPassCount == 1)
+    }
+
     // MARK: - Alignment Coverage
 
     @Test func fetchAlignmentCoverage() async throws {

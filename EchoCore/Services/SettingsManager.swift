@@ -406,7 +406,7 @@ final class SettingsManager {
     ) {
         self.defaults = defaults
         self.appGroupDefaults = appGroupDefaults
-        self.isAppGroupAvailable = appGroupDefaults != defaults
+        self.isAppGroupAvailable = appGroupDefaults !== defaults
 
         // One-time migration: copy watch-facing settings from standard defaults
         // to the App Group suite so the Watch and Widget can read them directly.
@@ -415,45 +415,108 @@ final class SettingsManager {
         let targetDomain = appGroupDefaultsDomainName.flatMap {
             appGroupDefaults.persistentDomain(forName: $0)
         }
-        let didMigrate = (targetDomain?[migrationKey] as? Bool) ?? false
+        func sourceValue(for key: String) -> Any? {
+            defaults.object(forKey: key) ?? sourceDomain?[key]
+        }
+
+        func appGroupValue(for key: String) -> Any? {
+            appGroupDefaults.object(forKey: key) ?? targetDomain?[key]
+        }
+
+        let didMigrate = (appGroupDefaults.object(forKey: migrationKey) as? Bool) ?? false
         if isAppGroupAvailable, !didMigrate
         {
-            let watchKeys: [(String, () -> Any?)] = [
-                (Keys.crownAction, { sourceDomain?[Keys.crownAction] }),
-                (Keys.watchPage1, { sourceDomain?[Keys.watchPage1] }),
-                (Keys.watchPage2, { sourceDomain?[Keys.watchPage2] }),
-                (Keys.watchPage3, { sourceDomain?[Keys.watchPage3] }),
-                (Keys.watchPage4, { sourceDomain?[Keys.watchPage4] }),
-                (Keys.watchPage5, { sourceDomain?[Keys.watchPage5] }),
-                (Keys.linearBarMode, { sourceDomain?[Keys.linearBarMode] }),
-                (Keys.linearBarHidden, { sourceDomain?[Keys.linearBarHidden] }),
-                (Keys.circularRingMode, { sourceDomain?[Keys.circularRingMode] }),
-                (Keys.circularRingHidden, { sourceDomain?[Keys.circularRingHidden] }),
-                (Keys.watchArtworkLayout, { sourceDomain?[Keys.watchArtworkLayout] }),
-                (Keys.watchBackgroundStyle, { sourceDomain?[Keys.watchBackgroundStyle] }),
+            let watchKeys: [(key: String, read: () -> Any?, defaultValue: Any)] = [
+                (Keys.crownAction, { sourceValue(for: Keys.crownAction) }, Defaults.crownAction),
+                (
+                    Keys.watchPage1,
+                    { sourceValue(for: Keys.watchPage1) },
+                    (try? JSONEncoder().encode(Defaults.watchPage1)) ?? Data()
+                ),
+                (
+                    Keys.watchPage2,
+                    { sourceValue(for: Keys.watchPage2) },
+                    (try? JSONEncoder().encode(Defaults.watchPage2)) ?? Data()
+                ),
+                (
+                    Keys.watchPage3,
+                    { sourceValue(for: Keys.watchPage3) },
+                    (try? JSONEncoder().encode(Defaults.watchPage3)) ?? Data()
+                ),
+                (
+                    Keys.watchPage4,
+                    { sourceValue(for: Keys.watchPage4) },
+                    (try? JSONEncoder().encode(Defaults.watchPage4)) ?? Data()
+                ),
+                (
+                    Keys.watchPage5,
+                    { sourceValue(for: Keys.watchPage5) },
+                    (try? JSONEncoder().encode(Defaults.watchPage5)) ?? Data()
+                ),
+                (
+                    Keys.linearBarMode,
+                    { sourceValue(for: Keys.linearBarMode) },
+                    Defaults.linearBarMode
+                ),
+                (
+                    Keys.linearBarHidden,
+                    { sourceValue(for: Keys.linearBarHidden) },
+                    Defaults.linearBarHidden
+                ),
+                (
+                    Keys.circularRingMode,
+                    { sourceValue(for: Keys.circularRingMode) },
+                    Defaults.circularRingMode
+                ),
+                (
+                    Keys.circularRingHidden,
+                    { sourceValue(for: Keys.circularRingHidden) },
+                    Defaults.circularRingHidden
+                ),
+                (
+                    Keys.watchArtworkLayout,
+                    { sourceValue(for: Keys.watchArtworkLayout) },
+                    Defaults.watchArtworkLayout
+                ),
+                (
+                    Keys.watchBackgroundStyle,
+                    { sourceValue(for: Keys.watchBackgroundStyle) },
+                    Defaults.watchBackgroundStyle
+                ),
                 (
                     Keys.watchTitleScrollEnabled,
-                    { sourceDomain?[Keys.watchTitleScrollEnabled] }
+                    { sourceValue(for: Keys.watchTitleScrollEnabled) },
+                    Defaults.watchTitleScrollEnabled
                 ),
                 (
                     Keys.watchTitleScrollSpeed,
-                    { sourceDomain?[Keys.watchTitleScrollSpeed] }
+                    { sourceValue(for: Keys.watchTitleScrollSpeed) },
+                    Defaults.watchTitleScrollSpeed
                 ),
                 (
                     Keys.isHapticFeedbackEnabled,
-                    { sourceDomain?[Keys.isHapticFeedbackEnabled] }
+                    { sourceValue(for: Keys.isHapticFeedbackEnabled) },
+                    Defaults.isHapticFeedbackEnabled
                 ),
                 (
                     Keys.truncateChapterNamesEnabled,
-                    { sourceDomain?[Keys.truncateChapterNamesEnabled] }
+                    { sourceValue(for: Keys.truncateChapterNamesEnabled) },
+                    Defaults.truncateChapterNamesEnabled
                 ),
                 (
                     Keys.watchQuickBookmarkTimeoutSeconds,
-                    { sourceDomain?[Keys.watchQuickBookmarkTimeoutSeconds] }
+                    { sourceValue(for: Keys.watchQuickBookmarkTimeoutSeconds) },
+                    Defaults.watchQuickBookmarkTimeoutSeconds
                 ),
             ]
-            for (key, read) in watchKeys {
-                if targetDomain?[key] == nil, let value = read() {
+            for (key, read, defaultValue) in watchKeys {
+                if let value = read(),
+                   Self.shouldMigrateWatchValue(
+                    value,
+                    appGroupValue: appGroupValue(for: key),
+                    defaultValue: defaultValue
+                   )
+                {
                     appGroupDefaults.set(value, forKey: key)
                 }
             }
@@ -619,6 +682,29 @@ final class SettingsManager {
         chimeVolume = defaults.object(forKey: Keys.chimeVolume) as? Double ?? Defaults.chimeVolume
         soundscapeVolume =
             defaults.object(forKey: Keys.soundscapeVolume) as? Float ?? Defaults.soundscapeVolume
+    }
+
+    private static func shouldMigrateWatchValue(
+        _ value: Any,
+        appGroupValue: Any?,
+        defaultValue: Any
+    ) -> Bool {
+        guard !defaultsValue(value, equals: defaultValue) else { return false }
+        guard let appGroupValue else { return true }
+        return defaultsValue(appGroupValue, equals: defaultValue)
+    }
+
+    private static func defaultsValue(_ lhs: Any, equals rhs: Any) -> Bool {
+        switch (lhs, rhs) {
+        case let (lhs as Data, rhs as Data):
+            lhs == rhs
+        case let (lhs as String, rhs as String):
+            lhs == rhs
+        case let (lhs as NSNumber, rhs as NSNumber):
+            lhs == rhs
+        default:
+            String(describing: lhs) == String(describing: rhs)
+        }
     }
 
     static func registerDefaults(
