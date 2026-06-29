@@ -19,6 +19,10 @@ final class PlayerModel {
 
     let playbackController = PlaybackController()
     let watchSyncManager = WatchSyncManager()
+    /// Mirrors the playback snapshot into the shared App Group so the iOS
+    /// home-screen widget + Control Center toggle reflect real play/pause state.
+    /// The watch syncs over WatchConnectivity; the widgets had no such writer.
+    @ObservationIgnored let widgetStatePublisher = WidgetStatePublisher()
     @ObservationIgnored private lazy var watchCommandRouter = WatchCommandRouter(
         facade: WatchConnectivityCoordinator(playerModel: self)
     )
@@ -1046,6 +1050,14 @@ final class PlayerModel {
     /// pass `.progress` to stay live-only and avoid churning the durable context.
     func syncToWatch(reason: WatchSyncManager.SyncReason = .significant) {
         watchSyncManager.syncToWatch(reason: reason)
+        // Mirror the same snapshot into the App Group so the iOS widget + Control
+        // Center toggle stay in sync. Only on `.significant` (play/pause, track,
+        // speed, loop, load): progress ticks would hammer the defaults + widget
+        // reloads, and the widget's own 60s timeline already covers the ring.
+        if reason == .significant {
+            widgetStatePublisher.publish(
+                context: watchStateContext(), thumbnailData: state.watchThumbnailData)
+        }
     }
 
     /// Persists the current playback progress and pause timestamp.
@@ -1521,6 +1533,10 @@ final class PlayerModel {
 
     func stop() {
         playbackController.stop()
+        // stop() doesn't flow through the play/pause persistAndSync path, so
+        // without this the iOS widget + Control Center toggle stay stuck on the
+        // last "playing" snapshot. Publish the stopped state explicitly.
+        syncToWatch()
     }
 
     private func configureAudioSessionIfNeeded() {
