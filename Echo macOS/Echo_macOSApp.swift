@@ -8,9 +8,11 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 @main
 struct Echo_macOSApp: App {
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var player = MacPlayerModel()
     /// Shared user-preferences store. macOS had no SettingsManager instance
     /// before the Settings scene existed; this is the single source of truth
@@ -37,13 +39,30 @@ struct Echo_macOSApp: App {
         // Resolve the shared database once, then hand the same instance to the
         // batch service so both the queue and the rest of the app write through
         // a single `DatabaseService`/writer.
-        let db = (try? DatabaseService()) ?? Self.makeInMemoryDB()
+        let player = MacPlayerModel()
+        let transcriptionManager = TranscriptionManager()
+        let transcriptStore = TranscriptStore()
+        let db = Self.makeLaunchDatabase()
         let settings = SettingsManager()
+        let batchService = MacBatchProcessingService(dbService: db, settings: settings)
+        _player = State(initialValue: player)
+        _transcriptionManager = State(initialValue: transcriptionManager)
+        _transcriptStore = State(initialValue: transcriptStore)
         _dbService = State(initialValue: db)
         _settings = State(initialValue: settings)
-        _batchService = State(
-            initialValue: MacBatchProcessingService(dbService: db, settings: settings))
+        _batchService = State(initialValue: batchService)
         MetricKitDiagnosticsController.shared.start()
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didFinishLaunchingNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            Task { @MainActor in
+                NSApp.setActivationPolicy(.regular)
+                MacAppDelegate.orderMainWindowFront()
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
     }
 
     var body: some Scene {
@@ -377,6 +396,55 @@ struct Echo_macOSApp: App {
         } catch {
             fatalError(
                 "Echo could not open even an in-memory database — SQLite is unavailable: \(error)")
+        }
+    }
+
+    private static func makeLaunchDatabase() -> DatabaseService {
+        #if DEBUG
+            return makeInMemoryDB()
+        #else
+            return (try? DatabaseService()) ?? makeInMemoryDB()
+        #endif
+    }
+}
+
+private final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        Self.orderMainWindowFront()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @MainActor
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
+        -> Bool
+    {
+        if !flag {
+            Self.orderMainWindowFront()
+        }
+        sender.activate(ignoringOtherApps: true)
+        return true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        .terminateNow
+    }
+
+    @MainActor
+    fileprivate static func orderMainWindowFront() {
+        if let window = NSApp.windows.first(where: { $0.canBecomeMain && !$0.isVisible }) {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            return
+        }
+
+        if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            return
         }
     }
 }
