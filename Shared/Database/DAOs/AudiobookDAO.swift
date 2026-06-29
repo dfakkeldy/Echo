@@ -64,6 +64,7 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var lastSeenAt: String? = nil
     var authorSort: String? = nil
     var sourceRootID: String? = nil
+    var textOrigin: String? = nil
 
     static let databaseTableName = "audiobook"
 
@@ -82,5 +83,6 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case lastSeenAt = "last_seen_at"
         case authorSort = "author_sort"
         case sourceRootID = "source_root_id"
+        case textOrigin = "text_origin"
     }
 }

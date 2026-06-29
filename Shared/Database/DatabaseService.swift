@@ -114,6 +114,9 @@ final class DatabaseService {
         migrator.registerMigration("v28_pdf_block_page") { db in
             try Schema_V28.migrate(db)
         }
+        migrator.registerMigration("v29_audiobook_text_origin") { db in
+            try Schema_V29.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }
@@ -126,8 +129,8 @@ private enum DatabaseServiceAppGroupFallback {
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
             ).first?
-                .appending(path: "Echo", directoryHint: .isDirectory)
-                .appending(path: "DebugAppGroupFallback", directoryHint: .isDirectory)
+            .appending(path: "Echo", directoryHint: .isDirectory)
+            .appending(path: "DebugAppGroupFallback", directoryHint: .isDirectory)
         }
     #else
         static var isAllowed: Bool { false }
