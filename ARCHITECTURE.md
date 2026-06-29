@@ -661,6 +661,24 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 - `TimestampSource` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.none`
 - `AlignmentStatus` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.unaligned`, `.omitted`
 
+### Audio-Only Book Transcription & Read-Along (M1, Schema V29)
+
+Audio-only books (imported M4B/MP3 without a companion EPUB or text document) can now be **transcribed on-device** and opened in the reader for read-along with word highlight, search-to-seek, tap-to-seek, and study anchoring — the same features EPUB books already have.
+
+1. **Transcription (`StandaloneTranscriptionService`):** When the user taps "Transcribe" on an audio-only book, `StandaloneTranscriptionService` transcribes the audio using WhisperKit (on-device CoreML, the same model the auto-alignment pipeline uses). The service is keyed by the canonical `folderURL` id so it is **resumable**: if interrupted, transcription picks up from the last completed chapter rather than starting over. Each chapter is transcribed independently and results are persisted as `TranscriptionRecord` / `TranscriptionWord` rows in the database.
+2. **Materialization (`TranscriptMaterializer`):** Once transcription finishes, `TranscriptMaterializer` projects the raw transcription rows into the same `epub_block`, `timeline_item`, and `word_timing` tables the reader and alignment pipeline already consume. Materialized blocks carry `transcript-<id>-c<n>-s<n>` block IDs (distinct from `epub-` prefixed EPUB blocks), and `word_timing` rows carry `source = "transcript"` so downstream code can distinguish them from word timings derived from DTW alignment.
+3. **Provenance marker (`audiobook.text_origin = "transcript"`, Schema V29):** The `audiobook.text_origin` column is set to `"transcript"` when a book's text content comes from on-device transcription rather than an imported EPUB or text document. This marker is critical so M2 (the canonical-source detection pass) never treats a transcribed book as having canonical text that should be diffed or overwritten — the transcript is inherently lossy.
+4. **Orchestration (`TranscribeBookCoordinator`):** `TranscribeBookCoordinator` owns the end-to-end flow: it launches the transcription run, waits for completion, triggers `TranscriptMaterializer` to build the reader tables, sets `audiobook.text_origin = "transcript"`, and then signals the UI to open the reader for the newly materialized book.
+
+**Key types:**
+
+- `StandaloneTranscriptionService` — WhisperKit-based transcription for audio-only books; resumable per chapter, persisted to `TranscriptionRecord`/`TranscriptionWord`.
+- `TranscriptMaterializer` — Pure projection from transcription rows to `epub_block`/`timeline_item`/`word_timing`; produces `transcript-` prefixed block ids and `word_timing.source = "transcript"`.
+- `TranscribeBookCoordinator` — End-to-end orchestration: run → materialize → set provenance marker.
+- `StandaloneTranscriptRecord` — Database record for a standalone transcript's chapter-level metadata.
+- `TranscriptionDAO` — DAO for persisting and querying transcription rows.
+- `TranscriptReaderParityTests` — Test suite verifying that a transcribed book produces the same reader surfaces (block ids, timeline positions, word timings) as an equivalent EPUB-backed book.
+
 ### Word-Level Read-Along & Karaoke (June 2026)
 
 Block-level read-along (the active paragraph) is refined to **word level** so the current word highlights as the narration speaks it, on both the iOS and macOS readers.
