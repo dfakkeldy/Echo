@@ -2,6 +2,58 @@
     // SPDX-License-Identifier: GPL-3.0-or-later
     import CoreLocation
 
+    enum LocationCaptureAuthorizationStatus: Sendable, Equatable {
+        case notDetermined
+        case denied
+        case restricted
+        case authorized
+        case unknown
+
+        var canCaptureLocation: Bool {
+            self == .authorized
+        }
+    }
+
+    @MainActor
+    enum LocationCaptureAuthorizationService {
+        static func status() -> LocationCaptureAuthorizationStatus {
+            CLLocationManager().authorizationStatus.locationCaptureStatus
+        }
+
+        static func requestAuthorization() async -> LocationCaptureAuthorizationStatus {
+            let requester = LocationCaptureAuthorizationRequester()
+            return await requester.requestAuthorization()
+        }
+    }
+
+    @MainActor
+    private final class LocationCaptureAuthorizationRequester: NSObject, CLLocationManagerDelegate {
+        private let manager = CLLocationManager()
+        private var continuation: CheckedContinuation<LocationCaptureAuthorizationStatus, Never>?
+
+        override init() {
+            super.init()
+            manager.delegate = self
+        }
+
+        func requestAuthorization() async -> LocationCaptureAuthorizationStatus {
+            let status = manager.authorizationStatus.locationCaptureStatus
+            guard status == .notDetermined else { return status }
+
+            return await withCheckedContinuation { continuation in
+                self.continuation = continuation
+                manager.requestWhenInUseAuthorization()
+            }
+        }
+
+        func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+            let status = manager.authorizationStatus.locationCaptureStatus
+            guard status != .notDetermined else { return }
+            continuation?.resume(returning: status)
+            continuation = nil
+        }
+    }
+
     /// One-shot coarse-location capture with reverse-geocode caching.
     /// Opt-in, privacy-first: reduced accuracy, on-device geocoding, never blocks.
     actor LocationCaptureService {
@@ -129,6 +181,23 @@
             let result = await group.next()
             group.cancelAll()
             return result ?? nil
+        }
+    }
+
+    private extension CLAuthorizationStatus {
+        var locationCaptureStatus: LocationCaptureAuthorizationStatus {
+            switch self {
+            case .notDetermined:
+                .notDetermined
+            case .restricted:
+                .restricted
+            case .denied:
+                .denied
+            case .authorizedAlways, .authorizedWhenInUse:
+                .authorized
+            @unknown default:
+                .unknown
+            }
         }
     }
 

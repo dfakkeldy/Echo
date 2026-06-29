@@ -60,7 +60,8 @@ struct UpcomingReviewsModuleView: View {
             queueCount = queue.totalCount
             reviewedToday = stats.reviewedToday
             ReviewNotificationService.updateNotification(
-                dueCount: queue.dueReviewCount + queue.inProgressAssignmentCount
+                dueCount: queue.dueReviewCount + queue.inProgressAssignmentCount,
+                isEnabled: model.settingsManager?.reviewNotificationsEnabled ?? false
             )
         } catch {
             queueCount = 0
