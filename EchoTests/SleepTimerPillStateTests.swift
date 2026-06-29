@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Testing
+
 @testable import Echo
 
 struct SleepTimerPillStateTests {
@@ -8,7 +9,8 @@ struct SleepTimerPillStateTests {
     }
 
     @Test func minutesModeShowsCountdown() {
-        #expect(SleepTimerPillState.labelText(mode: .minutes(30), remainingSeconds: 1335) == "22:15")
+        #expect(
+            SleepTimerPillState.labelText(mode: .minutes(30), remainingSeconds: 1335) == "22:15")
     }
 
     @Test func minutesModeOverAnHourUsesHoursMinutes() {
@@ -18,5 +20,12 @@ struct SleepTimerPillStateTests {
 
     @Test func endOfChapterShowsEOC() {
         #expect(SleepTimerPillState.labelText(mode: .endOfChapter, remainingSeconds: 0) == "EOC")
+    }
+
+    @Test func minutesModeExactlyOneHourShowsMinutesNotAmbiguousHour() {
+        // 3600s = the "1 Hour" preset's first tick. Must read "60:00", not the
+        // "1:00" that is indistinguishable from a one-minute countdown.
+        #expect(
+            SleepTimerPillState.labelText(mode: .minutes(60), remainingSeconds: 3600) == "60:00")
     }
 }

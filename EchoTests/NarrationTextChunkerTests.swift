@@ -132,4 +132,13 @@ import Testing
         // Exactly one piece carries the whole link (it wasn't torn across chunks).
         #expect(pieces.filter { $0.contains("kəm.pjuː.tər") }.count == 1)
     }
+
+    @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
+        // `[sic]`/footnote brackets are not pronunciation links: sentence
+        // terminators after them must still split. The bug latched `inLink` on
+        // `[` and only reset on `)`, swallowing every later sentence.
+        let pieces = NarrationTextChunker.split(
+            "First note [sic] here. Second sentence here. Third sentence here.", maxChars: 30)
+        #expect(pieces.allSatisfy { $0.hasSuffix(".") })
+    }
 }

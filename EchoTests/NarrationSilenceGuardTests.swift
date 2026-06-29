@@ -96,6 +96,15 @@ import Testing
         #expect(parts?.1 == "[New York](/nuˈjɔɹk/) now")
     }
 
+    @Test func editorialBracketsDoNotBlockSilenceRetrySplit() {
+        // `[note]` is not a pronunciation link, so the fragment must remain
+        // splittable for silence recovery. The bug latched in-link on `[` with
+        // no `)` to reset it, so every space looked in-link and split returned nil.
+        let parts = NarrationSilenceGuard.splitForRetry(
+            "[note] alpha beta gamma delta epsilon", minLength: 16)
+        #expect(parts != nil)
+    }
+
     // MARK: - Orchestration
 
     @Test func returnsAudioOnFirstTry() async throws {
