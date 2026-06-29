@@ -28,7 +28,8 @@ struct CustomFontModifier: ViewModifier {
         if SettingsManager.normalizedAppFont(appFont) == SettingsManager.systemFontName {
             return AnyView(content.font(.system(style, design: .default, weight: weight)))
         } else {
-            return AnyView(content.font(.custom(appFont, size: size, relativeTo: style).weight(weight)))
+            return AnyView(
+                content.font(.custom(appFont, size: size, relativeTo: style).weight(weight)))
         }
     }
 }
@@ -36,7 +37,10 @@ struct CustomFontModifier: ViewModifier {
 // MARK: - View Extensions
 
 extension View {
-    func customFont(_ style: Font.TextStyle, weight: Font.Weight = .regular, appFont: String = SettingsManager.systemFontName) -> some View {
+    func customFont(
+        _ style: Font.TextStyle, weight: Font.Weight = .regular,
+        appFont: String = SettingsManager.systemFontName
+    ) -> some View {
         self.modifier(CustomFontModifier(appFont: appFont, style: style, weight: weight))
     }
 
@@ -51,7 +55,9 @@ extension View {
 /// Uses `m:ss` while ≤ 60 minutes; falls back to `h:mm` for longer.
 func sleepTimerCountdownText(_ seconds: Int) -> String {
     let s = max(0, seconds)
-    if s >= 3600 {
+    // Only ABOVE 60 minutes use h:mm; exactly 3600s (the "1 Hour" preset)
+    // renders "60:00", not an ambiguous "1:00" that reads as one minute.
+    if s > 3600 {
         let h = s / 3600
         let m = (s % 3600) / 60
         return String(format: "%d:%02d", h, m)
