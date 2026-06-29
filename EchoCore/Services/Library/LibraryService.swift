@@ -115,6 +115,7 @@ struct LibraryService {
     func rescan(
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
+        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         now: () -> String = { Date().ISO8601Format() }
     ) throws -> RescanResult {
         // A stale/unresolvable bookmark (the missing-root scenario) must NOT fall
@@ -124,6 +125,12 @@ struct LibraryService {
             logger.warning("Root \(root.id) bookmark unresolved; skipping rescan.")
             return RescanResult(added: 0, updated: 0, hidden: 0)
         }
+        // User-picked folders live outside the sandbox; enumeration returns
+        // nothing unless the security scope is active. Without this a cold
+        // rescan (e.g. after relaunch) finds zero books and the hide pass below
+        // marks the entire shelf unavailable.
+        let scopeStarted = startScope(rootURL)
+        defer { if scopeStarted { rootURL.stopAccessingSecurityScopedResource() } }
 
         let dao = AudiobookDAO(db: db.writer)
         let found = discover(rootURL)
@@ -187,6 +194,7 @@ struct LibraryService {
     func rescan(
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
+        startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         readMetadata: (DiscoveredBook) async -> LibraryScanner.ScannedMetadata,
         coversDir: URL,
         now: () -> String = { Date().ISO8601Format() }
@@ -195,6 +203,10 @@ struct LibraryService {
             logger.warning("Root \(root.id) bookmark unresolved; skipping metadata rescan.")
             return RescanResult(added: 0, updated: 0, hidden: 0)
         }
+        // Keep the security scope active across discovery AND metadata reads
+        // (cover/AVAsset file access) for sandbox-external user folders.
+        let scopeStarted = startScope(rootURL)
+        defer { if scopeStarted { rootURL.stopAccessingSecurityScopedResource() } }
         try FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
 
         let dao = AudiobookDAO(db: db.writer)
