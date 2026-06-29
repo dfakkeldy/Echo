@@ -85,9 +85,12 @@ If SwiftData is configured to use CloudKit:
 
 ## PR instructions
 
+- **Start every Echo repo task with branch hygiene.** Run `git status --short --branch`, `git fetch origin nightly`, and confirm the work is on a named branch whose history includes `origin/nightly`. If the worktree is detached, create a named feature branch from that commit before editing or committing. If a fresh worktree was cut from `main`, rebase/reset it onto `origin/nightly` before edits; if there are already local commits or dirty user changes, stop and explain the safe options instead of rewriting history.
 - **Work in a worktree based on `nightly`, not `main`.** The worktree tooling may cut the branch from `main` (the default branch); rebase/reset it onto `origin/nightly` before any edits. See `CLAUDE.md ▸ Branching & Release Workflow` for the base-check one-liner.
 - **Open PRs against `nightly`, not `main`.** Echo uses a promotion ladder (`feature/* → nightly → weekly → main`); `main` is the stable App Store branch reached only by promotion. Targeting `main` bypasses the ladder. See `CLAUDE.md ▸ Branching & Release Workflow` and `ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder`.
 - **Commit at sensible checkpoints as you work**, not only when asked — keep commits coherent and Conventional-Commits-formatted. Flag a push or PR first, and never push directly to the protected branches (`main`/`weekly`/`nightly`).
+- **Push and open a ready PR when the task is complete**, unless the user explicitly asks to keep the work local or the change is only exploratory scratch. Do not default to draft PRs; a draft PR is appropriate only when the user asks for one or explicitly agrees after you name the reason.
+- **Follow hosted CI after opening or updating a PR.** Check the `Build gate + tests` result with `gh pr checks` or the relevant Actions run. If CI fails, inspect the failing job logs before reading PR prose, fix the concrete blocker, push, and re-check. Final status should state whether hosted CI is passing, failing, pending, or blocked.
 - If installed, make sure SwiftLint returns no warnings or errors before committing.
 
 
