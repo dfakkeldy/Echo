@@ -120,6 +120,10 @@ struct Echo_macOSApp: App {
                 }
                 .keyboardShortcut("o", modifiers: [.command])
 
+                Button("Connect to Audiobookshelf…") {
+                    NotificationCenter.default.post(name: .requestAudiobookshelf, object: nil)
+                }
+
                 Divider()
 
                 Button("Export Transcript…") {
@@ -543,4 +547,5 @@ extension Notification.Name {
     static let requestNarrateEPUBs = Notification.Name("com.echo.requestNarrateEPUBs")
     static let requestDailyReview = Notification.Name("com.echo.requestDailyReview")
     static let requestCardInbox = Notification.Name("com.echo.requestCardInbox")
+    static let requestAudiobookshelf = Notification.Name("com.echo.requestAudiobookshelf")
 }

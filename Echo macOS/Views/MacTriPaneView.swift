@@ -20,6 +20,7 @@ struct MacTriPaneView: View {
     @State private var showingQAReview = false
     @State private var showingDailyReview = false
     @State private var showingCardInbox = false
+    @State private var showingAudiobookshelf = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -78,6 +79,11 @@ struct MacTriPaneView: View {
             .sheet(isPresented: $showingCardInbox) {
                 MacCardInboxView(db: dbService.writer)
             }
+            .sheet(isPresented: $showingAudiobookshelf) {
+                MacAudiobookshelfView(db: dbService) { url in
+                    player.loadFolder(url: url)
+                }
+            }
         } detail: {
             MacNotesPane()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
@@ -106,6 +112,9 @@ struct MacTriPaneView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestCardInbox)) { _ in
             showingCardInbox = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestAudiobookshelf)) { _ in
+            showingAudiobookshelf = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
             withAnimation {
