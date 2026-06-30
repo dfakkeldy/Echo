@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import GRDB
 import SwiftUI
+import os.log
+
+/// Manual per-block alignment actions offered in the reader's right-click menu,
+/// mirroring the iOS reader's alignment context menu. The work is done by the
+/// shared, macOS-clean `AlignmentService`.
+enum MacReaderAlignmentAction {
+    case alignToNow
+    case alignTo5sAgo
+    case notInAudio
+    case hideChapter
+    case eraseAnchor
+    case resetAlignment
+}
 
 /// Center pane — scrollable card feed of EPUB blocks matching the iOS reader.
 ///
@@ -136,7 +149,8 @@ struct MacReaderFeedView: View {
                                             isActive: block.id == currentBlockID,
                                             activeWordIndex: block.id == currentBlockID
                                                 ? activeWord?.index : nil,
-                                            onTap: { seekToBlock(block.id) }
+                                            onTap: { seekToBlock(block.id) },
+                                            onAlignmentAction: { performAlignment($0, on: $1) }
                                         )
                                         .equatable()
                                         .id(block.id)
@@ -305,6 +319,42 @@ struct MacReaderFeedView: View {
         }
     }
 
+    /// Applies a manual alignment edit via the shared `AlignmentService`, then
+    /// reloads the feed so the new anchor/timeline is reflected. Mirrors the iOS
+    /// reader's alignment context menu. A bad anchor no longer forces a full batch
+    /// DTW re-run on macOS.
+    private func performAlignment(_ action: MacReaderAlignmentAction, on block: EPubBlockRecord) {
+        guard let audiobookID = player.audiobookID else { return }
+        let writer = dbService.writer
+        let now = player.currentTime
+        Task {
+            do {
+                let service = AlignmentService(db: writer, audiobookID: audiobookID)
+                switch action {
+                case .alignToNow:
+                    try service.moveBlockToCurrentTime(blockID: block.id, time: now)
+                case .alignTo5sAgo:
+                    try service.moveBlockToCurrentTime(blockID: block.id, time: max(0, now - 5))
+                case .notInAudio:
+                    try service.hideBlock(blockID: block.id, reason: "manual")
+                case .hideChapter:
+                    if let chapterIndex = block.chapterIndex {
+                        try service.hideChapter(chapterIndex: chapterIndex, reason: "manual")
+                    }
+                case .eraseAnchor:
+                    try service.eraseAnchor(blockID: block.id)
+                case .resetAlignment:
+                    try service.resetAlignment()
+                }
+                await loadBlocks()
+            } catch {
+                Logger(subsystem: "com.echo.audiobooks", category: "MacReader")
+                    .error(
+                        "Manual alignment failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     /// Periodically resolves the block at the current playback time so the reader
     /// can highlight and auto-scroll to the active block. Resolution is delegated
     /// to the shared `ReaderActiveBlockResolver` (the same helper iOS uses) and is
@@ -361,6 +411,8 @@ private struct MacBlockCardView: View, Equatable {
     /// re-renders as the spoken word advances).
     var activeWordIndex: Int?
     var onTap: (() -> Void)?
+    /// Manual alignment menu callback (action, this block). nil hides the menu.
+    var onAlignmentAction: ((MacReaderAlignmentAction, EPubBlockRecord) -> Void)?
 
     // Equatable so the polled reader feed re-evaluates only the cards that
     // actually changed (§8.2). Rendering depends on block + isActive + the
@@ -395,6 +447,24 @@ private struct MacBlockCardView: View, Equatable {
                 }
             }
             .contentShape(Rectangle())
+            .contextMenu { alignmentMenu }
+    }
+
+    /// Right-click alignment menu — parity with the iOS reader's per-block menu.
+    @ViewBuilder
+    private var alignmentMenu: some View {
+        if let onAlignmentAction {
+            Button("Align to Now") { onAlignmentAction(.alignToNow, block) }
+            Button("Align to 5s Ago") { onAlignmentAction(.alignTo5sAgo, block) }
+            Divider()
+            Button("Not in Audio (This Paragraph)") { onAlignmentAction(.notInAudio, block) }
+            Button("Not in Audio (Whole Chapter)") { onAlignmentAction(.hideChapter, block) }
+            Divider()
+            Button("Erase Anchor") { onAlignmentAction(.eraseAnchor, block) }
+            Button("Reset Alignment\u{2026}", role: .destructive) {
+                onAlignmentAction(.resetAlignment, block)
+            }
+        }
     }
 
     @ViewBuilder
