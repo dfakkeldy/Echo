@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+nonisolated enum StudyDeckCardKind: String, Sendable, Equatable {
+    case basic
+    case cloze
+}
+
 struct StudyDeckSource: Identifiable, Equatable, Sendable {
     let id: String
     let sourceBlockID: String
@@ -47,19 +52,25 @@ nonisolated struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendabl
     let frontText: String
     let backText: String
     let tags: [String]
+    let kind: StudyDeckCardKind
+    let clozeText: String?
 
     init(
         id: String,
         sourceBlockID: String,
         frontText: String,
         backText: String,
-        tags: [String] = ["generated", "fixture"]
+        tags: [String] = ["generated", "fixture"],
+        kind: StudyDeckCardKind = .basic,
+        clozeText: String? = nil
     ) {
         self.id = id
         self.sourceBlockID = sourceBlockID
         self.frontText = frontText
         self.backText = backText
         self.tags = tags
+        self.kind = kind
+        self.clozeText = clozeText
     }
 
     fileprivate func validated(validSourceBlockIDs: Set<String>) -> Self? {
@@ -80,12 +91,20 @@ nonisolated struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendabl
             return nil
         }
 
+        if kind == .cloze {
+            guard let clozeText, studyDeckHasValidClozeMarkers(clozeText) else {
+                return nil
+            }
+        }
+
         return Self(
             id: normalizedID,
             sourceBlockID: normalizedSourceBlockID,
             frontText: normalizedFrontText,
             backText: normalizedBackText,
-            tags: Self.normalizedTags(tags)
+            tags: Self.normalizedTags(tags),
+            kind: kind,
+            clozeText: clozeText
         )
     }
 
