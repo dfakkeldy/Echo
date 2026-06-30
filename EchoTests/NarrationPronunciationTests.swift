@@ -78,4 +78,29 @@ import Testing
         let store = PronunciationOverrideStore(directory: tmp)
         #expect(store.overrides().entries["Fakkeldy"] == "fˈækəldi")
     }
+
+    // MARK: - Per-book override closure (M4)
+
+    @MainActor
+    @Test func perBookOverrideClosureRewritesBookSpecificWord() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let store = PronunciationOverrideStore(directory: tmp)
+        let bookID = "file:///Books/Dune/"
+        try store.set(word: "Arrakis", ipa: "ɑˈɹɑːkɪs", forBookID: bookID)
+
+        // The render call sites build exactly this closure (with `.shared`); here we
+        // bind a test store to prove the per-book id threads into `apply`.
+        let overridesClosure: () -> PronunciationOverrides = { store.overrides(forBookID: bookID) }
+        let rewritten = overridesClosure().apply(to: "The sands of Arrakis are endless.")
+        #expect(rewritten == "The sands of [Arrakis](/ɑˈɹɑːkɪs/) are endless.")
+
+        // A book without the entry leaves the word untouched.
+        let bare = store.overrides(forBookID: "file:///Books/Empty/")
+            .apply(to: "The sands of Arrakis are endless.")
+        #expect(bare == "The sands of Arrakis are endless.")
+    }
 }

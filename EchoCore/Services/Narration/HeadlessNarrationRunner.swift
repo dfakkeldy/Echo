@@ -216,7 +216,9 @@ struct NarrationRunResult {
         let svc = NarrationService(
             db: db.writer, audiobookID: audiobookID, tts: engine,
             audioWriter: writer, cacheDirectory: config.workDir, state: NarrationState(),
-            pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
+            pronunciationOverrides: {
+                PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+            })
 
         let totalCount = chapterIndices.count
         for (batchPos, idx) in batch.enumerated() {

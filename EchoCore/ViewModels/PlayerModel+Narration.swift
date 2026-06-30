@@ -75,7 +75,9 @@
                 db: db, audiobookID: audiobookID, tts: narrationTTS,
                 audioWriter: AVFoundationAudioWriter(), cacheDirectory: cacheDirectory,
                 state: narrationPlaybackState,
-                pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
+                pronunciationOverrides: {
+                    PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+                })
 
             narrationRenderTask = Task { [weak self] in
                 guard let self else { return }
