@@ -29,10 +29,18 @@ on:
     # inactivity (a manual run or any push re-arms it). Halifax is UTC-3 during
     # daylight time and UTC-4 during standard time, so both UTC candidates are
     # listed; the resolver job skips whichever candidate is inactive.
-    - cron: '30 12 * * *'  # Nightly — every day 09:30 America/Halifax (ADT)
-    - cron: '30 13 * * *'  # Nightly — every day 09:30 America/Halifax (AST)
-    - cron: '30 12 * * 1'  # Weekly  — Mondays   09:30 America/Halifax (ADT)
-    - cron: '30 13 * * 1'  # Weekly  — Mondays   09:30 America/Halifax (AST)
+    #
+    # Fire time is 05:20 America/Halifax — deliberately early. The build is not
+    # ready when the cron *fires*; it is ready after GitHub's scheduled-run lag +
+    # the scarce macOS-runner queue + a 40–60 min archive/upload/Apple-processing
+    # run. The old 09:30 slot (12:30 UTC ≈ 08:30 US-Eastern) hit peak CI demand
+    # and routinely landed builds early afternoon. 08:20 UTC is a low-demand
+    # overnight-Americas window, so even a bad queue day finishes well before 9am.
+    # The odd :20 minute avoids the :00/:30 cron herd.
+    - cron: '20 8 * * *'  # Nightly — every day 05:20 America/Halifax (ADT)
+    - cron: '20 9 * * *'  # Nightly — every day 05:20 America/Halifax (AST)
+    - cron: '20 8 * * 1'  # Weekly  — Mondays   05:20 America/Halifax (ADT)
+    - cron: '20 9 * * 1'  # Weekly  — Mondays   05:20 America/Halifax (AST)
   workflow_dispatch:
     inputs:
       channel:
@@ -76,9 +84,9 @@ jobs:
           should_run=true
 
           case "$schedule" in
-            "30 12 * * *"|"30 13 * * *") CH=nightly ;;
-            "30 12 * * 1"|"30 13 * * 1") CH=weekly ;;
-            *)                            CH="$input_channel" ;;
+            "20 8 * * *"|"20 9 * * *") CH=nightly ;;
+            "20 8 * * 1"|"20 9 * * 1") CH=weekly ;;
+            *)                          CH="$input_channel" ;;
           esac
 
           if [ -n "$schedule" ]; then
@@ -86,8 +94,8 @@ jobs:
             scheduled_hour="$(printf '%s\n' "$schedule" | awk '{ print $2 }')"
 
             case "$offset" in
-              -0300) active_hour=12 ;;
-              -0400) active_hour=13 ;;
+              -0300) active_hour=8 ;;
+              -0400) active_hour=9 ;;
               *)
                 echo "::error title=Unexpected Halifax UTC offset::America/Halifax reported offset $offset."
                 exit 1
