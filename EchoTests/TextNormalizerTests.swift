@@ -20,8 +20,20 @@ import Testing
             "A 1.6% lift became 2500%.",
             "A one point six percent lift became two thousand five hundred percent."
         ),
+        ("Mr. Smith met Mrs. Jones.", "Mister Smith met Missus Jones."),
+        ("Prof. Adams, i.e. the chair, spoke.", "Professor Adams, that is the chair, spoke."),
+        ("Cats vs. dogs, birds, etc. live here.", "Cats versus dogs, birds, et cetera live here."),
     ])
     func normalizes(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("1st", "first"), ("2nd", "second"), ("3rd", "third"), ("4th", "fourth"),
+        ("11th", "eleventh"), ("21st", "twenty-first"), ("42nd", "forty-second"),
+        ("100th", "one hundredth"),
+    ])
+    func expandsOrdinals(_ input: String, _ expected: String) {
         #expect(TextNormalizer.normalize(input) == expected)
     }
 
