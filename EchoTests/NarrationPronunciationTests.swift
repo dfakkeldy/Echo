@@ -40,12 +40,41 @@ import Testing
         #expect(out.contains("[Campbell](/kˈæmbəl/)'s soup"))
     }
 
+    @Test func builtInDefaultsCoverReportedKokoroMispronunciations() {
+        let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "Xcode fixed the timeframe and re-rendered the chapter.")
+
+        #expect(out.contains("[Xcode](/ˈɛks kˈOd/)"))
+        #expect(out.contains("[timeframe](/tˈImfɹˌAm/)"))
+        #expect(out.contains("[re](/ɹi/)-rendered"))
+    }
+
+    @Test func builtInReDefaultDoesNotRewriteCommonReWords() {
+        let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "review the return record before restart.")
+
+        #expect(!out.contains("[review]"))
+        #expect(!out.contains("[return]"))
+        #expect(!out.contains("[record]"))
+        #expect(!out.contains("[restart]"))
+    }
+
     @Test func builtInDefaultReachesG2PAsExactPhonemes() {
         // End-to-end: the built-in entry flows through `apply` → Misaki link
         // parsing → the exact override phonemes appear in the G2P output.
         let text = PronunciationOverrides.withBuiltInDefaults([:]).apply(to: "by Dan Fakkeldy")
         let phonemes = KokoroG2P().phonemes(for: text)
         #expect(phonemes.contains("fˈækəldi"))
+    }
+
+    @Test func reportedKokoroMispronunciationsReachG2PAsExactPhonemes() {
+        let text = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "Xcode fixed the timeframe and re-rendered the chapter.")
+        let phonemes = KokoroG2P().phonemes(for: text)
+
+        #expect(phonemes.contains("ˈɛks kˈOd"))
+        #expect(phonemes.contains("tˈImfɹˌAm"))
+        #expect(phonemes.contains("ɹi ɹˈɛndəɹd"))
     }
 
     @Test func userEntryOverridesBuiltInDefault() {

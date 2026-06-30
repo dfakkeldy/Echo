@@ -76,6 +76,9 @@ struct PronunciationOverrides {
         // (a user entry for the same word always wins — see `withBuiltInDefaults`).
         "Fakkeldy": "fˈækəldi",
         "Campbell": "kˈæmbəl",
+        "Xcode": "ˈɛks kˈOd",
+        "timeframe": "tˈImfɹˌAm",
+        "re": "ɹi",
     ]
 
     /// The built-in defaults with the user's `entries` layered on top. Matching
