@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-struct FixtureStudyDeckGenerator: Sendable {
+struct FixtureStudyDeckGenerator: StudyDeckGenerating {
     private static let maximumKeywordsPerCard = 4
     private static let maximumKeywordCharacters = 24
 
@@ -10,7 +10,8 @@ struct FixtureStudyDeckGenerator: Sendable {
         settings: StudyDeckGenerationSettings = StudyDeckGenerationSettings()
     ) -> GeneratedStudyDeckDraft {
         let validSourceBlockIDs = Set(sources.map(\.sourceBlockID))
-        let cards = sources
+        let cards =
+            sources
             .prefix(settings.maximumCardCount)
             .map(Self.cardDraft)
 
@@ -23,7 +24,8 @@ struct FixtureStudyDeckGenerator: Sendable {
     private static func cardDraft(for source: StudyDeckSource) -> GeneratedStudyDeckCardDraft {
         let location = sourceLocation(for: source)
         let keywords = keywords(from: source.text).prefix(maximumKeywordsPerCard)
-        let keywordText = keywords.isEmpty ? "no compact keywords" : keywords.joined(separator: ", ")
+        let keywordText =
+            keywords.isEmpty ? "no compact keywords" : keywords.joined(separator: ", ")
 
         return GeneratedStudyDeckCardDraft(
             id: "fixture-\(source.sourceBlockID)",
@@ -42,7 +44,8 @@ struct FixtureStudyDeckGenerator: Sendable {
     }
 
     private static func normalizedBlockKind(_ blockKind: String) -> String {
-        let normalized = blockKind
+        let normalized =
+            blockKind
             .lowercased()
             .split { !$0.isLetter && !$0.isNumber }
             .first
@@ -85,6 +88,6 @@ struct FixtureStudyDeckGenerator: Sendable {
         "to", "with", "your", "you", "we", "our", "their", "they", "them",
         "was", "were", "will", "would", "can", "could", "should", "may",
         "might", "has", "have", "had", "do", "does", "did", "using", "use",
-        "key", "idea", "source", "chapter", "section", "block", "text"
+        "key", "idea", "source", "chapter", "section", "block", "text",
     ]
 }
