@@ -46,6 +46,9 @@ enum NarrationQADetector {
         guard !audioTokens.isEmpty else { return [] }
 
         let matches = TokenDTW.wordMatchesWithBisection(epub: epubTokens, audio: audioTokens)
+        // Audio times that DID match a source token — lets us recover the
+        // "heard instead" text inside a divergence gap (matched words excluded).
+        let matchedAudioTimes = Set(matches.map(\.audioTime))
 
         // Covered source words per block, and the audio time for each.
         var coveredWords: [String: Set<Int>] = [:]
@@ -78,11 +81,25 @@ enum NarrationQADetector {
                 let start = nearestTime(before: first, in: times) ?? times.values.min() ?? 0
                 let end = nearestTime(after: last, in: times) ?? times.values.max() ?? start
                 let expected = words[first...last].joined(separator: " ")
+                // What the transcriber heard in this gap: heard words spoken strictly
+                // between the surrounding matched source words that themselves matched
+                // nothing. A non-empty result turns an omission into a visible
+                // substitution; an empty result stays an omission.
+                let heardText =
+                    end > start
+                    ? heardWords
+                        .filter {
+                            !matchedAudioTimes.contains($0.start) && $0.start > start
+                                && $0.start < end
+                        }
+                        .map(\.text)
+                        .joined(separator: " ")
+                    : ""
                 windows.append(
                     DivergenceWindow(
                         blockID: block.blockID,
                         expectedText: expected,
-                        heardText: "",
+                        heardText: heardText,
                         expectedWordStart: first,
                         expectedWordEnd: last,
                         audioStart: start,

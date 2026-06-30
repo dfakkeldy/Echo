@@ -43,6 +43,32 @@ import Testing
         #expect(covered)
     }
 
+    @Test func substitutedWordCarriesHeardText() {
+        // Only "lazy" (idx 7) diverges — read as "crazy". The window for that gap
+        // must carry what the transcriber actually heard, not an empty string.
+        let words = heard([
+            ("the", 0.0), ("quick", 0.4), ("brown", 0.8), ("fox", 1.2), ("jumps", 1.6),
+            ("over", 2.0), ("the", 2.4), ("crazy", 2.8), ("dog", 3.2),
+        ])
+        let windows = NarrationQADetector.detect(
+            expectedBlocks: blocks, heardWords: words, audiobookID: "b1")
+        let lazyWindow = windows.first { $0.expectedWordStart <= 7 && 7 <= $0.expectedWordEnd }
+        #expect(lazyWindow?.heardText.contains("crazy") == true)
+    }
+
+    @Test func omittedWordKeepsEmptyHeardText() {
+        // "brown" (idx 2) dropped entirely — nothing was spoken in its place, so the
+        // window stays an omission (empty heard text), not a phantom substitution.
+        let words = heard([
+            ("the", 0.0), ("quick", 0.4), ("fox", 1.2), ("jumps", 1.6),
+            ("over", 2.0), ("the", 2.4), ("lazy", 2.8), ("dog", 3.2),
+        ])
+        let windows = NarrationQADetector.detect(
+            expectedBlocks: blocks, heardWords: words, audiobookID: "b1")
+        let brownWindow = windows.first { $0.expectedWordStart <= 2 && 2 <= $0.expectedWordEnd }
+        #expect(brownWindow?.heardText.isEmpty == true)
+    }
+
     @Test func cleanReadingWithNumberAndShortWordProducesNoWindows() {
         // "I" normalizes to zero tokens and "7" expands to one token ("seven"),
         // so the source-word index and the normalized-token ordinal diverge after
