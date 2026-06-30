@@ -54,6 +54,16 @@ import Testing
         #expect(pieces.allSatisfy { $0.hasSuffix(".") })
     }
 
+    @Test func prefersSentenceBoundaryOverClauseSeamWhenSentencesFit() {
+        // The greedy merge must not end a chunk on a comma when splitting at the
+        // sentence boundary keeps every chunk under budget. A comma seam gets the
+        // model's full sentence-final intonation — an audible "period" mid-sentence.
+        let pieces = NarrationTextChunker.split("A short one. A, b, c, d, e.", maxChars: 25)
+        #expect(pieces == ["A short one.", "A, b, c, d, e."])
+        // No chunk ends on a clause comma when a sentence-boundary split was available.
+        #expect(pieces.allSatisfy { !$0.hasSuffix(",") })
+    }
+
     @Test func overlongSentencePrefersClauseBoundaryBeforeWordWrap() {
         let text =
             "The first clause has a natural pause, "
