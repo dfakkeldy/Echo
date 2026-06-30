@@ -140,12 +140,15 @@ final class DatabaseService {
         migrator.registerMigration("v30_narration_quality_issue") { db in
             try Schema_V30.migrate(db)
         }
+        migrator.registerMigration("v31_abs_server_multi") { db in
+            try Schema_V31.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }
 
-private extension URL {
-    var parentDirectory: URL? {
+extension URL {
+    fileprivate var parentDirectory: URL? {
         guard !path.isEmpty else { return nil }
         return deletingLastPathComponent()
     }
