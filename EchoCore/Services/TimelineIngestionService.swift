@@ -20,23 +20,33 @@ struct TimelineIngestionService {
         duration: TimeInterval?
     ) {
         let audiobookID = folderURL.absoluteString
-        let title = folderURL.deletingPathExtension().lastPathComponent
+        let folderTitle = folderURL.deletingPathExtension().lastPathComponent
         do {
             let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
             let isABS = existing?.sourceType == "audiobookshelf"
             let resolvedDuration = duration.flatMap(Self.validDuration) ?? existing?.duration ?? 0
-            let audiobook = AudiobookRecord(
-                id: audiobookID,
-                title: isABS ? (existing?.title ?? title) : title,
-                author: isABS ? existing?.author : nil,
-                duration: resolvedDuration,
-                fileCount: tracks.count,
-                addedAt: existing?.addedAt ?? Date().ISO8601Format(),
-                sourceType: existing?.sourceType,
-                serverID: existing?.serverID,
-                remoteItemID: existing?.remoteItemID,
-                topicsJSON: existing?.topicsJSON
-            )
+            // Start from the existing row so enrichment written by the Library
+            // rescan or ABS import survives a normal folder re-open. This loader
+            // only owns title (local books), duration, fileCount, and availability;
+            // everything else — coverArtPath, narrator, author, authorSort,
+            // sourceRootID, topicsJSON, source*, addedAt, lastSeenAt, indexState,
+            // textOrigin — belongs to those enrichment paths. The previous
+            // full-record REPLACE silently wiped them on EVERY play, so the Library
+            // shelf lost its covers and books lost the link to their rescannable
+            // root. (LibraryService.rescan coalesces for exactly this reason.)
+            var audiobook =
+                existing
+                ?? AudiobookRecord(
+                    id: audiobookID,
+                    title: folderTitle,
+                    author: nil,
+                    duration: resolvedDuration,
+                    fileCount: tracks.count,
+                    addedAt: Date().ISO8601Format())
+            if !isABS { audiobook.title = folderTitle }
+            audiobook.duration = resolvedDuration
+            audiobook.fileCount = tracks.count
+            audiobook.isAvailable = true
             let records = tracks.enumerated().map { (i, track) in
                 TrackRecord(
                     id: track.id,

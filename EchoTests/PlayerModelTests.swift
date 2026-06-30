@@ -124,6 +124,22 @@ struct PlayerModelTests {
         #expect(FileManager.default.fileExists(atPath: sourceEpubURL.path))
     }
 
+    @Test("openLibraryBook surfaces the player by switching to the Now Playing tab")
+    func openLibraryBookSwitchesToNowPlaying() throws {
+        let model = PlayerModel()
+        model.databaseService = try DatabaseService(inMemory: ())
+        // The user is browsing the Library shelf when they tap a book.
+        model.selectedTab = .library
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        model.openLibraryBook(LibraryOpenTarget(url: folder, scopedRoot: nil))
+
+        // Without this the book loads behind the still-visible shelf and the tap
+        // looks like it "did nothing".
+        #expect(model.selectedTab == .nowPlaying)
+    }
+
     @Test("hasPreviousChapter / hasNextChapter reflect chapter bounds")
     func chapterNavBoundsHelpers() {
         let model = PlayerModel()
@@ -162,8 +178,13 @@ struct PlayerModelTests {
     func togglePlayPauseUsesNarrationAwarePlayPath() throws {
         let source = try Self.source(named: "PlayerModel.swift")
         #expect(source.contains("func togglePlayPause()"))
-        #expect(source.contains("if isPlaying {\n            pause()\n        } else {\n            play()\n        }"))
-        #expect(!source.contains("func togglePlayPause() {\n        playbackController.togglePlayPause()\n    }"))
+        #expect(
+            source.contains(
+                "if isPlaying {\n            pause()\n        } else {\n            play()\n        }"
+            ))
+        #expect(
+            !source.contains(
+                "func togglePlayPause() {\n        playbackController.togglePlayPause()\n    }"))
     }
 
     @Test("narration books count as playback content before tracks exist")
