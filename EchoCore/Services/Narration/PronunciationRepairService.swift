@@ -10,8 +10,18 @@ enum FixScope: Equatable {
 }
 
 /// Thrown when an issue carries no actionable pronunciation suggestion.
-enum NarrationRepairError: Error, Equatable {
+enum NarrationRepairError: Error, Equatable, LocalizedError {
     case noUsableFix
+    case sourceChapterUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .noUsableFix:
+            "This issue has no usable pronunciation fix."
+        case .sourceChapterUnavailable:
+            "The source chapter for this issue could not be found."
+        }
+    }
 }
 
 /// Turns an accepted narration-QA fix into a pronunciation override, regenerates
@@ -99,16 +109,18 @@ final class PronunciationRepairService {
         }
 
         // 3. Resolve the chapter to regenerate.
-        guard let blockID = issue.sourceBlockID,
-            let chapterIndex = try Self.chapterIndex(
-                forBlockID: blockID, audiobookID: issue.audiobookID, db: db)
+        guard let blockID = issue.sourceBlockID else {
+            logger.error(
+                "Override written for issue \(issue.id), but the issue has no source block.")
+            throw NarrationRepairError.sourceChapterUnavailable
+        }
+        guard let chapterIndex = try Self.chapterIndex(
+            forBlockID: blockID, audiobookID: issue.audiobookID, db: db)
         else {
-            // No block/chapter to regenerate — still resolve the issue so the queue
-            // doesn't keep re-surfacing a fix the user accepted.
-            try issueDAO.updateStatus(
-                id: issue.id, status: NarrationQAIssueStatus.resolved.rawValue,
-                resolvedAt: ISO8601DateFormatter().string(from: Date()))
-            return
+            logger.error(
+                "Override written for issue \(issue.id), but source block \(blockID) could not be resolved."
+            )
+            throw NarrationRepairError.sourceChapterUnavailable
         }
 
         // 4. Clear stale cached audio.
@@ -118,26 +130,15 @@ final class PronunciationRepairService {
         try? FileManager.default.removeItem(at: cachedFile)
         logger.notice("Cleared cached audio for chapter \(chapterIndex)")
 
-        // 5. Resolve the original issue BEFORE deleting sibling issues so the row
-        //    survives as an auditable resolved record.
-        let resolvedAt = ISO8601DateFormatter().string(from: Date())
-        try issueDAO.updateStatus(
-            id: issue.id, status: NarrationQAIssueStatus.resolved.rawValue,
-            resolvedAt: resolvedAt)
-
-        // 6. Delete only the OTHER chapter blocks' open issues (not the original
-        //    issue's block) so re-QA repopulates only genuine remaining divergences.
-        let chapterBlockIDs = try EPubBlockDAO(db: db)
-            .blocks(for: issue.audiobookID, chapterIndex: chapterIndex)
-            .map(\.id)
-        let otherBlockIDs = chapterBlockIDs.filter { $0 != issue.sourceBlockID }
-        if !otherBlockIDs.isEmpty {
-            try issueDAO.deleteOpen(for: issue.audiobookID, blockIDs: otherBlockIDs)
-        }
-
-        // 7. Re-render the chapter (reads the new override via NarrationService's
+        // 5. Re-render the chapter (reads the new override via NarrationService's
         //    pronunciationOverrides closure) then re-run QA over it.
         try await renderChapter(chapterIndex)
         try await reRunQA(chapterIndex)
+
+        // 6. Only after render + re-QA both succeed, save the accepted issue as
+        //    resolved audit history. The re-QA pass may have deleted the original
+        //    open row, so this helper upserts the resolved copy.
+        let resolvedAt = ISO8601DateFormatter().string(from: Date())
+        try issueDAO.saveResolvedAudit(issue, resolvedAt: resolvedAt)
     }
 }
