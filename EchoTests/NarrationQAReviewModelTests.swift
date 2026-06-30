@@ -6,6 +6,16 @@ import Testing
 @testable import Echo
 
 @MainActor @Suite struct NarrationQAReviewModelTests {
+    private struct MarkerClassifier: DivergenceClassifier {
+        func classify(_ window: DivergenceWindow) async -> DivergenceClassification {
+            DivergenceClassification(
+                issueType: .pronunciation,
+                suggestedSpokenForm: "marker",
+                suggestedIPA: "mˈɑɹkɚ",
+                confidence: 0.99)
+        }
+    }
+
     private func seed(_ db: DatabaseService, book: String) throws {
         try db.writer.write { database in
             try database.execute(
@@ -60,7 +70,7 @@ import Testing
         try seed(db, book: "b1")
         let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
         // Nothing rendered → must not silently show an empty queue.
-        await model.runFullQA(chapters: []) { _ in }
+        await model.runFullQA(chapters: []) { _, _ in }
         #expect(model.lastError != nil)
     }
 
@@ -71,7 +81,7 @@ import Testing
         let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
         await model.runFullQA(
             chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])]
-        ) { _ in throw Boom() }
+        ) { _, _ in throw Boom() }
         #expect(model.lastError != nil)
     }
 
@@ -83,10 +93,39 @@ import Testing
         var ran = false
         await model.runFullQA(
             chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])]
-        ) { _ in ran = true }
+        ) { _, _ in ran = true }
         #expect(ran)
         #expect(model.lastError == nil)
         // Reload surfaced the seeded open issue.
         #expect(model.issues.count == 1)
+    }
+
+    @Test func runFullQAUsesConfiguredClassifierFactory() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        var capturedPreference: String?
+        var capturedAvailability: Bool?
+        var classifierWasInjected = false
+        let dependencies = NarrationQAReviewModel.Dependencies(
+            classifierPreference: { "auto" },
+            foundationModelsAvailable: { true },
+            classifierFactory: { preference, availability in
+                capturedPreference = preference
+                capturedAvailability = availability
+                return MarkerClassifier()
+            })
+        let model = NarrationQAReviewModel(
+            db: db.writer, audiobookID: "b1", dependencies: dependencies)
+
+        await model.runFullQA(
+            chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])]
+        ) { _, classifier in
+            classifierWasInjected = classifier is MarkerClassifier
+        }
+
+        #expect(capturedPreference == "auto")
+        #expect(capturedAvailability == true)
+        #expect(classifierWasInjected)
+        #expect(model.lastError == nil)
     }
 }
