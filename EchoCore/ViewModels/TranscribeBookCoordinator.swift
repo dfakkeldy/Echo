@@ -39,6 +39,8 @@
             guard !progress.isCancelled, progress.chaptersTotal > 0,
                 progress.chaptersComplete >= progress.chaptersTotal
             else { return }
+            guard await hasTranscriptRows(audiobookID: audiobookID, chapterCount: chapters.count)
+            else { return }
             await finalize(audiobookID: audiobookID)
         }
 
@@ -55,6 +57,25 @@
                 }
             } catch {
                 logger.error("finalize failed: \(error.localizedDescription)")
+            }
+        }
+
+        private func hasTranscriptRows(audiobookID: String, chapterCount: Int) async -> Bool {
+            guard chapterCount > 0 else { return false }
+            do {
+                let chapterIndices = try await writer.read { database in
+                    try Int.fetchAll(
+                        database,
+                        sql:
+                            "SELECT DISTINCT chapter_index FROM standalone_transcript WHERE audiobook_id = ?",
+                        arguments: [audiobookID])
+                }
+                let availableChapterIndices = Set(chapterIndices)
+                return (0..<chapterCount).allSatisfy { availableChapterIndices.contains($0) }
+            } catch {
+                logger.error(
+                    "transcription readiness check failed: \(error.localizedDescription)")
+                return false
             }
         }
     }
