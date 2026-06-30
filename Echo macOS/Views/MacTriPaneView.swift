@@ -81,6 +81,15 @@ struct MacTriPaneView: View {
                 dbServiceWired = true
             }
         }
+        // `player.settings` is injected once, so its `didSet`/`applySettings()` only
+        // seeds skip intervals at launch. Push later Preferences-window changes to the
+        // live player so the skip buttons/menu use the new durations immediately.
+        .onChange(of: settings.seekForwardDuration) { _, newValue in
+            player.skipInterval = newValue
+        }
+        .onChange(of: settings.seekBackwardDuration) { _, newValue in
+            player.skipBackInterval = newValue
+        }
         .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
             withAnimation {
                 columnVisibility =
@@ -174,7 +183,7 @@ struct MacTriPaneView: View {
 
                 // Transport
                 Button {
-                    player.skip(by: -Double(player.skipInterval))
+                    player.skipBackward()
                 } label: {
                     Image(systemName: "gobackward.15")
                 }
@@ -191,7 +200,7 @@ struct MacTriPaneView: View {
                 .help(player.isPlaying ? "Pause" : "Play")
 
                 Button {
-                    player.skip(by: Double(player.skipInterval))
+                    player.skipForward()
                 } label: {
                     Image(systemName: "goforward.15")
                 }

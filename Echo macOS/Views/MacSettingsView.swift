@@ -66,7 +66,7 @@ private struct MacAppearanceSettingsPane: View {
                 Text("Appearance")
             } footer: {
                 Text(
-                    "Color scheme and font apply across the macOS app window. Theme color tints accents; “Artwork” derives the accent from the current book cover."
+                    "Color scheme and font apply across the macOS app window. Theme color tints accents throughout the app."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -106,6 +106,10 @@ private struct MacPlaybackSettingsPane: View {
     /// hardcoded array in SettingsView's Seek pickers).
     private let skipOptions = [5, 10, 15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300]
 
+    /// Output-boost amounts in dB offered when Volume Boost is on (matches the
+    /// iOS Volume Boost picker).
+    private let boostGainOptions: [Float] = [3, 6, 9, 12, 15]
+
     var body: some View {
         @Bindable var settings = settings
         @Bindable var player = player
@@ -130,6 +134,25 @@ private struct MacPlaybackSettingsPane: View {
                 }
 
                 Toggle("Volume Boost", isOn: $player.isVolumeBoostEnabled)
+
+                if player.isVolumeBoostEnabled {
+                    Picker(
+                        "Boost Amount",
+                        selection: Binding(
+                            // Persist to settings AND push to the live player so the
+                            // change takes effect mid-playback — the player otherwise
+                            // reads settings.volumeBoostGain only at injection time.
+                            get: { settings.volumeBoostGain },
+                            set: { newGain in
+                                settings.volumeBoostGain = newGain
+                                player.volumeBoostGain = newGain
+                            })
+                    ) {
+                        ForEach(boostGainOptions, id: \.self) { db in
+                            Text("+\(Int(db)) dB").tag(db)
+                        }
+                    }
+                }
             } header: {
                 Text("Playback")
             } footer: {
@@ -138,6 +161,16 @@ private struct MacPlaybackSettingsPane: View {
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Smart Rewind", isOn: $settings.isRewindEnabled)
+            } header: {
+                Text("Smart Rewind")
+            } footer: {
+                Text(smartRewindFooter)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -178,6 +211,22 @@ private struct MacPlaybackSettingsPane: View {
             return "\(Int(value))×"
         }
         return "\(value)×"
+    }
+
+    /// Explains Smart Rewind with a worked example from the current thresholds
+    /// (teach-by-example, mirroring the iOS settings footer). Thresholds default
+    /// to the shared values; the gate toggle above drives whether playback rewinds.
+    private var smartRewindFooter: String {
+        let policy = SmartRewindPolicy(
+            secondsThreshold: settings.rewindPauseSecondsThreshold,
+            secondsAmount: settings.rewindAmountAfterSeconds,
+            minutesThreshold: settings.rewindPauseMinutesThreshold,
+            minutesAmount: settings.rewindAmountAfterMinutes,
+            hoursThreshold: settings.rewindPauseHoursThreshold,
+            hoursAmount: settings.rewindAmountAfterHours)
+        return
+            "On resume after a pause, Echo rewinds a few seconds so you can re-orient. "
+            + "Example — \(policy.exampleText(forPausedMinutes: 10))."
     }
 }
 
