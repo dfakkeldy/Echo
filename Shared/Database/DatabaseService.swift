@@ -117,6 +117,9 @@ final class DatabaseService {
         migrator.registerMigration("v29_audiobook_text_origin") { db in
             try Schema_V29.migrate(db)
         }
+        migrator.registerMigration("v30_narration_quality_issue") { db in
+            try Schema_V30.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }
