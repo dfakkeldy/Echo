@@ -17,12 +17,15 @@ struct BookOverridesSections: View {
 
     var body: some View {
         Section {
-            Picker("Font Override", selection: Binding(
-                get: { model.bookFontOverride ?? "inherit" },
-                set: { newValue in
-                    model.updateBookFontOverride(newValue == "inherit" ? nil : newValue)
-                }
-            )) {
+            Picker(
+                "Font Override",
+                selection: Binding(
+                    get: { model.bookFontOverride ?? "inherit" },
+                    set: { newValue in
+                        model.updateBookFontOverride(newValue == "inherit" ? nil : newValue)
+                    }
+                )
+            ) {
                 Text("Inherit Global").tag("inherit")
                 Text("Lexend").tag("Lexend")
                 Text("OpenDyslexic").tag("OpenDyslexic")
@@ -32,12 +35,16 @@ struct BookOverridesSections: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Play Bookmarks Inline")
                     .font(.subheadline)
-                Picker("Bookmarks Inline Mode", selection: Binding(
-                    get: { model.bookPlayBookmarksInlineOverride ?? "inherit" },
-                    set: { newValue in
-                        model.updateBookPlayBookmarksInlineOverride(newValue == "inherit" ? nil : newValue)
-                    }
-                )) {
+                Picker(
+                    "Bookmarks Inline Mode",
+                    selection: Binding(
+                        get: { model.bookPlayBookmarksInlineOverride ?? "inherit" },
+                        set: { newValue in
+                            model.updateBookPlayBookmarksInlineOverride(
+                                newValue == "inherit" ? nil : newValue)
+                        }
+                    )
+                ) {
                     Text("Inherit").tag("inherit")
                     Text("Always On").tag("alwaysOn")
                     Text("Always Off").tag("alwaysOff")
@@ -49,12 +56,16 @@ struct BookOverridesSections: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Volume Boost")
                     .font(.subheadline)
-                Picker("Volume Boost Mode", selection: Binding(
-                    get: { model.bookVolumeBoostOverride ?? "inherit" },
-                    set: { newValue in
-                        model.updateBookVolumeBoostOverride(newValue == "inherit" ? nil : newValue)
-                    }
-                )) {
+                Picker(
+                    "Volume Boost Mode",
+                    selection: Binding(
+                        get: { model.bookVolumeBoostOverride ?? "inherit" },
+                        set: { newValue in
+                            model.updateBookVolumeBoostOverride(
+                                newValue == "inherit" ? nil : newValue)
+                        }
+                    )
+                ) {
                     Text("Inherit").tag("inherit")
                     Text("Always On").tag("alwaysOn")
                     Text("Always Off").tag("alwaysOff")
@@ -75,11 +86,14 @@ struct BookOverridesSections: View {
             .disabled(isUploading)
             // Presentation modifiers belong on a plain row view, not the
             // Section, so both Form homes present the alert reliably.
-            .alert(uploadAlert?.title ?? "", isPresented: Binding(
-                get: { uploadAlert != nil },
-                set: { if !$0 { uploadAlert = nil } }
-            )) {
-                Button("OK", role: .cancel) { }
+            .alert(
+                uploadAlert?.title ?? "",
+                isPresented: Binding(
+                    get: { uploadAlert != nil },
+                    set: { if !$0 { uploadAlert = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
             } message: {
                 if let message = uploadAlert?.message {
                     Text(message)
@@ -90,13 +104,16 @@ struct BookOverridesSections: View {
                 Text(headerTitle)
             }
         } footer: {
-            Text("Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting.")
+            Text(
+                "Overrides apply to this book only. \u{201C}Inherit\u{201D} follows the global setting."
+            )
         }
     }
 
     private func shareAlignment() async {
         guard let db = model.databaseService?.writer,
-              let audiobookID = model.state.folderURL?.absoluteString else {
+            let audiobookID = model.state.folderURL?.absoluteString
+        else {
             uploadAlert = ("Error", "No book loaded.")
             return
         }
@@ -123,11 +140,13 @@ struct BookOverridesSections: View {
             case .noUploadableAnchors:
                 uploadAlert = (
                     "No Alignment Anchors",
-                    "This book does not have uploadable alignment anchors yet.")
+                    "This book does not have uploadable alignment anchors yet."
+                )
             case .rateLimited:
                 uploadAlert = (
                     "Try Again Later",
-                    "Alignment sharing is temporarily rate limited for this book.")
+                    "Alignment sharing is temporarily rate limited for this book."
+                )
             }
         } catch {
             uploadAlert = ("Upload Failed", error.localizedDescription)
@@ -173,13 +192,35 @@ struct BookSettingsView: View {
                                 )
                             }
                         } else {
-                            Button("Make Flashcards in EchoDeckBuilder", systemImage: "square.and.arrow.up") {}
-                                .disabled(true)
+                            Button(
+                                "Make Flashcards in EchoDeckBuilder",
+                                systemImage: "square.and.arrow.up"
+                            ) {}
+                            .disabled(true)
                         }
                     #endif
                 }
 
                 BookOverridesSections(model: model)
+
+                #if os(iOS)
+                    // Narration QA review — only for a loaded book. The pass itself
+                    // reports "no rendered audio" if the book isn't narrated yet.
+                    if let db = model.databaseService?.writer,
+                        let audiobookID = model.state.folderURL?.absoluteString
+                    {
+                        Section("Narration") {
+                            NavigationLink {
+                                NarrationQAReviewView(
+                                    model: NarrationQAReviewModel(db: db, audiobookID: audiobookID))
+                            } label: {
+                                Label(
+                                    "Narration QA",
+                                    systemImage: "waveform.badge.magnifyingglass")
+                            }
+                        }
+                    }
+                #endif
             }
             .navigationTitle("Book Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -198,7 +239,10 @@ struct BookSettingsView: View {
         .task(id: echoDeckBuilderRefreshKey) {
             refreshEchoDeckBuilderExportURL()
         }
-        .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
+        .environment(
+            \.font,
+            model.resolvedAppFont == SettingsManager.systemFontName
+                ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
     }
 
     private var canMakeFlashcardsInEchoDeckBuilder: Bool {
@@ -252,7 +296,8 @@ private struct StudyPlanSheetPresentation: Identifiable {
 
     init?(model: PlayerModel) {
         guard let db = model.databaseService?.writer,
-              let folderURL = model.folderURL else {
+            let folderURL = model.folderURL
+        else {
             return nil
         }
 
@@ -295,7 +340,8 @@ private struct StudyDeckGenerationSheetPresentation: Identifiable {
 
     init?(model: PlayerModel) {
         guard let db = model.databaseService?.writer,
-              let folderURL = model.folderURL else {
+            let folderURL = model.folderURL
+        else {
             return nil
         }
 

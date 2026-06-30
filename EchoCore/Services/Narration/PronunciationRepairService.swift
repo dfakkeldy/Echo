@@ -132,7 +132,7 @@ final class PronunciationRepairService {
             .map(\.id)
         let otherBlockIDs = chapterBlockIDs.filter { $0 != issue.sourceBlockID }
         if !otherBlockIDs.isEmpty {
-            try issueDAO.deleteAll(for: issue.audiobookID, blockIDs: otherBlockIDs)
+            try issueDAO.deleteOpen(for: issue.audiobookID, blockIDs: otherBlockIDs)
         }
 
         // 7. Re-render the chapter (reads the new override via NarrationService's

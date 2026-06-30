@@ -55,4 +55,18 @@ struct NarrationQualityIssueDAO {
                 .deleteAll(db)
         }
     }
+
+    /// Deletes only the OPEN issues for the given blocks, preserving the user's
+    /// resolved/ignored verdicts. Used before a re-QA pass so re-running QA
+    /// converges on the open queue without destroying triaged audit history.
+    func deleteOpen(for audiobookID: String, blockIDs: [String]) throws {
+        guard !blockIDs.isEmpty else { return }
+        _ = try db.write { db in
+            try NarrationQualityIssueRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(blockIDs.contains(Column("source_block_id")))
+                .filter(Column("status") == NarrationQAIssueStatus.open.rawValue)
+                .deleteAll(db)
+        }
+    }
 }
