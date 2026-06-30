@@ -240,6 +240,11 @@ struct Echo_macOSApp: App {
 
                 Divider()
 
+                Button("Daily Review…") {
+                    NotificationCenter.default.post(name: .requestDailyReview, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
                 Button("Export for Anki…") {
                     showAnkiExport = true
                 }
@@ -531,4 +536,5 @@ extension Notification.Name {
     static let requestExportTranscript = Notification.Name("com.echo.requestExportTranscript")
     /// Posted by the reader's idle "Narrate an EPUB" nudge to open the picker.
     static let requestNarrateEPUBs = Notification.Name("com.echo.requestNarrateEPUBs")
+    static let requestDailyReview = Notification.Name("com.echo.requestDailyReview")
 }
