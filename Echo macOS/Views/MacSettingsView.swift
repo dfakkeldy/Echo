@@ -25,6 +25,11 @@ struct MacSettingsView: View {
                     Label("Playback", systemImage: "play.circle")
                 }
 
+            AICardGenerationSettingsView()
+                .tabItem {
+                    Label("AI", systemImage: "sparkles")
+                }
+
             MacSupportSettingsPane()
                 .tabItem {
                     Label("Support", systemImage: "questionmark.circle")

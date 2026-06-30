@@ -361,11 +361,23 @@ private struct StudyDeckGenerationSheetHost: View {
     @State private var viewModel: StudyDeckGenerationViewModel
 
     init(presentation: StudyDeckGenerationSheetPresentation) {
+        // Read key + model on the MainActor (View.init is @MainActor). Capture
+        // plain Strings so the @Sendable closure never crosses actor boundaries
+        // with a @MainActor-isolated object.
+        let store = APIKeyStore()
+        let hasKey = store.hasKey
+        let key = store.anthropicKey ?? ""
+        let model = AICardGenerationSettings.selectedModel
+        let generator = StudyDeckGeneratorFactory.make(hasKey: hasKey) {
+            AnthropicStudyDeckGenerator(
+                client: AnthropicMessagesClient(apiKey: key, model: model))
+        }
         _viewModel = State(
             wrappedValue: StudyDeckGenerationViewModel(
                 audiobookID: presentation.audiobookID,
                 bookTitle: presentation.bookTitle,
-                db: presentation.db
+                db: presentation.db,
+                generator: generator
             )
         )
     }
