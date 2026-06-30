@@ -250,11 +250,6 @@ struct MacPlayerMoreMenu: View {
     }
 }
 
-private struct EchoDeckBuilderAlert: Identifiable {
-    let id = UUID()
-    let message: String
-}
-
 private struct EchoDeckBuilderAvailabilityKey: Equatable {
     var folderURL: URL?
     var currentTrackURL: URL?

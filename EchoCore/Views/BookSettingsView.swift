@@ -142,7 +142,6 @@ struct BookSettingsView: View {
     @State private var studyPlanPresentation: StudyPlanSheetPresentation?
     @State private var studyDeckGenerationPresentation: StudyDeckGenerationSheetPresentation?
     @State private var echoDeckBuilderExportURL: URL?
-    @State private var echoDeckBuilderAlert: EchoDeckBuilderAlert?
 
     var body: some View {
         NavigationStack {
@@ -161,6 +160,11 @@ struct BookSettingsView: View {
                     .disabled(model.databaseService == nil || model.folderURL == nil)
 
                     #if os(iOS)
+                        // Only EPUB-backed books can be sent to EchoDeckBuilder.
+                        // Gate on a real resolved .epub (not `hasEPUB`, which is
+                        // also true for parsed PDF / .md / .txt books that have no
+                        // .epub file) so the row is disabled — like the macOS
+                        // sibling — rather than enabled-but-always-failing.
                         if let echoDeckBuilderExportURL {
                             ShareLink(item: echoDeckBuilderExportURL) {
                                 Label(
@@ -168,12 +172,9 @@ struct BookSettingsView: View {
                                     systemImage: "square.and.arrow.up"
                                 )
                             }
-                            .disabled(!canMakeFlashcardsInEchoDeckBuilder)
                         } else {
-                            Button("Make Flashcards in EchoDeckBuilder", systemImage: "square.and.arrow.up") {
-                                refreshEchoDeckBuilderExportURL(showError: true)
-                            }
-                            .disabled(!canMakeFlashcardsInEchoDeckBuilder)
+                            Button("Make Flashcards in EchoDeckBuilder", systemImage: "square.and.arrow.up") {}
+                                .disabled(true)
                         }
                     #endif
                 }
@@ -195,17 +196,7 @@ struct BookSettingsView: View {
             StudyDeckGenerationSheetHost(presentation: presentation)
         }
         .task(id: echoDeckBuilderRefreshKey) {
-            refreshEchoDeckBuilderExportURL(showError: false)
-        }
-        .alert("EchoDeckBuilder", isPresented: Binding(
-            get: { echoDeckBuilderAlert != nil },
-            set: { if !$0 { echoDeckBuilderAlert = nil } }
-        )) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            if let message = echoDeckBuilderAlert?.message {
-                Text(message)
-            }
+            refreshEchoDeckBuilderExportURL()
         }
         .environment(\.font, model.resolvedAppFont == SettingsManager.systemFontName ? .body : .custom(model.resolvedAppFont, size: 17, relativeTo: .body))
     }
@@ -229,30 +220,20 @@ struct BookSettingsView: View {
             : nil
     }
 
-    private func refreshEchoDeckBuilderExportURL(showError: Bool) {
+    private func refreshEchoDeckBuilderExportURL() {
         guard canMakeFlashcardsInEchoDeckBuilder else {
             echoDeckBuilderExportURL = nil
             return
         }
 
-        do {
-            echoDeckBuilderExportURL = try EchoDeckBuilderHandoffService.currentEPUBURL(
-                bookURL: model.folderURL,
-                preferredEPUBURL: model.state.sourceDocumentURL,
-                currentTrackURL: currentTrackURL
-            )
-        } catch {
-            echoDeckBuilderExportURL = nil
-            if showError {
-                echoDeckBuilderAlert = EchoDeckBuilderAlert(message: error.localizedDescription)
-            }
-        }
+        // Resolution failure (e.g. a PDF/.md/.txt book with no .epub on disk)
+        // simply leaves the row disabled; there is no action to surface an error.
+        echoDeckBuilderExportURL = try? EchoDeckBuilderHandoffService.currentEPUBURL(
+            bookURL: model.folderURL,
+            sourceDocumentURL: model.state.sourceDocumentURL,
+            currentTrackURL: currentTrackURL
+        )
     }
-}
-
-private struct EchoDeckBuilderAlert: Identifiable {
-    let id = UUID()
-    let message: String
 }
 
 private struct EchoDeckBuilderRefreshKey: Equatable {
