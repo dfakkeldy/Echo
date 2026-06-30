@@ -13,28 +13,38 @@ import Testing
         }
     }
 
-    @Test func targetPrivacyManifestsDeclareStandardAndAppGroupUserDefaultsReasons() throws {
+    @Test func targetPrivacyManifestsDeclareRequiredReasonAPIs() throws {
         for path in Self.manifestPaths {
-            let manifest = try Self.manifest(at: path)
-            let accessedAPIs = try #require(
-                manifest["NSPrivacyAccessedAPITypes"] as? [[String: Any]],
-                "\(path) must declare required-reason API usage."
-            )
-            let userDefaults = try #require(
-                accessedAPIs.first {
-                    $0["NSPrivacyAccessedAPIType"] as? String
-                        == "NSPrivacyAccessedAPICategoryUserDefaults"
-                },
-                "\(path) must declare UserDefaults required-reason API usage."
-            )
-            let reasons = Set(
-                try #require(
-                    userDefaults["NSPrivacyAccessedAPITypeReasons"] as? [String],
-                    "\(path) must list UserDefaults reasons."
-                )
-            )
+            let declarations = try Self.requiredReasonAPIDeclarations(in: path)
 
-            #expect(reasons == ["CA92.1", "1C8F.1"])
+            #expect(
+                Set(declarations.keys) == Set(Self.requiredReasonAPIs.keys),
+                "\(path) must declare the complete required-reason API set."
+            )
+            for (apiType, expectedReasons) in Self.requiredReasonAPIs {
+                #expect(
+                    declarations[apiType] == expectedReasons,
+                    "\(path) must declare \(apiType) with reasons \(expectedReasons.sorted())."
+                )
+            }
+        }
+    }
+
+    @Test func productionSourceHasManifestCoverageForRequiredReasonAPISignals() throws {
+        let source = try Self.productionSwiftSourceCorpus()
+
+        for (apiType, signals) in Self.requiredReasonAPISourceSignals {
+            #expect(
+                signals.contains { source.contains($0) },
+                "Production source scan should detect usage requiring \(apiType)."
+            )
+            for path in Self.manifestPaths {
+                let declarations = try Self.requiredReasonAPIDeclarations(in: path)
+                #expect(
+                    declarations[apiType] != nil,
+                    "\(path) must cover source-scanned required-reason API \(apiType)."
+                )
+            }
         }
     }
 
@@ -147,6 +157,36 @@ import Testing
         "Echo Widget/PrivacyInfo.xcprivacy",
     ]
 
+    private static let requiredReasonAPIs: [String: Set<String>] = [
+        "NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1", "1C8F.1"],
+        "NSPrivacyAccessedAPICategoryFileTimestamp": ["DDA9.1"],
+        "NSPrivacyAccessedAPICategoryDiskSpace": ["85F4.1"],
+    ]
+
+    private static let requiredReasonAPISourceSignals: [String: [String]] = [
+        "NSPrivacyAccessedAPICategoryUserDefaults": [
+            "UserDefaults",
+            "AppGroupDefaults",
+        ],
+        "NSPrivacyAccessedAPICategoryFileTimestamp": [
+            "contentsOfDirectory(",
+            "contentsOfDirectory(atPath:",
+        ],
+        "NSPrivacyAccessedAPICategoryDiskSpace": [
+            ".fileSizeKey",
+            "attributesOfFileSystem",
+            "systemFreeSize",
+        ],
+    ]
+
+    private static let productionSourceRoots = [
+        "EchoCore",
+        "Echo macOS",
+        "Echo Watch App",
+        "Echo Widget",
+        "Tools",
+    ]
+
     private static let sourceScanPaths = [
         "Echo.xcodeproj/project.pbxproj",
         "Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
@@ -161,9 +201,58 @@ import Testing
         )
     }
 
+    private static func requiredReasonAPIDeclarations(in path: String) throws -> [String: Set<String>] {
+        let manifest = try Self.manifest(at: path)
+        let accessedAPIs = try #require(
+            manifest["NSPrivacyAccessedAPITypes"] as? [[String: Any]],
+            "\(path) must declare required-reason API usage."
+        )
+
+        var declarations: [String: Set<String>] = [:]
+        for api in accessedAPIs {
+            let type = try #require(
+                api["NSPrivacyAccessedAPIType"] as? String,
+                "\(path) has a required-reason API entry without a type."
+            )
+            let reasons = Set(
+                try #require(
+                    api["NSPrivacyAccessedAPITypeReasons"] as? [String],
+                    "\(path) must list reasons for \(type)."
+                )
+            )
+            #expect(declarations[type] == nil, "\(path) must not duplicate \(type).")
+            declarations[type] = reasons
+        }
+        return declarations
+    }
+
     private static func source(at path: String) throws -> String {
         let url = try root().appending(path: path)
         return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static func productionSwiftSourceCorpus() throws -> String {
+        let root = try root()
+        let manager = FileManager.default
+        var corpus = ""
+
+        for sourceRoot in productionSourceRoots {
+            let url = root.appending(path: sourceRoot)
+            guard let enumerator = manager.enumerator(
+                at: url,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
+                let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                guard values.isRegularFile == true else { continue }
+                corpus += try String(contentsOf: fileURL, encoding: .utf8)
+                corpus += "\n"
+            }
+        }
+
+        return corpus
     }
 
     private static func root() throws -> URL {

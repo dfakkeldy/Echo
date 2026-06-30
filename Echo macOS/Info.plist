@@ -21,5 +21,9 @@
 	<string></string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Echo remembers where you listen so you can revisit the context. Location is opt-in, reduced accuracy, on-device only, and deletable at any time.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Echo records short voice memos so you can attach narrated notes to your audiobook bookmarks.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Echo lets you dictate short text notes for audiobook bookmarks.</string>
 </dict>
 </plist>

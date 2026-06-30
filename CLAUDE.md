@@ -14,8 +14,9 @@ You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo dev
 * **Targets:** iOS, watchOS, macOS, and Widget targets, sharing core logic via `Shared/`.
 * **Companion:** Transcript-generation pipeline (Python using OpenAI Whisper in `Tools/`). Alignment is now entirely in-app via WhisperKit (on-device CoreML).
 * **Stack:** Swift, SwiftUI, Python.
-* **Current Phase:** Adding on-device auto-alignment (WhisperKit) and polishing EPUB reader UX.
+* **Current Phase:** Hardening the transcript/narration QA program (M1–M5): audio-only transcription reader, source-backed alignment, generated narration QA, pronunciation repair, and macOS parity.
 * **Auto-Alignment:** A progressive alignment pipeline (`AutoAlignmentService`) that inserts alignment anchors automatically. Tier 0 (`ChapterTitleMatcher`) fuzzy-matches M4B chapter titles against EPUB headings (Levenshtein + word-level Jaccard) before any transcription — generic numeric track labels ("Chapter 7", "12") are skipped because m4b metadata numbers tracks, not book chapters, and contradicting numbers veto a match. Remaining chapters are content-aligned: audio is chunked at silences (VAD), transcribed with WhisperKit (on-device CoreML), and matched to EPUB tokens via dynamic time warping (`TokenDTW`). Each run clears its previous auto anchors so re-alignment converges. Progress + debug log shown in `AutoAlignmentProgressView`.
+* **Transcript/Narration QA:** Audio-only books can materialize ASR into read-along text; source-backed books compare ASR against canonical EPUB/PDF text; generated narration can be re-transcribed for reviewable divergences; accepted pronunciation fixes persist overrides before re-render/re-QA.
 
 ## Architecture & Coding Guidelines
 * **Separation of Concerns:** Keep Views clean and focused only on the UI. Use standard SwiftUI patterns (MVVM) and proper State management (`@State`, `@Binding`, `@StateObject`, etc.) to prevent memory leaks and unnecessary redraws.

@@ -32,6 +32,10 @@ class TranscriptStore {
         )
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     @objc private func handleTranscriptUpdate() {
         reload()
     }
@@ -147,4 +151,3 @@ class TranscriptStore {
         "would", "wouldn", "y", "you", "your", "yours", "yourself", "yourselves"
     ]
 }
-
