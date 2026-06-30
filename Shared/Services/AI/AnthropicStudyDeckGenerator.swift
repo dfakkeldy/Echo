@@ -125,11 +125,23 @@ nonisolated struct AnthropicStudyDeckGenerator: StudyDeckGenerating {
                 continue
             }
             // (b) Drop cards that copy a long verbatim run from their source.
+            // Include clozeText as a candidate so verbatim-copying cloze cards are also dropped.
             guard
                 !studyDeckIsLongSourceQuotation(
-                    [card.frontText, card.backText], sourceText: owner.text)
+                    [card.frontText, card.backText, card.clozeText ?? ""],
+                    sourceText: owner.text)
             else {
                 continue
+            }
+            // (c) Map kind; unknown raw values fall back to .basic.
+            let kind = StudyDeckCardKind(rawValue: card.kind ?? "basic") ?? .basic
+            // (d) Merge base tags with model-supplied tags (trimmed, non-empty, deduped).
+            var tags = ["generated", "ai"]
+            for tag in card.tags ?? [] {
+                let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty, !tags.contains(trimmed) {
+                    tags.append(trimmed)
+                }
             }
             cards.append(
                 GeneratedStudyDeckCardDraft(
@@ -137,7 +149,9 @@ nonisolated struct AnthropicStudyDeckGenerator: StudyDeckGenerating {
                     sourceBlockID: card.sourceBlockID,
                     frontText: card.frontText,
                     backText: card.backText,
-                    tags: ["generated", "ai"]))
+                    tags: tags,
+                    kind: kind,
+                    clozeText: card.clozeText))
         }
         return cards
     }

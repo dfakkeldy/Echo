@@ -177,6 +177,111 @@ nonisolated final class AnthropicStudyDeckGeneratorTests: XCTestCase {
         XCTAssertTrue(draft.cards.isEmpty, "verbatim long-quote card must be dropped")
     }
 
+    // MARK: - Cloze + metadata mapping (Task 3.3)
+
+    /// A valid cloze card — kind="cloze" with a {{c1::…}} marker — must arrive as .cloze.
+    @MainActor
+    func testMapsClozeCard() async {
+        let gen = AnthropicStudyDeckGenerator(
+            client: queuedClient([
+                ok(Self.briefJSON),
+                ok(
+                    #"""
+                    {"cards":[{"sourceBlockID":"b0","frontText":"Fill the blank.","backText":"Answer.","kind":"cloze","clozeText":"The {{c1::heart}} pumps blood."}]}
+                    """#),
+            ]))
+        let draft = await gen.generate(sources: [source("b0", spine: 0)], settings: .init())
+        XCTAssertEqual(draft.cards.count, 1)
+        XCTAssertEqual(draft.cards.first?.kind, .cloze)
+        XCTAssertEqual(draft.cards.first?.clozeText, "The {{c1::heart}} pumps blood.")
+    }
+
+    /// A cloze card missing a valid {{c1::…}} marker must be dropped by draft validation.
+    @MainActor
+    func testDropsClozeCardWithInvalidMarker() async {
+        let gen = AnthropicStudyDeckGenerator(
+            client: queuedClient([
+                ok(Self.briefJSON),
+                ok(
+                    #"""
+                    {"cards":[{"sourceBlockID":"b0","frontText":"Q","backText":"A","kind":"cloze","clozeText":"No marker here."}]}
+                    """#),
+            ]))
+        let draft = await gen.generate(sources: [source("b0", spine: 0)], settings: .init())
+        XCTAssertTrue(draft.cards.isEmpty, "cloze card without {{c1::…}} must be dropped")
+    }
+
+    /// Model tags are appended to ["generated","ai"] in the card's tags, deduped.
+    @MainActor
+    func testModelTagsAppendedToBaseTags() async {
+        let gen = AnthropicStudyDeckGenerator(
+            client: queuedClient([
+                ok(Self.briefJSON),
+                ok(
+                    #"""
+                    {"cards":[{"sourceBlockID":"b0","frontText":"Q","backText":"A","kind":"basic","tags":["vocab","key"]}]}
+                    """#),
+            ]))
+        let draft = await gen.generate(sources: [source("b0", spine: 0)], settings: .init())
+        XCTAssertEqual(draft.cards.count, 1)
+        let tags = draft.cards.first?.tags ?? []
+        XCTAssertTrue(tags.contains("generated"))
+        XCTAssertTrue(tags.contains("ai"))
+        XCTAssertTrue(tags.contains("vocab"))
+        XCTAssertTrue(tags.contains("key"))
+    }
+
+    /// Duplicate model tags (already in base or repeated) must be deduplicated.
+    @MainActor
+    func testModelTagsDeduplicated() async {
+        let gen = AnthropicStudyDeckGenerator(
+            client: queuedClient([
+                ok(Self.briefJSON),
+                ok(
+                    #"""
+                    {"cards":[{"sourceBlockID":"b0","frontText":"Q","backText":"A","kind":"basic","tags":["ai","vocab","ai","  "]}]}
+                    """#),
+            ]))
+        let draft = await gen.generate(sources: [source("b0", spine: 0)], settings: .init())
+        XCTAssertEqual(draft.cards.count, 1)
+        let tags = draft.cards.first?.tags ?? []
+        XCTAssertEqual(tags.filter { $0 == "ai" }.count, 1, "'ai' must not appear twice")
+        XCTAssertFalse(tags.contains(""), "blank/whitespace tags must be dropped")
+    }
+
+    /// A card returned as kind="basic" (or absent kind) must still be .basic (regression guard).
+    @MainActor
+    func testBasicKindIsPreserved() async {
+        let gen = AnthropicStudyDeckGenerator(
+            client: queuedClient([
+                ok(Self.briefJSON),
+                ok(
+                    #"""
+                    {"cards":[{"sourceBlockID":"b0","frontText":"Q","backText":"A","kind":"basic"}]}
+                    """#),
+            ]))
+        let draft = await gen.generate(sources: [source("b0", spine: 0)], settings: .init())
+        XCTAssertEqual(draft.cards.first?.kind, .basic)
+    }
+
+    /// Long-quote check must also apply to clozeText, not only frontText/backText.
+    @MainActor
+    func testLongQuoteCheckIncludesClozeText() async {
+        let quote =
+            "Synthetic retrieval practice strengthens recall across spaced sessions and helps every learner remember concepts."
+        let gen = AnthropicStudyDeckGenerator(
+            client: queuedClient([
+                ok(Self.briefJSON),
+                ok(
+                    "{\"cards\":[{\"sourceBlockID\":\"b0\",\"frontText\":\"Q\",\"backText\":\"A\",\"kind\":\"cloze\",\"clozeText\":\(jsonEncoded(quote))}]}"
+                ),
+            ]))
+        let draft = await gen.generate(
+            sources: [source("b0", spine: 0, text: quote)], settings: .init())
+        XCTAssertTrue(
+            draft.cards.isEmpty, "clozeText that is a verbatim long-quote must be dropped")
+    }
+
     @MainActor
     func testCancellationReturnsPartialDraft() async {
         var sources = (0..<12).map { source("b\($0)", spine: 0) }
