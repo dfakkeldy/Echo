@@ -66,4 +66,18 @@ struct MacAudiobookshelfParityTests {
                 && src.contains("ABSProgressReconciler.decide("),
             "Load-time reconciliation must use the shared ABSProgressReconciler.")
     }
+
+    @Test func wiresProgressSyncIntoPlaybackHooks() throws {
+        let src = try MacSource.read("Views/MacPlayerModel.swift")
+        #expect(
+            src.contains("refreshABSSyncIdentity()")
+                && src.contains("reconcileABSProgressOnLoad()"),
+            "Loading a book must refresh ABS sync identity and reconcile remote progress.")
+        #expect(
+            src.contains("maybePushABSProgress()"),
+            "The periodic time observer must push throttled ABS progress while playing.")
+        #expect(
+            src.contains("maybePushABSProgress(force: true)"),
+            "Pause and stop must force-flush ABS progress immediately.")
+    }
 }
