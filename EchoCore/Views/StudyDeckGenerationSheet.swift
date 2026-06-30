@@ -38,7 +38,7 @@ struct StudyDeckGenerationSheet: View {
             }
             .navigationTitle("Generate Study Deck")
             #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
+                .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -54,12 +54,12 @@ struct StudyDeckGenerationSheet: View {
                 }
             }
             .alert("Study Deck Error", isPresented: $viewModel.isShowingError) {
-                Button("OK", role: .cancel) { }
+                Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
             .task {
-                viewModel.load()
+                await viewModel.load()
             }
         }
     }

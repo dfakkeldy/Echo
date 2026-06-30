@@ -8,7 +8,43 @@ import Testing
 
 @MainActor
 @Suite struct StudyDeckGenerationViewModelTests {
-    @Test func loadBuildsFixtureCardsAndSelectsThemByDefault() throws {
+
+    // MARK: - Injected-generator test
+
+    private struct StubGenerator: StudyDeckGenerating {
+        let cards: [GeneratedStudyDeckCardDraft]
+        func generate(
+            sources: [StudyDeckSource],
+            settings: StudyDeckGenerationSettings
+        ) async -> GeneratedStudyDeckDraft {
+            GeneratedStudyDeckDraft(
+                cards: cards, validSourceBlockIDs: Set(cards.map(\.sourceBlockID)))
+        }
+    }
+
+    @Test func loadUsesInjectedGenerator() async throws {
+        let service = try seededService()
+        let card = GeneratedStudyDeckCardDraft(
+            id: "stub-card",
+            sourceBlockID: "block-1",
+            frontText: "Q",
+            backText: "A"
+        )
+        let viewModel = StudyDeckGenerationViewModel(
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            db: service.writer,
+            generator: StubGenerator(cards: [card])
+        )
+        await viewModel.load()
+        #expect(viewModel.cards.map(\.id) == ["stub-card"])
+        #expect(!viewModel.isLoading)
+        #expect(viewModel.errorMessage == nil)
+    }
+
+    // MARK: - Existing tests (load() is now async)
+
+    @Test func loadBuildsFixtureCardsAndSelectsThemByDefault() async throws {
         let service = try seededService()
         let viewModel = StudyDeckGenerationViewModel(
             audiobookID: "book",
@@ -16,7 +52,7 @@ import Testing
             db: service.writer
         )
 
-        viewModel.load()
+        await viewModel.load()
 
         #expect(viewModel.cards.map(\.sourceBlockID) == ["block-1", "block-2"])
         #expect(viewModel.cards.map(\.id) == ["fixture-block-1", "fixture-block-2"])
@@ -27,14 +63,14 @@ import Testing
         #expect(viewModel.errorMessage == nil)
     }
 
-    @Test func toggleCardUpdatesSelectedIDs() throws {
+    @Test func toggleCardUpdatesSelectedIDs() async throws {
         let service = try seededService()
         let viewModel = StudyDeckGenerationViewModel(
             audiobookID: "book",
             bookTitle: "Synthetic Study Book",
             db: service.writer
         )
-        viewModel.load()
+        await viewModel.load()
         let card = try #require(viewModel.cards.first)
 
         viewModel.toggleCard(card)
@@ -46,7 +82,7 @@ import Testing
         #expect(viewModel.selectedCardCount == 2)
     }
 
-    @Test func acceptInsertsOnlySelectedCardsAndPostsRefreshNotifications() throws {
+    @Test func acceptInsertsOnlySelectedCardsAndPostsRefreshNotifications() async throws {
         let service = try seededService()
         let viewModel = StudyDeckGenerationViewModel(
             audiobookID: "book",
@@ -76,7 +112,7 @@ import Testing
             NotificationCenter.default.removeObserver(queueObserver)
         }
 
-        viewModel.load()
+        await viewModel.load()
         let deselected = try #require(viewModel.cards.last)
         viewModel.toggleCard(deselected)
         let didAccept = viewModel.accept(now: Self.fixedNow)
@@ -90,7 +126,7 @@ import Testing
         #expect(studyQueuePostCount.withLock { $0 } == 1)
     }
 
-    @Test func loadHandlesNoEligibleBlocksAsEmptyDraft() throws {
+    @Test func loadHandlesNoEligibleBlocksAsEmptyDraft() async throws {
         let service = try seededService(includeEligibleBlocks: false)
         let viewModel = StudyDeckGenerationViewModel(
             audiobookID: "book",
@@ -98,7 +134,7 @@ import Testing
             db: service.writer
         )
 
-        viewModel.load()
+        await viewModel.load()
 
         #expect(viewModel.cards.isEmpty)
         #expect(viewModel.selectedCardIDs.isEmpty)

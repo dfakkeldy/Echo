@@ -17,6 +17,7 @@ final class StudyDeckGenerationViewModel {
     @ObservationIgnored private let audiobookID: String
     @ObservationIgnored private let bookTitle: String
     @ObservationIgnored private let db: DatabaseWriter
+    @ObservationIgnored private let generator: any StudyDeckGenerating
     @ObservationIgnored private let logger = Logger(category: "StudyDeckGenerationViewModel")
     @ObservationIgnored private var draft: GeneratedStudyDeckDraft?
 
@@ -37,13 +38,19 @@ final class StudyDeckGenerationViewModel {
         }
     }
 
-    init(audiobookID: String, bookTitle: String, db: DatabaseWriter) {
+    init(
+        audiobookID: String,
+        bookTitle: String,
+        db: DatabaseWriter,
+        generator: any StudyDeckGenerating = FixtureStudyDeckGenerator()
+    ) {
         self.audiobookID = audiobookID
         self.bookTitle = bookTitle
         self.db = db
+        self.generator = generator
     }
 
-    func load() {
+    func load() async {
         isLoading = true
         defer { isLoading = false }
 
@@ -55,7 +62,10 @@ final class StudyDeckGenerationViewModel {
                 audiobookID: audiobookID,
                 selection: .wholeBook
             )
-            let generatedDraft = FixtureStudyDeckGenerator().generate(sources: sources)
+            let generatedDraft = await generator.generate(
+                sources: sources,
+                settings: StudyDeckGenerationSettings()
+            )
 
             draft = generatedDraft
             cards = generatedDraft.cards
