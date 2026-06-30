@@ -170,6 +170,31 @@ final class MacPlayerModel {
 
     var hasMedia: Bool { currentURL != nil }
     var hasMultipleTracks: Bool { tracks.count > 1 }
+
+    // MARK: Reader-source routing
+
+    /// Monotonically increasing counter bumped after transcript materialization
+    /// so `hasEPUB` (which observes it via SwiftUI's `@Observable` tracking)
+    /// re-evaluates and the reader pane switches from "no content" to "blocks
+    /// available".
+    var documentIngestionTrigger = 0
+
+    /// True when the loaded book has EPUB/PDF source text (visible blocks exist).
+    /// Accesses `documentIngestionTrigger` so the observation system tracks it
+    /// and SwiftUI views re-evaluate on bump.
+    var hasEPUB: Bool {
+        _ = documentIngestionTrigger
+        guard let db = dbService, let id = audiobookID else { return false }
+        return ((try? EPubBlockDAO(db: db.writer).count(for: id)) ?? 0) > 0
+    }
+
+    /// Call after transcript materialization or any other event that creates
+    /// `epub_block` rows for a previously audio-only book. Increments the trigger
+    /// counter so `hasEPUB` observers re-compute.
+    func bumpDocumentIngestionTrigger() {
+        documentIngestionTrigger += 1
+    }
+
     var progressFraction: Double {
         guard duration > 0 else { return 0 }
         return min(1, max(0, currentTime / duration))
@@ -567,12 +592,15 @@ final class MacPlayerModel {
                 relativeTo: nil
             )
             guard KeychainStore.set(bookmark, for: .macLastFileBookmark) else {
-                os_log(.error, "Mac last-file bookmark Keychain save failed; file must be reselected")
+                os_log(
+                    .error, "Mac last-file bookmark Keychain save failed; file must be reselected")
                 return
             }
             Self.removeLegacyLastFileBookmarkDefaults()
         } catch {
-            os_log(.error, "Mac last-file bookmark save failed: %{private}@", error.localizedDescription)
+            os_log(
+                .error, "Mac last-file bookmark save failed: %{private}@",
+                error.localizedDescription)
         }
     }
 
@@ -580,8 +608,9 @@ final class MacPlayerModel {
         if let data = keychainData(account: lastFileBookmarkAccount) {
             return data
         }
-        guard let legacy = AppGroupDefaults.shared.data(forKey: lastFileKey)
-            ?? UserDefaults.standard.data(forKey: lastFileKey)
+        guard
+            let legacy = AppGroupDefaults.shared.data(forKey: lastFileKey)
+                ?? UserDefaults.standard.data(forKey: lastFileKey)
         else {
             return nil
         }
