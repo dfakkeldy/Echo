@@ -8,6 +8,10 @@ enum TextNormalizer {
         var s = input
         s = expandAbbreviations(s)
         s = normalizeOrdinals(s)
+        s = expandDollarAmounts(s)
+        s = expandProseFriendlyTimes(s)
+        s = expandISODates(s)
+        s = expandLikelyStandaloneYears(s)
         s = expandNumericPercentages(s)
         s = expandThousandsSeparatedNumbers(s)
         s = replacePercentSymbols(s)
@@ -43,6 +47,171 @@ enum TextNormalizer {
         let r2 = NSRange(out.startIndex..., in: out)
         out = street.stringByReplacingMatches(in: out, range: r2, withTemplate: "Street.")
         return out
+    }
+
+    private static func expandDollarAmounts(_ s: String) -> String {
+        replacingMatches(
+            in: s,
+            pattern:
+                #"(?<![\p{L}\p{N}_])\$([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.([0-9]{2}))?(?![\p{L}\p{N}_]|\.[0-9]|%)"#
+        ) { match, text in
+            guard let dollarsText = substring(match.range(at: 1), in: text),
+                let dollars = Int(dollarsText.replacingOccurrences(of: ",", with: ""))
+            else { return nil }
+
+            let centsText = substring(match.range(at: 2), in: text)
+            let cents = centsText.flatMap(Int.init) ?? 0
+            guard (0...99).contains(cents) else { return nil }
+
+            return dollarWords(dollars: dollars, cents: cents, hasExplicitCents: centsText != nil)
+        }
+    }
+
+    private static func dollarWords(
+        dollars: Int,
+        cents: Int,
+        hasExplicitCents: Bool
+    ) -> String {
+        let dollarPart = "\(cardinalWords(dollars)) \(dollars == 1 ? "dollar" : "dollars")"
+        guard hasExplicitCents, cents > 0 else { return dollarPart }
+
+        let centPart = "\(cardinalWords(cents)) \(cents == 1 ? "cent" : "cents")"
+        return dollars == 0 ? centPart : "\(dollarPart) and \(centPart)"
+    }
+
+    private static func expandProseFriendlyTimes(_ s: String) -> String {
+        replacingMatches(
+            in: s,
+            pattern: #"(?<![\p{L}\p{N}_:/.-])([1-9]|1[0-2]):([0-5][0-9])(?![\p{L}\p{N}_:/.-])"#
+        ) { match, text in
+            guard isLikelyTime(match.range, in: text),
+                let hourText = substring(match.range(at: 1), in: text),
+                let minuteText = substring(match.range(at: 2), in: text),
+                let hour = Int(hourText),
+                let minute = Int(minuteText)
+            else { return nil }
+
+            return timeWords(hour: hour, minute: minute)
+        }
+    }
+
+    private static func isLikelyTime(_ range: NSRange, in s: String) -> Bool {
+        if hasTimeSuffix(after: range, in: s) { return true }
+        if let word = lowercasedWordBefore(range, in: s) {
+            return timeContextWords.contains(word)
+        }
+
+        guard let previous = previousNonWhitespaceCharacter(before: range, in: s) else {
+            return true
+        }
+        return standaloneTimePrefixCharacters.contains(previous)
+    }
+
+    private static let timeContextWords: Set<String> = [
+        "about", "after", "around", "at", "before", "between", "by", "from", "past",
+        "till", "to", "until",
+    ]
+
+    private static let standaloneTimePrefixCharacters: Set<Character> = [
+        "(", "[", "{", "\"", "'", ".", ",", ";", "!", "?",
+    ]
+
+    private static func hasTimeSuffix(after range: NSRange, in s: String) -> Bool {
+        guard let swiftRange = Range(range, in: s) else { return false }
+        let tail = String(s[swiftRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        for suffix in ["a.m.", "p.m.", "am", "pm"] {
+            guard tail.hasPrefix(suffix) else { continue }
+            let suffixEnd = tail.index(tail.startIndex, offsetBy: suffix.count)
+            if suffixEnd == tail.endIndex || !tail[suffixEnd].isLetter { return true }
+        }
+        return false
+    }
+
+    private static func timeWords(hour: Int, minute: Int) -> String {
+        let hourWords = cardinalWords(hour)
+        if minute == 0 { return "\(hourWords) o'clock" }
+        if minute < 10 { return "\(hourWords) oh \(cardinalWords(minute))" }
+        return "\(hourWords) \(cardinalWords(minute))"
+    }
+
+    private static func expandISODates(_ s: String) -> String {
+        replacingMatches(
+            in: s,
+            pattern:
+                #"(?<![\p{L}\p{N}_/.-])((?:1[6-9]|20)[0-9]{2})-([0-9]{2})-([0-9]{2})(?![\p{L}\p{N}_/.-])"#
+        ) { match, text in
+            guard let yearText = substring(match.range(at: 1), in: text),
+                let monthText = substring(match.range(at: 2), in: text),
+                let dayText = substring(match.range(at: 3), in: text),
+                let year = Int(yearText),
+                let month = Int(monthText),
+                let day = Int(dayText),
+                isValidDate(year: year, month: month, day: day)
+            else { return nil }
+
+            return "\(monthNames[month - 1]) \(ordinalWords(day)), \(yearWords(year))"
+        }
+    }
+
+    private static func expandLikelyStandaloneYears(_ s: String) -> String {
+        replacingMatches(
+            in: s,
+            pattern:
+                #"(?<![\p{L}\p{N}_/.-])((?:1[6-9]|20)[0-9]{2})(?![\p{L}\p{N}_/.-]|%)"#
+        ) { match, text in
+            guard isLikelyStandaloneYear(match.range, in: text),
+                let yearText = substring(match.range(at: 1), in: text),
+                let year = Int(yearText)
+            else { return nil }
+            return yearWords(year)
+        }
+    }
+
+    private static func isLikelyStandaloneYear(_ range: NSRange, in s: String) -> Bool {
+        guard let previous = lowercasedWordBefore(range, in: s) else { return false }
+        return yearContextWords.contains(previous)
+    }
+
+    private static let yearContextWords: Set<String> = [
+        "after", "around", "before", "by", "circa", "during", "from", "in", "since",
+        "through", "throughout", "until", "year",
+    ]
+
+    private static func isValidDate(year: Int, month: Int, day: Int) -> Bool {
+        guard (1...12).contains(month) else { return false }
+        let daysInMonth = [
+            31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        ]
+        return (1...daysInMonth[month - 1]).contains(day)
+    }
+
+    private static func isLeapYear(_ year: Int) -> Bool {
+        year.isMultiple(of: 400) || (year.isMultiple(of: 4) && !year.isMultiple(of: 100))
+    }
+
+    private static let monthNames = [
+        "January", "February", "March", "April", "May", "June", "July", "August",
+        "September", "October", "November", "December",
+    ]
+
+    private static func yearWords(_ year: Int) -> String {
+        if (2000...2009).contains(year) {
+            let remainder = year - 2000
+            return remainder == 0 ? "two thousand" : "two thousand \(cardinalWords(remainder))"
+        }
+        if (2010...2099).contains(year) {
+            return "twenty \(cardinalWords(year - 2000))"
+        }
+        if (1600...1999).contains(year) {
+            let century = year / 100
+            let remainder = year % 100
+            let prefix = cardinalWords(century)
+            if remainder == 0 { return "\(prefix) hundred" }
+            if remainder < 10 { return "\(prefix) oh \(cardinalWords(remainder))" }
+            return "\(prefix) \(cardinalWords(remainder))"
+        }
+        return cardinalWords(year)
     }
 
     private static func expandNumericPercentages(_ s: String) -> String {
@@ -188,6 +357,38 @@ enum TextNormalizer {
             return nil
         }
         return String(s[swiftRange])
+    }
+
+    private static func lowercasedWordBefore(_ range: NSRange, in s: String) -> String? {
+        guard let swiftRange = Range(range, in: s) else { return nil }
+        var cursor = swiftRange.lowerBound
+        while cursor > s.startIndex {
+            let previous = s.index(before: cursor)
+            guard s[previous].isWhitespace else { break }
+            cursor = previous
+        }
+
+        let end = cursor
+        while cursor > s.startIndex {
+            let previous = s.index(before: cursor)
+            guard s[previous].isLetter else { break }
+            cursor = previous
+        }
+
+        guard cursor < end else { return nil }
+        return String(s[cursor..<end]).lowercased()
+    }
+
+    private static func previousNonWhitespaceCharacter(before range: NSRange, in s: String)
+        -> Character?
+    {
+        guard let swiftRange = Range(range, in: s) else { return nil }
+        var cursor = swiftRange.lowerBound
+        while cursor > s.startIndex {
+            cursor = s.index(before: cursor)
+            if !s[cursor].isWhitespace { return s[cursor] }
+        }
+        return nil
     }
 
     private static func numberWords(from literal: String) -> String? {

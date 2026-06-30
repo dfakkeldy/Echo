@@ -54,6 +54,18 @@ import Testing
         #expect(pieces.allSatisfy { $0.hasSuffix(".") })
     }
 
+    @Test func overlongSentencePrefersClauseBoundaryBeforeWordWrap() {
+        let text =
+            "The first clause has a natural pause, "
+            + "the second clause keeps moving with enough words to require another chunk before the final period."
+        let pieces = NarrationTextChunker.split(text, maxChars: 56)
+
+        #expect(pieces.count > 1)
+        #expect(pieces.allSatisfy { $0.count <= 56 })
+        #expect(pieces.first == "The first clause has a natural pause,")
+        #expect(pieces.joined(separator: " ") == text)
+    }
+
     @Test func singleOverlongSentenceWrapsAtWordBoundaries() {
         // One sentence with no internal terminators, longer than maxChars: must
         // wrap at word boundaries, every piece <= maxChars, no word cut in half.
@@ -138,10 +150,11 @@ import Testing
         // terminators after them must still split.
         let text = "First note [sic] here. Second sentence here. Third sentence here."
         let pieces = NarrationTextChunker.split(text, maxChars: 30)
-        #expect(pieces == [
-            "First note [sic] here.",
-            "Second sentence here.",
-            "Third sentence here.",
-        ])
+        #expect(
+            pieces == [
+                "First note [sic] here.",
+                "Second sentence here.",
+                "Third sentence here.",
+            ])
     }
 }

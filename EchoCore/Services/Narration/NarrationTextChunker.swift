@@ -19,9 +19,9 @@ import Foundation
 ///
 /// Contract:
 /// - Every returned piece has `count <= maxChars`.
-/// - Splits preferentially at sentence/clause boundaries (`. ! ? ;` and newlines),
-///   falls back to word boundaries for an over-long run, and only hard-splits a
-///   single word that is itself longer than `maxChars`.
+/// - Splits preferentially at sentence/clause boundaries (`. ! ? ; , :`), falls
+///   back to word boundaries for an over-long run, and only hard-splits a single
+///   word that is itself longer than `maxChars`.
 /// - Never loses content: concatenating the pieces reproduces the input modulo
 ///   collapsed runs of whitespace.
 /// - Empty / whitespace-only input → `[]`.
@@ -59,7 +59,7 @@ enum NarrationTextChunker {
     }
 
     /// Greedily groups sentence/clause units so each accumulated piece stays
-    /// `<= maxChars`. Sentence terminators (`. ! ? ;`) keep their trailing
+    /// `<= maxChars`. Sentence and clause boundaries keep their trailing
     /// punctuation; newlines were already folded to spaces by `split`.
     private static func splitIntoSentences(_ text: String, maxChars: Int) -> [String] {
         var sentences: [String] = []
@@ -90,7 +90,7 @@ enum NarrationTextChunker {
             } else if ch == ")" {
                 inLink = false
             }
-            if !inLink, ch == "." || ch == "!" || ch == "?" || ch == ";" {
+            if !inLink, isChunkBoundary(ch, at: i, in: chars) {
                 flush()
             }
         }
@@ -108,6 +108,23 @@ enum NarrationTextChunker {
             }
         }
         return merged
+    }
+
+    private static func isChunkBoundary(_ ch: Character, at index: Int, in chars: [Character])
+        -> Bool
+    {
+        if ch == "." || ch == "!" || ch == "?" || ch == ";" { return true }
+        if ch == "," || ch == ":" {
+            return !hasDigitNeighbor(at: index, in: chars)
+        }
+        return false
+    }
+
+    private static func hasDigitNeighbor(at index: Int, in chars: [Character]) -> Bool {
+        let hasPreviousDigit = index > chars.startIndex && chars[index - 1].isNumber
+        let nextIndex = index + 1
+        let hasNextDigit = nextIndex < chars.endIndex && chars[nextIndex].isNumber
+        return hasPreviousDigit && hasNextDigit
     }
 
     /// Wraps an over-long unit at word boundaries; a single word longer than
