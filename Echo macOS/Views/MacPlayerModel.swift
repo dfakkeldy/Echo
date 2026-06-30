@@ -237,6 +237,12 @@ final class MacPlayerModel {
     private var lastResumePersistDate: Date?
     private var didStartLastFileRestore = false
 
+    // MARK: - Audiobookshelf two-way sync (see MacPlayerModel+Audiobookshelf.swift)
+    @ObservationIgnored var absService: AudiobookshelfService?
+    @ObservationIgnored var absServiceServerID: String?
+    @ObservationIgnored var absSyncRemoteItemID: String?
+    @ObservationIgnored var absLastPushAt: TimeInterval?
+
     init() {
         migrateFromStandardUserDefaults()
         configureBookmarkStore()

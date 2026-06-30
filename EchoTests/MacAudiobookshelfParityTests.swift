@@ -46,4 +46,24 @@ struct MacAudiobookshelfParityTests {
                 && triPane.contains(".requestAudiobookshelf"),
             "MacTriPaneView must present the Audiobookshelf sheet and play the imported folder.")
     }
+
+    @Test func syncsProgressViaIndependentService() throws {
+        let src = try MacSource.read("Views/MacPlayerModel+Audiobookshelf.swift")
+        #expect(
+            src.contains("func makeAudiobookshelfService()") && src.contains("ABSServerDAO"),
+            "MacPlayerModel must build its own independent AudiobookshelfService so sync keeps working when the Connect sheet is closed."
+        )
+        #expect(
+            src.contains("func refreshABSSyncIdentity()")
+                && src.contains("sourceType == \"audiobookshelf\""),
+            "Sync identity must be cached from AudiobookDAO on book load.")
+        #expect(
+            src.contains("func maybePushABSProgress(")
+                && src.contains("ABSProgressSync.shouldPush("),
+            "Progress push must be throttled via the shared ABSProgressSync policy.")
+        #expect(
+            src.contains("func reconcileABSProgressOnLoad()")
+                && src.contains("ABSProgressReconciler.decide("),
+            "Load-time reconciliation must use the shared ABSProgressReconciler.")
+    }
 }
