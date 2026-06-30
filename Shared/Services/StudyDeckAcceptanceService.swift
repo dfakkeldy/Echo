@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import os.log
 
 struct StudyDeckAcceptanceService {
+    private static let logger = Logger(category: "StudyDeckAcceptanceService")
     let db: DatabaseWriter
 
     func accept(
@@ -133,6 +135,12 @@ struct StudyDeckAcceptanceService {
         case .cloze:
             let clozeText = draftCard.clozeText ?? ""
             let deletions = ClozeParser.parseDeletions(clozeText)
+            guard !deletions.isEmpty else {
+                Self.logger.warning(
+                    "cloze card '\(draftCard.id, privacy: .public)' produced zero deletions — dropping"
+                )
+                return []
+            }
             return deletions.map { deletion in
                 Self.flashcard(
                     frontText: ClozeParser.makeFront(text: clozeText, deletion: deletion),

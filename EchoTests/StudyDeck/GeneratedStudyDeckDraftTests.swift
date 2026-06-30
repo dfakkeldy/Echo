@@ -199,6 +199,61 @@ import Testing
         #expect(draft.cards.isEmpty)
     }
 
+    // MARK: - Cloze cards: clozeText length bound
+
+    @Test func clozeCardExceedingMaximumClozeTextLengthIsDropped() {
+        // Build a clozeText that has a valid {{c1::…}} marker but exceeds 500 chars.
+        let padding = String(repeating: "x", count: 480)
+        let oversized = "{{c1::answer}} " + padding  // 495 + overhead > 500
+        let clozeText = oversized + " extra words to push past limit."
+        // Sanity: confirm it's actually over the cap
+        assert(clozeText.count > GeneratedStudyDeckCardDraft.maximumClozeTextCharacters)
+
+        let draft = GeneratedStudyDeckDraft(
+            cards: [
+                GeneratedStudyDeckCardDraft(
+                    id: "cloze-oversize",
+                    sourceBlockID: "block-z",
+                    frontText: "Fill in blank.",
+                    backText: "See cloze.",
+                    kind: .cloze,
+                    clozeText: clozeText
+                )
+            ],
+            validSourceBlockIDs: ["block-z"]
+        )
+
+        #expect(draft.cards.isEmpty)
+    }
+
+    @Test func clozeCardAtExactlyMaximumClozeTextLengthSurvives() throws {
+        // Build a clozeText of exactly 500 chars that still contains {{c1::…}}.
+        let marker = "{{c1::answer}}"
+        let padding = String(
+            repeating: "a",
+            count: GeneratedStudyDeckCardDraft.maximumClozeTextCharacters - marker.count)
+        let clozeText = marker + padding
+        assert(clozeText.count == GeneratedStudyDeckCardDraft.maximumClozeTextCharacters)
+
+        let draft = GeneratedStudyDeckDraft(
+            cards: [
+                GeneratedStudyDeckCardDraft(
+                    id: "cloze-exact-max",
+                    sourceBlockID: "block-y",
+                    frontText: "Fill in blank.",
+                    backText: "See cloze.",
+                    kind: .cloze,
+                    clozeText: clozeText
+                )
+            ],
+            validSourceBlockIDs: ["block-y"]
+        )
+
+        let card = try #require(draft.cards.first)
+        #expect(draft.cards.count == 1)
+        #expect(card.kind == .cloze)
+    }
+
     // MARK: - Mixed batch: basic and cloze coexist correctly
 
     @Test func mixedBatchFiltersCorrectly() {

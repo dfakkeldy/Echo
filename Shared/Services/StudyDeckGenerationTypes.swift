@@ -46,6 +46,7 @@ nonisolated struct GeneratedStudyDeckDraft: Equatable, Sendable {
 nonisolated struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendable {
     static let maximumFrontTextCharacters = 160
     static let maximumBackTextCharacters = 240
+    static let maximumClozeTextCharacters = 500
 
     let id: String
     let sourceBlockID: String
@@ -92,7 +93,12 @@ nonisolated struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendabl
         }
 
         if kind == .cloze {
-            guard let clozeText, studyDeckHasValidClozeMarkers(clozeText) else {
+            let trimmedCloze = clozeText?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let trimmedCloze,
+                !trimmedCloze.isEmpty,
+                trimmedCloze.count <= Self.maximumClozeTextCharacters,
+                studyDeckHasValidClozeMarkers(trimmedCloze)
+            else {
                 return nil
             }
         }
