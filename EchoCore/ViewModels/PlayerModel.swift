@@ -1184,7 +1184,9 @@ final class PlayerModel {
 
     /// Opens a book resolved from the Library. A root-backed child book cannot be
     /// independently bookmarked, so the root scope stays held while the player
-    /// loads the child and the per-book bookmark save is skipped.
+    /// loads the child and the per-book bookmark save is skipped. Switches to the
+    /// Now Playing tab so the loaded book is actually visible — otherwise the book
+    /// loads behind the still-showing Library shelf and the tap looks inert.
     func openLibraryBook(_ target: LibraryOpenTarget) {
         if let root = target.scopedRoot {
             securityScope.startLibraryRoot(url: root)
@@ -1193,6 +1195,7 @@ final class PlayerModel {
         }
         persistence.saveLastLibraryBook(id: target.url.absoluteString)
         loadFolder(target.url, autoplay: false, persistBookmark: false)
+        selectedTab = .nowPlaying
     }
 
     func registerLibraryRoot(url: URL) async {

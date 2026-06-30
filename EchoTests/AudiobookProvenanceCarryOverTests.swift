@@ -34,6 +34,38 @@ import Testing
         #expect((try AudiobookDAO(db: db.writer).get(localID))?.sourceType == nil)
     }
 
+    @Test func reingestPreservesLibraryEnrichment() throws {
+        let db = try DatabaseService(inMemory: ())
+        let folder = URL(fileURLWithPath: "/tmp/EchoLibBook")
+        let id = folder.absoluteString
+
+        // Seed a row as if the Library rescan had enriched it: a cover written to
+        // the LibraryCovers cache, an author for the "by author" axis, a narrator,
+        // a sort key, and a source root linking it to a rescannable folder.
+        var seeded = AudiobookRecord(
+            id: id, title: "Folder Name", author: "Jane Doe", duration: 100, fileCount: 1,
+            addedAt: "seed")
+        seeded.coverArtPath = "deadbeef.jpg"
+        seeded.narrator = "Reader X"
+        seeded.authorSort = "doe, jane"
+        seeded.sourceRootID = "root-1"
+        try AudiobookDAO(db: db.writer).save(seeded)
+
+        // A normal folder re-open (every play through loadFolder) must NOT wipe the
+        // Library's enrichment — otherwise the shelf loses its cover, author, and
+        // root link on the very next open. The loader still owns duration.
+        TimelineIngestionService.persistAudiobook(
+            db: db, folderURL: folder, tracks: [], duration: 120)
+
+        let after = try AudiobookDAO(db: db.writer).get(id)
+        #expect(after?.coverArtPath == "deadbeef.jpg")
+        #expect(after?.narrator == "Reader X")
+        #expect(after?.author == "Jane Doe")
+        #expect(after?.authorSort == "doe, jane")
+        #expect(after?.sourceRootID == "root-1")
+        #expect(after?.duration == 120)
+    }
+
     @Test func reingestKeepsABSTitleNotFolderName() throws {
         let db = try DatabaseService(inMemory: ())
         let folder = URL(fileURLWithPath: "/tmp/ABSLibrary/uuid-123")
