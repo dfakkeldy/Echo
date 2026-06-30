@@ -535,6 +535,55 @@ final class MacPlayerModel {
         open(url: urls[currentTrackIndex])
     }
 
+    /// Opens a standalone document (EPUB / PDF / Markdown / plain text) as an
+    /// audio-less study book: imports its blocks into the shared database keyed by
+    /// the document's identity and surfaces them in the reader. No audio is loaded.
+    /// Mirrors the iOS `PlayerLoadingCoordinator.importDocumentForAudiolessBook`
+    /// — the macOS open path was previously audio-only.
+    func loadAudiolessDocument(url: URL) {
+        guard let db = dbService else { return }
+
+        // Tear down any current audio playback, then install the audio-less book
+        // state. `folderURL` is the document's identity (its `absoluteString` is the
+        // `audiobookID` the reader and importers key on); there is no audio track.
+        stop()
+        let didStart = url.startAccessingSecurityScopedResource()
+
+        let audiobookID = url.absoluteString
+        currentURL = nil
+        folderURL = url
+        let baseTitle = url.deletingPathExtension().lastPathComponent
+        fileTitle = baseTitle
+        currentTitle = baseTitle
+        tracks = []
+        currentTrackIndex = 0
+        chapters = []
+        currentChapterIndex = 0
+        coverImage = nil
+        currentAuthor = nil
+        duration = 0
+        currentTime = 0
+
+        let ext = url.pathExtension.lowercased()
+        Task { @MainActor [weak self] in
+            defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+            if ext == "epub" {
+                _ = await EPUBAutoImportScanner.importEPUBFile(
+                    epubURL: url, audiobookID: audiobookID, databaseService: db,
+                    chapters: [], duration: nil)
+            } else if ["md", "markdown", "txt", "text"].contains(ext) {
+                _ = await TextAutoImportScanner.importTextFile(
+                    textURL: url, audiobookID: audiobookID, databaseService: db)
+            } else if ext == "pdf" {
+                _ = await PDFAutoImportScanner.importPDFFile(
+                    pdfURL: url, audiobookID: audiobookID, databaseService: db,
+                    chapters: [], duration: nil)
+            }
+            // Surface the imported (or previously-imported) blocks in the reader.
+            self?.bumpDocumentIngestionTrigger()
+        }
+    }
+
     func nextTrack() {
         guard hasMultipleTracks else { return }
         let nextIndex = currentTrackIndex + 1

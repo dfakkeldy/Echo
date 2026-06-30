@@ -339,14 +339,21 @@ struct Echo_macOSApp: App {
         }
     }
 
+    /// Document extensions opened as audio-less study books (read-only text),
+    /// matching the iOS companion-document set.
+    private static let documentExtensions: Set<String> = [
+        "epub", "pdf", "md", "markdown", "txt", "text",
+    ]
+
     func showOpenPanel() {
         let panel = NSOpenPanel()
-        panel.title = String(localized: "Open Audiobook…")
+        panel.title = String(localized: "Open Audiobook or Document…")
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.message = String(
-            localized: "Select an audiobook file or folder containing audio files.")
+            localized:
+                "Select an audiobook (file or folder), or an EPUB / PDF / text document to read.")
         let audioTypes: [UTType] = [
             .audio, .mp3, .mpeg4Audio,
             UTType(filenameExtension: "aiff") ?? .audio,
@@ -356,12 +363,21 @@ struct Echo_macOSApp: App {
             UTType(filenameExtension: "wma") ?? .audio,
             UTType(filenameExtension: "flac") ?? .audio,
         ]
-        panel.allowedContentTypes = audioTypes
+        let documentTypes: [UTType] = [
+            UTType(filenameExtension: "epub") ?? .data,
+            .pdf,
+            .plainText,
+            UTType(filenameExtension: "md") ?? .plainText,
+            UTType(filenameExtension: "markdown") ?? .plainText,
+        ]
+        panel.allowedContentTypes = audioTypes + documentTypes
         if panel.runModal() == .OK, let url = panel.url {
             let isDirectory =
                 (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             if isDirectory {
                 player.loadFolder(url: url)
+            } else if Self.documentExtensions.contains(url.pathExtension.lowercased()) {
+                player.loadAudiolessDocument(url: url)
             } else {
                 player.open(url: url)
             }
