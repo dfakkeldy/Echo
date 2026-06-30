@@ -19,6 +19,7 @@ struct MacTriPaneView: View {
     @State private var showingTranscribeProgress = false
     @State private var showingQAReview = false
     @State private var showingDailyReview = false
+    @State private var showingCardInbox = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -74,6 +75,9 @@ struct MacTriPaneView: View {
                     folderURL: player.folderURL,
                     reviewNotificationsEnabled: settings.reviewNotificationsEnabled)
             }
+            .sheet(isPresented: $showingCardInbox) {
+                MacCardInboxView(db: dbService.writer)
+            }
         } detail: {
             MacNotesPane()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
@@ -99,6 +103,9 @@ struct MacTriPaneView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestDailyReview)) { _ in
             showingDailyReview = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestCardInbox)) { _ in
+            showingCardInbox = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
             withAnimation {

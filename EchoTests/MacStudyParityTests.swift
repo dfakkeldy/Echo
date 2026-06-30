@@ -30,4 +30,28 @@ struct MacStudyParityTests {
             triPane.contains("MacDailyReviewView(") && triPane.contains(".requestDailyReview"),
             "MacTriPaneView must present the daily-review sheet on the .requestDailyReview signal.")
     }
+
+    @Test func cardInboxReviewsMarkedPassages() throws {
+        let src = try MacSource.read("Views/MacCardInboxView.swift")
+        #expect(
+            src.contains("MarkedPassageDAO(db:") && src.contains("fetchAllInbox()"),
+            "The Card Inbox must load marked passages via the shared MarkedPassageDAO.")
+        #expect(
+            src.contains("markConverted(") && src.contains(".dismiss(id:"),
+            "The Card Inbox must support convert-to-flashcard and dismiss.")
+        #expect(
+            src.contains("FlashcardDAO(db:") && src.contains(".insert("),
+            "Convert must create a flashcard via the shared FlashcardDAO.")
+    }
+
+    @Test func studyMenuOpensCardInbox() throws {
+        let app = try MacSource.read("Echo_macOSApp.swift")
+        #expect(
+            app.contains("requestCardInbox"),
+            "A Study menu command must post .requestCardInbox to open the Card Inbox.")
+        let triPane = try MacSource.read("Views/MacTriPaneView.swift")
+        #expect(
+            triPane.contains("MacCardInboxView(") && triPane.contains(".requestCardInbox"),
+            "MacTriPaneView must present the Card Inbox sheet on the .requestCardInbox signal.")
+    }
 }
