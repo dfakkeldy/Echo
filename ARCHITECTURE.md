@@ -753,6 +753,25 @@ WhisperKit + `TokenDTW` path.
 - `NarrationState` — `@MainActor @Observable` progress object mirroring `AutoAlignmentState` (phases: `idle`, `preparingChapter`, `renderingAhead`, `completed`, `failed`).
 - `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:chapterTitle:)` normalizes + synthesizes each text block, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`; `renderSegment` persists the same planner title for segment-backed playback/export. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
 
+### Generated Narration QA (M3, June 2026)
+
+After narrating an EPUB/PDF, the user can initiate a "listen back" QA pass that re-transcribes the generated audio, compares heard words to the source text using the existing `TokenDTW` alignment engine, and persists reviewable `narration_quality_issue` rows (Schema V30). QA is user-initiated, never auto-run after render.
+
+**Architecture:**
+
+- **`NarrationQADetector`** — pure, deterministic divergence detector: builds `EPubToken`s from source blocks via `WordTokenizer` + `TokenDTW.normalize`, builds `AudioToken`s from re-transcribed `TranscribedWord`s, runs `TokenDTW.wordMatchesWithBisection`, and emits `DivergenceWindow` value objects for any maximal run of uncovered (unmatched) source words. Same inputs -> same windows, device-independent.
+- **`DivergenceClassifier` protocol** — the single justified DI seam (two real implementations). Given an already-detected `DivergenceWindow`, returns a label (`NarrationQAIssueType`: pronunciation, omission, insertion, substitution, lowConfidence, etc.) + optional suggested spoken-form/IPA fix.
+- **`DeterministicDivergenceClassifier`** — rule-based, always-on, pure + Sendable (no stored state). Rules: empty `heardText` -> omission; confidence < 0.5 -> lowConfidence; single word with all-caps/CamelCase interior -> pronunciation; default -> substitution. No suggested forms (that is FM's role).
+- **`FoundationModelsDivergenceClassifier`** (triple-gated: `#if canImport(FoundationModels) + @available(iOS 26, macOS 26, *) + runtime availability)` — wraps the deterministic classifier as a per-issue fallback. Uses `LanguageModelSession` + `@Generable IssueClassification` for constrained decoding; any error degrades to deterministic label (never crashes).
+- **`DivergenceClassifierFactory`** — `@MainActor make(preference:availabilityIsAvailable:) -> DivergenceClassifier` returns `FoundationModelsDivergenceClassifier` only when preference is `"auto"`, FM is compiled in, OS >= iOS 26, and runtime availability says models are accessible. Otherwise returns `DeterministicDivergenceClassifier()`.
+- **`narrationQAClassifier` setting** — `SettingsManager` property, values `"auto"` (default) or `"deterministic"`.
+- **`NarrationQAService`** (`@MainActor`) — orchestrates one QA pass: clears prior issues for touched blockIDs, re-transcribes each chapter's audio (injected `transcribe` closure defaults to `WhisperSession` + `AlignmentTranscript.transcribeWords`, test-stubbed on CI), runs `NarrationQADetector`, classifies each window, persists `NarrationQualityIssueRecord`s.
+- **`NarrationQualityIssueRecord`** / **`NarrationQualityIssueDAO`** — GRDB record + DAO for the `narration_quality_issue` table (FK to `audiobook` with cascade delete). Supports insert, fetch (by book, optionally filtered by status), update status, delete (by book or by block IDs).
+- **`NarrationQAReviewModel`** (`@MainActor @Observable`) — loads open issues for a book and applies ignore/resolve actions. No UIKit import (auto-bundles into all targets).
+- **`NarrationQAReviewView`** — iOS SwiftUI list with swipe-to-resolve/ignore. Excluded from macOS and echo-cli targets via `project.pbxproj` membership exceptions.
+
+**FM device test procedure:** the `auto + available + iOS 26` runtime branch is exercised only via the Xcode scheme's "Simulated Foundation Models Availability" override on a real AI-capable device / TestFlight, since VM CI cannot run Foundation Models.
+
 ### On-Device Library — Local Shelf + Roots (June 2026)
 
 Echo remains single-book-at-a-time: `PlayerModel` holds one `folderURL` and opening another book replaces it. The Library feature adds a launcher layer above the existing player: a browsable local shelf, rescannable folder roots, missing-file recovery, and a last-library-book restore pointer. Selecting a book re-acquires file access and calls the existing `loadFolder(url:)`; playback and the single-book model are untouched.
