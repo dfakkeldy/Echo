@@ -159,7 +159,7 @@ import Testing
 
     private static let requiredReasonAPIs: [String: Set<String>] = [
         "NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1", "1C8F.1"],
-        "NSPrivacyAccessedAPICategoryFileTimestamp": ["DDA9.1"],
+        "NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1", "3B52.1"],
         "NSPrivacyAccessedAPICategoryDiskSpace": ["85F4.1"],
     ]
 
