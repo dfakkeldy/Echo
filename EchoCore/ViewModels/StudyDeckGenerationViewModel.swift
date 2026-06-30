@@ -13,6 +13,8 @@ final class StudyDeckGenerationViewModel {
     var isAccepting = false
     var errorMessage: String?
     var acceptedCount = 0
+    /// `(done, total)` batch progress while a generation run is in flight; `nil` otherwise.
+    var progress: (done: Int, total: Int)?
 
     @ObservationIgnored private let audiobookID: String
     @ObservationIgnored private let bookTitle: String
@@ -20,6 +22,8 @@ final class StudyDeckGenerationViewModel {
     @ObservationIgnored private let generator: any StudyDeckGenerating
     @ObservationIgnored private let logger = Logger(category: "StudyDeckGenerationViewModel")
     @ObservationIgnored private var draft: GeneratedStudyDeckDraft?
+    /// The in-flight load, owned here so `cancelLoad()` (e.g. the sheet's Cancel button) can cancel it.
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     var selectedCardCount: Int {
         selectedCardIDs.count
@@ -50,13 +54,31 @@ final class StudyDeckGenerationViewModel {
         self.generator = generator
     }
 
+    /// Runs a cancellable generation. Owns the work in `loadTask` so `cancelLoad()` can stop it,
+    /// while keeping the existing `.task { await viewModel.load() }` call site working (we await
+    /// the stored task's value).
     func load() async {
+        loadTask = Task { await self.runLoad() }
+        await loadTask?.value
+        loadTask = nil
+    }
+
+    /// Cancels an in-flight `load()` (e.g. the sheet's Cancel button).
+    func cancelLoad() {
+        loadTask?.cancel()
+    }
+
+    private func runLoad() async {
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            progress = nil
+        }
 
         do {
             errorMessage = nil
             acceptedCount = 0
+            progress = nil
 
             let sources = try StudyDeckSourceBuilder(db: db).sources(
                 audiobookID: audiobookID,

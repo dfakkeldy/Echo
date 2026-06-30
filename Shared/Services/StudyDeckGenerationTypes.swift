@@ -28,7 +28,7 @@ struct StudyDeckGenerationSettings: Equatable, Sendable {
     }
 }
 
-struct GeneratedStudyDeckDraft: Equatable, Sendable {
+nonisolated struct GeneratedStudyDeckDraft: Equatable, Sendable {
     let cards: [GeneratedStudyDeckCardDraft]
 
     init(cards: [GeneratedStudyDeckCardDraft], validSourceBlockIDs: Set<String>) {
@@ -38,7 +38,7 @@ struct GeneratedStudyDeckDraft: Equatable, Sendable {
     }
 }
 
-struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendable {
+nonisolated struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendable {
     static let maximumFrontTextCharacters = 160
     static let maximumBackTextCharacters = 240
 
@@ -66,16 +66,17 @@ struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendable {
         let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedSourceBlockID = sourceBlockID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedID.isEmpty,
-              !normalizedSourceBlockID.isEmpty,
-              validSourceBlockIDs.contains(normalizedSourceBlockID),
-              let normalizedFrontText = Self.normalizedText(
+            !normalizedSourceBlockID.isEmpty,
+            validSourceBlockIDs.contains(normalizedSourceBlockID),
+            let normalizedFrontText = Self.normalizedText(
                 frontText,
                 maximumCharacters: Self.maximumFrontTextCharacters
-              ),
-              let normalizedBackText = Self.normalizedText(
+            ),
+            let normalizedBackText = Self.normalizedText(
                 backText,
                 maximumCharacters: Self.maximumBackTextCharacters
-              ) else {
+            )
+        else {
             return nil
         }
 

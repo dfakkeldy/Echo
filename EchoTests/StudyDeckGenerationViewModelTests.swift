@@ -22,6 +22,122 @@ import Testing
         }
     }
 
+    /// Reports progress through an injected closure, then returns its cards. Lets the VM
+    /// test drive `viewModel.progress` without a network round-trip.
+    private struct ProgressGenerator: StudyDeckGenerating {
+        let cards: [GeneratedStudyDeckCardDraft]
+        let report: @Sendable (Int, Int) -> Void
+        func generate(
+            sources: [StudyDeckSource],
+            settings: StudyDeckGenerationSettings
+        ) async -> GeneratedStudyDeckDraft {
+            report(1, 2)
+            report(2, 2)
+            return GeneratedStudyDeckDraft(
+                cards: cards, validSourceBlockIDs: Set(cards.map(\.sourceBlockID)))
+        }
+    }
+
+    /// Blocks until cancelled, then returns an empty draft. Lets the VM test assert
+    /// `cancelLoad()` actually unblocks an in-flight load.
+    private struct CancellableGenerator: StudyDeckGenerating {
+        let started: @Sendable () -> Void
+        func generate(
+            sources: [StudyDeckSource],
+            settings: StudyDeckGenerationSettings
+        ) async -> GeneratedStudyDeckDraft {
+            started()
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            return GeneratedStudyDeckDraft(cards: [], validSourceBlockIDs: [])
+        }
+    }
+
+    /// Test-only weak holder so the @Sendable progress closure can reach the @MainActor VM
+    /// (constructed after the closure) and bridge progress onto it, mirroring the real
+    /// `{ [weak self] … Task { @MainActor in self?.progress = … } }` call-site pattern.
+    private final class WeakVMBox: @unchecked Sendable {
+        weak var vm: StudyDeckGenerationViewModel?
+        /// Progress values read back from the VM after each bridged write (MainActor-only access).
+        var observed: [(Int, Int)] = []
+    }
+
+    @Test func loadReportsGeneratorProgress() async throws {
+        let service = try seededService()
+        let captured = Mutex<[(Int, Int)]>([])
+        let card = GeneratedStudyDeckCardDraft(
+            id: "stub-card", sourceBlockID: "block-1", frontText: "Q", backText: "A")
+        let box = WeakVMBox()
+        // The generator reports progress; the bridge hops to the MainActor (mirroring the real
+        // `{ [weak self] … Task { @MainActor in self?.progress = … } }` call site), writes the VM,
+        // then reads it back into the box so we can assert the VM was driven without racing
+        // load()'s reset.
+        let generator = ProgressGenerator(cards: [card]) { done, total in
+            captured.withLock { $0.append((done, total)) }
+            Task { @MainActor in
+                box.vm?.progress = (done, total)
+                if let p = box.vm?.progress {
+                    box.observed.append((p.done, p.total))
+                }
+            }
+        }
+        let viewModel = StudyDeckGenerationViewModel(
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            db: service.writer,
+            generator: generator
+        )
+        box.vm = viewModel
+
+        await viewModel.load()
+        // Drain any trailing MainActor progress writes scheduled by the bridge.
+        for _ in 0..<8 { await Task.yield() }
+
+        #expect(captured.withLock { $0.map(\.0) } == [1, 2])
+        // The bridge drove viewModel.progress to the reported values at least once.
+        await MainActor.run { #expect(box.observed.contains { $0 == (2, 2) }) }
+        #expect(viewModel.cards.map(\.id) == ["stub-card"])
+    }
+
+    @Test func progressResetsToNilWhenLoadFinishes() async throws {
+        let service = try seededService()
+        let viewModel = StudyDeckGenerationViewModel(
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            db: service.writer
+        )
+        // Stale progress from a prior run must be cleared by the next completed load.
+        viewModel.progress = (1, 3)
+
+        await viewModel.load()
+
+        #expect(viewModel.progress == nil)
+        #expect(!viewModel.isLoading)
+    }
+
+    @Test func cancelLoadCancelsInFlightLoad() async throws {
+        let service = try seededService()
+        let didStart = Mutex(false)
+        let generator = CancellableGenerator { didStart.withLock { $0 = true } }
+        let viewModel = StudyDeckGenerationViewModel(
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            db: service.writer,
+            generator: generator
+        )
+
+        let loadTask = Task { await viewModel.load() }
+        // Wait until the generator is running, then cancel.
+        while !(didStart.withLock { $0 }) {
+            await Task.yield()
+        }
+        viewModel.cancelLoad()
+        await loadTask.value
+
+        #expect(!viewModel.isLoading)
+    }
+
     @Test func loadUsesInjectedGenerator() async throws {
         let service = try seededService()
         let card = GeneratedStudyDeckCardDraft(
