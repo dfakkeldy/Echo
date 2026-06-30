@@ -38,10 +38,14 @@
             let vocab = try phonemeVocab()
             let pack = try voicePack(named: voice.rawValue)
 
-            let phonemes = g2p.phonemes(for: text)
+            let phonemes = g2p.result(for: text).phonemes
             let ids = vocab.ids(forPhonemes: phonemes)
             let refS = pack.refS(forPhonemeCount: phonemes.count)
             return (ids, refS)
+        }
+
+        func fallbackHits(for text: String) -> [PronunciationFallbackHit] {
+            g2p(for: text).result(for: text).fallbackHits
         }
 
         // MARK: - Cached components

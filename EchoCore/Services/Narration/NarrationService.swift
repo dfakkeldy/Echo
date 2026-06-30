@@ -91,6 +91,30 @@ final class NarrationService {
         /// Per-block file-relative word timings captured at synthesis (empty when
         /// the engine emitted none). Applied over the interpolated baseline.
         let synthesisWordTimingsByBlock: [String: [ChunkWordTiming]]
+        /// OOV fallback words encountered while synthesizing this render unit.
+        let pronunciationFallbackHits: [RenderedPronunciationFallbackHit]
+
+        init(
+            chapterIndex: Int,
+            chapterDisplayNumber: Int,
+            segmentIndex: Int?,
+            fileURL: URL,
+            duration: TimeInterval,
+            anchors: [AlignmentAnchorRecord],
+            spokenBlockIDs: [String],
+            synthesisWordTimingsByBlock: [String: [ChunkWordTiming]],
+            pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = []
+        ) {
+            self.chapterIndex = chapterIndex
+            self.chapterDisplayNumber = chapterDisplayNumber
+            self.segmentIndex = segmentIndex
+            self.fileURL = fileURL
+            self.duration = duration
+            self.anchors = anchors
+            self.spokenBlockIDs = spokenBlockIDs
+            self.synthesisWordTimingsByBlock = synthesisWordTimingsByBlock
+            self.pronunciationFallbackHits = pronunciationFallbackHits
+        }
     }
 
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
@@ -268,6 +292,18 @@ final class NarrationService {
         // failure must not fail the render — the audio is already on disk and the
         // anchors persisted; log and continue.
         do {
+            try PronunciationFallbackDiscovery.persist(
+                audiobookID: audiobookID,
+                hits: rendered.pronunciationFallbackHits,
+                createdAt: Self.iso8601.string(from: Date()),
+                db: db)
+        } catch {
+            logger.error(
+                "Pronunciation fallback discovery failed: \(error.localizedDescription)"
+            )
+        }
+
+        do {
             // `anchoredOnly`: only rendered blocks are anchored, so the global
             // synthetic-boundary + interpolation pass must be skipped — otherwise
             // un-narrated front matter gets a near-zero interpolated
@@ -361,6 +397,7 @@ final class NarrationService {
         logger.notice("\(unitLabel): synthesizing \(spoken.count) block(s)…")
         var anchors: [AlignmentAnchorRecord] = []
         var synthesisWordTimingsByBlock: [String: [ChunkWordTiming]] = [:]
+        var pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = []
         var cursor: TimeInterval = 0
         let now = Self.iso8601.string(from: Date())
 
@@ -391,6 +428,14 @@ final class NarrationService {
                     let chunk = try await tts.synthesize(subText, voice: voice)
                     try await stream.append(chunk)
                     blockChunkTimings.append((chunk.wordTimings, chunkStartInFile))
+                    pronunciationFallbackHits.append(
+                        contentsOf: chunk.pronunciationFallbackHits.map {
+                            RenderedPronunciationFallbackHit(
+                                blockID: block.id,
+                                audioStartTime: chunkStartInFile,
+                                audioEndTime: chunkStartInFile + chunk.duration,
+                                fallback: $0)
+                        })
                     blockDuration += chunk.duration
                 } catch is CancellationError {
                     throw CancellationError()
@@ -446,7 +491,8 @@ final class NarrationService {
             duration: duration,
             anchors: anchors,
             spokenBlockIDs: spoken.map(\.id),
-            synthesisWordTimingsByBlock: synthesisWordTimingsByBlock)
+            synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
+            pronunciationFallbackHits: pronunciationFallbackHits)
     }
 
     #if DEBUG && os(iOS)

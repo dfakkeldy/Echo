@@ -214,6 +214,7 @@
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             try await prepare()
             guard session != nil else { throw NarrationError.engineUnavailable }
+            let fallbackHits = frontEnd.fallbackHits(for: text)
 
             // The ONNX model occasionally returns a full-length but all-zero
             // waveform (digital silence) for a non-empty input. Recover in order of
@@ -241,7 +242,11 @@
                     sampleCount: samples.count, sampleRate: 24_000)
             }
             return TTSChunk(
-                samples: samples, sampleRate: 24_000, duration: audioS, wordTimings: wordTimings)
+                samples: samples,
+                sampleRate: 24_000,
+                duration: audioS,
+                wordTimings: wordTimings,
+                pronunciationFallbackHits: fallbackHits)
         }
 
         /// One encode + ONNX run for a single text fragment at a given `speed` → PCM

@@ -29,15 +29,21 @@ nonisolated struct TTSChunk: Sendable, Equatable {
     /// engine can't produce it. Defaulted in the memberwise init so existing
     /// `TTSChunk(samples:sampleRate:duration:)` call sites are unaffected.
     let wordTimings: [ChunkWordTiming]?
+    /// OOV words that reached deterministic G2P fallback while producing this
+    /// chunk. The render path turns these into non-blocking pronunciation
+    /// suggestions; engines that do not phonemize leave it empty.
+    let pronunciationFallbackHits: [PronunciationFallbackHit]
 
     init(
         samples: [Float], sampleRate: Double, duration: TimeInterval,
-        wordTimings: [ChunkWordTiming]? = nil
+        wordTimings: [ChunkWordTiming]? = nil,
+        pronunciationFallbackHits: [PronunciationFallbackHit] = []
     ) {
         self.samples = samples
         self.sampleRate = sampleRate
         self.duration = duration
         self.wordTimings = wordTimings
+        self.pronunciationFallbackHits = pronunciationFallbackHits
     }
 
     /// A run of digital silence `seconds` long at `sampleRate`. Used for the
