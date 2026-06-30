@@ -31,9 +31,14 @@
             await service.start(
                 audiobookID: audiobookID, audioFileURL: audioFileURL,
                 chapters: chapters, resume: resume)
-            // Chapter 0 runs inline; the rest run in a detached task. Only finalize
-            // once the whole run has settled and was not cancelled.
-            guard !service.progress.isRunning, !service.progress.isCancelled else { return }
+            // start() returns while the detached tail (chapters 1...n) is still
+            // running, so wait for the whole run to settle before finalizing.
+            await service.waitUntilFinished()
+            // Finalize only on full, uncancelled completion — never a partial run.
+            let progress = service.progress
+            guard !progress.isCancelled, progress.chaptersTotal > 0,
+                progress.chaptersComplete >= progress.chaptersTotal
+            else { return }
             await finalize(audiobookID: audiobookID)
         }
 

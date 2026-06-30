@@ -49,6 +49,7 @@ final class StandaloneTranscriptionService {
 
         guard !chapters.isEmpty else {
             progress.isRunning = false
+            currentTask.clear()
             return
         }
 
@@ -65,6 +66,7 @@ final class StandaloneTranscriptionService {
 
         guard chapters.count > 1, !Task.isCancelled else {
             progress.isRunning = false
+            currentTask.clear()
             return
         }
 
@@ -90,6 +92,14 @@ final class StandaloneTranscriptionService {
                     await MainActor.run { self.progress.chaptersComplete = i + 1 }
                 }
             })
+    }
+
+    /// Suspends until the background tail (chapters 1...n) has finished. Returns
+    /// immediately for single- or zero-chapter runs. Lets a caller await *full*
+    /// completion before finalizing, instead of sampling `isRunning` (which is
+    /// true by design while the detached tail is still running).
+    func waitUntilFinished() async {
+        await currentTask.awaitValue()
     }
 
     /// Stops the running pipeline without marking it cancelled, so it can be
@@ -308,11 +318,26 @@ private nonisolated final class StandaloneTranscriptionTaskHandle: Sendable {
         }
     }
 
+    func clear() {
+        task.withLock { currentTask in
+            currentTask = nil
+        }
+    }
+
     func cancel() {
         let currentTask = task.withLock { currentTask in
             currentTask
         }
         currentTask?.cancel()
+    }
+
+    /// Suspends until the stored background task finishes. Returns immediately
+    /// when no task is in flight (single- or zero-chapter runs).
+    func awaitValue() async {
+        let currentTask = task.withLock { currentTask in
+            currentTask
+        }
+        await currentTask?.value
     }
 }
 

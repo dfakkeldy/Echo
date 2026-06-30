@@ -54,5 +54,26 @@
             #expect(book?.author == "Author")
             #expect(book?.textOrigin == "transcript")
         }
+
+        @Test func multiChapterTranscribeFinalizesAfterBackgroundCompletes() async throws {
+            // Regression guard for the finalize race: for >1 chapter, start() launches
+            // chapters 1...n in a detached task and returns while isRunning is still
+            // true. transcribe() must await full completion and THEN finalize — not
+            // skip finalize because isRunning was sampled mid-flight. Audio reads fail
+            // (nonexistent file) so no new ASR rows are written, but the seeded
+            // chapter-0 row must still materialize and provenance must be stamped.
+            let db = try makeDB()
+            let coordinator = TranscribeBookCoordinator(db: db.writer)
+            let badURL = URL(fileURLWithPath: "/nonexistent/echo-qa-audio.m4a")
+            let chapters = [
+                Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+                Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+            ]
+            await coordinator.transcribe(
+                audiobookID: bookID, audioFileURL: badURL, chapters: chapters, resume: true)
+
+            #expect(try EPubBlockDAO(db: db.writer).count(for: bookID) == 1)
+            #expect(try AudiobookDAO(db: db.writer).get(bookID)?.textOrigin == "transcript")
+        }
     }
 #endif
