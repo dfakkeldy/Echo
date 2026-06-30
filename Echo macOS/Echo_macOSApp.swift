@@ -245,6 +245,11 @@ struct Echo_macOSApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
 
+                Button("Card Inbox…") {
+                    NotificationCenter.default.post(name: .requestCardInbox, object: nil)
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+
                 Button("Export for Anki…") {
                     showAnkiExport = true
                 }
@@ -537,4 +542,5 @@ extension Notification.Name {
     /// Posted by the reader's idle "Narrate an EPUB" nudge to open the picker.
     static let requestNarrateEPUBs = Notification.Name("com.echo.requestNarrateEPUBs")
     static let requestDailyReview = Notification.Name("com.echo.requestDailyReview")
+    static let requestCardInbox = Notification.Name("com.echo.requestCardInbox")
 }
