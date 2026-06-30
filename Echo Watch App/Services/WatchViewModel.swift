@@ -698,19 +698,21 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         applyReceivedApplicationContext(session.receivedApplicationContext)
         guard session.activationState == .activated, session.isReachable else { return false }
         // WatchConnectivity invokes these reply/error handlers on a background
-        // serial queue, not the main thread. Hop to the main actor before touching
-        // any @MainActor-isolated state (applyState, the logger property) to avoid a
-        // Swift 6 isolation trap. Mirrors the WCSessionDelegate callbacks above.
+        // serial queue, not the main thread. @Sendable keeps the closures from
+        // inheriting this type's MainActor isolation before they can hop back.
+        // Mirrors the WCSessionDelegate callbacks above.
         session.sendMessage(
             [WatchMessageKey.command: "requestState"],
-            replyHandler: { reply in
-                Task { @MainActor [weak self] in
-                    self?.applyState(reply)
+            replyHandler: { @Sendable reply in
+                let payload = WatchConnectivityDictionary(value: reply)
+                Task { @MainActor [weak self, payload] in
+                    self?.applyState(payload.value)
                 }
             },
-            errorHandler: { error in
-                Task { @MainActor [weak self] in
-                    self?.logger.error("Error requesting state: \(error)")
+            errorHandler: { @Sendable error in
+                let errorDescription = error.localizedDescription
+                Task { @MainActor [weak self, errorDescription] in
+                    self?.logger.error("Error requesting state: \(errorDescription)")
                 }
             })
         return true
@@ -753,26 +755,26 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
 
         // WatchConnectivity invokes these reply/error handlers on a background
-        // serial queue. Hop to the main actor before touching @MainActor-isolated
-        // state (clearPendingRollback, applyState, playHaptic, rollback, the
-        // loopMode/logger reads) to avoid a Swift 6 isolation trap. Mirrors the
+        // serial queue. @Sendable keeps the closures from inheriting this type's
+        // MainActor isolation before they can hop back. Mirrors the
         // WCSessionDelegate callbacks above.
         session.sendMessage(
             message,
-            replyHandler: { reply in
-                Task { @MainActor [weak self] in
+            replyHandler: { @Sendable reply in
+                let payload = WatchConnectivityDictionary(value: reply)
+                Task { @MainActor [weak self, payload] in
                     self?.clearPendingRollback()
-                    self?.applyState(reply)
+                    self?.applyState(payload.value)
                     if Self.isDirectionalCommand(command),
                         self?.loopMode == "bookmark",
-                        reply["commandResult"] as? String != "bookmarkJump"
+                        payload.value["commandResult"] as? String != "bookmarkJump"
                     {
                         self?.playHaptic(
                             Self.isForwardCommand(command) ? .directionUp : .directionDown)
                     }
                 }
             },
-            errorHandler: { error in
+            errorHandler: { @Sendable error in
                 // Deliberately do NOT fall back to transferUserInfo here. Transport,
                 // navigation and seek commands are only meaningful live. transferUserInfo
                 // persists them in a FIFO queue that drains (even across launches) the next
@@ -780,9 +782,11 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 // fighting the user. sendMessage already wakes a suspended companion app; if
                 // it still fails the correct recovery is to revert the optimistic UI and
                 // re-pull the phone's authoritative state — not to queue a stale command.
-                Task { @MainActor [weak self] in
+                let errorDescription = error.localizedDescription
+                Task { @MainActor [weak self, errorDescription] in
                     self?.logger.error(
-                        "Error sending command \(command): \(error). Reverting optimistic state.")
+                        "Error sending command \(command): \(errorDescription). Reverting optimistic state."
+                    )
                     self?.rollback()
                     self?.requestCurrentState()
                 }

@@ -122,12 +122,17 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
         // Live channel: low-latency push while the watch app is reachable. If it
         // is dropped, the application context above still carries the change.
+        // WCSession invokes these handlers on a background queue; @Sendable keeps
+        // them from inheriting WatchSyncManager's MainActor isolation.
         if session.isReachable {
-            session.sendMessage(context, replyHandler: { _ in }) { error in
-                os_log(
-                    .error, "Live watch sync dropped (context still carries it): %{private}@",
-                    error.localizedDescription)
-            }
+            session.sendMessage(
+                context,
+                replyHandler: { @Sendable _ in },
+                errorHandler: { @Sendable error in
+                    os_log(
+                        .error, "Live watch sync dropped (context still carries it): %{private}@",
+                        error.localizedDescription)
+                })
         }
 
         sendThumbnailIfNeeded()
