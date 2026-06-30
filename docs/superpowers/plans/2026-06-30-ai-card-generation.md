@@ -62,7 +62,7 @@ Ships a working AI generator: with a key set, "Generate Study Deck" produces rea
 // EchoTests/StudyDeck/StudyDeckGeneratorFactoryTests.swift
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
-@testable import EchoCore
+@testable import Echo
 
 final class StudyDeckGeneratorFactoryTests: XCTestCase {
     func testFallsBackToFixtureWhenNoKey() {
@@ -151,7 +151,7 @@ git commit -m "feat(study): add StudyDeckGenerating seam + fixture fallback fact
 // EchoTests/StudyDeck/APIKeyStoreTests.swift
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
-@testable import EchoCore
+@testable import Echo
 
 @MainActor
 final class APIKeyStoreTests: XCTestCase {
@@ -249,7 +249,7 @@ git commit -m "feat(study): add APIKeyStore for BYO Anthropic key (Keychain)"
 // EchoTests/StudyDeck/AnthropicMessagesClientTests.swift
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
-@testable import EchoCore
+@testable import Echo
 
 final class AnthropicMessagesClientTests: XCTestCase {
     private func session(_ handler: @escaping (URLRequest) -> (Int, Data)) -> URLSession {
@@ -432,7 +432,7 @@ git commit -m "feat(net): add URLSession Anthropic Messages API client"
 // EchoTests/StudyDeck/StudyDeckPromptBuilderTests.swift
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
-@testable import EchoCore
+@testable import Echo
 
 final class StudyDeckPromptBuilderTests: XCTestCase {
     private func source(_ id: String, _ text: String) -> StudyDeckSource {
@@ -542,7 +542,7 @@ git commit -m "feat(study): add injection-hardened study-deck prompt builder + s
 // EchoTests/StudyDeck/AnthropicStudyDeckGeneratorTests.swift
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
-@testable import EchoCore
+@testable import Echo
 
 final class AnthropicStudyDeckGeneratorTests: XCTestCase {
     private func source(_ id: String) -> StudyDeckSource {
@@ -652,7 +652,7 @@ git commit -m "feat(study): add Anthropic-backed study-deck generator"
 // SPDX-License-Identifier: GPL-3.0-or-later
 import XCTest
 import GRDB
-@testable import EchoCore
+@testable import Echo
 
 @MainActor
 final class StudyDeckGenerationViewModelTests: XCTestCase {
