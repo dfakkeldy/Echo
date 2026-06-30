@@ -82,7 +82,8 @@ enum TextNormalizer {
     private static func expandProseFriendlyTimes(_ s: String) -> String {
         replacingMatches(
             in: s,
-            pattern: #"(?<![\p{L}\p{N}_:/.-])([1-9]|1[0-2]):([0-5][0-9])(?![\p{L}\p{N}_:/.-])"#
+            pattern:
+                #"(?<![\p{L}\p{N}_:/.-])([1-9]|1[0-2]):([0-5][0-9])(?![\p{L}\p{N}_:/-]|\.[\p{L}\p{N}_])"#
         ) { match, text in
             guard isLikelyTime(match.range, in: text),
                 let hourText = substring(match.range(at: 1), in: text),
@@ -139,7 +140,7 @@ enum TextNormalizer {
         replacingMatches(
             in: s,
             pattern:
-                #"(?<![\p{L}\p{N}_/.-])((?:1[6-9]|20)[0-9]{2})-([0-9]{2})-([0-9]{2})(?![\p{L}\p{N}_/.-])"#
+                #"(?<![\p{L}\p{N}_/.-])((?:1[6-9]|20)[0-9]{2})-([0-9]{2})-([0-9]{2})(?![\p{L}\p{N}_/-]|\.[\p{L}\p{N}_])"#
         ) { match, text in
             guard let yearText = substring(match.range(at: 1), in: text),
                 let monthText = substring(match.range(at: 2), in: text),
@@ -217,7 +218,7 @@ enum TextNormalizer {
     private static func expandNumericPercentages(_ s: String) -> String {
         replacingMatches(
             in: s,
-            pattern: #"(?<![\p{L}\p{N}_])([0-9][0-9,]*(?:\.[0-9]+)?)\s*%"#
+            pattern: #"(?<![\p{L}\p{N}_$])([0-9][0-9,]*(?:\.[0-9]+)?)\s*%"#
         ) { match, text in
             guard let literal = substring(match.range(at: 1), in: text),
                 let words = numberWords(from: literal)
