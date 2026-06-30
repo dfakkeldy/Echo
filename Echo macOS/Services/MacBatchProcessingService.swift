@@ -280,7 +280,9 @@ final class MacBatchProcessingService {
                         tts: NarrationEngineFactory.make(),
                         audioWriter: AVFoundationAudioWriter(),
                         cacheDirectory: NarrationCache.directory(), state: NarrationState(),
-                        pronunciationOverrides: { PronunciationOverrideStore.shared.overrides() })
+                        pronunciationOverrides: {
+                            PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+                        })
                 }
                 var service = makeService()
                 // One-time engine prepare (download + compile the CoreML model set) BEFORE the

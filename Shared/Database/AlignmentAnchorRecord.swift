@@ -52,5 +52,6 @@ extension AlignmentAnchorRecord {
         case autoAlignment = "autoAlignment"
         case continuousBackground = "continuousBackground"
         case synthesized = "synthesized"  // TTS-generated narration anchors
+        case transcriptAlignment = "transcriptAlignment"  // ASR↔source-block alignment (M2)
     }
 }

@@ -141,6 +141,11 @@ struct RootTabView: View {
     @State private var documentImportPhase: DocumentImportPhase = .idle
     @State private var documentImportTask: Task<Void, Never>?
 
+    #if os(iOS)
+        @State private var transcribeCoordinator: TranscribeBookCoordinator?
+        @State private var showingTranscribeProgress = false
+    #endif
+
     @State private var nowPlayingPath = NavigationPath()
     @State private var readPath = NavigationPath()
     @State private var libraryPath = NavigationPath()
@@ -206,12 +211,25 @@ struct RootTabView: View {
                                     db: db.writer
                                 )
                             } else {
-                                ReaderEmptyState(
-                                    hasLoadedBook: model.folderURL != nil,
-                                    canAddEPUB: !model.narrationPlaybackState.isRunning,
-                                    onImportBook: { showingFolderPicker = true },
-                                    onAddEPUB: { model.showingDocumentImporter = true }
-                                )
+                                VStack {
+                                    ReaderEmptyState(
+                                        hasLoadedBook: model.folderURL != nil,
+                                        canAddEPUB: !model.narrationPlaybackState.isRunning,
+                                        onImportBook: { showingFolderPicker = true },
+                                        onAddEPUB: { model.showingDocumentImporter = true }
+                                    )
+                                    #if os(iOS)
+                                        if model.folderURL != nil,
+                                            model.tracks.indices.contains(model.currentIndex)
+                                        {
+                                            Button(String(localized: "Transcribe Audiobook")) {
+                                                startTranscription(model: model)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .padding(.top, 4)
+                                        }
+                                    #endif
+                                }
                             }
                         }
                         .toolbarVisibility(.hidden, for: .navigationBar)
@@ -371,6 +389,17 @@ struct RootTabView: View {
                 )
             }
         }
+        #if os(iOS)
+            .sheet(isPresented: $showingTranscribeProgress) {
+                if let coordinator = transcribeCoordinator {
+                    TranscribeProgressView(
+                        progress: coordinator.service.progress,
+                        isFinalizing: coordinator.isFinalizing,
+                        onCancel: { coordinator.service.cancel() }
+                    )
+                }
+            }
+        #endif
         .sheet(isPresented: $model.showPaywall) {
             PaywallView(context: model.paywallContext)
         }
@@ -603,4 +632,25 @@ struct RootTabView: View {
             readPath.append(destination)
         }
     }
+
+    #if os(iOS)
+        /// Starts on-device transcription for the current audio-only book.
+        private func startTranscription(model: PlayerModel) {
+            guard let db = model.databaseService,
+                let folder = model.folderURL,
+                model.tracks.indices.contains(model.currentIndex)
+            else { return }
+            let coordinator = TranscribeBookCoordinator(db: db.writer)
+            transcribeCoordinator = coordinator
+            showingTranscribeProgress = true
+            Task { @MainActor in
+                await coordinator.transcribe(
+                    audiobookID: folder.absoluteString,
+                    audioFileURL: model.tracks[model.currentIndex].url,
+                    chapters: model.alignmentPickerChapters,
+                    resume: true)
+                model.bumpDocumentIngestionTrigger()
+            }
+        }
+    #endif
 }

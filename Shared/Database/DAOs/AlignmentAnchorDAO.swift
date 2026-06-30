@@ -53,6 +53,22 @@ struct AlignmentAnchorDAO {
         }
     }
 
+    /// Deletes every anchor for `audiobookID` whose `source` column equals
+    /// `source`. Used by source-backed transcript alignment to clear only its
+    /// own `.transcriptAlignment` anchors on re-run, leaving hand-placed and
+    /// other-pipeline anchors intact (the queryable counterpart to the legacy
+    /// id-prefix `deleteAutoPipelineAnchors`).
+    /// - Returns: The number of anchors removed.
+    @discardableResult
+    func deleteAnchors(for audiobookID: String, source: String) throws -> Int {
+        try db.write { db in
+            try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("source") == source)
+                .deleteAll(db)
+        }
+    }
+
     // MARK: - Queries
 
     /// All anchors for an audiobook, ordered by audio time.

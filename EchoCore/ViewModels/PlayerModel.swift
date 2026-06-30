@@ -472,6 +472,12 @@ final class PlayerModel {
         return !transcription.isEmpty || !enhancedTranscription.isEmpty
     }
 
+    /// Bumps the document-ingestion trigger so reader routing re-evaluates after
+    /// transcript materialization inserts `epub_block` rows (`hasEPUB` flips true).
+    func bumpDocumentIngestionTrigger() {
+        playbackController.state.documentIngestionTrigger += 1
+    }
+
     var isTranscriptProcessingEnabled: Bool {
         get { state.isTranscriptProcessingEnabled }
         set { state.isTranscriptProcessingEnabled = newValue }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import GRDB
 import SwiftUI
 
 extension TOCNode {
     var childrenAsOptional: [TOCNode]? { children.isEmpty ? nil : children }
 }
-import GRDB
 
 /// Sidebar view showing the publisher TOC tree from the shared database.
 ///
@@ -44,7 +44,7 @@ struct MacTOCTreeView: View {
                     } label: {
                         TOCRowView(node: node)
                             .id(node.id)
-                        }
+                    }
                     .buttonStyle(.plain)
                 }
                 .listStyle(.sidebar)
@@ -56,6 +56,10 @@ struct MacTOCTreeView: View {
             await loadTOC()
         }
         .onChange(of: player.currentURL) { _, _ in
+            Task { await loadTOC() }
+        }
+        .onChange(of: player.documentIngestionTrigger) { _, _ in
+            // Pick up a freshly materialized transcript reader without a track switch.
             Task { await loadTOC() }
         }
     }

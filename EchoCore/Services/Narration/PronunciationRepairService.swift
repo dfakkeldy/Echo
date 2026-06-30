@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import GRDB
+import os.log
+
+/// Scope for a pronunciation fix: a specific book or the global dictionary.
+enum FixScope: Equatable {
+    case book(String)
+    case global
+}
+
+/// Thrown when an issue carries no actionable pronunciation suggestion.
+enum NarrationRepairError: Error, Equatable {
+    case noUsableFix
+}
+
+/// Turns an accepted narration-QA fix into a pronunciation override, regenerates
+/// the affected chapter, re-runs QA on it, and resolves the issue. Pure EchoCore
+/// (no UIKit / no `PlayerModel`) so it bundles into iOS, macOS, and echo-cli
+/// unchanged. Concrete-type + constructor injection (no protocol): there is one
+/// implementation.
+@MainActor
+final class PronunciationRepairService {
+    private let store: PronunciationOverrideStore
+    private let issueDAO: NarrationQualityIssueDAO
+    private let db: DatabaseWriter
+    private let cacheDirectory: URL
+    private let voice: VoiceID
+    /// Re-render exactly the given chapter index with the live override map.
+    private let renderChapter: (Int) async throws -> Void
+    /// Re-run narration QA over exactly the given chapter index.
+    private let reRunQA: (Int) async throws -> Void
+    private let logger = Logger(category: "NarrationRepair")
+
+    init(
+        store: PronunciationOverrideStore,
+        issueDAO: NarrationQualityIssueDAO,
+        db: DatabaseWriter,
+        cacheDirectory: URL,
+        voice: VoiceID,
+        renderChapter: @escaping (Int) async throws -> Void,
+        reRunQA: @escaping (Int) async throws -> Void
+    ) {
+        self.store = store
+        self.issueDAO = issueDAO
+        self.db = db
+        self.cacheDirectory = cacheDirectory
+        self.voice = voice
+        self.renderChapter = renderChapter
+        self.reRunQA = reRunQA
+    }
+
+    /// Resolve the `epub_block.chapter_index` for a block id. Used to scope
+    /// regeneration to the single chapter that contains a flagged issue.
+    static func chapterIndex(
+        forBlockID blockID: String, audiobookID: String, db: DatabaseWriter
+    ) throws -> Int? {
+        try db.read { database in
+            try Int.fetchOne(
+                database,
+                sql: """
+                    SELECT chapter_index FROM epub_block
+                    WHERE id = ? AND audiobook_id = ?
+                    """,
+                arguments: [blockID, audiobookID])
+        }
+    }
+
+    /// Apply an accepted pronunciation fix end to end: write the override for the
+    /// chosen scope, drop the affected chapter's cached audio + sibling open issues,
+    /// re-render that one chapter (which now reads the new override), re-run QA on
+    /// it, and mark the original issue resolved. Throws if the issue has no usable
+    /// suggested fix.
+    func applyFix(issue: NarrationQualityIssueRecord, scope: FixScope) async throws {
+        // 1. Decode the suggested fix -> (word, ipa).
+        let decoded: SuggestedFix
+        guard let json = issue.suggestedFixJSON,
+            let data = json.data(using: .utf8),
+            let fix = try? JSONDecoder().decode(SuggestedFix.self, from: data),
+            let ipa = fix.ipa, !ipa.isEmpty
+        else {
+            throw NarrationRepairError.noUsableFix
+        }
+        decoded = fix
+        // Prefer the model's suggested spoken form for the override key; fall back to
+        // the expected source text (whole-word matched by PronunciationOverrides).
+        let word =
+            (decoded.spokenForm?.isEmpty == false
+            ? decoded.spokenForm! : issue.expectedText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { throw NarrationRepairError.noUsableFix }
+
+        // 2. Write the override in the chosen scope.
+        switch scope {
+        case .book(let bookID):
+            try store.set(word: word, ipa: ipa, forBookID: bookID)
+        case .global:
+            try store.set(word: word, ipa: ipa)
+        }
+
+        // 3. Resolve the chapter to regenerate.
+        guard let blockID = issue.sourceBlockID,
+            let chapterIndex = try Self.chapterIndex(
+                forBlockID: blockID, audiobookID: issue.audiobookID, db: db)
+        else {
+            // No block/chapter to regenerate — still resolve the issue so the queue
+            // doesn't keep re-surfacing a fix the user accepted.
+            try issueDAO.updateStatus(
+                id: issue.id, status: NarrationQAIssueStatus.resolved.rawValue,
+                resolvedAt: ISO8601DateFormatter().string(from: Date()))
+            return
+        }
+
+        // 4. Clear stale cached audio.
+        let cachedFile = cacheDirectory.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: issue.audiobookID, chapterIndex: chapterIndex, voice: voice))
+        try? FileManager.default.removeItem(at: cachedFile)
+        logger.notice("Cleared cached audio for chapter \(chapterIndex)")
+
+        // 5. Resolve the original issue BEFORE deleting sibling issues so the row
+        //    survives as an auditable resolved record.
+        let resolvedAt = ISO8601DateFormatter().string(from: Date())
+        try issueDAO.updateStatus(
+            id: issue.id, status: NarrationQAIssueStatus.resolved.rawValue,
+            resolvedAt: resolvedAt)
+
+        // 6. Delete only the OTHER chapter blocks' open issues (not the original
+        //    issue's block) so re-QA repopulates only genuine remaining divergences.
+        let chapterBlockIDs = try EPubBlockDAO(db: db)
+            .blocks(for: issue.audiobookID, chapterIndex: chapterIndex)
+            .map(\.id)
+        let otherBlockIDs = chapterBlockIDs.filter { $0 != issue.sourceBlockID }
+        if !otherBlockIDs.isEmpty {
+            try issueDAO.deleteAll(for: issue.audiobookID, blockIDs: otherBlockIDs)
+        }
+
+        // 7. Re-render the chapter (reads the new override via NarrationService's
+        //    pronunciationOverrides closure) then re-run QA over it.
+        try await renderChapter(chapterIndex)
+        try await reRunQA(chapterIndex)
+    }
+}

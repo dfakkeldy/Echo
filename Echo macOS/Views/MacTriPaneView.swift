@@ -15,6 +15,9 @@ struct MacTriPaneView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var dbServiceWired = false
     @State private var showingPlaybackOptions = false
+    @State private var transcribeCoordinator: MacTranscribeCoordinator?
+    @State private var showingTranscribeProgress = false
+    @State private var showingQAReview = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -28,9 +31,17 @@ struct MacTriPaneView: View {
 
                 MacTOCTreeView()
             }
-                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
         } content: {
             VStack(spacing: 0) {
+                // Transcript-QA toolbar (shown when a book is loaded)
+                if player.hasMedia {
+                    transcriptQAToolbar
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                    Divider()
+                }
+
                 MacReaderFeedView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -42,6 +53,20 @@ struct MacTriPaneView: View {
                     .padding(.vertical, 6)
             }
             .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+            .sheet(isPresented: $showingTranscribeProgress) {
+                if let coordinator = transcribeCoordinator {
+                    MacTranscribeProgressView(
+                        progress: coordinator.service.progress,
+                        isFinalizing: coordinator.isFinalizing,
+                        onCancel: { coordinator.service.cancel() }
+                    )
+                }
+            }
+            .sheet(isPresented: $showingQAReview) {
+                if let id = player.audiobookID, let db = player.dbService {
+                    MacNarrationQAReviewView(db: db.writer, audiobookID: id)
+                }
+            }
         } detail: {
             MacNotesPane()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
@@ -218,6 +243,71 @@ struct MacTriPaneView: View {
                 transcriptSnippet: nil,
                 note: nil
             )
+        }
+    }
+
+    // MARK: - Transcript-QA Toolbar
+
+    /// Inline toolbar above the reader pane with transcript and QA actions.
+    @ViewBuilder
+    private var transcriptQAToolbar: some View {
+        HStack(spacing: 8) {
+            // Transcribe: shown when the loaded book has no EPUB blocks yet
+            // (audio-only). After transcription materializes epub_block rows,
+            // hasEPUB flips and the button hides.
+            if !player.hasEPUB {
+                Button {
+                    startTranscription()
+                } label: {
+                    Label("Transcribe", systemImage: "text.bubble")
+                }
+                .help("Transcribe audiobook to enable read-along reader")
+                .disabled(transcribeCoordinator?.service.progress.isRunning ?? false)
+            }
+
+            // Review Issues: shown when the loaded book might have QA issues.
+            // The sheet itself loads open issues; a disabled button here is a
+            // lightweight indicator that QA data exists for this book.
+            Button {
+                showingQAReview = true
+            } label: {
+                Label("Review Issues", systemImage: "ant")
+            }
+            .help("Review narration QA issues")
+
+            Spacer()
+        }
+        .labelStyle(.iconOnly)
+        .controlSize(.small)
+    }
+
+    /// Starts the transcription pipeline for the currently loaded audiobook.
+    /// Creates a new MacTranscribeCoordinator, presents the progress sheet,
+    /// and bumps `documentIngestionTrigger` on completion so the reader
+    /// re-evaluates and switches from "no content" to showing blocks.
+    private func startTranscription() {
+        guard let db = player.dbService, let id = player.audiobookID else { return }
+        // Use the currently-open file: player.chapters/duration describe THIS file,
+        // not necessarily tracks[0], so transcribing tracks[0] would mis-window a
+        // multi-file audiobook.
+        guard let audioURL = player.currentURL else { return }
+        let coordinator = MacTranscribeCoordinator(db: db.writer)
+        transcribeCoordinator = coordinator
+        showingTranscribeProgress = true
+        Task { @MainActor in
+            let chapters =
+                player.hasChapters
+                ? player.chapters
+                : [
+                    Chapter(
+                        index: 0, title: "Full Book", startSeconds: 0, endSeconds: player.duration)
+                ]
+            await coordinator.transcribe(
+                audiobookID: id,
+                audioFileURL: audioURL,
+                chapters: chapters,
+                resume: true)
+            player.bumpDocumentIngestionTrigger()
         }
     }
 }

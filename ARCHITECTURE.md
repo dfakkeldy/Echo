@@ -661,6 +661,41 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 - `TimestampSource` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.none`
 - `AlignmentStatus` — Enum: `.lockedAnchor`, `.interpolated`, `.estimated`, `.unaligned`, `.omitted`
 
+### Audio-Only Book Transcription & Read-Along (M1, Schema V29)
+
+Audio-only books (imported M4B/MP3 without a companion EPUB or text document) can now be **transcribed on-device** and opened in the reader for read-along with word highlight, search-to-seek, tap-to-seek, and study anchoring — the same features EPUB books already have.
+
+1. **Transcription (`StandaloneTranscriptionService`):** When the user taps "Transcribe" on an audio-only book, `StandaloneTranscriptionService` transcribes the audio using WhisperKit (on-device CoreML, the same model the auto-alignment pipeline uses). The service is keyed by the canonical `folderURL` id so it is **resumable**: if interrupted, transcription picks up from the last completed chapter rather than starting over. Each chapter is transcribed independently and results are persisted as `TranscriptionRecord` / `TranscriptionWord` rows in the database.
+2. **Materialization (`TranscriptMaterializer`):** Once transcription finishes, `TranscriptMaterializer` projects the raw transcription rows into the same `epub_block`, `timeline_item`, and `word_timing` tables the reader and alignment pipeline already consume. Materialized blocks carry `transcript-<id>-c<n>-s<n>` block IDs (distinct from `epub-` prefixed EPUB blocks), and `word_timing` rows carry `source = "transcript"` so downstream code can distinguish them from word timings derived from DTW alignment.
+3. **Provenance marker (`audiobook.text_origin = "transcript"`, Schema V29):** The `audiobook.text_origin` column is set to `"transcript"` when a book's text content comes from on-device transcription rather than an imported EPUB or text document. This marker is critical so M2 (the canonical-source detection pass) never treats a transcribed book as having canonical text that should be diffed or overwritten — the transcript is inherently lossy.
+4. **Orchestration (`TranscribeBookCoordinator`):** `TranscribeBookCoordinator` owns the end-to-end flow: it launches the transcription run, waits for completion, triggers `TranscriptMaterializer` to build the reader tables, sets `audiobook.text_origin = "transcript"`, and then signals the UI to open the reader for the newly materialized book.
+
+**Key types:**
+
+- `StandaloneTranscriptionService` — WhisperKit-based transcription for audio-only books; resumable per chapter, persisted to `TranscriptionRecord`/`TranscriptionWord`.
+- `TranscriptMaterializer` — Pure projection from transcription rows to `epub_block`/`timeline_item`/`word_timing`; produces `transcript-` prefixed block ids and `word_timing.source = "transcript"`.
+- `TranscribeBookCoordinator` — End-to-end orchestration: run → materialize → set provenance marker.
+- `StandaloneTranscriptRecord` — Database record for a standalone transcript's chapter-level metadata.
+- `TranscriptionDAO` — DAO for persisting and querying transcription rows.
+- `TranscriptReaderParityTests` — Test suite verifying that a transcribed book produces the same reader surfaces (block ids, timeline positions, word timings) as an equivalent EPUB-backed book.
+
+### Source-Backed Transcript Alignment (M2, Code-Only)
+
+Books that already have canonical source text (EPUB or PDF import) AND on-device transcription (ASR words persisted in `standalone_transcript`) can now be aligned by reusing the same DTW engine the auto-alignment pipeline uses — without running WhisperKit a second time. The source `epub_block.text` is read-only; alignment writes only `alignment_anchor` rows and refines `word_timing`.
+
+1. **Input builders (`SourceBackedAlignmentCoordinator.epubTokens`, `audioTokens`):** Source blocks (visible, text-bearing EPUB/PDF blocks in reading order) are returned as `TokenDTW.EPubToken`s exactly as the auto-alignment pipeline consumes them. Persisted ASR words are read from `standalone_transcript` rows, ordered by chapter/segment, decoded from `words_json`, and expanded through `TokenDTW.normalize` so digit runs and contractions match the source side.
+2. **DTW alignment + anchor writing (`SourceBackedAlignmentCoordinator.align`):** `TokenDTW.alignWithBisection` runs the memory-guarded DP matrix against the token pair. `AnchorSelector.select` gates the candidates (min strong-run length >=3, monotonic time sweep). Prior `.transcriptAlignment` anchors are cleared by source column so a re-run converges. Each selected candidate becomes one `AlignmentAnchorRecord` with `source = "transcriptAlignment"`. `AlignmentService.insertAnchors` recalculates the timeline and materializes the `word_timing` table.
+3. **Word-timing refinement:** `TokenDTW.wordMatchesWithBisection` emits per-token matches grouped by block, and `WordTimingMaterializer.refine` overrides the interpolated word times with real DTW-derived audio times (`source = "dtw"`, confidence 0.85).
+4. **Low-confidence flagging:** `lowConfidenceWordCount` returns the number of `word_timing` rows whose confidence is below a caller-chosen threshold (default 0.75, which separates interpolated 0.5 from DTW-refined 0.85). Debug UI can use this to highlight likely-misaligned regions.
+5. **Source text invariant:** `epub_block.text` is never modified — the alignment is read-only with respect to source content.
+
+**Key types:**
+
+- `SourceBackedAlignmentCoordinator` — Pure enum with static methods: `epubTokens`, `audioTokens`, `align`, `lowConfidenceWordCount`. Reuses `TokenDTW`, `AnchorSelector`, `AlignmentService`, `WordTimingMaterializer`, and `WordTimingDAO` — no new engine code.
+- `AlignmentAnchorRecord.Source.transcriptAlignment` — The queryable identity marking anchors this coordinator writes. CloudKit's `sourceRank` returns 0 (same tier as other machine-made anchors).
+- `AlignmentAnchorDAO.deleteAnchors(for:source:)` — Source-column-based anchor deletion, used to clear only `.transcriptAlignment` anchors on re-run.
+
+
 ### Word-Level Read-Along & Karaoke (June 2026)
 
 Block-level read-along (the active paragraph) is refined to **word level** so the current word highlights as the narration speaks it, on both the iOS and macOS readers.
@@ -717,6 +752,37 @@ WhisperKit + `TokenDTW` path.
 - `TextNormalizer` — pure, deterministic prose→speakable normalization (abbreviations, thousands separators, Roman-numeral chapters, em-dash pauses); the highest naturalness-ROI unit.
 - `NarrationState` — `@MainActor @Observable` progress object mirroring `AutoAlignmentState` (phases: `idle`, `preparingChapter`, `renderingAhead`, `completed`, `failed`).
 - `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:chapterTitle:)` normalizes + synthesizes each text block, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`; `renderSegment` persists the same planner title for segment-backed playback/export. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
+
+### Generated Narration QA (M3, June 2026)
+
+After narrating an EPUB/PDF, the user can initiate a "listen back" QA pass that re-transcribes the generated audio, compares heard words to the source text using the existing `TokenDTW` alignment engine, and persists reviewable `narration_quality_issue` rows (Schema V30). QA is user-initiated, never auto-run after render.
+
+**Architecture:**
+
+- **`NarrationQADetector`** — pure, deterministic divergence detector: builds `EPubToken`s from source blocks via `WordTokenizer` + `TokenDTW.normalize`, builds `AudioToken`s from re-transcribed `TranscribedWord`s, runs `TokenDTW.wordMatchesWithBisection`, and emits `DivergenceWindow` value objects for any maximal run of uncovered (unmatched) source words. Same inputs -> same windows, device-independent.
+- **`DivergenceClassifier` protocol** — the single justified DI seam (two real implementations). Given an already-detected `DivergenceWindow`, returns a label (`NarrationQAIssueType`: pronunciation, omission, insertion, substitution, lowConfidence, etc.) + optional suggested spoken-form/IPA fix.
+- **`DeterministicDivergenceClassifier`** — rule-based, always-on, pure + Sendable (no stored state). Rules: empty `heardText` -> omission; confidence < 0.5 -> lowConfidence; single word with all-caps/CamelCase interior -> pronunciation; default -> substitution. No suggested forms (that is FM's role).
+- **`FoundationModelsDivergenceClassifier`** (triple-gated: `#if canImport(FoundationModels) + @available(iOS 26, macOS 26, *) + runtime availability)` — wraps the deterministic classifier as a per-issue fallback. Uses `LanguageModelSession` + `@Generable IssueClassification` for constrained decoding; any error degrades to deterministic label (never crashes).
+- **`DivergenceClassifierFactory`** — `@MainActor make(preference:availabilityIsAvailable:) -> DivergenceClassifier` returns `FoundationModelsDivergenceClassifier` only when preference is `"auto"`, FM is compiled in, OS >= iOS 26, and runtime availability says models are accessible. Otherwise returns `DeterministicDivergenceClassifier()`.
+- **`narrationQAClassifier` setting** — `SettingsManager` property, values `"auto"` (default) or `"deterministic"`.
+- **`NarrationQAService`** (`@MainActor`) — orchestrates one QA pass: clears prior issues for touched blockIDs, re-transcribes each chapter's audio (injected `transcribe` closure defaults to `WhisperSession` + `AlignmentTranscript.transcribeWords`, test-stubbed on CI), runs `NarrationQADetector`, classifies each window, persists `NarrationQualityIssueRecord`s.
+- **`NarrationQualityIssueRecord`** / **`NarrationQualityIssueDAO`** — GRDB record + DAO for the `narration_quality_issue` table (FK to `audiobook` with cascade delete). Supports insert, fetch (by book, optionally filtered by status), update status, delete (by book or by block IDs).
+- **`NarrationQAReviewModel`** (`@MainActor @Observable`) — loads open issues for a book and applies ignore/resolve actions. No UIKit import (auto-bundles into all targets).
+- **`NarrationQAReviewView`** — iOS SwiftUI list with swipe-to-resolve/ignore. Excluded from macOS and echo-cli targets via `project.pbxproj` membership exceptions.
+
+**FM device test procedure:** the `auto + available + iOS 26` runtime branch is exercised only via the Xcode scheme's "Simulated Foundation Models Availability" override on a real AI-capable device / TestFlight, since VM CI cannot run Foundation Models.
+
+### Shared Improvement Contribution System — M5 (Deferred, June 2026)
+
+M5 ships the *buildable-now* pieces of the shared improvement channel while deferring the live transport. The core design principle (design doc Section 8 / Decision D7) is that **nothing raw leaves the device**: only content-free, single-term pronunciation payloads can exit, with explicit user consent.
+
+**Architecture:**
+
+- **`PronunciationContributionPayload`** (`EchoCore/Services/Contribution/`) — a pure `Codable`, `Equatable`, `Sendable` value type with exactly five fields: `term`, `ipa`, `language`, `voiceModelVersion`, `confidence`. No field can carry surrounding prose, block text, audio, file paths, or book ids. Encoding produces exactly these five JSON keys.
+- **`ContributionPayloadFilter`** (`EchoCore/Services/Contribution/`) — a static `enum` filter that maps a resolved `NarrationQualityIssueRecord` (from M3) into a `PronunciationContributionPayload`. It admits ONLY issues where: `status == .resolved`, `issueType == .pronunciation`, `suggestedFixJSON` decodes to a valid `SuggestedFix` with a non-empty `ipa`, and `expectedText` is exactly one word (multi-word text is dropped to prevent prose reconstruction).
+- **`ContributionConsent`** / **`ContributionConsentGate`** (`EchoCore/Services/Contribution/`) — a pure opt-in value type. Default is `notDecided` (`isOptedIn: false`). `ContributionConsentGate.allows()` is the single enforcement point all transport must consult.
+- **`DeferredContributionTransport`** / **`ContributionTransportResult`** (`EchoCore/Services/Contribution/`) — an **inert, deliberately-not-implemented** transport stub. With consent, it returns `.deferred(reason:)`; without consent, `.blockedNoConsent`. It imports only `Foundation` — no `CloudKit`, no networking framework. The live channel is explicitly deferred until M3/M4 produce real fix data and the owner approves a transport design. Hard constraints: must NOT reuse `CloudKitSyncService` / the public alignment-anchor DB, must consult `ContributionConsentGate` before doing anything, and must send only `PronunciationContributionPayload`.
+- **Regression corpus harness** (`EchoTests/RegressionCorpusHarnessTests.swift`) — an env-gated Swift Testing suite (`ECHO_REGRESSION_CORPUS_DIR`) that loads PUBLIC-DOMAIN fixture JSON files from an out-of-repo directory (no private content in-repo), replays each through the deterministic `NarrationQADetector.detect`, and asserts stable divergence-window counts. Skipped by default so the suite stays fast and repo-safe.
 
 ### On-Device Library — Local Shelf + Roots (June 2026)
 
