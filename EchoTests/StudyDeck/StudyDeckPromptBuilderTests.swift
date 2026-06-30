@@ -55,6 +55,28 @@ nonisolated final class StudyDeckPromptBuilderTests: XCTestCase {
         XCTAssertTrue(
             prompt.lowercased().contains("untrusted"),
             "brief prompt should warn source is untrusted")
+        // Must include actual source TEXT (not just IDs) so the model can summarise content
+        XCTAssertTrue(
+            prompt.contains("Introduction text"),
+            "brief prompt must include source text snippets for the model to summarise")
+        XCTAssertTrue(
+            prompt.contains("Chapter one body"),
+            "brief prompt must include all sources' text snippets")
+    }
+
+    func testBookBriefPromptEscapesSourceText() {
+        // Source text with raw markup must appear escaped — not as literal XML tags
+        let sources = [source("epub-bk-s0-b0", "Read <b>this</b> & learn")]
+        let prompt = StudyDeckPromptBuilder.bookBriefPrompt(sources: sources)
+        XCTAssertFalse(
+            prompt.contains("<b>"),
+            "raw <b> tags in source text must be escaped in brief prompt")
+        XCTAssertTrue(
+            prompt.contains("&lt;b&gt;"),
+            "escaped form of <b> must appear in brief prompt")
+        XCTAssertTrue(
+            prompt.contains("&amp;"),
+            "ampersand in source text must be escaped in brief prompt")
     }
 
     func testBookBriefPromptEscapesSectionIDs() {
