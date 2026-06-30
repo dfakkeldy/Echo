@@ -192,6 +192,7 @@
 				ViewModels/ReaderFeedViewModel.swift,
 				Views/ABSBrowseView.swift,
 				Views/ABSConnectionsSettingsView.swift,
+				Views/AICardGenerationSettingsView.swift,
 				Views/AppIconSelectionView.swift,
 				Views/AutoAlignmentProgressView.swift,
 				Views/BookmarkCardView.swift,

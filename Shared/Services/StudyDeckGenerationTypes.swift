@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+nonisolated enum StudyDeckCardKind: String, Sendable, Equatable {
+    case basic
+    case cloze
+}
+
 struct StudyDeckSource: Identifiable, Equatable, Sendable {
     let id: String
     let sourceBlockID: String
@@ -28,7 +33,7 @@ struct StudyDeckGenerationSettings: Equatable, Sendable {
     }
 }
 
-struct GeneratedStudyDeckDraft: Equatable, Sendable {
+nonisolated struct GeneratedStudyDeckDraft: Equatable, Sendable {
     let cards: [GeneratedStudyDeckCardDraft]
 
     init(cards: [GeneratedStudyDeckCardDraft], validSourceBlockIDs: Set<String>) {
@@ -38,45 +43,64 @@ struct GeneratedStudyDeckDraft: Equatable, Sendable {
     }
 }
 
-struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendable {
+nonisolated struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendable {
     static let maximumFrontTextCharacters = 160
     static let maximumBackTextCharacters = 240
+    static let maximumClozeTextCharacters = 500
 
     let id: String
     let sourceBlockID: String
     let frontText: String
     let backText: String
     let tags: [String]
+    let kind: StudyDeckCardKind
+    let clozeText: String?
 
     init(
         id: String,
         sourceBlockID: String,
         frontText: String,
         backText: String,
-        tags: [String] = ["generated", "fixture"]
+        tags: [String] = ["generated", "fixture"],
+        kind: StudyDeckCardKind = .basic,
+        clozeText: String? = nil
     ) {
         self.id = id
         self.sourceBlockID = sourceBlockID
         self.frontText = frontText
         self.backText = backText
         self.tags = tags
+        self.kind = kind
+        self.clozeText = clozeText
     }
 
     fileprivate func validated(validSourceBlockIDs: Set<String>) -> Self? {
         let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedSourceBlockID = sourceBlockID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedID.isEmpty,
-              !normalizedSourceBlockID.isEmpty,
-              validSourceBlockIDs.contains(normalizedSourceBlockID),
-              let normalizedFrontText = Self.normalizedText(
+            !normalizedSourceBlockID.isEmpty,
+            validSourceBlockIDs.contains(normalizedSourceBlockID),
+            let normalizedFrontText = Self.normalizedText(
                 frontText,
                 maximumCharacters: Self.maximumFrontTextCharacters
-              ),
-              let normalizedBackText = Self.normalizedText(
+            ),
+            let normalizedBackText = Self.normalizedText(
                 backText,
                 maximumCharacters: Self.maximumBackTextCharacters
-              ) else {
+            )
+        else {
             return nil
+        }
+
+        if kind == .cloze {
+            let trimmedCloze = clozeText?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let trimmedCloze,
+                !trimmedCloze.isEmpty,
+                trimmedCloze.count <= Self.maximumClozeTextCharacters,
+                studyDeckHasValidClozeMarkers(trimmedCloze)
+            else {
+                return nil
+            }
         }
 
         return Self(
@@ -84,7 +108,9 @@ struct GeneratedStudyDeckCardDraft: Identifiable, Equatable, Sendable {
             sourceBlockID: normalizedSourceBlockID,
             frontText: normalizedFrontText,
             backText: normalizedBackText,
-            tags: Self.normalizedTags(tags)
+            tags: Self.normalizedTags(tags),
+            kind: kind,
+            clozeText: clozeText
         )
     }
 

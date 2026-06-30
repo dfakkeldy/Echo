@@ -78,6 +78,7 @@ For EPUB-backed books, Echo can create a Study Plan from Book Settings. A plan g
 - **Spaced Repetition (SRS).** Built-in flashcard system using the **FSRS** algorithm (the modern free-spaced-repetition scheduler) to help you memorize crucial facts, languages, or concepts permanently — with audio snippets on cards, Anki-style deck import, review stats, daily reminders, and resilient hands-free review on Apple Watch.
 - **Mark Now, Card Later.** One tap (phone or watch) marks a passage without pausing playback; the **Card Inbox** turns marks into flashcards when you have the bandwidth. Retires mid-playback popups for good.
 - **Decks, Tags & Real Anki Import.** 🚧 Organize cards into decks with tags, edit any card, review per deck — and import genuine `.apkg` Anki decks with scheduling history and referenced media preserved. Imported cards can be **anchored to the exact EPUB passage** they came from, so they appear inline at the right spot in the reader. JSON deck export round-trips losslessly.
+- **AI-Generated Cards (bring-your-own-key).** 🚧 Turn a book's text into question/answer and cloze flashcards with a large language model — using **your own** Anthropic API key, stored in your Keychain with no Echo account or servers. It's opt-in and off by default (the rest of Echo stays fully on-device), anchored to the source passage, and drops straight into the same FSRS review flow. The book's text is sent to your chosen provider only when you use it.
 - **Brain Dump / Book Notes.** 🚧 A frictionless mental inbox: park any thought — text or voice, even dictated from the watch — without pausing the book, then promote keepers to bookmarks or flashcards. Built for leaky working memory.
 - **Context Memory (opt-in).** 🚧 Echo can tag new bookmarks with an approximate place name — context-dependent memory, automated. Off by default, reduced accuracy, and deletable in one tap; session and chapter-start tagging are the remaining 1.0 scope decision.
 - **Insights.** 🚧 A dedicated stats screen computed entirely on-device: listening time by day/week/month/year, streaks, playback-speed trends, time-of-day patterns, Study review charts with retention curves and grade distributions, a 30-day review forecast, plus upcoming per-chapter coverage heatmaps ("Ch 7 — 86%, listened 3×") and session-length views.
@@ -116,7 +117,7 @@ Echo has a defined 1.0 — rebuilt 2026-06-19 around **six competitive wedges**,
 
 **macOS is a full peer in 1.0** — the study layer comes to Mac, and the batch transcribe/align/narrate pipeline is already there. Full plan and the launch-gate criteria: **[ROADMAP.md](ROADMAP.md)**.
 
-**Deferred to 1.x:** photo-of-a-page → audio jump · AI-generated Q&A cards · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
+**Deferred to 1.x:** photo-of-a-page → audio jump · CarPlay capture · Audiobookshelf **streaming** (connect/browse/download/sync is now built — download-based; streaming only is deferred) · AnkiConnect · focus soundscapes. See [ROADMAP.md](ROADMAP.md).
 
 ---
 

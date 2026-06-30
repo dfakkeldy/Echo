@@ -72,6 +72,11 @@ struct SettingsView: View {
                 }
 
                 Section("Study & Notes") {
+                    NavigationLink("AI Card Generation") {
+                        AICardGenerationSettingsView()
+                            .navigationTitle("AI Card Generation")
+                    }
+
                     Button {
                         showingDeckImporter = true
                     } label: {
