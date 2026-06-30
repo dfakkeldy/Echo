@@ -368,7 +368,11 @@ private struct StudyDeckGenerationSheetHost: View {
         let hasKey = store.hasKey
         let key = store.anthropicKey ?? ""
         let model = AICardGenerationSettings.selectedModel
-        let generator = StudyDeckGeneratorFactory.make(hasKey: hasKey) {
+        let generator = StudyDeckGeneratorFactory.make(
+            preference: AICardGenerationSettings.providerPreference,
+            hasKey: hasKey,
+            fmAvailable: StudyDeckFMAvailability.isAvailable
+        ) {
             AnthropicStudyDeckGenerator(
                 client: AnthropicMessagesClient(apiKey: key, model: model))
         }

@@ -41,9 +41,9 @@ struct PaywallView: View {
                     Text(
                         "Subscriptions can include App Store trials. Lifetime stays available when you're ready to own Echo forever."
                     )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
 
                     Button("Restore Purchases") {
                         Task {
@@ -94,7 +94,7 @@ struct PaywallView: View {
             benefitLabel("🗣️", "Unlimited on-device AI narration")
             benefitLabel("📊", "Insights — listening & study streaks")
             benefitLabel("📤", "Export any book as a chaptered .m4b audiobook")
-            benefitLabel("🔒", "No account, no servers, no tracking")
+            benefitLabel("🔒", "No Echo account or servers, no tracking")
         }
     }
 
