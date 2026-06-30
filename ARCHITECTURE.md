@@ -679,6 +679,23 @@ Audio-only books (imported M4B/MP3 without a companion EPUB or text document) ca
 - `TranscriptionDAO` — DAO for persisting and querying transcription rows.
 - `TranscriptReaderParityTests` — Test suite verifying that a transcribed book produces the same reader surfaces (block ids, timeline positions, word timings) as an equivalent EPUB-backed book.
 
+### Source-Backed Transcript Alignment (M2, Code-Only)
+
+Books that already have canonical source text (EPUB or PDF import) AND on-device transcription (ASR words persisted in `standalone_transcript`) can now be aligned by reusing the same DTW engine the auto-alignment pipeline uses — without running WhisperKit a second time. The source `epub_block.text` is read-only; alignment writes only `alignment_anchor` rows and refines `word_timing`.
+
+1. **Input builders (`SourceBackedAlignmentCoordinator.epubTokens`, `audioTokens`):** Source blocks (visible, text-bearing EPUB/PDF blocks in reading order) are returned as `TokenDTW.EPubToken`s exactly as the auto-alignment pipeline consumes them. Persisted ASR words are read from `standalone_transcript` rows, ordered by chapter/segment, decoded from `words_json`, and expanded through `TokenDTW.normalize` so digit runs and contractions match the source side.
+2. **DTW alignment + anchor writing (`SourceBackedAlignmentCoordinator.align`):** `TokenDTW.alignWithBisection` runs the memory-guarded DP matrix against the token pair. `AnchorSelector.select` gates the candidates (min strong-run length >=3, monotonic time sweep). Prior `.transcriptAlignment` anchors are cleared by source column so a re-run converges. Each selected candidate becomes one `AlignmentAnchorRecord` with `source = "transcriptAlignment"`. `AlignmentService.insertAnchors` recalculates the timeline and materializes the `word_timing` table.
+3. **Word-timing refinement:** `TokenDTW.wordMatchesWithBisection` emits per-token matches grouped by block, and `WordTimingMaterializer.refine` overrides the interpolated word times with real DTW-derived audio times (`source = "dtw"`, confidence 0.85).
+4. **Low-confidence flagging:** `lowConfidenceWordCount` returns the number of `word_timing` rows whose confidence is below a caller-chosen threshold (default 0.75, which separates interpolated 0.5 from DTW-refined 0.85). Debug UI can use this to highlight likely-misaligned regions.
+5. **Source text invariant:** `epub_block.text` is never modified — the alignment is read-only with respect to source content.
+
+**Key types:**
+
+- `SourceBackedAlignmentCoordinator` — Pure enum with static methods: `epubTokens`, `audioTokens`, `align`, `lowConfidenceWordCount`. Reuses `TokenDTW`, `AnchorSelector`, `AlignmentService`, `WordTimingMaterializer`, and `WordTimingDAO` — no new engine code.
+- `AlignmentAnchorRecord.Source.transcriptAlignment` — The queryable identity marking anchors this coordinator writes. CloudKit's `sourceRank` returns 0 (same tier as other machine-made anchors).
+- `AlignmentAnchorDAO.deleteAnchors(for:source:)` — Source-column-based anchor deletion, used to clear only `.transcriptAlignment` anchors on re-run.
+
+
 ### Word-Level Read-Along & Karaoke (June 2026)
 
 Block-level read-along (the active paragraph) is refined to **word level** so the current word highlights as the narration speaks it, on both the iOS and macOS readers.
