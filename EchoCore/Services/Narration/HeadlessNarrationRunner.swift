@@ -83,6 +83,18 @@ struct NarrationRunResult {
                 sourceURL
             }
         }
+
+        /// The zipped `.epub` URL when this source is one, else nil (for OPF cover).
+        var epubArchiveURL: URL? {
+            if case .epubFile(let url) = self { return url }
+            return nil
+        }
+
+        /// The expanded EPUB directory when this source is one, else nil.
+        var expandedEPUBDir: URL? {
+            if case .expandedEPUB(let url) = self { return url }
+            return nil
+        }
     }
 
     private enum NarrationRunError: LocalizedError {
@@ -146,6 +158,42 @@ struct NarrationRunResult {
         formatter.dateFormat = "yyyy-MM-dd"
         return
             "Echo narration — \(formatter.string(from: date)) · ONNX rv\(NarrationFileNaming.renderVersion)"
+    }
+
+    /// Resolves cover art for a narration export. The EPUB cover is declared in the
+    /// OPF (`<meta name="cover">` / `properties="cover-image"`), not as an inline
+    /// content block, so prefer `EpubCoverResolver` for either a zipped archive or
+    /// an expanded directory. Falls back to the first front-matter (else any)
+    /// inline image block for sources that lack an OPF cover (PDFs) or declare
+    /// none. Pure + cross-platform — unit-tested without rendering audio.
+    static func coverData(
+        epubArchiveURL: URL?,
+        expandedEPUBDir: URL?,
+        blocks: [EPubBlockRecord],
+        fileManager: FileManager = .default
+    ) -> Data? {
+        if let expandedEPUBDir,
+            let data = EpubCoverResolver.coverData(expandedEPUBDir: expandedEPUBDir)
+        {
+            return data
+        }
+        if let epubArchiveURL,
+            let data = EpubCoverResolver.coverData(epubArchiveURL: epubArchiveURL)
+        {
+            return data
+        }
+        let images = blocks.filter { $0.blockKind == EPubBlockRecord.Kind.image.rawValue }
+        let front = images.filter(\.isFrontMatter)
+        for block in (front.isEmpty ? images : front).sorted(by: {
+            $0.sequenceIndex < $1.sequenceIndex
+        }) {
+            if let path = block.imagePath, fileManager.fileExists(atPath: path),
+                let data = try? Data(contentsOf: URL(fileURLWithPath: path))
+            {
+                return data
+            }
+        }
+        return nil
     }
 
     // MARK: run
@@ -316,43 +364,14 @@ struct NarrationRunResult {
                 url: url, timeRange: nil)
         }
 
-        // Cover art: prefer the OPF-declared cover (where EPUB covers actually live);
-        // fall back to a front-matter inline image block.
-        let coverData: Data? = {
-            switch source {
-            case .expandedEPUB(let epubURL):
-                return EpubCoverResolver.coverData(expandedEPUBDir: epubURL)
-                    ?? {
-                        let images = blocks.filter {
-                            $0.blockKind == EPubBlockRecord.Kind.image.rawValue
-                        }
-                        let front = images.filter(\.isFrontMatter)
-                        for b in (front.isEmpty ? images : front).sorted(by: {
-                            $0.sequenceIndex < $1.sequenceIndex
-                        }) {
-                            if let p = b.imagePath, fm.fileExists(atPath: p),
-                                let d = try? Data(contentsOf: URL(fileURLWithPath: p))
-                            {
-                                return d
-                            }
-                        }
-                        return nil
-                    }()
-            case .epubFile, .pdf:
-                let images = blocks.filter { $0.blockKind == EPubBlockRecord.Kind.image.rawValue }
-                let front = images.filter(\.isFrontMatter)
-                for b in (front.isEmpty ? images : front).sorted(by: {
-                    $0.sequenceIndex < $1.sequenceIndex
-                }) {
-                    if let p = b.imagePath, fm.fileExists(atPath: p),
-                        let d = try? Data(contentsOf: URL(fileURLWithPath: p))
-                    {
-                        return d
-                    }
-                }
-                return nil
-            }
-        }()
+        // Cover art: prefer the OPF-declared cover for ANY EPUB source — zipped
+        // (.epubFile) or expanded — since the cover lives in the OPF, not as an
+        // inline content image. PDFs and cover-less EPUBs fall back to the first
+        // front-matter (else any) inline image block.
+        let coverData = Self.coverData(
+            epubArchiveURL: source.epubArchiveURL,
+            expandedEPUBDir: source.expandedEPUBDir,
+            blocks: blocks)
 
         try await AudioExportService().exportM4B(
             items: items, outputURL: config.outM4BURL,

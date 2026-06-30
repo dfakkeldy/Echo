@@ -78,12 +78,17 @@ enum ExportMetadataResolver {
         return nil
     }
 
-    /// Raw bytes of the EPUB's cover image — the first front-matter image block,
-    /// falling back to the first image block if the EPUB doesn't separate front
-    /// matter. Mirrors the cover lookup the narration pipeline uses for Now
-    /// Playing artwork (`PlayerModel+Narration`). The asset lives in the app's
-    /// own container, so no security scoping is required.
+    /// Raw bytes of the EPUB's cover image. The cover is declared in the EPUB's
+    /// OPF (`<meta name="cover">` / `properties="cover-image"`), NOT as an inline
+    /// content image — so resolve it from the book's EPUB first, matching the live
+    /// reader/lock screen (`ArtworkCache`/`EpubCoverResolver`). Only when the EPUB
+    /// is unreachable or declares no cover do we fall back to a front-matter inline
+    /// image block (covers EPUBs that embed the cover as a content `<img>`). The
+    /// fallback assets live in the app's own container, so no scoping is required.
     static func epubCoverData(audiobookID: String, databaseWriter: DatabaseWriter) -> Data? {
+        if let opfCover = EpubCoverResolver.coverData(forAudiobookID: audiobookID) {
+            return opfCover
+        }
         let blocks = (try? EPubBlockDAO(db: databaseWriter).allBlocks(for: audiobookID)) ?? []
         let images = blocks.filter { $0.blockKind == EPubBlockRecord.Kind.image.rawValue }
         let frontMatter = images.filter(\.isFrontMatter)

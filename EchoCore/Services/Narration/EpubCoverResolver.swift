@@ -12,11 +12,12 @@ enum EpubCoverResolver {
     /// Cover bytes for a zipped EPUB archive, or nil if none is declared / the
     /// referenced file is not a JPEG/PNG in the archive.
     static func coverData(epubArchiveURL: URL) -> Data? {
-        guard let archive = try? Archive(
-            url: epubArchiveURL,
-            accessMode: .read,
-            pathEncoding: nil
-        ),
+        guard
+            let archive = try? Archive(
+                url: epubArchiveURL,
+                accessMode: .read,
+                pathEncoding: nil
+            ),
             let opfPath = locateOPF(in: archive),
             let opfEntry = archive[opfPath],
             let opfData = data(for: opfEntry, in: archive)
@@ -61,6 +62,45 @@ enum EpubCoverResolver {
             FileManager.default.fileExists(atPath: imageURL.path)
         else { return nil }
         return try? Data(contentsOf: imageURL)
+    }
+
+    /// Cover bytes for a book identified by its `audiobookID`, which is either the
+    /// `.epub` file's URL (standalone narration) or the containing folder's URL
+    /// (imported book). Resolves the OPF-declared cover the same way the live
+    /// reader/lock screen does, so exports and Now Playing match.
+    ///
+    /// The `audiobookID` is a string, so the file URL is reconstructed rather than
+    /// carried from a picker/bookmark — `startAccessingSecurityScopedResource()`
+    /// on a reconstructed URL returns `false` and grants nothing. This relies on
+    /// the caller already holding **ambient** access to the book's path (the live
+    /// export and narration cover-copy both run while the book is loaded and
+    /// `PlayerModel.securityScope` holds it), exactly as the sibling
+    /// `ExportMetadataResolver.folderSidecarArtworkData` does. Best-effort: returns
+    /// nil when the id isn't a reachable file URL, the path isn't accessible, or no
+    /// OPF cover exists — callers fall back to the inline-image-block heuristic.
+    static func coverData(forAudiobookID audiobookID: String, fileManager: FileManager = .default)
+        -> Data?
+    {
+        guard let url = URL(string: audiobookID), url.isFileURL else { return nil }
+
+        // Standalone narration: the id IS the .epub (zipped) or an expanded dir.
+        if url.pathExtension.lowercased() == "epub" {
+            return coverData(epubArchiveURL: url) ?? coverData(expandedEPUBDir: url)
+        }
+
+        // Imported book: the id is the containing folder — find its .epub.
+        let didScope = url.startAccessingSecurityScopedResource()
+        defer { if didScope { url.stopAccessingSecurityScopedResource() } }
+        if let epub =
+            (try? fileManager.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
+            .first(where: { $0.pathExtension.lowercased() == "epub" })
+        {
+            return coverData(epubArchiveURL: epub) ?? coverData(expandedEPUBDir: epub)
+        }
+
+        // The id may itself be an expanded EPUB directory (META-INF + OPF on disk).
+        return coverData(expandedEPUBDir: url)
     }
 
     /// Finds the OPF: first via `META-INF/container.xml`'s rootfile, else the first
@@ -123,7 +163,8 @@ enum EpubCoverResolver {
         let decoded = relativePath.removingPercentEncoding ?? relativePath
         guard !decoded.hasPrefix("/") else { return nil }
 
-        var components = basePath
+        var components =
+            basePath
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
         for component in decoded.split(separator: "/", omittingEmptySubsequences: true) {
