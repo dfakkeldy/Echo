@@ -21,14 +21,15 @@ enum EchoDeckBuilderHandoffError: Error, Equatable, LocalizedError {
 enum EchoDeckBuilderHandoffService {
     static func currentEPUBURL(
         bookURL: URL?,
-        preferredEPUBURL: URL? = nil,
+        sourceDocumentURL: URL? = nil,
         currentTrackURL: URL? = nil,
         fileManager: FileManager = .default
     ) throws -> URL {
-        if let preferredEPUBURL,
-           isEPUB(preferredEPUBURL),
-           isRegularFile(preferredEPUBURL, fileManager: fileManager) {
-            return preferredEPUBURL
+        if let sourceDocumentURL,
+            isEPUB(sourceDocumentURL),
+            isRegularFile(sourceDocumentURL, fileManager: fileManager)
+        {
+            return sourceDocumentURL
         }
 
         guard let bookURL else {
@@ -42,20 +43,32 @@ enum EchoDeckBuilderHandoffService {
         let searchRoot = searchRoot(for: bookURL, fileManager: fileManager)
         let candidates = epubCandidates(in: searchRoot, fileManager: fileManager)
 
-        if let currentTrackURL,
-           let matchingCandidate = candidates.first(where: {
-               $0.deletingPathExtension().lastPathComponent
-                   .localizedStandardCompare(currentTrackURL.deletingPathExtension().lastPathComponent)
-                   == .orderedSame
-           }) {
+        // Prefer a sibling whose base name matches the current track or the
+        // directly-opened document, so "Chapter 02.m4b" / "Notes.pdf" map to
+        // "Chapter 02.epub" / "Notes.epub" rather than to an unrelated sibling.
+        let nameMatchTargets = [currentTrackURL, sourceDocumentURL]
+            .compactMap { $0?.deletingPathExtension().lastPathComponent }
+        if !nameMatchTargets.isEmpty,
+            let matchingCandidate = candidates.first(where: { candidate in
+                let base = candidate.deletingPathExtension().lastPathComponent
+                return nameMatchTargets.contains {
+                    base.localizedStandardCompare($0) == .orderedSame
+                }
+            })
+        {
             return matchingCandidate
         }
 
-        if candidates.count == 1, let onlyCandidate = candidates.first {
+        // A lone sibling resolves an audiobook / standalone-EPUB folder, but NOT a
+        // folder we only reached because the user opened an unrelated non-EPUB
+        // document there — that must name-match (handled above) or fail explicitly,
+        // so we never hand off an unrelated book.
+        let openedForeignDocument = sourceDocumentURL.map { !isEPUB($0) } ?? false
+        if !openedForeignDocument, candidates.count == 1, let onlyCandidate = candidates.first {
             return onlyCandidate
         }
 
-        if candidates.isEmpty {
+        if candidates.isEmpty || openedForeignDocument {
             throw EchoDeckBuilderHandoffError.noEPUBFound(searchRoot)
         }
 
@@ -77,7 +90,8 @@ enum EchoDeckBuilderHandoffService {
     private static func searchRoot(for url: URL, fileManager: FileManager) -> URL {
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
-           isDirectory.boolValue {
+            isDirectory.boolValue
+        {
             return url
         }
 
@@ -92,11 +106,19 @@ enum EchoDeckBuilderHandoffService {
                 options: [.skipsHiddenFiles]
             )) ?? []
 
-        return urls
+        return
+            urls
             .filter { isEPUB($0) && isRegularFile($0, fileManager: fileManager) }
             .sorted {
                 $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
                     == .orderedAscending
             }
     }
+}
+
+/// A one-off message surfaced by the EchoDeckBuilder handoff UI (the iOS Book
+/// Settings row and the macOS "More" menu). Shared so the two platforms don't
+/// each redeclare it.
+struct EchoDeckBuilderAlert {
+    let message: String
 }

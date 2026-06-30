@@ -13,7 +13,7 @@ struct EchoDeckBuilderHandoffServiceTests {
 
         let resolved = try EchoDeckBuilderHandoffService.currentEPUBURL(
             bookURL: fixture.url,
-            preferredEPUBURL: sourceEPUB
+            sourceDocumentURL: sourceEPUB
         )
 
         #expect(resolved == sourceEPUB)
@@ -76,6 +76,66 @@ struct EchoDeckBuilderHandoffServiceTests {
             try EchoDeckBuilderHandoffService.currentEPUBURL(bookURL: fixture.url)
         }
     }
+
+    @Test("Does not hand off an unrelated sibling EPUB for a directly-opened non-EPUB document")
+    func foreignDocumentDoesNotMatchUnrelatedSibling() throws {
+        let fixture = try TemporaryBookFolder()
+        _ = try fixture.writeFile(named: "Unrelated Book.epub")
+        let pdfURL = try fixture.writeFile(named: "My Notes.pdf")
+
+        #expect(throws: EchoDeckBuilderHandoffError.noEPUBFound(fixture.url)) {
+            try EchoDeckBuilderHandoffService.currentEPUBURL(
+                bookURL: fixture.url,
+                sourceDocumentURL: pdfURL
+            )
+        }
+    }
+
+    @Test("Matches the sibling EPUB whose base name matches a directly-opened non-EPUB document")
+    func foreignDocumentMatchesNameSibling() throws {
+        let fixture = try TemporaryBookFolder()
+        let matchedEPUB = try fixture.writeFile(named: "My Notes.epub")
+        _ = try fixture.writeFile(named: "Other Book.epub")
+        let pdfURL = try fixture.writeFile(named: "My Notes.pdf")
+
+        let resolved = try EchoDeckBuilderHandoffService.currentEPUBURL(
+            bookURL: fixture.url,
+            sourceDocumentURL: pdfURL
+        )
+
+        #expect(resolved == matchedEPUB)
+    }
+
+    @Test("Throws noLoadedBook when no book URL is available")
+    func throwsNoLoadedBookWhenBookURLIsNil() {
+        #expect(throws: EchoDeckBuilderHandoffError.noLoadedBook) {
+            try EchoDeckBuilderHandoffService.currentEPUBURL(bookURL: nil)
+        }
+    }
+
+    @Test("Falls through to a sibling when the source document URL no longer exists")
+    func ignoresStaleSourceDocumentURL() throws {
+        let fixture = try TemporaryBookFolder()
+        let realEPUB = try fixture.writeFile(named: "Real.epub")
+        let staleEPUB = fixture.url.appending(path: "Deleted.epub")
+
+        let resolved = try EchoDeckBuilderHandoffService.currentEPUBURL(
+            bookURL: fixture.url,
+            sourceDocumentURL: staleEPUB
+        )
+
+        #expect(resolved == realEPUB)
+    }
+
+    @Test("Resolves an EPUB whose extension is upper-cased")
+    func matchesCaseInsensitiveEPUBExtension() throws {
+        let fixture = try TemporaryBookFolder()
+        let epubURL = try fixture.writeFile(named: "Standalone.EPUB")
+
+        let resolved = try EchoDeckBuilderHandoffService.currentEPUBURL(bookURL: epubURL)
+
+        #expect(resolved == epubURL)
+    }
 }
 
 private final class TemporaryBookFolder {
@@ -83,7 +143,8 @@ private final class TemporaryBookFolder {
 
     init() throws {
         url = FileManager.default.temporaryDirectory
-            .appending(path: "EchoDeckBuilderHandoff-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(
+                path: "EchoDeckBuilderHandoff-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
