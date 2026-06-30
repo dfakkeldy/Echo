@@ -7,6 +7,7 @@ enum TextNormalizer {
     static func normalize(_ input: String) -> String {
         var s = input
         s = expandAbbreviations(s)
+        s = normalizeOrdinals(s)
         s = expandNumericPercentages(s)
         s = expandThousandsSeparatedNumbers(s)
         s = replacePercentSymbols(s)
@@ -18,7 +19,15 @@ enum TextNormalizer {
     private static func expandAbbreviations(_ s: String) -> String {
         var out = s
         out = out.replacingOccurrences(of: "e.g.", with: "for example")
+        out = out.replacingOccurrences(of: "i.e.", with: "that is")
+        out = out.replacingOccurrences(of: "etc.", with: "et cetera")
+        out = out.replacingOccurrences(of: "vs.", with: "versus")
         out = out.replacingOccurrences(of: "Dr.", with: "Doctor")
+        // "Mrs." before "Mr." so the shorter token can't partially consume it.
+        out = out.replacingOccurrences(of: "Mrs.", with: "Missus")
+        out = out.replacingOccurrences(of: "Mr.", with: "Mister")
+        out = out.replacingOccurrences(of: "Ms.", with: "Miz")
+        out = out.replacingOccurrences(of: "Prof.", with: "Professor")
         // "St." → Saint before a capitalized word, else Street.
         out = replaceStreetVsSaint(out)
         return out
@@ -51,7 +60,8 @@ enum TextNormalizer {
     private static func expandThousandsSeparatedNumbers(_ s: String) -> String {
         replacingMatches(
             in: s,
-            pattern: #"(?<![\p{L}\p{N}_])([0-9]{1,3}(?:,[0-9]{3})+)(?:\.([0-9]+))?(?![\p{L}\p{N}_])"#
+            pattern:
+                #"(?<![\p{L}\p{N}_])([0-9]{1,3}(?:,[0-9]{3})+)(?:\.([0-9]+))?(?![\p{L}\p{N}_])"#
         ) { match, text in
             guard let integer = substring(match.range(at: 1), in: text) else { return nil }
             let fraction = substring(match.range(at: 2), in: text)
@@ -92,6 +102,56 @@ enum TextNormalizer {
         out = out.replacingOccurrences(of: " - ", with: ", ")
         return out
     }
+
+    /// "1st" -> "first", "21st" -> "twenty-first", "100th" -> "one hundredth".
+    /// The written suffix is ignored; the digits drive the correct ordinal word.
+    private static func normalizeOrdinals(_ s: String) -> String {
+        replacingMatches(
+            in: s,
+            pattern: #"(?<![\p{L}\p{N}_])([0-9]+)(?:st|nd|rd|th)\b"#
+        ) { match, text in
+            guard let literal = substring(match.range(at: 1), in: text),
+                let value = Int(literal)
+            else { return nil }
+            return ordinalWords(value)
+        }
+    }
+
+    private static func ordinalWords(_ value: Int) -> String {
+        // Ordinalize the final spoken word of the cardinal form: "twenty-one" ->
+        // "twenty-first", "one hundred" -> "one hundredth", "forty-five" ->
+        // "forty-fifth". Everything before the final word stays cardinal.
+        let cardinal = cardinalWords(value)
+        guard let lastSpace = cardinal.lastIndex(of: " ") else {
+            return ordinalizeFinalToken(cardinal)
+        }
+        let head = String(cardinal[..<lastSpace])
+        let tail = String(cardinal[cardinal.index(after: lastSpace)...])
+        return head + " " + ordinalizeFinalToken(tail)
+    }
+
+    private static func ordinalizeFinalToken(_ token: String) -> String {
+        if let lastHyphen = token.lastIndex(of: "-") {
+            let head = String(token[..<lastHyphen])
+            let tail = String(token[token.index(after: lastHyphen)...])
+            return head + "-" + ordinalizeComponent(tail)
+        }
+        return ordinalizeComponent(token)
+    }
+
+    private static func ordinalizeComponent(_ word: String) -> String {
+        ordinalIrregulars[word] ?? (word + "th")
+    }
+
+    private static let ordinalIrregulars: [String: String] = [
+        "one": "first", "two": "second", "three": "third", "five": "fifth",
+        "eight": "eighth", "nine": "ninth", "twelve": "twelfth",
+        "twenty": "twentieth", "thirty": "thirtieth", "forty": "fortieth",
+        "fifty": "fiftieth", "sixty": "sixtieth", "seventy": "seventieth",
+        "eighty": "eightieth", "ninety": "ninetieth",
+        "hundred": "hundredth", "thousand": "thousandth",
+        "million": "millionth", "billion": "billionth",
+    ]
 
     private static func romanToInt(_ roman: String) -> Int? {
         let values: [Character: Int] = ["I": 1, "V": 5, "X": 10, "L": 50, "C": 100]
