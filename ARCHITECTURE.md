@@ -772,6 +772,18 @@ After narrating an EPUB/PDF, the user can initiate a "listen back" QA pass that 
 
 **FM device test procedure:** the `auto + available + iOS 26` runtime branch is exercised only via the Xcode scheme's "Simulated Foundation Models Availability" override on a real AI-capable device / TestFlight, since VM CI cannot run Foundation Models.
 
+### Shared Improvement Contribution System — M5 (Deferred, June 2026)
+
+M5 ships the *buildable-now* pieces of the shared improvement channel while deferring the live transport. The core design principle (design doc Section 8 / Decision D7) is that **nothing raw leaves the device**: only content-free, single-term pronunciation payloads can exit, with explicit user consent.
+
+**Architecture:**
+
+- **`PronunciationContributionPayload`** (`EchoCore/Services/Contribution/`) — a pure `Codable`, `Equatable`, `Sendable` value type with exactly five fields: `term`, `ipa`, `language`, `voiceModelVersion`, `confidence`. No field can carry surrounding prose, block text, audio, file paths, or book ids. Encoding produces exactly these five JSON keys.
+- **`ContributionPayloadFilter`** (`EchoCore/Services/Contribution/`) — a static `enum` filter that maps a resolved `NarrationQualityIssueRecord` (from M3) into a `PronunciationContributionPayload`. It admits ONLY issues where: `status == .resolved`, `issueType == .pronunciation`, `suggestedFixJSON` decodes to a valid `SuggestedFix` with a non-empty `ipa`, and `expectedText` is exactly one word (multi-word text is dropped to prevent prose reconstruction).
+- **`ContributionConsent`** / **`ContributionConsentGate`** (`EchoCore/Services/Contribution/`) — a pure opt-in value type. Default is `notDecided` (`isOptedIn: false`). `ContributionConsentGate.allows()` is the single enforcement point all transport must consult.
+- **`DeferredContributionTransport`** / **`ContributionTransportResult`** (`EchoCore/Services/Contribution/`) — an **inert, deliberately-not-implemented** transport stub. With consent, it returns `.deferred(reason:)`; without consent, `.blockedNoConsent`. It imports only `Foundation` — no `CloudKit`, no networking framework. The live channel is explicitly deferred until M3/M4 produce real fix data and the owner approves a transport design. Hard constraints: must NOT reuse `CloudKitSyncService` / the public alignment-anchor DB, must consult `ContributionConsentGate` before doing anything, and must send only `PronunciationContributionPayload`.
+- **Regression corpus harness** (`EchoTests/RegressionCorpusHarnessTests.swift`) — an env-gated Swift Testing suite (`ECHO_REGRESSION_CORPUS_DIR`) that loads PUBLIC-DOMAIN fixture JSON files from an out-of-repo directory (no private content in-repo), replays each through the deterministic `NarrationQADetector.detect`, and asserts stable divergence-window counts. Skipped by default so the suite stays fast and repo-safe.
+
 ### On-Device Library — Local Shelf + Roots (June 2026)
 
 Echo remains single-book-at-a-time: `PlayerModel` holds one `folderURL` and opening another book replaces it. The Library feature adds a launcher layer above the existing player: a browsable local shelf, rescannable folder roots, missing-file recovery, and a last-library-book restore pointer. Selecting a book re-acquires file access and calls the existing `loadFolder(url:)`; playback and the single-book model are untouched.
