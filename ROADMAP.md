@@ -60,10 +60,10 @@ Competitors are confusing → **Echo is obvious from first launch. This is a gen
 
 ### Wedge 4 — TRUST *(beats ads / hidden-fees / subscriptions + privacy complaints)*
 
-Competitors hide fees, gate features behind subscriptions, and run ad-SDKs → **Echo is free & open-source, ad-free, and verifiably private — the only paid option is an optional one-time Pro unlock, never a subscription.**
+Competitors hide fees, gate features behind subscriptions, and run ad-SDKs → **Echo is free & open-source, ad-free, and verifiably private — the only paid options are an optional Echo Pro subscription (monthly/yearly) or a one-time lifetime unlock — free core, ad-free, no lock-in.**
 
 - [x] **Free-tier gate** — `FreeTierGate` (20 cards / 1 narrated chapter free); Pro unlocks. *(shipped; see §A.2)*
-- [x] **Honest Echo Pro paywall UX** — BookPlayer tip-jar / simple-unlock style, never an aggressive carousel; the shipped sheet uses StoreKit display prices, visible restore, one-time/no-subscription/no-account copy, and no carousel-style paging. *(§A.2)*
+- [x] **Honest Echo Pro paywall UX** — BookPlayer tip-jar / simple-unlock style, never an aggressive carousel; the shipped sheet uses StoreKit display prices, visible restore, subscription-or-lifetime/no-account copy, and no carousel-style paging. *(§A.2)*
 - [ ] **Verifiable privacy** — on-device, no accounts, no tracking, privacy manifest accurate; *provable* because GPL-3.0 ("verifiably private, not just promised").
 - [ ] **No lock-in** — open formats, full data export. Strong local slices are shipped (`.apkg` round-trip, per-book Markdown export, full-library study-notes `.zip` from Settings); closing the checkbox still needs a product-scope decision for whether "full data export" also includes settings, reading-position history, connection metadata, or other non-study-note state.
 
@@ -122,7 +122,7 @@ Echo's direct answer to TTS-reader competitors (notably Voice Dream). Generates 
 Tracked here because no prior roadmap section owned it. Detailed pricing is kept in the private strategy docs.
 
 - [x] **Free-tier gate** — `FreeTierGate` caps the free tier at **20 flashcards** and **1 narrated chapter per book**; Pro entitlement (`ProEntitlementProviding`) unlocks both. Idempotent re-renders/voice-changes of an already-narrated chapter are never blocked.
-- [x] **Paywall UX** — shipped as a non-intrusive simple-unlock sheet, not an aggressive carousel; structural tests lock StoreKit display prices, visible restore, one-time/no-subscription/no-account copy, and no carousel-style paging.
+- [x] **Paywall UX** — shipped as a non-intrusive simple-unlock sheet, not an aggressive carousel; structural tests lock StoreKit display prices, visible restore, subscription-or-lifetime/no-account copy, and no carousel-style paging.
 
 ---
 
