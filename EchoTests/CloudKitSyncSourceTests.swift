@@ -37,6 +37,20 @@ struct CloudKitSyncSourceTests {
         #expect(source.contains("documentIngestionTrigger: model.state.documentIngestionTrigger"))
     }
 
+    @Test func documentImportSkipsCloudKitWhenContainerIsNotEntitled() throws {
+        let finalizerSource = try Self.source("EchoCore/Services/DocumentImportFinalizer.swift")
+        let syncSource = try Self.source("EchoCore/Services/CloudKitSyncService.swift")
+
+        #expect(finalizerSource.contains("CloudKitSyncService.canAccessConfiguredContainer()"))
+        #expect(
+            finalizerSource.contains(
+                "Skipped CloudKit anchor lookup because the app is not entitled"))
+        #expect(syncSource.contains("#if targetEnvironment(simulator)"))
+        #expect(syncSource.contains("#elseif os(iOS)"))
+        #expect(syncSource.contains("com.apple.developer.icloud-container-identifiers"))
+        #expect(syncSource.contains("com.apple.developer.icloud-services"))
+    }
+
     private static func source(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {

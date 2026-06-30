@@ -420,6 +420,36 @@ import Testing
         #expect(writer.chunkCounts == [survivors.count + 1])
     }
 
+    @Test func onnxInvalidExpandShapeSubChunkIsSkippedWithoutAbortingTheChapter() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let long = longDistinctBlockText()
+        let blocks = try seed(db, [long])
+
+        let subChunks = NarrationTextChunker.split(TextNormalizer.normalize(long))
+        #expect(subChunks.count > 1)
+
+        let secondsPerChar = 0.1
+        let mock = MockTTSEngine(secondsPerChar: secondsPerChar)
+        mock.invalidExpandShapeOnText = subChunks[0]
+        let writer = MockAudioWriter()
+        let svc = makeService(db, tts: mock, writer: writer)
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_warm"))
+
+        let trackCount = try db.read { db in try TrackRecord.fetchCount(db) }
+        #expect(trackCount == 1)
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchAll(db)
+        }
+        #expect(anchors.count == 1)
+
+        let survivors = Array(subChunks.dropFirst())
+        let expectedDuration = survivors.reduce(0.0) { $0 + Double($1.count) * secondsPerChar }
+        let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
+        #expect(abs(span - expectedDuration) < 0.0001)
+        #expect(writer.chunkCounts == [survivors.count + 1])
+    }
+
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["abcd", "ef"])
