@@ -170,6 +170,49 @@ import Testing
         #expect(issues.isEmpty)
     }
 
+    @Test func insertedHeardWordsPersistAsInsertionIssues() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1", text: "quick brown fox")
+        let heard: [TranscribedWord] = [
+            ("quick", 0.0), ("very", 0.4), ("brown", 0.8), ("fox", 1.2),
+        ].map { TranscribedWord(text: $0.0, start: $0.1) }
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in heard })
+
+        try await service.runQA(
+            audiobookID: "b1", chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])])
+
+        let issues = try NarrationQualityIssueDAO(db: db.writer).issues(for: "b1")
+        #expect(issues.count == 1)
+        #expect(issues.first?.issueType == NarrationQAIssueType.insertion.rawValue)
+        #expect(issues.first?.expectedText == "")
+        #expect(issues.first?.heardText == "very")
+    }
+
+    @Test func lowConfidenceMatchedWordsPersistAsLowConfidenceIssues() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1", text: "quick brown fox")
+        let heard: [TranscribedWord] = [
+            TranscribedWord(text: "quick", start: 0.0, confidence: 1.0),
+            TranscribedWord(text: "brown", start: 0.4, confidence: 0.3),
+            TranscribedWord(text: "fox", start: 0.8, confidence: 1.0),
+        ]
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in heard })
+
+        try await service.runQA(
+            audiobookID: "b1", chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])])
+
+        let issues = try NarrationQualityIssueDAO(db: db.writer).issues(for: "b1")
+        #expect(issues.count == 1)
+        #expect(issues.first?.issueType == NarrationQAIssueType.lowConfidence.rawValue)
+        #expect(issues.first?.expectedText == "brown")
+        #expect(issues.first?.heardText == "brown")
+        #expect(issues.first?.confidence == 0.3)
+    }
+
     @Test func transcriptionFailureThrowsAndPreservesOpenIssues() async throws {
         let db = try DatabaseService(inMemory: ())
         try seed(db, book: "b1")

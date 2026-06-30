@@ -119,4 +119,14 @@ import Testing
     @Test func leavesPlainProseUnchanged() {
         #expect(TextNormalizer.normalize("The quick brown fox.") == "The quick brown fox.")
     }
+
+    @Test(arguments: [
+        "Visit https://example.com/path?x=1.",
+        "Email me@example.com before launch.",
+        "Run echo-cli qa --work-dir /tmp/render.",
+        "Keep rough-and-ready and sourceBlockID stable.",
+    ])
+    func leavesCodeURLsAndEmailLikeTextStable(_ input: String) {
+        #expect(TextNormalizer.normalize(input) == input)
+    }
 }
