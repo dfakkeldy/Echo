@@ -1,16 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
-/// UserDefaults-backed AI card-generation preferences (model selection).
+/// UserDefaults-backed AI card-generation preferences (model selection and provider).
 /// The API key itself is stored in the Keychain via `APIKeyStore`.
 enum AICardGenerationSettings {
-    private static let modelKey = "ai.cardgen.model"
+    nonisolated private static let modelKey = "ai.cardgen.model"
+    nonisolated private static let providerKey = "ai.cardgen.provider"
 
     static let models = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]
 
-    static var selectedModel: String {
+    nonisolated static var selectedModel: String {
         get { UserDefaults.standard.string(forKey: modelKey) ?? "claude-opus-4-8" }
         set { UserDefaults.standard.set(newValue, forKey: modelKey) }
+    }
+
+    nonisolated static var providerPreference: StudyDeckGeneratorPreference {
+        get {
+            StudyDeckGeneratorPreference(
+                rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "auto"
+            ) ?? .auto
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: providerKey) }
     }
 }
 
@@ -22,6 +32,8 @@ enum AICardGenerationSettings {
 struct AICardGenerationSettingsView: View {
     @State private var key: String = ""
     @State private var model: String = AICardGenerationSettings.selectedModel
+    @State private var provider: StudyDeckGeneratorPreference = AICardGenerationSettings
+        .providerPreference
     @State private var consented = false
     @State private var saved = false
 
@@ -30,6 +42,20 @@ struct AICardGenerationSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Provider") {
+                Picker("Generator", selection: $provider) {
+                    Text("Automatic").tag(StudyDeckGeneratorPreference.auto)
+                    Text("On-device only").tag(StudyDeckGeneratorPreference.onDevice)
+                    Text("Cloud only").tag(StudyDeckGeneratorPreference.cloud)
+                }
+                .onChange(of: provider) { _, new in
+                    AICardGenerationSettings.providerPreference = new
+                }
+                Text(StudyDeckFMAvailability.statusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("AI Card Generation") {
                 SecureField("Anthropic API key", text: $key)
                     .textContentType(.password)
@@ -76,6 +102,7 @@ struct AICardGenerationSettingsView: View {
         }
         .onAppear {
             model = AICardGenerationSettings.selectedModel
+            provider = AICardGenerationSettings.providerPreference
             // Pre-populate the field if a key is already stored so the user can
             // see there is one (masked by SecureField) without having to retype.
             if store.hasKey { key = store.anthropicKey ?? "" }
