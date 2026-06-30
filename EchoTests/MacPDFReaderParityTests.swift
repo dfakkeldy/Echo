@@ -38,6 +38,21 @@ struct MacPDFReaderParityTests {
         )
     }
 
+    @Test func highlightAdvancesThroughRepeatedWordsAndIsThrottled() throws {
+        let src = try MacSource.read("Views/MacPDFReaderView.swift")
+        #expect(
+            src.contains("highlightPositionKey"),
+            "Highlighting must key off the word's position, not just its text — plain words recur on a page."
+        )
+        #expect(
+            src.contains("fromSelection: resumeFrom"),
+            "A repeated occurrence of the same word must search forward from the previous match.")
+        #expect(
+            src.contains("positionKey == lastHighlightPositionKey")
+                && src.contains("currentPage === lastHighlightPage"),
+            "The search must be skipped when the word position hasn't changed since the last call.")
+    }
+
     @Test func contextMenuOffersLookUpAndSaveVocabulary() throws {
         let src = try MacSource.read("Views/MacPDFReaderView.swift")
         #expect(

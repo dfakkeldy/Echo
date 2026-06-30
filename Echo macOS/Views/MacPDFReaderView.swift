@@ -22,6 +22,12 @@ struct MacPDFReaderView: View {
     @State private var readAlong = PDFReadAlongController()
     @State private var activePageIndex: Int?
     @State private var highlightTerm: String?
+    /// `"blockID#wordIndex"` of the word `highlightTerm` names. Distinct words can
+    /// share the same text (e.g. "the" recurring on a page); the AppKit view uses
+    /// this to tell "still the same spoken word" from "advanced to the next
+    /// occurrence of an identical word" so it can search forward instead of
+    /// re-pinning to the page's first match every time.
+    @State private var highlightPositionKey: String?
     @State private var loadError: String?
     private let logger = Logger(subsystem: "com.echo.audiobooks", category: "MacPDFReader")
 
@@ -32,6 +38,7 @@ struct MacPDFReaderView: View {
                     document: document,
                     activePageIndex: activePageIndex,
                     highlightTerm: highlightTerm,
+                    highlightPositionKey: highlightPositionKey,
                     isPlaying: player.isPlaying,
                     onSaveVocabulary: { performSaveVocabulary($0) },
                     onBookmarkHere: { player.addBookmarkAtCurrentTime() }
@@ -81,14 +88,18 @@ struct MacPDFReaderView: View {
                     if let wordIndex = active.wordIndex {
                         highlightTerm = readAlong.wordText(
                             blockID: active.blockID, wordIndex: wordIndex)
+                        highlightPositionKey = "\(active.blockID)#\(wordIndex)"
                     } else {
                         highlightTerm = nil
+                        highlightPositionKey = nil
                     }
                 } else {
                     highlightTerm = nil
+                    highlightPositionKey = nil
                 }
             } else {
                 highlightTerm = nil
+                highlightPositionKey = nil
             }
             try? await Task.sleep(for: player.isPlaying ? .milliseconds(150) : .milliseconds(500))
         }
@@ -132,6 +143,7 @@ private struct MacPDFKitRepresentable: NSViewRepresentable {
     let document: PDFDocument
     let activePageIndex: Int?
     let highlightTerm: String?
+    let highlightPositionKey: String?
     let isPlaying: Bool
     let onSaveVocabulary: (String) -> Void
     let onBookmarkHere: () -> Void
@@ -160,14 +172,7 @@ private struct MacPDFKitRepresentable: NSViewRepresentable {
             nsView.go(to: page)
         }
 
-        if let term = highlightTerm, let currentPage = nsView.currentPage,
-            let selection = document.findString(term, withOptions: .caseInsensitive).first(
-                where: { $0.pages.contains(currentPage) })
-        {
-            nsView.highlightedSelections = [selection]
-        } else {
-            nsView.highlightedSelections = nil
-        }
+        nsView.updateHighlight(term: highlightTerm, positionKey: highlightPositionKey)
     }
 }
 
@@ -178,6 +183,76 @@ private struct MacPDFKitRepresentable: NSViewRepresentable {
 final class MacPDFInteractiveView: PDFView {
     var onSaveVocabulary: ((String) -> Void)?
     var onBookmarkHere: (() -> Void)?
+
+    // MARK: Highlight state (persists across SwiftUI `updateNSView` calls, unlike
+    // the value-type `MacPDFKitRepresentable` that drives this view)
+
+    private var lastHighlightPositionKey: String?
+    private var lastHighlightTerm: String?
+    private var lastHighlightPage: PDFPage?
+    private var lastHighlightSelection: PDFSelection?
+
+    /// Highlights the currently-spoken word on the active page. Two correctness
+    /// properties matter here, both keyed off `positionKey` (`"blockID#wordIndex"`,
+    /// not just the word text — plain words like "the" recur constantly):
+    ///
+    /// 1. **Advances through repeats.** When the spoken word's text is unchanged
+    ///    but its position advanced (a later occurrence of the same word on the
+    ///    same page), search forward from the previous match via
+    ///    `findString(_:fromSelection:withOptions:)` instead of re-finding the
+    ///    page's *first* occurrence every time — which would otherwise pin the
+    ///    highlight to the wrong spot for the entire page.
+    /// 2. **Throttles the search.** `findString` is a synchronous, linear
+    ///    whole-document scan; this is called at this view's poll cadence
+    ///    (~7 Hz while playing). Skip the search entirely when `positionKey` and
+    ///    the page haven't changed since the last call — mirrors the iOS PDF
+    ///    reader's `lastHighlightedTerm` guard on the same API.
+    func updateHighlight(term: String?, positionKey: String?) {
+        guard let term, let positionKey, let currentPage, let document else {
+            clearHighlightIfNeeded()
+            return
+        }
+
+        if positionKey == lastHighlightPositionKey, currentPage === lastHighlightPage,
+            lastHighlightSelection != nil
+        {
+            return  // Already showing the correct highlight for this word.
+        }
+
+        let resumeFrom: PDFSelection? =
+            (term == lastHighlightTerm && currentPage === lastHighlightPage)
+            ? lastHighlightSelection : nil
+
+        let found: PDFSelection?
+        if let resumeFrom,
+            let next = document.findString(
+                term, fromSelection: resumeFrom, withOptions: .caseInsensitive),
+            next.pages.contains(currentPage)
+        {
+            found = next
+        } else {
+            // Fresh word, fresh page, or the forward search wrapped off-page —
+            // fall back to the page's first occurrence.
+            found = document.findString(term, withOptions: .caseInsensitive).first(where: {
+                $0.pages.contains(currentPage)
+            })
+        }
+
+        highlightedSelections = found.map { [$0] }
+        lastHighlightPositionKey = positionKey
+        lastHighlightTerm = term
+        lastHighlightPage = currentPage
+        lastHighlightSelection = found
+    }
+
+    private func clearHighlightIfNeeded() {
+        guard lastHighlightPositionKey != nil else { return }
+        highlightedSelections = nil
+        lastHighlightPositionKey = nil
+        lastHighlightTerm = nil
+        lastHighlightPage = nil
+        lastHighlightSelection = nil
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let location = convert(event.locationInWindow, from: nil)
