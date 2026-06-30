@@ -42,4 +42,18 @@ import Testing
             || windows.contains { $0.expectedWordStart <= 7 && 7 <= $0.expectedWordEnd }
         #expect(covered)
     }
+
+    @Test func cleanReadingWithNumberAndShortWordProducesNoWindows() {
+        // "I" normalizes to zero tokens and "7" expands to one token ("seven"),
+        // so the source-word index and the normalized-token ordinal diverge after
+        // word 0. A correct narration must still yield no divergence windows — a
+        // regression guard for the token-ordinal vs source-word-index mismatch.
+        let block: [(blockID: String, text: String)] = [("blkN", "I have 7 brown cats")]
+        let words = heard([
+            ("have", 0.0), ("seven", 0.4), ("brown", 0.8), ("cats", 1.2),
+        ])
+        let windows = NarrationQADetector.detect(
+            expectedBlocks: block, heardWords: words, audiobookID: "bN")
+        #expect(windows.isEmpty)
+    }
 }

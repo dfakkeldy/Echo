@@ -19,15 +19,24 @@ enum NarrationQADetector {
         var tokenOrigin: [(blockID: String, wordIndex: Int)] = []
         // blockID -> [sourceWordIndex -> source word string], for window text.
         var blockWords: [String: [String]] = [:]
+        // blockID -> [perBlockTokenOrdinal: sourceWordIndex]. TokenDTW numbers the
+        // normalized tokens 0,1,2,… within each block, but a source word can emit
+        // several tokens (numbers, hyphenates) or none ("a", "I", punctuation), so
+        // the token ordinal and the source-word index diverge. This map translates
+        // a match's per-block token ordinal back into source-word space.
+        var blockTokenWordIndex: [String: [Int]] = [:]
         for block in expectedBlocks {
             let words = WordTokenizer.words(in: block.text).map(String.init)
             blockWords[block.blockID] = words
+            var tokenWordIndex: [Int] = []
             for (wordIndex, word) in words.enumerated() {
                 for norm in TokenDTW.normalize(word) {
                     epubTokens.append(TokenDTW.EPubToken(text: norm, blockID: block.blockID))
                     tokenOrigin.append((block.blockID, wordIndex))
+                    tokenWordIndex.append(wordIndex)
                 }
             }
+            blockTokenWordIndex[block.blockID] = tokenWordIndex
         }
         guard !epubTokens.isEmpty else { return [] }
 
@@ -42,8 +51,14 @@ enum NarrationQADetector {
         var coveredWords: [String: Set<Int>] = [:]
         var matchAudioTimes: [String: [Int: TimeInterval]] = [:]
         for m in matches {
-            coveredWords[m.blockID, default: []].insert(m.wordIndexInBlock)
-            matchAudioTimes[m.blockID, default: [:]][m.wordIndexInBlock] = m.audioTime
+            // m.wordIndexInBlock is a per-block *token* ordinal; map it back to a
+            // source-word index so `covered` lines up with the reporting loop below.
+            guard let tokenWordIndex = blockTokenWordIndex[m.blockID],
+                m.wordIndexInBlock < tokenWordIndex.count
+            else { continue }
+            let wordIndex = tokenWordIndex[m.wordIndexInBlock]
+            coveredWords[m.blockID, default: []].insert(wordIndex)
+            matchAudioTimes[m.blockID, default: [:]][wordIndex] = m.audioTime
         }
 
         var windows: [DivergenceWindow] = []
