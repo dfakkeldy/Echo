@@ -44,6 +44,12 @@ struct MacReaderFeedView: View {
     @State private var wordCache: [ReaderActiveBlockResolver.WordRow] = []
     /// (blockID, wordIndex) of the currently spoken word, for karaoke highlight.
     @State private var activeWord: (blockID: String, index: Int)?
+    /// Whether the loaded book has source-PDF page data (`pdf_block_page` rows) —
+    /// gates the Reflow/Page toggle. False for EPUB-sourced or unaligned books.
+    @State private var hasPDFPages = false
+    /// True shows the page-faithful `MacPDFReaderView` instead of the reflowed
+    /// block feed below.
+    @State private var showingPageView = false
 
     /// Blocks grouped into one entry per chapter, in reading order.
     /// Uses `$0.chapterIndex ?? -1` because `EPubBlockRecord.chapterIndex` is `Int?`;
@@ -74,7 +80,9 @@ struct MacReaderFeedView: View {
 
             Divider()
 
-            if isLoading {
+            if showingPageView, hasPDFPages {
+                MacPDFReaderView()
+            } else if isLoading {
                 Spacer()
                 ProgressView("Loading reader…")
                     .frame(maxWidth: .infinity)
@@ -193,6 +201,15 @@ struct MacReaderFeedView: View {
             Text("Reader")
                 .customFont(.headline, appFont: settings.appFont)
             Spacer()
+            if hasPDFPages {
+                Picker("View", selection: $showingPageView) {
+                    Text("Reflow").tag(false)
+                    Text("Page").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 140)
+            }
             Text("\(blocks.count) blocks")
                 .customFont(.caption, appFont: settings.appFont)
                 .foregroundStyle(.secondary)
@@ -215,6 +232,8 @@ struct MacReaderFeedView: View {
             blocks = []
             timelineCache = []
             wordCache = []
+            hasPDFPages = false
+            showingPageView = false
             return
         }
 
@@ -227,6 +246,9 @@ struct MacReaderFeedView: View {
                     .fetchAll(db)
             }
             blocks = result
+            let pdfPageRows = try PDFBlockPageDAO(db: dbService.writer).rows(for: audiobookID)
+            hasPDFPages = !pdfPageRows.isEmpty
+            if !hasPDFPages { showingPageView = false }
             // Phase 5: honest per-chapter has-audio for the accordion.
             let resolver = ChapterAudioStatusResolver(db: dbService.writer)
             chaptersWithAudio = (try? resolver.chaptersWithAudio(audiobookID: audiobookID)) ?? []
@@ -241,6 +263,8 @@ struct MacReaderFeedView: View {
             }
         } catch {
             blocks = []
+            hasPDFPages = false
+            showingPageView = false
             timelineCache = []
             wordCache = []
         }
