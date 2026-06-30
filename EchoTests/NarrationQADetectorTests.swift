@@ -24,6 +24,30 @@ import Testing
         #expect(windows.isEmpty)
     }
 
+    @Test func insertedWordsBecomeInsertionWindow() {
+        // Source fully covered; the narration speaks an EXTRA "brown furry" between
+        // "quick" and "fox" (no source word dropped). A run of >=2 unmatched heard
+        // words between covered source words is a pure insertion.
+        let words = heard([
+            ("the", 0.0), ("quick", 0.4), ("brown", 0.8), ("furry", 1.0), ("fox", 1.4),
+        ])
+        let windows = NarrationQADetector.detect(
+            expectedBlocks: [("blk1", "the quick fox")], heardWords: words)
+        let insertion = windows.first { $0.expectedText.isEmpty && !$0.heardText.isEmpty }
+        #expect(insertion != nil)
+        #expect(insertion?.heardText.contains("brown") == true)
+        #expect(insertion?.heardText.contains("furry") == true)
+    }
+
+    @Test func singleStrayHeardWordIsNotFlaggedAsInsertion() {
+        // A single unmatched heard word (likely ASR noise, not a real inserted
+        // phrase) must NOT become an insertion — the >=2-word guard suppresses it.
+        let words = heard([("the", 0.0), ("quick", 0.4), ("um", 0.8), ("fox", 1.2)])
+        let windows = NarrationQADetector.detect(
+            expectedBlocks: [("blk1", "the quick fox")], heardWords: words)
+        #expect(windows.allSatisfy { !($0.expectedText.isEmpty && !$0.heardText.isEmpty) })
+    }
+
     @Test func omittedAndSubstitutedWordsBecomeWindows() {
         // "brown" omitted; "lazy" -> "crazy".
         let words = heard([

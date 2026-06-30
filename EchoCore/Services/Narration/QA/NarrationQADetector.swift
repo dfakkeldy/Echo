@@ -116,7 +116,80 @@ nonisolated enum NarrationQADetector {
             }
             flush()
         }
+
+        // Pure insertions: heard words that matched no source token AND fall
+        // outside every divergence gap (so they are not a substitution's heard
+        // text). The narration spoke something extra. Require a run of >= 2 such
+        // words so a single stray ASR token isn't flagged as an issue.
+        windows.append(
+            contentsOf: insertionWindows(
+                heardWords: heardWords, matchedAudioTimes: matchedAudioTimes,
+                gapWindows: windows, matchAudioTimes: matchAudioTimes))
         return windows
+    }
+
+    /// Minimum consecutive unmatched heard words before a run counts as an
+    /// insertion. A single stray word is far more likely ASR noise than a real
+    /// inserted phrase, so the conservative floor trades recall for precision.
+    private static let minInsertionRun = 2
+
+    private static func insertionWindows(
+        heardWords: [TranscribedWord],
+        matchedAudioTimes: Set<TimeInterval>,
+        gapWindows: [DivergenceWindow],
+        matchAudioTimes: [String: [Int: TimeInterval]]
+    ) -> [DivergenceWindow] {
+        // Covered source words sorted by audio time, to attribute an insertion to
+        // the source position it follows. No coverage at all -> nothing to anchor
+        // an insertion against, so don't report (the run is more likely garbage).
+        var coveredByTime: [(time: TimeInterval, blockID: String, wordIndex: Int)] = []
+        for (blockID, byWord) in matchAudioTimes {
+            for (wordIndex, time) in byWord { coveredByTime.append((time, blockID, wordIndex)) }
+        }
+        guard !coveredByTime.isEmpty else { return [] }
+        coveredByTime.sort { $0.time < $1.time }
+
+        func insideAnyGap(_ t: TimeInterval) -> Bool {
+            gapWindows.contains { t > $0.audioStart && t < $0.audioEnd }
+        }
+        // Heard words that matched nothing and sit outside every gap, with their
+        // original ordinal so a non-consecutive jump breaks the run.
+        let free = heardWords.enumerated().filter {
+            !matchedAudioTimes.contains($0.element.start) && !insideAnyGap($0.element.start)
+        }
+
+        var result: [DivergenceWindow] = []
+        var run: [TranscribedWord] = []
+        var lastOrdinal: Int?
+
+        func flush() {
+            defer {
+                run = []
+                lastOrdinal = nil
+            }
+            guard run.count >= minInsertionRun, let startT = run.first?.start,
+                let endT = run.last?.start
+            else { return }
+            let anchor = coveredByTime.last { $0.time <= startT } ?? coveredByTime[0]
+            result.append(
+                DivergenceWindow(
+                    blockID: anchor.blockID,
+                    expectedText: "",
+                    heardText: run.map(\.text).joined(separator: " "),
+                    expectedWordStart: anchor.wordIndex,
+                    expectedWordEnd: anchor.wordIndex,
+                    audioStart: startT,
+                    audioEnd: max(endT, startT),
+                    confidence: 1.0))
+        }
+
+        for (ordinal, word) in free {
+            if let last = lastOrdinal, ordinal != last + 1 { flush() }
+            run.append(word)
+            lastOrdinal = ordinal
+        }
+        flush()
+        return result
     }
 
     private static func nearestTime(before index: Int, in times: [Int: TimeInterval])
