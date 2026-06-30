@@ -65,6 +65,7 @@ final class SettingsManager {
         static let locationCaptureEnabled = false
         static let debugLoggingEnabled = false
         static let autoAlignmentModelSize = "base.en"
+        static let narrationQAClassifier = "auto"
         static let autoAlignmentChapterSnapEnabled = true
         static let autoAlignmentDriftDetectionEnabled = true
         static let autoAlignmentDriftRepairEnabled = true
@@ -130,6 +131,7 @@ final class SettingsManager {
         static let locationCaptureEnabled = "locationCaptureEnabled"
         static let debugLoggingEnabled = "debugLoggingEnabled"
         static let autoAlignmentModelSize = "autoAlignmentModelSize"
+        static let narrationQAClassifier = "narrationQAClassifier"
         static let autoAlignmentChapterSnapEnabled = "autoAlignmentChapterSnapEnabled"
         static let autoAlignmentDriftDetectionEnabled = "autoAlignmentDriftDetectionEnabled"
         static let autoAlignmentDriftRepairEnabled = "autoAlignmentDriftRepairEnabled"
@@ -348,6 +350,9 @@ final class SettingsManager {
     var autoAlignmentModelSize: String {
         didSet { defaults.set(autoAlignmentModelSize, forKey: Keys.autoAlignmentModelSize) }
     }
+    var narrationQAClassifier: String {
+        didSet { defaults.set(narrationQAClassifier, forKey: Keys.narrationQAClassifier) }
+    }
     var autoAlignmentChapterSnapEnabled: Bool {
         didSet {
             defaults.set(
@@ -429,8 +434,7 @@ final class SettingsManager {
         }
 
         let didMigrate = (appGroupDefaults.object(forKey: migrationKey) as? Bool) ?? false
-        if isAppGroupAvailable, !didMigrate
-        {
+        if isAppGroupAvailable, !didMigrate {
             let watchKeys: [(key: String, read: () -> Any?, defaultValue: Any)] = [
                 (Keys.crownAction, { sourceValue(for: Keys.crownAction) }, Defaults.crownAction),
                 (
@@ -516,11 +520,11 @@ final class SettingsManager {
             ]
             for (key, read, defaultValue) in watchKeys {
                 if let value = read(),
-                   Self.shouldMigrateWatchValue(
-                    value,
-                    appGroupValue: appGroupValue(for: key),
-                    defaultValue: defaultValue
-                   )
+                    Self.shouldMigrateWatchValue(
+                        value,
+                        appGroupValue: appGroupValue(for: key),
+                        defaultValue: defaultValue
+                    )
                 {
                     appGroupDefaults.set(value, forKey: key)
                 }
@@ -667,6 +671,8 @@ final class SettingsManager {
             ?? Defaults.debugLoggingEnabled
         autoAlignmentModelSize =
             defaults.string(forKey: Keys.autoAlignmentModelSize) ?? Defaults.autoAlignmentModelSize
+        narrationQAClassifier =
+            defaults.string(forKey: Keys.narrationQAClassifier) ?? Defaults.narrationQAClassifier
         autoAlignmentChapterSnapEnabled =
             defaults.object(forKey: Keys.autoAlignmentChapterSnapEnabled) as? Bool
             ?? Defaults.autoAlignmentChapterSnapEnabled
@@ -704,11 +710,11 @@ final class SettingsManager {
 
     private static func defaultsValue(_ lhs: Any, equals rhs: Any) -> Bool {
         switch (lhs, rhs) {
-        case let (lhs as Data, rhs as Data):
+        case (let lhs as Data, let rhs as Data):
             lhs == rhs
-        case let (lhs as String, rhs as String):
+        case (let lhs as String, let rhs as String):
             lhs == rhs
-        case let (lhs as NSNumber, rhs as NSNumber):
+        case (let lhs as NSNumber, let rhs as NSNumber):
             lhs == rhs
         default:
             String(describing: lhs) == String(describing: rhs)
@@ -759,6 +765,7 @@ final class SettingsManager {
             Keys.locationCaptureEnabled: Defaults.locationCaptureEnabled,
             Keys.debugLoggingEnabled: Defaults.debugLoggingEnabled,
             Keys.autoAlignmentModelSize: Defaults.autoAlignmentModelSize,
+            Keys.narrationQAClassifier: Defaults.narrationQAClassifier,
             Keys.autoAlignmentChapterSnapEnabled: Defaults.autoAlignmentChapterSnapEnabled,
             Keys.autoAlignmentDriftDetectionEnabled: Defaults.autoAlignmentDriftDetectionEnabled,
             Keys.autoAlignmentDriftRepairEnabled: Defaults.autoAlignmentDriftRepairEnabled,
