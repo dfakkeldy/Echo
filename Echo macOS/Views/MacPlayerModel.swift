@@ -13,6 +13,7 @@
 import AVFoundation
 import AppKit
 import Foundation
+import ImageIO
 import Observation
 import Security
 import Synchronization
@@ -52,6 +53,12 @@ final class MacPlayerModel {
     private(set) var isPlaying: Bool = false
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
+    /// Cover art for the current file, surfaced to the macOS Now Playing (Media
+    /// Center) info. Sourced from the audio file's embedded artwork with a
+    /// folder-cover fallback — the same embedded→folder priority iOS uses (see
+    /// `ArtworkCache`, which is UIKit-only and excluded from the macOS target).
+    /// `nil` until loaded, or when neither source has artwork.
+    private(set) var coverImage: NSImage?
     /// The folder URL that contains the audiobook files. Used as the
     /// `audiobookID` for GRDB queries against the shared database.
     private(set) var folderURL: URL?
@@ -150,6 +157,8 @@ final class MacPlayerModel {
     private(set) var currentChapterIndex: Int = 0
     /// Token guarding async chapter loads against a file swapped mid-load.
     private var chapterLoadToken = UUID()
+    /// Token guarding async cover-art loads against a file swapped mid-load.
+    private var artworkLoadToken = UUID()
     /// Title of the open file, captured before chapters override `currentTitle`.
     /// Restored when chapters are absent so the UI never shows a stale chapter name.
     private var fileTitle: String = "No audiobook loaded"
@@ -344,6 +353,9 @@ final class MacPlayerModel {
         // chapters are loaded asynchronously just below.
         chapters = []
         currentChapterIndex = 0
+        // Drop stale cover art immediately so Now Playing never shows the
+        // previous book's art; the new file's art is loaded asynchronously below.
+        coverImage = nil
         // Infer folder from the file's parent directory if not already set.
         if folderURL == nil {
             folderURL = url.deletingLastPathComponent()
@@ -400,6 +412,7 @@ final class MacPlayerModel {
         loadBookmarksFromDB()
         migrateLegacyBookmarksIfNeeded()
         loadChapters(for: url)
+        loadCoverArt(for: url)
         restoreResumePositionIfNeeded()
     }
 
@@ -745,6 +758,7 @@ final class MacPlayerModel {
                 subtitle: "",
                 elapsed: currentTime,
                 duration: duration,
+                artworkImage: coverImage,
                 isPaused: !isPlaying,
                 playbackRate: playbackRate
             ))
@@ -1095,5 +1109,103 @@ private nonisolated final class ReadyToPlayGuard: Sendable {
             return continuationToResume
         }
         toResume?.resume()
+    }
+}
+
+// MARK: - Cover art
+
+extension MacPlayerModel {
+    /// Sources cover art for `url` (embedded artwork first, then a sibling folder
+    /// cover) off the main actor and republishes Now Playing when it arrives.
+    /// Guarded by `artworkLoadToken` so a file swapped mid-load is ignored. iOS
+    /// does the equivalent via `ArtworkCache`, which is UIKit-only and excluded
+    /// from the macOS target.
+    fileprivate func loadCoverArt(for url: URL) {
+        let token = UUID()
+        artworkLoadToken = token
+        let scopedRoot = libraryRootScopedURL
+        Task { @MainActor [weak self] in
+            let image = await MacArtworkLoader.coverImage(for: url, scopedRoot: scopedRoot)
+            guard let self, self.artworkLoadToken == token else { return }
+            self.coverImage = image
+            // Only republish when art was actually found, so a "no artwork" result
+            // doesn't stomp metadata published since this load began.
+            if image != nil { self.updateNowPlaying() }
+        }
+    }
+}
+
+/// macOS counterpart to the iOS-only `ArtworkCache` cover sourcing. Pure helpers
+/// with no shared mutable state, returning `NSImage` — the type
+/// `MPMediaItemArtwork` expects on macOS.
+private enum MacArtworkLoader {
+    /// Embedded artwork first (covers m4b and narrated m4b), then a sibling
+    /// folder cover image. Returns nil when neither source has artwork.
+    static func coverImage(for url: URL, scopedRoot: URL?) async -> NSImage? {
+        // Keep the library root reachable while reading (folder/library books hold
+        // a long-lived root scope; ad-hoc single-file opens no-op here and rely on
+        // the file already being open for playback).
+        let rootDidStart = scopedRoot?.startAccessingSecurityScopedResource() ?? false
+        defer { if rootDidStart { scopedRoot?.stopAccessingSecurityScopedResource() } }
+
+        if let embedded = await embeddedArtworkImage(for: url) { return embedded }
+        return folderArtworkImage(near: url)
+    }
+
+    /// Extracts embedded cover art from the audio file's `.commonKeyArtwork`
+    /// metadata, downsampled to 600px on the long edge.
+    static func embeddedArtworkImage(for url: URL) async -> NSImage? {
+        let asset = AVURLAsset(url: url)
+        let metadata = (try? await asset.load(.commonMetadata)) ?? []
+        for item in metadata where item.commonKey == .commonKeyArtwork {
+            guard let data = try? await item.load(.dataValue) else { continue }
+            if let image = downsampledImage(from: data) { return image }
+        }
+        return nil
+    }
+
+    /// Falls back to a `cover.*` (or first, name-sorted) image file alongside the
+    /// audio — the same heuristic `ArtworkCache.folderArtworkImage` uses on iOS.
+    static func folderArtworkImage(near url: URL) -> NSImage? {
+        let folderURL = url.deletingLastPathComponent()
+        let didStart = folderURL.startAccessingSecurityScopedResource()
+        defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+
+        let imageExtensions: Set<String> = [
+            "jpg", "jpeg", "png", "heic", "heif", "webp", "gif", "bmp", "tiff",
+        ]
+        let files =
+            (try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])) ?? []
+        let images = files.filter { imageExtensions.contains($0.pathExtension.lowercased()) }
+        guard !images.isEmpty else { return nil }
+
+        let preferred = images.first {
+            $0.deletingPathExtension().lastPathComponent.lowercased() == "cover"
+        }
+        let selected =
+            preferred
+            ?? images.sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }.first
+        guard let selected, let data = try? Data(contentsOf: selected) else { return nil }
+        return downsampledImage(from: data)
+    }
+
+    /// Decodes `data` to a downsampled `NSImage` (max 600px on the long edge).
+    static func downsampledImage(from data: Data, maxPixelSize: Int = 600) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }

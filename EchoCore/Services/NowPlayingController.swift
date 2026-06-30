@@ -2,8 +2,17 @@
 import Foundation
 import MediaPlayer
 
-#if os(iOS)
+#if canImport(UIKit)
     import UIKit
+
+    /// The platform image type `MPMediaItemArtwork` expects — `UIImage` on UIKit
+    /// platforms, `NSImage` on macOS — so the Now Playing artwork path is written
+    /// once for both. (macOS showed no artwork at all while this was `#if os(iOS)`.)
+    typealias PlatformImage = UIImage
+#elseif canImport(AppKit)
+    import AppKit
+
+    typealias PlatformImage = NSImage
 #endif
 
 /// Manages MPNowPlayingInfoCenter metadata updates and MPRemoteCommandCenter
@@ -106,9 +115,7 @@ final class NowPlayingController {
         var chapterIndex: Int?
         var chapterElapsed: TimeInterval?
         var chapterDuration: TimeInterval?
-        #if os(iOS)
-            var artworkImage: UIImage?
-        #endif
+        var artworkImage: PlatformImage?
         var isPaused: Bool = false
         var playbackRate: Float = 1.0
     }
@@ -141,16 +148,14 @@ final class NowPlayingController {
             }
         }
 
-        #if os(iOS)
-            if let image = params.artworkImage {
-                let artworkImage = image
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(
-                    boundsSize: artworkImage.size
-                ) { @Sendable [artworkImage] _ in
-                    artworkImage
-                }
+        if let image = params.artworkImage {
+            // PlatformImage (UIImage / NSImage) is Sendable, so it's safe to capture
+            // for the artwork request handler, which the system may invoke off the
+            // main actor.
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
+                image
             }
-        #endif
+        }
 
         info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
         // The system uses DefaultPlaybackRate to know what "1×" means for this item.
