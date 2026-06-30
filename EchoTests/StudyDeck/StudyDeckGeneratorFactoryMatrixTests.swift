@@ -50,4 +50,8 @@ nonisolated final class StudyDeckGeneratorFactoryMatrixTests: XCTestCase {
     func testOnDeviceNoFmFixture() {
         XCTAssertTrue(make(.onDevice, key: true, fm: false) is FixtureStudyDeckGenerator)
     }
+
+    func testCloudWithKeyUsesCloud() {
+        XCTAssertTrue(make(.cloud, key: true, fm: false) is CloudSentinel)
+    }
 }
