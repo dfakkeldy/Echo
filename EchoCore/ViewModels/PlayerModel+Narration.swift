@@ -90,46 +90,68 @@
                     // alignment/timeline paths.
                     let blocks = try EPubBlockDAO(db: db).visibleBlocks(for: audiobookID)
 
-                    // Copy the EPUB's first image (typically the cover) into the
-                    // narration cache so Now Playing and the lock screen can show
-                    // artwork instead of a placeholder icon. Query ALL image blocks
-                    // (not just visibleBlocks) because the cover is front-matter
-                    // and marked is_hidden during import.
+                    // Write the EPUB's cover into the narration cache so Now Playing
+                    // and the lock screen show artwork instead of a placeholder. The
+                    // cover is declared in the EPUB's OPF (`<meta name="cover">` /
+                    // `properties="cover-image"`), NOT as an inline content image, so
+                    // resolve it from the book first — matching the live reader. Only
+                    // when the EPUB declares no OPF cover (or isn't reachable) do we
+                    // fall back to scanning inline image blocks.
                     let coverLogger = Logger(category: "NarrationCover")
-                    let allBlocks = (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID)) ?? []
-                    // Prefer front-matter images (the cover is always front-matter),
-                    // fall back to any image if the EPUB doesn't separate front/body.
-                    let imageBlocks = allBlocks.filter {
-                        $0.blockKind == EPubBlockRecord.Kind.image.rawValue
+                    let coverBase = cacheDirectory.appendingPathComponent("cover")
+                    // Clear any stale cover (any common extension) from a prior run.
+                    for ext in ["jpg", "jpeg", "png"] {
+                        try? FileManager.default.removeItem(
+                            at: coverBase.appendingPathExtension(ext))
                     }
-                    let frontMatterImages = imageBlocks.filter(\.isFrontMatter)
-                    let candidates = frontMatterImages.isEmpty ? imageBlocks : frontMatterImages
-                    coverLogger.debug(
-                        "Searching for cover: \(allBlocks.count) total, \(imageBlocks.count) image, \(frontMatterImages.count) front-matter"
-                    )
-                    if let coverBlock =
-                        candidates
-                        .sorted(by: { $0.sequenceIndex < $1.sequenceIndex })
-                        .first,
-                        let imagePath = coverBlock.imagePath,
-                        FileManager.default.fileExists(atPath: imagePath)
-                    {
-                        let coverSource = URL(fileURLWithPath: imagePath)
-                        let ext =
-                            coverSource.pathExtension.isEmpty ? "jpg" : coverSource.pathExtension
-                        let coverDest = cacheDirectory.appendingPathComponent("cover")
-                            .appendingPathExtension(ext)
-                        // Remove any stale cover from a previous voice/render run.
-                        try? FileManager.default.removeItem(at: coverDest)
+                    if let coverData = EpubCoverResolver.coverData(forAudiobookID: audiobookID) {
+                        let ext: String =
+                            coverData.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "png" : "jpg"
+                        let coverDest = coverBase.appendingPathExtension(ext)
                         do {
-                            try FileManager.default.copyItem(at: coverSource, to: coverDest)
-                            coverLogger.info("Copied EPUB cover to \(coverDest.path)")
+                            try coverData.write(to: coverDest)
+                            coverLogger.info("Wrote OPF cover to \(coverDest.path)")
                         } catch {
                             coverLogger.warning(
-                                "Failed to copy EPUB cover: \(error.localizedDescription)")
+                                "Failed to write OPF cover: \(error.localizedDescription)")
                         }
                     } else {
-                        coverLogger.debug("No cover image found in EPUB blocks")
+                        // Fallback: the first front-matter (else any) inline image
+                        // block. Query ALL image blocks (not just visibleBlocks) since
+                        // the cover is front-matter and marked is_hidden during import.
+                        let allBlocks =
+                            (try? EPubBlockDAO(db: db).allBlocks(for: audiobookID)) ?? []
+                        let imageBlocks = allBlocks.filter {
+                            $0.blockKind == EPubBlockRecord.Kind.image.rawValue
+                        }
+                        let frontMatterImages = imageBlocks.filter(\.isFrontMatter)
+                        let candidates =
+                            frontMatterImages.isEmpty ? imageBlocks : frontMatterImages
+                        if let coverBlock =
+                            candidates
+                            .sorted(by: { $0.sequenceIndex < $1.sequenceIndex })
+                            .first,
+                            let imagePath = coverBlock.imagePath,
+                            FileManager.default.fileExists(atPath: imagePath)
+                        {
+                            let coverSource = URL(fileURLWithPath: imagePath)
+                            let ext =
+                                coverSource.pathExtension.isEmpty
+                                ? "jpg" : coverSource.pathExtension
+                            let coverDest = coverBase.appendingPathExtension(ext)
+                            try? FileManager.default.removeItem(at: coverDest)
+                            do {
+                                try FileManager.default.copyItem(at: coverSource, to: coverDest)
+                                coverLogger.info("Copied inline cover image to \(coverDest.path)")
+                            } catch {
+                                coverLogger.warning(
+                                    "Failed to copy inline cover image: \(error.localizedDescription)"
+                                )
+                            }
+                        } else {
+                            coverLogger.debug(
+                                "No cover found (no OPF cover, no inline image block)")
+                        }
                     }
 
                     let plan = NarrationChapterPlanner.plan(from: blocks)
