@@ -28,6 +28,25 @@ final class NarrationQAService {
         self.transcribe = transcribe
     }
 
+    /// Builds the `runQA` chapter list for an initial "Run QA" pass: every chapter
+    /// that has rendered narration audio on disk, with its non-hidden block ids as
+    /// the spoken set. Pure — callers inject file URL/existence so it is testable
+    /// without touching the filesystem. Chapters without a rendered file (or with
+    /// only hidden blocks) are skipped.
+    static func chaptersToQA(
+        blocksByChapter: [Int: [EPubBlockRecord]],
+        fileURL: (Int) -> URL,
+        fileExists: (URL) -> Bool
+    ) -> [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])] {
+        blocksByChapter.keys.sorted().compactMap { chapter in
+            let spoken = (blocksByChapter[chapter] ?? []).filter { !$0.isHidden }.map(\.id)
+            guard !spoken.isEmpty else { return nil }
+            let url = fileURL(chapter)
+            guard fileExists(url) else { return nil }
+            return (chapter, url, spoken)
+        }
+    }
+
     func runQA(
         audiobookID: String,
         chapters: [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])]
@@ -39,14 +58,15 @@ final class NarrationQAService {
         let now = Self.iso.string(from: Date())
 
         for chapter in chapters {
-            // Clear this chapter's prior issues so a re-run converges.
-            try issueDAO.deleteAll(for: audiobookID, blockIDs: chapter.spokenBlockIDs)
+            // Clear this chapter's prior OPEN issues so a re-run converges, while
+            // preserving the user's resolved/ignored verdicts (the audit trail).
+            try issueDAO.deleteOpen(for: audiobookID, blockIDs: chapter.spokenBlockIDs)
 
             let expectedBlocks: [(blockID: String, text: String)] = chapter.spokenBlockIDs
                 .compactMap {
                     id in
                     guard let text = blocksByID[id]?.text, !text.isEmpty else { return nil }
-                    return (id, text)
+                    return (id, TextNormalizer.normalize(text))
                 }
             guard !expectedBlocks.isEmpty else { continue }
 

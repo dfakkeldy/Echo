@@ -15,7 +15,7 @@ import SwiftUI
 struct MacNarrationQAReviewView: View {
     @State private var model: NarrationQAReviewModel
     @State private var selectedIssueID: String?
-    @State private var errorMessage: String?
+    @State private var isRunning = false
 
     init(db: DatabaseWriter, audiobookID: String) {
         _model = State(initialValue: NarrationQAReviewModel(db: db, audiobookID: audiobookID))
@@ -23,12 +23,12 @@ struct MacNarrationQAReviewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let error = errorMessage {
+            if let error = model.lastError {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                     Spacer()
-                    Button("Dismiss") { errorMessage = nil }
+                    Button("Dismiss") { model.lastError = nil }
                 }
                 .padding()
                 .background(.orange.opacity(0.1))
@@ -52,6 +52,20 @@ struct MacNarrationQAReviewView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button {
+                    Task {
+                        isRunning = true
+                        await model.runFullQA()
+                        isRunning = false
+                    }
+                } label: {
+                    if isRunning {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Run QA", systemImage: "waveform.badge.magnifyingglass")
+                    }
+                }
+                .disabled(isRunning)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)

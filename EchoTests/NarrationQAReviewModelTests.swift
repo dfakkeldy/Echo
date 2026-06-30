@@ -54,4 +54,39 @@ import Testing
         #expect(resolved.count == 1)
         #expect(resolved[0].resolvedAt != nil)
     }
+
+    @Test func runFullQAWithNoRenderedAudioSurfacesError() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+        // Nothing rendered → must not silently show an empty queue.
+        await model.runFullQA(chapters: []) { _ in }
+        #expect(model.lastError != nil)
+    }
+
+    @Test func runFullQASurfacesRunFailure() async throws {
+        struct Boom: Error {}
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+        await model.runFullQA(
+            chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])]
+        ) { _ in throw Boom() }
+        #expect(model.lastError != nil)
+    }
+
+    @Test func runFullQASuccessReloadsAndClearsError() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        let model = NarrationQAReviewModel(db: db.writer, audiobookID: "b1")
+        model.lastError = "stale"
+        var ran = false
+        await model.runFullQA(
+            chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])]
+        ) { _ in ran = true }
+        #expect(ran)
+        #expect(model.lastError == nil)
+        // Reload surfaced the seeded open issue.
+        #expect(model.issues.count == 1)
+    }
 }
