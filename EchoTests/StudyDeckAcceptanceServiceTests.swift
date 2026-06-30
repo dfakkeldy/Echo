@@ -126,6 +126,93 @@ import Testing
         #expect(timeline.playlistPosition == nil)
     }
 
+    @Test func basicDraftProducesOneRowWithCardTypeNormal() throws {
+        let service = try seededService()
+        let acceptance = StudyDeckAcceptanceService(db: service.writer)
+
+        let accepted = try acceptance.accept(
+            draft(),
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            selectedCardIDs: ["draft-1"],
+            now: fixedNow
+        )
+
+        #expect(accepted.count == 1)
+        let card = try #require(accepted.first)
+        #expect(card.cardType == StudyFlashcardType.normal)
+        #expect(card.clozeIndex == nil)
+
+        let persisted = try persistedCards(in: service)
+        #expect(persisted.count == 1)
+        #expect(persisted[0].cardType == StudyFlashcardType.normal)
+        #expect(persisted[0].clozeIndex == nil)
+    }
+
+    @Test func clozeDraftExpandsIntoOneCardPerDeletion() throws {
+        let service = try seededService()
+        let acceptance = StudyDeckAcceptanceService(db: service.writer)
+
+        // "The {{c1::heart}} pumps {{c2::blood}}." — anchored to block-1 which has a timeline row
+        let clozeDraft = GeneratedStudyDeckDraft(
+            cards: [
+                GeneratedStudyDeckCardDraft(
+                    id: "cloze-draft-1",
+                    sourceBlockID: "block-1",
+                    frontText: "The heart pumps blood.",
+                    backText: "The heart pumps blood.",
+                    tags: ["generated", "cloze"],
+                    kind: .cloze,
+                    clozeText: "The {{c1::heart}} pumps {{c2::blood}}."
+                )
+            ],
+            validSourceBlockIDs: ["block-1"]
+        )
+
+        let accepted = try acceptance.accept(
+            clozeDraft,
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            selectedCardIDs: ["cloze-draft-1"],
+            now: fixedNow
+        )
+
+        // Two cloze deletions → two flashcard rows
+        #expect(accepted.count == 2)
+
+        let sortedByIndex = accepted.sorted { ($0.clozeIndex ?? 0) < ($1.clozeIndex ?? 0) }
+
+        let card1 = try #require(sortedByIndex.first)
+        let card2 = try #require(sortedByIndex.last)
+
+        // Both cards have card_type = "cloze"
+        #expect(card1.cardType == StudyFlashcardType.cloze)
+        #expect(card2.cardType == StudyFlashcardType.cloze)
+
+        // cloze_index values are 1 and 2
+        #expect(card1.clozeIndex == 1)
+        #expect(card2.clozeIndex == 2)
+
+        // Fronts blank the answer; backs reveal it
+        #expect(card1.frontText == "The [...] pumps {{c2::blood}}.")
+        #expect(card1.backText == "The [heart] pumps {{c2::blood}}.")
+        #expect(card2.frontText == "The {{c1::heart}} pumps [...].")
+        #expect(card2.backText == "The {{c1::heart}} pumps [blood].")
+
+        // Shared metadata from the draft (same source block)
+        #expect(card1.sourceBlockID == "block-1")
+        #expect(card2.sourceBlockID == "block-1")
+        #expect(card1.mediaTimestamp == 12.5)
+        #expect(card2.mediaTimestamp == 12.5)
+
+        // Both rows persisted with correct card_type / cloze_index in DB
+        let persisted = try persistedCards(in: service)
+        #expect(persisted.count == 2)
+        #expect(persisted.allSatisfy { $0.cardType == StudyFlashcardType.cloze })
+        let persistedIndices = Set(persisted.compactMap(\.clozeIndex))
+        #expect(persistedIndices == [1, 2])
+    }
+
     @Test func fallsBackToZeroTimestampsWhenSourceTimelineIsAbsent() throws {
         let service = try seededService()
         let acceptance = StudyDeckAcceptanceService(db: service.writer)
@@ -246,16 +333,18 @@ import Testing
         in service: DatabaseService
     ) throws -> TimelineSnapshot? {
         try service.read { db in
-            guard let row = try Row.fetchOne(
-                db,
-                sql: """
-                    SELECT id, source_table, source_rowid, epub_block_id,
-                           audio_start_time, audio_end_time, playlist_position
-                    FROM timeline_item
-                    WHERE source_table = 'flashcard' AND source_rowid = ?
-                    """,
-                arguments: [cardID]
-            ) else {
+            guard
+                let row = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT id, source_table, source_rowid, epub_block_id,
+                               audio_start_time, audio_end_time, playlist_position
+                        FROM timeline_item
+                        WHERE source_table = 'flashcard' AND source_rowid = ?
+                        """,
+                    arguments: [cardID]
+                )
+            else {
                 return nil
             }
 

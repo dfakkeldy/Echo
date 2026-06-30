@@ -33,15 +33,17 @@ struct StudyDeckAcceptanceService {
                     sourceBlockID: draftCard.sourceBlockID,
                     db: db
                 )
-                let card = Self.makeFlashcard(
+                let cards = Self.makeFlashcards(
                     draftCard: draftCard,
                     audiobookID: audiobookID,
                     deckID: deckID,
                     timelineMapping: timelineMapping,
                     nowString: nowString
                 )
-                try FlashcardDAO.insert(card, in: db)
-                acceptedCards.append(card)
+                for card in cards {
+                    try FlashcardDAO.insert(card, in: db)
+                    acceptedCards.append(card)
+                }
             }
 
             return acceptedCards
@@ -77,32 +79,34 @@ struct StudyDeckAcceptanceService {
         sourceBlockID: String,
         db: Database
     ) throws -> TimelineMapping {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-                SELECT audio_start_time, audio_end_time, playlist_position
-                FROM timeline_item
-                WHERE audiobook_id = :audiobookID
-                  AND epub_block_id = :sourceBlockID
-                  AND (source_table = 'epub_block' OR source_table IS NULL)
-                ORDER BY
-                  CASE
-                    WHEN source_table = 'epub_block' AND source_rowid = :sourceBlockID THEN 0
-                    WHEN source_table = 'epub_block' THEN 1
-                    ELSE 2
-                  END,
-                  is_enabled DESC,
-                  CASE WHEN playlist_position IS NULL THEN 1 ELSE 0 END,
-                  playlist_position,
-                  audio_start_time,
-                  id
-                LIMIT 1
-                """,
-            arguments: [
-                "audiobookID": audiobookID,
-                "sourceBlockID": sourceBlockID,
-            ]
-        ) else {
+        guard
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT audio_start_time, audio_end_time, playlist_position
+                    FROM timeline_item
+                    WHERE audiobook_id = :audiobookID
+                      AND epub_block_id = :sourceBlockID
+                      AND (source_table = 'epub_block' OR source_table IS NULL)
+                    ORDER BY
+                      CASE
+                        WHEN source_table = 'epub_block' AND source_rowid = :sourceBlockID THEN 0
+                        WHEN source_table = 'epub_block' THEN 1
+                        ELSE 2
+                      END,
+                      is_enabled DESC,
+                      CASE WHEN playlist_position IS NULL THEN 1 ELSE 0 END,
+                      playlist_position,
+                      audio_start_time,
+                      id
+                    LIMIT 1
+                    """,
+                arguments: [
+                    "audiobookID": audiobookID,
+                    "sourceBlockID": sourceBlockID,
+                ]
+            )
+        else {
             return .fallback
         }
 
@@ -118,7 +122,52 @@ struct StudyDeckAcceptanceService {
         )
     }
 
-    private static func makeFlashcard(
+    private static func makeFlashcards(
+        draftCard: GeneratedStudyDeckCardDraft,
+        audiobookID: String,
+        deckID: String,
+        timelineMapping: TimelineMapping,
+        nowString: String
+    ) -> [Flashcard] {
+        switch draftCard.kind {
+        case .cloze:
+            let clozeText = draftCard.clozeText ?? ""
+            let deletions = ClozeParser.parseDeletions(clozeText)
+            return deletions.map { deletion in
+                Self.flashcard(
+                    frontText: ClozeParser.makeFront(text: clozeText, deletion: deletion),
+                    backText: ClozeParser.makeBack(text: clozeText, deletion: deletion),
+                    cardType: StudyFlashcardType.cloze,
+                    clozeIndex: deletion.index,
+                    draftCard: draftCard,
+                    audiobookID: audiobookID,
+                    deckID: deckID,
+                    timelineMapping: timelineMapping,
+                    nowString: nowString
+                )
+            }
+        case .basic:
+            return [
+                Self.flashcard(
+                    frontText: draftCard.frontText,
+                    backText: draftCard.backText,
+                    cardType: StudyFlashcardType.normal,
+                    clozeIndex: nil,
+                    draftCard: draftCard,
+                    audiobookID: audiobookID,
+                    deckID: deckID,
+                    timelineMapping: timelineMapping,
+                    nowString: nowString
+                )
+            ]
+        }
+    }
+
+    private static func flashcard(
+        frontText: String,
+        backText: String,
+        cardType: String,
+        clozeIndex: Int?,
         draftCard: GeneratedStudyDeckCardDraft,
         audiobookID: String,
         deckID: String,
@@ -128,8 +177,8 @@ struct StudyDeckAcceptanceService {
         Flashcard(
             id: UUID().uuidString,
             audiobookID: audiobookID,
-            frontText: draftCard.frontText,
-            backText: draftCard.backText,
+            frontText: frontText,
+            backText: backText,
             mediaTimestamp: timelineMapping.mediaTimestamp,
             endTimestamp: timelineMapping.endTimestamp,
             triggerTiming: .manualOnly,
@@ -149,8 +198,8 @@ struct StudyDeckAcceptanceService {
             modifiedAt: nowString,
             stability: nil,
             difficulty: nil,
-            cardType: StudyFlashcardType.normal,
-            clozeIndex: nil
+            cardType: cardType,
+            clozeIndex: clozeIndex
         )
     }
 
