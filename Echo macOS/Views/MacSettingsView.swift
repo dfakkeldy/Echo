@@ -10,6 +10,7 @@
 //  StoreKit concept on macOS, so the iOS "Pro Transcripts" pane is omitted.
 //
 
+import AppKit
 import SwiftUI
 
 struct MacSettingsView: View {
@@ -165,6 +166,30 @@ private struct MacPlaybackSettingsPane: View {
 
             Section {
                 Toggle("Smart Rewind", isOn: $settings.isRewindEnabled)
+
+                if settings.isRewindEnabled {
+                    Stepper(value: $settings.rewindPauseSecondsThreshold, in: 5...300, step: 5) {
+                        Text("Short pause after \(settings.rewindPauseSecondsThreshold)s")
+                    }
+                    Stepper(value: $settings.rewindAmountAfterSeconds, in: 5...180, step: 5) {
+                        Text("…then rewind \(settings.rewindAmountAfterSeconds)s")
+                    }
+                    Stepper(value: $settings.rewindPauseMinutesThreshold, in: 1...120, step: 1) {
+                        Text("Medium pause after \(settings.rewindPauseMinutesThreshold) min")
+                    }
+                    Stepper(value: $settings.rewindAmountAfterMinutes, in: 10...600, step: 5) {
+                        Text("…then rewind \(settings.rewindAmountAfterMinutes)s")
+                    }
+                    Stepper(value: $settings.rewindPauseHoursThreshold, in: 1...24, step: 1) {
+                        Text("Long pause after \(settings.rewindPauseHoursThreshold)h")
+                    }
+                    Toggle("…then jump to chapter start", isOn: $settings.rewindHoursToChapterStart)
+                    if !settings.rewindHoursToChapterStart {
+                        Stepper(value: $settings.rewindAmountAfterHours, in: 15...3600, step: 15) {
+                            Text("…then rewind \(settings.rewindAmountAfterHours)s")
+                        }
+                    }
+                }
             } header: {
                 Text("Smart Rewind")
             } footer: {
@@ -254,6 +279,34 @@ private struct MacSupportSettingsPane: View {
             } footer: {
                 Text(
                     "Email opens with Echo's version and commit already filled in. No logs, book paths, or listening data are attached."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
+                LabeledContent("Version", value: buildMetadata.versionString)
+                LabeledContent("Commit") {
+                    HStack(spacing: 8) {
+                        Text(buildMetadata.commitString)
+                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(
+                                buildMetadata.commitString, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Copy commit hash")
+                    }
+                }
+            } header: {
+                Text("About")
+            } footer: {
+                Text(
+                    "Use these details when comparing installs or reporting a bug. The commit hash is stamped in at build time."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
