@@ -1,6 +1,32 @@
 import Foundation
 import NaturalLanguage
 
+public struct EnglishG2PFallbackHit: Equatable, Hashable {
+  public let word: String
+  public let phonemes: String
+
+  public init(word: String, phonemes: String) {
+    self.word = word
+    self.phonemes = phonemes
+  }
+}
+
+public struct EnglishG2PResult {
+  public let phonemes: String
+  public let tokens: [MToken]
+  public let fallbackHits: [EnglishG2PFallbackHit]
+
+  public init(
+    phonemes: String,
+    tokens: [MToken],
+    fallbackHits: [EnglishG2PFallbackHit]
+  ) {
+    self.phonemes = phonemes
+    self.tokens = tokens
+    self.fallbackHits = fallbackHits
+  }
+}
+
 // Main G2P pipeline for English text
 final public class EnglishG2P {
   private let british: Bool
@@ -415,9 +441,13 @@ final public class EnglishG2P {
   /// fallback (effectively spelling it out) instead of being silently skipped.
   /// Letter-less tokens (punctuation, whitespace) legitimately contribute
   /// nothing and are left as `current ?? ""`.
-  func voicedPhonemes(text: String, current: String?) -> String {
+  func needsVoicedFallback(text: String, current: String?) -> Bool {
     let isVoiceless = current == nil || current!.range(of: unk) != nil
-    guard isVoiceless, text.contains(where: { $0.isLetter }) else {
+    return isVoiceless && text.contains(where: { $0.isLetter })
+  }
+
+  func voicedPhonemes(text: String, current: String?) -> String {
+    guard needsVoicedFallback(text: text, current: current) else {
       return current ?? ""
     }
     return EnglishFallbackNetwork.phonemes(for: text)
@@ -425,6 +455,13 @@ final public class EnglishG2P {
 
   // Turns the text into phonemes that can then be fed to text-to-speech (TTS) engine for converting to audio
   public func phonemize(text: String, performPreprocess: Bool = true) -> (String, [MToken]) {
+    let result = phonemizeWithMetadata(text: text, performPreprocess: performPreprocess)
+    return (result.phonemes, result.tokens)
+  }
+
+  /// Turns text into phonemes and exposes every deterministic fallback used for
+  /// out-of-vocabulary words. `phonemize` remains the compatibility wrapper.
+  public func phonemizeWithMetadata(text: String, performPreprocess: Bool = true) -> EnglishG2PResult {
     let pre: PreprocessTuple
     if performPreprocess {
         pre = self.preprocess(text: text)
@@ -438,6 +475,7 @@ final public class EnglishG2P {
     let words = retokenize(tokens)
     
     var ctx = TokenContext()
+    var fallbackHits: [EnglishG2PFallbackHit] = []
     for i in stride(from: words.count - 1, through: 0, by: -1) {
       if let w = words[i] as? MToken {
         if w.phonemes == nil {
@@ -450,6 +488,7 @@ final public class EnglishG2P {
           let out = fallback(w)
           w.phonemes = out.0
           w.`_`.rating = out.1
+          fallbackHits.append(EnglishG2PFallbackHit(word: w.text, phonemes: out.0))
         }
         
         ctx = tokenContext(ctx, ps: w.phonemes, token: w)
@@ -497,6 +536,7 @@ final public class EnglishG2P {
           let out = fallback(token)
           first.phonemes = out.0
           first.`_`.rating = out.1
+          fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))
           arr[0] = first
           if arr.count > 1 {
             for j in 1..<arr.count {
@@ -526,10 +566,16 @@ final public class EnglishG2P {
     // fallback still left unvoiced (nil, or the dropped `❓` unk marker) is
     // approximated here so it is spoken, never silently skipped downstream.
     for token in finalTokens {
-      token.phonemes = voicedPhonemes(text: token.text, current: token.phonemes)
+      let current = token.phonemes
+      let usesFallback = needsVoicedFallback(text: token.text, current: current)
+      let phonemes = voicedPhonemes(text: token.text, current: current)
+      if usesFallback {
+        fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: phonemes))
+      }
+      token.phonemes = phonemes
     }
 
     let result = finalTokens.map { ( $0.phonemes ?? self.unk ) + $0.whitespace }.joined()
-    return (result, finalTokens)
+    return EnglishG2PResult(phonemes: result, tokens: finalTokens, fallbackHits: fallbackHits)
   }
 }

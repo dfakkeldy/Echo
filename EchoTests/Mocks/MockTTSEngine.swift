@@ -18,6 +18,7 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     /// Sub-chunk text that should mimic ONNX Runtime's invalid Expand-shape
     /// failure, which is another skippable over-long-fragment signal.
     var invalidExpandShapeOnText: String?
+    var pronunciationFallbackHitsByText: [String: [PronunciationFallbackHit]] = [:]
 
     init(secondsPerChar: Double = 0.1) { self.secondsPerChar = secondsPerChar }
 
@@ -37,6 +38,8 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
         let duration = Double(text.count) * secondsPerChar
         return TTSChunk(
             samples: [Float](repeating: 0, count: max(1, text.count)),
-            sampleRate: 24_000, duration: duration)
+            sampleRate: 24_000,
+            duration: duration,
+            pronunciationFallbackHits: pronunciationFallbackHitsByText[text] ?? [])
     }
 }

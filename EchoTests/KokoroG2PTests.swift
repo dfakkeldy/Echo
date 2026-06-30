@@ -17,4 +17,11 @@ import Testing
         let b = KokoroG2P().phonemes(for: "The quick brown fox.")
         #expect(a == b)
     }
+
+    @Test func resultReportsOOVFallbackHits() {
+        let result = KokoroG2P().result(for: "Jacqui said hello.")
+        #expect(!result.phonemes.isEmpty)
+        #expect(result.fallbackHits.contains { $0.word == "Jacqui" && !$0.ipa.isEmpty })
+        #expect(!result.fallbackHits.contains { $0.word.lowercased().contains("hello") })
+    }
 }

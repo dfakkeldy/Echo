@@ -14,6 +14,11 @@
     ///
     /// US English only (Echo ships no `gb_*` resources).
     nonisolated struct KokoroG2P {
+        struct Result: Equatable, Sendable {
+            let phonemes: String
+            let fallbackHits: [PronunciationFallbackHit]
+        }
+
         private let engine: EnglishG2P
 
         init() {
@@ -25,8 +30,17 @@
 
         /// IPA phonemes for `text`, spaces preserved between words.
         func phonemes(for text: String) -> String {
-            let (phonemes, _) = engine.phonemize(text: text)
-            return phonemes
+            result(for: text).phonemes
+        }
+
+        /// IPA phonemes plus OOV fallback metadata for pronunciation discovery.
+        func result(for text: String) -> Result {
+            let result = engine.phonemizeWithMetadata(text: text)
+            return Result(
+                phonemes: result.phonemes,
+                fallbackHits: result.fallbackHits.map {
+                    PronunciationFallbackHit(word: $0.word, ipa: $0.phonemes)
+                })
         }
     }
 #endif

@@ -557,4 +557,57 @@ import Testing
 
         #expect(mock.calls.map(\.text) == ["Plain text here."])
     }
+
+    @Test func renderChapterRecordsDedupedFallbackPronunciationSuggestion() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Jacqui met Jacqui.", "Jacqui returned."])
+        let fallback = PronunciationFallbackHit(word: "Jacqui", ipa: "ʤˈækɪ")
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        mock.pronunciationFallbackHitsByText = [
+            "Jacqui met Jacqui.": [fallback, fallback],
+            "Jacqui returned.": [fallback],
+        ]
+        let svc = makeService(db, tts: mock, writer: MockAudioWriter())
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        let issues = try issueDAO.issues(
+            for: "b1",
+            status: NarrationQAIssueStatus.open.rawValue)
+        #expect(issues.count == 1)
+        let issue = try #require(issues.first)
+        #expect(issue.issueType == NarrationQAIssueType.pronunciation.rawValue)
+        #expect(issue.sourceBlockID == "blk0")
+        #expect(issue.expectedText == "Jacqui")
+        let fixData = try #require(issue.suggestedFixJSON?.data(using: .utf8))
+        let fix = try JSONDecoder().decode(SuggestedFix.self, from: fixData)
+        #expect(fix == SuggestedFix(spokenForm: "Jacqui", ipa: "ʤˈækɪ"))
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = PronunciationOverrideStore(directory: tmp)
+        var renderedChapters: [Int] = []
+        var qaChapters: [Int] = []
+        let repair = PronunciationRepairService(
+            store: store,
+            issueDAO: issueDAO,
+            db: db.writer,
+            cacheDirectory: tmp,
+            voice: VoiceID("af_heart"),
+            renderChapter: { renderedChapters.append($0) },
+            reRunQA: { qaChapters.append($0) })
+
+        try await repair.applyFix(issue: issue, scope: .book("b1"))
+
+        #expect(store.overrides(forBookID: "b1").entries["Jacqui"] == "ʤˈækɪ")
+        #expect(renderedChapters == [0])
+        #expect(qaChapters == [0])
+        #expect(
+            try issueDAO.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
+                .isEmpty)
+    }
 }
