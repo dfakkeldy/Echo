@@ -6,7 +6,11 @@ import Testing
 @testable import Echo
 
 @MainActor @Suite struct NarrationQAServiceTests {
-    private func seed(_ db: DatabaseService, book: String) throws {
+    private func seed(
+        _ db: DatabaseService,
+        book: String,
+        text: String = "the quick brown fox jumps over the lazy dog"
+    ) throws {
         try db.writer.write { database in
             try database.execute(
                 sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
@@ -18,7 +22,7 @@ import Testing
             EPubBlockRecord(
                 id: "blk1", audiobookID: book, spineHref: "s.html", spineIndex: 0, blockIndex: 0,
                 sequenceIndex: 0, blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
-                text: "the quick brown fox jumps over the lazy dog", htmlContent: nil,
+                text: text, htmlContent: nil,
                 cardColor: nil, chapterThemeColor: nil, imagePath: nil, chapterIndex: 0,
                 isHidden: false, hiddenReason: nil, wordCount: 9, markers: nil, textFormats: nil,
                 createdAt: nil, modifiedAt: nil))
@@ -64,5 +68,23 @@ import Testing
             audiobookID: "b1", chapters: [(0, fileURL, ["blk1"])])
         let secondCount = try NarrationQualityIssueDAO(db: db.writer).issues(for: "b1").count
         #expect(firstCount == secondCount)  // cleared + rewritten, not doubled
+    }
+
+    @Test func comparesAgainstNarrationNormalizedText() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1", text: "Dr. Smith arrived.")
+        let heard: [TranscribedWord] = [
+            ("doctor", 0.0), ("smith", 0.4), ("arrived", 0.8),
+        ].map { TranscribedWord(text: $0.0, start: $0.1) }
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in heard })
+        let fileURL = URL(fileURLWithPath: "/tmp/x.m4a")
+
+        try await service.runQA(
+            audiobookID: "b1", chapters: [(0, fileURL, ["blk1"])])
+
+        let issues = try NarrationQualityIssueDAO(db: db.writer).issues(for: "b1")
+        #expect(issues.isEmpty)
     }
 }

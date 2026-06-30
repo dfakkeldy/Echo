@@ -7,7 +7,12 @@ struct EchoCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "echo-cli",
         abstract: "Echo narration/alignment tools.",
-        subcommands: [NarrateCommand.self, RetagCommand.self])
+        subcommands: [
+            NarrateCommand.self,
+            RetagCommand.self,
+            NarrationQACommand.self,
+            GenerateDeckCommand.self,
+        ])
 
     /// A bare command-line tool has no .app bundle, so point the narration
     /// resource loaders (NarrationResources / ECHO_RESOURCE_DIR) at the
