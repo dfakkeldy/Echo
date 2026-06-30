@@ -6,6 +6,7 @@ import SwiftUI
 /// regenerate actions arrive in M4. iOS-only (excluded from macOS/echo-cli).
 struct NarrationQAReviewView: View {
     @State private var model: NarrationQAReviewModel
+    @State private var isRunning = false
 
     init(model: NarrationQAReviewModel) {
         _model = State(initialValue: model)
@@ -13,6 +14,12 @@ struct NarrationQAReviewView: View {
 
     var body: some View {
         List {
+            if let error = model.lastError {
+                Section {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+            }
             if model.issues.isEmpty {
                 ContentUnavailableView(
                     "No issues", systemImage: "checkmark.seal",
@@ -34,6 +41,24 @@ struct NarrationQAReviewView: View {
             }
         }
         .navigationTitle("Narration QA")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task {
+                        isRunning = true
+                        await model.runFullQA()
+                        isRunning = false
+                    }
+                } label: {
+                    if isRunning {
+                        ProgressView()
+                    } else {
+                        Label("Run QA", systemImage: "waveform.badge.magnifyingglass")
+                    }
+                }
+                .disabled(isRunning)
+            }
+        }
         .onAppear { model.load() }
     }
 }
