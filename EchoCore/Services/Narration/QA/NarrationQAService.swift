@@ -39,8 +39,9 @@ final class NarrationQAService {
         let now = Self.iso.string(from: Date())
 
         for chapter in chapters {
-            // Clear this chapter's prior issues so a re-run converges.
-            try issueDAO.deleteAll(for: audiobookID, blockIDs: chapter.spokenBlockIDs)
+            // Clear this chapter's prior OPEN issues so a re-run converges, while
+            // preserving the user's resolved/ignored verdicts (the audit trail).
+            try issueDAO.deleteOpen(for: audiobookID, blockIDs: chapter.spokenBlockIDs)
 
             let expectedBlocks: [(blockID: String, text: String)] = chapter.spokenBlockIDs
                 .compactMap {

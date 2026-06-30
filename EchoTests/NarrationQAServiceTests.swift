@@ -48,6 +48,45 @@ import Testing
         #expect(issues.allSatisfy { $0.sourceBlockID == "blk1" })
     }
 
+    @Test func reRunPreservesResolvedAndIgnoredAuditHistory() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        let dao = NarrationQualityIssueDAO(db: db.writer)
+        // The user already triaged two prior issues on this chapter's block.
+        let resolved = NarrationQualityIssueRecord(
+            id: "resolved-1", audiobookID: "b1", sourceBlockID: "blk1",
+            sourceWordStart: 7, sourceWordEnd: 7, audioStartTime: 2.4, audioEndTime: 2.6,
+            expectedText: "lazy", heardText: "",
+            issueType: NarrationQAIssueType.pronunciation.rawValue, confidence: 1.0,
+            suggestedFixJSON: nil, status: NarrationQAIssueStatus.resolved.rawValue,
+            createdAt: "t0", resolvedAt: "t1")
+        let ignored = NarrationQualityIssueRecord(
+            id: "ignored-1", audiobookID: "b1", sourceBlockID: "blk1",
+            sourceWordStart: 3, sourceWordEnd: 3, audioStartTime: 1.0, audioEndTime: 1.2,
+            expectedText: "fox", heardText: "",
+            issueType: NarrationQAIssueType.omission.rawValue, confidence: 1.0,
+            suggestedFixJSON: nil, status: NarrationQAIssueStatus.ignored.rawValue,
+            createdAt: "t0", resolvedAt: nil)
+        try dao.insert([resolved, ignored])
+
+        // A fresh QA pass that drops words on the same block.
+        let heard: [TranscribedWord] = [("the", 0.0), ("quick", 0.4), ("dog", 0.8)]
+            .map { TranscribedWord(text: $0.0, start: $0.1) }
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in heard })
+        try await service.runQA(
+            audiobookID: "b1",
+            chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])])
+
+        let all = try dao.issues(for: "b1")
+        // The user's prior verdicts survive the re-run (audit history is not destroyed).
+        #expect(all.contains { $0.id == "resolved-1" && $0.status == "resolved" })
+        #expect(all.contains { $0.id == "ignored-1" && $0.status == "ignored" })
+        // …and fresh open issues are still produced by the re-QA.
+        #expect(all.contains { $0.status == NarrationQAIssueStatus.open.rawValue })
+    }
+
     @Test func reRunReplacesPriorIssuesForBlock() async throws {
         let db = try DatabaseService(inMemory: ())
         try seed(db, book: "b1")
