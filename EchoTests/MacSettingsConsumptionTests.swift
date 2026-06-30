@@ -11,8 +11,9 @@ struct MacSettingsConsumptionTests {
     @Test func macPlayerModelHasSettingsSeam() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(src.contains("var settings: SettingsManager?"))
-        #expect(src.contains("settings?.seekForwardDuration"))
-        #expect(src.contains("settings?.defaultPlaybackSpeed"))
+        #expect(src.contains("settings.seekForwardDuration"))
+        #expect(src.contains("settings.seekBackwardDuration"))
+        #expect(src.contains("settings.defaultPlaybackSpeed"))
     }
 
     @Test func triPaneInjectsSettingsIntoModel() throws {
