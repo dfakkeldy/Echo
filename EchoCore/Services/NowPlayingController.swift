@@ -2,8 +2,17 @@
 import Foundation
 import MediaPlayer
 
-#if os(iOS)
+#if canImport(UIKit)
     import UIKit
+
+    /// The platform image type `MPMediaItemArtwork` expects — `UIImage` on UIKit
+    /// platforms, `NSImage` on macOS — so the Now Playing artwork path is written
+    /// once for both. (macOS showed no artwork at all while this was `#if os(iOS)`.)
+    typealias PlatformImage = UIImage
+#elseif canImport(AppKit)
+    import AppKit
+
+    typealias PlatformImage = NSImage
 #endif
 
 /// Manages MPNowPlayingInfoCenter metadata updates and MPRemoteCommandCenter
@@ -106,9 +115,7 @@ final class NowPlayingController {
         var chapterIndex: Int?
         var chapterElapsed: TimeInterval?
         var chapterDuration: TimeInterval?
-        #if os(iOS)
-            var artworkImage: UIImage?
-        #endif
+        var artworkImage: PlatformImage?
         var isPaused: Bool = false
         var playbackRate: Float = 1.0
     }
@@ -141,16 +148,9 @@ final class NowPlayingController {
             }
         }
 
-        #if os(iOS)
-            if let image = params.artworkImage {
-                let artworkImage = image
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(
-                    boundsSize: artworkImage.size
-                ) { @Sendable [artworkImage] _ in
-                    artworkImage
-                }
-            }
-        #endif
+        if let image = params.artworkImage {
+            info[MPMediaItemPropertyArtwork] = Self.artwork(from: image)
+        }
 
         info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
         // The system uses DefaultPlaybackRate to know what "1×" means for this item.
@@ -173,6 +173,13 @@ final class NowPlayingController {
         }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// MediaPlayer invokes the artwork request handler on its own queue. Build the
+    /// handler from a nonisolated context so it does not inherit `@MainActor`
+    /// isolation from `updateNowPlayingInfo(_:)`.
+    nonisolated private static func artwork(from image: PlatformImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     /// Updates only the elapsed time in the current Now Playing info, preserving
