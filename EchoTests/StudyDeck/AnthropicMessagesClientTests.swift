@@ -34,7 +34,7 @@ nonisolated final class AnthropicMessagesClientTests: XCTestCase {
         }
     }
 
-    func testMapsUnauthorizedAnd429() async {
+    func testMapsUnauthorized() async {
         let c401 = AnthropicMessagesClient(
             apiKey: "sk", session: session { _ in (401, Data("{}".utf8)) })
         await XCTAssertThrowsErrorAsync(
@@ -42,6 +42,31 @@ nonisolated final class AnthropicMessagesClientTests: XCTestCase {
         ) {
             XCTAssertEqual($0 as? AnthropicClientError, .unauthorized)
         }
+    }
+
+    func testMaps429WithRetryAfter() async {
+        // Case 1: 429 with no retry-after header → retryAfter: nil
+        StubURLProtocol.extraHeaders = [:]
+        let cNoHeader = AnthropicMessagesClient(
+            apiKey: "sk", session: session { _ in (429, Data()) })
+        await XCTAssertThrowsErrorAsync(
+            try await cNoHeader.complete(
+                systemPrompt: "s", userPrompt: "u", schema: [:], maxTokens: 1)
+        ) {
+            XCTAssertEqual($0 as? AnthropicClientError, .rateLimited(retryAfter: nil))
+        }
+
+        // Case 2: 429 with retry-after: 30 header → retryAfter: 30
+        StubURLProtocol.extraHeaders = ["retry-after": "30"]
+        let cWithHeader = AnthropicMessagesClient(
+            apiKey: "sk", session: session { _ in (429, Data()) })
+        await XCTAssertThrowsErrorAsync(
+            try await cWithHeader.complete(
+                systemPrompt: "s", userPrompt: "u", schema: [:], maxTokens: 1)
+        ) {
+            XCTAssertEqual($0 as? AnthropicClientError, .rateLimited(retryAfter: 30))
+        }
+        StubURLProtocol.extraHeaders = [:]
     }
 
     func testSendsRequiredHeaders() async throws {
