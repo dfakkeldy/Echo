@@ -46,7 +46,7 @@ final class NarrationQAService {
                 .compactMap {
                     id in
                     guard let text = blocksByID[id]?.text, !text.isEmpty else { return nil }
-                    return (id, text)
+                    return (id, TextNormalizer.normalize(text))
                 }
             guard !expectedBlocks.isEmpty else { continue }
 

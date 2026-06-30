@@ -23,12 +23,12 @@ import Foundation
 ///
 /// `startTime` and `endTime` are optional when `sourceAnchor` resolves to an
 /// EPUB block for the target audiobook.
-struct FlashcardDeckImport: Codable, Sendable {
+nonisolated struct FlashcardDeckImport: Codable, Sendable {
     let deckName: String
     let targetMediaID: String
     let cards: [ImportedCard]
 
-    struct ImportedCard: Codable, Sendable {
+    nonisolated struct ImportedCard: Codable, Sendable {
         let frontText: String
         let backText: String
         let startTime: Double?

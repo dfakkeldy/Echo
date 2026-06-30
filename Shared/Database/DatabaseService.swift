@@ -62,6 +62,26 @@ final class DatabaseService {
         logger.info("Database opened at \(path)")
     }
 
+    init(databaseURL: URL) throws {
+        if let parent = databaseURL.parentDirectory {
+            try FileManager.default.createDirectory(
+                at: parent,
+                withIntermediateDirectories: true
+            )
+        }
+
+        var config = Configuration()
+        config.prepareDatabase { db in
+            try db.execute(sql: "PRAGMA journal_mode=WAL")
+            try db.execute(sql: "PRAGMA foreign_keys=ON")
+        }
+        let path = databaseURL.path
+        self.writer = try DatabasePool(path: path, configuration: config)
+        self.dbPath = path
+        try runMigrations(writer: writer)
+        logger.info("Database opened at \(path)")
+    }
+
     init(inMemory: Void) throws {
         var config = Configuration()
         config.prepareDatabase { db in
@@ -121,6 +141,13 @@ final class DatabaseService {
             try Schema_V30.migrate(db)
         }
         try migrator.migrate(writer)
+    }
+}
+
+private extension URL {
+    var parentDirectory: URL? {
+        guard !path.isEmpty else { return nil }
+        return deletingLastPathComponent()
     }
 }
 
