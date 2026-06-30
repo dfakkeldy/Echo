@@ -59,6 +59,10 @@ final class MacPlayerModel {
     /// `ArtworkCache`, which is UIKit-only and excluded from the macOS target).
     /// `nil` until loaded, or when neither source has artwork.
     private(set) var coverImage: NSImage?
+    /// Author/artist for the current book, surfaced as the Now Playing
+    /// album/subtitle line. Extracted from the audio file's metadata alongside
+    /// the cover art. `nil` when the file has no artist metadata.
+    private(set) var currentAuthor: String?
     /// The folder URL that contains the audiobook files. Used as the
     /// `audiobookID` for GRDB queries against the shared database.
     private(set) var folderURL: URL?
@@ -80,6 +84,11 @@ final class MacPlayerModel {
     /// skip commands. User-configurable via the macOS Playback Options sheet
     /// (default 15). The fixed ±30s "long skip" menu commands ignore this.
     var skipInterval: Int = 15
+    /// Seconds for the *backward* skip transport button / menu command, sourced
+    /// from `settings.seekBackwardDuration`. iOS keeps forward/backward intervals
+    /// independent; macOS previously reused `skipInterval` for both and silently
+    /// ignored the persisted Skip-Backward setting.
+    var skipBackInterval: Int = 15
     /// Injected once by `MacTriPaneView.task` (same pattern as `dbService`).
     /// On assignment we adopt the user's persisted skip interval and default
     /// speed so the macOS Settings → Playback pane (WS-J) actually drives playback.
@@ -88,12 +97,16 @@ final class MacPlayerModel {
     }
 
     private func applySettings() {
-        guard let seek = settings?.seekForwardDuration else { return }
-        skipInterval = seek
+        guard let settings else { return }
+        skipInterval = settings.seekForwardDuration
+        skipBackInterval = settings.seekBackwardDuration
+        // Drive the output-boost gain from settings (was hardcoded at +9 dB); the
+        // `volumeBoostGain` didSet re-applies the audio mix when boost is enabled.
+        volumeBoostGain = settings.volumeBoostGain
         // playbackRate's setter only touches `player.rate` while playing, so it is
         // safe to seed before play(); play() re-applies `playbackRate` on start.
-        if !isPlaying, let speed = settings?.defaultPlaybackSpeed {
-            playbackRate = Float(speed)
+        if !isPlaying {
+            playbackRate = Float(settings.defaultPlaybackSpeed)
         }
     }
     /// Whether the +N dB output boost is applied to the AVPlayer audio path.
@@ -122,12 +135,10 @@ final class MacPlayerModel {
 
     /// Sleep timer with phase-based triggers (end-of-chapter, custom duration).
     let sleepTimer = SleepTimerManager()
-    /// Smart rewind policy — rewinds a few seconds on resume.
-    let smartRewind = SmartRewindPolicy(
-        secondsThreshold: 30, secondsAmount: 3,
-        minutesThreshold: 300, minutesAmount: 10,
-        hoursThreshold: 3600, hoursAmount: 30
-    )
+    // Smart rewind is built per-resume from `settings` and gated on
+    // `isRewindEnabled` (default OFF, matching iOS) — see `smartRewindAmount`.
+    // The previous hardcoded policy ran unconditionally and used seconds where the
+    // minute/hour tiers expect minutes/hours, so those tiers never fired.
     /// When playback was last paused (for smart-rewind calculation).
     private var pausedAt: Date?
     /// macOS Media Center / Now Playing metadata bridge.
@@ -353,9 +364,10 @@ final class MacPlayerModel {
         // chapters are loaded asynchronously just below.
         chapters = []
         currentChapterIndex = 0
-        // Drop stale cover art immediately so Now Playing never shows the
+        // Drop stale cover art / author immediately so Now Playing never shows the
         // previous book's art; the new file's art is loaded asynchronously below.
         coverImage = nil
+        currentAuthor = nil
         // Infer folder from the file's parent directory if not already set.
         if folderURL == nil {
             folderURL = url.deletingLastPathComponent()
@@ -390,6 +402,7 @@ final class MacPlayerModel {
                 self.handleChapterBoundary()
                 self.handleBookmarkLoop()
                 self.refreshCurrentChapter()
+                self.updateNowPlayingElapsed()
                 self.persistResumeStateThrottled()
             }
         }
@@ -683,15 +696,12 @@ final class MacPlayerModel {
 
     func play() {
         guard let player else { return }
+        configureRemoteCommandsIfNeeded()
 
-        // Smart rewind: on resume, rewind a few seconds.
-        if let pausedAt, currentTime > 0 {
-            let pauseDuration = Date().timeIntervalSince(pausedAt)
-            let rewind = Double(smartRewind.rewindAmount(forPausedDuration: pauseDuration))
-            if rewind > 0 {
-                let target = max(0, currentTime - rewind)
-                seek(to: target)
-            }
+        // Smart rewind on resume — gated on the user setting (default OFF, matching
+        // iOS) and built from the configured thresholds, not a hardcoded policy.
+        if isRewindEnabled, let pausedAt, currentTime > 0 {
+            applySmartRewind(forPausedDuration: Date().timeIntervalSince(pausedAt))
         }
         pausedAt = nil
 
@@ -751,23 +761,135 @@ final class MacPlayerModel {
     }
 
     /// Updates the macOS Media Center (Now Playing) with current playback info.
+    /// `title` is the stable book/file title; for chaptered files the chapter
+    /// title and chapter-relative timing are supplied so the chapter branch in
+    /// `NowPlayingController` activates (Title = chapter, Album = book). For
+    /// non-chaptered files the author becomes the album line.
     private func updateNowPlaying() {
-        nowPlayingController.updateNowPlayingInfo(
-            .init(
-                title: currentTitle,
-                subtitle: "",
-                elapsed: currentTime,
-                duration: duration,
-                artworkImage: coverImage,
-                isPaused: !isPlaying,
-                playbackRate: playbackRate
-            ))
+        var params = NowPlayingController.NowPlayingParams()
+        params.title = fileTitle
+        params.elapsed = currentTime
+        params.duration = duration
+        params.isPaused = !isPlaying
+        params.playbackRate = playbackRate
+        params.artworkImage = coverImage
+
+        if hasChapters, chapters.indices.contains(currentChapterIndex) {
+            let chapter = chapters[currentChapterIndex]
+            params.subtitle = chapter.title ?? ""
+            params.chapterIndex = currentChapterIndex
+            params.chapterElapsed = max(0, currentTime - chapter.startSeconds)
+            params.chapterDuration = chapter.endSeconds - chapter.startSeconds
+        } else if let author = currentAuthor, !author.isEmpty {
+            params.albumTitle = author
+        }
+
+        nowPlayingController.updateNowPlayingInfo(params)
+    }
+
+    /// Pushes a lightweight elapsed-time update to Now Playing at the time
+    /// observer's tick rate (chapter-relative when chaptered) without rebuilding
+    /// the whole metadata dictionary.
+    private func updateNowPlayingElapsed() {
+        let offset: TimeInterval? =
+            hasChapters && chapters.indices.contains(currentChapterIndex)
+            ? chapters[currentChapterIndex].startSeconds : nil
+        nowPlayingController.updateElapsedTime(currentTime, chapterStartOffset: offset)
+    }
+
+    /// Wires Lock Screen / Control Center / media-key remote commands to the Mac
+    /// transport. Idempotent (`NowPlayingController` guards re-entry). Without it,
+    /// macOS published Now Playing metadata but registered no command targets, so
+    /// media keys and Control Center buttons could not drive playback.
+    private func configureRemoteCommandsIfNeeded() {
+        nowPlayingController.configureRemoteCommands(
+            play: { [weak self] in self?.play() },
+            pause: { [weak self] in self?.pause() },
+            togglePlayPause: { [weak self] in self?.togglePlayPause() },
+            nextTrack: { [weak self] in self?.nextChapter() },
+            skipBackward: { [weak self] in self?.skipBackward() },
+            skipForward: { [weak self] in self?.skipForward() },
+            previousTrack: { [weak self] in self?.previousChapter() },
+            seek: { [weak self] position in self?.seek(to: position) },
+            skipBackwardInterval: skipBackInterval,
+            skipForwardInterval: skipInterval
+        )
+    }
+
+    /// Whether resume-rewind is active, from settings (default OFF, matching iOS).
+    private var isRewindEnabled: Bool {
+        settings?.isRewindEnabled ?? SettingsManager.Defaults.isRewindEnabled
+    }
+
+    /// Rewinds the playhead on resume by the configured amount for `pausedDuration`,
+    /// jumping to the chapter start for very long (hours-level) pauses when the
+    /// user opted in — mirroring the iOS smart-rewind behavior. The plain rewind is
+    /// clamped to the current chapter start so it never crosses a chapter boundary.
+    private func applySmartRewind(forPausedDuration pausedDuration: TimeInterval) {
+        let chapterFloor =
+            hasChapters && chapters.indices.contains(currentChapterIndex)
+            ? chapters[currentChapterIndex].startSeconds : 0
+
+        if shouldJumpToChapterStartForHoursLevel(pausedDuration: pausedDuration),
+            hasChapters, chapters.indices.contains(currentChapterIndex)
+        {
+            seek(to: chapterFloor)
+            return
+        }
+
+        let rewind = smartRewindAmount(forPausedDuration: pausedDuration)
+        guard rewind > 0 else { return }
+        seek(to: max(chapterFloor, currentTime - rewind))
+    }
+
+    private func smartRewindAmount(forPausedDuration pausedDuration: TimeInterval) -> Double {
+        let policy = SmartRewindPolicy(
+            secondsThreshold: settings?.rewindPauseSecondsThreshold
+                ?? SettingsManager.Defaults.rewindPauseSecondsThreshold,
+            secondsAmount: settings?.rewindAmountAfterSeconds
+                ?? SettingsManager.Defaults.rewindAmountAfterSeconds,
+            minutesThreshold: settings?.rewindPauseMinutesThreshold
+                ?? SettingsManager.Defaults.rewindPauseMinutesThreshold,
+            minutesAmount: settings?.rewindAmountAfterMinutes
+                ?? SettingsManager.Defaults.rewindAmountAfterMinutes,
+            hoursThreshold: settings?.rewindPauseHoursThreshold
+                ?? SettingsManager.Defaults.rewindPauseHoursThreshold,
+            hoursAmount: settings?.rewindAmountAfterHours
+                ?? SettingsManager.Defaults.rewindAmountAfterHours
+        )
+        return Double(policy.rewindAmount(forPausedDuration: pausedDuration))
+    }
+
+    private func shouldJumpToChapterStartForHoursLevel(pausedDuration: TimeInterval) -> Bool {
+        let hoursThreshold =
+            settings?.rewindPauseHoursThreshold
+            ?? SettingsManager.Defaults.rewindPauseHoursThreshold
+        let toChapterStart =
+            settings?.rewindHoursToChapterStart
+            ?? SettingsManager.Defaults.rewindHoursToChapterStart
+        return toChapterStart && pausedDuration >= Double(hoursThreshold * 3600)
     }
 
     func skip(by seconds: Double) {
         guard player != nil else { return }
         let target = max(0, min(duration, currentTime + seconds))
         seek(to: target)
+    }
+
+    /// Forward transport skip by the user's forward interval.
+    func skipForward() {
+        skip(by: Double(skipInterval))
+    }
+
+    /// Backward transport skip by the user's *backward* interval, clamped to the
+    /// current chapter's start so a back-skip never crosses into the prior chapter
+    /// (mirrors the iOS chapter-aware back-skip).
+    func skipBackward() {
+        guard player != nil else { return }
+        let floor =
+            hasChapters && chapters.indices.contains(currentChapterIndex)
+            ? chapters[currentChapterIndex].startSeconds : 0
+        seek(to: max(floor, currentTime - Double(skipBackInterval)))
     }
 
     func seek(to seconds: Double) {
@@ -777,6 +899,8 @@ final class MacPlayerModel {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.currentTime = seconds
+                self.refreshCurrentChapter()
+                self.updateNowPlayingElapsed()
                 self.persistResumeState()
             }
         }
@@ -1125,12 +1249,11 @@ extension MacPlayerModel {
         artworkLoadToken = token
         let scopedRoot = libraryRootScopedURL
         Task { @MainActor [weak self] in
-            let image = await MacArtworkLoader.coverImage(for: url, scopedRoot: scopedRoot)
+            let meta = await MacArtworkLoader.load(for: url, scopedRoot: scopedRoot)
             guard let self, self.artworkLoadToken == token else { return }
-            self.coverImage = image
-            // Only republish when art was actually found, so a "no artwork" result
-            // doesn't stomp metadata published since this load began.
-            if image != nil { self.updateNowPlaying() }
+            self.coverImage = meta.image
+            self.currentAuthor = meta.author
+            self.updateNowPlaying()
         }
     }
 }
@@ -1139,29 +1262,39 @@ extension MacPlayerModel {
 /// with no shared mutable state, returning `NSImage` — the type
 /// `MPMediaItemArtwork` expects on macOS.
 private enum MacArtworkLoader {
-    /// Embedded artwork first (covers m4b and narrated m4b), then a sibling
-    /// folder cover image. Returns nil when neither source has artwork.
-    static func coverImage(for url: URL, scopedRoot: URL?) async -> NSImage? {
+    struct BookMetadata {
+        let image: NSImage?
+        let author: String?
+    }
+
+    /// Reads the audio file's embedded cover art (`.commonKeyArtwork`) and author
+    /// (`.commonKeyArtist`) in a single metadata pass, falling back to a sibling
+    /// folder cover image when the file has no embedded artwork.
+    static func load(for url: URL, scopedRoot: URL?) async -> BookMetadata {
         // Keep the library root reachable while reading (folder/library books hold
         // a long-lived root scope; ad-hoc single-file opens no-op here and rely on
         // the file already being open for playback).
         let rootDidStart = scopedRoot?.startAccessingSecurityScopedResource() ?? false
         defer { if rootDidStart { scopedRoot?.stopAccessingSecurityScopedResource() } }
 
-        if let embedded = await embeddedArtworkImage(for: url) { return embedded }
-        return folderArtworkImage(near: url)
-    }
-
-    /// Extracts embedded cover art from the audio file's `.commonKeyArtwork`
-    /// metadata, downsampled to 600px on the long edge.
-    static func embeddedArtworkImage(for url: URL) async -> NSImage? {
         let asset = AVURLAsset(url: url)
         let metadata = (try? await asset.load(.commonMetadata)) ?? []
-        for item in metadata where item.commonKey == .commonKeyArtwork {
-            guard let data = try? await item.load(.dataValue) else { continue }
-            if let image = downsampledImage(from: data) { return image }
+        var image: NSImage?
+        var author: String?
+        for item in metadata {
+            if image == nil, item.commonKey == .commonKeyArtwork,
+                let data = try? await item.load(.dataValue)
+            {
+                image = downsampledImage(from: data)
+            }
+            if author == nil, item.commonKey == .commonKeyArtist,
+                let value = try? await item.load(.stringValue), !value.isEmpty
+            {
+                author = value
+            }
         }
-        return nil
+        if image == nil { image = folderArtworkImage(near: url) }
+        return BookMetadata(image: image, author: author)
     }
 
     /// Falls back to a `cover.*` (or first, name-sorted) image file alongside the

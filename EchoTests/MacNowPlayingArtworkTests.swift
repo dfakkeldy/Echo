@@ -39,7 +39,7 @@ struct MacNowPlayingArtworkTests {
     @Test func nowPlayingInfoIncludesArtwork() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(
-            src.contains("artworkImage: coverImage"),
+            src.contains("params.artworkImage = coverImage"),
             "updateNowPlaying() must pass the cover image into the Now Playing params.")
     }
 }
