@@ -10,7 +10,15 @@ struct StudyDeckGenerationSheet: View {
             Form {
                 if viewModel.isLoading {
                     Section {
-                        ProgressView("Generating Study Deck")
+                        if let progress = viewModel.progress {
+                            ProgressView(
+                                "Generating cards… (\(progress.done) of \(progress.total))",
+                                value: Double(progress.done),
+                                total: Double(progress.total)
+                            )
+                        } else {
+                            ProgressView("Generating Study Deck")
+                        }
                     }
                 } else if viewModel.cards.isEmpty {
                     Section {
@@ -42,7 +50,10 @@ struct StudyDeckGenerationSheet: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        viewModel.cancelLoad()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(viewModel.isAccepting ? "Accepting" : "Accept") {
@@ -57,6 +68,9 @@ struct StudyDeckGenerationSheet: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.errorMessage ?? "")
+            }
+            .onDisappear {
+                viewModel.cancelLoad()
             }
             .task {
                 await viewModel.load()
