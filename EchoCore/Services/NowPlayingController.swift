@@ -149,12 +149,7 @@ final class NowPlayingController {
         }
 
         if let image = params.artworkImage {
-            // PlatformImage (UIImage / NSImage) is Sendable, so it's safe to capture
-            // for the artwork request handler, which the system may invoke off the
-            // main actor.
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                image
-            }
+            info[MPMediaItemPropertyArtwork] = Self.artwork(from: image)
         }
 
         info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
@@ -178,6 +173,13 @@ final class NowPlayingController {
         }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// MediaPlayer invokes the artwork request handler on its own queue. Build the
+    /// handler from a nonisolated context so it does not inherit `@MainActor`
+    /// isolation from `updateNowPlayingInfo(_:)`.
+    nonisolated private static func artwork(from image: PlatformImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     /// Updates only the elapsed time in the current Now Playing info, preserving
