@@ -241,10 +241,38 @@ enum TextNormalizer {
     }
 
     private static func replacePercentSymbols(_ s: String) -> String {
-        let out = s.replacingOccurrences(of: "%", with: " percent")
+        let out = replacingMatches(in: s, pattern: #"%"#) { match, text in
+            guard !hasDollarAmountImmediatelyBefore(match.range, in: text) else { return nil }
+            return " percent"
+        }
         let re = try! NSRegularExpression(pattern: "\\s+percent")
         let r = NSRange(out.startIndex..., in: out)
         return re.stringByReplacingMatches(in: out, range: r, withTemplate: " percent")
+    }
+
+    private static func hasDollarAmountImmediatelyBefore(_ range: NSRange, in s: String)
+        -> Bool
+    {
+        guard let swiftRange = Range(range, in: s), swiftRange.lowerBound > s.startIndex
+        else { return false }
+
+        var cursor = swiftRange.lowerBound
+        while cursor > s.startIndex {
+            let previous = s.index(before: cursor)
+            let character = s[previous]
+            guard character.isNumber || character == "," || character == "." else { break }
+            cursor = previous
+        }
+
+        guard cursor < swiftRange.lowerBound, cursor > s.startIndex else { return false }
+        let dollarIndex = s.index(before: cursor)
+        guard s[dollarIndex] == "$" else { return false }
+
+        let literal = String(s[cursor..<swiftRange.lowerBound])
+        return literal.range(
+            of: #"^[0-9][0-9,]*(?:\.[0-9]+)?$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private static func normalizeRomanNumeralChapters(_ s: String) -> String {
