@@ -54,4 +54,53 @@ enum SourceBackedAlignmentCoordinator {
         }
         return tokens
     }
+
+    /// Source value stamped on every anchor this coordinator writes — the
+    /// queryable identity used to clear only its own anchors on re-run.
+    static let anchorSource = AlignmentAnchorRecord.Source.transcriptAlignment.rawValue
+
+    /// Aligns the book's persisted ASR to its source blocks, writes
+    /// `.transcriptAlignment` anchors (replacing only prior ones of that
+    /// source), and refines `word_timing` from the DTW word matches. No-ops
+    /// quietly when there is nothing to align (no source tokens, no audio
+    /// tokens, or no selectable anchors) so a partial book is safe to re-run.
+    static func align(audiobookID: String, dbService: DatabaseService) async throws {
+        let epub = try epubTokens(audiobookID: audiobookID, dbService: dbService)
+        let audio = try audioTokens(audiobookID: audiobookID, dbService: dbService)
+        guard !epub.isEmpty, !audio.isEmpty else { return }
+
+        let candidates = TokenDTW.alignWithBisection(epub: epub, audio: audio)
+        let selected = AnchorSelector.select(candidates: candidates)
+
+        // Always clear our own prior anchors first so a re-run that now selects
+        // fewer (or zero) anchors converges instead of leaving stale rows.
+        let anchorDAO = AlignmentAnchorDAO(db: dbService.writer)
+        _ = try anchorDAO.deleteAnchors(for: audiobookID, source: anchorSource)
+
+        guard !selected.isEmpty else { return }
+
+        let now = AlignmentService.isoFormatter.string(from: Date())
+        let records = selected.map { candidate in
+            AlignmentAnchorRecord(
+                id: UUID().uuidString, audiobookID: audiobookID,
+                epubBlockID: candidate.blockID, audioTime: candidate.time,
+                audioEndTime: nil,
+                anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                source: anchorSource,
+                note: "Source-backed transcript alignment (TokenDTW + AnchorSelector)",
+                createdAt: now, modifiedAt: nil)
+        }
+
+        // `insertAnchors` recalculates the timeline AND materializes interpolated
+        // word timings (materializeWordTimings: true by default), so the refine
+        // step below has interpolated rows to override.
+        let service = AlignmentService(db: dbService.writer, audiobookID: audiobookID)
+        try service.insertAnchors(records)
+
+        // Override matched words with their DTW-derived audio times.
+        let matches = TokenDTW.wordMatchesWithBisection(epub: epub, audio: audio)
+        let matchesByBlock = Dictionary(grouping: matches, by: { $0.blockID })
+        try WordTimingMaterializer.refine(
+            audiobookID: audiobookID, dtwMatchesByBlock: matchesByBlock, writer: dbService.writer)
+    }
 }
