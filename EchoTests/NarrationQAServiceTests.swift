@@ -87,6 +87,33 @@ import Testing
         #expect(all.contains { $0.status == NarrationQAIssueStatus.open.rawValue })
     }
 
+    @Test func chaptersToQAIncludesOnlyRenderedChaptersWithNonHiddenBlocks() {
+        func mk(_ id: String, chapter: Int, hidden: Bool) -> EPubBlockRecord {
+            EPubBlockRecord(
+                id: id, audiobookID: "b1", spineHref: "s.html", spineIndex: 0, blockIndex: 0,
+                sequenceIndex: 0, blockKind: EPubBlockRecord.Kind.paragraph.rawValue, text: "hi",
+                htmlContent: nil, cardColor: nil, chapterThemeColor: nil, imagePath: nil,
+                chapterIndex: chapter, isHidden: hidden, hiddenReason: nil, wordCount: 1,
+                markers: nil, textFormats: nil, createdAt: nil, modifiedAt: nil)
+        }
+        let blocksByChapter: [Int: [EPubBlockRecord]] = [
+            0: [mk("b0a", chapter: 0, hidden: false), mk("b0b", chapter: 0, hidden: false)],
+            1: [mk("b1a", chapter: 1, hidden: false)],  // rendered file is MISSING
+            2: [mk("b2h", chapter: 2, hidden: true)],  // rendered but only hidden blocks
+        ]
+        let urlFor: (Int) -> URL = { URL(fileURLWithPath: "/tmp/ch\($0).m4a") }
+        let rendered: Set<URL> = [urlFor(0), urlFor(2)]
+
+        let result = NarrationQAService.chaptersToQA(
+            blocksByChapter: blocksByChapter, fileURL: urlFor,
+            fileExists: { rendered.contains($0) })
+
+        // Only chapter 0 qualifies (rendered AND has non-hidden blocks).
+        #expect(result.count == 1)
+        #expect(result.first?.chapterIndex == 0)
+        #expect(result.first?.spokenBlockIDs == ["b0a", "b0b"])
+    }
+
     @Test func reRunReplacesPriorIssuesForBlock() async throws {
         let db = try DatabaseService(inMemory: ())
         try seed(db, book: "b1")

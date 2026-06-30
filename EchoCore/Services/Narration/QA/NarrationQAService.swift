@@ -28,6 +28,25 @@ final class NarrationQAService {
         self.transcribe = transcribe
     }
 
+    /// Builds the `runQA` chapter list for an initial "Run QA" pass: every chapter
+    /// that has rendered narration audio on disk, with its non-hidden block ids as
+    /// the spoken set. Pure — callers inject file URL/existence so it is testable
+    /// without touching the filesystem. Chapters without a rendered file (or with
+    /// only hidden blocks) are skipped.
+    static func chaptersToQA(
+        blocksByChapter: [Int: [EPubBlockRecord]],
+        fileURL: (Int) -> URL,
+        fileExists: (URL) -> Bool
+    ) -> [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])] {
+        blocksByChapter.keys.sorted().compactMap { chapter in
+            let spoken = (blocksByChapter[chapter] ?? []).filter { !$0.isHidden }.map(\.id)
+            guard !spoken.isEmpty else { return nil }
+            let url = fileURL(chapter)
+            guard fileExists(url) else { return nil }
+            return (chapter, url, spoken)
+        }
+    }
+
     func runQA(
         audiobookID: String,
         chapters: [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])]
