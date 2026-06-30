@@ -6,6 +6,8 @@ import Testing
 @testable import Echo
 
 @MainActor @Suite struct NarrationQAServiceTests {
+    private struct TranscriptionFailure: Error {}
+
     private func seed(
         _ db: DatabaseService,
         book: String,
@@ -26,6 +28,20 @@ import Testing
                 cardColor: nil, chapterThemeColor: nil, imagePath: nil, chapterIndex: 0,
                 isHidden: false, hiddenReason: nil, wordCount: 9, markers: nil, textFormats: nil,
                 createdAt: nil, modifiedAt: nil))
+    }
+
+    private func seedOpenIssue(_ db: DatabaseService, book: String, id: String) throws {
+        try NarrationQualityIssueDAO(db: db.writer).insert([
+            NarrationQualityIssueRecord(
+                id: id, audiobookID: book, sourceBlockID: "blk1",
+                sourceWordStart: 0, sourceWordEnd: 0,
+                audioStartTime: 0, audioEndTime: 1,
+                expectedText: "quick", heardText: "",
+                issueType: NarrationQAIssueType.omission.rawValue,
+                confidence: 1.0, suggestedFixJSON: nil,
+                status: NarrationQAIssueStatus.open.rawValue,
+                createdAt: "t0", resolvedAt: nil)
+        ])
     }
 
     @Test func plantedErrorProducesIssueDeterministically() async throws {
@@ -152,5 +168,61 @@ import Testing
 
         let issues = try NarrationQualityIssueDAO(db: db.writer).issues(for: "b1")
         #expect(issues.isEmpty)
+    }
+
+    @Test func transcriptionFailureThrowsAndPreservesOpenIssues() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        try seedOpenIssue(db, book: "b1", id: "old-open")
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in throw TranscriptionFailure() })
+
+        do {
+            try await service.runQA(
+                audiobookID: "b1",
+                chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])])
+            Issue.record("Expected transcription failure to throw")
+        } catch let error as NarrationQAError {
+            if case .transcriptionFailed(let chapterIndex, _, _) = error {
+                #expect(chapterIndex == 0)
+            } else {
+                Issue.record("Expected transcriptionFailed, got \(error)")
+            }
+        } catch {
+            Issue.record("Expected NarrationQAError, got \(error)")
+        }
+
+        let open = try NarrationQualityIssueDAO(db: db.writer)
+            .issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
+        #expect(open.contains { $0.id == "old-open" })
+    }
+
+    @Test func noHeardWordsThrowsDistinctErrorAndPreservesOpenIssues() async throws {
+        let db = try DatabaseService(inMemory: ())
+        try seed(db, book: "b1")
+        try seedOpenIssue(db, book: "b1", id: "old-open")
+        let service = NarrationQAService(
+            db: db.writer, classifier: DeterministicDivergenceClassifier(),
+            transcribe: { _ in [] })
+
+        do {
+            try await service.runQA(
+                audiobookID: "b1",
+                chapters: [(0, URL(fileURLWithPath: "/tmp/x.m4a"), ["blk1"])])
+            Issue.record("Expected no-heard-words to throw")
+        } catch let error as NarrationQAError {
+            if case .noHeardWords(let chapterIndex, _) = error {
+                #expect(chapterIndex == 0)
+            } else {
+                Issue.record("Expected noHeardWords, got \(error)")
+            }
+        } catch {
+            Issue.record("Expected NarrationQAError, got \(error)")
+        }
+
+        let open = try NarrationQualityIssueDAO(db: db.writer)
+            .issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
+        #expect(open.contains { $0.id == "old-open" })
     }
 }

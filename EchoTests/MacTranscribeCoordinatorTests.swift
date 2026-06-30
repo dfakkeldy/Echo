@@ -9,25 +9,32 @@
     @MainActor @Suite struct MacTranscribeCoordinatorTests {
         private let bookID = "file:///book/"
 
-        private func makeDB() throws -> DatabaseService {
+        private func makeDB(transcriptChapterIndices: [Int] = [0]) throws -> DatabaseService {
             let db = try DatabaseService(inMemory: ())
             try db.writer.write { database in
                 try database.execute(
                     sql:
                         "INSERT INTO audiobook (id, title, duration, added_at) VALUES (?, 'T', 60, '2026-06-29T00:00:00Z')",
                     arguments: [bookID])
-                var rec = StandaloneTranscriptRecord(
-                    id: "seg-0", audiobookID: bookID, chapterIndex: 0, segmentIndex: 0,
-                    text: "Hello world.", startTime: 0, endTime: 2,
-                    wordsJSON: String(
-                        data: try JSONEncoder().encode([
-                            StandaloneTranscribedWord(
-                                word: "Hello", start: 0, end: 1, confidence: 0.9),
-                            StandaloneTranscribedWord(
-                                word: "world.", start: 1, end: 2, confidence: 0.8),
-                        ]), encoding: .utf8),
-                    createdAt: "2026-06-29T00:00:00Z")
-                try rec.insert(database)
+                for chapterIndex in transcriptChapterIndices {
+                    let startTime = Double(chapterIndex * 10)
+                    var rec = StandaloneTranscriptRecord(
+                        id: "seg-\(chapterIndex)", audiobookID: bookID,
+                        chapterIndex: chapterIndex, segmentIndex: 0,
+                        text: "Chapter \(chapterIndex + 1).", startTime: startTime,
+                        endTime: startTime + 2,
+                        wordsJSON: String(
+                            data: try JSONEncoder().encode([
+                                StandaloneTranscribedWord(
+                                    word: "Chapter", start: startTime, end: startTime + 1,
+                                    confidence: 0.9),
+                                StandaloneTranscribedWord(
+                                    word: "\(chapterIndex + 1).", start: startTime + 1,
+                                    end: startTime + 2, confidence: 0.8),
+                            ]), encoding: .utf8),
+                        createdAt: "2026-06-29T00:00:00Z")
+                    try rec.insert(database)
+                }
             }
             return db
         }
@@ -53,6 +60,38 @@
             #expect(book?.title == "Keep Me")
             #expect(book?.author == "Author")
             #expect(book?.textOrigin == "transcript")
+        }
+
+        @Test func multiChapterTranscribeFinalizesAfterBackgroundCompletes() async throws {
+            let db = try makeDB(transcriptChapterIndices: [0, 1])
+            let coordinator = MacTranscribeCoordinator(db: db.writer)
+            let badURL = URL(fileURLWithPath: "/nonexistent/echo-qa-audio.m4a")
+            let chapters = [
+                Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+                Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+            ]
+
+            await coordinator.transcribe(
+                audiobookID: bookID, audioFileURL: badURL, chapters: chapters, resume: true)
+
+            #expect(try EPubBlockDAO(db: db.writer).count(for: bookID) == 2)
+            #expect(try AudiobookDAO(db: db.writer).get(bookID)?.textOrigin == "transcript")
+        }
+
+        @Test func multiChapterTranscribeDoesNotFinalizePartialTranscript() async throws {
+            let db = try makeDB(transcriptChapterIndices: [0])
+            let coordinator = MacTranscribeCoordinator(db: db.writer)
+            let badURL = URL(fileURLWithPath: "/nonexistent/echo-qa-audio.m4a")
+            let chapters = [
+                Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 10),
+                Chapter(index: 1, title: "Two", startSeconds: 10, endSeconds: 20),
+            ]
+
+            await coordinator.transcribe(
+                audiobookID: bookID, audioFileURL: badURL, chapters: chapters, resume: true)
+
+            #expect(try EPubBlockDAO(db: db.writer).count(for: bookID) == 0)
+            #expect(try AudiobookDAO(db: db.writer).get(bookID)?.textOrigin != "transcript")
         }
 
         @Test func clearTranscriptDeletesData() async throws {

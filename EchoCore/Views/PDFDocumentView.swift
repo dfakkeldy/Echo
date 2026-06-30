@@ -628,6 +628,10 @@ private struct PDFKitView: UIViewRepresentable {
             self.parent = parent
         }
 
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
         /// Adds a reusable highlight overlay to `pdfView`. Called once from `makeUIView`.
         func installHighlightView(on pdfView: PDFView) {
             let view = UIView()
