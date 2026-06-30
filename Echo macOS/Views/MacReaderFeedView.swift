@@ -165,6 +165,11 @@ struct MacReaderFeedView: View {
         .onChange(of: player.currentURL) { _, _ in
             Task { await loadBlocks() }
         }
+        .onChange(of: player.documentIngestionTrigger) { _, _ in
+            // Transcript materialization creates epub_block rows for the current
+            // book without changing currentURL; reload so read-along appears.
+            Task { await loadBlocks() }
+        }
     }
 
     // MARK: - Header
@@ -379,17 +384,17 @@ private struct MacBlockCardView: View, Equatable {
 
     private var cardContent: some View {
         blockContent
-        .padding(.horizontal)
-        .padding(.vertical, 6)
-        .background(isActive ? Color.accentColor.opacity(0.08) : Color.clear)
-        .overlay(alignment: .leading) {
-            if isActive {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(width: 3)
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+            .background(isActive ? Color.accentColor.opacity(0.08) : Color.clear)
+            .overlay(alignment: .leading) {
+                if isActive {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 3)
+                }
             }
-        }
-        .contentShape(Rectangle())
+            .contentShape(Rectangle())
     }
 
     @ViewBuilder

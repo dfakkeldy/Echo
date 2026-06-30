@@ -287,7 +287,10 @@ struct MacTriPaneView: View {
     /// re-evaluates and switches from "no content" to showing blocks.
     private func startTranscription() {
         guard let db = player.dbService, let id = player.audiobookID else { return }
-        guard !player.tracks.isEmpty else { return }
+        // Use the currently-open file: player.chapters/duration describe THIS file,
+        // not necessarily tracks[0], so transcribing tracks[0] would mis-window a
+        // multi-file audiobook.
+        guard let audioURL = player.currentURL else { return }
         let coordinator = MacTranscribeCoordinator(db: db.writer)
         transcribeCoordinator = coordinator
         showingTranscribeProgress = true
@@ -301,7 +304,7 @@ struct MacTriPaneView: View {
                 ]
             await coordinator.transcribe(
                 audiobookID: id,
-                audioFileURL: player.tracks[0],
+                audioFileURL: audioURL,
                 chapters: chapters,
                 resume: true)
             player.bumpDocumentIngestionTrigger()
