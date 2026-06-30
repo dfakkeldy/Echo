@@ -18,6 +18,7 @@ struct MacTriPaneView: View {
     @State private var transcribeCoordinator: MacTranscribeCoordinator?
     @State private var showingTranscribeProgress = false
     @State private var showingQAReview = false
+    @State private var showingDailyReview = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -67,6 +68,12 @@ struct MacTriPaneView: View {
                     MacNarrationQAReviewView(db: db.writer, audiobookID: id)
                 }
             }
+            .sheet(isPresented: $showingDailyReview) {
+                MacDailyReviewView(
+                    db: dbService.writer,
+                    folderURL: player.folderURL,
+                    reviewNotificationsEnabled: settings.reviewNotificationsEnabled)
+            }
         } detail: {
             MacNotesPane()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
@@ -89,6 +96,9 @@ struct MacTriPaneView: View {
         }
         .onChange(of: settings.seekBackwardDuration) { _, newValue in
             player.skipBackInterval = newValue
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestDailyReview)) { _ in
+            showingDailyReview = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
             withAnimation {
