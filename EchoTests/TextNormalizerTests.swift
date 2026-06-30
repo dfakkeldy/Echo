@@ -37,6 +37,72 @@ import Testing
         #expect(TextNormalizer.normalize(input) == expected)
     }
 
+    @Test(arguments: [
+        ("$5", "five dollars"),
+        ("$5.25", "five dollars and twenty-five cents"),
+        ("$1.00", "one dollar"),
+        ("$0.99", "ninety-nine cents"),
+        (
+            "The grant was $1,200.50.",
+            "The grant was one thousand two hundred dollars and fifty cents."
+        ),
+    ])
+    func expandsDeterministicDollarAmounts(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("Meet at 3:30.", "Meet at three thirty."),
+        ("The bell rang at 12:05.", "The bell rang at twelve oh five."),
+        ("Open from 9:00 to 10:15.", "Open from nine o'clock to ten fifteen."),
+        ("3:07", "three oh seven"),
+    ])
+    func expandsProseFriendlyTimes(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("John 3:16 stays a citation.", "John 3:16 stays a citation."),
+        ("Use a 3:30 ratio.", "Use a 3:30 ratio."),
+        ("https://example.com/3:30/path", "https://example.com/3:30/path"),
+    ])
+    func leavesAmbiguousTimesAlone(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("Updated on 2026-06-30.", "Updated on June thirtieth, twenty twenty-six."),
+        (
+            "The archive starts on 1999-01-05.",
+            "The archive starts on January fifth, nineteen ninety-nine."
+        ),
+    ])
+    func expandsUnambiguousISODates(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("In 1999, the archive moved.", "In nineteen ninety-nine, the archive moved."),
+        ("Since 2001, the project changed.", "Since two thousand one, the project changed."),
+        ("By 2026, the tool matured.", "By twenty twenty-six, the tool matured."),
+        ("The year 1905 was cold.", "The year nineteen oh five was cold."),
+    ])
+    func expandsLikelyStandaloneYears(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("A$5 stays unsupported.", "A$5 stays unsupported."),
+        ("The malformed $5.2 stays literal.", "The malformed $5.2 stays literal."),
+        ("The odd $5% token stays literal.", "The odd $5% token stays literal."),
+        ("The 1999 files remain.", "The 1999 files remain."),
+        ("The 2026-13-30 draft stays literal.", "The 2026-13-30 draft stays literal."),
+        ("Version 2026-06 stays literal.", "Version 2026-06 stays literal."),
+    ])
+    func leavesAmbiguousNaturalnessFormsAlone(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
     @Test func leavesIntraWordHyphenForTheG2P() {
         // A hyphenated compound (no surrounding spaces) is NOT a sentence pause —
         // it must pass through untouched so the G2P reads it as a word break.
