@@ -30,25 +30,34 @@ final class NarrationQAReviewModel {
             var narrationServiceFactory: NarrationServiceFactory
         #endif
 
-        init(
-            classifierPreference: @escaping @MainActor () -> String =
-                Self.liveClassifierPreference,
-            foundationModelsAvailable: @escaping @MainActor () -> Bool =
-                Self.liveFoundationModelsAvailable,
-            classifierFactory: @escaping ClassifierFactory = DivergenceClassifierFactory.make
-            #if os(iOS) || os(macOS)
-                ,
+        #if os(iOS) || os(macOS)
+            init(
+                classifierPreference: @escaping @MainActor () -> String =
+                    Self.liveClassifierPreference,
+                foundationModelsAvailable: @escaping @MainActor () -> Bool =
+                    Self.liveFoundationModelsAvailable,
+                classifierFactory: @escaping ClassifierFactory = DivergenceClassifierFactory.make,
                 narrationServiceFactory: @escaping NarrationServiceFactory =
                     Self.liveNarrationService
-            #endif
-        ) {
-            self.classifierPreference = classifierPreference
-            self.foundationModelsAvailable = foundationModelsAvailable
-            self.classifierFactory = classifierFactory
-            #if os(iOS) || os(macOS)
+            ) {
+                self.classifierPreference = classifierPreference
+                self.foundationModelsAvailable = foundationModelsAvailable
+                self.classifierFactory = classifierFactory
                 self.narrationServiceFactory = narrationServiceFactory
-            #endif
-        }
+            }
+        #else
+            init(
+                classifierPreference: @escaping @MainActor () -> String =
+                    Self.liveClassifierPreference,
+                foundationModelsAvailable: @escaping @MainActor () -> Bool =
+                    Self.liveFoundationModelsAvailable,
+                classifierFactory: @escaping ClassifierFactory = DivergenceClassifierFactory.make
+            ) {
+                self.classifierPreference = classifierPreference
+                self.foundationModelsAvailable = foundationModelsAvailable
+                self.classifierFactory = classifierFactory
+            }
+        #endif
 
         private static func liveClassifierPreference() -> String {
             UserDefaults.standard.string(forKey: "narrationQAClassifier")
