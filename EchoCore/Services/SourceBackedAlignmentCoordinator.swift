@@ -103,4 +103,15 @@ enum SourceBackedAlignmentCoordinator {
         try WordTimingMaterializer.refine(
             audiobookID: audiobookID, dtwMatchesByBlock: matchesByBlock, writer: dbService.writer)
     }
+
+    /// Number of `word_timing` rows for the book whose confidence is below
+    /// `threshold` — the spans that stayed interpolated (0.5) rather than being
+    /// retimed by a real DTW audio match (0.85). Callers/debug UI use this to
+    /// flag likely-misaligned regions; the default 0.75 separates the two.
+    static func lowConfidenceWordCount(
+        audiobookID: String, dbService: DatabaseService, threshold: Double = 0.75
+    ) throws -> Int {
+        let words = try WordTimingDAO(db: dbService.writer).words(forAudiobook: audiobookID)
+        return words.filter { $0.confidence < threshold }.count
+    }
 }
