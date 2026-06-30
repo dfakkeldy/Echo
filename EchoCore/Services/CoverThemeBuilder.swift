@@ -63,6 +63,27 @@ nonisolated enum CoverThemeBuilder {
     private static let neutralHue: Double = 80.0
     private static let neutralRampChroma: Double = 0.010
 
+    /// Bold/vivid accent for high-contrast covers whose primary accent is strongly
+    /// saturated (a deep accent on black/white — e.g. the red on "Everything But
+    /// the Code"). The standard recipes lighten accents for tonal harmony (the dark
+    /// accent at L 0.78 turns a red into a pale pink); these keep the cover's
+    /// accent bold. Scheme-specific so it contrasts each scheme's background.
+    /// `enforcedAccent` still guarantees the contrast floors on top of these seeds.
+    private static let boldAccentDark: (l: Double, c: Double) = (0.57, 0.22)
+    private static let boldAccentLight: (l: Double, c: Double) = (0.50, 0.22)
+
+    /// A cover earns the bold accent when its primary candidate's OKLCH chroma is
+    /// at least this. Keyed on the accent's own saturation, which is a robust
+    /// discriminator: bold covers measure ~0.16+, muted/photographic covers
+    /// ~0.03–0.10, with a wide empty gap. Sits above the 360-hue contrast test's
+    /// stand-in chroma (0.12) so that sweep keeps exercising the standard recipe.
+    private static let boldAccentChromaFloor: Double = 0.14
+
+    /// On top of a bold accent, strip the background to a neutral graphite/paper
+    /// ramp (the "black/white + accent" look) only when the cover is itself
+    /// black/white-dominant. A solid vivid cover keeps its tonal background.
+    private static let neutralRampExtremeShare: Double = 0.45
+
     /// Contrast floors the construction must clear (spec §7).
     static let accentFloor: Double = 3.0
     static let chipFloor: Double = 2.5
@@ -96,22 +117,36 @@ nonisolated enum CoverThemeBuilder {
         }
 
         let primaryHue = primary.hue
-        let backgroundTop = roleColor(recipe.backgroundTop, hue: primaryHue)
-        let backgroundBottom = roleColor(recipe.backgroundBottom, hue: primaryHue)
-        let chip = roleColor(recipe.chip, hue: primaryHue)
 
+        // A strongly-saturated primary (a bold cover) keeps a bold accent instead
+        // of the tonal-lightened one; if the cover is also black/white-dominant the
+        // background ramp goes neutral, giving the "black/white + accent" look.
+        let isBoldAccent = primary.chroma >= boldAccentChromaFloor
+        let useNeutralRamp =
+            isBoldAccent
+            && (signature.nearBlackShare + signature.nearWhiteShare) >= neutralRampExtremeShare
+
+        // Background + chip roles: neutral graphite/paper for black/white-dominant
+        // covers, else the tonal hue ramp at the cover's primary hue.
+        let rampHue = useNeutralRamp ? neutralHue : primaryHue
+        func ramp(_ role: (l: Double, c: Double)) -> ColorMetrics.RGB {
+            roleColor((role.l, useNeutralRamp ? neutralRampChroma : role.c), hue: rampHue)
+        }
+        let backgroundTop = ramp(recipe.backgroundTop)
+        let backgroundBottom = ramp(recipe.backgroundBottom)
+        let chip = ramp(recipe.chip)
+
+        let accentRole =
+            isBoldAccent ? (scheme == .dark ? boldAccentDark : boldAccentLight) : recipe.accent
         let accent = enforcedAccent(
-            roleColor(recipe.accent, hue: primaryHue), hue: primaryHue,
+            roleColor(accentRole, hue: primaryHue), hue: primaryHue,
             backgrounds: [backgroundTop, backgroundBottom], chip: chip
         )
-        let onAccent = enforced(
-            roleColor(recipe.onAccent, hue: primaryHue), hue: primaryHue,
-            floor: onAccentFloor, against: [accent]
-        )
+        let onAccent = legibleOnAccent(for: accent)
 
         let secondHue = secondaryHue(for: signature, primary: primary)
         let secondary = enforcedAccent(
-            roleColor(recipe.accent, hue: secondHue), hue: secondHue,
+            roleColor(accentRole, hue: secondHue), hue: secondHue,
             backgrounds: [backgroundTop, backgroundBottom], chip: chip
         )
 
@@ -124,6 +159,20 @@ nonisolated enum CoverThemeBuilder {
             chip: chip,
             isNeutralFallback: false
         )
+    }
+
+    /// Glyph colour (text/icons) drawn ON the accent fill: whichever of pure white
+    /// or pure black contrasts the accent more. For ANY in-gamut accent the better
+    /// extreme clears ≥ 4.58 — the minimum-of-maxima sits at relative luminance
+    /// ≈ 0.179 — so this always satisfies `onAccentFloor` (4.5) with no stepping,
+    /// and, unlike a single-seeded monotonic step, it has no mid-lightness "dead
+    /// zone" where a bold accent could be left with an illegible glyph.
+    private static func legibleOnAccent(for accent: ColorMetrics.RGB) -> ColorMetrics.RGB {
+        let white = ColorMetrics.RGB(r: 1, g: 1, b: 1)
+        let black = ColorMetrics.RGB(r: 0, g: 0, b: 0)
+        return ColorMetrics.contrastRatio(white, accent)
+            >= ColorMetrics.contrastRatio(black, accent)
+            ? white : black
     }
 
     // MARK: - Role construction
@@ -160,10 +209,7 @@ nonisolated enum CoverThemeBuilder {
             brand, hue: brandHue,
             backgrounds: [backgroundTop, backgroundBottom], chip: chip
         )
-        let onAccent = enforced(
-            roleColor(recipe.onAccent, hue: brandHue), hue: brandHue,
-            floor: onAccentFloor, against: [accent]
-        )
+        let onAccent = legibleOnAccent(for: accent)
 
         return Resolved(
             accent: accent,
