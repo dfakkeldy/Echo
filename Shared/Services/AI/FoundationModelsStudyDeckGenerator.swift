@@ -63,7 +63,7 @@ enum StudyDeckFMCardMapper {
             """
         private nonisolated static let maxExcerpt = 7_500
 
-        init(fallback: any StudyDeckGenerating = FixtureStudyDeckGenerator()) {
+        nonisolated init(fallback: any StudyDeckGenerating = FixtureStudyDeckGenerator()) {
             self.fallback = fallback
         }
 
