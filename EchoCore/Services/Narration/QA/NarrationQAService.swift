@@ -4,6 +4,20 @@ import Foundation
 import GRDB
 import os.log
 
+enum NarrationQAError: Error, Equatable, LocalizedError {
+    case transcriptionFailed(chapterIndex: Int, fileURL: URL, underlying: String)
+    case noHeardWords(chapterIndex: Int, fileURL: URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .transcriptionFailed(let chapterIndex, _, let underlying):
+            "Transcription failed for chapter \(chapterIndex): \(underlying)"
+        case .noHeardWords(let chapterIndex, _):
+            "No spoken words were detected in chapter \(chapterIndex)."
+        }
+    }
+}
+
 /// User-initiated "listen back" QA for generated narration. For each rendered
 /// chapter: re-transcribe the audio, detect heard-vs-source divergences with the
 /// deterministic `NarrationQADetector`, label each window with the injected
@@ -13,14 +27,14 @@ import os.log
 final class NarrationQAService {
     private let db: DatabaseWriter
     private let classifier: DivergenceClassifier
-    private let transcribe: @Sendable (_ fileURL: URL) async -> [TranscribedWord]
+    private let transcribe: @Sendable (_ fileURL: URL) async throws -> [TranscribedWord]
     private let logger = Logger(category: "NarrationQA")
     private static let iso = ISO8601DateFormatter()
 
     init(
         db: DatabaseWriter,
         classifier: DivergenceClassifier,
-        transcribe: @escaping @Sendable (_ fileURL: URL) async -> [TranscribedWord] =
+        transcribe: @escaping @Sendable (_ fileURL: URL) async throws -> [TranscribedWord] =
             NarrationQAService.whisperTranscribe
     ) {
         self.db = db
@@ -58,22 +72,33 @@ final class NarrationQAService {
         let now = Self.iso.string(from: Date())
 
         for chapter in chapters {
-            // Clear this chapter's prior OPEN issues so a re-run converges, while
-            // preserving the user's resolved/ignored verdicts (the audit trail).
-            try issueDAO.deleteOpen(for: audiobookID, blockIDs: chapter.spokenBlockIDs)
-
             let expectedBlocks: [(blockID: String, text: String)] = chapter.spokenBlockIDs
                 .compactMap {
                     id in
                     guard let text = blocksByID[id]?.text, !text.isEmpty else { return nil }
                     return (id, TextNormalizer.normalize(text))
-                }
+            }
             guard !expectedBlocks.isEmpty else { continue }
 
-            let heard = await transcribe(chapter.fileURL)
+            let heard: [TranscribedWord]
+            do {
+                heard = try await transcribe(chapter.fileURL)
+            } catch let error as NarrationQAError {
+                logger.error("QA chapter \(chapter.chapterIndex): \(error.localizedDescription)")
+                throw error
+            } catch {
+                logger.error(
+                    "QA chapter \(chapter.chapterIndex): transcription failed: \(error.localizedDescription)"
+                )
+                throw NarrationQAError.transcriptionFailed(
+                    chapterIndex: chapter.chapterIndex,
+                    fileURL: chapter.fileURL,
+                    underlying: error.localizedDescription)
+            }
             guard !heard.isEmpty else {
-                logger.notice("QA chapter \(chapter.chapterIndex): no heard words; skipping")
-                continue
+                logger.error("QA chapter \(chapter.chapterIndex): no heard words")
+                throw NarrationQAError.noHeardWords(
+                    chapterIndex: chapter.chapterIndex, fileURL: chapter.fileURL)
             }
 
             let windows = NarrationQADetector.detect(
@@ -82,7 +107,7 @@ final class NarrationQAService {
             var records: [NarrationQualityIssueRecord] = []
             for window in windows {
                 let c = await classifier.classify(window)
-                let fixJSON = Self.encodeFix(c)
+                let fixJSON = encodeFix(c)
                 records.append(
                     NarrationQualityIssueRecord(
                         id: UUID().uuidString,
@@ -101,37 +126,41 @@ final class NarrationQAService {
                         createdAt: now,
                         resolvedAt: nil))
             }
-            try issueDAO.insert(records)
+            try issueDAO.replaceOpen(for: audiobookID, blockIDs: chapter.spokenBlockIDs, with: records)
             logger.notice("QA chapter \(chapter.chapterIndex): \(records.count) issues")
         }
     }
 
-    private static func encodeFix(_ c: DivergenceClassification) -> String? {
+    private func encodeFix(_ c: DivergenceClassification) -> String? {
         guard c.suggestedSpokenForm != nil || c.suggestedIPA != nil else { return nil }
         // Encode the shared, typed SuggestedFix (NOT a manual dict) so M5's
         // ContributionPayloadFilter decodes the exact same shape.
         let fix = SuggestedFix(spokenForm: c.suggestedSpokenForm, ipa: c.suggestedIPA)
-        return (try? JSONEncoder().encode(fix)).flatMap { String(data: $0, encoding: .utf8) }
+        do {
+            let data = try JSONEncoder().encode(fix)
+            guard let json = String(data: data, encoding: .utf8) else {
+                logger.error("Suggestion fix encode produced non-UTF8 data.")
+                return nil
+            }
+            return json
+        } catch {
+            logger.error("Suggestion fix encode failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Default transcribe seam: reads the whole file and runs the shared
-    /// WhisperKit model (same options the alignment pipeline uses). Returns []
-    /// on any failure so QA degrades to "no issues found" rather than crashing.
-    static func whisperTranscribe(fileURL: URL) async -> [TranscribedWord] {
-        do {
-            let duration = try await Self.fileDuration(fileURL)
-            let samples = try await AudioSegmentReader.samples(
-                from: fileURL, at: 0, duration: duration)
-            guard !samples.isEmpty else { return [] }
-            let wk = try await WhisperSession.shared.acquire()
-            defer { WhisperSession.shared.release() }
-            return await AlignmentTranscript.transcribeWords(
-                with: wk, samples: samples, captureStart: 0)
-        } catch {
-            Logger(category: "NarrationQA").error(
-                "whisperTranscribe failed: \(error.localizedDescription)")
-            return []
-        }
+    /// WhisperKit model (same options the alignment pipeline uses). Failures
+    /// throw so callers can distinguish them from a genuine no-speech result.
+    static func whisperTranscribe(fileURL: URL) async throws -> [TranscribedWord] {
+        let duration = try await Self.fileDuration(fileURL)
+        let samples = try await AudioSegmentReader.samples(
+            from: fileURL, at: 0, duration: duration)
+        guard !samples.isEmpty else { return [] }
+        let wk = try await WhisperSession.shared.acquire()
+        defer { WhisperSession.shared.release() }
+        return await AlignmentTranscript.transcribeWords(
+            with: wk, samples: samples, captureStart: 0)
     }
 
     private static func fileDuration(_ fileURL: URL) async throws -> TimeInterval {

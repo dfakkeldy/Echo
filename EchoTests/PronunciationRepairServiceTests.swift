@@ -50,6 +50,25 @@ import Testing
 
     // MARK: - applyFix
 
+    private func issueWithFix(
+        id: String,
+        audiobookID: String,
+        blockID: String,
+        expectedText: String = "Arrakis"
+    ) throws -> NarrationQualityIssueRecord {
+        let fix = SuggestedFix(spokenForm: expectedText, ipa: "ɑˈɹɑːkɪs")
+        return NarrationQualityIssueRecord(
+            id: id, audiobookID: audiobookID, sourceBlockID: blockID,
+            sourceWordStart: 1, sourceWordEnd: 1,
+            audioStartTime: 0, audioEndTime: 2,
+            expectedText: expectedText, heardText: "a rockis",
+            issueType: NarrationQAIssueType.pronunciation.rawValue,
+            confidence: 0.4,
+            suggestedFixJSON: String(data: try JSONEncoder().encode(fix), encoding: .utf8),
+            status: NarrationQAIssueStatus.open.rawValue,
+            createdAt: "2026-06-29T00:00:00Z", resolvedAt: nil)
+    }
+
     @MainActor
     @Test func applyFixWritesPerBookOverrideAndResolvesIssue() async throws {
         let db = try DatabaseService(inMemory: ())
@@ -99,6 +118,80 @@ import Testing
         #expect(resolved.contains { $0.id == "iss-1" })
         #expect(
             try issueDAO.issues(for: bookID, status: NarrationQAIssueStatus.open.rawValue).isEmpty)
+    }
+
+    @MainActor
+    @Test func applyFixDoesNotResolveIssueWhenRenderFails() async throws {
+        struct RenderFailure: Error {}
+
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "file:///Books/Dune/"
+        let blockID = "epub-\(bookID)-s0-b0"
+        try seedBlock(audiobookID: bookID, blockID: blockID, chapterIndex: 3, db: db)
+        let issue = try issueWithFix(id: "iss-render", audiobookID: bookID, blockID: blockID)
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        try issueDAO.insert([issue])
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = PronunciationOverrideStore(directory: tmp)
+        let svc = PronunciationRepairService(
+            store: store, issueDAO: issueDAO, db: db.writer,
+            cacheDirectory: tmp, voice: VoiceCatalog.default.id,
+            renderChapter: { _ in throw RenderFailure() },
+            reRunQA: { _ in Issue.record("re-QA should not run after render failure") })
+
+        await #expect(throws: (any Error).self) {
+            try await svc.applyFix(issue: issue, scope: .book(bookID))
+        }
+
+        #expect(store.overrides(forBookID: bookID).entries["Arrakis"] == "ɑˈɹɑːkɪs")
+        #expect(
+            try issueDAO.issues(for: bookID, status: NarrationQAIssueStatus.open.rawValue)
+                .contains { $0.id == "iss-render" })
+        #expect(
+            try issueDAO.issues(for: bookID, status: NarrationQAIssueStatus.resolved.rawValue)
+                .isEmpty)
+    }
+
+    @MainActor
+    @Test func applyFixDoesNotResolveIssueWhenReQAFails() async throws {
+        struct ReQAFailure: Error {}
+
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "file:///Books/Dune/"
+        let blockID = "epub-\(bookID)-s0-b0"
+        try seedBlock(audiobookID: bookID, blockID: blockID, chapterIndex: 3, db: db)
+        let issue = try issueWithFix(id: "iss-reqa", audiobookID: bookID, blockID: blockID)
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        try issueDAO.insert([issue])
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = PronunciationOverrideStore(directory: tmp)
+        var renderedChapters: [Int] = []
+        let svc = PronunciationRepairService(
+            store: store, issueDAO: issueDAO, db: db.writer,
+            cacheDirectory: tmp, voice: VoiceCatalog.default.id,
+            renderChapter: { chapterIndex in renderedChapters.append(chapterIndex) },
+            reRunQA: { _ in throw ReQAFailure() })
+
+        await #expect(throws: (any Error).self) {
+            try await svc.applyFix(issue: issue, scope: .book(bookID))
+        }
+
+        #expect(renderedChapters == [3])
+        #expect(store.overrides(forBookID: bookID).entries["Arrakis"] == "ɑˈɹɑːkɪs")
+        #expect(
+            try issueDAO.issues(for: bookID, status: NarrationQAIssueStatus.open.rawValue)
+                .contains { $0.id == "iss-reqa" })
+        #expect(
+            try issueDAO.issues(for: bookID, status: NarrationQAIssueStatus.resolved.rawValue)
+                .isEmpty)
     }
 
     @MainActor

@@ -11,6 +11,38 @@ struct NarrationQualityIssueDAO {
         }
     }
 
+    /// Atomically replaces the current OPEN issues for a chapter/block set.
+    /// Resolved and ignored rows survive as audit history.
+    func replaceOpen(
+        for audiobookID: String,
+        blockIDs: [String],
+        with records: [NarrationQualityIssueRecord]
+    ) throws {
+        guard !blockIDs.isEmpty else { return }
+        try db.write { db in
+            _ = try NarrationQualityIssueRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(blockIDs.contains(Column("source_block_id")))
+                .filter(Column("status") == NarrationQAIssueStatus.open.rawValue)
+                .deleteAll(db)
+            for var record in records {
+                try record.insert(db)
+            }
+        }
+    }
+
+    /// Saves the accepted issue as resolved after repair + re-QA succeed. Re-QA
+    /// may delete the original open row first, so this intentionally upserts the
+    /// audit record instead of assuming the row still exists.
+    func saveResolvedAudit(_ record: NarrationQualityIssueRecord, resolvedAt: String) throws {
+        try db.write { db in
+            var resolved = record
+            resolved.status = NarrationQAIssueStatus.resolved.rawValue
+            resolved.resolvedAt = resolvedAt
+            try resolved.save(db)
+        }
+    }
+
     func issues(for audiobookID: String) throws -> [NarrationQualityIssueRecord] {
         try db.read { db in
             try NarrationQualityIssueRecord

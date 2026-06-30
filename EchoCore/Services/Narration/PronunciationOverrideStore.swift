@@ -115,11 +115,18 @@
         /// Return this book's map, rehydrating from disk into the cache on first access.
         private func loadedBookEntries(_ bookID: String) -> [String: String] {
             if let cached = bookEntries[bookID] { return cached }
+            let fileURL = bookFileURL(bookID)
             let loaded: [String: String]
-            if let data = try? Data(contentsOf: bookFileURL(bookID)),
-                let decoded = try? JSONDecoder().decode([String: String].self, from: data)
-            {
-                loaded = decoded
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                do {
+                    let data = try Data(contentsOf: fileURL)
+                    loaded = try JSONDecoder().decode([String: String].self, from: data)
+                } catch {
+                    logger.error(
+                        "Failed to decode per-book pronunciation overrides \(fileURL.lastPathComponent): \(error.localizedDescription)"
+                    )
+                    loaded = [:]
+                }
             } else {
                 loaded = [:]
             }
