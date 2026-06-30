@@ -101,8 +101,8 @@ final class NarrationQAService {
                     chapterIndex: chapter.chapterIndex, fileURL: chapter.fileURL)
             }
 
-            let windows = NarrationQADetector.detect(
-                expectedBlocks: expectedBlocks, heardWords: heard, audiobookID: audiobookID)
+            let windows = await Self.detectWindows(
+                expectedBlocks: expectedBlocks, heardWords: heard)
 
             var records: [NarrationQualityIssueRecord] = []
             for window in windows {
@@ -147,6 +147,15 @@ final class NarrationQAService {
             logger.error("Suggestion fix encode failed: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    nonisolated private static func detectWindows(
+        expectedBlocks: [(blockID: String, text: String)],
+        heardWords: [TranscribedWord]
+    ) async -> [DivergenceWindow] {
+        await Task.detached(priority: .userInitiated) {
+            NarrationQADetector.detect(expectedBlocks: expectedBlocks, heardWords: heardWords)
+        }.value
     }
 
     /// Default transcribe seam: reads the whole file and runs the shared

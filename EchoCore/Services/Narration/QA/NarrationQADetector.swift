@@ -5,11 +5,10 @@ import Foundation
 /// narration. Reuses the alignment engine (`TokenDTW`) so the issue *set* is
 /// device-independent: same source blocks + same heard words -> same windows.
 /// Classification (which kind of issue, suggested fixes) is a separate step.
-enum NarrationQADetector {
+nonisolated enum NarrationQADetector {
     static func detect(
         expectedBlocks: [(blockID: String, text: String)],
-        heardWords: [TranscribedWord],
-        audiobookID: String
+        heardWords: [TranscribedWord]
     ) -> [DivergenceWindow] {
         guard !expectedBlocks.isEmpty, !heardWords.isEmpty else { return [] }
 

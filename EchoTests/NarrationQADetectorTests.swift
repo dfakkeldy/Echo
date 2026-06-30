@@ -20,7 +20,7 @@ import Testing
             ("over", 2.0), ("the", 2.4), ("lazy", 2.8), ("dog", 3.2),
         ])
         let windows = NarrationQADetector.detect(
-            expectedBlocks: blocks, heardWords: words, audiobookID: "b1")
+            expectedBlocks: blocks, heardWords: words)
         #expect(windows.isEmpty)
     }
 
@@ -31,7 +31,7 @@ import Testing
             ("the", 2.0), ("crazy", 2.4), ("dog", 2.8),
         ])
         let windows = NarrationQADetector.detect(
-            expectedBlocks: blocks, heardWords: words, audiobookID: "b1")
+            expectedBlocks: blocks, heardWords: words)
         #expect(!windows.isEmpty)
         // Every window names blk1 and references real source-word indices.
         #expect(windows.allSatisfy { $0.blockID == "blk1" })
@@ -51,7 +51,7 @@ import Testing
             ("over", 2.0), ("the", 2.4), ("crazy", 2.8), ("dog", 3.2),
         ])
         let windows = NarrationQADetector.detect(
-            expectedBlocks: blocks, heardWords: words, audiobookID: "b1")
+            expectedBlocks: blocks, heardWords: words)
         let lazyWindow = windows.first { $0.expectedWordStart <= 7 && 7 <= $0.expectedWordEnd }
         #expect(lazyWindow?.heardText.contains("crazy") == true)
     }
@@ -64,7 +64,7 @@ import Testing
             ("over", 2.0), ("the", 2.4), ("lazy", 2.8), ("dog", 3.2),
         ])
         let windows = NarrationQADetector.detect(
-            expectedBlocks: blocks, heardWords: words, audiobookID: "b1")
+            expectedBlocks: blocks, heardWords: words)
         let brownWindow = windows.first { $0.expectedWordStart <= 2 && 2 <= $0.expectedWordEnd }
         #expect(brownWindow?.heardText.isEmpty == true)
     }
@@ -79,7 +79,7 @@ import Testing
             ("have", 0.0), ("seven", 0.4), ("brown", 0.8), ("cats", 1.2),
         ])
         let windows = NarrationQADetector.detect(
-            expectedBlocks: block, heardWords: words, audiobookID: "bN")
+            expectedBlocks: block, heardWords: words)
         #expect(windows.isEmpty)
     }
 }

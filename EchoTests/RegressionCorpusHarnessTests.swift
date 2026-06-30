@@ -67,8 +67,7 @@
                 }
                 let windows = NarrationQADetector.detect(
                     expectedBlocks: expectedBlocks,
-                    heardWords: heardWords,
-                    audiobookID: fixture.audiobookID)
+                    heardWords: heardWords)
                 #expect(
                     windows.count == fixture.expectedWindowCount,
                     "\(file.lastPathComponent): expected \(fixture.expectedWindowCount) windows, got \(windows.count)"
