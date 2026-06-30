@@ -19,9 +19,11 @@ import Foundation
 ///
 /// Contract:
 /// - Every returned piece has `count <= maxChars`.
-/// - Splits preferentially at sentence/clause boundaries (`. ! ? ; , :`), falls
-///   back to word boundaries for an over-long run, and only hard-splits a single
-///   word that is itself longer than `maxChars`.
+/// - Splits preferentially at sentence terminators (`. ! ?`); descends to clause
+///   marks (`; , :`) only to break a single sentence that is itself over budget,
+///   then to word boundaries, and only hard-splits a single word longer than
+///   `maxChars`. Keeping seams off mid-sentence commas avoids the model applying
+///   sentence-final intonation (an audible "period") where a comma belongs.
 /// - Never loses content: concatenating the pieces reproduces the input modulo
 ///   collapsed runs of whitespace.
 /// - Empty / whitespace-only input → `[]`.
@@ -40,11 +42,23 @@ enum NarrationTextChunker {
         guard !normalized.isEmpty else { return [] }
 
         var pieces: [String] = []
-        for sentence in splitIntoSentences(normalized, maxChars: maxChars) {
+        // Tier 1 — sentence terminators (. ! ?). A seam here is a real stop, so the
+        // model's sentence-final intonation (falling pitch + pause) is appropriate.
+        for sentence in mergedUnits(normalized, maxChars: maxChars, isBoundary: isSentenceBoundary)
+        {
             if sentence.count <= maxChars {
                 pieces.append(sentence)
-            } else {
-                pieces.append(contentsOf: wrapByWords(sentence, maxChars: maxChars))
+                continue
+            }
+            // Tier 2 — only for a single sentence over budget: clause boundaries
+            // (; , :). A comma seam is less wrong than wrapping mid-clause; tier 1
+            // already kept seams off commas wherever the sentences fit the budget.
+            for clause in mergedUnits(sentence, maxChars: maxChars, isBoundary: isClauseBoundary) {
+                if clause.count <= maxChars {
+                    pieces.append(clause)
+                } else {
+                    pieces.append(contentsOf: wrapByWords(clause, maxChars: maxChars))
+                }
             }
         }
         // Drop chunks that are purely decorative — punctuation, separators,
@@ -58,16 +72,19 @@ enum NarrationTextChunker {
         return pieces
     }
 
-    /// Greedily groups sentence/clause units so each accumulated piece stays
-    /// `<= maxChars`. Sentence and clause boundaries keep their trailing
-    /// punctuation; newlines were already folded to spaces by `split`.
-    private static func splitIntoSentences(_ text: String, maxChars: Int) -> [String] {
-        var sentences: [String] = []
+    /// Splits `text` at the boundaries `isBoundary` accepts, then greedily merges
+    /// adjacent units so each accumulated piece stays `<= maxChars`. Boundaries
+    /// keep their trailing punctuation; newlines were already folded to spaces by
+    /// `split`. Reused for both tiers — sentence terminators, then clause marks.
+    private static func mergedUnits(
+        _ text: String, maxChars: Int, isBoundary: (Character, Int, [Character]) -> Bool
+    ) -> [String] {
+        var units: [String] = []
         var current = ""
 
         func flush() {
             let trimmed = current.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty { sentences.append(trimmed) }
+            if !trimmed.isEmpty { units.append(trimmed) }
             current = ""
         }
 
@@ -90,7 +107,7 @@ enum NarrationTextChunker {
             } else if ch == ")" {
                 inLink = false
             }
-            if !inLink, isChunkBoundary(ch, at: i, in: chars) {
+            if !inLink, isBoundary(ch, i, chars) {
                 flush()
             }
         }
@@ -100,7 +117,7 @@ enum NarrationTextChunker {
         // paragraph of short sentences doesn't produce one synth call per
         // sentence (which would over-fragment the audio).
         var merged: [String] = []
-        for s in sentences {
+        for s in units {
             if let last = merged.last, last.count + 1 + s.count <= maxChars {
                 merged[merged.count - 1] = last + " " + s
             } else {
@@ -110,10 +127,20 @@ enum NarrationTextChunker {
         return merged
     }
 
-    private static func isChunkBoundary(_ ch: Character, at index: Int, in chars: [Character])
+    /// Tier 1: full-stop terminators. Seams here read as natural sentence ends.
+    private static func isSentenceBoundary(_ ch: Character, at index: Int, in chars: [Character])
         -> Bool
     {
-        if ch == "." || ch == "!" || ch == "?" || ch == ";" { return true }
+        ch == "." || ch == "!" || ch == "?"
+    }
+
+    /// Tier 2: in-sentence clause marks, used only to break a single over-long
+    /// sentence. `,`/`:` are ignored when they sit between digits (e.g. `3,000`,
+    /// `12:30`) so numbers and times aren't split mid-token.
+    private static func isClauseBoundary(_ ch: Character, at index: Int, in chars: [Character])
+        -> Bool
+    {
+        if ch == ";" { return true }
         if ch == "," || ch == ":" {
             return !hasDigitNeighbor(at: index, in: chars)
         }
