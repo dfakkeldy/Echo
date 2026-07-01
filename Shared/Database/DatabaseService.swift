@@ -143,6 +143,9 @@ final class DatabaseService {
         migrator.registerMigration("v31_abs_server_multi") { db in
             try Schema_V31.migrate(db)
         }
+        migrator.registerMigration("v32_narration_text") { db in
+            try Schema_V32.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }

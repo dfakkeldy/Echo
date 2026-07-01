@@ -62,6 +62,13 @@ final class NarrationService {
     /// and voices. FM-unavailable or FM-makes-no-changes → passthrough (no-op).
     private let fmCache = FMNormalizationCache()
 
+    /// Whether FM pre-normalization is enabled for this narration run.
+    /// Respects the `narrationQAClassifier` UserDefaults key: when set to
+    /// "deterministic", FM is off for both QA and pre-normalization.
+    private var fmEnabled: Bool {
+        UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
+    }
+
     /// Supplies the user pronunciation overrides applied to each block's text
     /// after `TextNormalizer` and before chunking/synthesis. Evaluated as a
     /// closure (not a stored value) so the live `PronunciationOverrideStore` is
@@ -419,7 +426,22 @@ final class NarrationService {
         for (i, block) in spoken.enumerated() {
             try Task.checkCancellation()
             let normalized = TextNormalizer.normalize(block.text ?? "")
-            let refined = await FMNormalizer.refine(normalized, cache: fmCache)
+            let refined =
+                fmEnabled
+                ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
+            if refined != normalized {
+                do {
+                    try await db.write { db in
+                        try db.execute(
+                            sql: "UPDATE epub_block SET narration_text = ? WHERE id = ?",
+                            arguments: [refined, block.id])
+                    }
+                } catch {
+                    logger.error(
+                        "Failed to persist FM-refined text for block \(block.id): \(error.localizedDescription)"
+                    )
+                }
+            }
             let text = overrides.apply(to: refined)
 
             // Bound each synthesize call under Kokoro's ~510-phoneme context window
