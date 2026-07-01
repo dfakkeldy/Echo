@@ -84,7 +84,10 @@ final class NarrationQAService {
             let expectedBlocks: [(blockID: String, text: String)] = chapter.spokenBlockIDs
                 .compactMap {
                     id in
-                    guard let text = blocksByID[id]?.text, !text.isEmpty else { return nil }
+                    guard
+                        let text = blocksByID[id]?.narrationText ?? blocksByID[id]?.text,
+                        !text.isEmpty
+                    else { return nil }
                     return (id, TextNormalizer.normalize(text))
                 }
             guard !expectedBlocks.isEmpty else { continue }

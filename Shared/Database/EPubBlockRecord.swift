@@ -5,7 +5,9 @@ import os.log
 
 /// A parsed EPUB block — heading, paragraph, sentence, or image — extracted
 /// from XHTML spine items and stored in structural reading order.
-struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord, MutablePersistableRecord {
+struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord,
+    MutablePersistableRecord
+{
     var id: String
     var audiobookID: String
     var spineHref: String
@@ -25,8 +27,10 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
     /// printed TOC, …) classified during import from EPUB structural metadata.
     var isFrontMatter: Bool = false
     var wordCount: Int?
-    var markers: String?        // JSON-encoded [SyncMarker]
-    var textFormats: String?    // JSON-encoded [TextFormat]
+    var markers: String?  // JSON-encoded [SyncMarker]
+    var textFormats: String?  // JSON-encoded [TextFormat]
+    /// FM-normalized text for TTS rendering. Null → use original `text`.
+    var narrationText: String?
     var createdAt: String?
     var modifiedAt: String?
 
@@ -52,6 +56,7 @@ struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, Fe
         case wordCount = "word_count"
         case markers
         case textFormats = "text_formats"
+        case narrationText = "narration_text"
         case createdAt = "created_at"
         case modifiedAt = "modified_at"
     }
@@ -138,7 +143,9 @@ extension EPubBlockRecord {
         }
     }
 
-    private static func encodeJSONColumn<Value: Encodable>(_ value: Value, column: String) -> String? {
+    private static func encodeJSONColumn<Value: Encodable>(_ value: Value, column: String)
+        -> String?
+    {
         do {
             let data = try JSONEncoder().encode(value)
             guard let json = String(data: data, encoding: .utf8) else {
