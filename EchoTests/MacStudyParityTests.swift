@@ -85,6 +85,21 @@ struct MacStudyParityTests {
             "Deck generation must use the current macOS audiobook id, resolved book title, and shared DB writer.")
     }
 
+    @Test func studyDeckGenerationPrefersLoadedFileTitleBeforeParentFolder() throws {
+        let triPane = try MacSource.read("Views/MacTriPaneView.swift")
+        let resolver = try #require(
+            triPane.range(of: "static func resolve(\n        storedTitle: String?,")
+        )
+        let resolverBody = triPane[resolver.lowerBound...]
+        let currentTitleFallback = try #require(resolverBody.range(of: "?? normalizedTitle(currentTitle)"))
+        let folderTitleFallback = try #require(resolverBody.range(of: "?? normalizedTitle(folderTitle)"))
+
+        #expect(
+            currentTitleFallback.lowerBound < folderTitleFallback.lowerBound,
+            "Mac generation title resolution must prefer the loaded file/current title before falling back to a parent folder name for single-file audio opens."
+        )
+    }
+
     @Test func triPaneImportsDeckJSONWithNativeAlert() throws {
         let triPane = try MacSource.read("Views/MacTriPaneView.swift")
         #expect(

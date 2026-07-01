@@ -510,8 +510,8 @@ private enum StudyPlanBookTitleResolver {
         currentTitle: String
     ) -> String {
         normalizedTitle(storedTitle)
-            ?? normalizedTitle(folderTitle)
             ?? normalizedTitle(currentTitle)
+            ?? normalizedTitle(folderTitle)
             ?? "Book"
     }
 
