@@ -137,4 +137,43 @@ struct MacAudiobookshelfParityTests {
             src.contains("savedServers") && src.contains(".all()"),
             "The saved-servers list must be loaded via the shared DAO's all().")
     }
+
+    /// Found via live device testing: with exactly one saved server, `savedServers.count`
+    /// can never reach 2 without going through "Switch Server…" first — so gating that
+    /// button on `count > 1` made it permanently unreachable the moment you have only one
+    /// server connected. There must be no such count-based gate on the entry point that
+    /// lets you add a second server.
+    @Test func addServerEntryPointIsNotGatedOnAlreadyHavingTwoServers() throws {
+        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        #expect(
+            !src.contains("model.savedServers.count > 1"),
+            "The \"Switch Server…\" button must not require savedServers.count > 1 — that count can only ever reach 2 by going through this same button, so gating on it is an unreachable dead end with exactly one saved server."
+        )
+        #expect(
+            src.range(
+                of:
+                    #"model\.phase == \.connected, let server = model\.server \{[\s\S]*?Switch Server…"#,
+                options: .regularExpression) != nil,
+            "\"Switch Server…\" must still be shown whenever a server is connected, just no longer gated by count."
+        )
+    }
+
+    /// Found via live device testing: connecting to a brand-new server via the manual
+    /// form (attemptConnect, used for both first connect and "Add Server" while already
+    /// connected) left `selectedLibraryID` set to whatever it was for the PREVIOUSLY
+    /// active server. `loadLibraries()` only assigns a fresh ID when `selectedLibraryID
+    /// == nil`, so the stale ID survived and got queried against the new server —
+    /// observed live as "Server returned HTTP 404" after switching from audiobooks.dev
+    /// to a self-hosted server. `switchTo(_:)` already reset this; attemptConnect() did
+    /// not.
+    @Test func attemptConnectResetsSelectedLibraryBeforeLoadingNewServer() throws {
+        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        #expect(
+            src.range(
+                of:
+                    #"func attemptConnect\([\s\S]*?selectedLibraryID = nil[\s\S]*?await loadLibraries\(\)"#,
+                options: .regularExpression) != nil,
+            "attemptConnect() must reset selectedLibraryID to nil before loadLibraries() runs, so a library ID left over from a previously-connected server can't be queried against the newly-connected one."
+        )
+    }
 }
