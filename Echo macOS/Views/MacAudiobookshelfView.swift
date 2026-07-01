@@ -142,6 +142,12 @@ final class MacAudiobookshelfViewModel {
             server = record
             password = ""
             phase = .connected
+            // Must reset before loadLibraries() — otherwise a library ID left over
+            // from a previously-connected server survives the `selectedLibraryID ==
+            // nil` guard there and gets queried against this new server, 404ing.
+            // switchTo(_:) already resets this; attemptConnect() (first connect AND
+            // "Add Server" while already connected) did not, until this fix.
+            selectedLibraryID = nil
             loadSavedServers()
             await loadLibraries()
         } catch let absError as ABSError {
@@ -341,10 +347,12 @@ struct MacAudiobookshelfView: View {
             Spacer()
             if model.phase == .connected, let server = model.server {
                 Text(server.username).foregroundStyle(.secondary)
-                if model.savedServers.count > 1 {
-                    Button("Switch Server…") { model.beginAddingServer() }
-                        .buttonStyle(.borderedProminent)
-                }
+                // Always available while connected — not gated on already having a
+                // second saved server, since this is the only entry point that lets
+                // you add one. Gating on `count > 1` was a dead end: the count could
+                // never reach 2 without going through this button first.
+                Button("Switch Server…") { model.beginAddingServer() }
+                    .buttonStyle(.borderedProminent)
                 Button("Sign Out") { Task { await model.disconnect() } }
                     .buttonStyle(.borderedProminent)
             }
