@@ -62,6 +62,11 @@ xcrun simctl status_bar "${UDID}" override \
   --cellularMode "active" --cellularBars 4 \
   --batteryState "charged" --batteryLevel 100
 
+echo "→ Forcing dark appearance for App Store captures…"
+xcrun simctl ui "${UDID}" appearance dark >/dev/null 2>&1 || {
+  echo "  ⚠ Could not set dark appearance automatically; set it in Simulator before capture." >&2
+}
+
 cleanup() {
   echo ""
   echo "→ Clearing status bar override…"

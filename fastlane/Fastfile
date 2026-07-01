@@ -32,6 +32,13 @@ def github_warning(message)
   end
 end
 
+def clear_snapshot_helper_cache!
+  require "fileutils"
+  helper_cache = File.expand_path("~/Library/Caches/tools.fastlane/screenshots")
+  FileUtils.rm_rf(helper_cache)
+  UI.message("Cleared Fastlane snapshot helper cache: #{helper_cache}")
+end
+
 # ── Platforms & Lanes ──────────────────────────────────────────────
 
 platform :ios do
@@ -275,15 +282,16 @@ platform :ios do
     No App Store Connect key required.
 
     Prerequisites:
-    - The app auto-seeds screenshot media in DEBUG simulator builds. It prefers
-      a local, rights-cleared `EchoScreenshotSample.m4b` when one is bundled,
-      otherwise it loads the bundled Standard Ebooks Great Gatsby EPUB fixture.
+    - The app auto-seeds screenshot media in DEBUG simulator builds. This lane
+      forces the bundled Standard Ebooks Great Gatsby EPUB fixture and Echo's
+      internal Dark appearance setting, even if a local audio sample is present.
       See fastlane/screenshots/en-US/README_SCREENSHOTS.md.
     - Snapfile resolves current Xcode simulator names for the required sizes.
 
     Tip: stage the trickier shots by hand with Scripts/capture_screenshots.sh.
   DESC
   lane :screenshots do
+    clear_snapshot_helper_cache!
     capture_screenshots
     UI.success("Screenshots written to fastlane/screenshots/. Review them, then run `fastlane upload_screenshots`.")
   end

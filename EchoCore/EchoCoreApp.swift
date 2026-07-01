@@ -34,6 +34,12 @@ struct EchoCoreApp: App {
         #endif
 
         let initialSettings = SettingsManager()
+        #if DEBUG && targetEnvironment(simulator)
+            if MockMediaProvider.prefersDarkAppearance() {
+                initialSettings.appAppearance = "Dark"
+            }
+        #endif
+
         let initialModel = PlayerModel()
         let initialStoreManager = StoreManager()
         initialModel.setSettingsManager(initialSettings)

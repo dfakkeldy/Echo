@@ -1238,6 +1238,13 @@ final class PlayerModel {
     /// Restores the last selected folder or file from a security-scoped bookmark,
     /// loading it without autoplay.
     func restoreLastSelectionIfPossible() {
+        #if DEBUG && targetEnvironment(simulator)
+            if let forcedSampleURL = MockMediaProvider.forcedSampleMediaURL() {
+                loadFolder(forcedSampleURL, autoplay: false)
+                return
+            }
+        #endif
+
         switch persistence.restoreBookmarkResult() {
         case .restored(let url):
             loadFolder(url, autoplay: false)
