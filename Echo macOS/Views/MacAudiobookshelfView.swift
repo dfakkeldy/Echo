@@ -352,12 +352,16 @@ struct MacAudiobookshelfView: View {
                 // you add one. Gating on `count > 1` was a dead end: the count could
                 // never reach 2 without going through this button first.
                 Button("Switch Server…") { model.beginAddingServer() }
+                    .buttonStyle(.borderedProminent)
                 Button("Sign Out") { Task { await model.disconnect() } }
+                    .buttonStyle(.borderedProminent)
             }
             if model.phase == .addingServer {
                 Button("Cancel") { model.cancelAddingServer() }
+                    .buttonStyle(.borderedProminent)
             }
             Button("Done") { dismiss() }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.cancelAction)
         }
     }
@@ -403,6 +407,7 @@ struct MacAudiobookshelfView: View {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
             } else {
                 Button("Connect") { Task { await model.switchTo(saved) } }
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.small)
             }
             Button(role: .destructive) {
@@ -410,7 +415,7 @@ struct MacAudiobookshelfView: View {
             } label: {
                 Image(systemName: "trash")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.borderedProminent)
             .controlSize(.small)
         }
         .padding(.vertical, 2)
@@ -468,6 +473,7 @@ struct MacAudiobookshelfView: View {
                         if await model.addToLibrary(item) { dismiss() }
                     }
                 }
+                .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(model.importingItemID != nil || item.hasAudioContent == false)
             }
