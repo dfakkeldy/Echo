@@ -6,7 +6,7 @@ import Foundation
 /// device-independent: same source blocks + same heard words -> same windows.
 /// Classification (which kind of issue, suggested fixes) is a separate step.
 nonisolated enum NarrationQADetector {
-    private static let lowConfidenceThreshold = 0.5
+    private static let lowConfidenceThreshold = 0.3
 
     static func detect(
         expectedBlocks: [(blockID: String, text: String)],
@@ -62,7 +62,8 @@ nonisolated enum NarrationQADetector {
         let matches = TokenDTW.wordMatchesWithBisection(epub: epubTokens, audio: audioTokens)
         let audioWordIndicesByTime = audioTokens.indices.reduce(into: [TimeInterval: [Int]]()) {
             partial, tokenIndex in
-            partial[audioTokens[tokenIndex].time, default: []].append(audioTokenWordIndex[tokenIndex])
+            partial[audioTokens[tokenIndex].time, default: []].append(
+                audioTokenWordIndex[tokenIndex])
         }
 
         // Covered source words per block, and the audio time for each.
@@ -122,19 +123,22 @@ nonisolated enum NarrationQADetector {
                         && $0 < (nextAudioIndex ?? heardWords.count)
                 }
                 consumedUnmatchedAudioIndices.formUnion(heardIndices)
-                let start = heardIndices.first.map { heardWords[$0].start }
+                let start =
+                    heardIndices.first.map { heardWords[$0].start }
                     ?? previousAudioIndex.map { heardWords[$0].start }
                     ?? nearestTime(before: first, in: times)
                     ?? times.values.min()
                     ?? 0
-                let end = heardIndices.last.map { heardWords[$0].start }
+                let end =
+                    heardIndices.last.map { heardWords[$0].start }
                     ?? nextAudioIndex.map { heardWords[$0].start }
                     ?? nearestTime(after: last, in: times)
                     ?? times.values.max()
                     ?? start
                 let expected = words[first...last].joined(separator: " ")
                 let heardText = heardIndices.map { heardWords[$0].text }.joined(separator: " ")
-                let confidence = heardIndices
+                let confidence =
+                    heardIndices
                     .map { heardWords[$0].confidence }
                     .min() ?? 1.0
                 windows.append(
@@ -163,6 +167,10 @@ nonisolated enum NarrationQADetector {
                 guard let audioIndex = audioIndices[sourceIndex] else { continue }
                 let heardWord = heardWords[audioIndex]
                 guard heardWord.confidence < lowConfidenceThreshold else { continue }
+                // Skip when WhisperKit heard exactly the source word — DTW
+                // already proved the match; only ASR confidence is low on TTS audio.
+                guard heardWord.text.caseInsensitiveCompare(words[sourceIndex]) != .orderedSame
+                else { continue }
                 windows.append(
                     DivergenceWindow(
                         blockID: block.blockID,
@@ -176,14 +184,15 @@ nonisolated enum NarrationQADetector {
             }
         }
 
-        windows.append(contentsOf: insertionWindows(
-            heardWords: heardWords,
-            reportableAudioWordIndices: reportableAudioWordIndices,
-            matchedAudioWordIndices: matchedAudioWordIndices,
-            consumedUnmatchedAudioIndices: consumedUnmatchedAudioIndices,
-            sourceByMatchedAudioIndex: sourceByMatchedAudioIndex,
-            fallbackBlockID: expectedBlocks.first?.blockID
-        ))
+        windows.append(
+            contentsOf: insertionWindows(
+                heardWords: heardWords,
+                reportableAudioWordIndices: reportableAudioWordIndices,
+                matchedAudioWordIndices: matchedAudioWordIndices,
+                consumedUnmatchedAudioIndices: consumedUnmatchedAudioIndices,
+                sourceByMatchedAudioIndex: sourceByMatchedAudioIndex,
+                fallbackBlockID: expectedBlocks.first?.blockID
+            ))
         return windows
     }
 
@@ -230,12 +239,14 @@ nonisolated enum NarrationQADetector {
 
         func flush() {
             guard let first = run.first, let last = run.last else { return }
-            guard let anchor = insertionAnchor(
-                firstAudioIndex: first,
-                lastAudioIndex: last,
-                sourceByMatchedAudioIndex: sourceByMatchedAudioIndex,
-                fallbackBlockID: fallbackBlockID
-            ) else {
+            guard
+                let anchor = insertionAnchor(
+                    firstAudioIndex: first,
+                    lastAudioIndex: last,
+                    sourceByMatchedAudioIndex: sourceByMatchedAudioIndex,
+                    fallbackBlockID: fallbackBlockID
+                )
+            else {
                 run = []
                 return
             }
@@ -255,7 +266,8 @@ nonisolated enum NarrationQADetector {
         }
 
         for index in heardWords.indices {
-            let isInsertion = reportableAudioWordIndices.contains(index)
+            let isInsertion =
+                reportableAudioWordIndices.contains(index)
                 && !matchedAudioWordIndices.contains(index)
                 && !consumedUnmatchedAudioIndices.contains(index)
             if isInsertion {
@@ -279,7 +291,8 @@ nonisolated enum NarrationQADetector {
         {
             return next
         }
-        if let previousIndex = sourceByMatchedAudioIndex.keys.filter({ $0 < firstAudioIndex }).max(),
+        if let previousIndex = sourceByMatchedAudioIndex.keys.filter({ $0 < firstAudioIndex })
+            .max(),
             let previous = sourceByMatchedAudioIndex[previousIndex]
         {
             return previous

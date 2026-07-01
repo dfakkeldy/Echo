@@ -12,7 +12,9 @@ struct NarrationQACommand: AsyncParsableCommand {
     var db: String
     @Option(name: .customLong("audiobook-id"), help: "Audiobook id in the database.")
     var audiobookID: String
-    @Option(name: .customLong("work-dir"), help: "Narration work dir containing .anchors-chN.json and .m4a files.")
+    @Option(
+        name: .customLong("work-dir"),
+        help: "Narration work dir containing .anchors-chN.json and .m4a files.")
     var workDir: String
     @Option(help: "Optional sanitized JSON report path. Does not include source or heard text.")
     var report: String?
@@ -26,7 +28,7 @@ struct NarrationQACommand: AsyncParsableCommand {
         )
         let qa = NarrationQAService(
             db: database.writer,
-            classifier: DeterministicDivergenceClassifier()
+            classifier: EchoCLI.makeQAClassifier()
         )
         try await qa.runQA(
             audiobookID: audiobookID,
@@ -98,8 +100,8 @@ private struct SanitizedNarrationQAReport: Encodable {
     }
 }
 
-private extension URL {
-    var parentDirectory: URL? {
+extension URL {
+    fileprivate var parentDirectory: URL? {
         guard !path.isEmpty else { return nil }
         return deletingLastPathComponent()
     }

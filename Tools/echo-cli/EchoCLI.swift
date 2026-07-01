@@ -22,4 +22,21 @@ struct EchoCLI: AsyncParsableCommand {
         let dir = Bundle.main.bundleURL.appendingPathComponent("EchoNarrationResources")
         setenv("ECHO_RESOURCE_DIR", dir.path, 1)
     }
+
+    /// Builds the QA classifier for `echo-cli qa`, mirroring
+    /// `DivergenceClassifierFactory.make()` so FM enriches labels and
+    /// suggests IPA pronunciations when available on macOS 26+.
+    @MainActor
+    static func makeQAClassifier() -> DivergenceClassifier {
+        let preference =
+            UserDefaults.standard.string(forKey: "narrationQAClassifier")
+            ?? "auto"
+        #if canImport(FoundationModels)
+            if preference == "auto", #available(macOS 26, *) {
+                return FoundationModelsDivergenceClassifier(
+                    fallback: DeterministicDivergenceClassifier())
+            }
+        #endif
+        return DeterministicDivergenceClassifier()
+    }
 }
