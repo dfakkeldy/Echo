@@ -57,4 +57,16 @@ import Testing
         #expect(!out.contains("[re](/ɹi/)'"))
         #expect(out.contains("[re](/ɹi/)-rendered"))
     }
+
+    @Test func quotedWordsStillReceiveOverrides() throws {
+        let ovr = PronunciationOverrides(entries: [
+            "Kubernetes": "kuːbərˈnɛtɪs",
+            "Fakkeldy": "fˈækəldi",
+        ])
+
+        let out = ovr.apply(to: "Say 'Kubernetes' and ’Fakkeldy’ clearly.")
+
+        #expect(out.contains("'[Kubernetes](/kuːbərˈnɛtɪs/)'"))
+        #expect(out.contains("’[Fakkeldy](/fˈækəldi/)’"))
+    }
 }

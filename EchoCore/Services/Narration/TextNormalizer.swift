@@ -24,7 +24,12 @@ enum TextNormalizer {
         var out = s
         out = replaceAbbreviation(out, abbreviation: "e.g.", replacement: "for example")
         out = replaceAbbreviation(out, abbreviation: "i.e.", replacement: "that is")
-        out = replaceAbbreviation(out, abbreviation: "etc.", replacement: "et cetera")
+        out = replaceAbbreviation(
+            out,
+            abbreviation: "etc.",
+            replacement: "et cetera",
+            periodPolicy: .beforeUppercaseOrEnd
+        )
         out = replaceAbbreviation(out, abbreviation: "vs.", replacement: "versus")
         out = out.replacingOccurrences(of: "Dr.", with: "Doctor")
         // "Mrs." before "Mr." so the shorter token can't partially consume it.
@@ -40,11 +45,11 @@ enum TextNormalizer {
     private static func replaceAbbreviation(
         _ s: String,
         abbreviation: String,
-        replacement: String
+        replacement: String,
+        periodPolicy: AbbreviationPeriodPolicy = .endOnly
     ) -> String {
         let escaped = NSRegularExpression.escapedPattern(for: abbreviation)
-        let sentenceBoundary = try! NSRegularExpression(
-            pattern: #"(?<![\p{L}\p{N}_])\#(escaped)(?=(?:\s+[A-Z]|$))"#)
+        let sentenceBoundary = try! NSRegularExpression(pattern: periodPolicy.pattern(for: escaped))
         let regular = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_])\#(escaped)"#)
 
         let sentenceRange = NSRange(s.startIndex..., in: s)
@@ -54,6 +59,22 @@ enum TextNormalizer {
         out = regular.stringByReplacingMatches(
             in: out, range: regularRange, withTemplate: replacement)
         return out
+    }
+
+    private enum AbbreviationPeriodPolicy {
+        case endOnly
+        case beforeUppercaseOrEnd
+
+        func pattern(for escapedAbbreviation: String) -> String {
+            let suffix =
+                switch self {
+                case .endOnly:
+                    #"\s*$"#
+                case .beforeUppercaseOrEnd:
+                    #"(?:\s+[A-Z]|\s*$)"#
+                }
+            return #"(?<![\p{L}\p{N}_])\#(escapedAbbreviation)(?=\#(suffix))"#
+        }
     }
 
     private static func replaceStreetVsSaint(_ s: String) -> String {
@@ -74,7 +95,7 @@ enum TextNormalizer {
 
     private static func isLikelySaintName(_ range: NSRange, in s: String) -> Bool {
         guard let nextWord = wordAfter(range, in: s) else { return false }
-        return nextWord.contains("'")
+        return nextWord.contains { isApostrophe($0) }
     }
 
     private static func expandDollarAmounts(_ s: String) -> String {
@@ -320,8 +341,30 @@ enum TextNormalizer {
         out = replaceRomanNumerals(in: out, pattern: #"\bVolume ([IVXLC]+)\b"#) { value in
             "Volume \(value)"
         }
-        out = replaceRomanNumerals(in: out, pattern: #"\bHenry ([IVXLC]+)\b"#) { value in
-            "Henry the \(capitalizingFirstLetter(ordinalWords(value)))"
+        out = replaceMonarchRomanNumerals(in: out)
+        return out
+    }
+
+    private static func replaceMonarchRomanNumerals(in s: String) -> String {
+        let monarchs = [
+            "Anne", "Alexander", "Catherine", "Charles", "Edward", "Elizabeth", "Ferdinand",
+            "Frederick", "George", "Henry", "James", "Louis", "Mary", "Nicholas", "Peter",
+            "Philip", "Richard", "Victoria", "William",
+        ].joined(separator: "|")
+        let re = try! NSRegularExpression(pattern: #"\b(\#(monarchs)) ([IVXLC]+)\b"#)
+        let range = NSRange(s.startIndex..., in: s)
+        let matches = re.matches(in: s, range: range).reversed()
+        var out = s
+        for match in matches {
+            guard let whole = Range(match.range, in: out),
+                let name = substring(match.range(at: 1), in: out),
+                let numeral = substring(match.range(at: 2), in: out),
+                let value = romanToInt(numeral)
+            else { continue }
+            out.replaceSubrange(
+                whole,
+                with: "\(name) the \(capitalizingFirstLetter(ordinalWords(value)))"
+            )
         }
         return out
     }
@@ -478,7 +521,7 @@ enum TextNormalizer {
         let start = cursor
         while cursor < s.endIndex {
             let character = s[cursor]
-            if character.isLetter || character == "'" {
+            if character.isLetter || isApostrophe(character) {
                 cursor = s.index(after: cursor)
             } else {
                 break
@@ -487,6 +530,10 @@ enum TextNormalizer {
 
         guard start < cursor else { return nil }
         return String(s[start..<cursor])
+    }
+
+    private static func isApostrophe(_ character: Character) -> Bool {
+        character == "'" || character == "’"
     }
 
     private static func previousNonWhitespaceCharacter(before range: NSRange, in s: String)
