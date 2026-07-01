@@ -4,6 +4,10 @@ import Foundation
 import GRDB
 import os.log
 
+#if os(iOS) || os(macOS)
+    import MisakiSwift
+#endif
+
 enum NarrationQAError: Error, Equatable, LocalizedError {
     case transcriptionFailed(chapterIndex: Int, fileURL: URL, underlying: String)
     case noHeardWords(chapterIndex: Int, fileURL: URL)
@@ -30,6 +34,11 @@ final class NarrationQAService {
     private let transcribe: @Sendable (_ fileURL: URL) async throws -> [TranscribedWord]
     private let logger = Logger(category: "NarrationQA")
     private static let iso = ISO8601DateFormatter()
+    #if os(iOS) || os(macOS)
+        /// Reusable G2P for enriching pronunciation issues with IPA.
+        /// Initialization loads a ~12 MB lexicon; constructed once lazily.
+        private static let g2p = KokoroG2P()
+    #endif
 
     init(
         db: DatabaseWriter,
@@ -77,7 +86,7 @@ final class NarrationQAService {
                     id in
                     guard let text = blocksByID[id]?.text, !text.isEmpty else { return nil }
                     return (id, TextNormalizer.normalize(text))
-            }
+                }
             guard !expectedBlocks.isEmpty else { continue }
 
             let heard: [TranscribedWord]
@@ -107,7 +116,8 @@ final class NarrationQAService {
             var records: [NarrationQualityIssueRecord] = []
             for window in windows {
                 let c = await classifier.classify(window)
-                let fixJSON = encodeFix(c)
+                let enriched = Self.enrichIPA(c, window: window)
+                let fixJSON = encodeFix(enriched)
                 records.append(
                     NarrationQualityIssueRecord(
                         id: UUID().uuidString,
@@ -119,14 +129,15 @@ final class NarrationQAService {
                         audioEndTime: window.audioEnd,
                         expectedText: window.expectedText,
                         heardText: window.heardText,
-                        issueType: c.issueType.rawValue,
-                        confidence: c.confidence,
+                        issueType: enriched.issueType.rawValue,
+                        confidence: enriched.confidence,
                         suggestedFixJSON: fixJSON,
                         status: NarrationQAIssueStatus.open.rawValue,
                         createdAt: now,
                         resolvedAt: nil))
             }
-            try issueDAO.replaceOpen(for: audiobookID, blockIDs: chapter.spokenBlockIDs, with: records)
+            try issueDAO.replaceOpen(
+                for: audiobookID, blockIDs: chapter.spokenBlockIDs, with: records)
             logger.notice("QA chapter \(chapter.chapterIndex): \(records.count) issues")
         }
     }
@@ -147,6 +158,27 @@ final class NarrationQAService {
             logger.error("Suggestion fix encode failed: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// For pronunciation issues, fills a missing IPA with Misaki G2P when the
+    /// deterministic or FM classifier provided a spokenForm but no IPA.
+    /// This makes `acceptFix` reachable without Foundation Models.
+    private static func enrichIPA(
+        _ c: DivergenceClassification, window: DivergenceWindow
+    ) -> DivergenceClassification {
+        #if os(iOS) || os(macOS)
+            guard c.issueType == .pronunciation, c.suggestedIPA == nil else { return c }
+            let word = c.suggestedSpokenForm ?? window.expectedText
+            let ipa = g2p.phonemes(for: word)
+            guard !ipa.isEmpty else { return c }
+            return DivergenceClassification(
+                issueType: c.issueType,
+                suggestedSpokenForm: c.suggestedSpokenForm ?? word,
+                suggestedIPA: ipa,
+                confidence: c.confidence)
+        #else
+            return c
+        #endif
     }
 
     nonisolated private static func detectWindows(

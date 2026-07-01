@@ -32,8 +32,9 @@ import os.log
 
         private static let instructions =
             "You classify a single text-to-speech narration mistake. You are given the expected "
-            + "source words and what an automatic transcriber heard. Choose the single best kind and, "
-            + "for a pronunciation error, optionally suggest a corrected spoken spelling and IPA. "
+            + "source words and what an automatic transcriber heard. Choose the single best kind. "
+            + "When kind is pronunciation, you MUST provide suggestedSpokenForm (the correct "
+            + "spelling of the mispronounced word). suggestedIPA is optional. "
             + "Never invent words that are not implied by the inputs."
 
         func classify(_ window: DivergenceWindow) async -> DivergenceClassification {
