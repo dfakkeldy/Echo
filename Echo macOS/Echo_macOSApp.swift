@@ -447,18 +447,26 @@ private struct MacMainWindowActivator: NSViewRepresentable {
         MainWindowHostingView()
     }
 
-    func updateNSView(_ nsView: MainWindowHostingView, context: Context) {
-        nsView.activateAttachedWindow()
-    }
+    // Deliberately a no-op: SwiftUI calls `updateNSView` on every re-render of
+    // MacTriPaneView (playback ticks, environment changes, etc.), and re-running
+    // `makeKeyAndOrderFront` there would repeatedly steal key-window status from
+    // any `.sheet()` the user currently has open, silently breaking clicks in it.
+    // `viewDidMoveToWindow` already covers the real one-time "window just appeared"
+    // case this view exists for.
+    func updateNSView(_ nsView: MainWindowHostingView, context: Context) {}
 
     final class MainWindowHostingView: NSView {
+        private var hasActivated = false
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            guard window != nil, !hasActivated else { return }
+            hasActivated = true
             activateAttachedWindow()
         }
 
         @MainActor
-        func activateAttachedWindow() {
+        private func activateAttachedWindow() {
             Task { @MainActor in
                 await Task.yield()
                 MacAppDelegate.orderMainWindowFront(preferred: window)

@@ -343,13 +343,17 @@ struct MacAudiobookshelfView: View {
                 Text(server.username).foregroundStyle(.secondary)
                 if model.savedServers.count > 1 {
                     Button("Switch Server…") { model.beginAddingServer() }
+                        .buttonStyle(.borderedProminent)
                 }
                 Button("Sign Out") { Task { await model.disconnect() } }
+                    .buttonStyle(.borderedProminent)
             }
             if model.phase == .addingServer {
                 Button("Cancel") { model.cancelAddingServer() }
+                    .buttonStyle(.borderedProminent)
             }
             Button("Done") { dismiss() }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.cancelAction)
         }
     }
@@ -395,6 +399,7 @@ struct MacAudiobookshelfView: View {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
             } else {
                 Button("Connect") { Task { await model.switchTo(saved) } }
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.small)
             }
             Button(role: .destructive) {
@@ -402,7 +407,7 @@ struct MacAudiobookshelfView: View {
             } label: {
                 Image(systemName: "trash")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.borderedProminent)
             .controlSize(.small)
         }
         .padding(.vertical, 2)
@@ -460,6 +465,7 @@ struct MacAudiobookshelfView: View {
                         if await model.addToLibrary(item) { dismiss() }
                     }
                 }
+                .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(model.importingItemID != nil || item.hasAudioContent == false)
             }
