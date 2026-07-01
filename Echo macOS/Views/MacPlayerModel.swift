@@ -13,6 +13,7 @@
 import AVFoundation
 import AppKit
 import Foundation
+import GRDB
 import ImageIO
 import Observation
 import Security
@@ -505,10 +506,90 @@ final class MacPlayerModel {
 
         self.folderURL = folderURL
         tracks = audioFiles
+        persistFolderAudiobookToSQL(folderURL: folderURL, audioFiles: audioFiles)
         currentTrackIndex =
             loadResumeState()?
             .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
         open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
+        importCompanionDocumentsIfNeeded(folderURL: folderURL)
+    }
+
+    private func persistFolderAudiobookToSQL(folderURL: URL, audioFiles: [URL]) {
+        guard let db = dbService else { return }
+
+        let audiobookID = folderURL.absoluteString
+        let title = folderURL.deletingPathExtension().lastPathComponent
+        do {
+            let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
+            let isABS = existing?.sourceType == "audiobookshelf"
+            var audiobook =
+                existing
+                ?? AudiobookRecord(
+                    id: audiobookID,
+                    title: title,
+                    author: nil,
+                    duration: 0,
+                    fileCount: audioFiles.count,
+                    addedAt: Date().ISO8601Format()
+                )
+            if !isABS {
+                audiobook.title = title
+            }
+            audiobook.fileCount = audioFiles.count
+            audiobook.isAvailable = true
+
+            let records = audioFiles.enumerated().map { index, audioURL in
+                TrackRecord(
+                    id: audioURL.absoluteString,
+                    audiobookID: audiobookID,
+                    title: audioURL.deletingPathExtension().lastPathComponent,
+                    duration: 0,
+                    filePath: audioURL.absoluteString,
+                    isEnabled: true,
+                    sortOrder: index,
+                    playlistPosition: nil
+                )
+            }
+            let trackDAO = TrackDAO(db: db.writer)
+            try db.writer.write { database in
+                var audiobookRecord = audiobook
+                try audiobookRecord.save(database)
+                try trackDAO.refreshAll(records, audiobookID: audiobookID, in: database)
+            }
+        } catch {
+            Logger(category: "MacPlayerModel").error(
+                "Failed to persist folder audiobook: \(error.localizedDescription)")
+        }
+    }
+
+    private func importCompanionDocumentsIfNeeded(folderURL: URL) {
+        guard let db = dbService else { return }
+        let audiobookID = folderURL.absoluteString
+
+        Task { @MainActor [weak self] in
+            let didStart = folderURL.startAccessingSecurityScopedResource()
+            defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
+
+            let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
+                folderURL: folderURL,
+                databaseService: db,
+                chapters: [],
+                duration: nil
+            )
+            let didImportPDF =
+                didImportEPUB
+                ? false
+                : await PDFAutoImportScanner.scanAndImportIfNeeded(
+                    folderURL: folderURL,
+                    databaseService: db,
+                    chapters: [],
+                    duration: nil
+                )
+            if didImportEPUB || didImportPDF {
+                guard self?.audiobookID == audiobookID else { return }
+                self?.bumpDocumentIngestionTrigger()
+            }
+        }
     }
 
     func openLibraryBook(_ target: LibraryOpenTarget) {
