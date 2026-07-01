@@ -237,6 +237,12 @@ final class MacPlayerModel {
     private var lastResumePersistDate: Date?
     private var didStartLastFileRestore = false
 
+    // MARK: - Audiobookshelf two-way sync (see MacPlayerModel+Audiobookshelf.swift)
+    @ObservationIgnored var absService: AudiobookshelfService?
+    @ObservationIgnored var absServiceServerID: String?
+    @ObservationIgnored var absSyncRemoteItemID: String?
+    @ObservationIgnored var absLastPushAt: TimeInterval?
+
     init() {
         migrateFromStandardUserDefaults()
         configureBookmarkStore()
@@ -372,6 +378,7 @@ final class MacPlayerModel {
         if folderURL == nil {
             folderURL = url.deletingLastPathComponent()
         }
+        refreshABSSyncIdentity()
         // If tracks is empty (single-file open, not folder), populate with this file.
         if tracks.isEmpty {
             tracks = [url]
@@ -404,6 +411,7 @@ final class MacPlayerModel {
                 self.refreshCurrentChapter()
                 self.updateNowPlayingElapsed()
                 self.persistResumeStateThrottled()
+                self.maybePushABSProgress()
             }
         }
 
@@ -427,6 +435,7 @@ final class MacPlayerModel {
         loadChapters(for: url)
         loadCoverArt(for: url)
         restoreResumePositionIfNeeded()
+        reconcileABSProgressOnLoad()
     }
 
     /// Asynchronously parses M4B chapter markers for `url` and installs them.
@@ -765,11 +774,13 @@ final class MacPlayerModel {
         player?.pause()
         isPlaying = false
         persistResumeState()
+        maybePushABSProgress(force: true)
         updateNowPlaying()
     }
 
     func stop() {
         persistResumeState()
+        maybePushABSProgress(force: true)
         if let timeObserver, let player {
             player.removeTimeObserver(timeObserver)
         }
@@ -951,6 +962,7 @@ final class MacPlayerModel {
                 self.refreshCurrentChapter()
                 self.updateNowPlayingElapsed()
                 self.persistResumeState()
+                self.maybePushABSProgress()
             }
         }
     }

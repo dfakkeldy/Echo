@@ -41,7 +41,8 @@ extension PlayerModel {
             // Roll back every token-store value for this unsaved server, including non-pin
             // refresh tokens from partial auth responses and optimistic trust pins.
             tokens.clear()
-            Self.absLogger.warning("ABS login failed; cleared local credentials for unsaved server.")
+            Self.absLogger.warning(
+                "ABS login failed; cleared local credentials for unsaved server.")
             throw error
         }
 
@@ -50,13 +51,15 @@ extension PlayerModel {
             defaultLibraryId: defaultLib,
             addedAt: ISO8601DateFormatter().string(from: Date()))
         do {
-            try dao.save(record)
+            try dao.upsert(record)
+            try dao.setActive(serverID)
         } catch {
             // Symmetric with the login-failure rollback above: don't leave access/refresh tokens,
             // Keychain trust pins, or a live delegate session behind when the DB record is absent.
             service.invalidate()
             tokens.clear()
-            Self.absLogger.error("ABS server record save failed after login; cleared local credentials.")
+            Self.absLogger.error(
+                "ABS server record save failed after login; cleared local credentials.")
             throw error
         }
         absService?.invalidate()  // release any previously-cached delegate session
@@ -94,7 +97,8 @@ extension PlayerModel {
         absServiceServerID = nil
 
         guard let dao = absServerDAO else {
-            Self.absLogger.error("ABS local server delete failed because the database is unavailable.")
+            Self.absLogger.error(
+                "ABS local server delete failed because the database is unavailable.")
             throw ABSError.notConnected
         }
         do {
@@ -111,7 +115,8 @@ extension PlayerModel {
         absRemoteSignOutWarning =
             String(
                 localized:
-                    "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires.")
+                    "Echo signed out locally, but Audiobookshelf did not confirm remote sign-out. The server session may remain active until it expires."
+            )
     }
 
     private func clearAudiobookshelfTokensWithUnknownRemoteStatus(
@@ -123,12 +128,14 @@ extension PlayerModel {
 
         if hadRefreshToken {
             Self.absLogger.warning(
-                "ABS disconnect could not build a service; cleared local credentials with unknown remote sign-out status.")
+                "ABS disconnect could not build a service; cleared local credentials with unknown remote sign-out status."
+            )
             return .remoteRevokeUnknown
         }
 
         Self.absLogger.info(
-            "ABS disconnect could not build a service; cleared local credentials with no remote refresh token present.")
+            "ABS disconnect could not build a service; cleared local credentials with no remote refresh token present."
+        )
         return .noRemoteToken
     }
 

@@ -10,7 +10,8 @@ import Testing
     private func source(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {
-            let candidate = directory
+            let candidate =
+                directory
                 .deletingLastPathComponent()
                 .appending(path: relativePath)
             if FileManager.default.fileExists(atPath: candidate.path),
@@ -26,10 +27,14 @@ import Testing
     @Test func connectRollbackClearsTokenStoreForLoginAndSaveFailures() throws {
         let src = try source("EchoCore/ViewModels/PlayerModel+Audiobookshelf.swift")
 
-        #expect(src.contains("tokens.clear()\n            Self.absLogger.warning(\"ABS login failed"))
         #expect(
             src.contains(
-                "tokens.clear()\n            Self.absLogger.error(\"ABS server record save failed"))
+                "tokens.clear()\n            Self.absLogger.warning(\n                \"ABS login failed"
+            ))
+        #expect(
+            src.contains(
+                "tokens.clear()\n            Self.absLogger.error(\n                \"ABS server record save failed"
+            ))
         #expect(!src.contains("if pinnedSHA256 != nil { tokens.clear() }"))
     }
 
@@ -65,7 +70,7 @@ import Testing
             username: "reader",
             defaultLibraryId: nil,
             addedAt: Date.now.formatted(.iso8601))
-        try ABSServerDAO(db: database.writer).save(server)
+        try ABSServerDAO(db: database.writer).upsert(server)
 
         let tokens = ABSTokenStore(serverID: server.id)
         tokens.accessToken = "access"
@@ -76,7 +81,8 @@ import Testing
 
         guard case .remoteRevokeUnknown = result else {
             Issue.record(
-                "Expected remoteRevokeUnknown when a refresh token exists but no service can be built")
+                "Expected remoteRevokeUnknown when a refresh token exists but no service can be built"
+            )
             return
         }
         #expect(result.didRemoteRevokeFail)
@@ -96,7 +102,7 @@ import Testing
             username: "reader",
             defaultLibraryId: nil,
             addedAt: Date.now.formatted(.iso8601))
-        try ABSServerDAO(db: database.writer).save(server)
+        try ABSServerDAO(db: database.writer).upsert(server)
         try database.write { db in
             try db.execute(sql: "DROP TABLE abs_server")
         }
