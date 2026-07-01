@@ -341,9 +341,11 @@ struct MacAudiobookshelfView: View {
             Spacer()
             if model.phase == .connected, let server = model.server {
                 Text(server.username).foregroundStyle(.secondary)
-                if model.savedServers.count > 1 {
-                    Button("Switch Server…") { model.beginAddingServer() }
-                }
+                // Always available while connected — not gated on already having a
+                // second saved server, since this is the only entry point that lets
+                // you add one. Gating on `count > 1` was a dead end: the count could
+                // never reach 2 without going through this button first.
+                Button("Switch Server…") { model.beginAddingServer() }
                 Button("Sign Out") { Task { await model.disconnect() } }
             }
             if model.phase == .addingServer {
