@@ -14,8 +14,11 @@ protocol DivergenceClassifier: Sendable {
 struct DeterministicDivergenceClassifier: DivergenceClassifier {
     func classify(_ window: DivergenceWindow) async -> DivergenceClassification {
         let issueType = Self.label(for: window)
+        // For pronunciation issues, the expected text IS the corrected spelling.
+        let spokenForm: String? =
+            issueType == .pronunciation ? window.expectedText : nil
         return DivergenceClassification(
-            issueType: issueType, suggestedSpokenForm: nil, suggestedIPA: nil,
+            issueType: issueType, suggestedSpokenForm: spokenForm, suggestedIPA: nil,
             confidence: window.confidence)
     }
 
