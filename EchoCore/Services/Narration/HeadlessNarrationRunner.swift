@@ -25,6 +25,10 @@ struct NarrationRunConfig {
     /// Cap on how many uncaptured chapters to render in this invocation.
     /// `nil` means render all uncaptured chapters.
     var maxNewChaptersPerRun: Int?
+    /// Optional persistent database path. When nil (default), an in-memory
+    /// database is used — this keeps FM-refined `narration_text` and QA rows
+    /// ephemeral. Set to a .sqlite path to persist across runs for inspection.
+    var databaseURL: URL?
 }
 
 // MARK: - Progress
@@ -223,7 +227,9 @@ struct NarrationRunResult {
         progress(.importing)
         let stem = config.outM4BURL.deletingPathExtension().lastPathComponent
         let audiobookID = "runner-\(stem)-\(sourceURL.lastPathComponent)"
-        let db = try DatabaseService(inMemory: ())
+        let db =
+            try config.databaseURL.map { try DatabaseService(databaseURL: $0) }
+            ?? DatabaseService(inMemory: ())
         try db.write { db in
             try db.execute(
                 sql:

@@ -8,7 +8,8 @@ struct NarrateCommand: AsyncParsableCommand {
         commandName: "narrate",
         abstract: "Narrate an EPUB or PDF into a chaptered .m4b + alignment sidecar.")
 
-    @Option(help: "EPUB/PDF source file or directory; EPUB folder/entry wins when both are present.")
+    @Option(
+        help: "EPUB/PDF source file or directory; EPUB folder/entry wins when both are present.")
     var epub: String
     @Option(help: "Output .m4b path.") var out: String
     @Option(help: "Sidecar .alignment.json path (optional).") var sidecar: String?
@@ -19,6 +20,8 @@ struct NarrateCommand: AsyncParsableCommand {
     var workDir: String?
     @Option(name: .customLong("max-chapters"), help: "Chapters per process (default: whole book).")
     var maxChapters: Int?
+    @Option(name: .customLong("db"), help: "Persistent SQLite database path (default: in-memory).")
+    var db: String?
     @Flag(help: "Continue from existing .anchors markers.") var resume = false
 
     @MainActor func run() async throws {
@@ -52,7 +55,8 @@ struct NarrateCommand: AsyncParsableCommand {
             voice: VoiceID(voice),
             title: title,
             author: author,
-            maxNewChaptersPerRun: maxChapters)
+            maxNewChaptersPerRun: maxChapters,
+            databaseURL: db.map { URL(fileURLWithPath: $0) })
 
         let result = try await HeadlessNarrationRunner().run(config) { progress in
             FileHandle.standardError.write(Data("\(progress)\n".utf8))
@@ -63,7 +67,9 @@ struct NarrateCommand: AsyncParsableCommand {
                 "DONE \(result.outM4BURL.path) — \(result.chapters) chapters, "
                     + "\(Int(result.durationSeconds))s")
         } else {
-            print("PARTIAL - \(result.capturedThisRun) captured this run out of \(result.chapters) total chapters; re-run to continue")
+            print(
+                "PARTIAL - \(result.capturedThisRun) captured this run out of \(result.chapters) total chapters; re-run to continue"
+            )
             throw ExitCode(2)
         }
     }
