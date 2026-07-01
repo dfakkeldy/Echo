@@ -237,6 +237,18 @@ final class MacPlayerModel {
     private let resumePersistInterval: TimeInterval = 5
     private var lastResumePersistDate: Date?
     private var didStartLastFileRestore = false
+    private var pendingCompanionDocumentImport: PendingCompanionDocumentImport?
+
+    private struct PendingCompanionDocumentImport {
+        let folderURL: URL
+        let audioURL: URL
+        let audiobookID: String
+    }
+
+    private struct CompanionDocumentImportContext {
+        let chapters: [Chapter]
+        let duration: TimeInterval?
+    }
 
     // MARK: - Audiobookshelf two-way sync (see MacPlayerModel+Audiobookshelf.swift)
     @ObservationIgnored var absService: AudiobookshelfService?
@@ -447,10 +459,16 @@ final class MacPlayerModel {
         Task { @MainActor [weak self] in
             let asset = AVURLAsset(url: url)
             let parsed = await ChapterService.parseChapters(from: asset)
+            let loadedDuration = try? await asset.load(.duration).seconds
             guard let self = self, self.chapterLoadToken == token else { return }
             self.chapters = parsed
+            if let loadedDuration, loadedDuration.isFinite, loadedDuration > 0 {
+                self.duration = loadedDuration
+            }
             // Re-derive the active chapter for the current playhead.
             self.refreshCurrentChapter()
+            let context = companionDocumentImportContext(loadedChapters: parsed, loadedDuration: loadedDuration)
+            self.importPendingCompanionDocumentsIfNeeded(for: url, context: context)
         }
     }
 
@@ -510,8 +528,8 @@ final class MacPlayerModel {
         currentTrackIndex =
             loadResumeState()?
             .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
+        prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])
         open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
-        importCompanionDocumentsIfNeeded(folderURL: folderURL)
     }
 
     private func persistFolderAudiobookToSQL(folderURL: URL, audioFiles: [URL]) {
@@ -562,9 +580,52 @@ final class MacPlayerModel {
         }
     }
 
-    private func importCompanionDocumentsIfNeeded(folderURL: URL) {
+    private func prepareCompanionDocumentImport(folderURL: URL, audioURL: URL) {
+        guard dbService != nil else {
+            pendingCompanionDocumentImport = nil
+            return
+        }
+        pendingCompanionDocumentImport = PendingCompanionDocumentImport(
+            folderURL: folderURL,
+            audioURL: audioURL,
+            audiobookID: folderURL.absoluteString
+        )
+    }
+
+    private func importPendingCompanionDocumentsIfNeeded(
+        for audioURL: URL,
+        context: CompanionDocumentImportContext
+    ) {
+        guard let pending = pendingCompanionDocumentImport, pending.audioURL == audioURL else {
+            return
+        }
+        pendingCompanionDocumentImport = nil
+        importCompanionDocumentsIfNeeded(
+            folderURL: pending.folderURL,
+            audiobookID: pending.audiobookID,
+            context: context
+        )
+    }
+
+    private func companionDocumentImportContext(
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) -> CompanionDocumentImportContext {
+        let currentDuration = duration.isFinite && duration > 0 ? duration : nil
+        let finiteLoadedDuration =
+            loadedDuration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        return CompanionDocumentImportContext(
+            chapters: loadedChapters,
+            duration: currentDuration ?? finiteLoadedDuration
+        )
+    }
+
+    private func importCompanionDocumentsIfNeeded(
+        folderURL: URL,
+        audiobookID: String,
+        context: CompanionDocumentImportContext
+    ) {
         guard let db = dbService else { return }
-        let audiobookID = folderURL.absoluteString
 
         Task { @MainActor [weak self] in
             let didStart = folderURL.startAccessingSecurityScopedResource()
@@ -573,8 +634,8 @@ final class MacPlayerModel {
             let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
                 folderURL: folderURL,
                 databaseService: db,
-                chapters: [],
-                duration: nil
+                chapters: context.chapters,
+                duration: context.duration
             )
             let didImportPDF =
                 didImportEPUB
@@ -582,8 +643,8 @@ final class MacPlayerModel {
                 : await PDFAutoImportScanner.scanAndImportIfNeeded(
                     folderURL: folderURL,
                     databaseService: db,
-                    chapters: [],
-                    duration: nil
+                    chapters: context.chapters,
+                    duration: context.duration
                 )
             if didImportEPUB || didImportPDF {
                 guard self?.audiobookID == audiobookID else { return }

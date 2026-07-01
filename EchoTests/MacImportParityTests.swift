@@ -28,8 +28,9 @@ struct MacImportParityTests {
     @Test func folderLoadImportsSiblingEPUBAndPDFDocuments() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(
-            src.contains("importCompanionDocumentsIfNeeded(folderURL: folderURL)"),
-            "MacPlayerModel.loadFolder must kick off sibling document import after loading audio.")
+            src.contains(
+                "prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])"),
+            "MacPlayerModel.loadFolder must schedule sibling document import for the selected audio file.")
         #expect(
             src.contains("EPUBAutoImportScanner.scanAndImportIfNeeded")
                 && src.contains("PDFAutoImportScanner.scanAndImportIfNeeded"),
@@ -42,6 +43,32 @@ struct MacImportParityTests {
             src.contains("let didStart = folderURL.startAccessingSecurityScopedResource()")
                 && src.contains("defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }"),
             "Asynchronous companion scanning must balance folder security-scoped access.")
+    }
+
+    @Test func folderCompanionImportUsesLoadedAudioContext() throws {
+        let src = try MacSource.read("Views/MacPlayerModel.swift")
+        let companionImport = try sourceSection(
+            in: src,
+            from: "private func importCompanionDocumentsIfNeeded",
+            to: "func openLibraryBook")
+
+        #expect(
+            src.contains(
+                "prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])"),
+            "Folder audio import must defer companion scanning until the selected audio file has loaded context.")
+        #expect(
+            src.contains("CompanionDocumentImportContext")
+                && src.contains(
+                    "companionDocumentImportContext(loadedChapters: parsed, loadedDuration: loadedDuration)"),
+            "MacPlayerModel must snapshot loaded chapters plus finite/current duration for companion import.")
+        #expect(
+            companionImport.contains("chapters: context.chapters")
+                && companionImport.contains("duration: context.duration"),
+            "EPUB/PDF companion scanners must receive the loaded audio context snapshot.")
+        #expect(
+            !companionImport.contains("chapters: []")
+                && !companionImport.contains("duration: nil"),
+            "Folder audio companion import must not call scanners with empty chapters and nil duration.")
     }
 
     @Test func modelOpensAudiolessDocuments() throws {
@@ -68,4 +95,20 @@ struct MacImportParityTests {
             src.contains("documentExtensions"),
             "The Open panel must distinguish document files from audio by extension.")
     }
+
+    private func sourceSection(in source: String, from startMarker: String, to endMarker: String)
+        throws -> String
+    {
+        guard let start = source.range(of: startMarker) else {
+            throw MacImportParitySourceError.missingMarker(startMarker)
+        }
+        guard let end = source[start.upperBound...].range(of: endMarker) else {
+            throw MacImportParitySourceError.missingMarker(endMarker)
+        }
+        return String(source[start.lowerBound..<end.lowerBound])
+    }
+}
+
+private enum MacImportParitySourceError: Error {
+    case missingMarker(String)
 }
