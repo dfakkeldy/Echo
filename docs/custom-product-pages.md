@@ -1,8 +1,8 @@
 # App Store Custom Product Pages — Echo
 
-This document defines the copy, screenshot storyboards, and target keywords for Echo's App Store Connect **Custom Product Pages (CPPs)**. 
+This document defines the copy, screenshot storyboards, and target keywords for Echo's App Store Connect **Custom Product Pages (CPPs)**.
 
-Apple's June 2025 algorithm update allows Custom Product Pages to be **assigned to organic search keywords**, meaning we can route users searching for specific terms (like "ADHD study reader" or "dyslexia audio player") directly to pages tailored to their specific needs. Furthermore, Apple's search algorithm now uses OCR to **index text captions on App Store screenshots**, so the screenshot copy below is strategically optimized with high-value keywords.
+Custom Product Pages let us route specific audiences (like "ADHD study reader" or "dyslexia audio player") to a tailored App Store page. The screenshot copy below is written for search-result readability first, with keyword-rich benefit captions that also support App Store discovery.
 
 ---
 
@@ -41,7 +41,7 @@ WHO IT'S FOR:
 ```
 
 ### Screenshot Storyboard & Caption Copy
-Each screenshot uses high-contrast text overlays optimized for OCR indexing:
+Each screenshot uses high-contrast text overlays optimized for search-result readability:
 1.  **Slide 1: ADHD & AuDHD Study**
     *   *Caption:* "Designed for ADHD & AuDHD. Focus longer with a calm, distraction-free interface."
     *   *Visual:* Now Playing tab with clean minimalist controls and gold-tinted accents.
@@ -67,12 +67,12 @@ Each screenshot uses high-contrast text overlays optimized for OCR indexing:
 ### Subtitle (27/30 Chars)
 `Read Along While You Listen`
 
-### Promotional Text (149/170 Chars)
-`Boost comprehension. Visual word-sync highlights every spoken sentence in real time. Works offline with on-device CoreML. No data leaves your device.`
+### Promotional Text (145/170 Chars)
+`EPUB word sync helps you follow narration in real time, with dyslexia-friendly fonts and offline on-device alignment. No data leaves your device.`
 
 ### Tailored App Description (2,380 Chars)
 ```text
-Pair your ears with your eyes. Echo is a dual-sensory audiobook and reader app designed to assist readers with dyslexia, processing delays, and reading fatigue. By aligning your audiobook narration directly to its EPUB or PDF text, Echo creates an immersive read-along experience where each word is highlighted in real time as it is spoken.
+Pair your ears with your eyes. Echo is a dual-sensory audiobook and reader app designed to assist readers with dyslexia, processing delays, and reading fatigue. By aligning your audiobook narration directly to its EPUB text, Echo creates an immersive read-along experience where the current word follows the audio. PDF companion files are supported too, with manual page-level alignment for textbooks and scanned references.
 
 HOW ECHO SUPPORTS DYSLEXIC READERS:
 
@@ -88,18 +88,18 @@ Customize the reader to match your visual comfort. Echo supports full layout adj
 - Increase text size, line spacing, and character tracking to reduce visual crowding.
 - Switch between dark mode, warm sepia, and high-contrast themes.
 
-4. 100% OFFLINE ALIGNMENT
-Your files stay on your device. The speech-to-text alignment engine runs entirely offline on your iPhone or iPad, requiring no network connection and uploading zero data to external servers. It is private, fast, and works anywhere.
+4. 100% OFFLINE EPUB ALIGNMENT
+Your files stay on your device. The speech-to-text alignment engine runs entirely offline on your iPhone or iPad for EPUB companion text, requiring no network connection and uploading zero data to external servers. It is private, fast, and works anywhere.
 
 HOW TO GET STARTED:
 1. Load your DRM-free audiobook (M4B or MP3) into the app.
 2. Add the corresponding EPUB or PDF book file in the same folder.
-3. Tap "Align" to let Echo process and sync the audio and text.
-4. Read along with real-time text highlighting and tap-to-seek.
+3. Tap "Align" to let Echo process and sync EPUB audio and text, or pin PDF pages manually.
+4. Read along with text highlighting and tap-to-seek where alignment is available.
 ```
 
 ### Screenshot Storyboard & Caption Copy
-Each screenshot uses high-contrast text overlays optimized for OCR indexing:
+Each screenshot uses high-contrast text overlays optimized for search-result readability:
 1.  **Slide 1: Dual-Sensory Reader**
     *   *Caption:* "Visual word sync reader. Each word highlights in real time as the narrator speaks."
     *   *Visual:* Split-screen layout displaying the audiobook art at the top and the synced EPUB text at the bottom.
@@ -113,8 +113,8 @@ Each screenshot uses high-contrast text overlays optimized for OCR indexing:
     *   *Caption:* "On-device audio alignment. WhisperKit CoreML aligns your audio offline without cloud servers."
     *   *Visual:* The Auto-Alignment progress view showing a circular progress bar and green success checkmark.
 5.  **Slide 5: PDF Document Support**
-    *   *Caption:* "Sync PDF textbooks. Page-level tracking aligns your audiobooks with PDF pages."
-    *   *Visual:* A textbook PDF page showing highlight overlays on the active section.
+    *   *Caption:* "Pin PDF textbooks. Manual page tracking keeps audio and scanned pages together."
+    *   *Visual:* A textbook PDF page with the manual page alignment controls visible.
 
 ---
 
@@ -130,7 +130,7 @@ Each screenshot uses high-contrast text overlays optimized for OCR indexing:
 
 ### Tailored App Description (2,450 Chars)
 ```text
-Stop listening passively. Echo is the first audiobook player built for active recall and study. It transforms your audiobook into an active learning workspace, allowing you to highlight key ideas, convert audio segments into spaced repetition flashcards, and review them daily on your iPhone or Apple Watch.
+Stop listening passively. Echo is an audiobook player built for active recall and study. It transforms your audiobook into an active learning workspace, allowing you to highlight key ideas, convert audio segments into spaced repetition flashcards, and review them daily on your iPhone or Apple Watch.
 
 TRANSFORM AUDIO INTO LASTING KNOWLEDGE:
 
@@ -154,7 +154,7 @@ STUDY FEATURES:
 ```
 
 ### Screenshot Storyboard & Caption Copy
-Each screenshot uses high-contrast text overlays optimized for OCR indexing:
+Each screenshot uses high-contrast text overlays optimized for search-result readability:
 1.  **Slide 1: Audiobooks to Flashcards**
     *   *Caption:* "Audiobooks to flashcards. Convert book highlights into study cards with a single tap."
     *   *Visual:* A split card layout: the top showing a highlighted book quote, the bottom showing the corresponding flashcard draft.
@@ -181,11 +181,11 @@ Each screenshot uses high-contrast text overlays optimized for OCR indexing:
 `Turn Ebooks into Audiobooks`
 
 ### Promotional Text (154/170 Chars)
-`No audiobook? Echo narrates any EPUB, Markdown, or text file on-device in 28 natural voices — then reads along word by word. Private, offline, no account.`
+`No audiobook? Echo narrates EPUB, Markdown, or text on-device in 28 natural voices, then lets you follow and study the text. Private, offline, no account.`
 
 ### Tailored App Description (~1,850 Chars)
 ```text
-Have the book, but not the audiobook? Echo reads it to you. Point Echo at an EPUB — or even a Markdown or plain-text file — and it generates a natural-sounding narration right on your device, then highlights each word as it is spoken so you can read along. Nothing is uploaded, no account is required, and it works on every supported iPhone and iPad.
+Have the book, but not the audiobook? Echo reads it to you. Point Echo at an EPUB — or even a Markdown or plain-text file — and it generates a natural-sounding narration right on your device, then keeps the text nearby so you can follow along and study. Nothing is uploaded, no account is required, and it works on every supported iPhone and iPad.
 
 WHY ECHO'S NARRATION IS DIFFERENT:
 
@@ -195,8 +195,8 @@ Choose from 28 English narrators — American and British, female and male — a
 2. NARRATE ANYTHING YOU CAN READ
 Echo doesn't need a matching audiobook. Import an EPUB study text, a Markdown export of your notes, or a plain .txt file, and Echo turns it into chaptered audio you can play, loop, and study like any other book.
 
-3. READ ALONG, WORD BY WORD
-As the narrator speaks, the current word lights up on screen and the page follows along. Pairing your ears with your eyes aids comprehension and keeps attention from drifting — a real help for ADHD and dyslexic readers.
+3. FOLLOW THE TEXT AS IT PLAYS
+As the narration plays, Echo keeps you anchored in the source text so your eyes and ears work together. Pairing audio with text aids comprehension and keeps attention from drifting — a real help for ADHD and dyslexic readers.
 
 4. TEACH ECHO THE HARD WORDS
 Proper nouns, brand names, and technical terms don't always come out right the first time. Add them to your personal pronunciation dictionary once, and Echo says them your way every time after.
@@ -208,16 +208,16 @@ Everything runs on your device. No tracking, no ads, no cloud. Echo is free and 
 ```
 
 ### Screenshot Storyboard & Caption Copy
-Each screenshot uses high-contrast text overlays optimized for OCR indexing:
+Each screenshot uses high-contrast text overlays optimized for search-result readability:
 1.  **Slide 1: Any Ebook, Read Aloud**
     *   *Caption:* "No audiobook needed. Echo narrates your EPUB on-device in a natural voice."
     *   *Visual:* A text-only EPUB with a "Listen" button, the player spinning up narration over the book cover.
 2.  **Slide 2: 28 On-Device Voices**
     *   *Caption:* "28 natural voices. American and British, female and male — pick your narrator."
     *   *Visual:* The voice picker sheet grouped into American and British sections, with one voice selected.
-3.  **Slide 3: Read Along, Word by Word**
-    *   *Caption:* "Word-by-word read-along. Each word lights up in time with the narration."
-    *   *Visual:* The reader with a single word highlighted mid-sentence as the page auto-scrolls.
+3.  **Slide 3: Follow the Text**
+    *   *Caption:* "Follow while you listen. Keep the source text beside the narration."
+    *   *Visual:* The reader with the current text block in view while generated narration plays.
 4.  **Slide 4: Narrate Markdown & Text**
     *   *Caption:* "Turn notes into audio. Import Markdown or plain text and listen on the go."
     *   *Visual:* A Markdown file importing, then appearing as a chaptered book in the library.
@@ -253,7 +253,7 @@ Pick a book and Echo downloads it to your device, so it plays anywhere — on th
 Listen on your phone and your position is written back to your server; come back later and Echo picks up where you — or another device — left off. Your place follows you.
 
 4. BRING YOUR OWN AUDIOBOOKS TOO
-No server? Just load your DRM-free M4B audiobooks and EPUB or PDF companion text straight from Files. Echo aligns the audio to the text on-device so you can read along and study, same as any book.
+No server? Just load your DRM-free M4B audiobooks and EPUB or PDF companion text straight from Files. Echo auto-aligns EPUB text on-device, supports PDF page pinning, and turns the result into read-along study.
 
 5. EXPORT A CLEAN, CHAPTERED M4B
 Repackage any book you've loaded into a single chaptered .m4b — chapter markers, title, author, and cover art included — playable in Apple Books or any audiobook app.
@@ -262,7 +262,7 @@ Echo is free and open-source under the GPL-3.0 license. Everything runs on your 
 ```
 
 ### Screenshot Storyboard & Caption Copy
-Each screenshot uses high-contrast text overlays optimized for OCR indexing:
+Each screenshot uses high-contrast text overlays optimized for search-result readability:
 1.  **Slide 1: Connect Your Server**
     *   *Caption:* "Your Audiobookshelf, in Echo. Sign in to your own self-hosted server."
     *   *Visual:* The Library Sources connection screen with server URL and sign-in fields.

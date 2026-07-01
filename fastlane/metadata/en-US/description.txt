@@ -1,13 +1,13 @@
-Stop choosing between listening and remembering. Echo links the audiobook you already own to its EPUB or PDF, syncs every spoken word to the audio on your device, and turns what you hear into what you keep. No audiobook for that book? Echo narrates it on-device in a natural voice — so you can read along and study it either way.
+Stop choosing between listening and remembering. Echo turns the audiobooks you own into a study system: read along with synced EPUB text, capture the moments that matter, and turn highlights into flashcards you can review on iPhone, Mac, or Apple Watch. No audiobook for that book? Echo narrates text-only EPUB, Markdown, and plain text files on-device, so you can listen and study them too.
 
 Plenty of apps now read an ebook aloud, or follow an audiobook with the text. Echo is the one that turns that into a study system.
 
 Built neurodivergent-first for ADHD, dyslexia, and attention that comes and goes. Echo is a calm, private player for people who learn best by ear.
 
 WHAT MAKES ECHO DIFFERENT
-- Read along while you listen: each word lights up in time with the narration, aligned fully on-device with WhisperKit. No cloud, no account, no tracking.
-- No audiobook? Echo narrates a text-only EPUB on-device — pick from 28 built-in voices (American and British, female and male), no cloud and no account — then reads along and turns it into study like any other book. Narration runs on every supported iPhone and Mac (no newest-chip requirement), and a custom pronunciation dictionary teaches it proper nouns and technical terms.
-- Full-text search with tap-to-seek: find any sentence and jump straight to that moment in the audio.
+- Read along while you listen: EPUB text follows the audiobook word by word, aligned fully on-device with WhisperKit. No cloud, no account, no tracking.
+- No audiobook? Echo narrates a text-only EPUB, Markdown, or plain text file on-device — pick from 28 built-in voices (American and British, female and male), no cloud and no account — then turn that narration into study like any other book. Narration runs on every supported iPhone and Mac (no newest-chip requirement), and a custom pronunciation dictionary teaches it proper nouns and technical terms.
+- Full-text search with tap-to-seek: find any sentence in an EPUB and jump straight to that moment in the audio.
 - Smart rewind: lose the thread? Echo eases you back a few seconds so an interruption never costs you the chapter.
 
 TURN LISTENING INTO LEARNING
@@ -27,7 +27,7 @@ BUILT FOR FOCUS
 - Dyslexia-friendly fonts (Lexend and OpenDyslexic) with full Dynamic Type support.
 
 WORKS WHERE YOU DO
-- Import your own DRM-free M4B or MP3 audiobooks, plus EPUB or PDF companion text — read in place, never modified.
+- Import your own DRM-free M4B or MP3 audiobooks, plus EPUB or PDF companion text — EPUB can auto-align, while PDFs support manual page-level alignment for textbooks and scanned references. Your files are read in place, never modified.
 - Export the other way too: turn a narrated EPUB, or an audiobook you imported, into a single chaptered .m4b — cover art, metadata, and chapter markers included — playable in any audiobook app.
 - Connect to your self-hosted Audiobookshelf server: browse, search, download to your device, and play, with two-way progress sync.
 - Import a plain Markdown or .txt file and Echo narrates it as a chaptered audiobook — the same read-along and study tools as an EPUB.

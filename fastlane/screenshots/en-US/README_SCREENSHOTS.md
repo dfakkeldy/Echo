@@ -12,7 +12,8 @@ Scripts/capture_screenshots.sh          # assisted: you navigate, it captures
 ```
 
 The five shots we want (from MARKETING.md, captioned by *benefit*, not feature):
-① Player ② synced Reader ③ study / flashcards ④ Watch remote ⑤ "all on-device" privacy.
+① Turn Listening Into Learning ② Read Along Word By Word ③ Make Audio
+Flashcards ④ Review On Your Wrist ⑤ Your Books Stay Yours.
 
 ---
 
@@ -37,6 +38,9 @@ status bar (9:41, full bars, 100% battery). No App Store Connect key needed.
   `snapshot()`).
 - `EchoUITests/EchoScreenshots.swift` — the test that launches the app and walks
   Player → Timeline → Reader → Stats → Settings, calling `snapshot(...)` at each.
+  Treat those raw captures as source material: the final App Store images should
+  be framed and captioned with the benefit-led lines above, not uploaded as plain
+  UI captures.
 
 ### ⚠️ Content seeding (read this — it's why shots may come out empty)
 
@@ -95,10 +99,14 @@ booted screenshot`, into this folder using the naming convention below.
 
 Manual release checklist:
 
-- iPhone automated set includes Player, Timeline, Reader, Stats, and Settings.
-- iPad automated set includes Player, Timeline, Reader, Stats, and Settings.
+- iPhone set includes the first three search-result shots: Player/listening,
+  synced EPUB reader, and flashcard/study.
+- iPad set includes the same first three search-result shots, adapted to the
+  larger layout.
 - Watch remote shot is captured manually and named with `_Watch`.
 - Mac app shot is captured manually and named with `_Mac`.
+- Privacy is shown as a visual local-first/on-device frame where possible;
+  Settings is supporting evidence, not the preferred final conversion image.
 - Any intentionally omitted category is noted in the release notes before upload.
 
 ---
