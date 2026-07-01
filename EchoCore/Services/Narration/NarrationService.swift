@@ -63,10 +63,11 @@ final class NarrationService {
     private let fmCache = FMNormalizationCache()
 
     /// Whether FM pre-normalization is enabled for this narration run.
-    /// Respects the `narrationQAClassifier` UserDefaults key: when set to
-    /// "deterministic", FM is off for both QA and pre-normalization.
+    /// OFF by default — the current Foundation Model introduces errors
+    /// (dropped words, garbled text) at a higher rate than it fixes them.
+    /// Set UserDefaults `narrationFMPreNormalization` to `true` to opt in.
     private var fmEnabled: Bool {
-        UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
+        UserDefaults.standard.bool(forKey: "narrationFMPreNormalization")
     }
 
     /// Supplies the user pronunciation overrides applied to each block's text
