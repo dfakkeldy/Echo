@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import GRDB
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The tri-pane study layout for macOS.
 ///
@@ -21,6 +23,9 @@ struct MacTriPaneView: View {
     @State private var showingDailyReview = false
     @State private var showingCardInbox = false
     @State private var showingAudiobookshelf = false
+    @State private var studyDeckGenerationPresentation: MacStudyDeckGenerationPresentation?
+    @State private var showingDeckImporter = false
+    @State private var studyWorkflowAlert: (title: String, message: String)?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -84,6 +89,9 @@ struct MacTriPaneView: View {
                     player.loadFolder(url: url)
                 }
             }
+            .sheet(item: $studyDeckGenerationPresentation) { presentation in
+                MacStudyDeckGenerationSheetHost(presentation: presentation)
+            }
         } detail: {
             MacNotesPane()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
@@ -116,12 +124,31 @@ struct MacTriPaneView: View {
         .onReceive(NotificationCenter.default.publisher(for: .requestAudiobookshelf)) { _ in
             showingAudiobookshelf = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .requestGenerateStudyDeck)) { _ in
+            presentStudyDeckGeneration()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestImportDeck)) { _ in
+            showingDeckImporter = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
             withAnimation {
                 columnVisibility =
                     columnVisibility == .detailOnly
                     ? .all
                     : (columnVisibility == .all ? .detailOnly : .all)
+            }
+        }
+        .fileImporter(
+            isPresented: $showingDeckImporter,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+            onCompletion: handleDeckImportResult
+        )
+        .alert(studyWorkflowAlert?.title ?? "", isPresented: isShowingStudyWorkflowAlert) {
+            Button("OK") { studyWorkflowAlert = nil }
+        } message: {
+            if let message = studyWorkflowAlert?.message {
+                Text(message)
             }
         }
     }
@@ -344,5 +371,154 @@ struct MacTriPaneView: View {
                 resume: true)
             player.bumpDocumentIngestionTrigger()
         }
+    }
+
+    // MARK: - Study Decks
+
+    private var isShowingStudyWorkflowAlert: Binding<Bool> {
+        Binding(
+            get: { studyWorkflowAlert != nil },
+            set: { if !$0 { studyWorkflowAlert = nil } }
+        )
+    }
+
+    private func presentStudyDeckGeneration() {
+        guard
+            let presentation = MacStudyDeckGenerationPresentation(
+                player: player,
+                dbService: dbService
+            )
+        else {
+            studyWorkflowAlert = (
+                "Generate Study Deck Unavailable",
+                "Open an audiobook or document before generating a study deck."
+            )
+            return
+        }
+
+        studyDeckGenerationPresentation = presentation
+    }
+
+    private func handleDeckImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let didStartAccessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            do {
+                let result = try DeckImportService().importDeckVNext(from: url, db: dbService.writer)
+                studyWorkflowAlert = ("Import Complete", importCompletionMessage(for: result))
+            } catch {
+                studyWorkflowAlert = ("Import Failed", error.localizedDescription)
+            }
+
+        case .failure(let error):
+            studyWorkflowAlert = ("Import Failed", error.localizedDescription)
+        }
+    }
+
+    private func importCompletionMessage(for result: ImportDeckResult) -> String {
+        if result.warningCount == 0 {
+            return
+                "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text."
+        }
+        return
+            "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text. \(result.warningCount) warnings."
+    }
+}
+
+private struct MacStudyDeckGenerationPresentation: Identifiable {
+    let audiobookID: String
+    let bookTitle: String
+    let db: DatabaseWriter
+
+    var id: String { audiobookID }
+
+    init?(player: MacPlayerModel, dbService: DatabaseService) {
+        guard player.dbService != nil,
+            let audiobookID = player.audiobookID,
+            let folderURL = player.folderURL
+        else {
+            return nil
+        }
+
+        self.audiobookID = audiobookID
+        self.bookTitle = StudyPlanBookTitleResolver.resolve(
+            audiobookID: audiobookID,
+            folderURL: folderURL,
+            db: dbService.writer,
+            currentTitle: player.currentTitle
+        )
+        self.db = dbService.writer
+    }
+}
+
+private struct MacStudyDeckGenerationSheetHost: View {
+    @State private var viewModel: StudyDeckGenerationViewModel
+
+    init(presentation: MacStudyDeckGenerationPresentation) {
+        let store = APIKeyStore()
+        let hasKey = store.hasKey
+        let key = store.anthropicKey ?? ""
+        let model = AICardGenerationSettings.selectedModel
+        let generator = StudyDeckGeneratorFactory.make(
+            preference: AICardGenerationSettings.providerPreference,
+            hasKey: hasKey,
+            fmAvailable: StudyDeckFMAvailability.isAvailable
+        ) {
+            AnthropicStudyDeckGenerator(
+                client: AnthropicMessagesClient(apiKey: key, model: model))
+        }
+        _viewModel = State(
+            wrappedValue: StudyDeckGenerationViewModel(
+                audiobookID: presentation.audiobookID,
+                bookTitle: presentation.bookTitle,
+                db: presentation.db,
+                generator: generator
+            )
+        )
+    }
+
+    var body: some View {
+        StudyDeckGenerationSheet(viewModel: viewModel)
+    }
+}
+
+private enum StudyPlanBookTitleResolver {
+    static func resolve(
+        audiobookID: String,
+        folderURL: URL,
+        db: DatabaseWriter,
+        currentTitle: String
+    ) -> String {
+        let audiobook = try? AudiobookDAO(db: db).get(audiobookID)
+        return resolve(
+            storedTitle: audiobook?.title,
+            folderTitle: folderURL.lastPathComponent,
+            currentTitle: currentTitle
+        )
+    }
+
+    static func resolve(
+        storedTitle: String?,
+        folderTitle: String,
+        currentTitle: String
+    ) -> String {
+        normalizedTitle(storedTitle)
+            ?? normalizedTitle(folderTitle)
+            ?? normalizedTitle(currentTitle)
+            ?? "Book"
+    }
+
+    private static func normalizedTitle(_ title: String?) -> String? {
+        guard let title else { return nil }
+
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

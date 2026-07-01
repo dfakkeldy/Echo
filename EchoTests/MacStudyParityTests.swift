@@ -54,4 +54,53 @@ struct MacStudyParityTests {
             triPane.contains("MacCardInboxView(") && triPane.contains(".requestCardInbox"),
             "MacTriPaneView must present the Card Inbox sheet on the .requestCardInbox signal.")
     }
+
+    @Test func studyMenuOpensDeckGenerationAndImport() throws {
+        let app = try MacSource.read("Echo_macOSApp.swift")
+        #expect(
+            app.contains("Generate Study Deck…")
+                && app.contains("requestGenerateStudyDeck"),
+            "The macOS Study menu must expose Generate Study Deck and route it through a window notification.")
+        #expect(
+            app.contains("Import Deck…")
+                && app.contains("requestImportDeck"),
+            "The macOS Study menu must expose Import Deck and route it through a window notification.")
+        #expect(
+            app.contains("player.audiobookID == nil")
+                && app.contains("player.dbService == nil"),
+            "Generate Study Deck must require a loaded macOS audiobook and configured database writer.")
+    }
+
+    @Test func triPaneHostsStudyDeckGenerationSheet() throws {
+        let triPane = try MacSource.read("Views/MacTriPaneView.swift")
+        #expect(
+            triPane.contains(".requestGenerateStudyDeck")
+                && triPane.contains("StudyDeckGenerationSheet(")
+                && triPane.contains("StudyDeckGenerationViewModel("),
+            "MacTriPaneView must present the shared StudyDeckGenerationSheet/ViewModel when requested.")
+        #expect(
+            triPane.contains("player.audiobookID")
+                && triPane.contains("StudyPlanBookTitleResolver.resolve(")
+                && triPane.contains("dbService.writer"),
+            "Deck generation must use the current macOS audiobook id, resolved book title, and shared DB writer.")
+    }
+
+    @Test func triPaneImportsDeckJSONWithNativeAlert() throws {
+        let triPane = try MacSource.read("Views/MacTriPaneView.swift")
+        #expect(
+            triPane.contains(".requestImportDeck")
+                && triPane.contains(".fileImporter(")
+                && triPane.contains("allowedContentTypes: [.json]"),
+            "MacTriPaneView must open a JSON file importer for deck imports.")
+        #expect(
+            triPane.contains("DeckImportService().importDeckVNext(from:")
+                && triPane.contains("startAccessingSecurityScopedResource()")
+                && triPane.contains("stopAccessingSecurityScopedResource()"),
+            "The macOS import path must use DeckImportService.importDeckVNext with balanced security-scoped file access.")
+        #expect(
+            triPane.contains("Import Complete")
+                && triPane.contains("Import Failed")
+                && triPane.contains(".alert("),
+            "Deck import success and failure must be reported in a native SwiftUI alert.")
+    }
 }
