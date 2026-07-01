@@ -14,12 +14,12 @@
 //
 //  CONTENT NOTE: In DEBUG simulator builds the app auto-seeds screenshot media
 //  (EchoCoreApp.init → MockMediaProvider.seedSampleMediaIfNeeded, then
-//  PlayerModel.restoreLastSelectionIfPossible loads it). It prefers a local,
-//  rights-cleared `EchoScreenshotSample.m4b` when one is bundled, and otherwise
-//  falls back to the bundled Standard Ebooks Great Gatsby EPUB — see
-//  fastlane/screenshots README. This test is deliberately defensive: every
-//  navigation step is guarded, so one missing screen doesn't stop later
-//  captures, but the test fails at the end if any expected category is absent.
+//  PlayerModel.restoreLastSelectionIfPossible loads it). This test forces the
+//  bundled Standard Ebooks Great Gatsby EPUB so App Store captures remain stable
+//  even if a local `EchoScreenshotSample.m4b` exists — see fastlane/screenshots
+//  README. This test is deliberately defensive: every navigation step is
+//  guarded, so one missing screen doesn't stop later captures, but the test
+//  fails at the end if any expected category is absent.
 //
 //  NAVIGATION NOTE: The app uses a custom bottom dock, not a standard TabView,
 //  and ships no accessibility identifiers, so we navigate by the accessibility
@@ -38,6 +38,10 @@ nonisolated final class EchoScreenshots: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         let app = XCUIApplication()
         setupSnapshot(app)
+        app.launchArguments += [
+            "--echo-screenshot-fixture-gatsby",
+            "--echo-screenshot-appearance-dark",
+        ]
         addUIInterruptionMonitor(withDescription: "Screenshot bootstrap alerts") { alert in
             if alert.buttons["Continue Offline"].exists {
                 alert.buttons["Continue Offline"].tap()

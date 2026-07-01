@@ -4,6 +4,8 @@ import Foundation
 import os.log
 
 struct MockMediaProvider {
+    static let forceDarkAppearanceLaunchArgument = "--echo-screenshot-appearance-dark"
+    static let forceSampleBookLaunchArgument = "--echo-screenshot-fixture-gatsby"
     static let sampleFileName = "EchoScreenshotSample.m4b"
     static let sampleBookDirectoryName = "The Great Gatsby"
     static let sampleBookFileName = "f-scott-fitzgerald_the-great-gatsby.epub"
@@ -73,8 +75,30 @@ struct MockMediaProvider {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    static func sampleMediaURL() -> URL? {
-        sampleAudiobookURL() ?? sampleBookURL()
+    static func forcedSampleMediaURL(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> URL? {
+        prefersSampleBook(arguments: arguments) ? sampleBookURL() : nil
+    }
+
+    static func sampleMediaURL(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> URL? {
+        if prefersSampleBook(arguments: arguments) {
+            return sampleBookURL()
+        }
+
+        return sampleAudiobookURL() ?? sampleBookURL()
+    }
+
+    static func prefersSampleBook(arguments: [String]) -> Bool {
+        arguments.contains(forceSampleBookLaunchArgument)
+    }
+
+    static func prefersDarkAppearance(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        arguments.contains(forceDarkAppearanceLaunchArgument)
     }
 
     private static func bundledSampleBookURL() -> URL? {

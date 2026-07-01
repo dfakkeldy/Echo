@@ -47,22 +47,25 @@ status bar (9:41, full bars, 100% battery). No App Store Connect key needed.
 The screens are content-gated: the Reader needs an EPUB, the player needs an
 audiobook, etc. In **DEBUG simulator** builds the app auto-seeds a sample on
 launch (`EchoCoreApp.init` → `MockMediaProvider.seedSampleMediaIfNeeded`,
-then `PlayerModel.restoreLastSelectionIfPossible`). It prefers a local,
-rights-cleared `EchoScreenshotSample.m4b` when one is bundled, and otherwise
-falls back to the bundled Standard Ebooks copy of *The Great Gatsby*.
-`*.m4b` is git-ignored, so the optional audio path is:
+then `PlayerModel.restoreLastSelectionIfPossible`). The automated
+`EchoScreenshots` run passes `--echo-screenshot-fixture-gatsby` and
+`--echo-screenshot-appearance-dark`, so App Store captures always open the
+bundled Standard Ebooks copy of *The Great Gatsby* with Echo's internal
+appearance preference set to Dark, even if a local audio sample is present.
+
+For ad-hoc/manual audio-backed captures, you can still bundle a local,
+rights-cleared `EchoScreenshotSample.m4b`. `*.m4b` is git-ignored, so the
+optional audio path is:
 
 1. Add a short public-domain or otherwise rights-cleared sample named
    `EchoScreenshotSample.m4b` to the Echo app target's "Copy Bundle Resources"
    (bundled EPUB samples already live in `EchoCore/Development Assets/`).
-2. Then `fastlane screenshots` will have real audio-backed player content on
-   screen; without it, the Gatsby EPUB still gives the reader and cover-derived
-   colour system real content.
+2. Launch the app manually or remove the Gatsby fixture argument if you
+   intentionally want audio-backed player content instead of the canonical
+   Gatsby EPUB run.
 
-Without the optional audio file, Gatsby still gives the reader and
-cover-derived colour system real content. The UI test fails if any expected
-automated category is missing, so a screenshot run cannot silently pass with a
-partial set.
+The UI test fails if any expected automated category is missing, so a screenshot
+run cannot silently pass with a partial set.
 
 Recommended local fixture path:
 
