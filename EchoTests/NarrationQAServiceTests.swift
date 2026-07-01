@@ -195,7 +195,7 @@ import Testing
         try seed(db, book: "b1", text: "quick brown fox")
         let heard: [TranscribedWord] = [
             TranscribedWord(text: "quick", start: 0.0, confidence: 1.0),
-            TranscribedWord(text: "brown", start: 0.4, confidence: 0.3),
+            TranscribedWord(text: "brawn", start: 0.4, confidence: 0.25),
             TranscribedWord(text: "fox", start: 0.8, confidence: 1.0),
         ]
         let service = NarrationQAService(
@@ -209,8 +209,8 @@ import Testing
         #expect(issues.count == 1)
         #expect(issues.first?.issueType == NarrationQAIssueType.lowConfidence.rawValue)
         #expect(issues.first?.expectedText == "brown")
-        #expect(issues.first?.heardText == "brown")
-        #expect(issues.first?.confidence == 0.3)
+        #expect(issues.first?.heardText == "brawn")
+        #expect(issues.first?.confidence == 0.25)
     }
 
     @Test func transcriptionFailureThrowsAndPreservesOpenIssues() async throws {

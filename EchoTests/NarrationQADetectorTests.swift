@@ -132,7 +132,7 @@ import Testing
 
     @Test func lowConfidenceMatchedWordBecomesWindow() {
         let words = heard([
-            ("quick", 0.0, 1.0), ("brown", 0.4, 0.3), ("fox", 0.8, 1.0),
+            ("quick", 0.0, 1.0), ("brawn", 0.4, 0.25), ("fox", 0.8, 1.0),
         ])
 
         let windows = NarrationQADetector.detect(
@@ -141,8 +141,8 @@ import Testing
 
         #expect(windows.count == 1)
         #expect(windows.first?.expectedText == "brown")
-        #expect(windows.first?.heardText == "brown")
-        #expect(windows.first?.confidence == 0.3)
+        #expect(windows.first?.heardText == "brawn")
+        #expect(windows.first?.confidence == 0.25)
     }
 
     @Test func omittedWordKeepsEmptyHeardText() {
