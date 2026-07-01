@@ -177,6 +177,7 @@ Services/Narration/AVFoundationAudioWriter.swift
 Services/Narration/AudioFileWriting.swift
 Services/Narration/AudioMarkerStub.swift
 Services/Narration/EpubCoverResolver.swift
+Services/Narration/FMNormalizer.swift
 Services/Narration/HeadlessNarrationRunner.swift
 Services/Narration/KokoroFrontEnd.swift
 Services/Narration/KokoroG2P.swift
@@ -208,6 +209,12 @@ Services/Narration/OnnxKokoroEngine.swift
 Services/Narration/ProgressFanOut.swift
 Services/Narration/PronunciationOverrideStore.swift
 Services/Narration/PronunciationOverrides.swift
+Services/Narration/QA/DivergenceClassifier.swift
+Services/Narration/QA/DivergenceClassifierFactory.swift
+Services/Narration/QA/DivergenceTypes.swift
+Services/Narration/QA/FoundationModelsDivergenceClassifier.swift
+Services/Narration/QA/NarrationQADetector.swift
+Services/Narration/QA/NarrationQAService.swift
 Services/Narration/TTSEngine.swift
 Services/Narration/TextNormalizer.swift
 Services/Narration/VoiceCatalog.swift
@@ -265,6 +272,7 @@ ViewModels/DailyReviewViewModel.swift
 ViewModels/KaraokeHighlightTransition.swift
 ViewModels/LibraryRootsViewModel.swift
 ViewModels/LibraryViewModel.swift
+ViewModels/NarrationQAReviewModel.swift
 ViewModels/PlayerModel+Audiobookshelf.swift
 ViewModels/PlayerModel+Bookmarks.swift
 ViewModels/PlayerModel+MarkedPassages.swift
@@ -275,10 +283,12 @@ ViewModels/PlayerModel+WatchState.swift
 ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
 ViewModels/SessionRecapViewModel.swift
+ViewModels/StudyDeckGenerationViewModel.swift
 ViewModels/StudyPlanViewModel.swift
 ViewModels/StudySessionViewModel.swift
 Views/ABSBrowseView.swift
 Views/ABSConnectionsSettingsView.swift
+Views/AICardGenerationSettingsView.swift
 Views/AllStudyNotesExportView.swift
 Views/AppIconSelectionView.swift
 Views/AutoAlignmentProgressView.swift
@@ -330,6 +340,7 @@ Views/Library/LibraryShelfGrid.swift
 Views/Library/LibraryStatusDot.swift
 Views/Library/LibraryView.swift
 Views/Library/ManageRootsView.swift
+Views/Narration/NarrationQAReviewView.swift
 Views/ListeningProgressModuleView.swift
 Views/ManualAlignmentSheet.swift
 Views/Narration/NarrationNudgeView.swift
@@ -405,19 +416,27 @@ Services/MacAlignmentService.swift
 Services/MacApkgExportService.swift
 Services/MacAudioBoostTap.swift
 Services/MacBatchProcessingService.swift
+Services/MacTranscribeCoordinator.swift
 Views/MacAnkiExportView.swift
 Views/MacAudioExportView.swift
+Views/MacAudiobookshelfView.swift
 Views/MacBatchQueueView.swift
 Views/MacBookmarkReviewView.swift
+Views/MacCardInboxView.swift
+Views/MacDailyReviewView.swift
 Views/MacExportDetailsView.swift
 Views/MacLibraryView.swift
+Views/MacNarrationQAReviewView.swift
 Views/MacNotesPane.swift
+Views/MacPDFReaderView.swift
 Views/MacPlaybackOptionsSheet.swift
+Views/MacPlayerModel+Audiobookshelf.swift
 Views/MacPlayerModel.swift
 Views/MacPlayerMoreMenu.swift
 Views/MacReaderFeedView.swift
 Views/MacSettingsView.swift
 Views/MacTOCTreeView.swift
+Views/MacTranscribeProgressView.swift
 Views/MacTriPaneView.swift
 Views/TranscriptPane.swift
 Views/TranscriptStore.swift
@@ -473,7 +492,9 @@ Database/DAOs/EPubBlockDAO.swift
 Database/DAOs/EPubTOCEntryDAO.swift
 Database/DAOs/FlashcardDAO.swift
 Database/DAOs/LibraryRootDAO.swift
+Database/DAOs/NarrationQualityIssueDAO.swift
 Database/DAOs/NoteDAO.swift
+Database/DAOs/PDFBlockPageDAO.swift
 Database/DAOs/PlannedSessionDAO.swift
 Database/DAOs/PlaybackEventDAO.swift
 Database/DAOs/RealTimeEventDAO.swift
@@ -494,7 +515,14 @@ Database/MarkedPassageRecord.swift
 Database/Migrations/Schema_V25.swift
 Database/Migrations/Schema_V26.swift
 Database/Migrations/Schema_V27.swift
+Database/Migrations/Schema_V28.swift
+Database/Migrations/Schema_V29.swift
+Database/Migrations/Schema_V30.swift
+Database/Migrations/Schema_V31.swift
+Database/Migrations/Schema_V32.swift
+Database/NarrationQualityIssueRecord.swift
 Database/NoteRecord.swift
+Database/PDFBlockPageRecord.swift
 Database/PlannedSessionRecord.swift
 Database/RealTimeEventRecord.swift
 Database/ReviewGrade.swift
@@ -598,7 +626,7 @@ Alignment is now performed entirely in-app, without any external tools or API ca
    - **Markdown / plain text** (`TextDocumentParser`, `Shared/`) — `.md`/`.markdown`/`.txt` files are parsed into the same `EPUBBlockParse` that the EPUB parser emits, producing one synthetic spine entry per chapter. Markdown chapter breaks follow the heading hierarchy (chapter level = shallowest repeating heading level; a lone leading `#` is front matter; deeper headings are in-chapter section headings). Plain text uses heuristic detection ("Chapter N", multi-word or ≥6-letter ALL-CAPS title lines) and falls back to a single chapter. Bold, italic, and strikethrough are preserved as `TextFormat` spans; code blocks, tables, and images are omitted from narration output. A `TextAutoImportScanner` drives the text import path, analogous to `EPUBAutoImportScanner` for EPUBs.
    - **PDF** (`PDFAutoImportScanner`, `EchoCore/Services`) extracts each page's text with **PDFKit** (run off the main actor in a detached task) and feeds the same `EPUBBlockParse` → shared persist phase. Page line breaks are **preserved**, so a standalone "Chapter N" / "Part N" line is still detected as a chapter marker (the same per-line `tokenizePlainText` pass the text path uses); the tokenizer reflows the remaining wrapped lines back into paragraphs. When a marker-less PDF has more than one page, it falls back to **one synthetic narration chapter per page** (`parsePDFPagesAsPlainTextChapters`, `Shared/TextDocumentParser.swift`) so a long PDF doesn't become a single enormous narration batch. **Reachable from** the headless narration runner / `echo-cli narrate` and from iOS folder import (a `.pdf` inside an opened folder); **not yet wired** to the iOS document picker (no PDF `UTType`) or any macOS-app path (the macOS open panel and batch importer don't accept PDFs).
 
-   These import paths share a **`EPUBImportService.import(parse:audiobookID:chapters:bookDuration:assetBaseURL:)`** persist phase (writes `epub_block` rows) and a **`DocumentImportFinalizer.finalize(...)`** tail (writes alignment anchors and the timeline tail). This seam means the narrate, read-along, and chaptered-playback pipeline is reused unchanged. No schema migration is needed — text-document and PDF blocks use the existing `epub_block` table (schema head V23).
+   These import paths share a **`EPUBImportService.import(parse:audiobookID:chapters:bookDuration:assetBaseURL:)`** persist phase (writes `epub_block` rows) and a **`DocumentImportFinalizer.finalize(...)`** tail (writes alignment anchors and the timeline tail). This seam means the narrate, read-along, and chaptered-playback pipeline is reused unchanged. No schema migration is needed for the import modes themselves — text-document and PDF blocks reuse the existing `epub_block` table.
 
    **Out of scope (future work):** attaching a text file to an existing audio book for read-along; rendering-but-not-speaking code blocks; image resolution; multi-file (folder-of-`.md`) books.
 
@@ -728,6 +756,8 @@ For study EPUBs that have **no audiobook**, Echo can generate spoken audio on-de
 
 > **Update (2026-06-21 — read-along + player-chrome UX fixes).** **Read-along:** the karaoke retint (`ReaderFeedCollectionView`) now clears the previously-highlighted card when the active word crosses a paragraph boundary (pure `KaraokeHighlightTransition`; block changes bypass the 12 Hz throttle), and the highlight is **color/background only — no font-weight swap** — on iOS (`ParagraphCardCell`/`HeadingCardCell`) and macOS (`MacReaderFeedView`), so glyph metrics stay stable. Tapping a paragraph card seeks to it **and** starts playing via the canonical `PlayerModel.seek(toSeconds:)` + `play()` (pure `CardTapDecision`; iOS + macOS), with a no-time fallback; TOC navigation stays seek-only. **Player chrome:** the sleep-timer icon and every bottom-toolbar chip use the cover-derived accent (`PlayerModel.artworkAccentColor ?? .accentColor`); the active state is carried by the filled-chip shape, not color.
 
+> **Update (2026-07-01 — FM pre-normalization + persisted narration text).** When `narrationQAClassifier == "auto"` and Foundation Models is available, the generated-narration render path now runs `TextNormalizer.normalize()` → `FMNormalizer.refine()` → `PronunciationOverrides.apply()` before chunking. The FM step is intentionally local: it rewrites only TTS-hostile words/phrases, caches identical inputs in `FMNormalizationCache` for the render session, and rejects hallucinated outputs whose word count or overlap no longer resembles the source. If FM changes a block, `NarrationService` persists the spoken form to `epub_block.narration_text` (Schema V32); the original `text` column remains canonical source. `NarrationQAService` compares against `narrationText ?? text`, so the listen-back QA pass judges the exact text the TTS received. `echo-cli narrate --db <path>` lets headless runs persist this refined text and QA rows in a real SQLite database instead of the default in-memory scratch DB.
+
 **Synthesis-time word timing (Kokoro):** For Echo-narrated books, per-word
 read-along timing is captured at synthesis instead of being interpolated. A
 28 MB ONNX "duration head" — the encoder + duration-predictor subgraph extracted
@@ -750,8 +780,9 @@ WhisperKit + `TokenDTW` path.
 - `AudioFileWriting` — `Sendable` protocol for writing `TTSChunk`s to one on-disk **lossless ALAC `.m4a`**. Two paths: the batch `write(_:to:)` and an incremental **stream-to-sink** session, `makeStream(to:sampleRate:) -> AudioFileStream`, whose `append`/`finalize` encode each chunk straight to disk. `AVFoundationAudioWriter` (a stateless `struct`) implements it; the session is an `actor` (`ALACFileStream`) that confines the non-`Sendable` `AVAudioFile` and runs the per-chunk encode off the caller's actor. `NarrationService.renderChapter` streams, so a chapter's peak memory is one ~200-char sub-chunk's PCM rather than the whole chapter's — the half of the A14 jetsam mitigation that doesn't need the model swap (audit §7.1).
 - `VoiceCatalog` / `NarrationVoice` — the curated voice set (4 voices keyed by `VoiceID`; default "Ava", US/warm).
 - `TextNormalizer` — pure, deterministic prose→speakable normalization (abbreviations, thousands separators, Roman-numeral chapters, em-dash pauses); the highest naturalness-ROI unit.
+- `FMNormalizer` / `FMNormalizationCache` — optional Foundation Models pre-normalization for tricky TTS inputs. It returns the original text on any availability/error/hallucination failure and is session-cached by stable text hash.
 - `NarrationState` — `@MainActor @Observable` progress object mirroring `AutoAlignmentState` (phases: `idle`, `preparingChapter`, `renderingAhead`, `completed`, `failed`).
-- `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:chapterTitle:)` normalizes + synthesizes each text block, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`; `renderSegment` persists the same planner title for segment-backed playback/export. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
+- `NarrationService` — `@MainActor @Observable` orchestrator mirroring `AutoAlignmentService`. `renderChapter(chapterIndex:blocks:voice:chapterTitle:)` normalizes/refines/synthesizes each text block, persists any FM-refined `narration_text`, writes one chapter file, and persists one `TrackRecord` + per-block `.synthesized` anchors with monotonic `audioTime`; `renderSegment` persists the same planner title for segment-backed playback/export. Cancellable between blocks and before any DB write, so a cancelled render persists nothing. (Re-render idempotency — clearing/upserting prior `syn-…` anchors in one transaction — is owned by the later orchestration plan.)
 
 ### Generated Narration QA (M3, June 2026)
 
@@ -765,7 +796,7 @@ After narrating an EPUB/PDF, the user can initiate a "listen back" QA pass that 
 - **`FoundationModelsDivergenceClassifier`** (triple-gated: `#if canImport(FoundationModels) + @available(iOS 26, macOS 26, *) + runtime availability)` — wraps the deterministic classifier as a per-issue fallback. Uses `LanguageModelSession` + `@Generable IssueClassification` for constrained decoding; any error degrades to deterministic label (never crashes).
 - **`DivergenceClassifierFactory`** — `@MainActor make(preference:availabilityIsAvailable:) -> DivergenceClassifier` returns `FoundationModelsDivergenceClassifier` only when preference is `"auto"`, FM is compiled in, OS >= iOS 26, and runtime availability says models are accessible. Otherwise returns `DeterministicDivergenceClassifier()`.
 - **`narrationQAClassifier` setting** — `SettingsManager` property, values `"auto"` (default) or `"deterministic"`.
-- **`NarrationQAService`** (`@MainActor`) — orchestrates one QA pass: clears prior **open** issues for touched blockIDs (via `deleteOpen`, so the user's resolved/ignored verdicts survive a re-run), re-transcribes each chapter's audio (injected `transcribe` closure defaults to `WhisperSession` + `AlignmentTranscript.transcribeWords`, test-stubbed on CI), runs `NarrationQADetector`, classifies each window, persists `NarrationQualityIssueRecord`s. The static `chaptersToQA(blocksByChapter:fileURL:fileExists:)` helper builds the chapter list for an initial pass from every chapter that has rendered audio on disk.
+- **`NarrationQAService`** (`@MainActor`) — orchestrates one QA pass: clears prior **open** issues for touched blockIDs (via `deleteOpen`, so the user's resolved/ignored verdicts survive a re-run), re-transcribes each chapter's audio (injected `transcribe` closure defaults to `WhisperSession` + `AlignmentTranscript.transcribeWords`, test-stubbed on CI), compares heard words against `EPubBlockRecord.narrationText ?? text` so FM-refined renders are judged against the spoken form, runs `NarrationQADetector`, classifies each window, and persists `NarrationQualityIssueRecord`s. The static `chaptersToQA(blocksByChapter:fileURL:fileExists:)` helper builds the chapter list for an initial pass from every chapter that has rendered narration audio on disk.
 - **`NarrationQualityIssueRecord`** / **`NarrationQualityIssueDAO`** — GRDB record + DAO for the `narration_quality_issue` table (FK to `audiobook` with cascade delete). Supports insert, fetch (by book, optionally filtered by status), update status, delete (by book or by block IDs).
 - **`NarrationQAReviewModel`** (`@MainActor @Observable`) — loads open issues for a book, runs the initial pass (`runFullQA()` discovers rendered chapters via `chaptersToQA` and runs the deterministic `NarrationQAService`), and applies ignore/resolve/accept-fix actions. Failures (transcription error, no rendered audio, no usable fix) surface through an observable `lastError` instead of a silently empty queue. No UIKit import (auto-bundles into all targets); the narration-touching `runFullQA()`/`acceptFix` are gated to `os(iOS) || os(macOS)`.
 - **`NarrationQAReviewView`** — iOS SwiftUI list with swipe-to-resolve/ignore, a **Run QA** toolbar button, and a `lastError` banner. Mounted from **Book Settings ▸ Narration**. Excluded from macOS and echo-cli targets via `project.pbxproj` membership exceptions; macOS uses **`MacNarrationQAReviewView`** (same model; Run QA button + error banner in its footer).
@@ -804,6 +835,22 @@ Echo remains single-book-at-a-time: `PlayerModel` holds one `folderURL` and open
 
 Design spec: `docs/superpowers/specs/2026-06-26-local-library-design.md`; implementation plans: `docs/superpowers/plans/2026-06-27-local-library-implementation.md`, `docs/superpowers/plans/2026-06-27-local-library-ui-m3.md`, and `docs/superpowers/plans/2026-06-27-local-library-ui-m4.md`.
 
+### Audiobookshelf Library + Progress Sync (June 2026)
+
+Audiobookshelf (ABS) is a self-hosted library source, not a streaming engine. Echo downloads an ABS item into `Application Support/ABSLibrary/<remoteItemID>/`, stamps provenance on the `audiobook` row, and then hands that local folder to the normal import/playback/alignment pipeline so EPUB sync, phrase search, flashcards, narration QA, and exports keep using the same code paths as local books.
+
+**Current units:**
+
+- **`AudiobookshelfService`** handles JWT login, refresh-token rotation, library/item browse, server-side search, item zip download, progress GET/PATCH, and remote sign-out. `ABSURLSession` / `ABSServerTrustEvaluator` support CA-trusted HTTPS, plaintext HTTP, and explicit self-signed certificate pinning.
+- **`ABSServerDAO` / `ABSServerRecord`** store non-secret server metadata in GRDB while `ABSTokenStore` keeps refresh/access tokens and pinned certificate hashes in Keychain. Schema V31 adds `is_active`; iOS still presents a single active server flow, while macOS can list saved servers, switch the active one, and remove a saved server without disturbing unrelated rows.
+- **iOS ABS UI** (`ABSConnectionsSettingsView`, `ABSBrowseView`, `PlayerModel+Audiobookshelf`) owns connect, browse, import, disconnect, active-server service caching, and throttled progress push/pull for ABS-backed books.
+- **macOS ABS UI** (`MacAudiobookshelfView`, `MacPlayerModel+Audiobookshelf`) mirrors browse/import with a native sheet, supports multiple saved servers, and gives the long-lived `MacPlayerModel` its own cached service so progress sync continues after the sheet closes. Mac progress sync currently uses the active track's `currentTime`/`duration` because macOS does not yet have the iOS multi-m4b book-time axis.
+- **Progress policy** (`ABSProgressSync`, `ABSProgressReconciler`) is ABS-authoritative last-write-wins: pushes are throttled while playing, load-time reconcile either seeks local playback to remote time or pushes newer local progress, and local sidecars remain an offline cache.
+
+**Schema:** V23 adds `audiobook.source_type`, `server_id`, `remote_item_id`, and `topics_json` to preserve ABS provenance. V31 adds `abs_server.is_active` for multi-saved-server selection. Streaming and fully resumable background downloads remain deferred; the current design intentionally keeps ABS books local-first.
+
+Design spec: `docs/superpowers/specs/2026-06-30-abs-macos-progress-sync-multi-server-design.md`; implementation plan: `docs/superpowers/plans/2026-06-30-abs-macos-progress-sync-multi-server.md`.
+
 ### Chaptered M4B Export (June 2026)
 
 Any loaded book — narrated EPUB or imported m4b/mp3 — can be exported as a single chaptered `.m4b` on both iOS and macOS. The export module lives in `EchoCore/Services/Export/` and is structured around two orthogonal seams: **source** (where the audio comes from) and **writer** (how chapter metadata is embedded).
@@ -821,7 +868,7 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 
 > **Forked `swift-audio-marker` (Echo pins `dfakkeldy/swift-audio-marker` by immutable revision, tag 0.1.3).** Upstream 0.1.1 wrote the `ilst` tags without the iTunes `mdir` handler, so ffmpeg/AVFoundation/iTunes/Audiobookshelf ignored *every* tag and the cover art (`covr` lives inside `ilst`), and wrote a chapter text track AVFoundation couldn't read (missing `gmhd.text` / `edts/elst` / `ftab` `stsd`). The fork fixes all of it at the source (upstream PR [atelier-socle/swift-audio-marker#2](https://github.com/atelier-socle/swift-audio-marker/pull/2)) and additionally fails loudly on >4 GB chapter offsets and clamps over-long chapter titles. Output is verified readable across ffprobe/Audiobookshelf, AVFoundation/Apple Books, exiftool, and AtomicParsley.
 
-**Headless CLI export.** `echo-cli narrate` (`HeadlessNarrationRunner`) titles chapters from the same planner/outline path as the apps (`ch. N: Heading`, falling back to `Chapter N`), resolves the cover from the EPUB OPF (`EpubCoverResolver`), and stamps the version comment. `echo-cli retag` (`M4BRetagger`) re-stamps an already-rendered m4b's chapter titles/tags/cover/comment **without re-rendering** — it reads the existing chapter *times* via the package reader (stale m4bs aren't AVFoundation-readable), re-titles from the EPUB, and re-writes through `ChapterMarkerWriter` (temp-then-move makes in-place retag safe).
+**Headless CLI export.** `echo-cli narrate` (`HeadlessNarrationRunner`) titles chapters from the same planner/outline path as the apps (`ch. N: Heading`, falling back to `Chapter N`), resolves the cover from the EPUB OPF (`EpubCoverResolver`), and stamps the version comment. By default it uses an in-memory database; pass `--db <path>` to persist imported blocks, FM-refined `narration_text`, and QA rows across headless runs for inspection or resume workflows. `echo-cli retag` (`M4BRetagger`) re-stamps an already-rendered m4b's chapter titles/tags/cover/comment **without re-rendering** — it reads the existing chapter *times* via the package reader (stale m4bs aren't AVFoundation-readable), re-titles from the EPUB, and re-writes through `ChapterMarkerWriter` (temp-then-move makes in-place retag safe).
 
 **Cover-art resolution (source-aware).** `ExportMetadataResolver.resolveCoverArt` walks the same cascade the app uses to *display* a book's cover, so the exported file carries whatever artwork the user already sees — "from the EPUB, or the mp3's, whatever the source was":
 
@@ -862,6 +909,10 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V24–V26 | Voice memos/notes in the reader feed (V24), study plans (V25), timeline segment key (V26) — see CHANGELOG.md |
 | V27 | Library columns on `audiobook` (`cover_art_path`, `narrator`, `index_state`, `is_available`, `last_seen_at`, `author_sort`, `source_root_id`) + new `library_root` table — all additive; powers the local Library shelf/root manager with no re-import or re-alignment |
 | V28 | `pdf_block_page` table (`v28_pdf_block_page`) — per-block source **PDF page index** (`audiobook_id`, `epub_block_id`, `page_index`; indexed by book+block and book+page). Captured at import by `PDFBlockPageMapper`, it lets page-mode read-along auto-follow the narration page-by-page. Additive, but **already-imported PDFs must be re-imported** to populate it (until then page mode auto-follows by best-effort text search). Renumbered from V27 after `v27_library` landed on nightly first |
+| V29 | `audiobook.text_origin` (TEXT) — provenance marker for reader text (`epub` / `pdf` / `transcript`); audio-only ASR materialization sets `transcript` so source-backed alignment never treats generated transcript text as canonical source |
+| V30 | `narration_quality_issue` table + `idx_narration_quality_issue_book_status` — reviewable generated-narration QA divergences, cascade-deleted with the book |
+| V31 | `abs_server.is_active` (BOOLEAN, default false) — preserves the active server across the single-server iOS flow while allowing macOS to save multiple servers and switch the active one |
+| V32 | `epub_block.narration_text` (TEXT, nullable) — persisted FM-refined TTS input; narration renders from it when present and QA compares against it while the original `text` remains the source of truth |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 

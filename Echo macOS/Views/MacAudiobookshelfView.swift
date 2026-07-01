@@ -6,8 +6,9 @@ import os.log
 /// macOS Audiobookshelf orchestration over the shared, macOS-clean ABS services
 /// (AudiobookshelfService / ABSTokenStore / ABSImportService / ABSServerDAO).
 /// The iOS `PlayerModel+Audiobookshelf` and ABS views are not part of the macOS
-/// target, so macOS drives the services directly. v1 supports one connected
-/// server (matching iOS). Two-way progress sync is a follow-up.
+/// target, so macOS drives the services directly. macOS can save multiple ABS
+/// servers, switch the active one, and leaves long-lived progress sync to
+/// `MacPlayerModel+Audiobookshelf`.
 @MainActor
 @Observable
 final class MacAudiobookshelfViewModel {
