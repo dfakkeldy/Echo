@@ -75,6 +75,12 @@ nonisolated enum FMNormalizer {
                 guard !refined.isEmpty, refined != text else {
                     return text
                 }
+                // Hallucination guard: FM sometimes returns prompt instructions
+                // for short blocks. If the output is wildly different from the
+                // input, treat it as a hallucination and keep the original.
+                guard looksLikeRefinement(refined, of: text) else {
+                    return text
+                }
                 return refined
             } catch {
                 return text
@@ -102,6 +108,27 @@ nonisolated enum FMNormalizer {
             Return the full text with substitutions applied, or an empty
             string if no changes are needed.
             """
+
+        /// Rejects FM outputs that bear no resemblance to the input (model
+        /// hallucinated instructions or JSON instead of refining the text).
+        /// A refinement should have similar character count and share most
+        /// words with the original — rewrites are local, not wholesale.
+        private static func looksLikeRefinement(_ refined: String, of text: String) -> Bool {
+            let tWords = text.split(separator: " ")
+            let rWords = refined.split(separator: " ")
+            // Output shouldn't explode or collapse relative to input.
+            guard rWords.count <= tWords.count * 3 else { return false }
+            guard rWords.count >= tWords.count / 3 else { return false }
+            // At least half the words should overlap if it's a real refinement.
+            let tSet = Set(tWords.map { $0.lowercased() })
+            let rSet = Set(rWords.map { $0.lowercased() })
+            let overlap = tSet.intersection(rSet).count
+            let smaller = min(tSet.count, rSet.count)
+            guard smaller == 0 || Double(overlap) / Double(smaller) >= 0.5 else {
+                return false
+            }
+            return true
+        }
     #endif
 }
 
