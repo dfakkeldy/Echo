@@ -294,6 +294,24 @@ platform :ios do
   end
 
   desc <<~DESC
+    Upload metadata to App Store Connect (no binary, no screenshots).
+
+    Pushes fastlane/metadata/ to the app's current editable version. Requires
+    fastlane/api_key.json. Use this when copy changes need to reconcile the ASC
+    draft before final screenshots are ready.
+  DESC
+  lane :upload_metadata do
+    require_api_key!
+    upload_to_app_store(
+      api_key: @api_key,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      run_precheck_before_submit: false,
+      force: true # skip the HTML preview/confirmation prompt
+    )
+  end
+
+  desc <<~DESC
     Upload screenshots + metadata to App Store Connect (no binary).
 
     Pushes fastlane/screenshots/ and fastlane/metadata/ to the app's current
