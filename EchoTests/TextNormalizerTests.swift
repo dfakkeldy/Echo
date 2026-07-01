@@ -131,6 +131,7 @@ import Testing
         ("Cats vs. dogs. Birds follow.", "Cats versus dogs. Birds follow."),
         ("Bring stamps, etc. The next day.", "Bring stamps, et cetera. The next day."),
         ("Main St. Their prices rose.", "Main Street. Their prices rose."),
+        ("Old St. Paul's was rebuilt.", "Old Saint Paul's was rebuilt."),
     ])
     func preservesSentenceEndingPeriodsWhenExpandingAbbreviations(
         _ input: String,

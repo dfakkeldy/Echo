@@ -58,6 +58,9 @@ enum TextNormalizer {
 
     private static func replaceStreetVsSaint(_ s: String) -> String {
         var out = replacingMatches(in: s, pattern: #"St\.(?=\s+[A-Z])"#) { match, text in
+            if isLikelySaintName(match.range, in: text) {
+                return "Saint"
+            }
             if let previousWord = wordBefore(match.range, in: text) {
                 let startsUppercase = previousWord.first?.isUppercase == true
                 return startsUppercase ? "Street." : "Saint"
@@ -67,6 +70,11 @@ enum TextNormalizer {
         out = replacingMatches(in: out, pattern: #"St\.(?=$)"#) { _, _ in "Street." }
         out = replacingMatches(in: out, pattern: #"St\."#) { _, _ in "Street" }
         return out
+    }
+
+    private static func isLikelySaintName(_ range: NSRange, in s: String) -> Bool {
+        guard let nextWord = wordAfter(range, in: s) else { return false }
+        return nextWord.contains("'")
     }
 
     private static func expandDollarAmounts(_ s: String) -> String {
@@ -457,6 +465,28 @@ enum TextNormalizer {
 
         guard cursor < end else { return nil }
         return String(s[cursor..<end])
+    }
+
+    private static func wordAfter(_ range: NSRange, in s: String) -> String? {
+        guard let swiftRange = Range(range, in: s) else { return nil }
+        var cursor = swiftRange.upperBound
+
+        while cursor < s.endIndex, s[cursor].isWhitespace {
+            cursor = s.index(after: cursor)
+        }
+
+        let start = cursor
+        while cursor < s.endIndex {
+            let character = s[cursor]
+            if character.isLetter || character == "'" {
+                cursor = s.index(after: cursor)
+            } else {
+                break
+            }
+        }
+
+        guard start < cursor else { return nil }
+        return String(s[start..<cursor])
     }
 
     private static func previousNonWhitespaceCharacter(before range: NSRange, in s: String)
