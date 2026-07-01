@@ -18,13 +18,23 @@ extension MacPlayerModel {
     }
 
     /// The cached service for the active connected server, building one on
-    /// first use. Warm cache returns first, before any DB read.
+    /// first use. The cache is only trusted when it still matches the
+    /// currently-active server: `MacAudiobookshelfViewModel` (sheet-scoped,
+    /// wired to `MacPlayerModel` only via an `onPlay` closure — see
+    /// `MacTriPaneView`) can switch or remove the active saved server behind
+    /// this long-lived object's back, with no signal between the two. Without
+    /// this check, progress would keep pushing to a stale/possibly-deleted
+    /// server. Matches iOS's `PlayerModel+Audiobookshelf.makeAudiobookshelfService()`.
     func makeAudiobookshelfService() -> AudiobookshelfService? {
-        if let cached = absService { return cached }
         guard let dao = absServerDAO,
             let server = try? dao.current(),
             let url = URL(string: server.baseURL)
-        else { return nil }
+        else {
+            invalidateAudiobookshelfServiceCache()
+            return nil
+        }
+        if let cached = absService, absServiceServerID == server.id { return cached }
+        invalidateAudiobookshelfServiceCache()
         let tokens = ABSTokenStore(serverID: server.id)
         let host = url.host?.lowercased() ?? ""
         let (session, delegate) = ABSURLSession.make(
@@ -37,8 +47,9 @@ extension MacPlayerModel {
     }
 
     /// Drops the cached service so the next call to `makeAudiobookshelfService()`
-    /// rebuilds against whichever server is now active. Call after switching or
-    /// removing a saved server.
+    /// rebuilds against whichever server is now active. `makeAudiobookshelfService()`
+    /// itself calls this on every server-mismatch/DB-read-failure, so it self-heals
+    /// after a switch or removal even without an explicit external call.
     func invalidateAudiobookshelfServiceCache() {
         absService?.invalidate()
         absService = nil
@@ -94,8 +105,18 @@ extension MacPlayerModel {
         guard let itemID = absSyncRemoteItemID, let service = makeAudiobookshelfService() else {
             return
         }
-        let localUpdatedAt: Double? = MacPlaybackResumeState.load(from: AppGroupDefaults.shared)
-            .map { $0.updatedAt.timeIntervalSince1970 * 1000 }
+        // `MacPlaybackResumeState` is a SINGLE global resume slot for the whole app, not
+        // per-book (unlike iOS's per-folder `PlaylistManifestService`). If it still holds a
+        // different book's data, its `updatedAt` must not be paired with this book's
+        // `currentTime` (≈0 here, since local restore correctly skipped applying the other
+        // book's position) — that mismatched pairing can look "newer" than genuine remote
+        // progress and force-push a bogus position-0 over it. Only trust the stamp when the
+        // slot actually belongs to the book that's loading; otherwise `nil` tells the
+        // reconciler there's no local stamp, so it trusts remote (its documented default).
+        let slot = MacPlaybackResumeState.load(from: AppGroupDefaults.shared)
+        let localUpdatedAt: Double? =
+            (slot?.audiobookID == audiobookID)
+            ? slot.map { $0.updatedAt.timeIntervalSince1970 * 1000 } : nil
         Task { [weak self] in
             guard let remote = try? await service.getProgress(itemID: itemID) else { return }
             guard let self else { return }

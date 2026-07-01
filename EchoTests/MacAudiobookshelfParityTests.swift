@@ -67,6 +67,47 @@ struct MacAudiobookshelfParityTests {
             "Load-time reconciliation must use the shared ABSProgressReconciler.")
     }
 
+    /// Final-review Finding #1: `MacAudiobookshelfViewModel` (sheet-scoped) can switch or
+    /// remove the active saved server with no signal to the long-lived `MacPlayerModel` — the
+    /// two are wired together only via an `onPlay` closure (`MacTriPaneView`). Without a
+    /// server-ID check, `makeAudiobookshelfService()`'s warm cache would keep returning a
+    /// service for a stale/possibly-deleted server, silently pushing progress to the wrong
+    /// place. Matches iOS's `PlayerModel+Audiobookshelf.makeAudiobookshelfService()` guard.
+    @Test func invalidatesCachedServiceOnServerMismatch() throws {
+        let src = try MacSource.read("Views/MacPlayerModel+Audiobookshelf.swift")
+        #expect(
+            src.contains("absServiceServerID == server.id"),
+            "makeAudiobookshelfService() must compare the cached service's server ID against the currently-active server before trusting the cache, so a server switch/removal isn't silently ignored."
+        )
+        #expect(
+            src.range(
+                of:
+                    #"func makeAudiobookshelfService\(\)[\s\S]*?invalidateAudiobookshelfServiceCache\(\)"#,
+                options: .regularExpression) != nil,
+            "makeAudiobookshelfService() must call invalidateAudiobookshelfServiceCache() itself (on a server mismatch or DB-read failure) — otherwise that method is dead code that nothing ever calls."
+        )
+    }
+
+    /// Final-review Finding #2: `MacPlaybackResumeState` is a SINGLE global resume slot for
+    /// the whole app (unlike iOS's per-folder `PlaylistManifestService`). If it still holds a
+    /// previously-loaded book's data when a different ABS book loads, pairing that stale
+    /// `updatedAt` with the new book's near-zero `currentTime` can look "newer" than genuine
+    /// remote progress and force-push a bogus position-0 over it. The fix must only trust the
+    /// resume slot when it actually belongs to the book that's loading.
+    @Test func reconcileGatesLocalTimestampOnMatchingAudiobookID() throws {
+        let src = try MacSource.read("Views/MacPlayerModel+Audiobookshelf.swift")
+        #expect(
+            src.contains("slot?.audiobookID == audiobookID"),
+            "reconcileABSProgressOnLoad() must only trust MacPlaybackResumeState's updatedAt when the resume slot's audiobookID matches the book currently loading — otherwise a stale global slot from a different book can pair the wrong timestamp with this book's playhead."
+        )
+        #expect(
+            src.range(
+                of: #"func reconcileABSProgressOnLoad\(\)[\s\S]*?localUpdatedAt[\s\S]*?: nil"#,
+                options: .regularExpression) != nil,
+            "When the resume slot doesn't match the loading book, localUpdatedAt must fall back to nil (the reconciler's documented 'no local stamp → trust remote' default), not the mismatched slot's timestamp."
+        )
+    }
+
     @Test func wiresProgressSyncIntoPlaybackHooks() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(
