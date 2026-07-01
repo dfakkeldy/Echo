@@ -239,13 +239,14 @@ final class MacPlayerModel {
     private var didStartLastFileRestore = false
     private var pendingCompanionDocumentImport: PendingCompanionDocumentImport?
 
-    private struct PendingCompanionDocumentImport {
+    private struct PendingCompanionDocumentImport: Sendable {
         let folderURL: URL
-        let audioURL: URL
+        let audioFiles: [URL]
+        let triggerAudioURL: URL
         let audiobookID: String
     }
 
-    private struct CompanionDocumentImportContext {
+    private struct CompanionDocumentImportContext: Sendable {
         let chapters: [Chapter]
         let duration: TimeInterval?
     }
@@ -467,8 +468,7 @@ final class MacPlayerModel {
             }
             // Re-derive the active chapter for the current playhead.
             self.refreshCurrentChapter()
-            let context = companionDocumentImportContext(loadedChapters: parsed, loadedDuration: loadedDuration)
-            self.importPendingCompanionDocumentsIfNeeded(for: url, context: context)
+            self.importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
         }
     }
 
@@ -528,7 +528,7 @@ final class MacPlayerModel {
         currentTrackIndex =
             loadResumeState()?
             .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
-        prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])
+        prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)
         open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
     }
 
@@ -580,76 +580,161 @@ final class MacPlayerModel {
         }
     }
 
-    private func prepareCompanionDocumentImport(folderURL: URL, audioURL: URL) {
+    private func prepareCompanionDocumentImport(folderURL: URL, audioFiles: [URL]) {
         guard dbService != nil else {
+            pendingCompanionDocumentImport = nil
+            return
+        }
+        guard audioFiles.indices.contains(currentTrackIndex) else {
             pendingCompanionDocumentImport = nil
             return
         }
         pendingCompanionDocumentImport = PendingCompanionDocumentImport(
             folderURL: folderURL,
-            audioURL: audioURL,
+            audioFiles: audioFiles,
+            triggerAudioURL: audioFiles[currentTrackIndex],
             audiobookID: folderURL.absoluteString
         )
     }
 
     private func importPendingCompanionDocumentsIfNeeded(
         for audioURL: URL,
-        context: CompanionDocumentImportContext
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
     ) {
-        guard let pending = pendingCompanionDocumentImport, pending.audioURL == audioURL else {
+        guard let pending = pendingCompanionDocumentImport, pending.triggerAudioURL == audioURL else {
             return
         }
         pendingCompanionDocumentImport = nil
-        importCompanionDocumentsIfNeeded(
-            folderURL: pending.folderURL,
-            audiobookID: pending.audiobookID,
-            context: context
-        )
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didStart = pending.folderURL.startAccessingSecurityScopedResource()
+            defer { if didStart { pending.folderURL.stopAccessingSecurityScopedResource() } }
+
+            let context = await self.companionDocumentImportContext(
+                audioFiles: pending.audioFiles,
+                loadedAudioURL: audioURL,
+                loadedChapters: loadedChapters,
+                loadedDuration: loadedDuration
+            )
+            await self.importCompanionDocumentsIfNeeded(
+                folderURL: pending.folderURL,
+                audiobookID: pending.audiobookID,
+                context: context
+            )
+        }
     }
 
     private func companionDocumentImportContext(
         loadedChapters: [Chapter],
         loadedDuration: TimeInterval?
     ) -> CompanionDocumentImportContext {
-        let currentDuration = duration.isFinite && duration > 0 ? duration : nil
-        let finiteLoadedDuration =
-            loadedDuration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let currentDuration = Self.finitePositiveDuration(duration)
+        let finiteLoadedDuration = Self.finitePositiveDuration(loadedDuration)
         return CompanionDocumentImportContext(
             chapters: loadedChapters,
             duration: currentDuration ?? finiteLoadedDuration
         )
     }
 
+    private func companionDocumentImportContext(
+        audioFiles: [URL],
+        loadedAudioURL: URL,
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) async -> CompanionDocumentImportContext {
+        if audioFiles.count <= 1 {
+            return companionDocumentImportContext(
+                loadedChapters: loadedChapters,
+                loadedDuration: loadedDuration
+            )
+        }
+
+        var wholeBookChapters: [Chapter] = []
+        var totalDuration: TimeInterval = 0
+
+        for audioFile in audioFiles {
+            let asset = AVURLAsset(url: audioFile)
+            let parsedChapters: [Chapter]
+            let measuredDuration: TimeInterval?
+            if audioFile == loadedAudioURL {
+                parsedChapters = loadedChapters
+                if let finiteLoadedDuration = Self.finitePositiveDuration(loadedDuration) {
+                    measuredDuration = finiteLoadedDuration
+                } else {
+                    measuredDuration = Self.finitePositiveDuration(
+                        try? await asset.load(.duration).seconds)
+                }
+            } else {
+                parsedChapters = await ChapterService.parseChapters(from: asset)
+                measuredDuration = Self.finitePositiveDuration(try? await asset.load(.duration).seconds)
+            }
+
+            let trackDuration = measuredDuration ?? parsedChapters.map(\.endSeconds).max() ?? 0
+            let cumulativeOffset = totalDuration
+            if parsedChapters.isEmpty {
+                wholeBookChapters.append(
+                    Chapter(
+                        index: wholeBookChapters.count,
+                        title: audioFile.deletingPathExtension().lastPathComponent,
+                        startSeconds: cumulativeOffset,
+                        endSeconds: cumulativeOffset + trackDuration,
+                        isEnabled: true
+                    )
+                )
+            } else {
+                for chapter in parsedChapters {
+                    wholeBookChapters.append(
+                        Chapter(
+                            index: wholeBookChapters.count,
+                            title: chapter.title,
+                            startSeconds: cumulativeOffset + chapter.startSeconds,
+                            endSeconds: cumulativeOffset + chapter.endSeconds,
+                            isEnabled: chapter.isEnabled
+                        )
+                    )
+                }
+            }
+            totalDuration += trackDuration
+        }
+
+        return CompanionDocumentImportContext(
+            chapters: wholeBookChapters,
+            duration: totalDuration > 0 ? totalDuration : nil
+        )
+    }
+
+    private static func finitePositiveDuration(_ duration: TimeInterval?) -> TimeInterval? {
+        guard let duration, duration.isFinite, duration > 0 else { return nil }
+        return duration
+    }
+
     private func importCompanionDocumentsIfNeeded(
         folderURL: URL,
         audiobookID: String,
         context: CompanionDocumentImportContext
-    ) {
+    ) async {
         guard let db = dbService else { return }
 
-        Task { @MainActor [weak self] in
-            let didStart = folderURL.startAccessingSecurityScopedResource()
-            defer { if didStart { folderURL.stopAccessingSecurityScopedResource() } }
-
-            let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
+        let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
+            folderURL: folderURL,
+            databaseService: db,
+            chapters: context.chapters,
+            duration: context.duration
+        )
+        let didImportPDF =
+            didImportEPUB
+            ? false
+            : await PDFAutoImportScanner.scanAndImportIfNeeded(
                 folderURL: folderURL,
                 databaseService: db,
                 chapters: context.chapters,
                 duration: context.duration
             )
-            let didImportPDF =
-                didImportEPUB
-                ? false
-                : await PDFAutoImportScanner.scanAndImportIfNeeded(
-                    folderURL: folderURL,
-                    databaseService: db,
-                    chapters: context.chapters,
-                    duration: context.duration
-                )
-            if didImportEPUB || didImportPDF {
-                guard self?.audiobookID == audiobookID else { return }
-                self?.bumpDocumentIngestionTrigger()
-            }
+        if didImportEPUB || didImportPDF {
+            guard audiobookID == self.audiobookID else { return }
+            bumpDocumentIngestionTrigger()
         }
     }
 

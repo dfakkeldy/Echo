@@ -29,8 +29,8 @@ struct MacImportParityTests {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
         #expect(
             src.contains(
-                "prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])"),
-            "MacPlayerModel.loadFolder must schedule sibling document import for the selected audio file.")
+                "prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)"),
+            "MacPlayerModel.loadFolder must schedule sibling document import with every discovered audio file.")
         #expect(
             src.contains("EPUBAutoImportScanner.scanAndImportIfNeeded")
                 && src.contains("PDFAutoImportScanner.scanAndImportIfNeeded"),
@@ -45,26 +45,62 @@ struct MacImportParityTests {
             "Asynchronous companion scanning must balance folder security-scoped access.")
     }
 
-    @Test func folderCompanionImportUsesLoadedAudioContext() throws {
+    @Test func folderCompanionImportBuildsWholeBookContextForMultiTrackFolders() throws {
         let src = try MacSource.read("Views/MacPlayerModel.swift")
+        let loadFolder = try sourceSection(
+            in: src,
+            from: "func loadFolder",
+            to: "private func persistFolderAudiobookToSQL")
+        let pendingImport = try sourceSection(
+            in: src,
+            from: "private struct PendingCompanionDocumentImport",
+            to: "private struct CompanionDocumentImportContext")
+        let contextBuilder = try sourceSection(
+            in: src,
+            from: "private func companionDocumentImportContext",
+            to: "private func importCompanionDocumentsIfNeeded")
         let companionImport = try sourceSection(
             in: src,
             from: "private func importCompanionDocumentsIfNeeded",
             to: "func openLibraryBook")
 
         #expect(
-            src.contains(
+            loadFolder.contains(
+                "prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)"),
+            "Folder audio import must queue every discovered track for companion context aggregation.")
+        #expect(
+            !loadFolder.contains(
                 "prepareCompanionDocumentImport(folderURL: folderURL, audioURL: audioFiles[currentTrackIndex])"),
-            "Folder audio import must defer companion scanning until the selected audio file has loaded context.")
+            "Multi-track companion import must not limit context to the selected/current track.")
+        #expect(
+            pendingImport.contains("let audioFiles: [URL]"),
+            "Pending companion imports must retain the full folder track list, not only one audio URL.")
         #expect(
             src.contains("CompanionDocumentImportContext")
                 && src.contains(
-                    "companionDocumentImportContext(loadedChapters: parsed, loadedDuration: loadedDuration)"),
-            "MacPlayerModel must snapshot loaded chapters plus finite/current duration for companion import.")
+                    "importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)"),
+            "MacPlayerModel must defer companion import until the selected file has loaded parsed chapters and duration.")
+        #expect(
+            contextBuilder.contains("audioFiles.count <= 1")
+                && contextBuilder.contains("loadedChapters: loadedChapters"),
+            "Single-file folders must preserve the currently loaded file's parsed chapter context.")
+        #expect(
+            contextBuilder.contains("for audioFile in audioFiles")
+                && contextBuilder.contains("var totalDuration: TimeInterval = 0")
+                && contextBuilder.contains("let cumulativeOffset = totalDuration"),
+            "Multi-track folders must aggregate every audio file with a running whole-book offset.")
+        #expect(
+            contextBuilder.contains("startSeconds: cumulativeOffset + chapter.startSeconds")
+                && contextBuilder.contains("endSeconds: cumulativeOffset + chapter.endSeconds"),
+            "Embedded track chapters must be shifted into whole-book time before EPUB/PDF import.")
+        #expect(
+            contextBuilder.contains("title: audioFile.deletingPathExtension().lastPathComponent")
+                && contextBuilder.contains("duration: totalDuration > 0 ? totalDuration : nil"),
+            "Tracks without embedded chapters need fallback track windows and the scanners need total duration.")
         #expect(
             companionImport.contains("chapters: context.chapters")
                 && companionImport.contains("duration: context.duration"),
-            "EPUB/PDF companion scanners must receive the loaded audio context snapshot.")
+            "EPUB/PDF companion scanners must receive the whole-book audio context snapshot.")
         #expect(
             !companionImport.contains("chapters: []")
                 && !companionImport.contains("duration: nil"),
