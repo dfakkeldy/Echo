@@ -124,7 +124,9 @@ final class MacAudiobookshelfViewModel {
                 username: username,
                 defaultLibraryId: defaultLib,
                 addedAt: Date().ISO8601Format())
-            try ABSServerDAO(db: db.writer).save(record)
+            let dao = ABSServerDAO(db: db.writer)
+            try dao.upsert(record)
+            try dao.setActive(newServerID)
             service = svc
             serverID = newServerID
             server = record
