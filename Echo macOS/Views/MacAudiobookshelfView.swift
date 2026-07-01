@@ -142,6 +142,12 @@ final class MacAudiobookshelfViewModel {
             server = record
             password = ""
             phase = .connected
+            // Must reset before loadLibraries() — otherwise a library ID left over
+            // from a previously-connected server survives the `selectedLibraryID ==
+            // nil` guard there and gets queried against this new server, 404ing.
+            // switchTo(_:) already resets this; attemptConnect() (first connect AND
+            // "Add Server" while already connected) did not, until this fix.
+            selectedLibraryID = nil
             loadSavedServers()
             await loadLibraries()
         } catch let absError as ABSError {

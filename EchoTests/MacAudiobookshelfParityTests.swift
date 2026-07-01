@@ -157,4 +157,23 @@ struct MacAudiobookshelfParityTests {
             "\"Switch Server…\" must still be shown whenever a server is connected, just no longer gated by count."
         )
     }
+
+    /// Found via live device testing: connecting to a brand-new server via the manual
+    /// form (attemptConnect, used for both first connect and "Add Server" while already
+    /// connected) left `selectedLibraryID` set to whatever it was for the PREVIOUSLY
+    /// active server. `loadLibraries()` only assigns a fresh ID when `selectedLibraryID
+    /// == nil`, so the stale ID survived and got queried against the new server —
+    /// observed live as "Server returned HTTP 404" after switching from audiobooks.dev
+    /// to a self-hosted server. `switchTo(_:)` already reset this; attemptConnect() did
+    /// not.
+    @Test func attemptConnectResetsSelectedLibraryBeforeLoadingNewServer() throws {
+        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        #expect(
+            src.range(
+                of:
+                    #"func attemptConnect\([\s\S]*?selectedLibraryID = nil[\s\S]*?await loadLibraries\(\)"#,
+                options: .regularExpression) != nil,
+            "attemptConnect() must reset selectedLibraryID to nil before loadLibraries() runs, so a library ID left over from a previously-connected server can't be queried against the newly-connected one."
+        )
+    }
 }
