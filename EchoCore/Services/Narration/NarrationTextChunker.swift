@@ -131,7 +131,10 @@ enum NarrationTextChunker {
     private static func isSentenceBoundary(_ ch: Character, at index: Int, in chars: [Character])
         -> Bool
     {
-        ch == "." || ch == "!" || ch == "?"
+        if ch == "." {
+            return !hasDigitNeighbor(at: index, in: chars)
+        }
+        return ch == "!" || ch == "?"
     }
 
     /// Tier 2: in-sentence clause marks, used only to break a single over-long

@@ -40,12 +40,22 @@ struct PronunciationOverrides {
             else {
                 continue
             }
+            if hasContractionApostrophe(in: result, before: range.lowerBound) { continue }
             // Skip if this word is already inside a link "[...](/.../)": look back
             // for an unbalanced "[". Cheap heuristic — Misaki links are rare in prose.
             if isInsideLink(result, at: range.lowerBound) { continue }
             result.replaceSubrange(range, with: "[\(matched)](/\(ipa)/)")
         }
         return result
+    }
+
+    private func hasContractionApostrophe(in text: String, before index: String.Index) -> Bool {
+        guard index > text.startIndex else { return false }
+        let apostropheIndex = text.index(before: index)
+        let previous = text[apostropheIndex]
+        guard previous == "'" || previous == "’" else { return false }
+        guard apostropheIndex > text.startIndex else { return false }
+        return text[text.index(before: apostropheIndex)].isLetter
     }
 
     /// True if `index` falls inside a `[...](/.../)` link's display text.

@@ -116,6 +116,46 @@ import Testing
         )
     }
 
+    @Test(arguments: [
+        ("World War II ended.", "World War 2 ended."),
+        ("Part IV opens quietly.", "Part 4 opens quietly."),
+        ("Act V begins now.", "Act 5 begins now."),
+        ("Volume III gathers notes.", "Volume 3 gathers notes."),
+        ("Henry VIII arrived.", "Henry the Eighth arrived."),
+        ("Elizabeth II arrived.", "Elizabeth the Second arrived."),
+        ("Louis XIV arrived.", "Louis the Fourteenth arrived."),
+        ("George V arrived.", "George the Fifth arrived."),
+    ])
+    func normalizesCommonRomanNumeralBookContexts(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("Cats vs. dogs. Birds follow.", "Cats versus dogs. Birds follow."),
+        ("Bring stamps, etc. The next day.", "Bring stamps, et cetera. The next day."),
+        ("Main St. Their prices rose.", "Main Street. Their prices rose."),
+        ("Old St. Paul's was rebuilt.", "Old Saint Paul's was rebuilt."),
+        ("Old St. Paul’s was rebuilt.", "Old Saint Paul’s was rebuilt."),
+        ("Old St. Paul's...", "Old Saint Paul's..."),
+        ("Old St. Paul’s...", "Old Saint Paul’s..."),
+        ("Yankees vs. Red Sox tonight.", "Yankees versus Red Sox tonight."),
+        ("See e.g. Appendix A.", "See for example Appendix A."),
+    ])
+    func preservesSentenceEndingPeriodsWhenExpandingAbbreviations(
+        _ input: String,
+        _ expected: String
+    ) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
+    @Test(arguments: [
+        ("1,000th", "one thousandth"),
+        ("12,345th", "twelve thousand, three hundred and forty-fifth"),
+    ])
+    func expandsCommaGroupedOrdinals(_ input: String, _ expected: String) {
+        #expect(TextNormalizer.normalize(input) == expected)
+    }
+
     @Test func leavesPlainProseUnchanged() {
         #expect(TextNormalizer.normalize("The quick brown fox.") == "The quick brown fox.")
     }

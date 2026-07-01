@@ -167,4 +167,16 @@ import Testing
                 "Third sentence here.",
             ])
     }
+
+    @Test func bareDecimalsStayInsideASentence() {
+        let text = "It was 98.6 degrees. Pi is 3.14159 exactly. The grant was $5.5 million."
+        let pieces = NarrationTextChunker.split(text, maxChars: 40)
+
+        #expect(
+            pieces == [
+                "It was 98.6 degrees.",
+                "Pi is 3.14159 exactly.",
+                "The grant was $5.5 million.",
+            ])
+    }
 }
