@@ -80,4 +80,20 @@ struct MacAudiobookshelfParityTests {
             src.contains("maybePushABSProgress(force: true)"),
             "Pause and stop must force-flush ABS progress immediately.")
     }
+
+    @Test func supportsMultipleSavedServers() throws {
+        let src = try MacSource.read("Views/MacAudiobookshelfView.swift")
+        #expect(
+            src.contains("case addingServer"),
+            "Phase must support adding another server without losing the active connection.")
+        #expect(
+            src.contains("func switchTo(") && src.contains(".setActive("),
+            "Switching servers must mark the chosen one active via the shared DAO.")
+        #expect(
+            src.contains("func removeSavedServer(") && src.contains("ABSTokenStore(serverID:"),
+            "Removing a saved server must clear its Keychain tokens.")
+        #expect(
+            src.contains("savedServers") && src.contains(".all()"),
+            "The saved-servers list must be loaded via the shared DAO's all().")
+    }
 }

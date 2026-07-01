@@ -11,10 +11,14 @@ import os.log
 @MainActor
 @Observable
 final class MacAudiobookshelfViewModel {
-    enum Phase { case disconnected, connecting, connected }
+    enum Phase {
+        case disconnected, connecting, connected
+        case addingServer
+    }
 
     var phase: Phase = .disconnected
     var server: ABSServerRecord?
+    var savedServers: [ABSServerRecord] = []
     var errorMessage: String?
 
     // Connect form
@@ -55,6 +59,7 @@ final class MacAudiobookshelfViewModel {
     // MARK: Lifecycle
 
     func load() async {
+        loadSavedServers()
         guard let record = try? ABSServerDAO(db: db.writer).current() else {
             phase = .disconnected
             return
@@ -64,6 +69,10 @@ final class MacAudiobookshelfViewModel {
         service = makeService(for: record)
         phase = .connected
         await loadLibraries()
+    }
+
+    private func loadSavedServers() {
+        savedServers = (try? ABSServerDAO(db: db.writer).all()) ?? []
     }
 
     private func makeService(for record: ABSServerRecord) -> AudiobookshelfService? {
@@ -127,15 +136,17 @@ final class MacAudiobookshelfViewModel {
             let dao = ABSServerDAO(db: db.writer)
             try dao.upsert(record)
             try dao.setActive(newServerID)
+            service?.invalidate()
             service = svc
             serverID = newServerID
             server = record
             password = ""
             phase = .connected
+            loadSavedServers()
             await loadLibraries()
         } catch let absError as ABSError {
             svc.invalidate()
-            phase = .disconnected
+            phase = server != nil ? .connected : .disconnected
             if case .untrustedCertificate(let h, let sha) = absError {
                 pendingCert = PendingCert(host: h, sha256: sha)
             } else {
@@ -143,18 +154,67 @@ final class MacAudiobookshelfViewModel {
             }
         } catch {
             svc.invalidate()
-            phase = .disconnected
+            phase = server != nil ? .connected : .disconnected
             errorMessage = error.localizedDescription
         }
     }
 
     func disconnect() async {
-        if let svc = service {
+        guard let current = server else { return }
+        await removeSavedServer(current)
+    }
+
+    func beginAddingServer() {
+        errorMessage = nil
+        serverURLText = ""
+        username = ""
+        password = ""
+        phase = .addingServer
+    }
+
+    func cancelAddingServer() {
+        errorMessage = nil
+        phase = server != nil ? .connected : .disconnected
+    }
+
+    /// Switches the active server to an already-saved one. Does not touch
+    /// Keychain tokens — the saved refresh token is reused, so no re-login
+    /// is needed.
+    func switchTo(_ saved: ABSServerRecord) async {
+        errorMessage = nil
+        service?.invalidate()
+        guard let newService = makeService(for: saved) else {
+            errorMessage = "Could not reconnect to this server."
+            return
+        }
+        do {
+            try ABSServerDAO(db: db.writer).setActive(saved.id)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        service = newService
+        serverID = saved.id
+        server = saved
+        selectedLibraryID = nil
+        phase = .connected
+        loadSavedServers()
+        await loadLibraries()
+    }
+
+    /// Removes a saved server: best-effort remote sign-out if it was the
+    /// active one, clears its Keychain tokens, deletes its DB row. Mirrors
+    /// the old `disconnect()` but targets a specific server.
+    func removeSavedServer(_ saved: ABSServerRecord) async {
+        let wasActive = saved.id == serverID
+        if wasActive, let svc = service {
             _ = await svc.signOut()
             svc.invalidate()
         }
-        if let sid = serverID { ABSTokenStore(serverID: sid).clear() }
-        if let record = server { try? ABSServerDAO(db: db.writer).delete(record.id) }
+        ABSTokenStore(serverID: saved.id).clear()
+        try? ABSServerDAO(db: db.writer).delete(saved.id)
+        loadSavedServers()
+        guard wasActive else { return }
         service = nil
         serverID = nil
         server = nil
@@ -241,7 +301,7 @@ struct MacAudiobookshelfView: View {
             header
             Divider()
             switch model.phase {
-            case .disconnected: connectForm
+            case .disconnected, .addingServer: connectForm
             case .connecting:
                 ProgressView("Connecting…").frame(maxWidth: .infinity, maxHeight: .infinity)
             case .connected: browse
@@ -281,7 +341,13 @@ struct MacAudiobookshelfView: View {
             Spacer()
             if model.phase == .connected, let server = model.server {
                 Text(server.username).foregroundStyle(.secondary)
+                if model.savedServers.count > 1 {
+                    Button("Switch Server…") { model.beginAddingServer() }
+                }
                 Button("Sign Out") { Task { await model.disconnect() } }
+            }
+            if model.phase == .addingServer {
+                Button("Cancel") { model.cancelAddingServer() }
             }
             Button("Done") { dismiss() }
                 .keyboardShortcut(.cancelAction)
@@ -290,6 +356,13 @@ struct MacAudiobookshelfView: View {
 
     private var connectForm: some View {
         Form {
+            if !model.savedServers.isEmpty {
+                Section("Saved Servers") {
+                    ForEach(model.savedServers) { saved in
+                        savedServerRow(saved)
+                    }
+                }
+            }
             Section {
                 TextField(
                     "Server URL", text: $model.serverURLText, prompt: Text("https://host:13378")
@@ -307,6 +380,32 @@ struct MacAudiobookshelfView: View {
                 .disabled(model.serverURLText.isEmpty || model.username.isEmpty)
         }
         .formStyle(.grouped)
+    }
+
+    private func savedServerRow(_ saved: ABSServerRecord) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(saved.username).fontWeight(saved.isActive ? .semibold : .regular)
+                Text(URL(string: saved.baseURL)?.host ?? saved.baseURL)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if saved.isActive {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            } else {
+                Button("Connect") { Task { await model.switchTo(saved) } }
+                    .controlSize(.small)
+            }
+            Button(role: .destructive) {
+                Task { await model.removeSavedServer(saved) }
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+        }
+        .padding(.vertical, 2)
     }
 
     private var browse: some View {
