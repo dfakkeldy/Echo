@@ -22,10 +22,10 @@ enum TextNormalizer {
 
     private static func expandAbbreviations(_ s: String) -> String {
         var out = s
-        out = out.replacingOccurrences(of: "e.g.", with: "for example")
-        out = out.replacingOccurrences(of: "i.e.", with: "that is")
-        out = out.replacingOccurrences(of: "etc.", with: "et cetera")
-        out = out.replacingOccurrences(of: "vs.", with: "versus")
+        out = replaceAbbreviation(out, abbreviation: "e.g.", replacement: "for example")
+        out = replaceAbbreviation(out, abbreviation: "i.e.", replacement: "that is")
+        out = replaceAbbreviation(out, abbreviation: "etc.", replacement: "et cetera")
+        out = replaceAbbreviation(out, abbreviation: "vs.", replacement: "versus")
         out = out.replacingOccurrences(of: "Dr.", with: "Doctor")
         // "Mrs." before "Mr." so the shorter token can't partially consume it.
         out = out.replacingOccurrences(of: "Mrs.", with: "Missus")
@@ -37,15 +37,35 @@ enum TextNormalizer {
         return out
     }
 
+    private static func replaceAbbreviation(
+        _ s: String,
+        abbreviation: String,
+        replacement: String
+    ) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: abbreviation)
+        let sentenceBoundary = try! NSRegularExpression(
+            pattern: #"(?<![\p{L}\p{N}_])\#(escaped)(?=(?:\s+[A-Z]|$))"#)
+        let regular = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_])\#(escaped)"#)
+
+        let sentenceRange = NSRange(s.startIndex..., in: s)
+        var out = sentenceBoundary.stringByReplacingMatches(
+            in: s, range: sentenceRange, withTemplate: replacement + ".")
+        let regularRange = NSRange(out.startIndex..., in: out)
+        out = regular.stringByReplacingMatches(
+            in: out, range: regularRange, withTemplate: replacement)
+        return out
+    }
+
     private static func replaceStreetVsSaint(_ s: String) -> String {
-        // "St." followed by whitespace + uppercase letter → "Saint" (dot consumed by abbreviation).
-        // All other "St." → "Street." (dot is restored — it may be a sentence-ending period).
-        let saint = try! NSRegularExpression(pattern: "St\\.(?=\\s+[A-Z])")
-        let street = try! NSRegularExpression(pattern: "St\\.")
-        let r1 = NSRange(s.startIndex..., in: s)
-        var out = saint.stringByReplacingMatches(in: s, range: r1, withTemplate: "Saint")
-        let r2 = NSRange(out.startIndex..., in: out)
-        out = street.stringByReplacingMatches(in: out, range: r2, withTemplate: "Street.")
+        var out = replacingMatches(in: s, pattern: #"St\.(?=\s+[A-Z])"#) { match, text in
+            if let previousWord = wordBefore(match.range, in: text) {
+                let startsUppercase = previousWord.first?.isUppercase == true
+                return startsUppercase ? "Street." : "Saint"
+            }
+            return "Saint"
+        }
+        out = replacingMatches(in: out, pattern: #"St\.(?=$)"#) { _, _ in "Street." }
+        out = replacingMatches(in: out, pattern: #"St\."#) { _, _ in "Street" }
         return out
     }
 
@@ -276,16 +296,43 @@ enum TextNormalizer {
     }
 
     private static func normalizeRomanNumeralChapters(_ s: String) -> String {
-        let re = try! NSRegularExpression(pattern: "\\bChapter ([IVXLC]+)\\b")
-        let r = NSRange(s.startIndex..., in: s)
-        let matches = re.matches(in: s, range: r).reversed()
         var out = s
-        for m in matches {
-            guard let whole = Range(m.range, in: out),
-                let num = Range(m.range(at: 1), in: out),
-                let value = romanToInt(String(out[num]))
+        out = replaceRomanNumerals(in: out, pattern: #"\bChapter ([IVXLC]+)\b"#) { value in
+            "Chapter \(value)"
+        }
+        out = replaceRomanNumerals(in: out, pattern: #"\bWorld War ([IVXLC]+)\b"#) { value in
+            "World War \(value)"
+        }
+        out = replaceRomanNumerals(in: out, pattern: #"\bPart ([IVXLC]+)\b"#) { value in
+            "Part \(value)"
+        }
+        out = replaceRomanNumerals(in: out, pattern: #"\bAct ([IVXLC]+)\b"#) { value in
+            "Act \(value)"
+        }
+        out = replaceRomanNumerals(in: out, pattern: #"\bVolume ([IVXLC]+)\b"#) { value in
+            "Volume \(value)"
+        }
+        out = replaceRomanNumerals(in: out, pattern: #"\bHenry ([IVXLC]+)\b"#) { value in
+            "Henry the \(capitalizingFirstLetter(ordinalWords(value)))"
+        }
+        return out
+    }
+
+    private static func replaceRomanNumerals(
+        in s: String,
+        pattern: String,
+        transform: (Int) -> String
+    ) -> String {
+        let re = try! NSRegularExpression(pattern: pattern)
+        let range = NSRange(s.startIndex..., in: s)
+        let matches = re.matches(in: s, range: range).reversed()
+        var out = s
+        for match in matches {
+            guard let whole = Range(match.range, in: out),
+                let numeral = substring(match.range(at: 1), in: out),
+                let value = romanToInt(numeral)
             else { continue }
-            out.replaceSubrange(whole, with: "Chapter \(value)")
+            out.replaceSubrange(whole, with: transform(value))
         }
         return out
     }
@@ -306,10 +353,10 @@ enum TextNormalizer {
     private static func normalizeOrdinals(_ s: String) -> String {
         replacingMatches(
             in: s,
-            pattern: #"(?<![\p{L}\p{N}_])([0-9]+)(?:st|nd|rd|th)\b"#
+            pattern: #"(?<![\p{L}\p{N}_])([0-9][0-9,]*)(?:st|nd|rd|th)\b"#
         ) { match, text in
             guard let literal = substring(match.range(at: 1), in: text),
-                let value = Int(literal)
+                let value = Int(literal.replacingOccurrences(of: ",", with: ""))
             else { return nil }
             return ordinalWords(value)
         }
@@ -389,6 +436,10 @@ enum TextNormalizer {
     }
 
     private static func lowercasedWordBefore(_ range: NSRange, in s: String) -> String? {
+        wordBefore(range, in: s)?.lowercased()
+    }
+
+    private static func wordBefore(_ range: NSRange, in s: String) -> String? {
         guard let swiftRange = Range(range, in: s) else { return nil }
         var cursor = swiftRange.lowerBound
         while cursor > s.startIndex {
@@ -405,7 +456,7 @@ enum TextNormalizer {
         }
 
         guard cursor < end else { return nil }
-        return String(s[cursor..<end]).lowercased()
+        return String(s[cursor..<end])
     }
 
     private static func previousNonWhitespaceCharacter(before range: NSRange, in s: String)
@@ -469,6 +520,11 @@ enum TextNormalizer {
     private static func digitWord(_ ch: Character) -> String? {
         guard let value = ch.wholeNumberValue, (0...9).contains(value) else { return nil }
         return smallNumberWords[value]
+    }
+
+    private static func capitalizingFirstLetter(_ word: String) -> String {
+        guard let first = word.first else { return word }
+        return String(first).uppercased() + word.dropFirst()
     }
 
     private static let smallNumberWords = [

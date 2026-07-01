@@ -46,4 +46,15 @@ import Testing
         let out = ovr.apply(to: "[Kokoro](/kˈOkəɹO/) models")
         #expect(out == "[Kokoro](/kˈOkəɹO/) models") // unchanged
     }
+
+    @Test func reOverrideDoesNotCorruptContractions() throws {
+        let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "you're we're they’re and re-rendered all survived.")
+
+        #expect(out.contains("you're"))
+        #expect(out.contains("we're"))
+        #expect(out.contains("they’re"))
+        #expect(!out.contains("[re](/ɹi/)'"))
+        #expect(out.contains("[re](/ɹi/)-rendered"))
+    }
 }

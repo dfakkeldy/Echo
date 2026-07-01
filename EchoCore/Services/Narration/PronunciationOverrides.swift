@@ -40,12 +40,19 @@ struct PronunciationOverrides {
             else {
                 continue
             }
+            if hasLeadingApostrophe(in: result, before: range.lowerBound) { continue }
             // Skip if this word is already inside a link "[...](/.../)": look back
             // for an unbalanced "[". Cheap heuristic — Misaki links are rare in prose.
             if isInsideLink(result, at: range.lowerBound) { continue }
             result.replaceSubrange(range, with: "[\(matched)](/\(ipa)/)")
         }
         return result
+    }
+
+    private func hasLeadingApostrophe(in text: String, before index: String.Index) -> Bool {
+        guard index > text.startIndex else { return false }
+        let previous = text[text.index(before: index)]
+        return previous == "'" || previous == "’"
     }
 
     /// True if `index` falls inside a `[...](/.../)` link's display text.

@@ -233,7 +233,7 @@ struct NarrationRunResult {
         try db.write { db in
             try db.execute(
                 sql:
-                    "INSERT INTO audiobook (id, title, duration, added_at) VALUES (?, ?, 0, '2026-01-01T00:00:00Z')",
+                    "INSERT OR IGNORE INTO audiobook (id, title, duration, added_at) VALUES (?, ?, 0, '2026-01-01T00:00:00Z')",
                 arguments: [audiobookID, config.title])
         }
         let blocks = try await importBlocks(

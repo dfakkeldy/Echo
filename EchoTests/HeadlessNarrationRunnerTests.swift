@@ -154,4 +154,26 @@ import ZIPFoundation
             _ = try await HeadlessNarrationRunner().run(cfg, tts: StubEngine())
         }
     }
+
+    @Test func persistentDatabaseRunIsIdempotent() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let out = tmp.appendingPathComponent("persistent.m4b")
+        let dbURL = tmp.appendingPathComponent("narration.sqlite")
+        let cfg = NarrationRunConfig(
+            epubURL: epub, outM4BURL: out, sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("persistent-work"), voice: VoiceID("af_heart"),
+            title: "Fixture", author: "Tester", maxNewChaptersPerRun: nil, databaseURL: dbURL)
+
+        let first = try await HeadlessNarrationRunner().run(cfg, tts: StubEngine())
+        #expect(first.complete)
+
+        let second = try await HeadlessNarrationRunner().run(cfg, tts: StubEngine())
+        #expect(second.complete)
+        #expect(second.capturedThisRun == 0)
+    }
 }

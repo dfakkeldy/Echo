@@ -59,6 +59,16 @@ import Testing
         #expect(!out.contains("[restart]"))
     }
 
+    @Test func builtInReDefaultDoesNotRewriteContractions() {
+        let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "you're sure we're ready and they’re calm.")
+
+        #expect(!out.contains("[re](/ɹi/)'"))
+        #expect(out.contains("you're"))
+        #expect(out.contains("we're"))
+        #expect(out.contains("they’re"))
+    }
+
     @Test func builtInDefaultReachesG2PAsExactPhonemes() {
         // End-to-end: the built-in entry flows through `apply` → Misaki link
         // parsing → the exact override phonemes appear in the G2P output.
