@@ -13,6 +13,7 @@
 import AVFoundation
 import AppKit
 import Foundation
+import GRDB
 import ImageIO
 import Observation
 import Security
@@ -236,6 +237,19 @@ final class MacPlayerModel {
     private let resumePersistInterval: TimeInterval = 5
     private var lastResumePersistDate: Date?
     private var didStartLastFileRestore = false
+    private var pendingCompanionDocumentImport: PendingCompanionDocumentImport?
+
+    private struct PendingCompanionDocumentImport: Sendable {
+        let folderURL: URL
+        let audioFiles: [URL]
+        let triggerAudioURL: URL
+        let audiobookID: String
+    }
+
+    private struct CompanionDocumentImportContext: Sendable {
+        let chapters: [Chapter]
+        let duration: TimeInterval?
+    }
 
     // MARK: - Audiobookshelf two-way sync (see MacPlayerModel+Audiobookshelf.swift)
     @ObservationIgnored var absService: AudiobookshelfService?
@@ -446,10 +460,15 @@ final class MacPlayerModel {
         Task { @MainActor [weak self] in
             let asset = AVURLAsset(url: url)
             let parsed = await ChapterService.parseChapters(from: asset)
+            let loadedDuration = try? await asset.load(.duration).seconds
             guard let self = self, self.chapterLoadToken == token else { return }
             self.chapters = parsed
+            if let loadedDuration, loadedDuration.isFinite, loadedDuration > 0 {
+                self.duration = loadedDuration
+            }
             // Re-derive the active chapter for the current playhead.
             self.refreshCurrentChapter()
+            self.importPendingCompanionDocumentsIfNeeded(for: url, loadedChapters: parsed, loadedDuration: loadedDuration)
         }
     }
 
@@ -505,10 +524,218 @@ final class MacPlayerModel {
 
         self.folderURL = folderURL
         tracks = audioFiles
+        persistFolderAudiobookToSQL(folderURL: folderURL, audioFiles: audioFiles)
         currentTrackIndex =
             loadResumeState()?
             .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
+        prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)
         open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
+    }
+
+    private func persistFolderAudiobookToSQL(folderURL: URL, audioFiles: [URL]) {
+        guard let db = dbService else { return }
+
+        let audiobookID = folderURL.absoluteString
+        let title = folderURL.deletingPathExtension().lastPathComponent
+        do {
+            let existing = try? AudiobookDAO(db: db.writer).get(audiobookID)
+            let isABS = existing?.sourceType == "audiobookshelf"
+            var audiobook =
+                existing
+                ?? AudiobookRecord(
+                    id: audiobookID,
+                    title: title,
+                    author: nil,
+                    duration: 0,
+                    fileCount: audioFiles.count,
+                    addedAt: Date().ISO8601Format()
+                )
+            if !isABS {
+                audiobook.title = title
+            }
+            audiobook.fileCount = audioFiles.count
+            audiobook.isAvailable = true
+
+            let records = audioFiles.enumerated().map { index, audioURL in
+                TrackRecord(
+                    id: audioURL.absoluteString,
+                    audiobookID: audiobookID,
+                    title: audioURL.deletingPathExtension().lastPathComponent,
+                    duration: 0,
+                    filePath: audioURL.absoluteString,
+                    isEnabled: true,
+                    sortOrder: index,
+                    playlistPosition: nil
+                )
+            }
+            let trackDAO = TrackDAO(db: db.writer)
+            try db.writer.write { database in
+                var audiobookRecord = audiobook
+                try audiobookRecord.save(database)
+                try trackDAO.refreshAll(records, audiobookID: audiobookID, in: database)
+            }
+        } catch {
+            Logger(category: "MacPlayerModel").error(
+                "Failed to persist folder audiobook: \(error.localizedDescription)")
+        }
+    }
+
+    private func prepareCompanionDocumentImport(folderURL: URL, audioFiles: [URL]) {
+        guard dbService != nil else {
+            pendingCompanionDocumentImport = nil
+            return
+        }
+        guard audioFiles.indices.contains(currentTrackIndex) else {
+            pendingCompanionDocumentImport = nil
+            return
+        }
+        pendingCompanionDocumentImport = PendingCompanionDocumentImport(
+            folderURL: folderURL,
+            audioFiles: audioFiles,
+            triggerAudioURL: audioFiles[currentTrackIndex],
+            audiobookID: folderURL.absoluteString
+        )
+    }
+
+    private func importPendingCompanionDocumentsIfNeeded(
+        for audioURL: URL,
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) {
+        guard let pending = pendingCompanionDocumentImport, pending.triggerAudioURL == audioURL else {
+            return
+        }
+        pendingCompanionDocumentImport = nil
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didStart = pending.folderURL.startAccessingSecurityScopedResource()
+            defer { if didStart { pending.folderURL.stopAccessingSecurityScopedResource() } }
+
+            let context = await self.companionDocumentImportContext(
+                audioFiles: pending.audioFiles,
+                loadedAudioURL: audioURL,
+                loadedChapters: loadedChapters,
+                loadedDuration: loadedDuration
+            )
+            await self.importCompanionDocumentsIfNeeded(
+                folderURL: pending.folderURL,
+                audiobookID: pending.audiobookID,
+                context: context
+            )
+        }
+    }
+
+    private func companionDocumentImportContext(
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) -> CompanionDocumentImportContext {
+        let currentDuration = Self.finitePositiveDuration(duration)
+        let finiteLoadedDuration = Self.finitePositiveDuration(loadedDuration)
+        return CompanionDocumentImportContext(
+            chapters: loadedChapters,
+            duration: currentDuration ?? finiteLoadedDuration
+        )
+    }
+
+    private func companionDocumentImportContext(
+        audioFiles: [URL],
+        loadedAudioURL: URL,
+        loadedChapters: [Chapter],
+        loadedDuration: TimeInterval?
+    ) async -> CompanionDocumentImportContext {
+        if audioFiles.count <= 1 {
+            return companionDocumentImportContext(
+                loadedChapters: loadedChapters,
+                loadedDuration: loadedDuration
+            )
+        }
+
+        var wholeBookChapters: [Chapter] = []
+        var totalDuration: TimeInterval = 0
+
+        for audioFile in audioFiles {
+            let asset = AVURLAsset(url: audioFile)
+            let parsedChapters: [Chapter]
+            let measuredDuration: TimeInterval?
+            if audioFile == loadedAudioURL {
+                parsedChapters = loadedChapters
+                if let finiteLoadedDuration = Self.finitePositiveDuration(loadedDuration) {
+                    measuredDuration = finiteLoadedDuration
+                } else {
+                    measuredDuration = Self.finitePositiveDuration(
+                        try? await asset.load(.duration).seconds)
+                }
+            } else {
+                parsedChapters = await ChapterService.parseChapters(from: asset)
+                measuredDuration = Self.finitePositiveDuration(try? await asset.load(.duration).seconds)
+            }
+
+            let trackDuration = measuredDuration ?? parsedChapters.map(\.endSeconds).max() ?? 0
+            let cumulativeOffset = totalDuration
+            if parsedChapters.isEmpty {
+                wholeBookChapters.append(
+                    Chapter(
+                        index: wholeBookChapters.count,
+                        title: audioFile.deletingPathExtension().lastPathComponent,
+                        startSeconds: cumulativeOffset,
+                        endSeconds: cumulativeOffset + trackDuration,
+                        isEnabled: true
+                    )
+                )
+            } else {
+                for chapter in parsedChapters {
+                    wholeBookChapters.append(
+                        Chapter(
+                            index: wholeBookChapters.count,
+                            title: chapter.title,
+                            startSeconds: cumulativeOffset + chapter.startSeconds,
+                            endSeconds: cumulativeOffset + chapter.endSeconds,
+                            isEnabled: chapter.isEnabled
+                        )
+                    )
+                }
+            }
+            totalDuration += trackDuration
+        }
+
+        return CompanionDocumentImportContext(
+            chapters: wholeBookChapters,
+            duration: totalDuration > 0 ? totalDuration : nil
+        )
+    }
+
+    private static func finitePositiveDuration(_ duration: TimeInterval?) -> TimeInterval? {
+        guard let duration, duration.isFinite, duration > 0 else { return nil }
+        return duration
+    }
+
+    private func importCompanionDocumentsIfNeeded(
+        folderURL: URL,
+        audiobookID: String,
+        context: CompanionDocumentImportContext
+    ) async {
+        guard let db = dbService else { return }
+
+        let didImportEPUB = await EPUBAutoImportScanner.scanAndImportIfNeeded(
+            folderURL: folderURL,
+            databaseService: db,
+            chapters: context.chapters,
+            duration: context.duration
+        )
+        let didImportPDF =
+            didImportEPUB
+            ? false
+            : await PDFAutoImportScanner.scanAndImportIfNeeded(
+                folderURL: folderURL,
+                databaseService: db,
+                chapters: context.chapters,
+                duration: context.duration
+            )
+        if didImportEPUB || didImportPDF {
+            guard audiobookID == self.audiobookID else { return }
+            bumpDocumentIngestionTrigger()
+        }
     }
 
     func openLibraryBook(_ target: LibraryOpenTarget) {
