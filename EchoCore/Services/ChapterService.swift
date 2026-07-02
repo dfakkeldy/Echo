@@ -58,6 +58,7 @@ struct ChapterService {
             } else if let item = g.items.first {
                 title = try? await item.load(.stringValue)
             }
+            title = normalizedMetadataTitle(title)
 
             if start.isFinite, end.isFinite, end > start {
                 built.append(Chapter(index: 0, title: title, startSeconds: start, endSeconds: end))
@@ -73,6 +74,13 @@ struct ChapterService {
 
         // Single-chapter files are treated as having no chapters.
         return built.count >= 2 ? built : []
+    }
+
+    nonisolated static func normalizedMetadataTitle(_ title: String?) -> String? {
+        guard let title else { return nil }
+        let trimmed = title.collapsedWhitespace()
+        guard !trimmed.isEmpty else { return nil }
+        return repairMojibakeIfNeeded(trimmed).collapsedWhitespace()
     }
 
     /// Returns the chapter containing the given time, preferring the most specific match.
@@ -110,5 +118,27 @@ struct ChapterService {
             if chapters[i].isEnabled { return i }
         }
         return nil
+    }
+
+    private nonisolated static func repairMojibakeIfNeeded(_ text: String) -> String {
+        let originalScore = mojibakeScore(text)
+        guard originalScore > 0 else { return text }
+
+        let candidates = [String.Encoding.macOSRoman, .windowsCP1252].compactMap { encoding in
+            text.data(using: encoding).flatMap { String(data: $0, encoding: .utf8) }
+        }
+
+        return candidates.min { lhs, rhs in
+            mojibakeScore(lhs) < mojibakeScore(rhs)
+        }.flatMap { candidate in
+            mojibakeScore(candidate) < originalScore ? candidate : nil
+        } ?? text
+    }
+
+    private nonisolated static func mojibakeScore(_ text: String) -> Int {
+        let signals = ["‚Ä", "â", "Ã", "Â", "�"]
+        return signals.reduce(0) { score, signal in
+            score + text.components(separatedBy: signal).count - 1
+        }
     }
 }

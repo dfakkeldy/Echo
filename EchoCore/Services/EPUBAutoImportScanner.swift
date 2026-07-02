@@ -137,6 +137,12 @@ enum EPUBAutoImportScanner {
                 logger.debug(
                     "EPUB blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
                 )
+                _ = await DocumentImportFinalizer.finalizeExistingImportIfAlignmentSidecarPresent(
+                    audiobookID: audiobookID,
+                    fileURL: finalizerFileURL ?? epubURL,
+                    duration: duration,
+                    databaseService: databaseService
+                )
                 return .alreadyImported
             }
         }

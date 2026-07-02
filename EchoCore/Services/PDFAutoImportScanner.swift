@@ -139,6 +139,12 @@ enum PDFAutoImportScanner {
                 logger.debug(
                     "PDF text blocks already exist for \(sanitizedPath(audiobookID)); skipping auto-import."
                 )
+                _ = await DocumentImportFinalizer.finalizeExistingImportIfAlignmentSidecarPresent(
+                    audiobookID: audiobookID,
+                    fileURL: finalizerFileURL ?? pdfURL,
+                    duration: duration,
+                    databaseService: databaseService
+                )
                 return .alreadyImported
             }
         }

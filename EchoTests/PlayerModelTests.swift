@@ -140,6 +140,24 @@ struct PlayerModelTests {
         #expect(model.selectedTab == .nowPlaying)
     }
 
+    @Test("Reader tab reserves compact bottom dock clearance")
+    func readerTabUsesCompactBottomInset() {
+        let model = PlayerModel()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        model.folderURL = folder
+        model.state.tracks = [
+            Track(url: folder.appendingPathComponent("chapter.m4b"), title: "Chapter")
+        ]
+
+        model.selectedTab = .nowPlaying
+        #expect(model.bottomInset == PlayerModel.nowPlayingBottomInset)
+
+        model.selectedTab = .read
+        #expect(model.bottomInset == PlayerModel.compactPlaybackBottomInset)
+        #expect(model.bottomInset < PlayerModel.nowPlayingBottomInset)
+    }
+
     @Test("hasPreviousChapter / hasNextChapter reflect chapter bounds")
     func chapterNavBoundsHelpers() {
         let model = PlayerModel()

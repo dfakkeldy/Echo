@@ -159,6 +159,38 @@ enum DocumentImportFinalizer {
         return true
     }
 
+    /// Replays only the alignment-sidecar branch for documents whose text blocks
+    /// already exist. This lets a later-arriving or corrected `.alignment.json`
+    /// light up read-along without forcing a destructive document re-import.
+    @discardableResult
+    static func finalizeExistingImportIfAlignmentSidecarPresent(
+        audiobookID: String,
+        fileURL: URL,
+        duration: TimeInterval?,
+        databaseService: DatabaseService
+    ) async -> Bool {
+        guard alignmentSidecarURL(for: fileURL) != nil else { return false }
+
+        let blocks: [EPubBlockRecord]
+        do {
+            blocks = try EPubBlockDAO(db: databaseService.writer).allBlocks(for: audiobookID)
+        } catch {
+            logger.error(
+                "Failed to load existing document blocks for sidecar finalization: \(error.localizedDescription)"
+            )
+            return false
+        }
+
+        guard !blocks.isEmpty else { return false }
+        return await finalize(
+            audiobookID: audiobookID,
+            blocks: blocks,
+            fileURL: fileURL,
+            duration: duration,
+            databaseService: databaseService
+        )
+    }
+
     static func alignmentSidecarURL(
         for fileURL: URL,
         fileManager: FileManager = .default
