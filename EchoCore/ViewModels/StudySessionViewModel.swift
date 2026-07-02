@@ -117,11 +117,17 @@ final class StudySessionViewModel {
 
     /// Retention-neutral skip: no FSRS grade, due tomorrow, logged.
     func skipCurrent(now: Date = Date()) {
-        guard let entry = currentEntry else { return }
+        guard let entry = currentEntry,
+            entry.flashcard.cardType == StudyFlashcardType.listeningAssignment
+        else { return }
+
+        let queueService = StudyPlaybackQueueService(db: db)
+        guard (try? queueService.isSkipEligible(assignmentCardID: entry.flashcard.id)) == true else {
+            return
+        }
 
         do {
-            try StudyPlaybackQueueService(db: db)
-                .markSkipped(flashcardID: entry.flashcard.id, now: now)
+            try queueService.markSkipped(flashcardID: entry.flashcard.id, now: now)
             advance()
             updateReviewNotification(remainingReviewNotificationCount())
             NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)

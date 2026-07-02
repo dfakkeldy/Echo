@@ -74,11 +74,10 @@ struct StudyAssignmentCardView: View {
                     grades: StudyAssignmentGradePolicy.choices(for: entry.flashcard.cardType),
                     onGrade: onGrade)
                 if let onSkip {
-                    Button("Skip - I know this chapter", action: onSkip)
-                        .buttonStyle(.plain)
+                    Button("Skip - I know this chapter", systemImage: "forward.end", action: onSkip)
+                        .buttonStyle(.bordered)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
             } else {
                 Button("Review Retention", systemImage: "checkmark.circle", action: onReveal)

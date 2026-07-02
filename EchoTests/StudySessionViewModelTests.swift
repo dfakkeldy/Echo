@@ -241,6 +241,52 @@ import Testing
         #expect(viewModel.currentEntryIsSkipEligible() == false)
     }
 
+    @Test func skipCurrentIgnoresIneligibleAssignmentCards() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        try StudyQueueFixtures.seedDueCard(
+            id: "user-1",
+            audiobookID: "book-a",
+            frontText: "My card",
+            nextReviewDate: StudyQueueFixtures.mondayNoon.addingTimeInterval(86_400),
+            isEnabled: true,
+            in: service
+        )
+        var notificationCounts: [Int] = []
+        let viewModel = StudySessionViewModel(
+            db: service.writer,
+            updateReviewNotification: { notificationCounts.append($0) }
+        )
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+
+        let entry = try #require(viewModel.currentEntry)
+        #expect(viewModel.currentEntryIsSkipEligible() == false)
+
+        viewModel.skipCurrent(now: StudyQueueFixtures.mondayNoon)
+
+        let unchanged = try #require(
+            try service.read { db in try Flashcard.fetchOne(db, key: entry.flashcard.id) })
+        #expect(unchanged.nextReviewDate == entry.flashcard.nextReviewDate)
+        #expect(viewModel.currentIndex == 0)
+        #expect(notificationCounts == [2])
+    }
+
+    @Test func skipCurrentIgnoresNormalCards() throws {
+        let service = try StudyQueueFixtures.serviceWithDueCard()
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+
+        let entry = try #require(viewModel.currentEntry)
+        viewModel.skipCurrent(now: StudyQueueFixtures.mondayNoon)
+
+        let unchanged = try #require(
+            try service.read { db in try Flashcard.fetchOne(db, key: entry.flashcard.id) })
+        #expect(unchanged.nextReviewDate == entry.flashcard.nextReviewDate)
+        #expect(viewModel.currentIndex == 0)
+    }
+
     @Test func needsAttentionFlagsLoadWithTheQueue() throws {
         let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
         let queue = StudyPlaybackQueueService(db: service.writer)
