@@ -56,6 +56,8 @@ import Testing
         viewModel.load()
         viewModel.cadenceUnit = .week
         viewModel.newChapterLimit = 3
+        viewModel.newCardsPerDay = 40
+        viewModel.chapterPacing = .cadence
         viewModel.includeImages = true
         viewModel.queueMode = .mixed
         viewModel.isPaused = true
@@ -68,6 +70,8 @@ import Testing
         #expect(viewModel.canEditImageInclusion)
         #expect(updated.cadenceUnit == StudyPlanCadenceUnit.week.rawValue)
         #expect(updated.newChapterLimit == 3)
+        #expect(updated.newCardsPerDay == 40)
+        #expect(updated.chapterPacing == StudyPlanChapterPacing.cadence.rawValue)
         #expect(updated.includeImages)
         #expect(viewModel.includeImages)
         #expect(updated.queueModeDefault == StudyPlanQueueMode.mixed.rawValue)
@@ -363,6 +367,8 @@ import Testing
             bookTitle: "Study Book",
             cadenceUnit: .day,
             newChapterLimit: 1,
+            newCardsPerDay: 2,
+            chapterPacing: .cardDrain,
             includeImages: false,
             queueMode: .bookByBook,
             catchUpPolicy: .gentle,

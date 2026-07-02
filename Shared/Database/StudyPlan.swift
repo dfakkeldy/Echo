@@ -8,6 +8,8 @@ struct StudyPlan: Codable, FetchableRecord, MutablePersistableRecord, Equatable,
     var deckID: String?
     var cadenceUnit: String
     var newChapterLimit: Int
+    var newCardsPerDay: Int = 2
+    var chapterPacing: String = StudyPlanChapterPacing.cardDrain.rawValue
     var includeImages: Bool
     var queueModeDefault: String
     var catchUpPolicy: String
@@ -24,6 +26,8 @@ struct StudyPlan: Codable, FetchableRecord, MutablePersistableRecord, Equatable,
         case deckID = "deck_id"
         case cadenceUnit = "cadence_unit"
         case newChapterLimit = "new_chapter_limit"
+        case newCardsPerDay = "new_cards_per_day"
+        case chapterPacing = "chapter_pacing"
         case includeImages = "include_images"
         case queueModeDefault = "queue_mode_default"
         case catchUpPolicy = "catch_up_policy"

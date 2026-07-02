@@ -23,6 +23,8 @@ struct StudyCheckpointSettings: Equatable, Sendable {
     var remoteGrading: Bool
     /// Mirrors `SettingsManager.studyGlobalNewChapterLimit` for queue builds.
     var globalNewChapterLimit: Int? = nil
+    /// Mirrors `SettingsManager.studyNewCardsPerDayLimit` for card release offers.
+    var globalNewCardLimit: Int? = nil
 
     /// Snaps an arbitrary stored value to the nearest allowed duration.
     static func snappedTimeoutSeconds(_ value: Int) -> Int {

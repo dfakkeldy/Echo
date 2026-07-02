@@ -100,4 +100,30 @@ struct StudyChapterRetireServiceTests {
         #expect(decoded.imagePath == "Images/one.png")
         #expect(decoded.retirePromptShownAt == nil)
     }
+
+    @Test func pendingAICardsDeferManualRetirePromptUntilChapterDrains() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        try StudyCardFixtures.seedAcceptedCard(
+            id: "pending", chapterIndex: 0, ordinal: 100, in: service)
+        let retire = StudyChapterRetireService(db: service.writer)
+
+        let manualPrompt = try retire.promptForNewUserCard(
+            audiobookID: "book-a",
+            mediaTimestamp: 40,
+            now: StudyQueueFixtures.mondayNoon
+        )
+
+        #expect(manualPrompt == nil)
+
+        try StudyPlanDAO(db: service.writer).releaseCards(
+            itemIDs: ["item-pending"], now: StudyQueueFixtures.mondayNoon)
+        let drainedPrompt = try retire.promptForDrainedChapter(
+            audiobookID: "book-a",
+            chapterIndex: 0,
+            now: StudyQueueFixtures.mondayNoon
+        )
+
+        #expect(drainedPrompt?.chapterTitle == "Book A Chapter 1")
+        #expect(drainedPrompt?.coveringCardCount == 1)
+    }
 }

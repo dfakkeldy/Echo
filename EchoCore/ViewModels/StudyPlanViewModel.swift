@@ -13,6 +13,8 @@ final class StudyPlanViewModel {
     var selectedCandidateIDs: Set<String> = []
     var cadenceUnit: StudyPlanCadenceUnit = .day
     var newChapterLimit: Int = 1
+    var newCardsPerDay: Int = 2
+    var chapterPacing: StudyPlanChapterPacing = .cardDrain
     var includeImages: Bool = false
     var queueMode: StudyPlanQueueMode = .bookByBook
     var isPaused: Bool = false
@@ -47,6 +49,11 @@ final class StudyPlanViewModel {
     var chapterLimitText: String {
         let unit = newChapterLimit == 1 ? "chapter" : "chapters"
         return "\(newChapterLimit) \(unit) per \(cadenceLabel)"
+    }
+
+    var cardLimitText: String {
+        let unit = newCardsPerDay == 1 ? "new AI card" : "new AI cards"
+        return "\(newCardsPerDay) \(unit) per day"
     }
 
     init(audiobookID: String, bookTitle: String, db: DatabaseWriter) {
@@ -114,6 +121,8 @@ final class StudyPlanViewModel {
                     planID: existingPlan.id,
                     cadenceUnit: cadenceUnit,
                     newChapterLimit: newChapterLimit,
+                    newCardsPerDay: newCardsPerDay,
+                    chapterPacing: chapterPacing,
                     includeImages: includeImages,
                     queueMode: queueMode,
                     catchUpPolicy: .gentle,
@@ -154,6 +163,8 @@ final class StudyPlanViewModel {
                         bookTitle: bookTitle,
                         cadenceUnit: cadenceUnit,
                         newChapterLimit: newChapterLimit,
+                        newCardsPerDay: newCardsPerDay,
+                        chapterPacing: chapterPacing,
                         includeImages: includeImages,
                         queueMode: queueMode,
                         catchUpPolicy: .gentle,
@@ -192,6 +203,8 @@ final class StudyPlanViewModel {
     private func apply(_ plan: StudyPlan) {
         cadenceUnit = StudyPlanCadenceUnit(rawValue: plan.cadenceUnit) ?? .day
         newChapterLimit = max(1, plan.newChapterLimit)
+        newCardsPerDay = min(max(1, plan.newCardsPerDay), 100)
+        chapterPacing = StudyPlanChapterPacing(rawValue: plan.chapterPacing) ?? .cardDrain
         includeImages = plan.includeImages
         queueMode = StudyPlanQueueMode(rawValue: plan.queueModeDefault) ?? .bookByBook
         isPaused = plan.isPaused

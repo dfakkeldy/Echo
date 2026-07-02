@@ -41,6 +41,11 @@ struct StudyDeckGenerationSheet: View {
                             systemImage: "checkmark.circle.fill"
                         )
                         .foregroundStyle(.green)
+                        if let summary = viewModel.acceptedSummaryText {
+                            Text(summary)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -55,7 +60,14 @@ struct StudyDeckGenerationSheet: View {
                         dismiss()
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItemGroup(placement: .confirmationAction) {
+                    Button("Accept All") {
+                        if viewModel.acceptAll() {
+                            dismiss()
+                        }
+                    }
+                    .disabled(!viewModel.canAcceptAll)
+
                     Button(viewModel.isAccepting ? "Accepting" : "Accept") {
                         if viewModel.accept() {
                             dismiss()
@@ -83,15 +95,38 @@ private struct StudyDeckDraftCardsSection: View {
     @Bindable var viewModel: StudyDeckGenerationViewModel
 
     var body: some View {
-        Section {
-            ForEach(viewModel.cards) { card in
-                StudyDeckDraftCardRow(card: card, viewModel: viewModel)
+        ForEach(viewModel.chapterGroups) { group in
+            Section {
+                Button {
+                    viewModel.toggleChapter(group)
+                } label: {
+                    Label(
+                        chapterToggleTitle(for: group),
+                        systemImage: chapterIsSelected(group) ? "checkmark.circle.fill" : "circle"
+                    )
+                }
+
+                ForEach(group.cards) { card in
+                    StudyDeckDraftCardRow(card: card, viewModel: viewModel)
+                }
+            } header: {
+                Text(group.title)
+            } footer: {
+                Text("\(selectedCount(in: group)) of \(group.cards.count) selected")
             }
-        } header: {
-            Text("Draft Cards")
-        } footer: {
-            Text("\(viewModel.selectedCardCount) of \(viewModel.cards.count) selected")
         }
+    }
+
+    private func selectedCount(in group: StudyDeckDraftChapterGroup) -> Int {
+        group.cards.filter { viewModel.selectedCardIDs.contains($0.id) }.count
+    }
+
+    private func chapterIsSelected(_ group: StudyDeckDraftChapterGroup) -> Bool {
+        selectedCount(in: group) == group.cards.count
+    }
+
+    private func chapterToggleTitle(for group: StudyDeckDraftChapterGroup) -> String {
+        chapterIsSelected(group) ? "Deselect Chapter" : "Select Chapter"
     }
 }
 

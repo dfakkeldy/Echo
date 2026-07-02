@@ -60,6 +60,7 @@ final class SettingsManager {
         static let readerLineSpacing: Double = 1.4
         static let readerCardTint: String = "#F5F0E8"
         static let studyGlobalNewChapterLimit = 12
+        static let studyNewCardsPerDayLimit = 20
         static let reviewNotificationsEnabled = false
         static let autoAlignmentEnabled = true
         static let locationCaptureEnabled = false
@@ -137,6 +138,7 @@ final class SettingsManager {
         static let readerLineSpacing = "readerLineSpacing"
         static let readerCardTint = "readerCardTint"
         static let studyGlobalNewChapterLimit = "studyGlobalNewChapterLimit"
+        static let studyNewCardsPerDayLimit = "studyNewCardsPerDayLimit"
         static let reviewNotificationsEnabled = "reviewNotificationsEnabled"
         static let autoAlignmentEnabled = "autoAlignmentEnabled"
         static let locationCaptureEnabled = "locationCaptureEnabled"
@@ -345,6 +347,17 @@ final class SettingsManager {
                 return
             }
             defaults.set(boundedValue, forKey: Keys.studyGlobalNewChapterLimit)
+        }
+    }
+    /// Caps how many new AI cards one queue build may offer; it has no cross-build memory.
+    var studyNewCardsPerDayLimit: Int {
+        didSet {
+            let boundedValue = Self.boundedStudyNewCardsPerDayLimit(studyNewCardsPerDayLimit)
+            guard studyNewCardsPerDayLimit == boundedValue else {
+                studyNewCardsPerDayLimit = boundedValue
+                return
+            }
+            defaults.set(boundedValue, forKey: Keys.studyNewCardsPerDayLimit)
         }
     }
     var reviewNotificationsEnabled: Bool {
@@ -723,6 +736,10 @@ final class SettingsManager {
             defaults.object(forKey: Keys.studyGlobalNewChapterLimit) as? Int
                 ?? Defaults.studyGlobalNewChapterLimit
         )
+        studyNewCardsPerDayLimit = Self.boundedStudyNewCardsPerDayLimit(
+            defaults.object(forKey: Keys.studyNewCardsPerDayLimit) as? Int
+                ?? Defaults.studyNewCardsPerDayLimit
+        )
         checkpointTimeoutSeconds = StudyCheckpointSettings.snappedTimeoutSeconds(
             defaults.object(forKey: Keys.checkpointTimeoutSeconds) as? Int
                 ?? Defaults.checkpointTimeoutSeconds
@@ -807,6 +824,7 @@ final class SettingsManager {
             Keys.readerLineSpacing: Defaults.readerLineSpacing,
             Keys.readerCardTint: Defaults.readerCardTint,
             Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
+            Keys.studyNewCardsPerDayLimit: Defaults.studyNewCardsPerDayLimit,
             Keys.reviewNotificationsEnabled: Defaults.reviewNotificationsEnabled,
             Keys.checkpointTimeoutSeconds: Defaults.checkpointTimeoutSeconds,
             Keys.checkpointTimeoutBehavior: Defaults.checkpointTimeoutBehavior,
@@ -878,6 +896,10 @@ final class SettingsManager {
 
     private static func boundedStudyGlobalNewChapterLimit(_ value: Int) -> Int {
         min(max(1, value), 12)
+    }
+
+    private static func boundedStudyNewCardsPerDayLimit(_ value: Int) -> Int {
+        min(max(1, value), 100)
     }
 }
 

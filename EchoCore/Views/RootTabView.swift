@@ -302,7 +302,9 @@ struct RootTabView: View {
             checkpointOverlay
         }
         .alert(
-            "Retire this chapter's re-listen card?",
+            model.pendingRetirePrompt?.coveringCardCount == 1
+                ? "Retire this chapter's re-listen card?"
+                : "Retire this chapter's re-listen card?",
             isPresented: Binding(
                 get: { model.pendingRetirePrompt != nil },
                 set: { if !$0 { model.pendingRetirePrompt = nil } }
@@ -323,9 +325,15 @@ struct RootTabView: View {
                 model.pendingRetirePrompt = nil
             }
         } message: { prompt in
-            Text(
-                "You now have your own flashcards in \"\(prompt.chapterTitle)\". Review with your cards instead? You can re-enable the re-listen card any time from the study plan."
-            )
+            if prompt.coveringCardCount == 1 {
+                Text(
+                    "You now have your own flashcards in \"\(prompt.chapterTitle)\". Review with your cards instead? You can re-enable the re-listen card any time from the study plan."
+                )
+            } else {
+                Text(
+                    "\(prompt.coveringCardCount) cards now cover \"\(prompt.chapterTitle)\". Review with those instead? You can re-enable the re-listen card any time from the study plan."
+                )
+            }
         }
         // NOTE: the player/background layers ignore the safe area themselves
         // (AdaptiveBackground + the systemBackground fill), so the ZStack no
@@ -587,7 +595,7 @@ struct RootTabView: View {
     @ViewBuilder
     private var checkpointOverlay: some View {
         if let coordinator = model.checkpointCoordinator,
-            case .checkpointActive = coordinator.state
+            coordinator.state != .idle
         {
             StudyCheckpointPanelView(coordinator: coordinator)
                 .padding(.bottom, 96)

@@ -69,6 +69,8 @@ import Testing
 
         #expect(plan?.audiobookID == "book")
         #expect(plan?.newChapterLimit == 1)
+        #expect(plan?.newCardsPerDay == 2)
+        #expect(plan?.chapterPacing == StudyPlanChapterPacing.cardDrain.rawValue)
     }
 
     @Test func marksItemsIntroduced() throws {
@@ -93,6 +95,8 @@ import Testing
             planID: result.plan.id,
             cadenceUnit: .week,
             newChapterLimit: 2,
+            newCardsPerDay: 33,
+            chapterPacing: .cadence,
             includeImages: true,
             queueMode: .mixed,
             catchUpPolicy: .strict
@@ -105,8 +109,11 @@ import Testing
         let disabledCard = try #require(
             try service.read { db in try Flashcard.fetchOne(db, key: result.createdCards[0].id) })
         #expect(result.plan.newChapterLimit == 1)
+        #expect(result.plan.newCardsPerDay == 2)
         #expect(plan.cadenceUnit == StudyPlanCadenceUnit.week.rawValue)
         #expect(plan.newChapterLimit == 2)
+        #expect(plan.newCardsPerDay == 33)
+        #expect(plan.chapterPacing == StudyPlanChapterPacing.cadence.rawValue)
         #expect(plan.includeImages)
         #expect(plan.queueModeDefault == StudyPlanQueueMode.mixed.rawValue)
         #expect(plan.catchUpPolicy == StudyPlanCatchUpPolicy.strict.rawValue)
@@ -133,6 +140,28 @@ import Testing
         try dao.setPaused(planID: first.plan.id, isPaused: true)
 
         #expect(try dao.activePlans().map(\.id) == [second.plan.id])
+    }
+
+    @Test func createAndUpdateClampNewCardsPerDay() throws {
+        let service = try seededService()
+        let dao = StudyPlanDAO(db: service.writer)
+        let result = try dao.createPlan(makeRequest(newCardsPerDay: 0))
+
+        #expect(result.plan.newCardsPerDay == 1)
+
+        try dao.updateSettings(
+            planID: result.plan.id,
+            cadenceUnit: .day,
+            newChapterLimit: 1,
+            newCardsPerDay: 101,
+            chapterPacing: .cardDrain,
+            includeImages: false,
+            queueMode: .bookByBook,
+            catchUpPolicy: .gentle
+        )
+
+        let updated = try #require(try dao.plan(for: "book"))
+        #expect(updated.newCardsPerDay == 100)
     }
 
     @Test func createsImageAssignmentsWithMediaJSON() throws {
@@ -264,6 +293,8 @@ import Testing
         audiobookID: String = "book",
         bookTitle: String = "Study Book",
         newChapterLimit: Int = 1,
+        newCardsPerDay: Int = 2,
+        chapterPacing: StudyPlanChapterPacing = .cardDrain,
         includeSecondChapterByDefault: Bool = true,
         extraMissingSourceCandidate: Bool = false,
         now: Date = Date(timeIntervalSince1970: 1_750_000_000)
@@ -320,6 +351,8 @@ import Testing
             bookTitle: bookTitle,
             cadenceUnit: .day,
             newChapterLimit: newChapterLimit,
+            newCardsPerDay: newCardsPerDay,
+            chapterPacing: chapterPacing,
             includeImages: false,
             queueMode: .bookByBook,
             catchUpPolicy: .gentle,
@@ -337,6 +370,8 @@ import Testing
             bookTitle: "Study Book",
             cadenceUnit: .day,
             newChapterLimit: 1,
+            newCardsPerDay: 2,
+            chapterPacing: .cardDrain,
             includeImages: true,
             queueMode: .bookByBook,
             catchUpPolicy: .gentle,

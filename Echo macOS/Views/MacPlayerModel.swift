@@ -565,7 +565,8 @@ final class MacPlayerModel {
                     ) ?? .wait,
                     autoAdvance: settings.checkpointAutoAdvance,
                     remoteGrading: false,
-                    globalNewChapterLimit: settings.studyGlobalNewChapterLimit
+                    globalNewChapterLimit: settings.studyGlobalNewChapterLimit,
+                    globalNewCardLimit: settings.studyNewCardsPerDayLimit
                 )
             },
             replayChapter: { [weak self] in
@@ -591,6 +592,7 @@ final class MacPlayerModel {
             guard let url = URL(string: item.audiobookID), url.isFileURL else { return true }
             return (try? url.checkResourceIsReachable()) ?? false
         }
+        coordinator.isScreenOn = { true }
         checkpointCoordinator = coordinator
     }
 

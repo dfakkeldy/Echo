@@ -11,6 +11,19 @@ struct StudyChapterRetireService {
         let assignmentCardID: String
         let assignmentItemID: String
         let chapterTitle: String
+        let coveringCardCount: Int
+
+        init(
+            assignmentCardID: String,
+            assignmentItemID: String,
+            chapterTitle: String,
+            coveringCardCount: Int = 1
+        ) {
+            self.assignmentCardID = assignmentCardID
+            self.assignmentItemID = assignmentItemID
+            self.chapterTitle = chapterTitle
+            self.coveringCardCount = coveringCardCount
+        }
 
         var id: String { assignmentCardID }
     }
@@ -56,12 +69,77 @@ struct StudyChapterRetireService {
         guard let (item, card) = match else { return nil }
         let media = decodeMedia(card.mediaJSON)
         guard media?.retirePromptShownAt == nil else { return nil }
+        if let chapterIndex = item.chapterIndex,
+           try hasReleasablePendingCards(planID: item.planID, chapterIndex: chapterIndex) {
+            return nil
+        }
 
         try markPromptShown(card: card, existingImagePath: media?.imagePath, now: now)
         return RetirePrompt(
             assignmentCardID: card.id,
             assignmentItemID: item.id,
             chapterTitle: card.frontText
+        )
+    }
+
+    func promptForDrainedChapter(
+        audiobookID: String,
+        chapterIndex: Int,
+        now: Date = Date()
+    ) throws -> RetirePrompt? {
+        let nowString = now.ISO8601Format()
+        let match: (item: StudyPlanItem, card: Flashcard, coveringCardCount: Int)? = try db.read {
+            db in
+            let plans = try StudyPlan
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("is_paused") == false)
+                .filter(Column("start_date") <= nowString)
+                .order(Column("start_date"), Column("created_at"))
+                .fetchAll(db)
+
+            for plan in plans {
+                guard try Self.releasablePendingCardCount(
+                    planID: plan.id, chapterIndex: chapterIndex, db: db) == 0
+                else {
+                    continue
+                }
+
+                let coveringCardCount = try Self.releasedCardCount(
+                    planID: plan.id, chapterIndex: chapterIndex, db: db)
+                guard coveringCardCount > 0 else { continue }
+
+                let items = try StudyPlanItem
+                    .filter(Column("plan_id") == plan.id)
+                    .filter(Column("kind") == StudyPlanItemKind.chapter.rawValue)
+                    .filter(Column("chapter_index") == chapterIndex)
+                    .filter(Column("is_enabled") == true)
+                    .order(Column("ordinal"))
+                    .fetchAll(db)
+
+                for item in items {
+                    guard let cardID = item.flashcardID,
+                        let card = try Flashcard.fetchOne(db, key: cardID),
+                        card.isEnabled,
+                        card.cardType == StudyFlashcardType.listeningAssignment
+                    else { continue }
+
+                    return (item, card, coveringCardCount)
+                }
+            }
+
+            return nil
+        }
+
+        guard let (item, card, coveringCardCount) = match else { return nil }
+        let media = decodeMedia(card.mediaJSON)
+        guard media?.retirePromptShownAt == nil else { return nil }
+
+        try markPromptShown(card: card, existingImagePath: media?.imagePath, now: now)
+        return RetirePrompt(
+            assignmentCardID: card.id,
+            assignmentItemID: item.id,
+            chapterTitle: card.frontText,
+            coveringCardCount: coveringCardCount
         )
     }
 
@@ -100,6 +178,62 @@ struct StudyChapterRetireService {
                 arguments: [json, now.ISO8601Format(), card.id]
             )
         }
+    }
+
+    private func hasReleasablePendingCards(planID: String, chapterIndex: Int) throws -> Bool {
+        try db.read { db in
+            try Self.releasablePendingCardCount(
+                planID: planID,
+                chapterIndex: chapterIndex,
+                db: db
+            ) > 0
+        }
+    }
+
+    private static func releasablePendingCardCount(
+        planID: String,
+        chapterIndex: Int,
+        db: Database
+    ) throws -> Int {
+        try Int.fetchOne(
+            db,
+            sql: """
+                SELECT COUNT(*)
+                FROM study_plan_item
+                JOIN flashcard ON flashcard.id = study_plan_item.flashcard_id
+                WHERE study_plan_item.plan_id = ?
+                  AND study_plan_item.kind = ?
+                  AND study_plan_item.chapter_index = ?
+                  AND study_plan_item.introduced_at IS NULL
+                  AND study_plan_item.is_enabled = 1
+                  AND study_plan_item.flashcard_id IS NOT NULL
+                  AND flashcard.is_enabled = 1
+                """,
+            arguments: [planID, StudyPlanItemKind.card.rawValue, chapterIndex]
+        ) ?? 0
+    }
+
+    private static func releasedCardCount(
+        planID: String,
+        chapterIndex: Int,
+        db: Database
+    ) throws -> Int {
+        try Int.fetchOne(
+            db,
+            sql: """
+                SELECT COUNT(*)
+                FROM study_plan_item
+                JOIN flashcard ON flashcard.id = study_plan_item.flashcard_id
+                WHERE study_plan_item.plan_id = ?
+                  AND study_plan_item.kind = ?
+                  AND study_plan_item.chapter_index = ?
+                  AND study_plan_item.introduced_at IS NOT NULL
+                  AND study_plan_item.is_enabled = 1
+                  AND study_plan_item.flashcard_id IS NOT NULL
+                  AND flashcard.is_enabled = 1
+                """,
+            arguments: [planID, StudyPlanItemKind.card.rawValue, chapterIndex]
+        ) ?? 0
     }
 
     private func decodeMedia(_ json: String?) -> StudyCardMedia? {

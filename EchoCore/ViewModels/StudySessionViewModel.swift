@@ -18,6 +18,7 @@ final class StudySessionViewModel {
     @ObservationIgnored private let logger = Logger(category: "StudySessionViewModel")
     @ObservationIgnored private let updateReviewNotification: @MainActor (Int) -> Void
     @ObservationIgnored var onRequestAssignmentPlayback: ((Flashcard) -> Void)?
+    @ObservationIgnored var onRetirePrompt: ((StudyChapterRetireService.RetirePrompt) -> Void)?
 
     var currentEntry: StudyQueueEntry? {
         guard queue.entries.indices.contains(currentIndex) else { return nil }
@@ -46,14 +47,16 @@ final class StudySessionViewModel {
         now: Date = Date(),
         calendar: Calendar = .current,
         modeOverride: StudyPlanQueueMode? = nil,
-        globalNewChapterLimit: Int? = nil
+        globalNewChapterLimit: Int? = nil,
+        globalNewCardLimit: Int? = nil
     ) throws {
         let builder = StudyQueueBuilder(db: db)
         queue = try builder.build(
             now: now,
             calendar: calendar,
             modeOverride: modeOverride,
-            globalNewChapterLimit: globalNewChapterLimit
+            globalNewChapterLimit: globalNewChapterLimit,
+            globalNewCardLimit: globalNewCardLimit
         )
         currentIndex = 0
         isRevealed = false
@@ -63,6 +66,7 @@ final class StudySessionViewModel {
             .filter { $0.category == .newAssignment }
             .compactMap { $0.item?.id }
         try StudyPlanDAO(db: db).markIntroduced(itemIDs: newItemIDs, now: now)
+        try releaseCurrentNewCardIfNeeded(now: now)
         needsAttentionCardIDs =
             (try? StudyPlaybackQueueService(db: db)
                 .needsAttentionFlashcardIDs(now: now, calendar: calendar)) ?? []
@@ -94,7 +98,7 @@ final class StudySessionViewModel {
                 cardID: entry.flashcard.id, grade: grade.rawValue, now: now)
             logFlashcardReviewed(card: entry.flashcard, grade: grade.rawValue, now: now)
             ReviewPromptManager.shared.recordActivationEvent(.studyCardReviewed, now: now)
-            advance()
+            advance(now: now)
             updateReviewNotification(remainingReviewNotificationCount())
             NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
         } catch {
@@ -128,7 +132,7 @@ final class StudySessionViewModel {
 
         do {
             try queueService.markSkipped(flashcardID: entry.flashcard.id, now: now)
-            advance()
+            advance(now: now)
             updateReviewNotification(remainingReviewNotificationCount())
             NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
         } catch {
@@ -138,9 +142,47 @@ final class StudySessionViewModel {
         }
     }
 
-    func advance() {
+    func advance(now: Date = Date()) {
         currentIndex += 1
         isRevealed = false
+        do {
+            try releaseCurrentNewCardIfNeeded(now: now)
+        } catch {
+            errorMessage = error.localizedDescription
+            logger.error("Failed to release AI card: \(error.localizedDescription)")
+        }
+    }
+
+    private func releaseCurrentNewCardIfNeeded(now: Date) throws {
+        guard queue.entries.indices.contains(currentIndex) else { return }
+        let entry = queue.entries[currentIndex]
+        guard entry.category == .newCard,
+              let itemID = entry.item?.id else {
+            return
+        }
+
+        try StudyPlanDAO(db: db).releaseCards(itemIDs: [itemID], now: now)
+        if let audiobookID = entry.plan?.audiobookID,
+           let chapterIndex = entry.item?.chapterIndex,
+           let prompt = try StudyChapterRetireService(db: db).promptForDrainedChapter(
+               audiobookID: audiobookID,
+               chapterIndex: chapterIndex,
+               now: now
+           ) {
+            onRetirePrompt?(prompt)
+        }
+        guard let refreshedCard = try db.read({ db in
+            try Flashcard.fetchOne(db, key: entry.flashcard.id)
+        }) else {
+            return
+        }
+        queue.entries[currentIndex] = StudyQueueEntry(
+            id: entry.id,
+            category: entry.category,
+            plan: entry.plan,
+            item: entry.item,
+            flashcard: refreshedCard
+        )
     }
 
     private func logFlashcardReviewed(card: Flashcard, grade: Int, now: Date) {

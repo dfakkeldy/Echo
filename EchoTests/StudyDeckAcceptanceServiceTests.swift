@@ -238,6 +238,27 @@ import Testing
         #expect(timeline.playlistPosition == nil)
     }
 
+    @Test func acceptedCardsForAStudyPlanBecomePendingPlanItems() throws {
+        let service = try seededService()
+        try seedStudyPlan(in: service)
+        let acceptance = StudyDeckAcceptanceService(db: service.writer)
+
+        let accepted = try acceptance.accept(
+            draft(),
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            selectedCardIDs: ["draft-1"],
+            now: fixedNow
+        )
+
+        let card = try #require(accepted.first)
+        let item = try #require(try cardPlanItem(cardID: card.id, in: service))
+        #expect(card.nextReviewDate == nil)
+        #expect(item.kind == StudyPlanItemKind.card.rawValue)
+        #expect(item.chapterIndex == 0)
+        #expect(item.introducedAt == nil)
+    }
+
     private var fixedNow: Date {
         Date(timeIntervalSince1970: 1_750_100_000)
     }
@@ -300,6 +321,46 @@ import Testing
             backText: "Back \(sourceBlockID.suffix(1))",
             tags: ["generated", "task3"]
         )
+    }
+
+    private func seedStudyPlan(in service: DatabaseService) throws {
+        _ = try StudyPlanDAO(db: service.writer).createPlan(
+            StudyPlanCreationRequest(
+                audiobookID: "book",
+                bookTitle: "Synthetic Study Book",
+                cadenceUnit: .day,
+                newChapterLimit: 1,
+                includeImages: false,
+                queueMode: .bookByBook,
+                catchUpPolicy: .gentle,
+                startDate: fixedNow,
+                candidates: [
+                    StudyPlanCandidate(
+                        id: "chapter-block-1",
+                        kind: .chapter,
+                        sourceBlockID: "block-1",
+                        chapterIndex: 0,
+                        ordinal: 0,
+                        title: "Chapter 1",
+                        defaultIncluded: true,
+                        imagePath: nil,
+                        mediaTimestamp: 12.5,
+                        endTimestamp: 18.75,
+                        playlistPosition: 4.25
+                    )
+                ],
+                now: fixedNow
+            )
+        )
+    }
+
+    private func cardPlanItem(cardID: String, in service: DatabaseService) throws -> StudyPlanItem? {
+        try service.read { db in
+            try StudyPlanItem
+                .filter(Column("flashcard_id") == cardID)
+                .filter(Column("kind") == StudyPlanItemKind.card.rawValue)
+                .fetchOne(db)
+        }
     }
 
     private func persistedCards(in service: DatabaseService) throws -> [Flashcard] {

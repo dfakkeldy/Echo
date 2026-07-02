@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 extension PlayerModel {
     func configureStudyCheckpoint() {
@@ -44,11 +47,21 @@ extension PlayerModel {
             guard let url = URL(string: item.audiobookID), url.isFileURL else { return true }
             return (try? url.checkResourceIsReachable()) ?? false
         }
+        coordinator.isScreenOn = {
+            #if canImport(UIKit)
+                UIApplication.shared.applicationState == .active
+            #else
+                true
+            #endif
+        }
         coordinator.onCheckpointActivated = { [weak self] context in
             self?.checkpointNotifications.postCheckpoint(chapterTitle: context.chapterTitle)
         }
         coordinator.onCheckpointResolved = { [weak self] in
             self?.checkpointNotifications.removeCheckpoint()
+        }
+        coordinator.onRetirePrompt = { [weak self] prompt in
+            self?.pendingRetirePrompt = prompt
         }
         checkpointNotifications.onAction = { [weak self] action in
             self?.checkpointCoordinator?.resolve(action)
@@ -74,7 +87,8 @@ extension PlayerModel {
                 ?? .replay,
             autoAdvance: settings.checkpointAutoAdvance,
             remoteGrading: settings.checkpointRemoteGrading,
-            globalNewChapterLimit: settings.studyGlobalNewChapterLimit
+            globalNewChapterLimit: settings.studyGlobalNewChapterLimit,
+            globalNewCardLimit: settings.studyNewCardsPerDayLimit
         )
     }
 

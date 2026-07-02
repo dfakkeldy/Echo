@@ -263,6 +263,7 @@ struct Echo_macOSApp: App {
                 Button("Generate Study Deck…") {
                     NotificationCenter.default.post(name: .requestGenerateStudyDeck, object: nil)
                 }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(player.audiobookID == nil || player.dbService == nil)
 
                 Button("Import Deck…") {
