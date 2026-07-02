@@ -573,19 +573,20 @@ final class NarrationService {
             for subText in plannedBlock.speechSegments {
                 try Task.checkCancellation()
                 do {
-                    let chunkStartInFile = cursor + blockDuration
-                    let chunk = try await tts.synthesize(subText, voice: voice)
-                    try await stream.append(chunk)
-                    blockChunkTimings.append((chunk.wordTimings, chunkStartInFile))
-                    pronunciationFallbackHits.append(
-                        contentsOf: chunk.pronunciationFallbackHits.map {
-                            RenderedPronunciationFallbackHit(
-                                blockID: block.id,
-                                audioStartTime: chunkStartInFile,
-                                audioEndTime: chunkStartInFile + chunk.duration,
-                                fallback: $0)
-                        })
-                    blockDuration += chunk.duration
+                    for chunk in try await synthesizeWithQualityRetry(subText, voice: voice) {
+                        let chunkStartInFile = cursor + blockDuration
+                        try await stream.append(chunk)
+                        blockChunkTimings.append((chunk.wordTimings, chunkStartInFile))
+                        pronunciationFallbackHits.append(
+                            contentsOf: chunk.pronunciationFallbackHits.map {
+                                RenderedPronunciationFallbackHit(
+                                    blockID: block.id,
+                                    audioStartTime: chunkStartInFile,
+                                    audioEndTime: chunkStartInFile + chunk.duration,
+                                    fallback: $0)
+                            })
+                        blockDuration += chunk.duration
+                    }
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error where Self.isLengthCapError(error) {
@@ -711,6 +712,42 @@ final class NarrationService {
         }
 
         return prepared
+    }
+
+    private func synthesizeWithQualityRetry(_ text: String, voice: VoiceID) async throws -> [TTSChunk] {
+        let first = try await tts.synthesize(text, voice: voice)
+        guard case .rejected(let reason) = NarrationChunkQuality.evaluate(first, text: text) else {
+            return [first]
+        }
+
+        let retryMaxChars = max(20, min(80, text.count / 2))
+        let retryTexts = NarrationTextChunker.split(text, maxChars: retryMaxChars)
+        guard retryTexts.count > 1 else {
+            logger.error(
+                "Low-quality narration chunk could not be split for retry: \(String(describing: reason), privacy: .public)"
+            )
+            return [first]
+        }
+
+        logger.warning(
+            "Retrying low-quality narration chunk as \(retryTexts.count, privacy: .public) smaller piece(s): \(String(describing: reason), privacy: .public)"
+        )
+        var retryChunks: [TTSChunk] = []
+        retryChunks.reserveCapacity(retryTexts.count)
+        for retryText in retryTexts {
+            try Task.checkCancellation()
+            let retryChunk = try await tts.synthesize(retryText, voice: voice)
+            switch NarrationChunkQuality.evaluate(retryChunk, text: retryText) {
+            case .acceptable:
+                retryChunks.append(retryChunk)
+            case .rejected(let retryReason):
+                logger.error(
+                    "Skipping low-quality narration retry piece: \(String(describing: retryReason), privacy: .public)"
+                )
+            }
+        }
+
+        return retryChunks.isEmpty ? [first] : retryChunks
     }
 
     #if DEBUG && os(iOS)

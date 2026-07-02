@@ -688,6 +688,24 @@ import Testing
         #expect(writer.chunkCounts == [0])
     }
 
+    @Test func silentSpeechChunkRetriesWithSmallerPieces() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        mock.silentOnText = NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:])
+        ).blocks[0].speechSegments[0]
+        let svc = makeService(db, tts: mock, writer: MockAudioWriter())
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        let retryCalls = mock.calls.dropFirst()
+        #expect(!retryCalls.isEmpty)
+        #expect(retryCalls.allSatisfy { $0.text.count < text.count })
+    }
+
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["abcd", "ef"])
