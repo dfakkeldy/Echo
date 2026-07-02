@@ -155,5 +155,31 @@ private struct StudyPlanManagementSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+
+        if !viewModel.assignmentRows.isEmpty {
+            Section {
+                ForEach(viewModel.assignmentRows) { row in
+                    Toggle(
+                        isOn: Binding(
+                            get: { viewModel.assignmentIsEnabled(row.id) },
+                            set: { viewModel.setAssignmentEnabled(itemID: row.id, isEnabled: $0) }
+                        )
+                    ) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(row.title)
+                            Text(row.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Re-listen Cards")
+            } footer: {
+                Text(
+                    "Turn a retired chapter back on when you want Echo to include its generated re-listen card in the study queue again."
+                )
+            }
+        }
     }
 }

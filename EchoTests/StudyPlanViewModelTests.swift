@@ -128,6 +128,38 @@ import Testing
         #expect(try imageCardEnabledStates(in: service) == [false])
     }
 
+    @Test func existingPlanCanRestoreRetiredChapterAssignments() throws {
+        let service = try seededService()
+        let dao = StudyPlanDAO(db: service.writer)
+        let result = try dao.createPlan(makeCreationRequest())
+        let item = try #require(result.createdItems.first)
+        let card = try #require(result.createdCards.first)
+        try StudyChapterRetireService(db: service.writer).retire(
+            assignmentCardID: card.id,
+            assignmentItemID: item.id,
+            now: Self.testDate
+        )
+        let viewModel = StudyPlanViewModel(
+            audiobookID: "book", bookTitle: "Study Book", db: service.writer)
+
+        viewModel.load()
+
+        let retiredRow = try #require(viewModel.assignmentRows.first)
+        #expect(retiredRow.title == "Chapter 1")
+        #expect(retiredRow.isEnabled == false)
+
+        viewModel.setAssignmentEnabled(itemID: retiredRow.id, isEnabled: true)
+        let didSave = viewModel.save(now: Self.testDate.addingTimeInterval(60))
+
+        let restoredItem = try #require(try dao.items(for: result.plan.id).first)
+        let restoredCard = try #require(
+            try service.read { db in try Flashcard.fetchOne(db, key: card.id) })
+        #expect(didSave)
+        #expect(restoredItem.isEnabled)
+        #expect(restoredCard.isEnabled)
+        #expect(viewModel.assignmentRows.first?.isEnabled == true)
+    }
+
     @Test func savePostsStudyPlanDidChangeNotification() throws {
         let service = try seededService()
         let viewModel = StudyPlanViewModel(
