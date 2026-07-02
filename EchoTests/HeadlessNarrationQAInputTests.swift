@@ -25,6 +25,11 @@ import Testing
             atomically: true,
             encoding: .utf8
         )
+        try capture.write(
+            to: folder.appending(path: ".anchors-ch99.backup.json"),
+            atomically: true,
+            encoding: .utf8
+        )
         try Data().write(to: folder.appending(path: "runner_Fixture_epub-ch3-af_heart-v7.m4a"))
 
         let chapters = try HeadlessNarrationQAManifest.chapters(
@@ -40,5 +45,37 @@ import Testing
             "epub-file:///Fixture/-s0-b1",
             "epub-file:///Fixture/-s0-b2",
         ])
+    }
+
+    @Test func manifestIgnoresNonDelimitedChapterLikeTokensInAudioFilenames() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appending(path: "echo-qa-work-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let capture = """
+            {
+              "duration": 1.0,
+              "anchors": [
+                { "suffix": "s0-b1", "time": 0.1 }
+              ]
+            }
+            """
+        try capture.write(
+            to: folder.appending(path: ".anchors-ch0.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Data().write(to: folder.appending(path: "runner_catch22_book-ch0-af_heart-v7.m4a"))
+
+        let chapters = try HeadlessNarrationQAManifest.chapters(
+            audiobookID: "file:///Fixture/",
+            workDir: folder
+        )
+
+        let chapter = try #require(chapters.first)
+        #expect(chapters.count == 1)
+        #expect(chapter.chapterIndex == 0)
+        #expect(chapter.fileURL.lastPathComponent == "runner_catch22_book-ch0-af_heart-v7.m4a")
     }
 }
