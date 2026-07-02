@@ -501,6 +501,8 @@ final class PlayerModel {
     let progressPresenter = PlaybackProgressPresenter()
     let chapterLoadingCoordinator = ChapterLoadingCoordinator()
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
+    var checkpointCoordinator: StudyCheckpointCoordinator?
+    @ObservationIgnored let checkpointAnnouncer = StudyCheckpointAnnouncer()
     var continuousAlignmentService: ContinuousAlignmentService?
 
     // On-device narration playback: an audio-less study EPUB renders its
@@ -625,6 +627,7 @@ final class PlayerModel {
         set {
             timelinePersistence.databaseService = newValue
             configureContinuousAlignment()
+            configureStudyCheckpoint()
             if let db = newValue {
                 sessionRecorder = PlaybackSessionRecorder(writer: db.writer)
             } else {
@@ -1616,10 +1619,26 @@ final class PlayerModel {
             play: { [weak self] in self?.play() },
             pause: { [weak self] in self?.pause() },
             togglePlayPause: { [weak self] in self?.togglePlayPause() },
-            nextTrack: { [weak self] in self?.skipForwardNavigation() },
-            skipBackward: { [weak self] in self?.skipBackward30() },
-            skipForward: { [weak self] in self?.skipForward30() },
-            previousTrack: { [weak self] in self?.skipBackwardNavigation() },
+            nextTrack: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.good) { return }
+                self.skipForwardNavigation()
+            },
+            skipBackward: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.again) { return }
+                self.skipBackward30()
+            },
+            skipForward: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.good) { return }
+                self.skipForward30()
+            },
+            previousTrack: { [weak self] in
+                guard let self else { return }
+                if self.consumeRemoteSkipAsCheckpointGrade(.again) { return }
+                self.skipBackwardNavigation()
+            },
             seek: { [weak self] position in
                 self?.playbackController.seekFromRemoteCommand(positionTime: position)
             },

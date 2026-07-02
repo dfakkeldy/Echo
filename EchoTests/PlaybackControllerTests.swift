@@ -66,6 +66,45 @@ import Testing
         #expect(loaded == nil)
     }
 
+    @Test func terminalTrackEndOffersCheckpointBeforeSleepTimer() async throws {
+        let c = PlaybackController()
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        c.audioEngine.configureAudioSession()
+        c.audioEngine.replaceCurrentItem(with: audioURL)
+        defer { c.audioEngine.cleanup() }
+
+        c.state.tracks = [Track(url: audioURL, title: "Book")]
+        c.state.currentIndex = 0
+        c.state.chapters = [
+            Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 1),
+            Chapter(index: 1, title: "Two", startSeconds: 1, endSeconds: 2),
+        ]
+        c.state.currentChapterIndex = 1
+        c.loopMode = .off
+        var checkpointIndex: Int?
+        var didCheckSleepTimer = false
+        var loadedIndex: Int?
+
+        c.coordinator_handleChapterEndCheckpoint = { index in
+            checkpointIndex = index
+            return true
+        }
+        c.coordinator_handleChapterEndSleepTimer = {
+            didCheckSleepTimer = true
+            return true
+        }
+        c.coordinator_loadTrack = { index, _ in
+            loadedIndex = index
+        }
+
+        c.handleTrackEnded()
+
+        #expect(checkpointIndex == 1)
+        #expect(didCheckSleepTimer == false)
+        #expect(loadedIndex == nil)
+    }
+
     @Test func findNextEnabledTrackIndexDoesNotTrapPastEnd() {
         let c = PlaybackController()
         let t = Track(url: URL(string: "file:///tmp/a.m4a")!, title: "A")

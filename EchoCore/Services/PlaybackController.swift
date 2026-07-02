@@ -50,6 +50,7 @@ final class PlaybackController {
         ((_ folder: String, _ trackId: String, _ time: TimeInterval) -> Void)?
     @ObservationIgnored var coordinator_stopSecurityScope: (() -> Void)?
     @ObservationIgnored var coordinator_handleChapterEndSleepTimer: (() -> Bool)?
+    @ObservationIgnored var coordinator_handleChapterEndCheckpoint: ((_ chapterIndex: Int) -> Bool)?
     @ObservationIgnored var coordinator_currentTrackBookmarks: (() -> [Bookmark])?
     @ObservationIgnored var coordinator_isRewindEnabled: (() -> Bool)?
     @ObservationIgnored var coordinator_configureAudioSession: (() -> Void)?
@@ -871,6 +872,9 @@ final class PlaybackController {
 
         let c = state.chapters[idx]
         if t >= (c.endSeconds - 0.5) {
+            if claimChapterEndCheckpointIfNeeded(chapterIndex: idx) {
+                return
+            }
             if coordinator_handleChapterEndSleepTimer?() == true {
                 return
             }
@@ -940,6 +944,10 @@ final class PlaybackController {
     func handleTrackEnded() {
         guard audioEngine.isItemLoaded else { return }
 
+        if claimChapterEndCheckpointIfNeeded(chapterIndex: state.currentChapterIndex) {
+            return
+        }
+
         if coordinator_handleChapterEndSleepTimer?() == true { return }
 
         if state.chapters.count >= 2 {
@@ -979,6 +987,16 @@ final class PlaybackController {
         } else {
             nextTrack()
         }
+    }
+
+    private func claimChapterEndCheckpointIfNeeded(chapterIndex: Int?) -> Bool {
+        guard loopMode == .off,
+            let chapterIndex,
+            state.chapters.count >= 2,
+            state.chapters.indices.contains(chapterIndex)
+        else { return false }
+
+        return coordinator_handleChapterEndCheckpoint?(chapterIndex) == true
     }
 }
 
