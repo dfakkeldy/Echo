@@ -530,13 +530,16 @@ final class NarrationService {
                 statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
         }
 
-        let spoken = blocks.filter { ($0.text?.isEmpty == false) }
+        let plan = await renderPlan(for: blocks, overrides: overrides, fmEnabled: fmEnabled)
+        let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
+        var renderedSpeakableBlocks = 0
         let unitLabel =
             segmentIndex.map {
                 "Chapter \(chapterDisplayNumber) segment \($0 + 1)"
             } ?? "Chapter \(chapterDisplayNumber)"
-        logger.notice("\(unitLabel): synthesizing \(spoken.count) block(s)…")
+        logger.notice("\(unitLabel): synthesizing \(speakableBlockIDs.count) block(s)…")
         var anchors: [AlignmentAnchorRecord] = []
+        var spokenBlockIDs: [String] = []
         var synthesisWordTimingsByBlock: [String: [ChunkWordTiming]] = [:]
         var pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = []
         var cursor: TimeInterval = 0
@@ -557,26 +560,9 @@ final class NarrationService {
             }
         }
 
-        for (i, block) in spoken.enumerated() {
+        for plannedBlock in plan.blocks {
             try Task.checkCancellation()
-            let normalized = TextNormalizer.normalize(block.text ?? "")
-            let refined =
-                fmEnabled
-                ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
-            if refined != normalized {
-                do {
-                    try await db.write { db in
-                        try db.execute(
-                            sql: "UPDATE epub_block SET narration_text = ? WHERE id = ?",
-                            arguments: [refined, block.id])
-                    }
-                } catch {
-                    logger.error(
-                        "Failed to persist FM-refined text for block \(block.id): \(error.localizedDescription)"
-                    )
-                }
-            }
-            let text = Self.renderedText(fromNormalized: refined, overrides: overrides)
+            let block = plannedBlock.originalBlock
 
             // Bound each synthesize call under Kokoro's ~510-phoneme context window
             // (see NarrationTextChunker for the budget). One anchor per ORIGINAL
@@ -584,7 +570,7 @@ final class NarrationService {
             // durations, so read-along is unchanged regardless of how it sub-chunks.
             var blockDuration: TimeInterval = 0
             var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
-            for subText in NarrationTextChunker.split(text) {
+            for subText in plannedBlock.speechSegments {
                 try Task.checkCancellation()
                 do {
                     let chunkStartInFile = cursor + blockDuration
@@ -615,23 +601,37 @@ final class NarrationService {
                 synthesisWordTimingsByBlock[block.id] = assembled
             }
 
-            anchors.append(
-                AlignmentAnchorRecord(
-                    id: "syn-\(audiobookID)-\(block.id)",
-                    audiobookID: audiobookID, epubBlockID: block.id,
-                    audioTime: cursor, audioEndTime: cursor + blockDuration,
-                    anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-                    source: AlignmentAnchorRecord.Source.synthesized.rawValue,
-                    note: nil, createdAt: now, modifiedAt: now))
-            cursor += blockDuration
-            logger.notice("  \(unitLabel): block \(i + 1)/\(spoken.count) synthesized")
-            if reportsProgress {
-                state.update(
-                    phase: .preparingChapter,
-                    progress: Double(i + 1) / Double(spoken.count),
-                    statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
+            if plannedBlock.isSpeakable {
+                if blockDuration > 0 {
+                    anchors.append(
+                        AlignmentAnchorRecord(
+                            id: "syn-\(audiobookID)-\(block.id)",
+                            audiobookID: audiobookID, epubBlockID: block.id,
+                            audioTime: cursor, audioEndTime: cursor + blockDuration,
+                            anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                            source: AlignmentAnchorRecord.Source.synthesized.rawValue,
+                            note: nil, createdAt: now, modifiedAt: now))
+                    cursor += blockDuration
+                    spokenBlockIDs.append(block.id)
+                }
+                renderedSpeakableBlocks += 1
+                logger.notice(
+                    "  \(unitLabel): block \(renderedSpeakableBlocks)/\(speakableBlockIDs.count) synthesized"
+                )
+                let progress =
+                    Double(renderedSpeakableBlocks) / Double(max(speakableBlockIDs.count, 1))
+                if reportsProgress {
+                    state.update(
+                        phase: .preparingChapter,
+                        progress: progress,
+                        statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
+                }
+                onBlockProgress?(chapterDisplayNumber, progress)
             }
-            onBlockProgress?(chapterDisplayNumber, Double(i + 1) / Double(spoken.count))
+            if let silence = plannedBlock.trailingSilence {
+                try await stream.append(.silence(seconds: silence.duration, sampleRate: 24_000))
+                cursor += silence.duration
+            }
         }
 
         // Lead-out pad: append trailing silence so the last word has room to ring
@@ -661,9 +661,56 @@ final class NarrationService {
             fileURL: fileURL,
             duration: duration,
             anchors: anchors,
-            spokenBlockIDs: spoken.map(\.id),
+            spokenBlockIDs: spokenBlockIDs,
             synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
             pronunciationFallbackHits: pronunciationFallbackHits)
+    }
+
+    private func renderPlan(
+        for blocks: [EPubBlockRecord],
+        overrides: PronunciationOverrides,
+        fmEnabled: Bool
+    ) async -> NarrationRenderPlan {
+        let preparedBlocks = await prepareBlocksForRenderPlan(blocks, fmEnabled: fmEnabled)
+        return NarrationRenderPlanner.make(blocks: preparedBlocks, overrides: overrides)
+    }
+
+    private func prepareBlocksForRenderPlan(
+        _ blocks: [EPubBlockRecord],
+        fmEnabled: Bool
+    ) async -> [EPubBlockRecord] {
+        var prepared: [EPubBlockRecord] = []
+        prepared.reserveCapacity(blocks.count)
+
+        for block in blocks {
+            guard block.text?.isEmpty == false, !block.isHidden else {
+                prepared.append(block)
+                continue
+            }
+
+            let normalized = TextNormalizer.normalize(block.text ?? "")
+            let refined = fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
+            if refined != normalized {
+                do {
+                    try await db.write { db in
+                        try db.execute(
+                            sql: "UPDATE epub_block SET narration_text = ? WHERE id = ?",
+                            arguments: [refined, block.id])
+                    }
+                } catch {
+                    logger.error(
+                        "Failed to persist FM-refined text for block \(block.id): \(error.localizedDescription)"
+                    )
+                }
+            }
+
+            var preparedBlock = block
+            preparedBlock.text = refined
+            preparedBlock.narrationText = refined == normalized ? block.narrationText : refined
+            prepared.append(preparedBlock)
+        }
+
+        return prepared
     }
 
     #if DEBUG && os(iOS)

@@ -60,6 +60,21 @@ import Testing
         #expect(plain != fmMode)
     }
 
+    @Test func contentSignatureChangesWhenBlockKindChangesPlannedSilence() {
+        let paragraph = block(id: "b0", kind: "paragraph", text: "Chapter title")
+        let heading = block(id: "b0", kind: "heading", text: "Chapter title")
+        let paragraphSignature = NarrationFileNaming.contentSignature(
+            spokenBlocks: [paragraph],
+            renderedTexts: ["Chapter title"],
+            includeLeadOutPad: false)
+        let headingSignature = NarrationFileNaming.contentSignature(
+            spokenBlocks: [heading],
+            renderedTexts: ["Chapter title"],
+            includeLeadOutPad: false)
+
+        #expect(paragraphSignature != headingSignature)
+    }
+
     @Test func contentSignedFileNamesStillRoundTripLocations() {
         let signature = "0123456789abcdef"
         let segment = NarrationFileNaming.segmentFileName(
@@ -157,7 +172,7 @@ import Testing
                 == nil)
     }
 
-    private func block(id: String, text: String) -> EPubBlockRecord {
+    private func block(id: String, kind: String = "paragraph", text: String) -> EPubBlockRecord {
         EPubBlockRecord(
             id: id,
             audiobookID: "book",
@@ -165,7 +180,7 @@ import Testing
             spineIndex: 0,
             blockIndex: 0,
             sequenceIndex: 0,
-            blockKind: "paragraph",
+            blockKind: kind,
             text: text,
             htmlContent: nil,
             cardColor: nil,
