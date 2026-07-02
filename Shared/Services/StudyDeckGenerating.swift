@@ -12,52 +12,40 @@ protocol StudyDeckGenerating: Sendable {
     ) async -> GeneratedStudyDeckDraft
 }
 
-/// Controls which generator the 3-way factory selects when both a BYO key and on-device
+/// Controls which generator the 3-way factory selects when cloud and on-device
 /// Foundation Models are available.
 enum StudyDeckGeneratorPreference: String, Sendable {
-    /// Let the factory decide: cloud key wins, then on-device FM, then fixture.
+    /// Let the factory decide: configured cloud wins, then on-device FM.
     case auto
-    /// Always prefer the cloud (Anthropic) generator; fixture when no key.
+    /// Always prefer the configured cloud generator.
     case cloud
-    /// Always prefer on-device Foundation Models; fixture when FM is unavailable.
+    /// Always prefer on-device Foundation Models.
     case onDevice
 }
 
 enum StudyDeckGeneratorFactory {
-    /// `anthropic` is a builder so we never construct the network generator (or read
-    /// the key) when there is no key. Returns the fixture fallback otherwise.
-    /// Kept for the existing call site in BookSettingsView (Task 5 will rewire it).
-    nonisolated static func make(
-        hasKey: Bool,
-        anthropic: @Sendable () -> any StudyDeckGenerating
-    ) -> any StudyDeckGenerating {
-        hasKey ? anthropic() : FixtureStudyDeckGenerator()
-    }
-
-    /// 3-way provider selection by preference, key presence, and runtime FM availability.
+    /// UI-facing provider resolution. A nil result means no AI provider is available,
+    /// so the sheet shows an explicit empty state instead of fixture cards.
     /// Selection matrix:
-    ///   .auto  + key    → anthropic()
-    ///   .auto  + no key + fm → on-device FM (or fixture when SDK < 26)
-    ///   .auto  + no key + no fm → fixture
-    ///   .cloud + key    → anthropic()
-    ///   .cloud + no key → fixture
-    ///   .onDevice + fm  → on-device FM (or fixture when SDK < 26)
-    ///   .onDevice + no fm → fixture
-    nonisolated static func make(
+    ///   .auto + cloud -> cloud()
+    ///   .auto + no cloud -> on-device FM when available, else nil
+    ///   .cloud -> cloud(), else nil
+    ///   .onDevice -> on-device FM when available, else nil
+    nonisolated static func makeForUI(
         preference: StudyDeckGeneratorPreference,
-        hasKey: Bool,
         fmAvailable: Bool,
-        anthropic: @Sendable () -> any StudyDeckGenerating
-    ) -> any StudyDeckGenerating {
+        cloud: (@Sendable () -> any StudyDeckGenerating)?
+    ) -> (any StudyDeckGenerating)? {
         switch preference {
         case .cloud:
-            return hasKey ? anthropic() : FixtureStudyDeckGenerator()
+            return cloud?()
         case .onDevice:
-            return onDevice(ifAvailable: fmAvailable) ?? FixtureStudyDeckGenerator()
+            return onDevice(ifAvailable: fmAvailable)
         case .auto:
-            if hasKey { return anthropic() }
-            if let fm = onDevice(ifAvailable: fmAvailable) { return fm }
-            return FixtureStudyDeckGenerator()
+            if let cloud {
+                return cloud()
+            }
+            return onDevice(ifAvailable: fmAvailable)
         }
     }
 

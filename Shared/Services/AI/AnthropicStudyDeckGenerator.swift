@@ -33,15 +33,19 @@ nonisolated struct AnthropicStudyDeckGenerator: StudyDeckGenerating {
     }
 
     let client: AnthropicMessagesClient
+    /// Pass-1 book-brief client; defaults to `client` for single-model providers.
+    let briefClient: AnthropicMessagesClient
     /// `(completedBatches, totalBatches)`, called after each batch completes.
     private let progress: (@Sendable (Int, Int) -> Void)?
     private let logger = Logger(category: "AnthropicStudyDeckGenerator")
 
     init(
         client: AnthropicMessagesClient,
+        briefClient: AnthropicMessagesClient? = nil,
         progress: (@Sendable (Int, Int) -> Void)? = nil
     ) {
         self.client = client
+        self.briefClient = briefClient ?? client
         self.progress = progress
     }
 
@@ -90,7 +94,7 @@ nonisolated struct AnthropicStudyDeckGenerator: StudyDeckGenerating {
     /// Pass 1. Returns the raw brief JSON string, or `""` if the call/decoding throws.
     private func bookBrief(sources: [StudyDeckSource]) async -> String {
         do {
-            return try await client.complete(
+            return try await briefClient.complete(
                 systemPrompt: StudyDeckPromptBuilder.systemPrompt,
                 userPrompt: StudyDeckPromptBuilder.bookBriefPrompt(sources: sources),
                 schema: StudyDeckPromptBuilder.briefSchema(),

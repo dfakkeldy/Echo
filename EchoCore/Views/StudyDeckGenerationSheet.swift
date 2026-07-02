@@ -20,6 +20,16 @@ struct StudyDeckGenerationSheet: View {
                             ProgressView("Generating Study Deck")
                         }
                     }
+                } else if viewModel.noProviderConfigured {
+                    Section {
+                        ContentUnavailableView(
+                            "No AI Provider Configured",
+                            systemImage: "sparkles",
+                            description: Text(
+                                "Add a provider token under Settings > AI Card Generation, or enable Apple Intelligence for on-device generation."
+                            )
+                        )
+                    }
                 } else if viewModel.cards.isEmpty {
                     Section {
                         ContentUnavailableView(
@@ -32,6 +42,16 @@ struct StudyDeckGenerationSheet: View {
                     }
                 } else {
                     StudyDeckDraftCardsSection(viewModel: viewModel)
+                }
+
+                if viewModel.duplicatesSkipped > 0 {
+                    Section {
+                        Label(
+                            "\(viewModel.duplicatesSkipped) duplicates skipped",
+                            systemImage: "rectangle.on.rectangle.slash"
+                        )
+                        .foregroundStyle(.secondary)
+                    }
                 }
 
                 if viewModel.acceptedCount > 0 {

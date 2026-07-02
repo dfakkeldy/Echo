@@ -3,10 +3,7 @@ import XCTest
 
 @testable import Echo
 
-// `nonisolated`: XCTestCase subclass under Swift 6 MainActor default isolation; nonisolated so the
-// init overrides match XCTestCase's nonisolated inits (pure synchronous value tests).
 nonisolated final class StudyDeckGeneratorFactoryMatrixTests: XCTestCase {
-    // Stand-in for the anthropic builder — lets us assert cloud-path selection by type identity.
     private struct CloudSentinel: StudyDeckGenerating {
         func generate(
             sources: [StudyDeckSource],
@@ -17,41 +14,46 @@ nonisolated final class StudyDeckGeneratorFactoryMatrixTests: XCTestCase {
     }
 
     private func make(
-        _ p: StudyDeckGeneratorPreference,
-        key: Bool,
+        _ preference: StudyDeckGeneratorPreference,
+        cloud: Bool,
         fm: Bool
-    ) -> any StudyDeckGenerating {
-        StudyDeckGeneratorFactory.make(preference: p, hasKey: key, fmAvailable: fm) {
-            CloudSentinel()
+    ) -> (any StudyDeckGenerating)? {
+        let cloudBuilder: (@Sendable () -> any StudyDeckGenerating)?
+        if cloud {
+            cloudBuilder = { CloudSentinel() }
+        } else {
+            cloudBuilder = nil
         }
+        return StudyDeckGeneratorFactory.makeForUI(
+            preference: preference,
+            fmAvailable: fm,
+            cloud: cloudBuilder
+        )
     }
 
-    // MARK: - Matrix tests
-
-    func testAutoKeyWins() {
-        XCTAssertTrue(make(.auto, key: true, fm: true) is CloudSentinel)
+    func testAutoConfiguredCloudWins() {
+        XCTAssertTrue(make(.auto, cloud: true, fm: true) is CloudSentinel)
     }
 
-    // Tolerant: fmAvailable=true resolves to FM generator when iOS 26 SDK is available,
-    // or falls back to fixture on an older sim. Must never be CloudSentinel.
-    func testAutoNoKeyFmAvailableUsesOnDevice() {
-        let g = make(.auto, key: false, fm: true)
-        XCTAssertFalse(g is CloudSentinel)
+    func testAutoNoCloudFmAvailableUsesOnDeviceNeverFixture() {
+        let generator = make(.auto, cloud: false, fm: true)
+        XCTAssertFalse(generator is CloudSentinel)
+        XCTAssertFalse(generator is FixtureStudyDeckGenerator)
     }
 
-    func testAutoNoKeyNoFmUsesFixture() {
-        XCTAssertTrue(make(.auto, key: false, fm: false) is FixtureStudyDeckGenerator)
+    func testAutoNoCloudNoFmIsExplicitlyNil() {
+        XCTAssertNil(make(.auto, cloud: false, fm: false))
     }
 
-    func testCloudNoKeyFixture() {
-        XCTAssertTrue(make(.cloud, key: false, fm: true) is FixtureStudyDeckGenerator)
+    func testCloudPreferenceWithoutProviderIsNilNotFixture() {
+        XCTAssertNil(make(.cloud, cloud: false, fm: true))
     }
 
-    func testOnDeviceNoFmFixture() {
-        XCTAssertTrue(make(.onDevice, key: true, fm: false) is FixtureStudyDeckGenerator)
+    func testCloudPreferenceUsesCloud() {
+        XCTAssertTrue(make(.cloud, cloud: true, fm: false) is CloudSentinel)
     }
 
-    func testCloudWithKeyUsesCloud() {
-        XCTAssertTrue(make(.cloud, key: true, fm: false) is CloudSentinel)
+    func testOnDeviceWithoutFmIsNilEvenWithCloudConfigured() {
+        XCTAssertNil(make(.onDevice, cloud: true, fm: false))
     }
 }

@@ -24,6 +24,13 @@ enum KeychainStore {
         case absRefreshToken
         case absPinnedCertificate
         case anthropicAPIKey
+        // Per-provider AI tokens (`aiProvider.<preset>`). `anthropicAPIKey` is the
+        // legacy single-key account, retained only so migration can read and clear it.
+        case aiProviderAnthropic = "aiProvider.anthropic"
+        case aiProviderDeepSeek = "aiProvider.deepseek"
+        case aiProviderKimi = "aiProvider.kimi"
+        case aiProviderGLM = "aiProvider.glm"
+        case aiProviderCustom = "aiProvider.custom"
     }
 
     #if DEBUG

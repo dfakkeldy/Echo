@@ -9,17 +9,24 @@ nonisolated final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var responses: [(Int, Data)] = []
     /// Extra headers merged into the stubbed HTTPURLResponse. Reset between tests.
     nonisolated(unsafe) static var extraHeaders: [String: String] = [:]
+    /// When set, fail the request instead of responding.
+    nonisolated(unsafe) static var transportError: Error?
 
     /// Clears all stub state. Call at the start of any test that uses `responses`.
     static func reset() {
         handler = nil
         responses = []
         extraHeaders = [:]
+        transportError = nil
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for r: URLRequest) -> URLRequest { r }
     override func startLoading() {
+        if let error = Self.transportError {
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
         let (status, data): (Int, Data)
         if !Self.responses.isEmpty {
             (status, data) = Self.responses.removeFirst()
