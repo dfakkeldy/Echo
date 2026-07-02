@@ -15,6 +15,10 @@ import os.log
 /// metadata. Serves as the single source of truth for the player UI.
 @Observable @MainActor
 final class PlayerModel {
+    static let nowPlayingBottomInset: CGFloat = 230
+    static let compactPlaybackBottomInset: CGFloat = 150
+    static let utilityOnlyBottomInset: CGFloat = 90
+
     // MARK: - Services
 
     let playbackController = PlaybackController()
@@ -118,12 +122,12 @@ final class PlayerModel {
     /// The dynamic bottom clearance required for scrollable views to not be covered by the custom dock.
     var bottomInset: CGFloat {
         if selectedTab == .nowPlaying && folderURL != nil && hasPlaybackContent {
-            return 230.0
+            return Self.nowPlayingBottomInset
         }
         if folderURL != nil && hasPlaybackContent {
-            return 170.0
+            return Self.compactPlaybackBottomInset
         } else {
-            return 90.0
+            return Self.utilityOnlyBottomInset
         }
     }
 

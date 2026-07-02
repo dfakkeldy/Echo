@@ -7,7 +7,7 @@ extension StringProtocol {
     /// Collapses every run of whitespace (spaces, newlines, tabs, NBSP) into a
     /// single space and trims the ends. Publisher XHTML is pretty-printed, so
     /// without this extracted titles and text keep source-file line breaks.
-    func collapsedWhitespace() -> String {
+    nonisolated func collapsedWhitespace() -> String {
         split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

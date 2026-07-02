@@ -111,6 +111,45 @@ struct PDFAutoImportScannerTests {
         #expect(count > 0)
     }
 
+    @Test func alreadyImportedPDFStillIngestsNewAlignmentSidecar() async throws {
+        let (db, folderURL, pdfURL, audiobookID) = try makeFolderWithPDF()
+        defer { cleanup(folderURL: folderURL) }
+
+        let first = await PDFAutoImportScanner.importPDFFile(
+            pdfURL: pdfURL,
+            audiobookID: audiobookID,
+            databaseService: db,
+            chapters: [],
+            duration: 120
+        )
+        #expect(first == true)
+
+        let firstBlockID = try #require(
+            EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).first?.id)
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: AlignmentSidecar.portableSuffix(of: firstBlockID),
+                timestamp: 42.5,
+                confidence: 1.0)
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: pdfURL))
+
+        let second = await PDFAutoImportScanner.importPDFFile(
+            pdfURL: pdfURL,
+            audiobookID: audiobookID,
+            databaseService: db,
+            chapters: [],
+            duration: 120
+        )
+
+        #expect(second == false)
+        let anchors = try AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)
+        #expect(
+            anchors.contains {
+                $0.epubBlockID == firstBlockID && abs($0.audioTime - 42.5) < 0.001
+            })
+    }
+
     @Test func inPageChapterMarkersBecomeSeparateChapters() async throws {
         let db = try DatabaseService(inMemory: ())
         let folderURL = FileManager.default.temporaryDirectory

@@ -125,6 +125,47 @@ struct EPUBAutoImportScannerTests {
             "already-imported guard must report no import so callers skip timeline re-ingestion")
     }
 
+    @Test func alreadyImportedDocumentStillIngestsNewAlignmentSidecar() async throws {
+        let (db, folderURL, epubURL, audiobookID) = try makeAudiobookFolder()
+        defer { cleanup(folderURL: folderURL, audiobookID: audiobookID) }
+
+        let first = await EPUBAutoImportScanner.importEPUBFile(
+            epubURL: epubURL,
+            audiobookID: audiobookID,
+            databaseService: db,
+            chapters: fixtureChapters,
+            duration: 3600
+        )
+        #expect(first == true)
+
+        let firstBlockID = try #require(
+            EPubBlockDAO(db: db.writer).visibleBlocks(for: audiobookID).first?.id)
+        let portableSuffix = AlignmentSidecar.portableSuffix(of: firstBlockID)
+        let sidecar = [
+            AlignmentSidecar.Anchor(blockId: portableSuffix, timestamp: 321.25, confidence: 1.0)
+        ]
+        try JSONEncoder().encode(sidecar).write(
+            to: folderURL.appendingPathComponent("minimal-book.alignment.json"))
+
+        let second = await EPUBAutoImportScanner.importEPUBFile(
+            epubURL: epubURL,
+            audiobookID: audiobookID,
+            databaseService: db,
+            chapters: fixtureChapters,
+            duration: 3600
+        )
+
+        #expect(
+            second == false,
+            "existing EPUB blocks should not be re-imported just to consume a sidecar")
+        let anchors = try AlignmentAnchorDAO(db: db.writer).anchors(for: audiobookID)
+        #expect(
+            anchors.contains {
+                $0.epubBlockID == firstBlockID && abs($0.audioTime - 321.25) < 0.001
+            },
+            "already-imported companion documents must still consume a newly available alignment sidecar")
+    }
+
     @Test func ingestAfterImportCreatesEPUBLinkedTimelineRows() async throws {
         let (db, folderURL, epubURL, audiobookID) = try makeAudiobookFolder()
         defer { cleanup(folderURL: folderURL, audiobookID: audiobookID) }
