@@ -51,6 +51,17 @@ final class StudyCheckpointCoordinator {
 
     @ObservationIgnored private let logger = Logger(category: "StudyCheckpoint")
 
+    private enum PersistenceError: LocalizedError {
+        case flashcardMissing(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .flashcardMissing(let id):
+                "Missing flashcard for checkpoint: \(id)"
+            }
+        }
+    }
+
     init(
         database: DatabaseService,
         settingsProvider: @escaping () -> StudyCheckpointSettings,
@@ -121,24 +132,32 @@ final class StudyCheckpointCoordinator {
 
         switch action {
         case .good:
-            grade(.good, context: context, auto: false, now: now)
-            finish(context: context, replay: false)
+            do {
+                try grade(.good, context: context, auto: false, now: now)
+                finish(context: context, replay: false)
+            } catch {
+                logger.error("Checkpoint grade failed: \(error.localizedDescription)")
+            }
 
         case .again:
-            grade(.again, context: context, auto: false, now: now)
-            finish(
-                context: context,
-                replay: settingsProvider().timeoutBehavior != .gradeAndAdvance
-            )
+            do {
+                try grade(.again, context: context, auto: false, now: now)
+                finish(
+                    context: context,
+                    replay: settingsProvider().timeoutBehavior != .gradeAndAdvance
+                )
+            } catch {
+                logger.error("Checkpoint grade failed: \(error.localizedDescription)")
+            }
 
         case .skip:
             do {
                 try StudyPlaybackQueueService(db: database.writer)
                     .markSkipped(flashcardID: context.flashcardID, now: now)
+                finish(context: context, replay: false)
             } catch {
                 logger.error("Checkpoint skip failed: \(error.localizedDescription)")
             }
-            finish(context: context, replay: false)
         }
     }
 
@@ -148,12 +167,20 @@ final class StudyCheckpointCoordinator {
 
         switch settingsProvider().timeoutBehavior {
         case .replay:
-            grade(.again, context: context, auto: true, now: now)
-            finish(context: context, replay: true)
+            do {
+                try grade(.again, context: context, auto: true, now: now)
+                finish(context: context, replay: true)
+            } catch {
+                logger.error("Checkpoint timeout grade failed: \(error.localizedDescription)")
+            }
 
         case .gradeAndAdvance:
-            grade(.again, context: context, auto: true, now: now)
-            finish(context: context, replay: false)
+            do {
+                try grade(.again, context: context, auto: true, now: now)
+                finish(context: context, replay: false)
+            } catch {
+                logger.error("Checkpoint timeout grade failed: \(error.localizedDescription)")
+            }
 
         case .wait:
             deferBoundary(context: context)
@@ -223,39 +250,37 @@ final class StudyCheckpointCoordinator {
         onCheckpointResolved?()
     }
 
-    private func grade(_ grade: ReviewGrade, context: Context, auto: Bool, now: Date) {
-        do {
-            guard let card = try database.read({
-                try Flashcard.fetchOne($0, key: context.flashcardID)
-            }) else {
-                return
+    private func grade(_ grade: ReviewGrade, context: Context, auto: Bool, now: Date) throws {
+        try database.write { db in
+            guard
+                let result = try FlashcardDAO.grade(
+                    cardID: context.flashcardID,
+                    grade: grade.rawValue,
+                    now: now,
+                    in: db
+                )
+            else {
+                throw PersistenceError.flashcardMissing(context.flashcardID)
             }
 
-            try FlashcardDAO(db: database.writer).grade(
-                cardID: card.id,
-                grade: grade.rawValue,
-                now: now
-            )
-
             let metadataJSON = try FlashcardReviewMetadata(
-                card: card,
+                card: result.original,
                 grade: grade.rawValue,
                 auto: auto ? true : nil
             ).encodedJSONString()
-            try RealTimeEventDAO(db: database.writer).log(
+            try RealTimeEventDAO.log(
                 eventType: RealTimeEventType.flashcardReviewed.rawValue,
-                audiobookID: card.audiobookID,
-                mediaTimestamp: card.mediaTimestamp,
+                audiobookID: result.original.audiobookID,
+                mediaTimestamp: result.original.mediaTimestamp,
                 startedAt: now,
                 endedAt: now,
-                title: card.frontText,
+                title: result.original.frontText,
                 subtitle: auto ? "Grade: \(grade.rawValue) (auto)" : "Grade: \(grade.rawValue)",
                 metadataJSON: metadataJSON,
-                sourceItemID: card.id,
-                sourceItemType: "flashcard"
+                sourceItemID: result.original.id,
+                sourceItemType: "flashcard",
+                in: db
             )
-        } catch {
-            logger.error("Checkpoint grade failed: \(error.localizedDescription)")
         }
     }
 
@@ -300,10 +325,10 @@ final class StudyCheckpointCoordinator {
             }
 
             if let next = step.next {
-                deferredBoundary = nil
                 if let itemID = next.planItemID {
-                    try? StudyPlanDAO(db: database.writer).markIntroduced(itemIDs: [itemID])
+                    try StudyPlanDAO(db: database.writer).markIntroduced(itemIDs: [itemID])
                 }
+                deferredBoundary = nil
                 advance(next)
             } else {
                 announce(String(localized: "That's the end of today's study queue. Nice work."))

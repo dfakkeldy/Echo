@@ -434,7 +434,12 @@ private struct MacSupportSettingsPane: View {
 }
 
 #Preview {
-    MacSettingsView()
-        .environment(SettingsManager())
-        .environment(MacPlayerModel())
+    if let db = try? DatabaseService(inMemory: ()) {
+        MacSettingsView()
+            .environment(SettingsManager())
+            .environment(MacPlayerModel())
+            .environment(db)
+    } else {
+        Text("Preview unavailable")
+    }
 }

@@ -105,11 +105,34 @@ nonisolated struct FlashcardDAO {
         scheduler: some SchedulingAlgorithm = FSRSScheduler()
     ) throws {
         try db.write { db in
-            guard let card = try Flashcard.fetchOne(db, key: cardID) else { return }
-            let updated = scheduler.review(card: card, grade: grade, now: now)
-            try updated.update(db)
-            try Self.syncToTimeline(db, card: updated)
+            _ = try Self.grade(
+                cardID: cardID,
+                grade: grade,
+                now: now,
+                scheduler: scheduler,
+                in: db
+            )
         }
+    }
+
+    struct GradeResult {
+        let original: Flashcard
+        let updated: Flashcard
+    }
+
+    @discardableResult
+    static func grade(
+        cardID: String,
+        grade: Int,
+        now: Date = Date(),
+        scheduler: some SchedulingAlgorithm = FSRSScheduler(),
+        in db: Database
+    ) throws -> GradeResult? {
+        guard let card = try Flashcard.fetchOne(db, key: cardID) else { return nil }
+        let updated = scheduler.review(card: card, grade: grade, now: now)
+        try updated.update(db)
+        try syncToTimeline(db, card: updated)
+        return GradeResult(original: card, updated: updated)
     }
 
     static func insert(_ card: Flashcard, in db: Database) throws {

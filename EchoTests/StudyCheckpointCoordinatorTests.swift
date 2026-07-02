@@ -63,15 +63,50 @@ struct StudyCheckpointCoordinatorTests {
         in service: DatabaseService,
         book: String = "Book A"
     ) throws -> Flashcard {
+        try card(frontText: "\(book) Chapter 1", in: service)
+    }
+
+    private func card(frontText: String, in service: DatabaseService) throws -> Flashcard {
         let id = try #require(
             try service.read { db in
                 try String.fetchOne(
                     db,
                     sql: "SELECT id FROM flashcard WHERE front_text = ?",
-                    arguments: ["\(book) Chapter 1"]
+                    arguments: [frontText]
                 )
             })
         return try #require(try service.read { db in try Flashcard.fetchOne(db, key: id) })
+    }
+
+    private func deleteFlashcard(_ id: String, in service: DatabaseService) throws {
+        try service.write { db in
+            _ = try Flashcard.deleteOne(db, key: id)
+        }
+    }
+
+    private func forceFlashcardUpdateFailure(in service: DatabaseService) throws {
+        try service.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_flashcard_update
+                BEFORE UPDATE ON flashcard
+                BEGIN
+                    SELECT RAISE(FAIL, 'forced flashcard update failure');
+                END
+                """)
+        }
+    }
+
+    private func forceStudyPlanIntroductionFailure(in service: DatabaseService) throws {
+        try service.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_study_plan_introduction
+                BEFORE UPDATE OF introduced_at ON study_plan_item
+                WHEN NEW.introduced_at IS NOT NULL
+                BEGIN
+                    SELECT RAISE(FAIL, 'forced study plan introduction failure');
+                END
+                """)
+        }
     }
 
     @Test func seekAcrossTheBoundaryDoesNotArm() throws {
@@ -145,6 +180,49 @@ struct StudyCheckpointCoordinatorTests {
         #expect(graded.repetitions == 1)
         #expect(h.coordinator.state == .idle)
         #expect(h.advanced.map(\.title) == ["Book A Chapter 2"])
+    }
+
+    @Test func missingCardDoesNotResolveOrAdvance() throws {
+        let h = try harness()
+        let card = try chapterOneCard(in: h.service)
+        h.coordinator.handleChapterEnd(
+            audiobookID: "book-a",
+            chapterIndex: 0,
+            naturalEnd: true
+        )
+        try deleteFlashcard(card.id, in: h.service)
+
+        h.coordinator.resolve(.good, now: StudyQueueFixtures.mondayNoon)
+
+        #expect(h.advanced.isEmpty)
+        #expect(h.replayCount == 0)
+        guard case .checkpointActive(let context) = h.coordinator.state else {
+            Issue.record("Failed grade persistence should leave the checkpoint active")
+            return
+        }
+        #expect(context.flashcardID == card.id)
+    }
+
+    @Test func gradeWriteFailureDoesNotResolveOrAdvance() throws {
+        let h = try harness()
+        let card = try chapterOneCard(in: h.service)
+        h.coordinator.handleChapterEnd(
+            audiobookID: "book-a",
+            chapterIndex: 0,
+            naturalEnd: true
+        )
+        try forceFlashcardUpdateFailure(in: h.service)
+
+        h.coordinator.resolve(.good, now: StudyQueueFixtures.mondayNoon)
+
+        let unchanged = try #require(
+            try h.service.read { db in try Flashcard.fetchOne(db, key: card.id) })
+        #expect(unchanged.lastGrade == nil)
+        #expect(h.advanced.isEmpty)
+        guard case .checkpointActive = h.coordinator.state else {
+            Issue.record("Failed grade write should leave the checkpoint active")
+            return
+        }
     }
 
     @Test func goodWithAutoAdvanceOffStaysPut() throws {
@@ -340,6 +418,28 @@ struct StudyCheckpointCoordinatorTests {
         #expect(h.advanced.map(\.title) == ["Book A Chapter 2"])
     }
 
+    @Test func skipWriteFailureDoesNotResolveOrAdvance() throws {
+        let h = try harness()
+        let card = try chapterOneCard(in: h.service)
+        h.coordinator.handleChapterEnd(
+            audiobookID: "book-a",
+            chapterIndex: 0,
+            naturalEnd: true
+        )
+        try forceFlashcardUpdateFailure(in: h.service)
+
+        h.coordinator.resolve(.skip, now: StudyQueueFixtures.mondayNoon)
+
+        let unchanged = try #require(
+            try h.service.read { db in try Flashcard.fetchOne(db, key: card.id) })
+        #expect(unchanged.nextReviewDate == nil)
+        #expect(h.advanced.isEmpty)
+        guard case .checkpointActive = h.coordinator.state else {
+            Issue.record("Failed skip write should leave the checkpoint active")
+            return
+        }
+    }
+
     @Test func ineligibleSkipIsIgnored() throws {
         let h = try harness()
         let card = try chapterOneCard(in: h.service)
@@ -398,6 +498,33 @@ struct StudyCheckpointCoordinatorTests {
             )
         #expect(!flagged.isEmpty)
         _ = bookACh2
+    }
+
+    @Test func nextItemIntroductionFailureDoesNotAdvance() throws {
+        let h = try harness()
+        let current = try chapterOneCard(in: h.service)
+        let next = try card(frontText: "Book A Chapter 2", in: h.service)
+        h.coordinator.handleChapterEnd(
+            audiobookID: "book-a",
+            chapterIndex: 0,
+            naturalEnd: true
+        )
+        try forceStudyPlanIntroductionFailure(in: h.service)
+
+        h.coordinator.resolve(.good, now: StudyQueueFixtures.mondayNoon)
+
+        let graded = try #require(
+            try h.service.read { db in try Flashcard.fetchOne(db, key: current.id) })
+        #expect(graded.lastGrade == 3)
+        #expect(h.advanced.isEmpty)
+        let introducedAt = try h.service.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT introduced_at FROM study_plan_item WHERE flashcard_id = ?",
+                arguments: [next.id]
+            )
+        }
+        #expect(introducedAt == nil)
     }
 
     @Test func countdownSuspendAndResumeSurviveAnInterruption() throws {

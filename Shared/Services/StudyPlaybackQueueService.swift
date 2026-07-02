@@ -7,6 +7,20 @@ import GRDB
 struct StudyPlaybackQueueService {
     let db: DatabaseWriter
 
+    enum PersistenceError: LocalizedError {
+        case flashcardMissing(String)
+        case nextReviewDateUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .flashcardMissing(let id):
+                "Missing flashcard for study playback item: \(id)"
+            case .nextReviewDateUnavailable:
+                "Could not calculate the next review date."
+            }
+        }
+    }
+
     /// The next playable item after a cursor, plus every unplayable item that
     /// was passed over on the way.
     struct Advance: Equatable, Sendable {
@@ -57,38 +71,42 @@ struct StudyPlaybackQueueService {
         now: Date = Date(),
         calendar: Calendar = .current
     ) throws {
-        guard let card = try db.read({ try Flashcard.fetchOne($0, key: flashcardID) }),
-              let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) else {
-            return
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) else {
+            throw PersistenceError.nextReviewDateUnavailable
         }
 
         let nowString = now.ISO8601Format()
         try db.write { db in
+            guard let card = try Flashcard.fetchOne(db, key: flashcardID) else {
+                throw PersistenceError.flashcardMissing(flashcardID)
+            }
+
             try db.execute(
                 sql: "UPDATE flashcard SET next_review_date = ?, modified_at = ? WHERE id = ?",
                 arguments: [tomorrow.ISO8601Format(), nowString, flashcardID]
             )
+
+            let metadataJSON = try FlashcardReviewMetadata(
+                cardID: card.id,
+                grade: 0,
+                intervalDays: card.intervalDays,
+                skipped: true
+            ).encodedJSONString()
+
+            try RealTimeEventDAO.log(
+                eventType: StudyCheckpointEventType.chapterSkipped,
+                audiobookID: card.audiobookID,
+                mediaTimestamp: card.mediaTimestamp,
+                startedAt: now,
+                endedAt: now,
+                title: card.frontText,
+                subtitle: "Skipped",
+                metadataJSON: metadataJSON,
+                sourceItemID: card.id,
+                sourceItemType: "flashcard",
+                in: db
+            )
         }
-
-        let metadataJSON = try FlashcardReviewMetadata(
-            cardID: card.id,
-            grade: 0,
-            intervalDays: card.intervalDays,
-            skipped: true
-        ).encodedJSONString()
-
-        try RealTimeEventDAO(db: db).log(
-            eventType: StudyCheckpointEventType.chapterSkipped,
-            audiobookID: card.audiobookID,
-            mediaTimestamp: card.mediaTimestamp,
-            startedAt: now,
-            endedAt: now,
-            title: card.frontText,
-            subtitle: "Skipped",
-            metadataJSON: metadataJSON,
-            sourceItemID: card.id,
-            sourceItemType: "flashcard"
-        )
     }
 
     /// Skip is offered only when the chapter has no enabled user-created cards.
