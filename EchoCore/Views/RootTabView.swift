@@ -298,6 +298,9 @@ struct RootTabView: View {
                 .ignoresSafeArea(.container, edges: .bottom)
             }
         }
+        .overlay(alignment: .bottom) {
+            checkpointOverlay
+        }
         // NOTE: the player/background layers ignore the safe area themselves
         // (AdaptiveBackground + the systemBackground fill), so the ZStack no
         // longer needs a blanket `.ignoresSafeArea(.bottom)`. Dropping it lets
@@ -551,6 +554,19 @@ struct RootTabView: View {
                 }
             }
         )
+    }
+
+    /// The end-of-chapter grade window (design 3.3). Bottom-anchored so the
+    /// player chrome stays visible behind it; renders nothing while idle.
+    @ViewBuilder
+    private var checkpointOverlay: some View {
+        if let coordinator = model.checkpointCoordinator,
+            case .checkpointActive = coordinator.state
+        {
+            StudyCheckpointPanelView(coordinator: coordinator)
+                .padding(.bottom, 96)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     private func beginDocumentImport(with result: Result<[URL], Error>) {

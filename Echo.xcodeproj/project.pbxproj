@@ -267,6 +267,7 @@
 				Views/SpeedCardView.swift,
 				Views/SpeedSuggestionBanner.swift,
 				Views/StandaloneTranscriptView.swift,
+				Views/StudyCheckpointPanelView.swift,
 				Views/Stats/BookStatsView.swift,
 				Views/Stats/DeckDetailView.swift,
 				Views/Stats/DeckListView.swift,
