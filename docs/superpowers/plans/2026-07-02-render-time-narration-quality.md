@@ -17,6 +17,14 @@
 - Preserve one `.synthesized` anchor per original speakable EPUB block; section-break silence must not create a fake text anchor.
 - Run focused Swift Testing slices first, then `make build-tests`, then a macOS `echo-cli` build when code touches shared narration services.
 
+## TDD Completeness Contract
+
+- Each implementation task starts with a failing Swift Testing slice and states the expected failure before production code is added.
+- Each production-code step includes concrete signatures or code blocks for the new or changed API.
+- Each task ends with focused green tests and a scoped commit command.
+- Follow-up tasks are real implementation slices, not placeholders; skip a task only by removing it from the plan in a review commit.
+- Any CLI/reporting work in this plan is local-only and must be backed by a failing test before wiring.
+
 ---
 
 ## File Structure
@@ -762,17 +770,79 @@ Add tests proving that many short words can merge past 200 chars when phoneme bu
 
 - [ ] **Step 2: Add the new API while preserving the old API**
 
-In `NarrationTextChunker`, add:
+In `EchoCore/Services/Narration/NarrationTextChunker.swift`, add the phoneme-budget API beside the existing character-budget API. Keep `split(_:maxChars:)` unchanged so Tasks 1-4 remain behavior-preserving.
 
 ```swift
 static func splitByEstimatedPhonemes(
     _ text: String,
     maxPhonemes: Int = 420,
     phonemeCount: (String) -> Int
-) -> [String]
+) -> [String] {
+    guard maxPhonemes > 0 else { return [] }
+    let normalized = text.split(whereSeparator: { $0.isWhitespace })
+        .joined(separator: " ")
+    guard !normalized.isEmpty else { return [] }
+
+    let units = splitIntoSentences(normalized, maxChars: Int.max)
+    let pieces = mergeByPhonemeBudget(units, maxPhonemes: maxPhonemes, phonemeCount: phonemeCount)
+        .flatMap { unit -> [String] in
+            if phonemeCount(unit) <= maxPhonemes { return [unit] }
+            return wrapByWords(unit, maxPhonemes: maxPhonemes, phonemeCount: phonemeCount)
+        }
+    return pieces.filter { chunk in
+        let speakable = chunk.filter { $0.isLetter || $0.isNumber }
+        return !speakable.isEmpty
+    }
+}
+
+private static func mergeByPhonemeBudget(
+    _ units: [String],
+    maxPhonemes: Int,
+    phonemeCount: (String) -> Int
+) -> [String] {
+    var merged: [String] = []
+    for unit in units {
+        guard let last = merged.last else {
+            merged.append(unit)
+            continue
+        }
+        let candidate = last + " " + unit
+        if phonemeCount(candidate) <= maxPhonemes {
+            merged[merged.count - 1] = candidate
+        } else {
+            merged.append(unit)
+        }
+    }
+    return merged
+}
+
+private static func wrapByWords(
+    _ text: String,
+    maxPhonemes: Int,
+    phonemeCount: (String) -> Int
+) -> [String] {
+    var pieces: [String] = []
+    var current = ""
+    for word in text.split(separator: " ") {
+        let w = String(word)
+        if current.isEmpty {
+            current = w
+            continue
+        }
+        let candidate = current + " " + w
+        if phonemeCount(candidate) <= maxPhonemes {
+            current = candidate
+        } else {
+            pieces.append(current)
+            current = w
+        }
+    }
+    if !current.isEmpty { pieces.append(current) }
+    return pieces
+}
 ```
 
-Use the existing sentence/clause/word-boundary strategy, but replace `piece.count <= maxChars` decisions with `phonemeCount(piece) <= maxPhonemes`. Keep `split(_:maxChars:)` as a wrapper around the current behavior until every caller has moved.
+This implementation deliberately does not hard-split a single word or pronunciation link. If one token exceeds `maxPhonemes`, the engine-level length-cap and quality retry path from Task 3 remains the safety net; splitting IPA links would create worse audio.
 
 - [ ] **Step 3: Expose a G2P estimate helper**
 
@@ -788,22 +858,42 @@ Record the focused test runtime and render-plan timing after this task. Add cach
 
 - [ ] **Step 4: Move the render planner to phoneme-budget chunking**
 
-In `NarrationRenderPlanner.make`, replace:
+In `NarrationRenderPlanner.make`, add a `phonemeCount` dependency with a conservative default and use it for speech segmentation. This avoids constructing `KokoroG2P()` inside the pure planner and gives tests a deterministic seam.
+
+```swift
+static func make(
+    blocks: [EPubBlockRecord],
+    overrides: PronunciationOverrides,
+    maxChars: Int = 350,
+    maxPhonemes: Int = 420,
+    phonemeCount: (String) -> Int = { $0.count }
+) -> NarrationRenderPlan
+```
+
+Then replace:
 
 ```swift
 let speech = NarrationTextChunker.split(rewritten, maxChars: maxChars)
 ```
 
-with a dependency-injected closure:
+with:
 
 ```swift
 let speech = NarrationTextChunker.splitByEstimatedPhonemes(
     rewritten,
-    maxPhonemes: 420,
-    phonemeCount: KokoroG2P().phonemeCount(for:))
+    maxPhonemes: maxPhonemes,
+    phonemeCount: phonemeCount)
 ```
 
-Before merging this task, run one local render-plan profiling pass on a large chapter. If repeated `KokoroG2P()` construction is measurable, change `make(...)` in this same task to accept `phonemeCount: (String) -> Int` with a default estimator and pass a cached helper from `NarrationService`.
+In `NarrationService.renderChapter`, create the G2P helper once per chapter before building the plan:
+
+```swift
+let g2p = KokoroG2P()
+let plan = NarrationRenderPlanner.make(
+    blocks: blocks,
+    overrides: overrides,
+    phonemeCount: g2p.phonemeCount(for:))
+```
 
 - [ ] **Step 5: Run chunking and render-plan tests**
 
@@ -903,11 +993,73 @@ struct NarrationSynthesisTiming: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 3: Capture timing in `NarrationService`**
+- [ ] **Step 3: Write failing service integration test**
 
-While rendering each planned block, accumulate `NarrationSynthesisTiming` for every speech chunk and planned silence. Use `blockEnd` for anchor `audioEndTime`. Store the `speechRanges` in a local dictionary keyed by block ID for the next step.
+Append to `EchoTests/NarrationServiceTests.swift`:
 
-- [ ] **Step 4: Add a materializer entry point for synthesis ranges**
+```swift
+@Test func synthesizedWordTimingUsesSpeechRangesNotPauseGaps() async throws {
+    let db = try DatabaseService(inMemory: ())
+    let blocks = try seed(db, ["First words.", "* * *", "Second words."])
+    let svc = makeService(
+        db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+    try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+    let firstRows = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1", blockID: "blk0")
+    let secondRows = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1", blockID: "blk2")
+
+    #expect(firstRows.isEmpty == false)
+    #expect(secondRows.isEmpty == false)
+    #expect(firstRows.map(\.audioEndTime).max()! < secondRows.map(\.audioStartTime).min()!)
+    #expect(firstRows.map(\.source).allSatisfy { $0 == "synthesized" })
+}
+```
+
+Run: `make build-tests && make test-only FILTER=EchoTests/NarrationServiceTests`
+
+Expected: fail because `NarrationService` still calls `materializeChapter(...)`, which writes interpolated rows without synthesis-range source metadata.
+
+- [ ] **Step 4: Capture timing in `NarrationService`**
+
+Inside `renderChapter`, before the planned-block loop, add:
+
+```swift
+var speechRangesByBlock: [String: [NarrationSpeechRange]] = [:]
+```
+
+Inside each planned block, add:
+
+```swift
+var timing = NarrationSynthesisTiming(blockID: plannedBlock.blockID, blockStart: cursor)
+```
+
+When appending each accepted speech chunk, replace:
+
+```swift
+try await stream.append(chunk)
+blockDuration += chunk.duration
+```
+
+with:
+
+```swift
+try await stream.append(chunk)
+timing.appendSpeech(text: subText, duration: chunk.duration)
+blockDuration += chunk.duration
+```
+
+After a successful speech block, before advancing to the next planned block, persist the ranges:
+
+```swift
+if timing.speechRanges.isEmpty == false {
+    speechRangesByBlock[plannedBlock.blockID] = timing.speechRanges
+}
+```
+
+When appending planned silence, keep the global cursor behavior from Task 2. Do not add planned silence to `timing`; silence belongs between blocks, not inside a speakable block's word timing.
+
+- [ ] **Step 5: Add a materializer entry point for synthesis ranges**
 
 Add a new method to `WordTimingMaterializer`:
 
@@ -919,13 +1071,72 @@ static func materializeSynthesizedChapter(
 ) throws
 ```
 
-The method deletes rows for the provided block IDs, then interpolates words inside each block using only that block's speech ranges. If a block has multiple speech ranges, split the block words across ranges by normalized word count per range. Insert rows with `source: "synthesized"` and `confidence: 0.7`.
+Implement it with this structure:
 
-- [ ] **Step 5: Switch narration rendering to the synthesis-specific materializer**
+```swift
+static func materializeSynthesizedChapter(
+    audiobookID: String,
+    speechRangesByBlock: [String: [NarrationSpeechRange]],
+    writer: DatabaseWriter
+) throws {
+    let blockIDs = Array(speechRangesByBlock.keys)
+    guard !blockIDs.isEmpty else { return }
+    let dao = WordTimingDAO(db: writer)
+    try dao.deleteAll(forAudiobook: audiobookID, blockIDs: blockIDs)
 
-In `NarrationService.renderChapter`, replace `WordTimingMaterializer.materializeChapter(...)` with `materializeSynthesizedChapter(...)` when `speechRangesByBlock` is nonempty. Keep `materializeChapter(...)` as fallback for imported/auto-aligned audio and existing tests.
+    var records: [WordTimingRecord] = []
+    for (blockID, ranges) in speechRangesByBlock {
+        for (rangeIndex, range) in ranges.enumerated() {
+            let words = WordTokenizer.words(in: range.text)
+            guard words.isEmpty == false else { continue }
+            for interpolated in WordTimingInterpolator.interpolate(
+                text: range.text,
+                blockStart: range.start,
+                blockEnd: range.end)
+            {
+                records.append(
+                    WordTimingRecord(
+                        audiobookID: audiobookID,
+                        epubBlockID: blockID,
+                        wordIndex: rangeIndex * 10_000 + interpolated.index,
+                        word: interpolated.word,
+                        audioStartTime: interpolated.start,
+                        audioEndTime: interpolated.end,
+                        confidence: 0.7,
+                        source: "synthesized"))
+            }
+        }
+    }
+    try dao.insert(records)
+}
+```
 
-- [ ] **Step 6: Run timing tests**
+Use the existing shared `WordTokenizer.words(in:)` from `Shared/WordTokenizer.swift`; do not duplicate tokenization logic in this task.
+
+- [ ] **Step 6: Switch narration rendering to the synthesis-specific materializer**
+
+In `NarrationService.renderChapter`, replace:
+
+```swift
+try WordTimingMaterializer.materializeChapter(
+    audiobookID: audiobookID, blockIDs: speakableBlockIDs, writer: db)
+```
+
+with:
+
+```swift
+if speechRangesByBlock.isEmpty {
+    try WordTimingMaterializer.materializeChapter(
+        audiobookID: audiobookID, blockIDs: speakableBlockIDs, writer: db)
+} else {
+    try WordTimingMaterializer.materializeSynthesizedChapter(
+        audiobookID: audiobookID,
+        speechRangesByBlock: speechRangesByBlock,
+        writer: db)
+}
+```
+
+- [ ] **Step 7: Run timing tests**
 
 Run:
 
@@ -938,7 +1149,7 @@ make test-only FILTER=EchoTests/NarrationServiceTests
 
 Expected: word timing for generated narration no longer stretches through pauses, and per-word read-along remains monotonic.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add EchoCore/Services/Narration/NarrationSynthesisTiming.swift EchoCore/Services/Narration/NarrationService.swift EchoCore/Services/WordTimingMaterializer.swift EchoTests/NarrationSynthesisTimingTests.swift EchoTests/WordTimingMaterializerTests.swift EchoTests/NarrationServiceTests.swift
@@ -953,7 +1164,6 @@ git commit -m "feat(narration): materialize word timing from synthesis ranges"
 - Create: `EchoCore/Services/Narration/NarrationPronunciationPreflight.swift`
 - Test: `EchoTests/NarrationPronunciationPreflightTests.swift`
 - Modify: `EchoCore/Services/Narration/KokoroG2P.swift`
-- Future UI after scanner: `EchoCore/Views/PronunciationDictionaryView.swift`
 
 **Interfaces:**
 - Consumes: normalized block text, `PronunciationOverrides`, `KokoroG2P`.
@@ -1056,33 +1266,67 @@ enum NarrationPronunciationPreflight {
 }
 ```
 
-- [ ] **Step 3: Add real-G2P entry point**
+- [ ] **Step 3: Add real-G2P entry point and JSON report model**
 
-Use it from a service/controller with:
+Add the real-G2P call site as a pure helper in `NarrationPronunciationPreflight`:
 
 ```swift
-let g2p = KokoroG2P()
-let candidates = NarrationPronunciationPreflight.scan(
-    texts: blocks.compactMap(\.text),
-    overrides: pronunciationOverrides(),
-    phonemes: g2p.phonemes(for:))
+static func scan(
+    blocks: [EPubBlockRecord],
+    overrides: PronunciationOverrides,
+    g2p: KokoroG2P = KokoroG2P()
+) -> [NarrationPronunciationCandidate] {
+    scan(
+        texts: blocks.compactMap(\.text),
+        overrides: overrides,
+        phonemes: g2p.phonemes(for:))
+}
 ```
 
 Do not automatically write candidates into `PronunciationOverrideStore`. The first shipping shape is a report/list for review.
 
-- [ ] **Step 4: Add a local-only output path if running headless**
+- [ ] **Step 4: Add failing JSON encoding test**
 
-If wiring this into `echo-cli`, write a JSON report beside generated local artifacts, never into git:
+Append to `EchoTests/NarrationPronunciationPreflightTests.swift`:
 
-```json
-[
-  {"word":"Xcode","reasons":["emptyPhonemes","properNoun"],"occurrenceCount":4}
-]
+```swift
+@Test func candidatesEncodeAsStableLocalReportJSON() throws {
+    let candidates = [
+        NarrationPronunciationCandidate(
+            word: "Xcode",
+            reasons: [.emptyPhonemes, .properNoun],
+            occurrenceCount: 4)
+    ]
+
+    let data = try NarrationPronunciationPreflight.encodeReport(candidates)
+    let json = String(decoding: data, as: UTF8.self)
+
+    #expect(json.contains(#""word" : "Xcode""#))
+    #expect(json.contains(#""occurrenceCount" : 4"#))
+    #expect(json.contains("emptyPhonemes"))
+    #expect(json.contains("properNoun"))
+}
 ```
 
-Add the generated filename to `.gitignore` only if the CLI writes it into repo-adjacent folders. Use a narrow pattern such as `*.pronunciation-candidates.json`.
+Run: `make build-tests && make test-only FILTER=EchoTests/NarrationPronunciationPreflightTests`
 
-- [ ] **Step 5: Run preflight tests**
+Expected: fail because `encodeReport(_:)` does not exist yet.
+
+- [ ] **Step 5: Add local-only JSON report encoding**
+
+Make `NarrationPronunciationCandidate` conform to `Codable` and add:
+
+```swift
+static func encodeReport(_ candidates: [NarrationPronunciationCandidate]) throws -> Data {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    return try encoder.encode(candidates)
+}
+```
+
+This task stops at the pure report encoder. CLI file writing is out of scope here because it needs command-line UX, destination selection, and `.gitignore` policy.
+
+- [ ] **Step 6: Run preflight tests**
 
 Run:
 
@@ -1094,7 +1338,7 @@ make test-only FILTER=EchoTests/PronunciationOverridesTests
 
 Expected: preflight and override tests pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add EchoCore/Services/Narration/NarrationPronunciationPreflight.swift EchoTests/NarrationPronunciationPreflightTests.swift
@@ -1108,7 +1352,6 @@ git commit -m "feat(narration): scan pronunciation candidates before render"
 **Files:**
 - Modify: `ARCHITECTURE.md`
 - Modify: `CHANGELOG.md`
-- Optional: `docs/superpowers/reports/YYYY-MM-DD-narration-render-quality.md`
 
 **Interfaces:**
 - Consumes: the completed tasks above.
