@@ -215,13 +215,20 @@ final class NarrationService {
         renderedTexts.reserveCapacity(spoken.count)
         for block in spoken {
             let normalized = TextNormalizer.normalize(block.text ?? "")
-            renderedTexts.append(overrides.apply(to: normalized))
+            renderedTexts.append(Self.renderedText(fromNormalized: normalized, overrides: overrides))
         }
         return NarrationFileNaming.contentSignature(
             spokenBlocks: spoken,
             renderedTexts: renderedTexts,
             includeLeadOutPad: includeLeadOutPad,
             normalizationMode: normalizationMode)
+    }
+
+    private static func renderedText(
+        fromNormalized normalized: String,
+        overrides: PronunciationOverrides
+    ) -> String {
+        HomographPronunciationResolver.apply(to: overrides.apply(to: normalized))
     }
 
     private func normalizationMode(fmEnabled: Bool) -> String {
@@ -569,7 +576,7 @@ final class NarrationService {
                     )
                 }
             }
-            let text = overrides.apply(to: refined)
+            let text = Self.renderedText(fromNormalized: refined, overrides: overrides)
 
             // Bound each synthesize call under Kokoro's ~510-phoneme context window
             // (see NarrationTextChunker for the budget). One anchor per ORIGINAL
