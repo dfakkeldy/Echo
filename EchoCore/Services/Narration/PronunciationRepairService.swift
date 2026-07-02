@@ -3,8 +3,10 @@ import Foundation
 import GRDB
 import os.log
 
-/// Scope for a pronunciation fix: a specific book or the global dictionary.
+/// Scope for a pronunciation fix: one source occurrence, a specific book, or the
+/// global dictionary.
 enum FixScope: Equatable {
+    case occurrence
     case book(String)
     case global
 }
@@ -13,6 +15,7 @@ enum FixScope: Equatable {
 enum NarrationRepairError: Error, Equatable, LocalizedError {
     case noUsableFix
     case sourceChapterUnavailable
+    case sourceOccurrenceUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +23,8 @@ enum NarrationRepairError: Error, Equatable, LocalizedError {
             "This issue has no usable pronunciation fix."
         case .sourceChapterUnavailable:
             "The source chapter for this issue could not be found."
+        case .sourceOccurrenceUnavailable:
+            "The source word position for this issue could not be found."
         }
     }
 }
@@ -102,6 +107,20 @@ final class PronunciationRepairService {
 
         // 2. Write the override in the chosen scope.
         switch scope {
+        case .occurrence:
+            guard let blockID = issue.sourceBlockID,
+                let wordStart = issue.sourceWordStart,
+                let wordEnd = issue.sourceWordEnd
+            else {
+                throw NarrationRepairError.sourceOccurrenceUnavailable
+            }
+            try store.setOccurrence(
+                word: word,
+                ipa: ipa,
+                forBookID: issue.audiobookID,
+                blockID: blockID,
+                wordStart: wordStart,
+                wordEnd: wordEnd)
         case .book(let bookID):
             try store.set(word: word, ipa: ipa, forBookID: bookID)
         case .global:

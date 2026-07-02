@@ -77,6 +77,9 @@
                 state: narrationPlaybackState,
                 pronunciationOverrides: {
                     PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+                },
+                pronunciationOccurrenceOverrides: {
+                    PronunciationOverrideStore.shared.occurrenceOverrides(forBookID: audiobookID)
                 })
 
             narrationRenderTask = Task { [weak self] in

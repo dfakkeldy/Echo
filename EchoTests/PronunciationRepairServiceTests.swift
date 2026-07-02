@@ -120,6 +120,49 @@ import Testing
     }
 
     @MainActor
+    @Test func applyFixOccurrenceScopeWritesOccurrenceOverrideAndResolvesIssue() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "file:///Books/Dune/"
+        let blockID = "epub-\(bookID)-s0-b0"
+        try seedBlock(audiobookID: bookID, blockID: blockID, chapterIndex: 3, db: db)
+        let issue = try issueWithFix(
+            id: "iss-occurrence",
+            audiobookID: bookID,
+            blockID: blockID,
+            expectedText: "Content")
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        try issueDAO.insert([issue])
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = PronunciationOverrideStore(directory: tmp)
+        var renderedChapters: [Int] = []
+        var reQAChapters: [Int] = []
+        let svc = PronunciationRepairService(
+            store: store,
+            issueDAO: issueDAO,
+            db: db.writer,
+            cacheDirectory: tmp,
+            voice: VoiceCatalog.default.id,
+            renderChapter: { renderedChapters.append($0) },
+            reRunQA: { reQAChapters.append($0) })
+
+        try await svc.applyFix(issue: issue, scope: .occurrence)
+
+        let occurrence = store.occurrenceOverrides(forBookID: bookID)
+            .apply(to: "Hello Content.", blockID: blockID)
+        #expect(occurrence == "Hello [Content](/ɑˈɹɑːkɪs/).")
+        #expect(store.overrides(forBookID: bookID).entries["Content"] == nil)
+        #expect(renderedChapters == [3])
+        #expect(reQAChapters == [3])
+        #expect(
+            try issueDAO.issues(for: bookID, status: NarrationQAIssueStatus.open.rawValue)
+                .isEmpty)
+    }
+
+    @MainActor
     @Test func applyFixDoesNotResolveIssueWhenRenderFails() async throws {
         struct RenderFailure: Error {}
 

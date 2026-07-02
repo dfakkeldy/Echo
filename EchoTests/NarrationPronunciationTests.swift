@@ -42,11 +42,12 @@ import Testing
 
     @Test func builtInDefaultsCoverReportedKokoroMispronunciations() {
         let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
-            to: "Xcode fixed the timeframe and re-rendered the chapter.")
+            to: "Xcode fixed the timeframe, re-rendered the chapter, and opened Assets.xcassets.")
 
         #expect(out.contains("[Xcode](/ˈɛks kˈOd/)"))
         #expect(out.contains("[timeframe](/tˈImfɹˌAm/)"))
         #expect(out.contains("[re](/ɹi/)-rendered"))
+        #expect(out.contains("[xcassets](/ˈɛks sˈi ˈæsˌɛts/)"))
     }
 
     @Test func builtInReDefaultDoesNotRewriteCommonReWords() {
@@ -79,12 +80,13 @@ import Testing
 
     @Test func reportedKokoroMispronunciationsReachG2PAsExactPhonemes() {
         let text = PronunciationOverrides.withBuiltInDefaults([:]).apply(
-            to: "Xcode fixed the timeframe and re-rendered the chapter.")
+            to: "Xcode fixed the timeframe, re-rendered the chapter, and opened Assets.xcassets.")
         let phonemes = KokoroG2P().phonemes(for: text)
 
         #expect(phonemes.contains("ˈɛks kˈOd"))
         #expect(phonemes.contains("tˈImfɹˌAm"))
         #expect(phonemes.contains("ɹi ɹˈɛndəɹd"))
+        #expect(phonemes.contains("ˈɛks sˈi ˈæsˌɛts"))
     }
 
     @Test func userEntryOverridesBuiltInDefault() {

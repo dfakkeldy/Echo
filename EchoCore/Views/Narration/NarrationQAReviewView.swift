@@ -3,8 +3,8 @@ import Foundation
 import SwiftUI
 
 /// Per-book narration-QA review list: each row shows the source text, what the
-/// transcriber heard, the issue label, and ignore/resolve actions. Override +
-/// regenerate actions arrive in M4. iOS-only (excluded from macOS/echo-cli).
+/// transcriber heard, the issue label, ignore/resolve actions, and accepted
+/// pronunciation fixes. iOS-only (excluded from macOS/echo-cli).
 struct NarrationQAReviewView: View {
     @State private var model: NarrationQAReviewModel
     @State private var isRunning = false
@@ -61,6 +61,11 @@ struct NarrationQAReviewView: View {
             titleVisibility: .visible
         ) {
             if let issue = pendingPronunciationFix {
+                if hasSourceOccurrence(issue) {
+                    Button("This Occurrence") {
+                        applyPronunciationFix(issue, scope: .occurrence)
+                    }
+                }
                 Button("This Book") {
                     applyPronunciationFix(issue, scope: .book(issue.audiobookID))
                 }
@@ -101,6 +106,10 @@ struct NarrationQAReviewView: View {
             fix.ipa?.isEmpty == false
         else { return false }
         return true
+    }
+
+    private func hasSourceOccurrence(_ issue: NarrationQualityIssueRecord) -> Bool {
+        issue.sourceBlockID != nil && issue.sourceWordStart != nil && issue.sourceWordEnd != nil
     }
 
     private func applyPronunciationFix(_ issue: NarrationQualityIssueRecord, scope: FixScope) {
