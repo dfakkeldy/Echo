@@ -254,6 +254,12 @@ struct Echo_macOSApp: App {
                 }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
 
+                Button("Study Plan…") {
+                    NotificationCenter.default.post(name: .requestStudyPlan, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(!player.hasMedia || player.audiobookID == nil)
+
                 Button("Generate Study Deck…") {
                     NotificationCenter.default.post(name: .requestGenerateStudyDeck, object: nil)
                 }
@@ -564,6 +570,7 @@ extension Notification.Name {
     static let requestNarrateEPUBs = Notification.Name("com.echo.requestNarrateEPUBs")
     static let requestDailyReview = Notification.Name("com.echo.requestDailyReview")
     static let requestCardInbox = Notification.Name("com.echo.requestCardInbox")
+    static let requestStudyPlan = Notification.Name("com.echo.requestStudyPlan")
     static let requestAudiobookshelf = Notification.Name("com.echo.requestAudiobookshelf")
     static let requestGenerateStudyDeck = Notification.Name("com.echo.requestGenerateStudyDeck")
     static let requestImportDeck = Notification.Name("com.echo.requestImportDeck")

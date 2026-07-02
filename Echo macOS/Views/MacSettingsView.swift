@@ -31,6 +31,11 @@ struct MacSettingsView: View {
                     Label("AI", systemImage: "sparkles")
                 }
 
+            MacStudySettingsPane()
+                .tabItem {
+                    Label("Study", systemImage: "rectangle.stack.badge.play")
+                }
+
             MacSupportSettingsPane()
                 .tabItem {
                     Label("Support", systemImage: "questionmark.circle")
@@ -92,6 +97,62 @@ private struct MacAppearanceSettingsPane: View {
         } else {
             Text(theme.rawValue)
         }
+    }
+}
+
+// MARK: - Study Pane
+
+private struct MacStudySettingsPane: View {
+    @Environment(SettingsManager.self) private var settings
+
+    var body: some View {
+        @Bindable var settings = settings
+
+        Form {
+            Section {
+                Stepper(value: $settings.studyGlobalNewChapterLimit, in: 1...12) {
+                    LabeledContent("Global New Chapters") {
+                        Text("\(settings.studyGlobalNewChapterLimit) per day")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Toggle("Daily Review Reminder", isOn: $settings.reviewNotificationsEnabled)
+            } header: {
+                Text("Study")
+            }
+
+            Section {
+                Picker(
+                    "When the timer runs out",
+                    selection: $settings.checkpointTimeoutBehavior
+                ) {
+                    Text("Replay the chapter")
+                        .tag(CheckpointTimeoutBehavior.replay.rawValue)
+                    Text("Grade Again and move on")
+                        .tag(CheckpointTimeoutBehavior.gradeAndAdvance.rawValue)
+                    Text("Wait - no grade, re-queue today")
+                        .tag(CheckpointTimeoutBehavior.wait.rawValue)
+                }
+                if settings.checkpointTimeoutBehavior != CheckpointTimeoutBehavior.wait.rawValue {
+                    Picker("Checkpoint timeout", selection: $settings.checkpointTimeoutSeconds) {
+                        Text("10 seconds").tag(10)
+                        Text("30 seconds").tag(30)
+                        Text("1 minute").tag(60)
+                        Text("2 minutes").tag(120)
+                    }
+                }
+                Toggle("Auto-advance after Good", isOn: $settings.checkpointAutoAdvance)
+            } header: {
+                Text("Chapter Checkpoints")
+            } footer: {
+                Text(
+                    "The macOS default is Wait: no countdown runs, and no grade fires at an empty desk chair. Pick a non-Wait behavior to run the same countdown as iOS. Checkpoints only exist for books with an active study plan."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
