@@ -209,10 +209,53 @@ nonisolated final class AnthropicClientDialectTests: XCTestCase {
         XCTAssertEqual(solo.brief.model, "deepseek-v4-pro[1m]")
     }
 
+    func testClientsFactoryAcceptsHTTPSProviderPresets() throws {
+        for preset in [AIProviderPreset.anthropic, .deepseek, .kimi, .glm] {
+            let config = AIProviderConfig.defaults(for: preset)
+            let pair = try XCTUnwrap(
+                AnthropicMessagesClient.clients(config: config, token: "tok"),
+                "Expected \(preset.displayName) HTTPS preset to build clients."
+            )
+
+            XCTAssertEqual(pair.primary.baseURL.scheme, "https")
+            XCTAssertEqual(pair.brief.baseURL.scheme, "https")
+        }
+    }
+
+    func testClientsFactoryAcceptsHTTPSCustomBaseURL() throws {
+        var config = AIProviderConfig.defaults(for: .custom)
+        config.baseURL = "https://local-ai.example.test/anthropic"
+        config.primaryModel = "custom-primary"
+        config.lightModel = "custom-brief"
+        let pair = try XCTUnwrap(AnthropicMessagesClient.clients(config: config, token: "tok"))
+
+        XCTAssertEqual(
+            pair.primary.baseURL.absoluteString,
+            "https://local-ai.example.test/anthropic"
+        )
+        XCTAssertEqual(
+            pair.brief.baseURL.absoluteString,
+            "https://local-ai.example.test/anthropic"
+        )
+        XCTAssertEqual(pair.primary.model, "custom-primary")
+        XCTAssertEqual(pair.brief.model, "custom-brief")
+    }
+
+    func testClientsFactoryRejectsPlainHTTPBaseURLByDefault() {
+        var config = AIProviderConfig.defaults(for: .custom)
+        config.baseURL = "http://local-ai.example.test/anthropic"
+        config.primaryModel = "custom-primary"
+
+        XCTAssertNil(AnthropicMessagesClient.clients(config: config, token: "tok"))
+    }
+
     func testClientsFactoryRejectsInvalidBaseURL() {
         var config = AIProviderConfig.defaults(for: .custom)
         config.baseURL = "   "
         config.primaryModel = "m"
+        XCTAssertNil(AnthropicMessagesClient.clients(config: config, token: "tok"))
+
+        config.baseURL = "not a url"
         XCTAssertNil(AnthropicMessagesClient.clients(config: config, token: "tok"))
     }
 }
