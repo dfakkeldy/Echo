@@ -84,6 +84,16 @@ vendor/bundle/
 *.aiff
 *.wav
 
+# --- Local narration / QA artifacts ---
+# Public-domain fixtures may be force-added intentionally under EchoTests/Fixtures.
+*.alignment.json
+*.anchors-ch*.json
+*.echo-deck.json
+echo-import.json
+*.flashcards.json
+*.transcript.json
+*.apkg
+
 # --- Dev tool configs ---
 .agents/
 .antigravitycli/
