@@ -70,6 +70,20 @@ private struct StudyPlanPacingSection: View {
                 Text(viewModel.chapterLimitText)
             }
 
+            Stepper(value: $viewModel.newCardsPerDay, in: 1...100) {
+                Text(viewModel.cardLimitText)
+            }
+
+            Text("2 a day finishes a 5-card chapter in about 3 days")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Next Chapter", selection: $viewModel.chapterPacing) {
+                ForEach(StudyPlanChapterPacing.allCases, id: \.self) { pacing in
+                    Text(pacing.title).tag(pacing)
+                }
+            }
+
             if viewModel.canEditImageInclusion {
                 Toggle("Create picture cards from EPUB images", isOn: $viewModel.includeImages)
                     .onChange(of: viewModel.includeImages) { _, _ in

@@ -303,11 +303,16 @@ struct StatsView: View {
         vm.onRequestAssignmentPlayback = { [weak model] card in
             model?.playStudyAssignment(card)
         }
+        vm.onRetirePrompt = { [weak model] prompt in
+            model?.pendingRetirePrompt = prompt
+        }
 
         do {
             try vm.loadQueue(
                 globalNewChapterLimit: model.settingsManager?.studyGlobalNewChapterLimit
-                    ?? SettingsManager.Defaults.studyGlobalNewChapterLimit
+                    ?? SettingsManager.Defaults.studyGlobalNewChapterLimit,
+                globalNewCardLimit: model.settingsManager?.studyNewCardsPerDayLimit
+                    ?? SettingsManager.Defaults.studyNewCardsPerDayLimit
             )
             studySessionViewModel = vm
             showingStudySession = true

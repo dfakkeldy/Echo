@@ -55,7 +55,9 @@ struct UpcomingReviewsModuleView: View {
             let stats = try FlashcardDAO(db: db.writer).reviewStats()
             let queue = try StudyQueueBuilder(db: db.writer).build(
                 globalNewChapterLimit: model.settingsManager?.studyGlobalNewChapterLimit
-                    ?? SettingsManager.Defaults.studyGlobalNewChapterLimit
+                    ?? SettingsManager.Defaults.studyGlobalNewChapterLimit,
+                globalNewCardLimit: model.settingsManager?.studyNewCardsPerDayLimit
+                    ?? SettingsManager.Defaults.studyNewCardsPerDayLimit
             )
             queueCount = queue.totalCount
             reviewedToday = stats.reviewedToday

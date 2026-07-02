@@ -268,7 +268,14 @@ private struct SettingsStudyRows: View {
 
         Stepper(value: $settings.studyGlobalNewChapterLimit, in: 1...12) {
             LabeledContent("Global New Chapters") {
-                Text(limitText)
+                Text(chapterLimitText)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        Stepper(value: $settings.studyNewCardsPerDayLimit, in: 1...100) {
+            LabeledContent("New AI Card Offer Cap") {
+                Text(cardLimitText)
                     .foregroundStyle(.secondary)
             }
         }
@@ -278,10 +285,16 @@ private struct SettingsStudyRows: View {
         }
     }
 
-    private var limitText: String {
+    private var chapterLimitText: String {
         let limit = settings.studyGlobalNewChapterLimit
         let unit = limit == 1 ? "chapter" : "chapters"
         return "\(limit) \(unit) per day"
+    }
+
+    private var cardLimitText: String {
+        let limit = settings.studyNewCardsPerDayLimit
+        let unit = limit == 1 ? "card" : "cards"
+        return "\(limit) \(unit) per build"
     }
 
     private func setReviewNotificationsEnabled(_ isEnabled: Bool) {
@@ -316,7 +329,8 @@ private struct SettingsStudyRows: View {
 
         do {
             let queue = try StudyQueueBuilder(db: db.writer).build(
-                globalNewChapterLimit: settings.studyGlobalNewChapterLimit
+                globalNewChapterLimit: settings.studyGlobalNewChapterLimit,
+                globalNewCardLimit: settings.studyNewCardsPerDayLimit
             )
             ReviewNotificationService.updateNotification(
                 dueCount: queue.dueReviewCount + queue.inProgressAssignmentCount,

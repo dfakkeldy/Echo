@@ -7,16 +7,22 @@ struct StudySessionLaunchSettingsTests {
         let source = try Self.source(named: "Stats/StatsView.swift")
 
         #expect(source.contains("globalNewChapterLimit:"))
+        #expect(source.contains("globalNewCardLimit:"))
         #expect(source.contains("settingsManager?.studyGlobalNewChapterLimit"))
+        #expect(source.contains("settingsManager?.studyNewCardsPerDayLimit"))
         #expect(source.contains("SettingsManager.Defaults.studyGlobalNewChapterLimit"))
+        #expect(source.contains("SettingsManager.Defaults.studyNewCardsPerDayLimit"))
     }
 
     @Test func upcomingReviewsCountPassesGlobalNewChapterLimitFromSettings() throws {
         let source = try Self.source(named: "UpcomingReviewsModuleView.swift")
 
         #expect(source.contains("globalNewChapterLimit:"))
+        #expect(source.contains("globalNewCardLimit:"))
         #expect(source.contains("settingsManager?.studyGlobalNewChapterLimit"))
+        #expect(source.contains("settingsManager?.studyNewCardsPerDayLimit"))
         #expect(source.contains("SettingsManager.Defaults.studyGlobalNewChapterLimit"))
+        #expect(source.contains("SettingsManager.Defaults.studyNewCardsPerDayLimit"))
     }
 
     private static func source(named fileName: String) throws -> String {

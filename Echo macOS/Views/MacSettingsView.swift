@@ -118,6 +118,13 @@ private struct MacStudySettingsPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Stepper(value: $settings.studyNewCardsPerDayLimit, in: 1...100) {
+                    LabeledContent("New AI Card Offer Cap") {
+                        let unit = settings.studyNewCardsPerDayLimit == 1 ? "card" : "cards"
+                        Text("\(settings.studyNewCardsPerDayLimit) \(unit) per build")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Toggle(
                     "Daily Review Reminder",
                     isOn: Binding(

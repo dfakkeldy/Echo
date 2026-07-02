@@ -23,9 +23,22 @@ enum StudyPlanCatchUpPolicy: String, Codable, Sendable, CaseIterable {
     case strict
 }
 
+enum StudyPlanChapterPacing: String, Codable, Sendable, CaseIterable {
+    case cardDrain = "card_drain"
+    case cadence
+
+    var title: String {
+        switch self {
+        case .cardDrain: "After each chapter's cards"
+        case .cadence: "On a schedule"
+        }
+    }
+}
+
 enum StudyPlanItemKind: String, Codable, Sendable, CaseIterable {
     case chapter
     case image
+    case card
 }
 
 enum StudyFlashcardType {
@@ -82,6 +95,7 @@ enum StudyQueueCategory: Int, Codable, Sendable, CaseIterable {
     case dueReview = 0
     case inProgressAssignment = 1
     case newAssignment = 2
+    case newCard = 3
 }
 
 struct StudyQueueEntry: Identifiable, Equatable, Sendable {
@@ -115,6 +129,10 @@ struct StudyQueue: Equatable, Sendable {
 
     var newAssignmentCount: Int {
         entries.filter { $0.category == .newAssignment }.count
+    }
+
+    var newCardCount: Int {
+        entries.filter { $0.category == .newCard }.count
     }
 
     var totalCount: Int {

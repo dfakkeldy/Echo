@@ -64,7 +64,7 @@ struct MacTriPaneView: View {
             .navigationSplitViewColumnWidth(min: 300, ideal: 450)
             .overlay(alignment: .bottom) {
                 if let coordinator = player.checkpointCoordinator,
-                    case .checkpointActive = coordinator.state
+                    coordinator.state != .idle
                 {
                     StudyCheckpointPanelView(coordinator: coordinator)
                         .padding(.bottom, 64)
@@ -356,6 +356,14 @@ struct MacTriPaneView: View {
                 Label("Review Issues", systemImage: "ant")
             }
             .help("Review narration QA issues")
+
+            Button {
+                presentStudyDeckGeneration()
+            } label: {
+                Label("Generate Study Deck", systemImage: "rectangle.stack.badge.plus")
+            }
+            .help("Generate AI study cards for this book")
+            .disabled(player.audiobookID == nil || player.dbService == nil)
 
             Spacer()
         }

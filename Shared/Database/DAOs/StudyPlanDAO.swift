@@ -7,12 +7,42 @@ struct StudyPlanCreationRequest: Sendable {
     let bookTitle: String
     let cadenceUnit: StudyPlanCadenceUnit
     let newChapterLimit: Int
+    let newCardsPerDay: Int
+    let chapterPacing: StudyPlanChapterPacing
     let includeImages: Bool
     let queueMode: StudyPlanQueueMode
     let catchUpPolicy: StudyPlanCatchUpPolicy
     let startDate: Date
     let candidates: [StudyPlanCandidate]
     let now: Date
+
+    init(
+        audiobookID: String,
+        bookTitle: String,
+        cadenceUnit: StudyPlanCadenceUnit,
+        newChapterLimit: Int,
+        newCardsPerDay: Int = 2,
+        chapterPacing: StudyPlanChapterPacing = .cardDrain,
+        includeImages: Bool,
+        queueMode: StudyPlanQueueMode,
+        catchUpPolicy: StudyPlanCatchUpPolicy,
+        startDate: Date,
+        candidates: [StudyPlanCandidate],
+        now: Date
+    ) {
+        self.audiobookID = audiobookID
+        self.bookTitle = bookTitle
+        self.cadenceUnit = cadenceUnit
+        self.newChapterLimit = newChapterLimit
+        self.newCardsPerDay = newCardsPerDay
+        self.chapterPacing = chapterPacing
+        self.includeImages = includeImages
+        self.queueMode = queueMode
+        self.catchUpPolicy = catchUpPolicy
+        self.startDate = startDate
+        self.candidates = candidates
+        self.now = now
+    }
 }
 
 struct StudyPlanCreationResult: Sendable {
@@ -66,6 +96,7 @@ struct StudyPlanDAO {
     func createPlan(_ request: StudyPlanCreationRequest) throws -> StudyPlanCreationResult {
         let included = request.candidates.filter(\.defaultIncluded)
         let boundedLimit = max(1, request.newChapterLimit)
+        let boundedCardsPerDay = Self.boundedNewCardsPerDay(request.newCardsPerDay)
         let nowString = request.now.ISO8601Format()
         let startString = request.startDate.ISO8601Format()
 
@@ -85,6 +116,8 @@ struct StudyPlanDAO {
                 deckID: deckID,
                 cadenceUnit: request.cadenceUnit.rawValue,
                 newChapterLimit: boundedLimit,
+                newCardsPerDay: boundedCardsPerDay,
+                chapterPacing: request.chapterPacing.rawValue,
                 includeImages: request.includeImages,
                 queueModeDefault: request.queueMode.rawValue,
                 catchUpPolicy: request.catchUpPolicy.rawValue,
@@ -149,10 +182,116 @@ struct StudyPlanDAO {
         }
     }
 
+    /// Releases queued AI cards by stamping their plan item and seeding the
+    /// first due date. Idempotent; already-introduced or scheduled cards stay
+    /// untouched so FSRS owns them after first contact.
+    func releaseCards(itemIDs: [String], now: Date = Date()) throws {
+        guard !itemIDs.isEmpty else { return }
+
+        let nowString = now.ISO8601Format()
+        let placeholders = databaseQuestionMarks(count: itemIDs.count)
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE flashcard
+                    SET next_review_date = ?, modified_at = ?
+                    WHERE next_review_date IS NULL
+                      AND id IN (
+                        SELECT flashcard_id FROM study_plan_item
+                        WHERE id IN (\(placeholders))
+                          AND kind = ?
+                          AND introduced_at IS NULL
+                          AND flashcard_id IS NOT NULL
+                      )
+                    """,
+                arguments: StatementArguments(
+                    [nowString, nowString] + itemIDs + [StudyPlanItemKind.card.rawValue])
+            )
+
+            _ = try StudyPlanItem
+                .filter(itemIDs.contains(Column("id")))
+                .filter(Column("kind") == StudyPlanItemKind.card.rawValue)
+                .filter(Column("introduced_at") == nil)
+                .updateAll(db, [
+                    Column("introduced_at").set(to: nowString),
+                    Column("modified_at").set(to: nowString),
+                ])
+        }
+    }
+
+    func dueQuizCards(
+        audiobookID: String,
+        chapterIndex: Int,
+        now: Date = Date(),
+        limit: Int = 5
+    ) throws -> [Flashcard] {
+        let nowString = now.ISO8601Format()
+        return try db.read { db in
+            try Flashcard.fetchAll(
+                db,
+                sql: """
+                    SELECT f.* FROM flashcard f
+                    JOIN study_plan_item i ON i.flashcard_id = f.id
+                    JOIN study_plan p ON p.id = i.plan_id
+                    WHERE p.audiobook_id = ?
+                      AND p.is_paused = 0
+                      AND p.start_date <= ?
+                      AND i.kind = ?
+                      AND i.chapter_index = ?
+                      AND i.is_enabled = 1
+                      AND i.introduced_at IS NOT NULL
+                      AND f.is_enabled = 1
+                      AND f.next_review_date IS NOT NULL
+                      AND f.next_review_date <= ?
+                    ORDER BY i.ordinal
+                    LIMIT ?
+                    """,
+                arguments: [
+                    audiobookID,
+                    nowString,
+                    StudyPlanItemKind.card.rawValue,
+                    chapterIndex,
+                    nowString,
+                    max(0, limit),
+                ]
+            )
+        }
+    }
+
+    func pendingCardItemIDs(
+        planID: String,
+        chapterIndex: Int,
+        limit: Int
+    ) throws -> [String] {
+        guard limit > 0 else { return [] }
+
+        return try db.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT i.id FROM study_plan_item i
+                    JOIN flashcard f ON f.id = i.flashcard_id
+                    WHERE i.plan_id = ?
+                      AND i.kind = ?
+                      AND i.chapter_index = ?
+                      AND i.is_enabled = 1
+                      AND i.introduced_at IS NULL
+                      AND i.flashcard_id IS NOT NULL
+                      AND f.is_enabled = 1
+                    ORDER BY i.ordinal
+                    LIMIT ?
+                    """,
+                arguments: [planID, StudyPlanItemKind.card.rawValue, chapterIndex, limit]
+            )
+        }
+    }
+
     func updateSettings(
         planID: String,
         cadenceUnit: StudyPlanCadenceUnit,
         newChapterLimit: Int,
+        newCardsPerDay: Int,
+        chapterPacing: StudyPlanChapterPacing,
         includeImages: Bool,
         queueMode: StudyPlanQueueMode,
         catchUpPolicy: StudyPlanCatchUpPolicy,
@@ -164,6 +303,8 @@ struct StudyPlanDAO {
                 .updateAll(db, [
                     Column("cadence_unit").set(to: cadenceUnit.rawValue),
                     Column("new_chapter_limit").set(to: max(1, newChapterLimit)),
+                    Column("new_cards_per_day").set(to: Self.boundedNewCardsPerDay(newCardsPerDay)),
+                    Column("chapter_pacing").set(to: chapterPacing.rawValue),
                     Column("include_images").set(to: includeImages),
                     Column("queue_mode_default").set(to: queueMode.rawValue),
                     Column("catch_up_policy").set(to: catchUpPolicy.rawValue),
@@ -362,6 +503,10 @@ struct StudyPlanDAO {
             .filter(Column("source_block_id") == sourceBlockID)
             .filter(Column("kind") == kind.rawValue)
             .fetchCount(db)
+    }
+
+    private static func boundedNewCardsPerDay(_ value: Int) -> Int {
+        min(max(1, value), 100)
     }
 
     private func makeFlashcard(

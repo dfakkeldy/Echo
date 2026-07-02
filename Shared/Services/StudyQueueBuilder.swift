@@ -9,7 +9,8 @@ struct StudyQueueBuilder {
         now: Date = Date(),
         calendar: Calendar = .current,
         modeOverride: StudyPlanQueueMode? = nil,
-        globalNewChapterLimit: Int? = nil
+        globalNewChapterLimit: Int? = nil,
+        globalNewCardLimit: Int? = nil
     ) throws -> StudyQueue {
         let dueCards = try FlashcardDAO(db: db).allDueCards(now: now)
         let plans = try StudyPlanDAO(db: db).plansForQueue()
@@ -25,8 +26,16 @@ struct StudyQueueBuilder {
             plans: plans,
             itemRowsByPlanID: itemRowsByPlanID
         )
-        let assignmentQueueEntries = plans.flatMap { plan in
-            assignmentEntries(
+        let assignmentQueueEntries = try plans.flatMap { plan in
+            try assignmentEntries(
+                for: plan,
+                rows: itemRowsByPlanID[plan.id] ?? [],
+                now: now,
+                calendar: calendar
+            )
+        }
+        let newCardQueueEntries = try plans.flatMap { plan in
+            try newCardEntries(
                 for: plan,
                 rows: itemRowsByPlanID[plan.id] ?? [],
                 now: now,
@@ -37,8 +46,13 @@ struct StudyQueueBuilder {
         let mode = modeOverride
             ?? modeSourcePlan.flatMap { StudyPlanQueueMode(rawValue: $0.queueModeDefault) }
             ?? .bookByBook
-        let orderedEntries = ordered(entries: dueEntries + assignmentQueueEntries, mode: mode, planOrder: planOrder)
-        let cappedEntries = applyGlobalNewChapterLimit(globalNewChapterLimit, to: orderedEntries)
+        let orderedEntries = ordered(
+            entries: dueEntries + assignmentQueueEntries + newCardQueueEntries,
+            mode: mode,
+            planOrder: planOrder
+        )
+        let chapterCappedEntries = applyGlobalNewChapterLimit(globalNewChapterLimit, to: orderedEntries)
+        let cappedEntries = applyGlobalNewCardLimit(globalNewCardLimit, to: chapterCappedEntries)
 
         return StudyQueue(entries: cappedEntries)
     }
@@ -48,10 +62,11 @@ struct StudyQueueBuilder {
         rows: [ItemCardRow],
         now: Date,
         calendar: Calendar
-    ) -> [StudyQueueEntry] {
+    ) throws -> [StudyQueueEntry] {
         let inProgress = rows
             .filter { row in
                 row.item.introducedAt != nil
+                    && row.item.kind != StudyPlanItemKind.card.rawValue
                     && row.card.repetitions == 0
                     && row.card.lastReviewedAt == nil
             }
@@ -69,18 +84,28 @@ struct StudyQueueBuilder {
             return inProgress
         }
 
-        let budget = releaseBudget(plan: plan, rows: rows, now: now, calendar: calendar)
+        let budget = chapterReleaseBudget(plan: plan, rows: rows, now: now, calendar: calendar)
         guard budget > 0 else {
             return inProgress
         }
 
+        let hasCardItems = try planHasCardItems(planID: plan.id)
+        let chapterPacing = StudyPlanChapterPacing(rawValue: plan.chapterPacing) ?? .cardDrain
+        if chapterPacing == .cardDrain,
+           try frontierHasReleasablePendingCards(planID: plan.id, rows: rows) {
+            return inProgress
+        }
+
+        let effectiveBudget = chapterPacing == .cardDrain && hasCardItems
+            ? min(budget, 1)
+            : budget
         let pendingChapters = Array(
             rows
                 .filter { row in
                     row.item.introducedAt == nil
                         && row.item.kind == StudyPlanItemKind.chapter.rawValue
                 }
-                .prefix(budget)
+                .prefix(effectiveBudget)
         )
         let pendingChapterIndexes = Set(pendingChapters.compactMap(\.item.chapterIndex))
         let pendingImages = rows.filter { row in
@@ -142,7 +167,7 @@ struct StudyQueueBuilder {
         }
     }
 
-    private func releaseBudget(
+    private func chapterReleaseBudget(
         plan: StudyPlan,
         rows: [ItemCardRow],
         now: Date,
@@ -163,8 +188,9 @@ struct StudyQueueBuilder {
                 startDate,
                 cadenceWindowStart(for: unit, containing: now, calendar: calendar)
             )
-            let introducedThisWindow = introducedChapterCount(
+            let introducedThisWindow = introducedItemCount(
                 rows: rows,
+                kind: .chapter,
                 after: windowStart,
                 through: now
             )
@@ -177,24 +203,171 @@ struct StudyQueueBuilder {
                 unit: unit,
                 calendar: calendar
             )
-            let introducedTotal = introducedChapterCount(rows: rows, after: startDate, through: now)
+            let introducedTotal = introducedItemCount(
+                rows: rows, kind: .chapter, after: startDate, through: now)
             return max(0, allowedChapterCount - introducedTotal)
         }
     }
 
-    private func introducedChapterCount(
+    func remainingNewCardBudget(
+        plan: StudyPlan,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        globalNewCardLimit: Int? = nil
+    ) throws -> Int {
+        let rows = try itemCardRows(planID: plan.id)
+        let planBudget = cardReleaseBudget(plan: plan, rows: rows, now: now, calendar: calendar)
+        let globalBudget = globalNewCardLimit.map { max(0, $0) } ?? Int.max
+        return min(planBudget, globalBudget)
+    }
+
+    private func newCardEntries(
+        for plan: StudyPlan,
         rows: [ItemCardRow],
+        now: Date,
+        calendar: Calendar
+    ) throws -> [StudyQueueEntry] {
+        guard !plan.isPaused else { return [] }
+
+        let budget = cardReleaseBudget(plan: plan, rows: rows, now: now, calendar: calendar)
+        guard budget > 0 else { return [] }
+
+        let introducedChapters = try introducedChapterIndexes(planID: plan.id)
+        let pendingCards = rows
+            .filter { row in
+                row.item.kind == StudyPlanItemKind.card.rawValue
+                    && row.item.introducedAt == nil
+                    && row.item.chapterIndex.map { introducedChapters.contains($0) } == true
+            }
+            .sorted { $0.item.ordinal < $1.item.ordinal }
+            .prefix(budget)
+
+        return pendingCards.map { row in
+            StudyQueueEntry(
+                id: "card-\(row.item.id)",
+                category: .newCard,
+                plan: plan,
+                item: row.item,
+                flashcard: row.card
+            )
+        }
+    }
+
+    private func cardReleaseBudget(
+        plan: StudyPlan,
+        rows: [ItemCardRow],
+        now: Date,
+        calendar: Calendar
+    ) -> Int {
+        let limit = max(1, plan.newCardsPerDay)
+        guard let startDate = try? Date(plan.startDate, strategy: .iso8601),
+              startDate <= now else {
+            return 0
+        }
+
+        let catchUpPolicy = StudyPlanCatchUpPolicy(rawValue: plan.catchUpPolicy) ?? .gentle
+
+        switch catchUpPolicy {
+        case .gentle:
+            let windowStart = max(
+                startDate,
+                cadenceWindowStart(for: .day, containing: now, calendar: calendar)
+            )
+            let introducedThisWindow = introducedItemCount(
+                rows: rows,
+                kind: .card,
+                after: windowStart,
+                through: now
+            )
+            return max(0, limit - introducedThisWindow)
+
+        case .strict:
+            let allowedCardCount = limit * elapsedCadenceWindowCount(
+                from: startDate,
+                through: now,
+                unit: .day,
+                calendar: calendar
+            )
+            let introducedTotal = introducedItemCount(
+                rows: rows, kind: .card, after: startDate, through: now)
+            return max(0, allowedCardCount - introducedTotal)
+        }
+    }
+
+    private func introducedItemCount(
+        rows: [ItemCardRow],
+        kind: StudyPlanItemKind,
         after startDate: Date,
         through endDate: Date
     ) -> Int {
         rows.filter { row in
-            guard row.item.kind == StudyPlanItemKind.chapter.rawValue,
+            guard row.item.kind == kind.rawValue,
                   let introducedAt = row.item.introducedAt,
                   let introducedDate = try? Date(introducedAt, strategy: .iso8601) else {
                 return false
             }
             return introducedDate >= startDate && introducedDate <= endDate
         }.count
+    }
+
+    private func frontierHasReleasablePendingCards(
+        planID: String,
+        rows: [ItemCardRow]
+    ) throws -> Bool {
+        guard let frontierChapterIndex = try frontierIntroducedChapterIndex(planID: planID) else {
+            return false
+        }
+
+        return rows.contains { row in
+            row.item.kind == StudyPlanItemKind.card.rawValue
+                && row.item.introducedAt == nil
+                && row.item.chapterIndex == frontierChapterIndex
+        }
+    }
+
+    private func planHasCardItems(planID: String) throws -> Bool {
+        try db.read { db in
+            let count = try StudyPlanItem
+                .filter(Column("plan_id") == planID)
+                .filter(Column("kind") == StudyPlanItemKind.card.rawValue)
+                .fetchCount(db)
+            return count > 0
+        }
+    }
+
+    private func frontierIntroducedChapterIndex(planID: String) throws -> Int? {
+        try db.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT chapter_index FROM study_plan_item
+                    WHERE plan_id = ?
+                      AND kind = ?
+                      AND introduced_at IS NOT NULL
+                      AND chapter_index IS NOT NULL
+                    ORDER BY ordinal DESC
+                    LIMIT 1
+                    """,
+                arguments: [planID, StudyPlanItemKind.chapter.rawValue]
+            )
+        }
+    }
+
+    private func introducedChapterIndexes(planID: String) throws -> Set<Int> {
+        try db.read { db in
+            let indexes = try Int.fetchAll(
+                db,
+                sql: """
+                    SELECT DISTINCT chapter_index FROM study_plan_item
+                    WHERE plan_id = ?
+                      AND kind = ?
+                      AND introduced_at IS NOT NULL
+                      AND chapter_index IS NOT NULL
+                    """,
+                arguments: [planID, StudyPlanItemKind.chapter.rawValue]
+            )
+            return Set(indexes)
+        }
     }
 
     private func cadenceWindowStart(
@@ -313,7 +486,26 @@ struct StudyQueueBuilder {
             case .image:
                 guard let key = AssignmentChapterKey(item: item) else { return false }
                 return releasedChapterKeys.contains(key)
+            case .card:
+                return true
             }
+        }
+    }
+
+    private func applyGlobalNewCardLimit(
+        _ limit: Int?,
+        to entries: [StudyQueueEntry]
+    ) -> [StudyQueueEntry] {
+        guard let limit else { return entries }
+
+        let effectiveLimit = max(0, limit)
+        var releasedCardCount = 0
+
+        return entries.filter { entry in
+            guard entry.category == .newCard else { return true }
+            guard releasedCardCount < effectiveLimit else { return false }
+            releasedCardCount += 1
+            return true
         }
     }
 

@@ -22,6 +22,8 @@ struct StudyDeckAcceptanceService {
 
         let nowString = now.ISO8601Format()
         return try db.write { db in
+            let plan = try Self.latestPlan(audiobookID: audiobookID, db: db)
+            var nextPlanItemOrdinal = try plan.map { try Self.nextPlanItemOrdinal(planID: $0.id, db: db) } ?? 0
             let deckID = try Self.findOrCreateDeck(
                 named: deckName,
                 nowString: nowString,
@@ -35,15 +37,39 @@ struct StudyDeckAcceptanceService {
                     sourceBlockID: draftCard.sourceBlockID,
                     db: db
                 )
+                let chapterIndex = try Self.sourceChapterIndex(
+                    sourceBlockID: draftCard.sourceBlockID,
+                    audiobookID: audiobookID,
+                    db: db
+                )
+                let deferToPlan = plan != nil && chapterIndex != nil
                 let cards = Self.makeFlashcards(
                     draftCard: draftCard,
                     audiobookID: audiobookID,
                     deckID: deckID,
                     timelineMapping: timelineMapping,
+                    nextReviewDate: deferToPlan ? nil : nowString,
                     nowString: nowString
                 )
                 for card in cards {
                     try FlashcardDAO.insert(card, in: db)
+                    if let plan, let chapterIndex {
+                        var item = StudyPlanItem(
+                            id: UUID().uuidString,
+                            planID: plan.id,
+                            flashcardID: card.id,
+                            kind: StudyPlanItemKind.card.rawValue,
+                            chapterIndex: chapterIndex,
+                            sourceBlockID: draftCard.sourceBlockID,
+                            ordinal: nextPlanItemOrdinal,
+                            introducedAt: nil,
+                            isEnabled: true,
+                            createdAt: nowString,
+                            modifiedAt: nowString
+                        )
+                        try item.insert(db)
+                        nextPlanItemOrdinal += 1
+                    }
                     acceptedCards.append(card)
                 }
             }
@@ -124,11 +150,43 @@ struct StudyDeckAcceptanceService {
         )
     }
 
+    private static func latestPlan(audiobookID: String, db: Database) throws -> StudyPlan? {
+        try StudyPlan
+            .filter(Column("audiobook_id") == audiobookID)
+            .order(Column("created_at").desc)
+            .fetchOne(db)
+    }
+
+    private static func nextPlanItemOrdinal(planID: String, db: Database) throws -> Int {
+        let maxOrdinal = try Int.fetchOne(
+            db,
+            sql: "SELECT MAX(ordinal) FROM study_plan_item WHERE plan_id = ?",
+            arguments: [planID]
+        )
+        return (maxOrdinal ?? -1) + 1
+    }
+
+    private static func sourceChapterIndex(
+        sourceBlockID: String,
+        audiobookID: String,
+        db: Database
+    ) throws -> Int? {
+        try Int.fetchOne(
+            db,
+            sql: """
+                SELECT chapter_index FROM epub_block
+                WHERE id = ? AND audiobook_id = ?
+                """,
+            arguments: [sourceBlockID, audiobookID]
+        )
+    }
+
     private static func makeFlashcards(
         draftCard: GeneratedStudyDeckCardDraft,
         audiobookID: String,
         deckID: String,
         timelineMapping: TimelineMapping,
+        nextReviewDate: String?,
         nowString: String
     ) -> [Flashcard] {
         switch draftCard.kind {
@@ -151,6 +209,7 @@ struct StudyDeckAcceptanceService {
                     audiobookID: audiobookID,
                     deckID: deckID,
                     timelineMapping: timelineMapping,
+                    nextReviewDate: nextReviewDate,
                     nowString: nowString
                 )
             }
@@ -165,6 +224,7 @@ struct StudyDeckAcceptanceService {
                     audiobookID: audiobookID,
                     deckID: deckID,
                     timelineMapping: timelineMapping,
+                    nextReviewDate: nextReviewDate,
                     nowString: nowString
                 )
             ]
@@ -180,6 +240,7 @@ struct StudyDeckAcceptanceService {
         audiobookID: String,
         deckID: String,
         timelineMapping: TimelineMapping,
+        nextReviewDate: String?,
         nowString: String
     ) -> Flashcard {
         Flashcard(
@@ -190,7 +251,7 @@ struct StudyDeckAcceptanceService {
             mediaTimestamp: timelineMapping.mediaTimestamp,
             endTimestamp: timelineMapping.endTimestamp,
             triggerTiming: .manualOnly,
-            nextReviewDate: nowString,
+            nextReviewDate: nextReviewDate,
             intervalDays: 0,
             easeFactor: 2.5,
             repetitions: 0,

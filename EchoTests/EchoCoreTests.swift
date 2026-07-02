@@ -427,6 +427,34 @@ struct EchoCoreTests {
                 == SettingsManager.Defaults.studyGlobalNewChapterLimit)
     }
 
+    @Test func settingsPersistsStudyNewCardsPerDayLimit() {
+        let suiteName = "study-new-cards-per-day-limit-\(UUID().uuidString)"
+        let appGroupName = "study-new-cards-per-day-limit-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+
+        #expect(
+            settings.studyNewCardsPerDayLimit
+                == SettingsManager.Defaults.studyNewCardsPerDayLimit)
+
+        settings.studyNewCardsPerDayLimit = 4
+        #expect(defaults.integer(forKey: "studyNewCardsPerDayLimit") == 4)
+
+        settings.studyNewCardsPerDayLimit = 0
+        #expect(settings.studyNewCardsPerDayLimit == 1)
+        #expect(defaults.integer(forKey: "studyNewCardsPerDayLimit") == 1)
+
+        settings.studyNewCardsPerDayLimit = 101
+        #expect(settings.studyNewCardsPerDayLimit == 100)
+        #expect(defaults.integer(forKey: "studyNewCardsPerDayLimit") == 100)
+    }
+
     @Test func settingsPersistsAndReloadsReaderDefaults() {
         let suiteName = "reader-defaults-\(UUID().uuidString)"
         let appGroupName = "reader-defaults-ag-\(UUID().uuidString)"
