@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import GRDB
 import os.log
 
 /// The shared post-import tail for document (EPUB / text) ingestion: create
@@ -9,6 +10,11 @@ import os.log
 /// text import share one copy (no divergence in anchor/timeline behavior).
 enum DocumentImportFinalizer {
     private static let logger = Logger(category: "DocumentImportFinalizer")
+    private static let humanAnchorSources: Set<String> = [
+        AlignmentAnchorRecord.Source.moveToNow.rawValue,
+        AlignmentAnchorRecord.Source.searchResult.rawValue,
+        AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
+    ]
 
     static func finalize(
         audiobookID: String,
@@ -21,7 +27,6 @@ enum DocumentImportFinalizer {
         // so every block gets an interpolated timestamp from the start.
         let alignmentService = AlignmentService(
             db: databaseService.writer, audiobookID: audiobookID)
-        let anchorDAO = AlignmentAnchorDAO(db: databaseService.writer)
 
         if let alignmentSidecarURL = alignmentSidecarURL(for: fileURL) {
             do {
@@ -57,22 +62,22 @@ enum DocumentImportFinalizer {
                         "alignment.json: 0 of \(exports.count) anchors resolved to local blocks — leaving existing anchors intact"
                     )
                 } else {
-                    // Replace machine anchors but PRESERVE user-placed (human)
-                    // anchors so a re-import never destroys manual alignment work.
-                    let humanSources: Set<String> = [
-                        AlignmentAnchorRecord.Source.moveToNow.rawValue,
-                        AlignmentAnchorRecord.Source.searchResult.rawValue,
-                        AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
-                    ]
-                    for existing in try anchorDAO.anchors(for: audiobookID)
-                    where !humanSources.contains(existing.source) {
-                        try anchorDAO.delete(id: existing.id)
+                    do {
+                        try replaceMachineAnchors(
+                            with: resolved,
+                            audiobookID: audiobookID,
+                            writer: databaseService.writer,
+                            alignmentService: alignmentService
+                        )
+                        logger.info(
+                            "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
+                        )
+                    } catch {
+                        logger.error(
+                            "Failed to persist alignment.json anchors: \(error.localizedDescription)"
+                        )
+                        return false
                     }
-                    for anchor in resolved { try anchorDAO.upsert(anchor) }
-                    try alignmentService.recalculateTimeline()
-                    logger.info(
-                        "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
-                    )
                 }
             } catch {
                 logger.error(
@@ -87,10 +92,18 @@ enum DocumentImportFinalizer {
 
             if CloudKitSyncService.canAccessConfiguredContainer() {
                 let syncService = CloudKitSyncService(db: databaseService.writer)
-                downloadedAnchors =
-                    (try? await syncService.downloadAnchors(
-                        audiobookID: audiobookID, title: title, author: author,
-                        duration: duration)) ?? []
+                do {
+                    downloadedAnchors = try await syncService.downloadAnchors(
+                        audiobookID: audiobookID,
+                        title: title,
+                        author: author,
+                        duration: duration
+                    )
+                } catch {
+                    logger.error(
+                        "CloudKit anchor lookup failed; falling back to local anchors: \(error.localizedDescription)"
+                    )
+                }
             } else {
                 logger.info(
                     "Skipped CloudKit anchor lookup because the app is not entitled for the configured CloudKit container."
@@ -98,12 +111,19 @@ enum DocumentImportFinalizer {
             }
 
             if !downloadedAnchors.isEmpty {
-                try? anchorDAO.deleteAll(for: audiobookID)
-                for anchor in downloadedAnchors {
-                    try? anchorDAO.upsert(anchor)
+                do {
+                    try replaceMachineAnchors(
+                        with: downloadedAnchors,
+                        audiobookID: audiobookID,
+                        writer: databaseService.writer,
+                        alignmentService: alignmentService
+                    )
+                    logger.info("Ingested \(downloadedAnchors.count) anchors from CloudKit")
+                } catch {
+                    logger.error(
+                        "Failed to ingest CloudKit anchors: \(error.localizedDescription)")
+                    return false
                 }
-                try? alignmentService.recalculateTimeline()
-                logger.info("Ingested \(downloadedAnchors.count) anchors from CloudKit")
             } else if let firstBlock = blocks.first, let lastBlock = blocks.last {
                 // Anchor first block to time 0
                 let firstAnchor = AlignmentAnchorRecord(
@@ -131,11 +151,20 @@ enum DocumentImportFinalizer {
                     createdAt: AlignmentService.isoFormatter.string(from: Date()),
                     modifiedAt: nil
                 )
-                try? anchorDAO.deleteAll(for: audiobookID)
-                try? anchorDAO.upsert(firstAnchor)
-                try? anchorDAO.upsert(lastAnchor)
-                try? alignmentService.recalculateTimeline()
-                logger.info("Created initial alignment anchors for \(audiobookID)")
+                do {
+                    try replaceMachineAnchors(
+                        with: [firstAnchor, lastAnchor],
+                        audiobookID: audiobookID,
+                        writer: databaseService.writer,
+                        alignmentService: alignmentService
+                    )
+                    logger.info("Created initial alignment anchors for \(audiobookID)")
+                } catch {
+                    logger.error(
+                        "Failed to create initial alignment anchors for \(audiobookID): \(error.localizedDescription)"
+                    )
+                    return false
+                }
             }
         } else {
             logger.info("Skipped CloudKit anchor lookup for audio-less document \(audiobookID)")
@@ -144,8 +173,15 @@ enum DocumentImportFinalizer {
         // Always recalculate timeline to ensure chapter-boundary virtual
         // anchors cover blocks even when total duration is unknown.
         if duration == nil {
-            try? alignmentService.recalculateTimeline()
-            logger.info("Recalculated EPUB timeline (no book duration) for \(audiobookID)")
+            do {
+                try alignmentService.recalculateTimeline()
+                logger.info("Recalculated EPUB timeline (no book duration) for \(audiobookID)")
+            } catch {
+                logger.error(
+                    "Failed to recalculate EPUB timeline for \(audiobookID): \(error.localizedDescription)"
+                )
+                return false
+            }
         }
 
         // Post notification to trigger UI refresh.
@@ -157,6 +193,26 @@ enum DocumentImportFinalizer {
             )
         }
         return true
+    }
+
+    private static func replaceMachineAnchors(
+        with anchors: [AlignmentAnchorRecord],
+        audiobookID: String,
+        writer: DatabaseWriter,
+        alignmentService: AlignmentService
+    ) throws {
+        try writer.write { db in
+            try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(!humanAnchorSources.contains(Column("source")))
+                .deleteAll(db)
+
+            for anchor in anchors {
+                var mutable = anchor
+                try mutable.upsert(db)
+            }
+        }
+        try alignmentService.recalculateTimeline()
     }
 
     /// Replays only the alignment-sidecar branch for documents whose text blocks

@@ -46,7 +46,9 @@ nonisolated struct AnthropicMessagesClient: Sendable {
         session: URLSession = .shared
     ) -> (primary: AnthropicMessagesClient, brief: AnthropicMessagesClient)? {
         let trimmed = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let url = URL(string: trimmed), url.scheme != nil else {
+        guard !trimmed.isEmpty, let url = URL(string: trimmed),
+            url.scheme?.caseInsensitiveCompare("https") == .orderedSame
+        else {
             return nil
         }
 
