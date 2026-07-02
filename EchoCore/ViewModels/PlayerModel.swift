@@ -503,6 +503,7 @@ final class PlayerModel {
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
     var checkpointCoordinator: StudyCheckpointCoordinator?
     @ObservationIgnored let checkpointAnnouncer = StudyCheckpointAnnouncer()
+    @ObservationIgnored let checkpointNotifications = StudyCheckpointNotificationService()
     var continuousAlignmentService: ContinuousAlignmentService?
 
     // On-device narration playback: an audio-less study EPUB renders its

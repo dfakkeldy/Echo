@@ -44,6 +44,16 @@ extension PlayerModel {
             guard let url = URL(string: item.audiobookID), url.isFileURL else { return true }
             return (try? url.checkResourceIsReachable()) ?? false
         }
+        coordinator.onCheckpointActivated = { [weak self] context in
+            self?.checkpointNotifications.postCheckpoint(chapterTitle: context.chapterTitle)
+        }
+        coordinator.onCheckpointResolved = { [weak self] in
+            self?.checkpointNotifications.removeCheckpoint()
+        }
+        checkpointNotifications.onAction = { [weak self] action in
+            self?.checkpointCoordinator?.resolve(action)
+        }
+        checkpointNotifications.activate()
         checkpointCoordinator = coordinator
 
         playbackController.coordinator_handleChapterEndCheckpoint = { [weak self] chapterIndex in
