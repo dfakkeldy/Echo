@@ -298,6 +298,35 @@ struct RootTabView: View {
                 .ignoresSafeArea(.container, edges: .bottom)
             }
         }
+        .overlay(alignment: .bottom) {
+            checkpointOverlay
+        }
+        .alert(
+            "Retire this chapter's re-listen card?",
+            isPresented: Binding(
+                get: { model.pendingRetirePrompt != nil },
+                set: { if !$0 { model.pendingRetirePrompt = nil } }
+            ),
+            presenting: model.pendingRetirePrompt
+        ) { prompt in
+            Button("Retire", role: .destructive) {
+                if let db = model.databaseService {
+                    try? StudyChapterRetireService(db: db.writer).retire(
+                        assignmentCardID: prompt.assignmentCardID,
+                        assignmentItemID: prompt.assignmentItemID
+                    )
+                    NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
+                }
+                model.pendingRetirePrompt = nil
+            }
+            Button("Keep Both", role: .cancel) {
+                model.pendingRetirePrompt = nil
+            }
+        } message: { prompt in
+            Text(
+                "You now have your own flashcards in \"\(prompt.chapterTitle)\". Review with your cards instead? You can re-enable the re-listen card any time from the study plan."
+            )
+        }
         // NOTE: the player/background layers ignore the safe area themselves
         // (AdaptiveBackground + the systemBackground fill), so the ZStack no
         // longer needs a blanket `.ignoresSafeArea(.bottom)`. Dropping it lets
@@ -551,6 +580,19 @@ struct RootTabView: View {
                 }
             }
         )
+    }
+
+    /// The end-of-chapter grade window (design 3.3). Bottom-anchored so the
+    /// player chrome stays visible behind it; renders nothing while idle.
+    @ViewBuilder
+    private var checkpointOverlay: some View {
+        if let coordinator = model.checkpointCoordinator,
+            case .checkpointActive = coordinator.state
+        {
+            StudyCheckpointPanelView(coordinator: coordinator)
+                .padding(.bottom, 96)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     private func beginDocumentImport(with result: Result<[URL], Error>) {

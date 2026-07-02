@@ -102,6 +102,8 @@ import Testing
 
         let plan = try #require(try dao.plan(for: "book"))
         let items = try dao.items(for: result.plan.id)
+        let disabledCard = try #require(
+            try service.read { db in try Flashcard.fetchOne(db, key: result.createdCards[0].id) })
         #expect(result.plan.newChapterLimit == 1)
         #expect(plan.cadenceUnit == StudyPlanCadenceUnit.week.rawValue)
         #expect(plan.newChapterLimit == 2)
@@ -110,6 +112,15 @@ import Testing
         #expect(plan.catchUpPolicy == StudyPlanCatchUpPolicy.strict.rawValue)
         #expect(plan.isPaused)
         #expect(items[0].isEnabled == false)
+        #expect(disabledCard.isEnabled == false)
+
+        try dao.setItemEnabled(itemID: result.createdItems[0].id, isEnabled: true)
+
+        let restoredItems = try dao.items(for: result.plan.id)
+        let restoredCard = try #require(
+            try service.read { db in try Flashcard.fetchOne(db, key: result.createdCards[0].id) })
+        #expect(restoredItems[0].isEnabled == true)
+        #expect(restoredCard.isEnabled == true)
     }
 
     @Test func activePlansExcludesPausedPlans() throws {

@@ -9,6 +9,7 @@ import os.log
 final class StudyPlanViewModel {
     var existingPlan: StudyPlan?
     var candidates: [StudyPlanCandidate] = []
+    var assignmentRows: [StudyPlanAssignmentRow] = []
     var selectedCandidateIDs: Set<String> = []
     var cadenceUnit: StudyPlanCadenceUnit = .day
     var newChapterLimit: Int = 1
@@ -62,9 +63,11 @@ final class StudyPlanViewModel {
 
             if let existingPlan {
                 apply(existingPlan)
+                assignmentRows = try loadAssignmentRows(planID: existingPlan.id)
                 candidates = []
                 selectedCandidateIDs = []
             } else {
+                assignmentRows = []
                 try loadPreviewUsingCurrentImageSetting()
             }
         }
@@ -91,6 +94,15 @@ final class StudyPlanViewModel {
         }
     }
 
+    func assignmentIsEnabled(_ itemID: String) -> Bool {
+        assignmentRows.first { $0.id == itemID }?.isEnabled ?? false
+    }
+
+    func setAssignmentEnabled(itemID: String, isEnabled: Bool) {
+        guard let index = assignmentRows.firstIndex(where: { $0.id == itemID }) else { return }
+        assignmentRows[index].isEnabled = isEnabled
+    }
+
     @discardableResult
     func save(now: Date = Date()) -> Bool {
         do {
@@ -108,6 +120,9 @@ final class StudyPlanViewModel {
                     now: now
                 )
                 try dao.setPaused(planID: existingPlan.id, isPaused: isPaused, now: now)
+                for row in assignmentRows {
+                    try dao.setItemEnabled(itemID: row.id, isEnabled: row.isEnabled, now: now)
+                }
                 if let savedPlan = try dao.plan(for: audiobookID) {
                     var imageCandidates = [StudyPlanCandidate]()
                     if includeImages {
@@ -127,6 +142,7 @@ final class StudyPlanViewModel {
                 self.existingPlan = try dao.plan(for: audiobookID)
                 if let savedPlan = self.existingPlan {
                     apply(savedPlan)
+                    assignmentRows = try loadAssignmentRows(planID: savedPlan.id)
                 }
             } else {
                 let selectedCandidates = candidatesForCreation()
@@ -148,6 +164,7 @@ final class StudyPlanViewModel {
                 )
                 existingPlan = result.plan
                 candidates = []
+                assignmentRows = try loadAssignmentRows(planID: result.plan.id)
                 selectedCandidateIDs = []
             }
 
@@ -196,6 +213,36 @@ final class StudyPlanViewModel {
         )
     }
 
+    private func loadAssignmentRows(planID: String) throws -> [StudyPlanAssignmentRow] {
+        let items = try StudyPlanDAO(db: db).items(for: planID)
+            .filter { $0.kind == StudyPlanItemKind.chapter.rawValue }
+        let cardIDs = items.compactMap(\.flashcardID)
+        guard !cardIDs.isEmpty else { return [] }
+
+        let cardsByID = try db.read { db in
+            let cards = try Flashcard
+                .filter(cardIDs.contains(Column("id")))
+                .fetchAll(db)
+            return Dictionary(uniqueKeysWithValues: cards.map { ($0.id, $0) })
+        }
+
+        return items.compactMap { item in
+            guard let flashcardID = item.flashcardID,
+                let card = cardsByID[flashcardID]
+            else {
+                return nil
+            }
+
+            return StudyPlanAssignmentRow(
+                id: item.id,
+                flashcardID: flashcardID,
+                title: card.frontText,
+                chapterIndex: item.chapterIndex,
+                isEnabled: item.isEnabled && card.isEnabled
+            )
+        }
+    }
+
     private func candidatesForCreation() -> [StudyPlanCandidate] {
         candidates
             .filter { selectedCandidateIDs.contains($0.id) }
@@ -214,5 +261,18 @@ final class StudyPlanViewModel {
                     playlistPosition: candidate.playlistPosition
                 )
             }
+    }
+}
+
+struct StudyPlanAssignmentRow: Identifiable, Equatable, Sendable {
+    let id: String
+    let flashcardID: String
+    let title: String
+    let chapterIndex: Int?
+    var isEnabled: Bool
+
+    var detail: String {
+        guard let chapterIndex else { return "Re-listen card" }
+        return "Chapter \(chapterIndex + 1) re-listen card"
     }
 }

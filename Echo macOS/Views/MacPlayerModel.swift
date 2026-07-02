@@ -130,12 +130,18 @@ final class MacPlayerModel {
     /// Shared bookmark store backed by the database.
     private(set) var bookmarkStore = BookmarkStore()
     /// Database service for bookmark persistence. Set by the app entry point.
-    var dbService: DatabaseService?
+    var dbService: DatabaseService? {
+        didSet { configureStudyCheckpoint() }
+    }
 
     // MARK: - Shared Services (Phase 3)
 
     /// Sleep timer with phase-based triggers (end-of-chapter, custom duration).
     let sleepTimer = SleepTimerManager()
+    /// Chapter-checkpoint state machine. Created when the database arrives; the
+    /// tri-pane panel observes its state.
+    private(set) var checkpointCoordinator: StudyCheckpointCoordinator?
+    @ObservationIgnored private let checkpointAnnouncer = StudyCheckpointAnnouncer()
     // Smart rewind is built per-resume from `settings` and gated on
     // `isRewindEnabled` (default OFF, matching iOS) — see `smartRewindAmount`.
     // The previous hardcoded policy ran unconditionally and used seconds where the
@@ -530,6 +536,75 @@ final class MacPlayerModel {
             .matchingTrackIndex(in: audioFiles, audiobookID: folderURL.absoluteString) ?? 0
         prepareCompanionDocumentImport(folderURL: folderURL, audioFiles: audioFiles)
         open(url: audioFiles[currentTrackIndex], preserveLibraryRoot: preserveLibraryRoot)
+    }
+
+    /// Recreates the checkpoint coordinator when the database arrives. Remote
+    /// command reinterpretation does not apply on macOS, so remote grading stays
+    /// off even if the shared settings store has an iOS value.
+    private func configureStudyCheckpoint() {
+        guard let db = dbService else {
+            checkpointCoordinator = nil
+            return
+        }
+
+        let coordinator = StudyCheckpointCoordinator(
+            database: db,
+            settingsProvider: { [weak self] in
+                guard let settings = self?.settings else {
+                    return StudyCheckpointSettings(
+                        timeoutSeconds: SettingsManager.Defaults.checkpointTimeoutSeconds,
+                        timeoutBehavior: .wait,
+                        autoAdvance: SettingsManager.Defaults.checkpointAutoAdvance,
+                        remoteGrading: false
+                    )
+                }
+                return StudyCheckpointSettings(
+                    timeoutSeconds: settings.checkpointTimeoutSeconds,
+                    timeoutBehavior: CheckpointTimeoutBehavior(
+                        rawValue: settings.checkpointTimeoutBehavior
+                    ) ?? .wait,
+                    autoAdvance: settings.checkpointAutoAdvance,
+                    remoteGrading: false,
+                    globalNewChapterLimit: settings.studyGlobalNewChapterLimit
+                )
+            },
+            replayChapter: { [weak self] in
+                guard let self else { return }
+                self.seekToChapter(self.currentChapterIndex)
+                self.play()
+            },
+            advance: { [weak self] item in
+                self?.playCheckpointItem(item)
+            },
+            announce: { [weak self] cue in
+                self?.checkpointAnnouncer.announce(cue)
+            }
+        )
+        coordinator.pausePlayback = { [weak self] in self?.pause() }
+        coordinator.isSleepStopRequested = { [weak self] in
+            self?.sleepTimer.mode == .endOfChapter
+        }
+        coordinator.fireSleepStop = { [weak self] in
+            self?.sleepTimer.evaluateAtChapterEnd()
+        }
+        coordinator.isPlayable = { item in
+            guard let url = URL(string: item.audiobookID), url.isFileURL else { return true }
+            return (try? url.checkResourceIsReachable()) ?? false
+        }
+        checkpointCoordinator = coordinator
+    }
+
+    /// Advances to a playable study item, loading its book first if needed.
+    func playCheckpointItem(_ item: StudyPlayableItem) {
+        let bookURL = URL(string: item.audiobookID) ?? URL(fileURLWithPath: item.audiobookID)
+        if audiobookID != item.audiobookID {
+            loadFolder(url: bookURL)
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            self.seek(to: max(0, item.startTime + 0.05))
+            self.play()
+        }
     }
 
     private func persistFolderAudiobookToSQL(folderURL: URL, audioFiles: [URL]) {
@@ -1245,6 +1320,23 @@ final class MacPlayerModel {
     /// Pure decision is delegated to `MacChapterLoopDecision`; this only applies
     /// the side effect.
     private func handleChapterBoundary() {
+        // Chapter checkpoint gets first claim on a naturally played boundary.
+        // Only loop-off boundaries qualify; checkpoints never fire inside an
+        // intentional chapter loop.
+        if loopMode == .off,
+            let coordinator = checkpointCoordinator,
+            let bookID = audiobookID,
+            chapters.indices.contains(currentChapterIndex),
+            currentTime >= chapters[currentChapterIndex].endSeconds,
+            coordinator.handleChapterEnd(
+                audiobookID: bookID,
+                chapterIndex: currentChapterIndex,
+                naturalEnd: true
+            )
+        {
+            return
+        }
+
         let decision = MacChapterLoopDecision.evaluate(
             currentTime: currentTime,
             chapters: chapters,

@@ -1,5 +1,5 @@
-#if os(iOS)
 // SPDX-License-Identifier: GPL-3.0-or-later
+#if os(iOS)
 import SwiftUI
 
 // MARK: - PlaybackControllerDelegate
@@ -28,10 +28,12 @@ extension PlayerModel: PlaybackControllerDelegate {
 
     func playbackControllerInterruptionBegan(_ controller: PlaybackController) {
         wasPlayingBeforeInterruption = isPlaying
+        checkpointCoordinator?.suspendCountdown()
         pause()
     }
 
     func playbackControllerInterruptionEnded(_ controller: PlaybackController, shouldResume: Bool) {
+        checkpointCoordinator?.resumeCountdown()
         if shouldResume && wasPlayingBeforeInterruption {
             play()
         }

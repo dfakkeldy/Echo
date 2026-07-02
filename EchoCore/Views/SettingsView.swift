@@ -272,6 +272,10 @@ private struct SettingsStudyRows: View {
                     .foregroundStyle(.secondary)
             }
         }
+
+        NavigationLink("Chapter Checkpoints") {
+            CheckpointSettingsView()
+        }
     }
 
     private var limitText: String {
@@ -321,6 +325,47 @@ private struct SettingsStudyRows: View {
         } catch {
             ReviewNotificationService.updateNotification(dueCount: 0, isEnabled: true)
         }
+    }
+}
+
+private struct CheckpointSettingsView: View {
+    @Environment(SettingsManager.self) private var settings
+
+    var body: some View {
+        @Bindable var settings = settings
+
+        Form {
+            Section {
+                Picker("When the timer runs out", selection: $settings.checkpointTimeoutBehavior) {
+                    Text("Replay the chapter")
+                        .tag(CheckpointTimeoutBehavior.replay.rawValue)
+                    Text("Grade Again and move on")
+                        .tag(CheckpointTimeoutBehavior.gradeAndAdvance.rawValue)
+                    Text("Wait - no grade, re-queue today")
+                        .tag(CheckpointTimeoutBehavior.wait.rawValue)
+                }
+
+                if settings.checkpointTimeoutBehavior != CheckpointTimeoutBehavior.wait.rawValue {
+                    Picker("Checkpoint timeout", selection: $settings.checkpointTimeoutSeconds) {
+                        Text("10 seconds").tag(10)
+                        Text("30 seconds").tag(30)
+                        Text("1 minute").tag(60)
+                        Text("2 minutes").tag(120)
+                    }
+                }
+
+                Toggle("Auto-advance after Good", isOn: $settings.checkpointAutoAdvance)
+                Toggle("Lock-screen button grading", isOn: $settings.checkpointRemoteGrading)
+            } header: {
+                Text("Chapter Checkpoints")
+            } footer: {
+                Text(
+                    "When a due study chapter finishes playing, Echo pauses and asks for a retention grade. While the window is open, lock-screen skip-forward means Good and skip-back means Again. Checkpoints only exist for books with an active study plan; pause the plan to silence them."
+                )
+            }
+        }
+        .navigationTitle("Chapter Checkpoints")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

@@ -22,6 +22,7 @@ struct MacTriPaneView: View {
     @State private var showingQAReview = false
     @State private var showingDailyReview = false
     @State private var showingCardInbox = false
+    @State private var showingStudyPlan = false
     @State private var showingAudiobookshelf = false
     @State private var studyDeckGenerationPresentation: MacStudyDeckGenerationPresentation?
     @State private var showingDeckImporter = false
@@ -61,6 +62,14 @@ struct MacTriPaneView: View {
                     .padding(.vertical, 6)
             }
             .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+            .overlay(alignment: .bottom) {
+                if let coordinator = player.checkpointCoordinator,
+                    case .checkpointActive = coordinator.state
+                {
+                    StudyCheckpointPanelView(coordinator: coordinator)
+                        .padding(.bottom, 64)
+                }
+            }
             .sheet(isPresented: $showingTranscribeProgress) {
                 if let coordinator = transcribeCoordinator {
                     MacTranscribeProgressView(
@@ -83,6 +92,14 @@ struct MacTriPaneView: View {
             }
             .sheet(isPresented: $showingCardInbox) {
                 MacCardInboxView(db: dbService.writer)
+            }
+            .sheet(isPresented: $showingStudyPlan) {
+                if let audiobookID = player.audiobookID {
+                    MacStudyPlanSheetHost(
+                        audiobookID: audiobookID,
+                        bookTitle: player.currentTitle,
+                        db: dbService.writer)
+                }
             }
             .sheet(isPresented: $showingAudiobookshelf) {
                 MacAudiobookshelfView(db: dbService) { url in
@@ -120,6 +137,9 @@ struct MacTriPaneView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestCardInbox)) { _ in
             showingCardInbox = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestStudyPlan)) { _ in
+            showingStudyPlan = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .requestAudiobookshelf)) { _ in
             showingAudiobookshelf = true
@@ -486,6 +506,25 @@ private struct MacStudyDeckGenerationSheetHost: View {
 
     var body: some View {
         StudyDeckGenerationSheet(viewModel: viewModel)
+    }
+}
+
+private struct MacStudyPlanSheetHost: View {
+    @State private var viewModel: StudyPlanViewModel
+
+    init(audiobookID: String, bookTitle: String, db: DatabaseWriter) {
+        _viewModel = State(
+            wrappedValue: StudyPlanViewModel(
+                audiobookID: audiobookID,
+                bookTitle: bookTitle,
+                db: db
+            )
+        )
+    }
+
+    var body: some View {
+        StudyPlanSheet(viewModel: viewModel)
+            .frame(minWidth: 460, minHeight: 520)
     }
 }
 
