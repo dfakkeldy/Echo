@@ -1,281 +1,432 @@
 # Echo Code Audit
 
-Generated: 2026-06-26
-Branch audited: `origin/nightly` at `d18af0394b0ca9d61ca56c7b3bd0e8c0fdd1ca36`
-Audit worktree: `codex/nightly-code-audit-20260626`
-Toolchain observed locally: Xcode 26.6 (`17F113`)
+Generated: 2026-07-02
+Branch audited: `origin/nightly` at `2df6d205d32c`
+Audit worktree: `/Users/dfakkeldy/.codex/worktrees/echo-code-audit-20260702`
+Toolchain observed locally: Xcode 26.6 (`17F113`), Apple Swift 6.3.3, Swift language mode 6.0.
 
-Scope: production Swift, SwiftUI, database, security/privacy, CI, release, localization, accessibility, and project configuration across iOS, macOS, watchOS, widget, CarPlay, `Shared`, and `echo-cli`. Tests and release automation were inspected for coverage gaps. The local dirty developer worktree was not touched.
+Scope: production Swift, SwiftUI/UIKit bridge surfaces, GRDB persistence, import/alignment flows, AI provider configuration, release/CI configuration, tests, privacy manifests, macOS/watch/widget/CLI entry points, and high-change reader/library/narration areas. This report replaces the prior top-level `CODE_AUDIT.md`; source comments that cite old audit section numbers should be treated as historical breadcrumbs, not stable identifiers.
 
-Method: four focused read-only audit agents covered security/privacy/release, Swift/concurrency/data, SwiftUI/UX/accessibility/localization, and build/test/CI/project configuration. I then verified representative evidence in the clean nightly worktree, read the applicable release and accessibility guidance, and attempted local build/test gates. No code was changed by the audit.
+Method: clean worktree cut from freshly fetched `origin/nightly`, repo docs and build settings inspected, package/project targets enumerated, `xcodebuild build-for-testing` run, targeted `rg` passes for concurrency, security, formatting, SwiftUI API drift, oversized files, direct database access, secrets, TODO/FIXME markers, and manual verification of each high/medium claim against current source.
 
-Summary: no Critical findings. The current nightly branch is materially more modern than the June 20 audit: Swift 6 settings are explicit, strict concurrency is enabled, several previous narration/playback findings have been fixed, and secrets hygiene is good. Remaining risk clusters are release determinism, data integrity, accessibility reachability, HTTP/token handling for self-hosted Audiobookshelf, and local/CI verification coverage.
+Summary: no Critical findings. Current nightly builds for testing locally and is substantially hardened compared with the older audit report in the repo: privacy manifests exist for shipping targets, the release train checks all signing secrets, the companion document importer surfaces errors, CarPlay entitlement/plist drift has been reduced, and reader Dynamic Type support has improved. The remaining risk clusters are MainActor-bound data work, document alignment data integrity, custom AI endpoint transport, reader-feed scaling, sensitive bookmark storage, and audit/process drift.
 
-## Severity Summary
+## 1. Executive Summary
+
+### 1.1 Severity summary
 
 | Severity | Count | Notes |
 | --- | ---: | --- |
-| Critical | 0 | No immediate crash/data-loss finding with broad certainty. |
-| High | 9 | Should be fixed before widening nightly/weekly promotion. |
-| Medium | 18 | Important correctness, security, accessibility, or release-quality work. |
-| Low | 7 | Quick wins and polish that reduce future drift. |
-| Verification blockers | 2 | Local simulator stack and Metal toolchain prevent a full local gate. |
+| Critical | 0 | No confirmed broad crash, credential leak, or guaranteed data-loss path. |
+| High | 5 | Fix before widening TestFlight use of the affected features. |
+| Medium | 10 | Important correctness, privacy, performance, or maintainability issues. |
+| Low | 12 | Quick wins, warnings, style cleanup, and process hygiene. |
 
-## High Findings
+### 1.2 Top risks
 
-### H1. macOS `.apkg` export can still generate colliding note/card IDs
+1. Library rescans still do recursive filesystem discovery, metadata work, cover writes, and per-book GRDB writes from `@MainActor` UI flows.
+2. Document import finalization can delete human alignment anchors in non-sidecar paths and can report success after swallowing anchor/timeline persistence failures.
+3. AI provider settings promise HTTPS, but custom base URLs only require "some scheme"; book text and API tokens can be sent over plain HTTP.
+4. Reader feed reload rebuilds the whole book, timeline, word timings, notes, and memos synchronously on the main actor, including after adding one note or voice memo.
+5. User-created bookmark JSON, including private notes and voice memo metadata, remains in unencrypted `UserDefaults` despite a local security note calling this out.
+6. Direct sync GRDB access remains easy from main-actor services because `DatabaseService.writer` and sync read/write wrappers are public to the app.
+7. Several build warnings are test-only today, but they prove the gate still tolerates warning drift.
+8. Formatting/localization enforcement covers only seven hand-picked files while user-visible `String(format:)` and formatter usage remains elsewhere.
+9. Audit section numbers have leaked into source comments, so replacing `CODE_AUDIT.md` can make those references misleading.
+10. The largest app models/views remain over 1,000 lines and concentrate playback, reader, watch, and macOS responsibilities in files that are hard to audit incrementally.
 
-Evidence: iOS export was fixed in `EchoCore/Services/ApkgExportService.swift:241-245` with a monotonic `baseID + index * 2` allocator. The macOS exporter still derives note IDs from wall-clock milliseconds plus randomized hash fragments in `Echo macOS/Services/MacApkgExportService.swift:245`.
+### 1.3 Positive findings
 
-Impact: multiple cards exported within the same millisecond can collide, causing APKG primary-key failures or corrupted exports on macOS. `hashValue` is also process-randomized, so the IDs are not deterministic.
+- The current branch has explicit Swift 6 settings, strict concurrency, approachable concurrency, and MainActor default isolation in the Xcode project (`Echo.xcodeproj/project.pbxproj:1621-1635`, `1666-1680`, and analogous target settings).
+- Privacy manifests now exist for iOS, macOS, watch, and widget targets (`EchoCore/PrivacyInfo.xcprivacy`, `Echo macOS/PrivacyInfo.xcprivacy`, `Echo Watch App/PrivacyInfo.xcprivacy`, `Echo Widget/PrivacyInfo.xcprivacy`).
+- The release-train workflow now checks all three upload secrets, including `MATCH_GIT_SSH_KEY`, before attempting upload (`.github/workflows/release-trains.yml:184-197`).
+- The companion document importer now has loading and error UI instead of swallowing picker/import errors (`EchoCore/Views/RootTabView.swift:465-486`, `606-647`).
+- Reader text cells now use `UIFontMetrics`, `adjustsFontForContentSizeCategory`, and trait-change rebuilds (`Shared/ReaderSettings.swift:77-87`, `EchoCore/Views/Cells/ParagraphCardCell.swift:19`, `90-94`).
 
-Remediation: port the iOS monotonic allocator to `MacApkgExportService`, add macOS export regression tests for many cards generated in one export, and keep note/card ID sequences non-overlapping.
+## 2. Quick Wins
 
-### H2. Track refresh can fail after bookmarks or playback events exist
+### 2.1 Remove the remaining compiler warning in `StandaloneTranscriptionServiceTests`
 
-Evidence: `bookmark.track_id` and `playback_event.track_id` reference `track` without `ON DELETE SET NULL` in `Shared/Database/Schema_V1.swift:59` and `Shared/Database/Schema_V1.swift:139`. Foreign keys are enabled in `Shared/Database/DatabaseService.swift:42`. `TimelineIngestionService` deletes all tracks before reinserting in `EchoCore/Services/TimelineIngestionService.swift:51`, via `Shared/Database/DAOs/TrackDAO.swift:34`. Bookmarks and playback events store track IDs in `EchoCore/ViewModels/PlayerModel+Bookmarks.swift:52` and `EchoCore/Services/PlaybackSessionRecorder.swift:170`.
+Severity: Low
 
-Impact: reloading or refreshing an audiobook after user activity can hit a foreign-key constraint. The ingestion catch logs and leaves metadata/tracks partially stale.
+Evidence: local `xcodebuild build-for-testing` warns that `EchoTests/StandaloneTranscriptionServiceTests.swift:253` has no async work inside an `await`; the line is `try await TranscriptMaterializer.materialize(...)` (`EchoTests/StandaloneTranscriptionServiceTests.swift:246-253`).
 
-Remediation: stop delete-all/reinsert for tracks. Use a transaction that upserts by stable track ID, remaps dependents, and deletes obsolete tracks only after dependent rows are nulled or migrated. Add a regression test that creates a bookmark/playback event and then refreshes the same book.
+Impact: warning-only, but this erodes the signal from the build gate.
 
-### H3. Auto-alignment CPU work remains MainActor-isolated
+Remediation: remove the redundant `await` if the callee is synchronous, or make the callee genuinely async if that was intended. Add a warning-free expectation to CI if practical.
 
-Evidence: `AutoAlignmentService` is `@MainActor` in `EchoCore/Services/AutoAlignmentService.swift:35`. `startAutoAlignment` creates its task from that isolation at `AutoAlignmentService.swift:114`. The DTW path builds token arrays and calls `TokenDTW.alignWithBisection` / `wordMatchesWithBisection` from `AutoAlignmentService.swift:441-471`. `TokenDTW` is a plain type in `EchoCore/Services/TokenDTW.swift:4`, and its direction-matrix work is in `TokenDTW.swift:175`.
+### 2.2 Replace deprecated trait override API in reader accessibility tests
 
-Impact: long books can still hitch the UI during tokenization and DTW despite the surrounding `async` surface. Main Actor default isolation makes this easy to miss in code review.
+Severity: Low
 
-Remediation: mark pure helper types and values as `nonisolated`/`Sendable` where appropriate, move tokenization and DTW onto an explicit background isolation boundary, and keep only progress/state mutation and database commits on MainActor. Add a performance regression test or signpost-based manual check for long chapters.
+Evidence: local build warns that `setOverrideTraitCollection(_:forChild:)` is deprecated; the test uses it at `EchoTests/ReaderFeedAccessibilityTests.swift:192` and clears it at `EchoTests/ReaderFeedAccessibilityTests.swift:202`.
 
-### H4. Main reader text does not honor system Dynamic Type
+Impact: warning-only now, but this test is exactly where Dynamic Type/layout regression signal matters.
 
-Evidence: `Shared/ReaderSettings.swift:30` creates fonts from custom point-size math; `ReaderFeedCollectionView` applies those fonts to headings/body text at `EchoCore/Views/ReaderFeedCollectionView.swift:381` and `EchoCore/Views/ReaderFeedCollectionView.swift:431`. `ParagraphCardCell` configures attributed body text but does not enable `adjustsFontForContentSizeCategory`; see `EchoCore/Views/Cells/ParagraphCardCell.swift:92-142`. Heading cells already opt in at `EchoCore/Views/Cells/HeadingCardCell.swift:11-12`.
+Remediation: switch the test harness to `traitOverrides` on the child view controller and keep the same measurement assertions.
 
-Impact: the core reading surface can stay too small for users relying on Larger Text, and the app should not claim Larger Text support until this is fixed and tested.
+### 2.3 Update the obvious SwiftUI modifier drift
 
-Remediation: scale custom reader fonts through `UIFontMetrics(forTextStyle:)`, set `adjustsFontForContentSizeCategory = true` on reader text labels, rebuild attributed text on content-size-category changes, and verify at accessibility Dynamic Type sizes.
+Severity: Low
 
-### H5. Root EPUB/PDF import can silently fail
+Evidence: `SpeedCardView` formats speed with `String(format:)` and uses `.fontWeight(.bold)` (`EchoCore/Views/SpeedCardView.swift:18-20`). Horizontal scroll views still use `showsIndicators: false` in `EchoCore/Views/ReaderTab.swift:657` and `EchoCore/Views/DashboardShelf.swift:34`.
 
-Evidence: the root file importer discards picker failures with `try?` in `EchoCore/Views/RootTabView.swift:248`. `PlayerModel.importEPUB` and `importPDF` do not receive success/failure from their coordinators at `EchoCore/ViewModels/PlayerModel+Bookmarks.swift:140` and `EchoCore/ViewModels/PlayerModel+Bookmarks.swift:165`. `EPUBImportCoordinator` and `PDFImportCoordinator` log and return on failures at `EchoCore/Services/EPUBImportCoordinator.swift:68-80` and `EchoCore/Services/PDFImportCoordinator.swift:65-75`.
+Impact: not a functional bug, but it conflicts with the repo's SwiftUI guidance and keeps producing small review churn.
 
-Impact: "Add Document" can appear to do nothing from an empty reader state. The user gets no loading, success, or failure feedback for a primary task.
+Remediation: use `Text(model.speed, format: .number.precision(.fractionLength(2)))`, `.bold()` where the exact weight is not required, and `.scrollIndicators(.hidden)`.
 
-Remediation: make import coordinators return or throw structured results, surface loading/error state in `RootTabView`, refresh only after success, and add tests for denied file access, unsupported files, and failed copy/extraction.
+### 2.4 Stop using audit section numbers as durable code-comment references
 
-### H6. macOS target is missing a privacy manifest
+Severity: Low
 
-Evidence: tracked manifests exist for `EchoCore`, `Echo Watch App`, and `Echo Widget`, but not `Echo macOS`. The macOS target directly uses `UserDefaults` in `Echo macOS/Views/MacPlayerModel.swift:95` and `Echo macOS/Views/MacPlayerModel.swift:98`.
+Evidence: production and CI comments reference mutable `CODE_AUDIT.md` sections, for example `EchoCore/ViewModels/PlayerModel.swift:1035`, `EchoCore/Services/AutoAlignmentService.swift:95`, `EchoCore/CarPlay/CarPlayManager.swift:141`, and `.github/workflows/ci.yml:125`.
 
-Impact: Mac App Store/TestFlight submission can fail required-reason API validation.
+Impact: this report supersedes the old top-level audit, so those references can become wrong even when the surrounding code remains correct.
 
-Remediation: add `Echo macOS/PrivacyInfo.xcprivacy` to the macOS target with `NSPrivacyAccessedAPICategoryUserDefaults` reasons matching the app/app-group use, and extend `EchoTests/PrivacyManifestTests.swift` so all shipping targets are checked.
+Remediation: replace section-number references with issue IDs, PR numbers, dated audit filenames, or short inline explanations.
 
-### H7. CarPlay is declared and advertised, but the CarPlay entitlement is disabled
+### 2.5 Keep formatter/localization guardrails from staying opt-in
 
-Evidence: `EchoCore/Info.plist:44-50` declares a CarPlay scene. `EchoCore/EchoCore.entitlements:10-14` only comments the `com.apple.developer.carplay-audio` entitlement. Metadata includes `carplay` in `fastlane/metadata/en-US/keywords.txt:1`, TestFlight copy mentions CarPlay in `fastlane/testflight/what_to_test.txt:42`, and in-app help describes it in `EchoCore/Views/HelpContent.swift:236-241`.
+Severity: Low
 
-Impact: App Store/TestFlight builds can advertise a feature that does not work without entitlement approval and matching provisioning.
+Evidence: `LocalizationFormattingTests` checks only seven explicitly listed files (`EchoTests/LocalizationFormattingTests.swift:7-21`) even though app/watch/macOS surfaces still contain `String(format:)`, `DateFormatter`, and `ISO8601DateFormatter` usage.
 
-Remediation: make a product/release decision. Either enable approved CarPlay Audio entitlement and regenerate signing profiles, or remove the scene declaration plus marketing/tester copy until entitlement approval exists.
+Impact: the test gives a false sense that the repo is broadly protected against locale-unaware formatting.
 
-### H8. `Package.resolved` is ignored and untracked
+Remediation: turn the test into an allowlist/denylist scan by target area. Start with user-facing SwiftUI views and exclude hashes, protocol formats, and test fixture timestamps intentionally.
 
-Evidence: `.gitignore:39` ignores every `Package.resolved`. `git check-ignore` confirms `Echo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` is ignored, and no lockfile is tracked. The Xcode project uses minimum-version package requirements at `Echo.xcodeproj/project.pbxproj:2021`, `:2029`, `:2037`, and `:2045`, while CI hashes `**/Package.resolved` in `.github/workflows/ci.yml:44`.
+## 3. Concurrency
 
-Impact: fresh CI and release builds can resolve newer dependency versions than local testing, so dependency drift can break nightly without a meaningful source diff.
+### 3.1 Library rescans run blocking filesystem and database work from MainActor flows
 
-Remediation: unignore and commit the workspace `Package.resolved`, then consider `-onlyUsePackageVersionsFromResolvedFile` for CI/release gates once the lockfile is present.
+Severity: High
 
-### H9. Release train upload readiness omits the match SSH key
+Evidence: `LibraryService` is `@MainActor` (`EchoCore/Services/Library/LibraryService.swift:70-71`). The sync rescan does recursive discovery and per-book DAO reads/writes from that isolation (`LibraryService.swift:136-143`, `150-180`). The metadata rescan creates cover directories, discovers books, reads metadata, writes covers, and saves each book in the same main-actor service (`LibraryService.swift:212-223`, `251-271`). The scanner uses synchronous recursive `FileManager` enumeration (`EchoCore/Services/Library/LibraryScanner.swift:25-43`) and synchronous folder listing for artwork (`LibraryScanner.swift:127-154`). UI view models call this path directly while presenting scanning state (`EchoCore/ViewModels/LibraryViewModel.swift:109-118`, `EchoCore/ViewModels/LibraryRootsViewModel.swift:39-51`, `EchoCore/ViewModels/PlayerModel.swift:1210-1218`).
 
-Evidence: `.github/workflows/release-trains.yml:20-21` documents `MATCH_GIT_SSH_KEY` as required for the signing repo. `fastlane/Matchfile:1` uses an SSH repository. The release readiness gate only checks `ASC_API_KEY_JSON` and `MATCH_PASSWORD` at `.github/workflows/release-trains.yml:165`; loading the deploy key is optional at `.github/workflows/release-trains.yml:173`.
+Impact: adding or rescanning a large library can freeze the UI, delay gestures, and make cancellation ineffective. The inline `FIXME(M3)` already identifies the same root problem (`LibraryService.swift:142`, `220`).
 
-Impact: a scheduled runner with App Store Connect JSON and match password but no SSH key will mark itself upload-ready, then fail during signing instead of degrading to compile-only.
+Remediation: move discovery, metadata reads, cover writes, and upsert planning behind a non-main worker or actor. Return a `Sendable` rescan delta, then apply batched DB writes through `writeAsync` in transactions. Keep security-scope lifetime explicit, add cancellation checks between books, and add a stress test with hundreds/thousands of fake discovered books.
 
-Remediation: include `MATCH_GIT_SSH_KEY` in the readiness gate, or migrate match to an HTTPS/token auth path and update docs accordingly.
+### 3.2 `DatabaseService` still makes synchronous main-actor database access the path of least resistance
 
-## Medium Findings
+Severity: Medium
 
-### M1. Audiobookshelf credentials default to plaintext HTTP under broad ATS exceptions
+Evidence: `DatabaseService` is `@MainActor @Observable` and exposes `let writer: DatabaseWriter` (`Shared/Database/DatabaseService.swift:18-21`). It provides sync `read`/`write` wrappers (`DatabaseService.swift:97-111`) alongside async wrappers (`DatabaseService.swift:104-117`). Main-actor callers bypass the async wrappers through direct `db.writer.read` or sync `db.read`, for example `LibraryService.books` (`EchoCore/Services/Library/LibraryService.swift:338-345`), `LibraryService.statusMap` (`LibraryService.swift:423-461`), and `ReaderFeedViewModel.reload` (`EchoCore/ViewModels/ReaderFeedViewModel.swift:420-431`).
 
-Evidence: scheme-less input becomes `http://` in `EchoCore/Services/Audiobookshelf/ABSEndpoints.swift:17`; the connection UI placeholder suggests `http://host:13378` in `EchoCore/Views/ABSConnectionsSettingsView.swift:35`; login posts credentials to `endpoints.login()` in `EchoCore/Services/Audiobookshelf/AudiobookshelfService.swift:35-46`. iOS and macOS plists allow arbitrary loads in `EchoCore/Info.plist:22` and `Echo macOS/Info.plist:15`.
+Impact: individual call sites look harmless, but the service API does not encode the rule "large reads/writes must not block MainActor." As features grow, this pattern keeps reappearing in UI-owned models.
 
-Impact: same-network observers can capture credentials and refresh-token traffic outside trusted overlays. The architecture doc justifies local HTTP for self-hosted LAN/Tailscale use, so this is a product/security tradeoff, not an accidental bug.
+Remediation: narrow direct writer exposure, name sync APIs as explicitly blocking, and add nonisolated async DAO surfaces for app code. Do not rewrite all DAOs at once; start with library rescan and reader reload, then codify the convention with tests or lint-like source checks.
 
-Remediation: prefer HTTPS for bare hosts, require explicit confirmation for HTTP, show persistent insecure-server state, document the App Review justification for ATS, and keep self-signed HTTPS trust-on-first-use prominent.
+### 3.3 CarPlay still reaches app state through a static weak `PlayerModel`
 
-### M2. ABS access tokens are embedded in URL query strings
+Severity: Medium
 
-Evidence: cover and download URLs append `?token=` in `EchoCore/Services/Audiobookshelf/ABSEndpoints.swift:45-58`. `AudiobookshelfService.downloadItemZip` also sends `Authorization: Bearer` at `EchoCore/Services/Audiobookshelf/AudiobookshelfService.swift:221`.
+Evidence: `EchoCoreApp` exposes `@MainActor static weak var playerModel: PlayerModel?` for non-SwiftUI contexts, with a `REFACTOR-TODO` to replace it (`EchoCore/EchoCoreApp.swift:21-29`). `CarPlayManager` reads that global from library, chapter, and bookmark paths (`EchoCore/CarPlay/CarPlayManager.swift:132-139`, `219-224`, `273-280`).
 
-Impact: live tokens can leak through server logs, proxies, URL caches, screenshots, diagnostics, or crash reports more readily than headers.
+Impact: single-scene assumptions are encoded globally. If iPad/macOS multi-window support expands, or if lifecycle timing changes, CarPlay can see a nil/stale/wrong model without compile-time help.
 
-Remediation: replace `AsyncImage`/self-contained URLs with authenticated loaders that use headers, avoid token-bearing URLs for app-owned downloads, and use query tokens only for endpoints that cannot support headers.
+Remediation: introduce a tiny `@MainActor` playback registry or app coordinator keyed by scene/session, inject it into the CarPlay scene delegate, and keep `PlayerModel` lookup explicit. This does not need a broad PlayerModel rewrite.
 
-### M3. Security-scoped bookmark data can still fall back to UserDefaults
+### 3.4 Warning drift is still allowed into tests
 
-Evidence: `Persistence` documents that security-scoped bookmark data grants file-system access and should not live in plaintext defaults at `EchoCore/Services/Persistence.swift:188-201`, but stores it in `UserDefaults` when Keychain save fails at `Persistence.swift:201-202`. Restore accepts legacy defaults and continues if migration back to Keychain fails at `Persistence.swift:214-216`.
+Severity: Low
 
-Impact: sandbox file-access grants can persist in plaintext app storage/backups.
+Evidence: the local build emitted two test-source warnings: the redundant `await` in `StandaloneTranscriptionServiceTests` and the deprecated trait override calls in `ReaderFeedAccessibilityTests`.
 
-Remediation: remove release-build fallback to UserDefaults. On Keychain failure, fail closed, clear plaintext legacy data when safe, and ask the user to reselect the folder.
+Impact: warnings are not release blockers, but they make it harder to notice new Swift 6 or SDK migration warnings.
 
-### M4. ABS failed-connect and sign-out paths can strand credentials
+Remediation: clear the current warnings and consider making CI fail on warnings for `EchoTests` once the existing baseline is zero.
 
-Evidence: login stores tokens before the server record is saved in `EchoCore/Services/Audiobookshelf/AudiobookshelfService.swift:43-46`. `PlayerModel+Audiobookshelf` only clears tokens on a failed DAO save when a cert pin exists around `EchoCore/ViewModels/PlayerModel+Audiobookshelf.swift:47-50`. Sign-out clears local tokens even if remote logout fails in `AudiobookshelfService.swift:73-80`.
+## 4. API Modernity
 
-Impact: local orphaned Keychain tokens or still-valid server refresh tokens can remain after the UI says the account is disconnected.
+### 4.1 Locale-aware formatting enforcement is narrower than the app surface
 
-Remediation: always roll back tokens on persistence failure, and distinguish local clearing from remote revoke failure with retry/backoff or a visible degraded state.
+Severity: Medium
 
-### M5. PDF alignment/bookmark actions are long-press-only
+Evidence: `LocalizationFormattingTests` scans only seven files (`EchoTests/LocalizationFormattingTests.swift:7-21`). User-visible or near-user-visible formatting still appears elsewhere: `SpeedCardView` uses `String(format: "%.2f×", model.speed)` (`EchoCore/Views/SpeedCardView.swift:18`), the daily planner formats speed with C-style strings (`EchoCore/DailyPlanner/RealTimeProjectionService.swift:103`), and watch player time formatting uses `String(format:)` (`Echo Watch App/Views/PlayerPage.swift:333-337`).
 
-Evidence: `PDFDocumentView` exposes PDF state through a long-press path at `EchoCore/Views/PDFDocumentView.swift:27`, backed by `UILongPressGestureRecognizer` in `PDFDocumentView.swift:141` and `PDFDocumentView.swift:200-202`.
+Impact: Dutch/non-US locale support can regress outside the protected reader files, especially in dashboard/watch/planner surfaces.
 
-Impact: VoiceOver, Switch Control, keyboard, and Voice Control users may not be able to align or bookmark PDFs.
+Remediation: convert user-facing values to `FormatStyle`/`Duration`/`Measurement` APIs and make the test scan target-specific globs with explicit exemptions for hashes, filenames, and protocol wire formats.
 
-Remediation: add visible toolbar/menu actions and `UIAccessibilityCustomAction`s for align, align-to-current-time, and bookmark.
+### 4.2 Test code still uses a deprecated iOS 17 API
 
-### M6. Secondary transport actions lack accessibility equivalents
+Severity: Low
 
-Evidence: `EchoCore/Views/TransportControlsView+LongPress.swift:117-122` implements secondary behavior through tap/long-press gestures without named accessibility actions.
+Evidence: `ReaderFeedAccessibilityTests` uses `setOverrideTraitCollection(_:forChild:)` at `EchoTests/ReaderFeedAccessibilityTests.swift:192` and `202`, which the Xcode 26.6 build reports as deprecated.
 
-Impact: long-press-only transport actions are hidden from assistive technologies.
+Impact: low functional risk, but the test exercises a high-value accessibility path and should remain aligned with current UIKit behavior.
 
-Remediation: add named `.accessibilityAction` entries, labels, hints, and values for secondary actions.
+Remediation: update the harness to use `traitOverrides`.
 
-### M7. Scrubber joystick is drag-only
+### 4.3 `AnyView` remains in a shared styling helper
 
-Evidence: `EchoCore/Views/ScrubberJoystick.swift:24` uses `DragGesture`; no `accessibilityAdjustableAction` was found for that control.
+Severity: Low
 
-Impact: manual alignment scrubbing is difficult or unavailable for Switch Control and many VoiceOver users.
+Evidence: `EchoCore/Utilities/ViewModifiers.swift:29-31` uses `AnyView` to switch between font styles.
 
-Remediation: add `.accessibilityAdjustableAction` plus named small/large step actions for forward/backward movement.
+Impact: this is probably harmless, but it is a visible exception to the repo's SwiftUI guidance and can hide type-level layout differences from the compiler.
 
-### M8. Several selectable rows are gesture-only
+Remediation: replace the helper with a concrete `ViewModifier` or split the style cases into concrete branches at call sites when next touched.
 
-Evidence: gesture-only row selection appears in `EchoCore/Views/SoundscapePickerView.swift:79`, `EchoCore/Views/ChimeSettingsView.swift:33`, `Echo macOS/Views/MacTOCTreeView.swift:44`, and `Echo macOS/Views/MacReaderFeedView.swift:391`.
+## 5. Bugs / Logic Errors
 
-Impact: these rows may not be announced as controls and are weaker for keyboard, Voice Control, and Switch Control.
+### 5.1 CloudKit/fallback import finalization can delete human alignment anchors
 
-Remediation: replace with `Button`, `NavigationLink`, or selection controls using plain styles where needed.
+Severity: High
 
-### M9. DB-backed JSON/Codable failures are collapsed to empty/default data
+Evidence: the sidecar import branch explicitly preserves user-placed/human anchors by deleting only non-human sources (`EchoCore/Services/DocumentImportFinalizer.swift:60-71`). The CloudKit branch deletes all anchors for the book before upserting downloaded anchors (`DocumentImportFinalizer.swift:100-105`). The first/last fallback branch also deletes all anchors (`DocumentImportFinalizer.swift:134-137`).
 
-Evidence: EPUB markers/formats use `try?` and return `nil` or `[]` in `Shared/Database/EPubBlockRecord.swift:72-93`. PDF bookmark state encodes failed values as empty `Data()` and decodes with `try?` in `Shared/Database/BookmarkRecord.swift:69` and `Shared/Database/BookmarkRecord.swift:89`.
+Impact: re-importing a document without an alignment sidecar can destroy manual alignment work that the sidecar path deliberately protects. The same finalizer is also called by `finalizeExistingImportIfAlignmentSidecarPresent` after loading existing blocks (`DocumentImportFinalizer.swift:162-190`), so import/finalization reuse should be conservative about existing user work.
 
-Impact: corrupt or version-skewed persisted metadata becomes indistinguishable from intentionally empty metadata, so inline markers, formatting, and PDF state can silently disappear.
+Remediation: centralize anchor replacement policy. Preserve human sources in all branches, prune only anchors whose block IDs no longer exist, and add regression tests for "existing human anchor + CloudKit anchors" and "existing human anchor + fallback anchors."
 
-Remediation: expose throwing decode paths or structured diagnostics with row IDs. Return empty only for truly absent optional columns.
+### 5.2 Import finalization swallows anchor and timeline persistence failures but returns success
 
-### M10. `PDFDocumentView` uses an unowned detached task that captures the SwiftUI view
+Severity: High
 
-Evidence: `EchoCore/Views/PDFDocumentView.swift:76` starts `Task.detached`, enumerates files and creates a `PDFDocument` off-main, then assigns captured SwiftUI state back on MainActor.
+Evidence: CloudKit download failure is collapsed to an empty anchor array (`DocumentImportFinalizer.swift:88-93`). CloudKit upsert and timeline recalculation use `try?` (`DocumentImportFinalizer.swift:100-105`). Fallback anchor deletion/upsert/recalculation also uses `try?` (`DocumentImportFinalizer.swift:134-147`). The method posts `.timelineItemsIngested` and returns `true` regardless (`DocumentImportFinalizer.swift:151-159`).
 
-Impact: work is not tied to view lifetime or `folderURL`; stale loads can win after identity changes, and PDFKit object sendability is not established.
+Impact: an import can appear successful while read-along/timeline state is missing or stale. Users see a document in the reader but alignment controls, badges, or timeline-driven features can silently fail.
 
-Remediation: use `.task(id: folderURL)` or an owned cancellable task, return only a Sendable URL/result from background discovery, and construct/assign `PDFDocument` on MainActor unless PDFKit sendability is proven safe.
+Remediation: make finalization return a structured result with `anchorsImported`, `timelineRecalculated`, and recoverable warnings. Throw or surface errors when local DB mutations fail. Tests should inject failing DAOs/writers and assert that UI-visible import status is not success.
 
-### M11. Deployment-target policy is inconsistent
+### 5.3 Bookmark sidecar write failures are hidden behind a `UserDefaults` fallback
 
-Evidence: `AGENTS.md:17` and README badges advertise iOS 19, macOS 16, and watchOS 12. The project still targets iOS 18, macOS 15, and watchOS 11 in `Echo.xcodeproj/project.pbxproj:1194`, `:1349`, and `:1537`, and `ThirdParty/MisakiSwift/Package.swift:33` declares iOS 18/macOS 15.
+Severity: Medium
 
-Impact: contributors may use APIs based on the documented floor while shipping targets still promise older OS support.
+Evidence: `Persistence.saveBookmarks` writes the sidecar when `folderURL` is present, then always stores the encoded bookmark JSON in `UserDefaults` (`EchoCore/Services/Persistence.swift:333-349`). `writeSidecar` logs and swallows write errors (`Persistence.swift:378-386`). `loadBookmarks` prefers sidecar data and migrates defaults into the sidecar if possible (`Persistence.swift:351-375`).
 
-Remediation: choose the source of truth. Either raise every app/test/package target together, or correct docs and agent guidance to preserve iOS 18/macOS 15/watchOS 11.
+Impact: users can believe bookmarks are portable with the book folder while the sidecar failed to write and the only current copy lives in app defaults. This also compounds the privacy issue in section 6.2.
 
-### M12. `echo-cli` hard-codes a removed macOS SDK framework path
+Remediation: return a `BookmarkPersistenceResult` or throw for sidecar failures when portability is expected. At minimum, surface a warning and avoid presenting sidecar export as complete.
 
-Evidence: `Echo.xcodeproj/project.pbxproj:139` references `MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework`; installed Xcode 26.6 SDKs are current `MacOSX.sdk`/`MacOSX26*.sdk`.
+## 6. Security
 
-Impact: `echo-cli` can fail under current Xcode if the stale SDK path is resolved literally.
+### 6.1 AI provider base URLs accept plain HTTP despite HTTPS consent copy
 
-Remediation: change the framework reference to SDKROOT-relative `System/Library/Frameworks/Cocoa.framework`, remove it if unused, and add `echo-cli` to CI if supported.
+Severity: High
 
-### M13. Watch tests exist but are not run by CI
+Evidence: the AI settings view lets users edit `Base URL` (`EchoCore/Views/AICardGenerationSettingsView.swift:44`) and tells them book text is sent over HTTPS (`AICardGenerationSettingsView.swift:89-92`). The connection-test error also says to enter an `https://` endpoint (`AICardGenerationSettingsView.swift:153-159`). The actual client builder only checks that the URL parses and has any scheme (`Shared/Networking/AnthropicMessagesClient.swift:48-50`). Requests then send the API token in an auth header and the prompt/book text in the JSON body (`AnthropicMessagesClient.swift:127-157`).
 
-Evidence: the shared Watch scheme includes `Echo Watch AppTests` and `Echo Watch AppUITests` in `Echo.xcodeproj/xcshareddata/xcschemes/Echo Watch App.xcscheme:53-65`. CI runs only `EchoTests` with `-only-testing:EchoTests` in `.github/workflows/ci.yml:108-112`.
+Impact: a custom provider URL like `http://host` can receive book excerpts and API tokens in plaintext, contradicting the consent copy.
 
-Impact: watch-specific regressions can merge to nightly.
+Remediation: require `https` by default. If local HTTP providers are a deliberate feature, support only an explicit local/unsafe opt-in with separate copy and tests that prove default custom providers reject `http://`.
 
-Remediation: add a serial watchOS unit-test job on a pinned destination, or explicitly document watch tests as manual until CI capacity exists.
+### 6.2 User bookmark notes and voice memo metadata remain in unencrypted `UserDefaults`
 
-### M14. Privacy manifest may miss a file metadata required-reason API family
+Severity: Medium
 
-Evidence: `EchoCore/PrivacyInfo.xcprivacy:15` declares only UserDefaults. Shipping code calls `FileManager.default.attributesOfItem(atPath:)` for a model size check in `EchoCore/Services/Narration/OnnxKokoroEngine.swift:120`. Current privacy tests enumerate manifest files but do not scan Swift source for required-reason API usage in `EchoTests/PrivacyManifestTests.swift:99-108`.
+Evidence: `Persistence` documents that user-created bookmark JSON with private notes and audio memo metadata is still stored in `UserDefaults.standard`, unencrypted and included in backups (`EchoCore/Services/Persistence.swift:8-16`). The write path stores the encoded bookmark data in defaults (`Persistence.swift:333-349`), and the load path reads it back (`Persistence.swift:351-375`).
 
-Impact: archive/upload privacy checks may flag file metadata usage, even if only size is read.
+Impact: private notes, bookmark titles, timestamps, and voice memo metadata get weaker storage than security-scoped bookmarks and ABS/AI tokens. The risk is local-device/backup exposure, not a remote leak.
 
-Remediation: verify with an Xcode archive privacy report. Prefer a non-flagged length read if possible, or add the correct required-reason category if justified.
+Remediation: migrate bookmark records into the App Group SQLite store or a file-protected store, keep security-scoped bookmarks in Keychain, and leave only non-sensitive playback preferences in defaults. Add a one-time migration and backup/restore test.
 
-### M15. CloudKit public database remains an explicit trust/abuse decision
+### 6.3 Secrets hygiene is currently clean, but test fixtures match token patterns
 
-Evidence: current code validates downloaded anchor block IDs and excludes synthesized anchors, but the architecture still uses public CloudKit database semantics for shared anchor payloads.
+Severity: Low
 
-Impact: public-db writes need abuse/rate-limit and attribution controls before broad release.
+Evidence: a secret-shape scan found no tracked private keys, App Store API key JSON, match keys, or real provider tokens. Matches are docs, workflow secret names, and test fixture keys such as `sk-XYZ` in `EchoTests/StudyDeck/AnthropicMessagesClientTests.swift`.
 
-Remediation: decide whether anchors belong in private/shared CloudKit instead. If public remains intentional, add rate limits, author attribution, payload size checks, and an abuse recovery path.
+Impact: no current secret leak found. The caveat is that simple token scans will stay noisy because tests intentionally use realistic fake key prefixes.
 
-### M16. Release train build gate does not use the capped CI test flags
+Remediation: keep fake keys obviously fake where possible, and document allowlisted test fixture paths in any future secret-scan CI job.
 
-Evidence: normal CI uses `-parallel-testing-enabled NO` and `-jobs 5` in `.github/workflows/ci.yml:96-101`. The release-train build gate at `.github/workflows/release-trains.yml:154-160` does not.
+## 7. Performance
 
-Impact: scheduled builds can behave differently from PR builds and increase memory-pressure failures.
+### 7.1 Reader feed reload rebuilds whole-book state on the main actor
 
-Remediation: mirror the serial/capped flags from `ci.yml` in release trains.
+Severity: High
 
-### M17. Reader/PDF action strings bypass localization catalog
+Evidence: `ReaderFeedViewModel` is `@MainActor @Observable` (`EchoCore/ViewModels/ReaderFeedViewModel.swift:39-41`). `reload()` groups all blocks and TOC entries (`ReaderFeedViewModel.swift:223-245`), repeatedly reads chapter data in the chapter loop (`ReaderFeedViewModel.swift:291-301`), fetches all timeline rows (`ReaderFeedViewModel.swift:420-431`), loads all word timings (`ReaderFeedViewModel.swift:463-471`), loads all notes and memos (`ReaderFeedViewModel.swift:520-528`), and rebuilds display sections. Adding one note or voice memo immediately calls the full reload (`ReaderFeedViewModel.swift:552-573`, `576-596`).
 
-Evidence: hardcoded UIKit/accessibility strings remain in `EchoCore/Views/ReaderTab+Alignment.swift`, `EchoCore/Views/PDFDocumentView.swift`, and ABS connection error handling.
+Impact: large books with dense word timings or many notes can stall the reader on load and on small edits. The code is correct-looking because it is synchronous and central, but it scales poorly.
 
-Impact: important menus, VoiceOver actions, and errors remain English in localized builds.
+Remediation: move DB reads and section construction into a non-main snapshot builder returning a `Sendable` reader snapshot. Update note/memo caches incrementally after insert, and reserve full reload for search/filter/scope changes. Add a performance test fixture with thousands of blocks and word timings.
 
-Remediation: add manual keys to `Localizable.xcstrings`, then use generated symbols for SwiftUI and `String(localized:)` for UIKit/error strings.
+### 7.2 Sticky chapter-title updates do snapshot and linear search work during scroll
 
-### M18. User-visible formatting is not fully locale/plural safe
+Severity: Medium
 
-Evidence: legacy `DateFormatter` and `String(format:)` remain in `EchoCore/Models/SpeedSuggestion.swift:21-36`, `EchoCore/Views/SessionsListView.swift:15-66`, `EchoCore/Views/SessionDetailFeedView.swift:80`, and `EchoCore/Views/ReaderSettingsSheet.swift:32`.
+Evidence: `ReaderFeedCollectionView.Coordinator.updateTopChapterTitle` runs from scroll callbacks (`EchoCore/Views/ReaderFeedCollectionView.swift:729-741`). `updateChapterTitle(for:)` asks the diffable data source for a fresh snapshot and then linear-searches `sections` by section ID (`ReaderFeedCollectionView.swift:743-746`). It also creates separate main-actor tasks to write three bindings (`ReaderFeedCollectionView.swift:780-793`).
 
-Impact: dates, decimals, measurements, and plurals can be wrong outside US English.
+Impact: this work happens while the user scrolls. On large feeds, it adds avoidable churn to the same surface already affected by section 7.1.
 
-Remediation: replace with `FormatStyle`, `Measurement.FormatStyle`, and localized strings with placeholders/plurals.
+Remediation: precompute `sectionByID` and `sectionIDByIndex` when snapshots are applied. Update bindings directly on the main callback when already on main, and coalesce title/theme updates if values are unchanged.
 
-## Low Findings
+### 7.3 Library shelf reload performs full fetch, grouping, and status queries synchronously
 
-- `Task.sleep(nanoseconds:)` remains in `Echo macOS/Services/MacAlignmentService.swift:73` and `EchoCore/Services/DefaultChimePlayer.swift:41`.
-- `ReaderTab+Alignment.swift:27` still uses `DispatchQueue.main.asyncAfter` for a non-cancellable pulse reset.
-- ABS progress-sync errors are swallowed with `try?` in `EchoCore/ViewModels/PlayerModel+Audiobookshelf.swift`.
-- The beta Fastlane lane rescue-wraps macOS archive failures and still uploads the iOS IPA in `fastlane/Fastfile:167-202`.
-- Screenshot automation can pass with incomplete marketing coverage; the desired Watch/privacy shots are documented but not enforced.
-- `Echo Watch App/Views/PlayerPage.swift:647` has a hidden blank button for `handGestureShortcut(.primaryAction)` that should be explicit or hidden from accessibility.
-- Fastlane docs/config still include stale TODOs around bundle ID and `apple_id("")`.
+Severity: Medium
 
-## Verification Blockers
+Evidence: `LibraryViewModel.reload` calls `service.sections` and `service.statusMap` synchronously (`EchoCore/ViewModels/LibraryViewModel.swift:36-45`). `LibraryService.books` fetches all rows (`EchoCore/Services/Library/LibraryService.swift:338-345`), `sections` groups them in memory (`LibraryService.swift:348-375`), and `statusMap` performs several aggregate queries plus result assembly (`LibraryService.swift:423-461`).
 
-### V1. Local simulator build/test commands are blocked
+Impact: this is acceptable for small libraries but will be visible once Echo has hundreds or thousands of local/ABS books. It shares the same MainActor/database design pressure as rescan.
 
-`make build-tests` failed before compilation because CoreSimulator `1051.54.0` is older than Xcode 26.6's required `1051.55.0`, and the requested `iPhone 17` simulator destination was unavailable. `xcodebuild -list -project Echo.xcodeproj` reports the same CoreSimulator mismatch while still listing schemes.
+Remediation: page or limit shelf sections, cache status summaries, and move the grouping/status read into async snapshot loading. Treat this as phase two after fixing rescan.
 
-Required follow-up: update/reinstall matching macOS/Xcode simulator components, restart CoreSimulator services, then rerun `make build-tests` and `make test`.
+## 8. SwiftUI / UI
 
-### V2. Generic iOS build reaches Metal compilation, then fails without Metal Toolchain
+### 8.1 Visible "tap to change" helper copy remains in compact control UI
 
-`xcodebuild build -project Echo.xcodeproj -scheme Echo -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -jobs 5` reached compilation and failed on `EchoCore/Views/Visualizer/VisualizerShaders.metal` because the local Xcode install lacks the Metal Toolchain. CI already downloads it with `xcodebuild -downloadComponent MetalToolchain`.
+Severity: Low
 
-Required follow-up: install Metal Toolchain locally or rely on CI for this gate, then rerun the generic build.
+Evidence: `SpeedCardView` renders `Text("tap to change")` inside the button (`EchoCore/Views/SpeedCardView.swift:23-25`).
 
-## Strengths Observed
+Impact: not a bug, but it is visible instructional copy inside a compact repeated control. It also duplicates button semantics already available through the control itself.
 
-- Echo-owned targets are explicitly on Swift 6 with complete strict concurrency and Main Actor default isolation (`Echo.xcodeproj/project.pbxproj:1198-1202` and repeated target settings).
-- No app-code `ObservableObject`, `@Published`, `@StateObject`, `@ObservedObject`, or `@EnvironmentObject` usage was found in the scoped scan.
-- GRDB setup is centralized, WAL-backed, and enables foreign keys.
-- Secrets hygiene is good: no tracked private keys, App Store API keys, provisioning profiles, `.env`, `.p12`, `.cer`, `.pem`, or secret-shaped tokens were found; `.gitignore` excludes `fastlane/api_key.json`.
-- ABS refresh tokens are intended for Keychain storage, and `KeychainStore` uses device-only accessibility.
-- Self-signed HTTPS has an explicit fingerprint trust prompt for Audiobookshelf.
-- macOS sandbox, network client, user-selected file access, app-scope bookmarks, and hardened runtime are present.
-- Reader cells already expose several custom accessibility actions; the main accessibility gaps are Dynamic Type scaling, gesture parity, and localization.
+Remediation: replace with stateful value/context, a tooltip/help affordance where appropriate, or an accessibility hint. Keep any change aligned with the current dashboard design.
 
-## Remediation Plan
+### 8.2 Some card-style SwiftUI still uses fixed dimensions
 
-The full dated remediation plan is in `docs/superpowers/plans/2026-06-26-nightly-code-audit-remediation.md`. The canonical summary is `CODE_AUDIT_REMEDIATION_PLAN.md`.
+Severity: Low
+
+Evidence: `SpeedCardView` fixes the card width at `100` (`EchoCore/Views/SpeedCardView.swift:27-30`) while displaying a formatted speed string.
+
+Impact: localized labels, Dynamic Type, or wider formatted values can crowd a compact card.
+
+Remediation: use a responsive min/max width or layout priority instead of a hard fixed width, and verify with larger Dynamic Type and Dutch strings.
+
+### 8.3 Reader/UI modernization is uneven but no Dynamic Type blocker remains in the inspected reader cells
+
+Severity: Low
+
+Evidence: reader paragraph and heading cells opt into scaled fonts and trait-change rebuilds (`EchoCore/Views/Cells/ParagraphCardCell.swift:19`, `90-94`, `130-146`; `EchoCore/Views/Cells/HeadingCardCell.swift:19-20`). Smaller dashboard/watch/macOS surfaces still contain older formatting/style patterns noted in sections 2 and 4.
+
+Impact: the core reader accessibility story is better than the older audit implied. Remaining UI work is incremental polish and coverage, not a release blocker.
+
+Remediation: do not rewrite reader cells. Focus cleanup on the explicit small drift items and add a screenshot/accessibility fixture when changing the dashboard row.
+
+## 9. Dead Code / Duplication / Refactor Opportunities
+
+### 9.1 The largest files still concentrate too much ownership
+
+Severity: Medium
+
+Evidence: largest Swift files in the current worktree include `EchoCore/ViewModels/PlayerModel.swift` (1,775 lines), `Echo macOS/Views/MacPlayerModel.swift` (1,726), `EchoCore/Views/ReaderTab.swift` (1,288), `EchoCore/ViewModels/ReaderFeedViewModel.swift` (1,197), `Echo Watch App/Services/WatchViewModel.swift` (1,149), `EchoCore/Views/ReaderFeedCollectionView.swift` (1,126), and `EchoCore/Services/PlaybackController.swift` (1,042).
+
+Impact: these files are where subtle bugs keep clustering: playback, reader state, watch sync, and UI/data bridging. Size alone is not a bug, but it slows review and makes isolation/cancellation rules harder to see.
+
+Remediation: extract only along active change boundaries: reader snapshot building, library rescan planning, watch command facade, and playback persistence. Avoid a broad "split files" PR without behavior tests.
+
+### 9.2 Historical audit references are now process debt
+
+Severity: Medium
+
+Evidence: production comments and workflow comments reference `CODE_AUDIT.md` section numbers rather than stable issue/PR identifiers (`EchoCore/Services/AutoAlignmentService.swift:95`, `EchoCore/ViewModels/PlayerModel.swift:1035`, `EchoCore/Services/PlaybackController.swift:99`, `.github/workflows/ci.yml:125`).
+
+Impact: engineers following those comments can land in the wrong current section after this report is regenerated. It also makes audits harder to archive cleanly.
+
+Remediation: when touching each file, replace section-number references with dated audit filenames, issue IDs, or concise local comments. For new remediation work, create issues/PRs and cite those instead.
+
+### 9.3 Direct sync database access should be treated as a refactor seam, not a local cleanup
+
+Severity: Medium
+
+Evidence: direct `writer.read`/`writer.write` calls appear across app, macOS, and shared services. Some are already async and correct, while others are sync on UI-owned types, so a mechanical replacement is risky.
+
+Impact: without an explicit seam, every performance fix becomes a one-off argument about GRDB isolation.
+
+Remediation: define a database-access contract: sync reads only in tests, tiny lookups, or already-off-main contexts; async snapshots for user-facing lists/readers; transactions for import/rescan. Enforce it gradually with source checks after the hot paths are fixed.
+
+## 10. Cross-Cutting Recommendations
+
+### 10.1 Remediation plan
+
+1. P0 - security/data integrity:
+   Fix `AnthropicMessagesClient.clients` to reject plain HTTP by default, then add tests for custom HTTPS, default provider URLs, and rejected HTTP. In parallel, update `DocumentImportFinalizer` so all branches preserve human anchors and propagate local DB/timeline failures.
+
+2. P1 - user-visible performance:
+   Move library rescan planning off MainActor and batch writes. Then extract reader-feed snapshot loading so the main actor only publishes completed snapshots. Add fixture-driven performance tests before refactoring.
+
+3. P2 - privacy/storage hardening:
+   Migrate bookmark records with notes/voice memo metadata out of `UserDefaults`, surface bookmark sidecar write failures, and keep portable sidecars as an explicit export/sync layer rather than the only durability story.
+
+4. P3 - database/API guardrails:
+   Narrow `DatabaseService.writer` exposure, prefer async DAO/snapshot APIs for UI code, and document the allowed sync-access cases. Do this after the two hot paths prove the pattern.
+
+5. P4 - warning/style/process cleanup:
+   Clear build warnings, broaden formatting/localization scans, remove stale audit-section references, and chip away at oversized files only when related behavior is under test.
+
+### 10.2 Adversarial review of the plan
+
+- The library and reader fixes can accidentally create more risk than they remove if they become architecture rewrites. Keep each change behind a pure snapshot/planner seam and compare before/after output with characterization tests.
+- Preserving all human anchors during import is not always correct if a new document has different block IDs. The fix must preserve only anchors whose block IDs still exist, and it should report pruned anchors rather than silently keeping stale data.
+- Rejecting HTTP for AI providers could break legitimate local lab setups. If local HTTP support matters, make it a separate "unsafe local endpoint" mode with explicit copy, not the default custom-provider path.
+- Migrating bookmarks out of `UserDefaults` can break existing sidecar workflows. The migration needs rollback-safe tests and should preserve sidecar import/export behavior.
+- Async database APIs alone will not make work non-blocking if the heavy grouping still happens on MainActor after the read. The plan must move parsing/grouping into the snapshot worker, not just `await` the same data.
+- The warning/style cleanup is intentionally last. Doing it first would consume review bandwidth without reducing the main user risks.
+
+### 10.3 Suggested issue split
+
+- Issue A: Enforce AI provider HTTPS or explicit unsafe-local HTTP opt-in.
+- Issue B: Make document finalization anchor replacement lossless for human anchors and non-silent for DB/timeline failures.
+- Issue C: Move library rescan to cancellable off-main planner plus batched writes.
+- Issue D: Extract reader feed snapshot builder and incremental note/memo updates.
+- Issue E: Migrate bookmark records out of unencrypted defaults and surface sidecar failures.
+- Issue F: Clear warning/style/process debt.
+
+## 11. What Was NOT Audited
+
+### 11.1 Runtime behavior not exercised
+
+I did not run a physical-device pass, CarPlay session, watch pairing, VoiceOver walkthrough, App Store archive/upload, ABS server integration, CloudKit container integration, AI provider calls, or long-book scrolling under Instruments.
+
+### 11.2 Full test action not run
+
+I ran the compile/build gate (`xcodebuild build-for-testing`) but not the full `make test`/`xcodebuild test-without-building` action for this report-only change. The build gate emitted the warnings listed above.
+
+### 11.3 External services not validated
+
+Secrets, TestFlight delivery, App Store Connect metadata, CloudKit production behavior, ABS server behavior, and third-party AI endpoint behavior were inspected from code/config only.
+
+### 11.4 Old audit findings not blindly carried forward
+
+Several old top-level audit findings appear fixed on current nightly and are not repeated as current findings: macOS privacy manifest presence, release-train deploy key gating, root document importer error surfacing, reader Dynamic Type support, and CarPlay scene/entitlement copy drift.
+
+## 12. Verification
+
+### 12.1 Branch and project state
+
+- Started from `/Users/dfakkeldy/Developer/Echo`, fetched `origin/nightly`, and avoided the dirty local checkout.
+- Created clean worktree `/Users/dfakkeldy/.codex/worktrees/echo-code-audit-20260702`.
+- Audited branch `codex/full-code-audit-2026-07-02`, based on `origin/nightly` at `2df6d205d32c`.
+- `git status --short --branch` in the audit worktree was clean before editing this report.
+
+### 12.2 Toolchain and project settings
+
+- `xcodebuild -version`: Xcode 26.6, build 17F113.
+- `swift --version`: Apple Swift 6.3.3.
+- Targets/schemes were enumerated with `xcodebuild -list -project Echo.xcodeproj`.
+- Build settings show iOS 18.0, macOS 15.0, watchOS 11.0, Swift 6.0, `SWIFT_STRICT_CONCURRENCY = complete`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and `SWIFT_APPROACHABLE_CONCURRENCY = YES`.
+
+### 12.3 Local build
+
+Command:
+
+```sh
+xcodebuild build-for-testing -scheme Echo -destination 'platform=iOS Simulator,name=iPhone 17' -jobs 5 CODE_SIGNING_ALLOWED=NO
+```
+
+Result: `** TEST BUILD SUCCEEDED **`.
+
+Warnings observed:
+
+- `EchoTests/StandaloneTranscriptionServiceTests.swift:253:13`: no async operations occur within `await`.
+- `EchoTests/ReaderFeedAccessibilityTests.swift:192:16` and `202:20`: deprecated `setOverrideTraitCollection(_:forChild:)`.
+- AppIntents metadata extraction warning for `EchoUITests` due no AppIntents dependency.
+- The onnxruntime strip script phase is configured to run every build because dependency analysis is disabled.
+
+### 12.4 Repo metrics
+
+- Swift files counted: 965.
+- Swift line count from `wc -l`: 134,823 total.
+- Largest files are listed in section 9.1.
+
+### 12.5 Source scans run
+
+- Direct database access: `rg "db\\.writer\\.(read|write)|writer\\.(read|write)"`.
+- Security/token patterns: provider tokens, private key headers, App Store/match secret names.
+- Formatting/API drift: `DateFormatter`, `NumberFormatter`, `MeasurementFormatter`, `String(format:)`.
+- SwiftUI drift: `fontWeight`, `showsIndicators: false`, `AnyView`, `foregroundColor`, `cornerRadius`, `onTapGesture`, `Task.sleep(nanoseconds:)`, `UIScreen.main.bounds`, `NavigationView`, `tabItem`.
+- TODO/FIXME/audit anchors and oversized Swift files.
