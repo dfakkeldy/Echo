@@ -228,6 +228,15 @@ final class NarrationService {
         fmEnabled ? "fm-auto-v\(FMNormalizer.signatureVersion)" : "deterministic"
     }
 
+    private func partialCacheURL(for fileURL: URL) -> URL {
+        let baseName = fileURL.deletingPathExtension().lastPathComponent
+        let partialName = ".\(baseName).partial"
+        let directory = fileURL.deletingLastPathComponent()
+        let partialURL = directory.appendingPathComponent(partialName)
+        let pathExtension = fileURL.pathExtension
+        return pathExtension.isEmpty ? partialURL : partialURL.appendingPathExtension(pathExtension)
+    }
+
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
     /// Idempotent: re-rendering the same chapter (e.g. a voice change) upserts in place.
     ///
@@ -526,11 +535,11 @@ final class NarrationService {
         var cursor: TimeInterval = 0
         let now = Self.iso8601.string(from: Date())
 
-        // Stream-to-sink: encode each synthesized sub-chunk straight to a sibling
-        // partial file, then publish the durable cache file only after finalize()
-        // succeeds. A cancellation or crash can leave a .partial, but playback and
-        // export only ever reuse .m4a files.
-        let partialURL = fileURL.appendingPathExtension("partial")
+        // Stream-to-sink: encode each synthesized sub-chunk straight to a hidden
+        // sibling partial, then publish the durable cache file only after finalize()
+        // succeeds. The partial keeps an .m4a extension for AVFoundation, while
+        // its non-canonical name keeps playback/export from reusing it.
+        let partialURL = partialCacheURL(for: fileURL)
         let fm = FileManager.default
         try? fm.removeItem(at: partialURL)
         var didPublishFinalFile = false

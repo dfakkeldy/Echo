@@ -122,6 +122,14 @@ import Testing
                 voice: VoiceID("af_heart"),
                 includingPartial: true))
         #expect(
+            NarrationFileNaming.isCurrentChapterCacheFileName(
+                ".book-ch3-h0123456789abcdef-af_heart-v\(NarrationFileNaming.renderVersion)"
+                    + ".partial.m4a",
+                audiobookID: "book",
+                chapterIndex: 3,
+                voice: VoiceID("af_heart"),
+                includingPartial: true))
+        #expect(
             !NarrationFileNaming.isCurrentChapterCacheFileName(
                 "\(signed).partial",
                 audiobookID: "book",

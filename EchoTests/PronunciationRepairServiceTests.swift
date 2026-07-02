@@ -18,7 +18,7 @@ import Testing
                     "INSERT INTO audiobook (id, title, duration, added_at) VALUES (?, ?, 0, '2026-01-01T00:00:00Z')",
                 arguments: [audiobookID, "Book"])
         }
-        var block = EPubBlockRecord(
+        let block = EPubBlockRecord(
             id: blockID, audiobookID: audiobookID, spineHref: "ch.xhtml",
             spineIndex: 0, blockIndex: 0, sequenceIndex: 0,
             blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
@@ -28,7 +28,6 @@ import Testing
             wordCount: 2, markers: nil, textFormats: nil,
             createdAt: nil, modifiedAt: nil)
         try EPubBlockDAO(db: db.writer).insert(block)
-        _ = block  // silence unused-var if insert copies
     }
 
     @Test func resolvesChapterIndexForBlock() throws {
@@ -249,7 +248,8 @@ import Testing
                 chapterIndex: 3,
                 voice: voice,
                 contentSignature: "aaaaaaaaaaaaaaaa"))
-        let stalePartial = tmp.appendingPathComponent("\(staleSigned.lastPathComponent).partial")
+        let stalePartial = tmp.appendingPathComponent(
+            ".\(staleSigned.deletingPathExtension().lastPathComponent).partial.m4a")
         let staleLegacy = tmp.appendingPathComponent(
             NarrationFileNaming.chapterFileName(
                 audiobookID: bookID,

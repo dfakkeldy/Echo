@@ -117,6 +117,10 @@ nonisolated enum NarrationFileNaming {
         if fileName.hasSuffix(".partial") {
             guard includingPartial else { return false }
             durableName = String(fileName.dropLast(".partial".count))
+        } else if fileName.hasPrefix(".") && fileName.hasSuffix(".partial.m4a") {
+            guard includingPartial else { return false }
+            let partialName = fileName.dropFirst().dropLast(".partial.m4a".count)
+            durableName = "\(partialName).m4a"
         } else {
             durableName = fileName
         }

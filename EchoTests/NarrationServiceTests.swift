@@ -211,7 +211,9 @@ import Testing
         let expectedName = rendered.fileURL.lastPathComponent
         #expect(expectedName.contains("-ch0-s2-h"))
         #expect(expectedName.hasSuffix("-af_warm-v\(NarrationFileNaming.renderVersion).m4a"))
-        #expect(writer.writtenURLs.map(\.lastPathComponent) == ["\(expectedName).partial"])
+        #expect(
+            writer.writtenURLs.map(\.lastPathComponent) == [partialCacheFileName(for: expectedName)]
+        )
         #expect(rendered.chapterIndex == 0)
         #expect(rendered.chapterDisplayNumber == 1)
         #expect(rendered.segmentIndex == 2)
@@ -341,8 +343,13 @@ import Testing
         }
 
         let openedURL = try #require(writer.openedURLs.first)
-        let finalURL = openedURL.deletingPathExtension()
-        #expect(openedURL.pathExtension == "partial")
+        let finalURL = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        #expect(openedURL.pathExtension == "m4a")
+        #expect(
+            openedURL.lastPathComponent == partialCacheFileName(for: finalURL.lastPathComponent))
         #expect(!FileManager.default.fileExists(atPath: openedURL.path))
         #expect(!FileManager.default.fileExists(atPath: finalURL.path))
     }
@@ -376,7 +383,8 @@ import Testing
             voice: VoiceID("af_heart"))
 
         let openedURL = try #require(writer.openedURLs.first)
-        #expect(openedURL == finalURL.appendingPathExtension("partial"))
+        #expect(
+            openedURL.lastPathComponent == partialCacheFileName(for: finalURL.lastPathComponent))
         #expect(!FileManager.default.fileExists(atPath: openedURL.path))
         #expect(FileManager.default.fileExists(atPath: finalURL.path))
         #expect(FileManager.default.contents(atPath: finalURL.path) == Data("partial".utf8))
@@ -413,7 +421,7 @@ import Testing
         #expect(abs((tracks.last?.duration ?? -1) - 0.5) < 0.0001)
 
         let expectedNames = tracks.map {
-            "\(URL(fileURLWithPath: $0.filePath).lastPathComponent).partial"
+            partialCacheFileName(for: URL(fileURLWithPath: $0.filePath).lastPathComponent)
         }
         #expect(writer.writtenURLs.map(\.lastPathComponent) == expectedNames)
 
@@ -745,6 +753,13 @@ import Testing
             try issueDAO.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
                 .isEmpty)
     }
+}
+
+private func partialCacheFileName(for finalName: String) -> String {
+    let finalURL = URL(fileURLWithPath: finalName)
+    let baseName = finalURL.deletingPathExtension().lastPathComponent
+    let pathExtension = finalURL.pathExtension
+    return pathExtension.isEmpty ? ".\(baseName).partial" : ".\(baseName).partial.\(pathExtension)"
 }
 
 private final class TouchingAudioWriter: AudioFileWriting, @unchecked Sendable {
