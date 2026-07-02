@@ -23,7 +23,7 @@ nonisolated enum NarrationChunkQuality: Equatable, Sendable {
         guard rms > 0.000_01 else { return .rejected(.nearSilentAudio) }
 
         let wordCount = max(1, text.split(whereSeparator: \.isWhitespace).count)
-        let minimumReasonableDuration = min(0.25, Double(wordCount) * 0.05)
+        let minimumReasonableDuration = min(2.0, max(0.25, Double(wordCount) * 0.08))
         guard chunk.duration >= minimumReasonableDuration else {
             return .rejected(.implausibleDuration)
         }

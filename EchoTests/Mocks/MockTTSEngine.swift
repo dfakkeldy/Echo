@@ -21,6 +21,7 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     /// Sub-chunk text that should return digital silence while still reporting a
     /// duration, so render tests can exercise acoustic quality retry behavior.
     var silentOnText: String?
+    var silentTexts: Set<String> = []
     var pronunciationFallbackHitsByText: [String: [PronunciationFallbackHit]] = [:]
 
     init(secondsPerChar: Double = 0.1) { self.secondsPerChar = secondsPerChar }
@@ -39,7 +40,7 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
         }
         if let bad = throwOnText, text == bad { throw NarrationError.synthesisFailed }
         let duration = Double(text.count) * secondsPerChar
-        if let silent = silentOnText, text == silent {
+        if silentOnText == text || silentTexts.contains(text) {
             return TTSChunk(
                 samples: [Float](repeating: 0, count: max(1, text.count)),
                 sampleRate: 24_000,

@@ -26,7 +26,9 @@ nonisolated enum NarrationFileNaming {
     /// changes so v6 per-chapter files are swept when the segment layout takes over.
     /// v8 = render-time planned silence for paragraph, heading, and section
     /// breaks changes rendered audio bytes for the same source text.
-    static let renderVersion = 8
+    /// v9 = acoustic chunk quality retry/fallback guardrails; cached v8 files may
+    /// contain already-rendered silent/truncated chunks and must regenerate once.
+    static let renderVersion = 9
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {

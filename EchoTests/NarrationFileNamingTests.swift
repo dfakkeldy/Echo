@@ -5,6 +5,10 @@ import Testing
 @testable import Echo
 
 @Suite struct NarrationFileNamingTests {
+    @Test func renderVersionRegeneratesCachesForQualityRetryGuardrails() {
+        #expect(NarrationFileNaming.renderVersion == 9)
+    }
+
     @Test func parsesChapterIndexFromFileName() {
         // Format: "{safeID}-ch{N}-{voice}.m4a" — safeID has no '-' (safeToken maps
         // non-alphanumerics to '_'), so "-ch" only marks the chapter separator.

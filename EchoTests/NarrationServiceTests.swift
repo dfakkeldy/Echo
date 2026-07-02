@@ -706,6 +706,34 @@ import Testing
         #expect(retryCalls.allSatisfy { $0.text.count < text.count })
     }
 
+    @Test func partialLowQualityRetryFallsBackToOriginalChunk() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let firstSegment = NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:])
+        ).blocks[0].speechSegments[0]
+        let retryTexts = NarrationTextChunker.split(
+            firstSegment,
+            maxChars: max(20, min(80, firstSegment.count / 2)))
+        #expect(retryTexts.count > 1)
+
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        mock.silentTexts = [firstSegment, retryTexts[0]]
+        let writer = MockAudioWriter()
+        let svc = makeService(db, tts: mock, writer: writer)
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchAll(db)
+        }
+        let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
+        #expect(abs(span - Double(firstSegment.count) * 0.1) < 0.0001)
+        #expect(writer.chunkCounts == [2])
+    }
+
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["abcd", "ef"])

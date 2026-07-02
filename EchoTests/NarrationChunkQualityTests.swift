@@ -28,4 +28,13 @@ import Testing
         let report = NarrationChunkQuality.evaluate(chunk, text: "This is a complete sentence.")
         #expect(report == .rejected(.implausibleDuration))
     }
+
+    @Test func rejectsVeryShortParagraphEvenWhenNonSilent() {
+        let chunk = TTSChunk(samples: [0.05, -0.05, 0.04], sampleRate: 24_000, duration: 0.3)
+        let report = NarrationChunkQuality.evaluate(
+            chunk,
+            text: "Alpha beta gamma delta epsilon zeta eta theta iota kappa.")
+
+        #expect(report == .rejected(.implausibleDuration))
+    }
 }

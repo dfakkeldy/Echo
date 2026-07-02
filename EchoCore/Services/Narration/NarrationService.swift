@@ -742,8 +742,9 @@ final class NarrationService {
                 retryChunks.append(retryChunk)
             case .rejected(let retryReason):
                 logger.error(
-                    "Skipping low-quality narration retry piece: \(String(describing: retryReason), privacy: .public)"
+                    "Low-quality narration retry piece rejected; keeping original chunk to avoid dropping source text: \(String(describing: retryReason), privacy: .public)"
                 )
+                return [first]
             }
         }
 
