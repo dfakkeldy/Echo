@@ -1,111 +1,170 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 
-/// UserDefaults-backed AI card-generation preferences (model selection and provider).
-/// The API key itself is stored in the Keychain via `APIKeyStore`.
-enum AICardGenerationSettings {
-    nonisolated private static let modelKey = "ai.cardgen.model"
-    nonisolated private static let providerKey = "ai.cardgen.provider"
-
-    static let models = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]
-
-    nonisolated static var selectedModel: String {
-        get { UserDefaults.standard.string(forKey: modelKey) ?? "claude-opus-4-8" }
-        set { UserDefaults.standard.set(newValue, forKey: modelKey) }
-    }
-
-    nonisolated static var providerPreference: StudyDeckGeneratorPreference {
-        get {
-            StudyDeckGeneratorPreference(
-                rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "auto"
-            ) ?? .auto
-        }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: providerKey) }
-    }
-}
-
-/// Cross-platform settings pane for AI card generation.
-/// Allows the user to enter their Anthropic API key (BYO-key), choose a model,
-/// and give one-time consent that book text is sent to Anthropic.
-///
-/// No iOS-only modifiers — compiles on macOS and echo-cli alike.
+/// Cross-platform settings pane for AI card generation: provider preset dropdown,
+/// per-provider endpoint/token/model fields, named consent, and Test Connection.
 struct AICardGenerationSettingsView: View {
-    @State private var key: String = ""
-    @State private var model: String = AICardGenerationSettings.selectedModel
-    @State private var provider: StudyDeckGeneratorPreference = AICardGenerationSettings
-        .providerPreference
+    @State private var config: AIProviderConfig = .defaults(for: .anthropic)
+    @State private var token = ""
+    @State private var lightModel = ""
     @State private var consented = false
+    @State private var preference: StudyDeckGeneratorPreference = .auto
     @State private var saved = false
+    @State private var isTesting = false
+    @State private var testResult: String?
 
-    // `APIKeyStore` is @MainActor; the View is also on @MainActor so this is fine.
-    private let store = APIKeyStore()
+    private let store = AIProviderSettingsStore()
 
     var body: some View {
         Form {
-            Section("Provider") {
-                Picker("Generator", selection: $provider) {
+            Section("Generator") {
+                Picker("Generator", selection: $preference) {
                     Text("Automatic").tag(StudyDeckGeneratorPreference.auto)
                     Text("On-device only").tag(StudyDeckGeneratorPreference.onDevice)
                     Text("Cloud only").tag(StudyDeckGeneratorPreference.cloud)
                 }
-                .onChange(of: provider) { _, new in
-                    AICardGenerationSettings.providerPreference = new
+                .onChange(of: preference) { _, new in
+                    store.generatorPreference = new
                 }
                 Text(StudyDeckFMAvailability.statusMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            Section("AI Card Generation") {
-                SecureField("Anthropic API key", text: $key)
-                    .textContentType(.password)
-
-                Picker("Model", selection: $model) {
-                    ForEach(AICardGenerationSettings.models, id: \.self) { m in
-                        Text(m).tag(m)
+            Section("Cloud Provider") {
+                Picker("Provider", selection: $config.preset) {
+                    ForEach(AIProviderPreset.allCases) { preset in
+                        Text(preset.displayName).tag(preset)
                     }
                 }
+                .onChange(of: config.preset) { _, new in
+                    switchPreset(to: new)
+                }
+
+                TextField("Base URL", text: $config.baseURL)
+                    .autocorrectionDisabled()
+                SecureField("API token", text: $token)
+                    .textContentType(.password)
+                TextField("Model", text: $config.primaryModel)
+                    .autocorrectionDisabled()
+                TextField("Light model (book brief, optional)", text: $lightModel)
+                    .autocorrectionDisabled()
 
                 Toggle(
-                    "I understand the book's text is sent to Anthropic using my key",
+                    "Structured output",
+                    isOn: $config.capabilities.supportsStructuredOutput
+                )
+                .disabled(config.preset != .custom)
+                Toggle("Extended thinking", isOn: $config.capabilities.supportsThinking)
+                    .disabled(config.preset != .custom)
+            }
+
+            Section {
+                Toggle(
+                    "I understand this book's text is sent to \(config.preset.displayName) using my token",
                     isOn: $consented
                 )
 
-                Button(saved ? "Saved" : "Save") {
-                    guard consented else { return }
-                    store.anthropicKey = key
-                    AICardGenerationSettings.selectedModel = model
-                    saved = true
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(1.5))
-                        saved = false
-                    }
-                }
-                .disabled(key.isEmpty || !consented)
+                Button(saved ? "Saved" : "Save") { save() }
+                    .disabled(
+                        token.isEmpty || !consented
+                            || config.baseURL.isEmpty || config.primaryModel.isEmpty
+                    )
 
-                if store.hasKey {
-                    Button("Remove Key", role: .destructive) {
-                        store.clear()
-                        key = ""
-                        consented = false
-                    }
+                if store.token(for: config.preset) != nil {
+                    Button("Remove Token", role: .destructive) { removeToken() }
+                }
+            }
+
+            Section {
+                Button(isTesting ? "Testing..." : "Test Connection") { runConnectionTest() }
+                    .disabled(isTesting || token.isEmpty || config.baseURL.isEmpty)
+                if let testResult {
+                    Text(testResult)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
             Section {
                 Text(
-                    "Generating cards sends this book's text to Anthropic over HTTPS, billed to your own Anthropic account. Echo's other features (narration, alignment, playback) remain fully on-device."
+                    "Generating cards sends this book's text to \(config.preset.displayName) over HTTPS, billed to your own account. Echo's other features (narration, alignment, playback) remain fully on-device."
                 )
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             }
         }
-        .onAppear {
-            model = AICardGenerationSettings.selectedModel
-            provider = AICardGenerationSettings.providerPreference
-            // Pre-populate the field if a key is already stored so the user can
-            // see there is one (masked by SecureField) without having to retype.
-            if store.hasKey { key = store.anthropicKey ?? "" }
+        .onAppear { loadStoredState() }
+    }
+
+    private func loadStoredState() {
+        preference = store.generatorPreference
+        if let stored = store.config {
+            config = stored
+            consented = stored.consented
+        } else {
+            config = .defaults(for: .anthropic)
+            consented = false
+        }
+        lightModel = config.lightModel ?? ""
+        token = store.token(for: config.preset) ?? ""
+    }
+
+    private func switchPreset(to preset: AIProviderPreset) {
+        if let stored = store.config, stored.preset == preset {
+            config = stored
+            consented = stored.consented
+        } else {
+            config = .defaults(for: preset)
+            consented = false
+        }
+        lightModel = config.lightModel ?? ""
+        token = store.token(for: preset) ?? ""
+        testResult = nil
+        saved = false
+    }
+
+    private func save() {
+        guard consented else { return }
+        var toSave = config
+        let trimmedLight = lightModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        toSave.lightModel = trimmedLight.isEmpty ? nil : trimmedLight
+        toSave.consented = true
+        store.config = toSave
+        store.setToken(token, for: toSave.preset)
+        config = toSave
+        saved = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            saved = false
+        }
+    }
+
+    private func removeToken() {
+        store.setToken(nil, for: config.preset)
+        token = ""
+        consented = false
+        if var stored = store.config, stored.preset == config.preset {
+            stored.consented = false
+            store.config = stored
+        }
+    }
+
+    private func runConnectionTest() {
+        var draft = config
+        let trimmedLight = lightModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.lightModel = trimmedLight.isEmpty ? nil : trimmedLight
+        guard let clients = AnthropicMessagesClient.clients(config: draft, token: token) else {
+            testResult = "Invalid base URL - enter a full https:// endpoint."
+            return
+        }
+
+        isTesting = true
+        testResult = nil
+        Task { @MainActor in
+            let outcome = await AIProviderConnectionTester(client: clients.primary).test()
+            testResult = outcome.message
+            isTesting = false
         }
     }
 }

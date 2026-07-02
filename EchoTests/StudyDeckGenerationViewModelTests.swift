@@ -259,6 +259,91 @@ import Testing
         #expect(viewModel.errorMessage == nil)
     }
 
+    // MARK: - AI provider expansion
+
+    @Test func nilGeneratorShowsExplicitNoProviderState() async throws {
+        let service = try seededService()
+        let viewModel = StudyDeckGenerationViewModel(
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            db: service.writer,
+            makeGenerator: { _ in nil }
+        )
+
+        await viewModel.load()
+
+        #expect(viewModel.noProviderConfigured)
+        #expect(viewModel.cards.isEmpty)
+        #expect(viewModel.errorMessage == nil)
+        #expect(!viewModel.isLoading)
+    }
+
+    @Test func makeGeneratorReceivesTheProgressSink() async throws {
+        let service = try seededService()
+        let captured = Mutex<[(Int, Int)]>([])
+        let card = GeneratedStudyDeckCardDraft(
+            id: "stub-card",
+            sourceBlockID: "block-1",
+            frontText: "Q",
+            backText: "A"
+        )
+        let viewModel = StudyDeckGenerationViewModel(
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            db: service.writer,
+            makeGenerator: { sink in
+                ProgressGenerator(cards: [card]) { done, total in
+                    captured.withLock { $0.append((done, total)) }
+                    sink(done, total)
+                }
+            }
+        )
+
+        await viewModel.load()
+
+        #expect(captured.withLock { $0.map(\.0) } == [1, 2])
+        #expect(viewModel.progress == nil)
+        #expect(viewModel.cards.map(\.id) == ["stub-card"])
+        #expect(!viewModel.noProviderConfigured)
+    }
+
+    @Test func loadSkipsAlreadyAcceptedDuplicatesAndReportsCount() async throws {
+        let service = try seededService()
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO flashcard (
+                        id, audiobook_id, front_text, back_text, media_timestamp, source_block_id
+                    ) VALUES ('f1', 'book', 'Q', 'A', 0, 'block-1')
+                    """
+            )
+        }
+        let duplicate = GeneratedStudyDeckCardDraft(
+            id: "stub-dup",
+            sourceBlockID: "block-1",
+            frontText: "Q",
+            backText: "A2"
+        )
+        let fresh = GeneratedStudyDeckCardDraft(
+            id: "stub-new",
+            sourceBlockID: "block-2",
+            frontText: "Q2",
+            backText: "A2"
+        )
+        let viewModel = StudyDeckGenerationViewModel(
+            audiobookID: "book",
+            bookTitle: "Synthetic Study Book",
+            db: service.writer,
+            generator: StubGenerator(cards: [duplicate, fresh])
+        )
+
+        await viewModel.load()
+
+        #expect(viewModel.duplicatesSkipped == 1)
+        #expect(viewModel.cards.map(\.id) == ["stub-new"])
+        #expect(viewModel.selectedCardIDs == ["stub-new"])
+    }
+
     private static let fixedNow = Date(timeIntervalSince1970: 1_780_100_000)
 
     private func seededService(includeEligibleBlocks: Bool = true) throws -> DatabaseService {

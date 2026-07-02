@@ -307,4 +307,100 @@ nonisolated final class AnthropicStudyDeckGeneratorTests: XCTestCase {
             draft.cards.map(\.sourceBlockID).contains("b12"),
             "cancellation must stop the batch loop before batch 2")
     }
+
+    // MARK: - Light-model brief client
+
+    @MainActor
+    func testBookBriefUsesBriefClient() async {
+        BriefClientURLProtocol.reset(
+            body: Self.envelope(
+                #"{"summary":"s","themes":[],"keyConcepts":[]}"#
+            )
+        )
+        PrimaryClientURLProtocol.reset(body: Self.envelope(#"{"cards":[]}"#))
+        let primaryConfig = URLSessionConfiguration.ephemeral
+        primaryConfig.protocolClasses = [PrimaryClientURLProtocol.self]
+        let briefConfig = URLSessionConfiguration.ephemeral
+        briefConfig.protocolClasses = [BriefClientURLProtocol.self]
+        let primary = AnthropicMessagesClient(
+            apiKey: "sk",
+            model: "primary-model",
+            session: URLSession(configuration: primaryConfig)
+        )
+        let brief = AnthropicMessagesClient(
+            apiKey: "sk",
+            model: "light-model",
+            session: URLSession(configuration: briefConfig)
+        )
+
+        let generator = AnthropicStudyDeckGenerator(client: primary, briefClient: brief)
+        _ = await generator.generate(sources: [source("epub-bk-s0-b0")], settings: .init())
+
+        XCTAssertEqual(BriefClientURLProtocol.requestCount, 1)
+        XCTAssertEqual(PrimaryClientURLProtocol.requestCount, 1)
+    }
+
+    private static func envelope(_ json: String) -> Data {
+        let encoded = String(data: try! JSONEncoder().encode(json), encoding: .utf8)!
+        return Data(
+            "{\"stop_reason\":\"end_turn\",\"content\":[{\"type\":\"text\",\"text\":\(encoded)}]}"
+                .utf8
+        )
+    }
+}
+
+private nonisolated final class BriefClientURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var requestCount = 0
+    nonisolated(unsafe) static var body = Data()
+
+    static func reset(body: Data) {
+        requestCount = 0
+        self.body = body
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.requestCount += 1
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private nonisolated final class PrimaryClientURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var requestCount = 0
+    nonisolated(unsafe) static var body = Data()
+
+    static func reset(body: Data) {
+        requestCount = 0
+        self.body = body
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.requestCount += 1
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

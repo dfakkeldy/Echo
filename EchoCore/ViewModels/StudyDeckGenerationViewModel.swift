@@ -16,14 +16,20 @@ final class StudyDeckGenerationViewModel {
     var acceptedPlanNewCardsPerDay: Int?
     /// `(done, total)` batch progress while a generation run is in flight; `nil` otherwise.
     var progress: (done: Int, total: Int)?
+    /// True when no cloud provider or on-device generator is available.
+    var noProviderConfigured = false
+    /// Drafts dropped because an accepted card with the same sourceBlockID and front exists.
+    var duplicatesSkipped = 0
 
     @ObservationIgnored private let audiobookID: String
     @ObservationIgnored private let bookTitle: String
     @ObservationIgnored private let db: DatabaseWriter
-    @ObservationIgnored private let generator: any StudyDeckGenerating
+    @ObservationIgnored private let makeGenerator:
+        (@escaping @Sendable (Int, Int) -> Void) -> (any StudyDeckGenerating)?
     @ObservationIgnored private let logger = Logger(category: "StudyDeckGenerationViewModel")
     @ObservationIgnored private var draft: GeneratedStudyDeckDraft?
     @ObservationIgnored private var chapterIndexBySourceBlockID: [String: Int?] = [:]
+    @ObservationIgnored private var progressRunID = UUID()
     /// The in-flight load, owned here so `cancelLoad()` (e.g. the sheet's Cancel button) can cancel it.
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
@@ -82,16 +88,31 @@ final class StudyDeckGenerationViewModel {
         }
     }
 
-    init(
+    convenience init(
         audiobookID: String,
         bookTitle: String,
         db: DatabaseWriter,
         generator: any StudyDeckGenerating = FixtureStudyDeckGenerator()
     ) {
+        self.init(
+            audiobookID: audiobookID,
+            bookTitle: bookTitle,
+            db: db,
+            makeGenerator: { _ in generator }
+        )
+    }
+
+    init(
+        audiobookID: String,
+        bookTitle: String,
+        db: DatabaseWriter,
+        makeGenerator: @escaping (@escaping @Sendable (Int, Int) -> Void) ->
+            (any StudyDeckGenerating)?
+    ) {
         self.audiobookID = audiobookID
         self.bookTitle = bookTitle
         self.db = db
-        self.generator = generator
+        self.makeGenerator = makeGenerator
     }
 
     /// Runs a cancellable generation. Owns the work in `loadTask` so `cancelLoad()` can stop it,
@@ -109,10 +130,14 @@ final class StudyDeckGenerationViewModel {
     }
 
     private func runLoad() async {
+        let runID = UUID()
+        progressRunID = runID
         isLoading = true
         defer {
-            isLoading = false
-            progress = nil
+            if progressRunID == runID {
+                isLoading = false
+                progress = nil
+            }
         }
 
         do {
@@ -120,6 +145,24 @@ final class StudyDeckGenerationViewModel {
             acceptedCount = 0
             acceptedPlanNewCardsPerDay = nil
             progress = nil
+            duplicatesSkipped = 0
+            noProviderConfigured = false
+
+            guard
+                let generator = makeGenerator({ done, total in
+                    Task { @MainActor [weak self, runID] in
+                        guard let self, progressRunID == runID, isLoading else { return }
+                        progress = (done, total)
+                    }
+                })
+            else {
+                noProviderConfigured = true
+                draft = nil
+                cards = []
+                selectedCardIDs = []
+                chapterIndexBySourceBlockID = [:]
+                return
+            }
 
             let sources = try StudyDeckSourceBuilder(db: db).sources(
                 audiobookID: audiobookID,
@@ -132,10 +175,13 @@ final class StudyDeckGenerationViewModel {
                 sources: sources,
                 settings: StudyDeckGenerationSettings()
             )
+            let deduped = try StudyDeckDraftDeduplicator(db: db)
+                .deduplicate(generatedDraft, audiobookID: audiobookID)
 
-            draft = generatedDraft
-            cards = generatedDraft.cards
-            selectedCardIDs = Set(generatedDraft.cards.map(\.id))
+            draft = deduped.draft
+            duplicatesSkipped = deduped.skippedCount
+            cards = deduped.draft.cards
+            selectedCardIDs = Set(deduped.draft.cards.map(\.id))
         } catch {
             draft = nil
             cards = []

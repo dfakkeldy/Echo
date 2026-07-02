@@ -361,29 +361,48 @@ private struct StudyDeckGenerationSheetHost: View {
     @State private var viewModel: StudyDeckGenerationViewModel
 
     init(presentation: StudyDeckGenerationSheetPresentation) {
-        // Read key + model on the MainActor (View.init is @MainActor). Capture
-        // plain Strings so the @Sendable closure never crosses actor boundaries
-        // with a @MainActor-isolated object.
-        let store = APIKeyStore()
-        let hasKey = store.hasKey
-        let key = store.anthropicKey ?? ""
-        let model = AICardGenerationSettings.selectedModel
-        let generator = StudyDeckGeneratorFactory.make(
-            preference: AICardGenerationSettings.providerPreference,
-            hasKey: hasKey,
-            fmAvailable: StudyDeckFMAvailability.isAvailable
-        ) {
-            AnthropicStudyDeckGenerator(
-                client: AnthropicMessagesClient(apiKey: key, model: model))
+        // Resolve provider state on the MainActor, then capture Sendable values.
+        let store = AIProviderSettingsStore()
+        let preference = store.generatorPreference
+        let fmAvailable = StudyDeckFMAvailability.isAvailable
+        let clients: (primary: AnthropicMessagesClient, brief: AnthropicMessagesClient)?
+        if store.hasConfiguredCloudProvider,
+            let config = store.config,
+            let token = store.token(for: config.preset)
+        {
+            clients = AnthropicMessagesClient.clients(config: config, token: token)
+        } else {
+            clients = nil
         }
-        _viewModel = State(
-            wrappedValue: StudyDeckGenerationViewModel(
-                audiobookID: presentation.audiobookID,
-                bookTitle: presentation.bookTitle,
-                db: presentation.db,
-                generator: generator
-            )
+
+        let providerClients = clients
+        let makeGenerator: (@escaping @Sendable (Int, Int) -> Void) ->
+            (any StudyDeckGenerating)? = { progress in
+                let cloud: (@Sendable () -> any StudyDeckGenerating)?
+                if let pair = providerClients {
+                    cloud = {
+                        AnthropicStudyDeckGenerator(
+                            client: pair.primary,
+                            briefClient: pair.brief,
+                            progress: progress
+                        )
+                    }
+                } else {
+                    cloud = nil
+                }
+                return StudyDeckGeneratorFactory.makeForUI(
+                    preference: preference,
+                    fmAvailable: fmAvailable,
+                    cloud: cloud
+                )
+            }
+        let model = StudyDeckGenerationViewModel(
+            audiobookID: presentation.audiobookID,
+            bookTitle: presentation.bookTitle,
+            db: presentation.db,
+            makeGenerator: makeGenerator
         )
+        _viewModel = State(wrappedValue: model)
     }
 
     var body: some View {
