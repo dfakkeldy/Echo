@@ -200,6 +200,12 @@ struct FlashcardCreationSheet: View {
             try FlashcardDAO(db: db.writer).insert(card)
             onSave(cardID)
             ReviewPromptManager.shared.recordActivationEvent(.flashcardCreated)
+            if let prompt = try? StudyChapterRetireService(db: db.writer).promptForNewUserCard(
+                audiobookID: targetAudiobookID,
+                mediaTimestamp: card.mediaTimestamp
+            ) {
+                model.pendingRetirePrompt = prompt
+            }
             return true
         } catch {
             os_log(.error, "Failed to save flashcard: %{public}@", error.localizedDescription)

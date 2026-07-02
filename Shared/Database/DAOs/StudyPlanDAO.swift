@@ -184,13 +184,24 @@ struct StudyPlanDAO {
     }
 
     func setItemEnabled(itemID: String, isEnabled: Bool, now: Date = Date()) throws {
+        let nowString = now.ISO8601Format()
         try db.write { db in
+            let item = try StudyPlanItem.fetchOne(db, key: itemID)
             _ = try StudyPlanItem
                 .filter(Column("id") == itemID)
                 .updateAll(db, [
                     Column("is_enabled").set(to: isEnabled),
-                    Column("modified_at").set(to: now.ISO8601Format()),
+                    Column("modified_at").set(to: nowString),
                 ])
+
+            if let cardID = item?.flashcardID {
+                _ = try Flashcard
+                    .filter(Column("id") == cardID)
+                    .updateAll(db, [
+                        Column("is_enabled").set(to: isEnabled),
+                        Column("modified_at").set(to: nowString),
+                    ])
+            }
         }
     }
 

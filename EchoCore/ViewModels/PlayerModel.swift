@@ -502,6 +502,7 @@ final class PlayerModel {
     let chapterLoadingCoordinator = ChapterLoadingCoordinator()
     let playerLoadingCoordinator = PlayerLoadingCoordinator()
     var checkpointCoordinator: StudyCheckpointCoordinator?
+    var pendingRetirePrompt: StudyChapterRetireService.RetirePrompt?
     @ObservationIgnored let checkpointAnnouncer = StudyCheckpointAnnouncer()
     @ObservationIgnored let checkpointNotifications = StudyCheckpointNotificationService()
     var continuousAlignmentService: ContinuousAlignmentService?

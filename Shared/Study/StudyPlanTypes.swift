@@ -46,6 +46,12 @@ enum StudyAssignmentGradePolicy {
 
 struct StudyCardMedia: Codable, Equatable, Sendable {
     let imagePath: String?
+    let retirePromptShownAt: String?
+
+    init(imagePath: String?, retirePromptShownAt: String? = nil) {
+        self.imagePath = imagePath
+        self.retirePromptShownAt = retirePromptShownAt
+    }
 }
 
 struct StudyPlanCandidate: Identifiable, Equatable, Sendable {
