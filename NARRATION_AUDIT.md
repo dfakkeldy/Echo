@@ -1,5 +1,7 @@
 # Echo Narration Pipeline Audit
 
+> Status note (2026-07-02): this is the original PR #368 audit snapshot. For current completed/pending remediation status on `origin/nightly`, use `docs/superpowers/reports/2026-07-02-narration-audit-remediation-map.md`. Do not treat this file as the live ledger.
+
 Generated: 2026-07-01
 Branch audited: `claude/peaceful-herschel-867461` at `76610d0` (contains `origin/nightly`)
 Scope: the on-device narration pipeline only — EPUB text → `TextNormalizer`/`FMNormalizer` → pronunciation overrides → `NarrationTextChunker` → Kokoro ONNX synthesis (`OnnxKokoroEngine` + `KokoroFrontEnd`/`KokoroG2P`) → `NarrationSilenceGuard` → word timing → ALAC cache writing → m4b export → narration QA / re-transcription / pronunciation repair, plus `HeadlessNarrationRunner` and `echo-cli`. Focus: performance optimization and output quality.

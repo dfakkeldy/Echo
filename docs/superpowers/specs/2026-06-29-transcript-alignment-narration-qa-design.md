@@ -1,9 +1,11 @@
 # Transcript Alignment + Narration QA - Design Spec
 
 **Date:** 2026-06-29
-**Status:** Draft spec sheet
+**Status:** Superseded draft spec sheet, retained for history
 **Topic:** Make transcription behave like aligned source text, then use source-aware transcription to find and fix narration mistakes.
 **Author:** Dan Fakkeldy (with Codex)
+
+> Superseded by `docs/superpowers/specs/2026-06-29-transcript-narration-qa-design.md`, which ground-truthed this draft against the codebase and locked the implementation decisions. Use that approved program design for new work.
 
 ## 1. Product answer
 

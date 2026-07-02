@@ -1,5 +1,7 @@
 # M3 — Generated Narration QA Implementation Plan
 
+> Historical ledger notice (2026-07-02): M3 generated narration QA is implemented on `origin/nightly`. This plan is retained as evidence and must not be executed as a current checklist. For live remediation status after PR #368, use `docs/superpowers/reports/2026-07-02-narration-audit-remediation-map.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax.
 
 **Goal:** After narrating an EPUB/PDF, let the user run a deterministic "listen back" QA pass that re-transcribes the generated audio, aligns heard-vs-source with TokenDTW, persists reviewable `narration_quality_issue` rows, optionally enriches labels with a triple-gated Foundation Models classifier, and surfaces them in an iOS review screen.
