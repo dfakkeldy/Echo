@@ -83,7 +83,7 @@ When the due chapter has **no user-created cards**, the checkpoint and the study
 
 ### 5.2 Retire-chapter prompt
 
-The first time a user-created flashcard is saved into a chapter with an active listening assignment, prompt once: *"Retire this chapter's re-listen card and review with your cards instead?"* Retiring sets `isEnabled = false` on the assignment card (reversible from plan management). The prompt fires once per chapter, tracked in the assignment card's review-metadata JSON (no new column). The AI-deck slice (slice 2) will reuse this exact hook when accepted AI cards land in a chapter.
+The first time a user-created flashcard is saved into a chapter with an active listening assignment, prompt once: *"Retire this chapter's re-listen card and review with your cards instead?"* Retiring sets `isEnabled = false` on the assignment card (reversible from plan management). The prompt fires once per chapter, tracked in the assignment card's review-metadata JSON (no new column). The AI-deck slice (slice 2) reuses this mechanism — *amended 2026-07-02 (slice-2 spec §11 A3):* slice 2 **defers** the firing until a chapter's last pending AI card is released (never at acceptance), adds a chapter-keyed lookup variant and a covering-card count to the prompt, and defers this slice's manual-card prompt too when the chapter's AI cards are mid-drip. Built as specified here, this slice's standalone behavior is unaffected until slice 2 lands.
 
 ## 6. Settings
 

@@ -2729,6 +2729,8 @@ git commit -m "feat(study): skippable re-listen + needs-attention surface in the
 
 ## Task 11: Retire-chapter prompt
 
+> **Note (2026-07-02):** slice 2 amends this feature's interplay (slice-2 spec §11 A3): the AI-deck flow fires the prompt at **card release** (via a chapter-keyed variant with a bulk count), not at acceptance, and will guard this task's `FlashcardCreationSheet` hook when a chapter's AI cards are mid-drip. Implement this task exactly as written — only word the `StudyChapterRetireService` doc comment as "the AI-deck slice fires this at card release", not "when accepted AI cards land in a chapter".
+
 **Files:**
 - Modify: `Shared/Study/StudyPlanTypes.swift` (`StudyCardMedia`, L47–49)
 - Create: `Shared/Services/StudyChapterRetireService.swift`
