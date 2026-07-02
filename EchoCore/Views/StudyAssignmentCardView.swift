@@ -13,6 +13,8 @@ struct StudyAssignmentCardView: View {
     let onPlay: () -> Void
     let onReveal: () -> Void
     let onGrade: (ReviewGrade) -> Void
+    var onSkip: (() -> Void)? = nil
+    var needsAttention: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -40,6 +42,15 @@ struct StudyAssignmentCardView: View {
             )
             .buttonStyle(.borderedProminent)
 
+            if needsAttention {
+                Label(
+                    "Could not auto-play this chapter today. Play it manually.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.footnote)
+                .foregroundStyle(.orange)
+            }
+
             if isRevealed {
                 if isVocabulary {
                     #if os(iOS)
@@ -62,6 +73,13 @@ struct StudyAssignmentCardView: View {
                 StudyAssignmentGradeButtons(
                     grades: StudyAssignmentGradePolicy.choices(for: entry.flashcard.cardType),
                     onGrade: onGrade)
+                if let onSkip {
+                    Button("Skip - I know this chapter", action: onSkip)
+                        .buttonStyle(.plain)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
             } else {
                 Button("Review Retention", systemImage: "checkmark.circle", action: onReveal)
                     .buttonStyle(.bordered)

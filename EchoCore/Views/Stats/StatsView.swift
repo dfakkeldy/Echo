@@ -301,8 +301,7 @@ struct StatsView: View {
             }
         )
         vm.onRequestAssignmentPlayback = { [weak model] card in
-            guard let model else { return }
-            playStudyAssignment(card, model: model)
+            model?.playStudyAssignment(card)
         }
 
         do {
@@ -318,21 +317,6 @@ struct StatsView: View {
             studySessionLaunchError = String(
                 localized: "The study queue could not be loaded. Try again.")
             logger.error("Failed to launch study session: \(error.localizedDescription)")
-        }
-    }
-
-    @MainActor
-    private func playStudyAssignment(_ card: Flashcard, model: PlayerModel) {
-        let bookURL = URL(string: card.audiobookID) ?? URL(fileURLWithPath: card.audiobookID)
-        if model.folderURL?.absoluteString != card.audiobookID {
-            model.loadFolder(bookURL, autoplay: false)
-        }
-        model.selectedTab = .nowPlaying
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            model.seek(toSeconds: max(0, card.mediaTimestamp + 0.05))
-            model.play()
         }
     }
 

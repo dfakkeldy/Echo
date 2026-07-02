@@ -199,6 +199,73 @@ import Testing
         #expect(requestCount == 0)
     }
 
+    @Test func skipCurrentWritesNoGradeDefersToTomorrowAndAdvances() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+
+        let entry = try #require(viewModel.currentEntry)
+        #expect(entry.flashcard.frontText == "Book A Chapter 1")
+        #expect(viewModel.currentEntryIsSkipEligible() == true)
+
+        viewModel.skipCurrent(now: StudyQueueFixtures.mondayNoon)
+
+        let skipped = try #require(
+            try service.read { db in try Flashcard.fetchOne(db, key: entry.flashcard.id) })
+        let tomorrow = StudyQueueFixtures.calendar.date(
+            byAdding: .day, value: 1, to: StudyQueueFixtures.mondayNoon)!
+        #expect(skipped.lastGrade == nil)
+        #expect(skipped.nextReviewDate == tomorrow.ISO8601Format())
+        #expect(viewModel.currentIndex == 1)
+    }
+
+    @Test func skipIsNotOfferedWhenTheChapterHasUserCards() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        try StudyQueueFixtures.seedDueCard(
+            id: "user-1",
+            audiobookID: "book-a",
+            frontText: "My card",
+            nextReviewDate: StudyQueueFixtures.mondayNoon.addingTimeInterval(86_400),
+            isEnabled: true,
+            in: service
+        )
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+
+        let entry = try #require(viewModel.currentEntry)
+        #expect(entry.flashcard.frontText == "Book A Chapter 1")
+        #expect(viewModel.currentEntryIsSkipEligible() == false)
+    }
+
+    @Test func needsAttentionFlagsLoadWithTheQueue() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        let queue = StudyPlaybackQueueService(db: service.writer)
+        try queue.markNeedsAttention(
+            item: StudyPlayableItem(
+                flashcardID: "card-x",
+                audiobookID: "book-a",
+                chapterIndex: 0,
+                planItemID: nil,
+                title: "Book A Chapter 1",
+                startTime: 0,
+                endTime: 100
+            ),
+            reason: "Book not downloaded",
+            now: StudyQueueFixtures.mondayNoon
+        )
+
+        let viewModel = StudySessionViewModel(
+            db: service.writer, updateReviewNotification: { _ in })
+        try viewModel.loadQueue(
+            now: StudyQueueFixtures.mondayNoon, calendar: StudyQueueFixtures.calendar)
+
+        #expect(viewModel.needsAttentionCardIDs.contains("card-x"))
+    }
+
     private func studyPlanItemIntroducedDates(in service: DatabaseService) throws -> [String?] {
         try service.read { db in
             try Row.fetchAll(

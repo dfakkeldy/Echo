@@ -11,6 +11,8 @@ final class StudySessionViewModel {
     var currentIndex: Int = 0
     var isRevealed: Bool = false
     var errorMessage: String?
+    /// Cards whose audio could not be played by hands-free advance today.
+    var needsAttentionCardIDs: Set<String> = []
 
     @ObservationIgnored private let db: DatabaseWriter
     @ObservationIgnored private let logger = Logger(category: "StudySessionViewModel")
@@ -61,6 +63,9 @@ final class StudySessionViewModel {
             .filter { $0.category == .newAssignment }
             .compactMap { $0.item?.id }
         try StudyPlanDAO(db: db).markIntroduced(itemIDs: newItemIDs, now: now)
+        needsAttentionCardIDs =
+            (try? StudyPlaybackQueueService(db: db)
+                .needsAttentionFlashcardIDs(now: now, calendar: calendar)) ?? []
         updateReviewNotification(remainingReviewNotificationCount())
         NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
     }
@@ -96,6 +101,34 @@ final class StudySessionViewModel {
             errorMessage = error.localizedDescription
             logger.error(
                 "Failed to grade card \(entry.flashcard.id): \(error.localizedDescription)")
+        }
+    }
+
+    /// Skip is offered only for listening assignments whose chapter has no
+    /// user-created cards.
+    func currentEntryIsSkipEligible() -> Bool {
+        guard let entry = currentEntry,
+            entry.flashcard.cardType == StudyFlashcardType.listeningAssignment
+        else { return false }
+
+        return (try? StudyPlaybackQueueService(db: db)
+            .isSkipEligible(assignmentCardID: entry.flashcard.id)) ?? false
+    }
+
+    /// Retention-neutral skip: no FSRS grade, due tomorrow, logged.
+    func skipCurrent(now: Date = Date()) {
+        guard let entry = currentEntry else { return }
+
+        do {
+            try StudyPlaybackQueueService(db: db)
+                .markSkipped(flashcardID: entry.flashcard.id, now: now)
+            advance()
+            updateReviewNotification(remainingReviewNotificationCount())
+            NotificationCenter.default.post(name: .studyQueueDidChange, object: nil)
+        } catch {
+            errorMessage = error.localizedDescription
+            logger.error(
+                "Failed to skip card \(entry.flashcard.id): \(error.localizedDescription)")
         }
     }
 

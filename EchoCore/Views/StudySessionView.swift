@@ -81,7 +81,10 @@ private struct StudySessionCardView: View {
                 isRevealed: viewModel.isRevealed,
                 onPlay: { viewModel.requestPlayCurrentAssignment() },
                 onReveal: { viewModel.reveal() },
-                onGrade: { viewModel.gradeCurrent($0) }
+                onGrade: { viewModel.gradeCurrent($0) },
+                onSkip: viewModel.currentEntryIsSkipEligible()
+                    ? { viewModel.skipCurrent() } : nil,
+                needsAttention: viewModel.needsAttentionCardIDs.contains(entry.flashcard.id)
             )
         } else {
             #if os(macOS)
