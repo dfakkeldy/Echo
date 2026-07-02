@@ -33,7 +33,7 @@ nonisolated enum HeadlessNarrationQAManifest {
         let audioByChapter = Dictionary(
             files.compactMap { url -> (Int, URL)? in
                 guard url.pathExtension.lowercased() == "m4a",
-                      let chapterIndex = Self.chapterIndex(in: url.lastPathComponent) else {
+                      let chapterIndex = Self.audioChapterIndex(in: url.lastPathComponent) else {
                     return nil
                 }
                 return (chapterIndex, url)
@@ -44,7 +44,7 @@ nonisolated enum HeadlessNarrationQAManifest {
         let captures = try files.compactMap { url -> (Int, ChapterCapture)? in
             guard url.lastPathComponent.hasPrefix(".anchors-ch"),
                   url.pathExtension == "json",
-                  let chapterIndex = Self.chapterIndex(in: url.lastPathComponent) else {
+                  let chapterIndex = Self.captureChapterIndex(in: url.lastPathComponent) else {
                 return nil
             }
             let capture = try JSONDecoder().decode(ChapterCapture.self, from: Data(contentsOf: url))
@@ -73,11 +73,24 @@ nonisolated enum HeadlessNarrationQAManifest {
         return chapters
     }
 
-    private static func chapterIndex(in filename: String) -> Int? {
-        guard let range = filename.range(of: "ch[0-9]+", options: .regularExpression) else {
+    private static func captureChapterIndex(in filename: String) -> Int? {
+        if let range = filename.range(
+            of: #"^\.anchors-ch[0-9]+\.json$"#,
+            options: .regularExpression
+        ) {
+            return Int(filename[range].dropFirst(".anchors-ch".count).dropLast(".json".count))
+        }
+        return nil
+    }
+
+    private static func audioChapterIndex(in filename: String) -> Int? {
+        guard let range = filename.range(
+            of: #"-ch[0-9]+(?=[-.])"#,
+            options: .regularExpression
+        ) else {
             return nil
         }
-        return Int(filename[range].dropFirst(2))
+        return Int(filename[range].dropFirst(3))
     }
 
     private static func stableUnique<Element: Hashable>(_ values: [Element]) -> [Element] {
