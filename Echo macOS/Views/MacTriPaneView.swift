@@ -62,6 +62,14 @@ struct MacTriPaneView: View {
                     .padding(.vertical, 6)
             }
             .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+            .overlay(alignment: .bottom) {
+                if let coordinator = player.checkpointCoordinator,
+                    case .checkpointActive = coordinator.state
+                {
+                    StudyCheckpointPanelView(coordinator: coordinator)
+                        .padding(.bottom, 64)
+                }
+            }
             .sheet(isPresented: $showingTranscribeProgress) {
                 if let coordinator = transcribeCoordinator {
                     MacTranscribeProgressView(
