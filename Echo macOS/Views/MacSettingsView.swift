@@ -103,7 +103,9 @@ private struct MacAppearanceSettingsPane: View {
 // MARK: - Study Pane
 
 private struct MacStudySettingsPane: View {
+    @Environment(DatabaseService.self) private var dbService
     @Environment(SettingsManager.self) private var settings
+    @State private var reviewReminderStatus: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -116,7 +118,18 @@ private struct MacStudySettingsPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Toggle("Daily Review Reminder", isOn: $settings.reviewNotificationsEnabled)
+                Toggle(
+                    "Daily Review Reminder",
+                    isOn: Binding(
+                        get: { settings.reviewNotificationsEnabled },
+                        set: { isEnabled in setReviewNotificationsEnabled(isEnabled) }
+                    )
+                )
+                if let reviewReminderStatus {
+                    Text(reviewReminderStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Study")
             }
@@ -153,6 +166,44 @@ private struct MacStudySettingsPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func setReviewNotificationsEnabled(_ isEnabled: Bool) {
+        guard isEnabled else {
+            settings.reviewNotificationsEnabled = false
+            ReviewNotificationService.removeScheduledNotification()
+            reviewReminderStatus = "Daily review reminders are off."
+            return
+        }
+
+        Task { @MainActor in
+            let status = await ReviewNotificationService.requestAuthorization()
+            guard status.canScheduleNotifications else {
+                settings.reviewNotificationsEnabled = false
+                ReviewNotificationService.removeScheduledNotification()
+                reviewReminderStatus =
+                    "Notifications are not allowed. Enable notifications for Echo in System Settings."
+                return
+            }
+
+            settings.reviewNotificationsEnabled = true
+            reviewReminderStatus = "Daily review reminders are on."
+            updateDailyReviewReminder()
+        }
+    }
+
+    private func updateDailyReviewReminder() {
+        do {
+            let queue = try StudyQueueBuilder(db: dbService.writer).build(
+                globalNewChapterLimit: settings.studyGlobalNewChapterLimit
+            )
+            ReviewNotificationService.updateNotification(
+                dueCount: queue.dueReviewCount + queue.inProgressAssignmentCount,
+                isEnabled: settings.reviewNotificationsEnabled
+            )
+        } catch {
+            ReviewNotificationService.updateNotification(dueCount: 0, isEnabled: true)
+        }
     }
 }
 
