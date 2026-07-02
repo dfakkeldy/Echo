@@ -21,6 +21,13 @@ struct StudyPlanCreationResult: Sendable {
     let createdItems: [StudyPlanItem]
 }
 
+/// The chapter assignment a finished chapter checkpoints against.
+struct StudyCheckpointAssignment: Sendable {
+    let plan: StudyPlan
+    let item: StudyPlanItem
+    let card: Flashcard
+}
+
 struct StudyPlanDAO {
     let db: DatabaseWriter
 
@@ -184,6 +191,54 @@ struct StudyPlanDAO {
                     Column("is_enabled").set(to: isEnabled),
                     Column("modified_at").set(to: now.ISO8601Format()),
                 ])
+        }
+    }
+
+    /// The assignment a naturally finished chapter should checkpoint against,
+    /// or nil when the chapter is not covered by an active, introduced,
+    /// enabled, due or in-progress study-plan item.
+    func checkpointAssignment(
+        audiobookID: String,
+        chapterIndex: Int,
+        now: Date = Date()
+    ) throws -> StudyCheckpointAssignment? {
+        let nowString = now.ISO8601Format()
+        return try db.read { db in
+            let plans = try StudyPlan
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("is_paused") == false)
+                .filter(Column("start_date") <= nowString)
+                .order(Column("start_date"), Column("created_at"))
+                .fetchAll(db)
+
+            var candidates: [StudyCheckpointAssignment] = []
+            for plan in plans {
+                let items = try StudyPlanItem
+                    .filter(Column("plan_id") == plan.id)
+                    .filter(Column("kind") == StudyPlanItemKind.chapter.rawValue)
+                    .filter(Column("chapter_index") == chapterIndex)
+                    .filter(Column("is_enabled") == true)
+                    .filter(Column("introduced_at") != nil)
+                    .fetchAll(db)
+
+                for item in items {
+                    guard let flashcardID = item.flashcardID,
+                        let card = try Flashcard.fetchOne(db, key: flashcardID),
+                        card.isEnabled
+                    else { continue }
+
+                    let isInProgress = card.repetitions == 0 && card.lastReviewedAt == nil
+                    let isDue = card.nextReviewDate.map { $0 <= nowString } ?? false
+                    if isInProgress || isDue {
+                        candidates.append(
+                            StudyCheckpointAssignment(plan: plan, item: item, card: card))
+                    }
+                }
+            }
+
+            return candidates.min { left, right in
+                (left.card.nextReviewDate ?? "") < (right.card.nextReviewDate ?? "")
+            }
         }
     }
 
