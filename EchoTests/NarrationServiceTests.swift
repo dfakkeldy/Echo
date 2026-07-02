@@ -59,7 +59,8 @@ import Testing
             db: db.writer, audiobookID: "b1",
             tts: tts, audioWriter: writer,
             cacheDirectory: FileManager.default.temporaryDirectory,
-            state: NarrationState())
+            state: NarrationState(),
+            fmEnabled: { false })
     }
 
     /// Overload that injects a pronunciation-override closure so the override→
@@ -72,7 +73,9 @@ import Testing
             db: db.writer, audiobookID: "b1",
             tts: tts, audioWriter: writer,
             cacheDirectory: FileManager.default.temporaryDirectory,
-            state: NarrationState(), pronunciationOverrides: overrides)
+            state: NarrationState(),
+            pronunciationOverrides: overrides,
+            fmEnabled: { false })
     }
 
     /// Counts non-overlapping occurrences of `needle` across every synthesized
@@ -205,10 +208,12 @@ import Testing
             blocks: Array(blocks[1...2]),
             voice: VoiceID("af_warm"))
 
-        let expectedName = NarrationFileNaming.segmentFileName(
-            audiobookID: "b1", chapterIndex: 0, segmentIndex: 2, voice: VoiceID("af_warm"))
-        #expect(rendered.fileURL.lastPathComponent == expectedName)
-        #expect(writer.writtenURLs.map(\.lastPathComponent) == [expectedName])
+        let expectedName = rendered.fileURL.lastPathComponent
+        #expect(expectedName.contains("-ch0-s2-h"))
+        #expect(expectedName.hasSuffix("-af_warm-v\(NarrationFileNaming.renderVersion).m4a"))
+        #expect(
+            writer.writtenURLs.map(\.lastPathComponent) == [partialCacheFileName(for: expectedName)]
+        )
         #expect(rendered.chapterIndex == 0)
         #expect(rendered.chapterDisplayNumber == 1)
         #expect(rendered.segmentIndex == 2)
@@ -242,6 +247,149 @@ import Testing
         #expect(svc.state.renderedChapterCount == 0)
     }
 
+    @Test func renderSegmentFileCacheNameChangesWhenPronunciationOverrideChangesSpokenText()
+        async throws
+    {
+        let plainDB = try DatabaseService(inMemory: ())
+        let plainBlocks = try seed(plainDB, ["Deploying Kubernetes carefully."])
+        let plainService = makeService(
+            plainDB,
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            writer: MockAudioWriter())
+        let plain = try await plainService.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: plainBlocks,
+            voice: VoiceID("af_heart"))
+
+        let overrideDB = try DatabaseService(inMemory: ())
+        let overrideBlocks = try seed(overrideDB, ["Deploying Kubernetes carefully."])
+        let overrideService = makeService(
+            overrideDB,
+            tts: MockTTSEngine(secondsPerChar: 0.1),
+            writer: MockAudioWriter()
+        ) {
+            PronunciationOverrides(entries: ["Kubernetes": "ku:bərnetis"])
+        }
+        let overridden = try await overrideService.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: overrideBlocks,
+            voice: VoiceID("af_heart"))
+
+        #expect(plain.fileURL.lastPathComponent != overridden.fileURL.lastPathComponent)
+        #expect(overridden.fileURL.lastPathComponent.contains("-h"))
+    }
+
+    @Test func chapterCacheNameChangesWhenFMNormalizationModeChanges() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Deploying Kubernetes carefully."])
+        let deterministic = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+        let fmBacked = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { true })
+
+        let deterministicURL = await deterministic.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        let fmURL = await fmBacked.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        #expect(deterministicURL.lastPathComponent != fmURL.lastPathComponent)
+    }
+
+    @Test func renderFailureRemovesInProgressPartialAndLeavesNoFinalAudioFile() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Kaboom"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let tts = MockTTSEngine()
+        tts.throwOnText = "Kaboom"
+        let writer = TouchingAudioWriter()
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: tts,
+            audioWriter: writer,
+            cacheDirectory: tmp,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        await #expect(throws: NarrationError.synthesisFailed) {
+            try await service.renderChapter(
+                chapterIndex: 0,
+                blocks: blocks,
+                voice: VoiceID("af_heart"))
+        }
+
+        let openedURL = try #require(writer.openedURLs.first)
+        let finalURL = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        #expect(openedURL.pathExtension == "m4a")
+        #expect(
+            openedURL.lastPathComponent == partialCacheFileName(for: finalURL.lastPathComponent))
+        #expect(!FileManager.default.fileExists(atPath: openedURL.path))
+        #expect(!FileManager.default.fileExists(atPath: finalURL.path))
+    }
+
+    @Test func renderSuccessPublishesPartialToFinalAndReplacesExistingAudioFile() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["Success"])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let writer = TouchingAudioWriter()
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: MockTTSEngine(),
+            audioWriter: writer,
+            cacheDirectory: tmp,
+            state: NarrationState(),
+            fmEnabled: { false })
+        let finalURL = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+        _ = FileManager.default.createFile(atPath: finalURL.path, contents: Data("old".utf8))
+
+        try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        let openedURL = try #require(writer.openedURLs.first)
+        #expect(
+            openedURL.lastPathComponent == partialCacheFileName(for: finalURL.lastPathComponent))
+        #expect(!FileManager.default.fileExists(atPath: openedURL.path))
+        #expect(FileManager.default.fileExists(atPath: finalURL.path))
+        #expect(FileManager.default.contents(atPath: finalURL.path) == Data("partial".utf8))
+    }
+
     @Test func renderSegmentPersistsTrackTimelineAndSegmentKey() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["first", "second", "third"])
@@ -272,14 +420,9 @@ import Testing
         #expect(abs((tracks.first?.duration ?? -1) - 1.1) < 0.0001)
         #expect(abs((tracks.last?.duration ?? -1) - 0.5) < 0.0001)
 
-        let expectedNames = [
-            NarrationFileNaming.segmentFileName(
-                audiobookID: "b1", chapterIndex: 0, segmentIndex: 0,
-                voice: VoiceID("af_warm")),
-            NarrationFileNaming.segmentFileName(
-                audiobookID: "b1", chapterIndex: 0, segmentIndex: 1,
-                voice: VoiceID("af_warm")),
-        ]
+        let expectedNames = tracks.map {
+            partialCacheFileName(for: URL(fileURLWithPath: $0.filePath).lastPathComponent)
+        }
         #expect(writer.writtenURLs.map(\.lastPathComponent) == expectedNames)
 
         let anchors = try db.read { db in
@@ -609,5 +752,41 @@ import Testing
         #expect(
             try issueDAO.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
                 .isEmpty)
+    }
+}
+
+private func partialCacheFileName(for finalName: String) -> String {
+    let finalURL = URL(fileURLWithPath: finalName)
+    let baseName = finalURL.deletingPathExtension().lastPathComponent
+    let pathExtension = finalURL.pathExtension
+    return pathExtension.isEmpty ? ".\(baseName).partial" : ".\(baseName).partial.\(pathExtension)"
+}
+
+private final class TouchingAudioWriter: AudioFileWriting, @unchecked Sendable {
+    private(set) var openedURLs: [URL] = []
+
+    func write(_ chunks: [TTSChunk], to url: URL) async throws -> TimeInterval {
+        let stream = try makeStream(to: url, sampleRate: chunks.first?.sampleRate ?? 24_000)
+        for chunk in chunks {
+            try await stream.append(chunk)
+        }
+        return try await stream.finalize()
+    }
+
+    func makeStream(to url: URL, sampleRate: Double) throws -> any AudioFileStream {
+        openedURLs.append(url)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        _ = FileManager.default.createFile(atPath: url.path, contents: Data("partial".utf8))
+        return TouchingAudioStream()
+    }
+}
+
+private final class TouchingAudioStream: AudioFileStream, @unchecked Sendable {
+    func append(_ chunk: TTSChunk) async throws {}
+
+    func finalize() async throws -> TimeInterval {
+        0
     }
 }

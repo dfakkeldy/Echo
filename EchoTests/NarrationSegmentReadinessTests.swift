@@ -59,6 +59,32 @@ import Testing
         #expect(assembled == nil)
     }
 
+    @Test func assembledChapterRequiresMatchingSignedSegmentFilesWhenProvided() throws {
+        let expectedSignature = "aaaaaaaaaaaaaaaa"
+        let staleSignature = "bbbbbbbbbbbbbbbb"
+        let planned = [
+            segment(0, blocks: [block("b0", text: "First")])
+        ]
+        let staleURL = fileURL(
+            chapter: 0,
+            segment: 0,
+            voice: voice,
+            contentSignature: staleSignature)
+        let rendered = [
+            renderedSegment(0, duration: 1.0, blockIDs: ["b0"], fileURL: staleURL)
+        ]
+
+        let assembled = try NarrationSegmentReadiness.assembledChapter(
+            for: planned,
+            renderedSegments: rendered,
+            files: [staleURL],
+            audiobookID: audiobookID,
+            voice: voice,
+            contentSignaturesBySegmentIndex: [0: expectedSignature])
+
+        #expect(assembled == nil)
+    }
+
     @Test func assembledChapterRejectsNonContiguousPlans() throws {
         let planned = [
             segment(0, blocks: [block("b0", text: "First")]),
@@ -169,12 +195,18 @@ import Testing
             synthesisWordTimingsByBlock: [:])
     }
 
-    private func fileURL(chapter: Int, segment: Int, voice: VoiceID) -> URL {
+    private func fileURL(
+        chapter: Int,
+        segment: Int,
+        voice: VoiceID,
+        contentSignature: String? = nil
+    ) -> URL {
         URL(fileURLWithPath: "/tmp").appendingPathComponent(
             NarrationFileNaming.segmentFileName(
                 audiobookID: audiobookID,
                 chapterIndex: chapter,
                 segmentIndex: segment,
-                voice: voice))
+                voice: voice,
+                contentSignature: contentSignature))
     }
 }

@@ -333,9 +333,10 @@ final class MacBatchProcessingService {
                     // Resume: a chapter already rendered by a prior (partial) run is
                     // cached on disk with its TrackRecord, so skip it instead of
                     // re-burning the ANE — mirrors the iOS render loop.
-                    let cachedFile = NarrationCache.directory().appendingPathComponent(
-                        NarrationFileNaming.chapterFileName(
-                            audiobookID: audiobookID, chapterIndex: chapter.index, voice: voice))
+                    let cachedFile = await service.chapterCacheURL(
+                        chapterIndex: chapter.index,
+                        blocks: chapter.blocks,
+                        voice: voice)
                     if FileManager.default.fileExists(atPath: cachedFile.path) {
                         try await service.updateCachedNarrationTitle(
                             chapterIndex: chapter.index,

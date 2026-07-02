@@ -114,8 +114,9 @@ final class PronunciationRepairService {
                 "Override written for issue \(issue.id), but the issue has no source block.")
             throw NarrationRepairError.sourceChapterUnavailable
         }
-        guard let chapterIndex = try Self.chapterIndex(
-            forBlockID: blockID, audiobookID: issue.audiobookID, db: db)
+        guard
+            let chapterIndex = try Self.chapterIndex(
+                forBlockID: blockID, audiobookID: issue.audiobookID, db: db)
         else {
             logger.error(
                 "Override written for issue \(issue.id), but source block \(blockID) could not be resolved."
@@ -123,11 +124,10 @@ final class PronunciationRepairService {
             throw NarrationRepairError.sourceChapterUnavailable
         }
 
-        // 4. Clear stale cached audio.
-        let cachedFile = cacheDirectory.appendingPathComponent(
-            NarrationFileNaming.chapterFileName(
-                audiobookID: issue.audiobookID, chapterIndex: chapterIndex, voice: voice))
-        try? FileManager.default.removeItem(at: cachedFile)
+        // 4. Clear stale cached audio for this chapter/voice. Signed filenames
+        // intentionally accumulate across text-affecting changes, but accepting a
+        // pronunciation fix is a user-approved invalidation of this one chapter.
+        clearCachedAudio(audiobookID: issue.audiobookID, chapterIndex: chapterIndex)
         logger.notice("Cleared cached audio for chapter \(chapterIndex)")
 
         // 5. Re-render the chapter (reads the new override via NarrationService's
@@ -140,5 +140,26 @@ final class PronunciationRepairService {
         //    open row, so this helper upserts the resolved copy.
         let resolvedAt = ISO8601DateFormatter().string(from: Date())
         try issueDAO.saveResolvedAudit(issue, resolvedAt: resolvedAt)
+    }
+
+    private func clearCachedAudio(audiobookID: String, chapterIndex: Int) {
+        let fm = FileManager.default
+        guard
+            let files = try? fm.contentsOfDirectory(
+                at: cacheDirectory,
+                includingPropertiesForKeys: nil)
+        else {
+            return
+        }
+        for file in files
+        where NarrationFileNaming.isCurrentChapterCacheFileName(
+            file.lastPathComponent,
+            audiobookID: audiobookID,
+            chapterIndex: chapterIndex,
+            voice: voice,
+            includingPartial: true)
+        {
+            try? fm.removeItem(at: file)
+        }
     }
 }

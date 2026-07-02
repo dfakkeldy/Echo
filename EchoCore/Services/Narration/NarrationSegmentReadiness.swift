@@ -19,6 +19,7 @@ nonisolated enum NarrationSegmentReadiness {
         files: [URL],
         audiobookID: String,
         voice: VoiceID,
+        contentSignaturesBySegmentIndex: [Int: String] = [:],
         leadOutPadSeconds: TimeInterval = NarrationService.leadOutPadSeconds
     ) throws -> NarrationSegmentAssembly.AssembledChapter? {
         guard let firstPlan = plannedSegments.first else { return nil }
@@ -28,7 +29,8 @@ nonisolated enum NarrationSegmentReadiness {
                 for: orderedPlans,
                 files: files,
                 audiobookID: audiobookID,
-                voice: voice)
+                voice: voice,
+                contentSignaturesBySegmentIndex: contentSignaturesBySegmentIndex)
         else { return nil }
 
         var renderedForAssembly: [NarrationService.RenderedNarrationFile] = []

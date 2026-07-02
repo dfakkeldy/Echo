@@ -32,14 +32,49 @@ nonisolated enum NarrationFileNaming {
         return token.isEmpty ? "book" : token
     }
 
-    static func chapterFileName(audiobookID: String, chapterIndex: Int, voice: VoiceID) -> String {
-        "\(safeToken(audiobookID))-ch\(chapterIndex)-\(voice.rawValue)-v\(renderVersion).m4a"
+    static func chapterFileName(
+        audiobookID: String,
+        chapterIndex: Int,
+        voice: VoiceID,
+        contentSignature: String? = nil
+    ) -> String {
+        let signature = signatureFragment(contentSignature)
+        return
+            "\(safeToken(audiobookID))-ch\(chapterIndex)\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
     }
 
     static func segmentFileName(
-        audiobookID: String, chapterIndex: Int, segmentIndex: Int, voice: VoiceID
+        audiobookID: String,
+        chapterIndex: Int,
+        segmentIndex: Int,
+        voice: VoiceID,
+        contentSignature: String? = nil
     ) -> String {
-        "\(safeToken(audiobookID))-ch\(chapterIndex)-s\(segmentIndex)-\(voice.rawValue)-v\(renderVersion).m4a"
+        let signature = signatureFragment(contentSignature)
+        return
+            "\(safeToken(audiobookID))-ch\(chapterIndex)-s\(segmentIndex)\(signature)-\(voice.rawValue)-v\(renderVersion).m4a"
+    }
+
+    static func contentSignature(
+        spokenBlocks: [EPubBlockRecord],
+        renderedTexts: [String],
+        includeLeadOutPad: Bool,
+        normalizationMode: String = "deterministic"
+    ) -> String {
+        var components: [String] = [
+            "renderVersion=\(renderVersion)",
+            "leadOut=\(includeLeadOutPad ? 1 : 0)",
+            "normalizationMode=\(normalizationMode)",
+            "blockCount=\(spokenBlocks.count)",
+            "textCount=\(renderedTexts.count)",
+        ]
+        components.reserveCapacity(components.count + spokenBlocks.count * 2)
+        for (offset, block) in spokenBlocks.enumerated() {
+            components.append("blockID:\(block.id.count):\(block.id)")
+            let text = offset < renderedTexts.count ? renderedTexts[offset] : ""
+            components.append("text:\(text.count):\(text)")
+        }
+        return String(FMNormalizationCache.key(for: components.joined(separator: "\n")).prefix(16))
     }
 
     /// Prefix matching every chapter file for a book (any chapter, any voice).
@@ -69,6 +104,36 @@ nonisolated enum NarrationFileNaming {
         let segmentDigits = fileName[segmentMarker.upperBound...].prefix { $0.isNumber }
         guard let segmentIndex = Int(segmentDigits) else { return nil }
         return (chapterIndex, segmentIndex)
+    }
+
+    static func isCurrentChapterCacheFileName(
+        _ fileName: String,
+        audiobookID: String,
+        chapterIndex expectedChapterIndex: Int,
+        voice: VoiceID,
+        includingPartial: Bool = false
+    ) -> Bool {
+        let durableName: String
+        if fileName.hasSuffix(".partial") {
+            guard includingPartial else { return false }
+            durableName = String(fileName.dropLast(".partial".count))
+        } else if fileName.hasPrefix(".") && fileName.hasSuffix(".partial.m4a") {
+            guard includingPartial else { return false }
+            let partialName = fileName.dropFirst().dropLast(".partial.m4a".count)
+            durableName = "\(partialName).m4a"
+        } else {
+            durableName = fileName
+        }
+        guard durableName.hasPrefix("\(safeToken(audiobookID))-ch") else { return false }
+        guard chapterIndex(fromFileName: durableName) == expectedChapterIndex else { return false }
+        guard segmentLocation(fromFileName: durableName) == nil else { return false }
+        return durableName.hasSuffix("-\(voice.rawValue)-v\(renderVersion).m4a")
+    }
+
+    private static func signatureFragment(_ contentSignature: String?) -> String {
+        guard let contentSignature else { return "" }
+        let safe = contentSignature.filter { $0.isLetter || $0.isNumber }
+        return safe.isEmpty ? "" : "-h\(safe)"
     }
 }
 

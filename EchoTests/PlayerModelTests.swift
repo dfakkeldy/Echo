@@ -245,7 +245,7 @@ struct PlayerModelTests {
         #expect(source.contains("let segments = NarrationSegmentPlanner.plan(plan)"))
         #expect(source.contains("NarrationSegmentPlanner.resume("))
         #expect(source.contains("NarrationSegmentPlanner.beforeResume("))
-        #expect(source.contains("NarrationFileNaming.segmentFileName("))
+        #expect(source.contains("await service.segmentCacheURL("))
         #expect(source.contains("try await service.renderSegment("))
         #expect(!source.contains("try await service.renderChapter("))
     }

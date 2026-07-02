@@ -12,7 +12,8 @@ nonisolated enum NarrationSegmentCache {
         for plannedSegments: [NarrationSegmentPlanner.PlannedSegment],
         files: [URL],
         audiobookID: String,
-        voice: VoiceID
+        voice: VoiceID,
+        contentSignaturesBySegmentIndex: [Int: String] = [:]
     ) -> CachedChapter? {
         guard let first = plannedSegments.first else { return nil }
         let orderedSegments = plannedSegments.sorted { $0.segmentIndex < $1.segmentIndex }
@@ -30,7 +31,8 @@ nonisolated enum NarrationSegmentCache {
                 audiobookID: audiobookID,
                 chapterIndex: segment.chapterIndex,
                 segmentIndex: segment.segmentIndex,
-                voice: voice)
+                voice: voice,
+                contentSignature: contentSignaturesBySegmentIndex[segment.segmentIndex])
             guard let url = urlsByName[name] else { return nil }
             segmentURLs.append(url)
         }

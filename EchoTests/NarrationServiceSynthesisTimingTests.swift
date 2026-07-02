@@ -51,7 +51,8 @@ import Testing
         let svc = NarrationService(
             db: db.writer, audiobookID: "b1", tts: WordTimedEngine(emit: emit),
             audioWriter: MockAudioWriter(), cacheDirectory: FileManager.default.temporaryDirectory,
-            state: NarrationState())
+            state: NarrationState(),
+            fmEnabled: { false })
         try await svc.renderChapter(
             chapterIndex: 0, blocks: [block("blk0", "one two")], voice: VoiceID("af_heart"))
     }

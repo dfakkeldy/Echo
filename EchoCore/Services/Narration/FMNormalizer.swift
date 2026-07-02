@@ -43,6 +43,8 @@ actor FMNormalizationCache {
 // MARK: - FM Normalizer
 
 nonisolated enum FMNormalizer {
+    static let signatureVersion = 1
+
     static func refine(
         _ normalizedText: String,
         cache: FMNormalizationCache
