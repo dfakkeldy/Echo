@@ -220,12 +220,11 @@
                     for (offset, segment) in forwardSegments.enumerated() {
                         try Task.checkCancellation()
 
-                        let fileURL = cacheDirectory.appendingPathComponent(
-                            NarrationFileNaming.segmentFileName(
-                                audiobookID: audiobookID,
-                                chapterIndex: segment.chapterIndex,
-                                segmentIndex: segment.segmentIndex,
-                                voice: voice.id))
+                        let fileURL = await service.segmentCacheURL(
+                            chapterIndex: segment.chapterIndex,
+                            segmentIndex: segment.segmentIndex,
+                            blocks: segment.blocks,
+                            voice: voice.id)
 
                         // Persistence: a segment already rendered for this voice is
                         // reused as-is. Re-synthesising it would burn seconds of CPU
@@ -340,12 +339,11 @@
                     // doesn't apply; the book-switch + cancellation guards still do.
                     for segment in earlierSegments {
                         try Task.checkCancellation()
-                        let fileURL = cacheDirectory.appendingPathComponent(
-                            NarrationFileNaming.segmentFileName(
-                                audiobookID: audiobookID,
-                                chapterIndex: segment.chapterIndex,
-                                segmentIndex: segment.segmentIndex,
-                                voice: voice.id))
+                        let fileURL = await service.segmentCacheURL(
+                            chapterIndex: segment.chapterIndex,
+                            segmentIndex: segment.segmentIndex,
+                            blocks: segment.blocks,
+                            voice: voice.id)
                         // Reuse an already-rendered segment (persistence) — only
                         // synthesise the ones missing from the cache.
                         if !FileManager.default.fileExists(atPath: fileURL.path) {

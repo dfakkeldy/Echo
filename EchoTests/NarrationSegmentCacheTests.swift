@@ -31,11 +31,12 @@ import Testing
 
         #expect(cached?.chapterIndex == 0)
         #expect(cached?.chapterDisplayNumber == 1)
-        #expect(cached?.segmentURLs.map(\.lastPathComponent) == [
-            segmentFileName(chapter: 0, segment: 0, voice: voice),
-            segmentFileName(chapter: 0, segment: 1, voice: voice),
-            segmentFileName(chapter: 0, segment: 2, voice: voice),
-        ])
+        #expect(
+            cached?.segmentURLs.map(\.lastPathComponent) == [
+                segmentFileName(chapter: 0, segment: 0, voice: voice),
+                segmentFileName(chapter: 0, segment: 1, voice: voice),
+                segmentFileName(chapter: 0, segment: 2, voice: voice),
+            ])
     }
 
     @Test func cachedChapterReturnsNilWhenAnyPlannedSegmentIsMissing() {
@@ -52,6 +53,31 @@ import Testing
             files: files,
             audiobookID: audiobookID,
             voice: voice)
+
+        #expect(cached == nil)
+    }
+
+    @Test func cachedChapterRequiresMatchingContentSignatureWhenProvided() {
+        let expectedSignature = "aaaaaaaaaaaaaaaa"
+        let staleSignature = "bbbbbbbbbbbbbbbb"
+        let planned = [
+            segment(0, chapterDisplayNumber: 1)
+        ]
+        let files = [
+            file(
+                segmentFileName(
+                    chapter: 0,
+                    segment: 0,
+                    voice: voice,
+                    contentSignature: staleSignature))
+        ]
+
+        let cached = NarrationSegmentCache.cachedChapter(
+            for: planned,
+            files: files,
+            audiobookID: audiobookID,
+            voice: voice,
+            contentSignaturesBySegmentIndex: [0: expectedSignature])
 
         #expect(cached == nil)
     }
@@ -77,12 +103,18 @@ import Testing
             blocks: [])
     }
 
-    private func segmentFileName(chapter: Int, segment: Int, voice: VoiceID) -> String {
+    private func segmentFileName(
+        chapter: Int,
+        segment: Int,
+        voice: VoiceID,
+        contentSignature: String? = nil
+    ) -> String {
         NarrationFileNaming.segmentFileName(
             audiobookID: audiobookID,
             chapterIndex: chapter,
             segmentIndex: segment,
-            voice: voice)
+            voice: voice,
+            contentSignature: contentSignature)
     }
 
     private func file(_ name: String) -> URL {

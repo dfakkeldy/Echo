@@ -57,6 +57,7 @@ final class NarrationService {
     private let audioWriter: AudioFileWriting
     private let cacheDirectory: URL
     let state: NarrationState
+    private let fmEnabledProvider: () -> Bool
     /// Session-scoped cache for FM-normalized text. One instance per narration
     /// run so the same paragraph is only FM-processed once, even across chapters
     /// and voices. FM-unavailable or FM-makes-no-changes → passthrough (no-op).
@@ -66,7 +67,7 @@ final class NarrationService {
     /// Respects the `narrationQAClassifier` UserDefaults key: when set to
     /// "deterministic", FM is off for both QA and pre-normalization.
     private var fmEnabled: Bool {
-        UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
+        fmEnabledProvider()
     }
 
     /// Supplies the user pronunciation overrides applied to each block's text
@@ -81,6 +82,9 @@ final class NarrationService {
         audioWriter: AudioFileWriting, cacheDirectory: URL, state: NarrationState,
         pronunciationOverrides: @escaping () -> PronunciationOverrides = {
             PronunciationOverrides(entries: [:])
+        },
+        fmEnabled: @escaping () -> Bool = {
+            UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
         }
     ) {
         self.db = db
@@ -90,6 +94,7 @@ final class NarrationService {
         self.cacheDirectory = cacheDirectory
         self.state = state
         self.pronunciationOverrides = pronunciationOverrides
+        self.fmEnabledProvider = fmEnabled
     }
 
     struct RenderedNarrationFile: Sendable {
@@ -129,6 +134,100 @@ final class NarrationService {
         }
     }
 
+    func chapterCacheURL(
+        chapterIndex: Int,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID
+    ) async -> URL {
+        chapterCacheURL(
+            chapterIndex: chapterIndex,
+            blocks: blocks,
+            voice: voice,
+            overrides: pronunciationOverrides(),
+            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+    }
+
+    func segmentCacheURL(
+        chapterIndex: Int,
+        segmentIndex: Int,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID
+    ) async -> URL {
+        segmentCacheURL(
+            chapterIndex: chapterIndex,
+            segmentIndex: segmentIndex,
+            blocks: blocks,
+            voice: voice,
+            overrides: pronunciationOverrides(),
+            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+    }
+
+    private func chapterCacheURL(
+        chapterIndex: Int,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        overrides: PronunciationOverrides,
+        normalizationMode: String
+    ) -> URL {
+        let signature = contentSignature(
+            for: blocks,
+            includeLeadOutPad: true,
+            overrides: overrides,
+            normalizationMode: normalizationMode)
+        return cacheDirectory.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                voice: voice,
+                contentSignature: signature))
+    }
+
+    private func segmentCacheURL(
+        chapterIndex: Int,
+        segmentIndex: Int,
+        blocks: [EPubBlockRecord],
+        voice: VoiceID,
+        overrides: PronunciationOverrides,
+        normalizationMode: String
+    ) -> URL {
+        let signature = contentSignature(
+            for: blocks,
+            includeLeadOutPad: false,
+            overrides: overrides,
+            normalizationMode: normalizationMode)
+        return cacheDirectory.appendingPathComponent(
+            NarrationFileNaming.segmentFileName(
+                audiobookID: audiobookID,
+                chapterIndex: chapterIndex,
+                segmentIndex: segmentIndex,
+                voice: voice,
+                contentSignature: signature))
+    }
+
+    private func contentSignature(
+        for blocks: [EPubBlockRecord],
+        includeLeadOutPad: Bool,
+        overrides: PronunciationOverrides,
+        normalizationMode: String
+    ) -> String {
+        let spoken = blocks.filter { $0.text?.isEmpty == false }
+        var renderedTexts: [String] = []
+        renderedTexts.reserveCapacity(spoken.count)
+        for block in spoken {
+            let normalized = TextNormalizer.normalize(block.text ?? "")
+            renderedTexts.append(overrides.apply(to: normalized))
+        }
+        return NarrationFileNaming.contentSignature(
+            spokenBlocks: spoken,
+            renderedTexts: renderedTexts,
+            includeLeadOutPad: includeLeadOutPad,
+            normalizationMode: normalizationMode)
+    }
+
+    private func normalizationMode(fmEnabled: Bool) -> String {
+        fmEnabled ? "fm-auto-v\(FMNormalizer.signatureVersion)" : "deterministic"
+    }
+
     /// Render one chapter. Cancellable between blocks; on cancel, nothing is persisted.
     /// Idempotent: re-rendering the same chapter (e.g. a voice change) upserts in place.
     ///
@@ -149,9 +248,14 @@ final class NarrationService {
         let savedTitle = Self.savedTitle(
             displayNumber: displayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let chapterStart = Date()
-        let fileURL = cacheDirectory.appendingPathComponent(
-            NarrationFileNaming.chapterFileName(
-                audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
+        let overrides = pronunciationOverrides()
+        let fmEnabled = fmEnabled
+        let fileURL = chapterCacheURL(
+            chapterIndex: chapterIndex,
+            blocks: blocks,
+            voice: voice,
+            overrides: overrides,
+            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
         let rendered = try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: displayNumber,
@@ -161,6 +265,8 @@ final class NarrationService {
             fileURL: fileURL,
             includeLeadOutPad: true,
             reportsProgress: true,
+            overrides: overrides,
+            fmEnabled: fmEnabled,
             onBlockProgress: onBlockProgress)
         try await persistRenderedNarration(
             rendered,
@@ -246,12 +352,15 @@ final class NarrationService {
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
             nil
     ) async throws -> RenderedNarrationFile {
-        let fileURL = cacheDirectory.appendingPathComponent(
-            NarrationFileNaming.segmentFileName(
-                audiobookID: audiobookID,
-                chapterIndex: chapterIndex,
-                segmentIndex: segmentIndex,
-                voice: voice))
+        let overrides = pronunciationOverrides()
+        let fmEnabled = fmEnabled
+        let fileURL = segmentCacheURL(
+            chapterIndex: chapterIndex,
+            segmentIndex: segmentIndex,
+            blocks: blocks,
+            voice: voice,
+            overrides: overrides,
+            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
         return try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: chapterDisplayNumber,
@@ -261,6 +370,8 @@ final class NarrationService {
             fileURL: fileURL,
             includeLeadOutPad: false,
             reportsProgress: false,
+            overrides: overrides,
+            fmEnabled: fmEnabled,
             onBlockProgress: onBlockProgress)
     }
 
@@ -393,6 +504,8 @@ final class NarrationService {
         fileURL: URL,
         includeLeadOutPad: Bool,
         reportsProgress: Bool,
+        overrides: PronunciationOverrides,
+        fmEnabled: Bool,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)?
     ) async throws -> RenderedNarrationFile {
         if reportsProgress {
@@ -413,15 +526,20 @@ final class NarrationService {
         var cursor: TimeInterval = 0
         let now = Self.iso8601.string(from: Date())
 
-        // Stream-to-sink: open the audio file up front and encode each synthesized
-        // sub-chunk straight to disk, so peak memory is one sub-chunk's PCM
-        // (~hundreds of KB) instead of a whole chapter's accumulated samples.
-        let stream = try audioWriter.makeStream(to: fileURL, sampleRate: 24_000)
-
-        // Snapshot the override map once per render unit so a mid-render edit (the
-        // store is @MainActor, and this method awaits between blocks) can't change
-        // a word's pronunciation partway through the same file.
-        let overrides = pronunciationOverrides()
+        // Stream-to-sink: encode each synthesized sub-chunk straight to a sibling
+        // partial file, then publish the durable cache file only after finalize()
+        // succeeds. A cancellation or crash can leave a .partial, but playback and
+        // export only ever reuse .m4a files.
+        let partialURL = fileURL.appendingPathExtension("partial")
+        let fm = FileManager.default
+        try? fm.removeItem(at: partialURL)
+        var didPublishFinalFile = false
+        let stream = try audioWriter.makeStream(to: partialURL, sampleRate: 24_000)
+        defer {
+            if !didPublishFinalFile {
+                try? fm.removeItem(at: partialURL)
+            }
+        }
 
         for (i, block) in spoken.enumerated() {
             try Task.checkCancellation()
@@ -511,6 +629,14 @@ final class NarrationService {
         try Task.checkCancellation()
         let duration = try await stream.finalize()
         try Task.checkCancellation()
+        if fm.fileExists(atPath: partialURL.path) {
+            if fm.fileExists(atPath: fileURL.path) {
+                _ = try fm.replaceItemAt(fileURL, withItemAt: partialURL)
+            } else {
+                try fm.moveItem(at: partialURL, to: fileURL)
+            }
+        }
+        didPublishFinalFile = true
 
         return RenderedNarrationFile(
             chapterIndex: chapterIndex,

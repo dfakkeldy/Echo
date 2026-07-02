@@ -128,4 +128,75 @@ import Testing
         #expect(classifierWasInjected)
         #expect(model.lastError == nil)
     }
+
+    @Test func renderedChaptersForQAUsesContentSignedChapterCacheFile() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "b1"
+        try await db.writer.write { database in
+            try database.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                arguments: [bookID, "Test", 3600.0])
+        }
+        let block = EPubBlockRecord(
+            id: "blk1",
+            audiobookID: bookID,
+            spineHref: "chapter.xhtml",
+            spineIndex: 0,
+            blockIndex: 0,
+            sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "Deploying Kubernetes carefully.",
+            htmlContent: nil,
+            cardColor: nil,
+            chapterThemeColor: nil,
+            imagePath: nil,
+            chapterIndex: 2,
+            isHidden: false,
+            hiddenReason: nil,
+            isFrontMatter: false,
+            wordCount: nil,
+            markers: nil,
+            textFormats: nil,
+            createdAt: nil,
+            modifiedAt: nil)
+        try EPubBlockDAO(db: db.writer).insert(block)
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let voice = VoiceID("af_heart")
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: bookID,
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: tmp,
+            state: NarrationState(),
+            fmEnabled: { false })
+        let signedURL = await service.chapterCacheURL(
+            chapterIndex: 2,
+            blocks: [block],
+            voice: voice)
+        _ = FileManager.default.createFile(atPath: signedURL.path, contents: Data())
+        let unsignedURL = tmp.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: bookID,
+                chapterIndex: 2,
+                voice: voice))
+        _ = FileManager.default.createFile(atPath: unsignedURL.path, contents: Data())
+
+        let dependencies = NarrationQAReviewModel.Dependencies(
+            narrationServiceFactory: { _, _ in service })
+        let model = NarrationQAReviewModel(
+            db: db.writer,
+            audiobookID: bookID,
+            dependencies: dependencies)
+
+        let chapters = try await model.renderedChaptersForQA(voice: voice)
+
+        #expect(chapters.map(\.chapterIndex) == [2])
+        #expect(chapters.map(\.fileURL) == [signedURL])
+        #expect(chapters.first?.spokenBlockIDs == ["blk1"])
+    }
 }

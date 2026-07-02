@@ -227,4 +227,66 @@ import Testing
         // Book-scoped lookup also sees it (global is the base of the merge).
         #expect(store.overrides(forBookID: bookID).entries["Thestral"] == "θˈɛstɹəl")
     }
+
+    @MainActor
+    @Test func applyFixClearsSignedAndLegacyChapterCacheForCurrentVoiceOnly() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "file:///Books/Dune/"
+        let blockID = "epub-\(bookID)-s0-b0"
+        try seedBlock(audiobookID: bookID, blockID: blockID, chapterIndex: 3, db: db)
+        let issue = try issueWithFix(id: "iss-cache", audiobookID: bookID, blockID: blockID)
+        let issueDAO = NarrationQualityIssueDAO(db: db.writer)
+        try issueDAO.insert([issue])
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let voice = VoiceID("af_heart")
+        let staleSigned = tmp.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: bookID,
+                chapterIndex: 3,
+                voice: voice,
+                contentSignature: "aaaaaaaaaaaaaaaa"))
+        let stalePartial = tmp.appendingPathComponent("\(staleSigned.lastPathComponent).partial")
+        let staleLegacy = tmp.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: bookID,
+                chapterIndex: 3,
+                voice: voice))
+        let otherVoice = tmp.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: bookID,
+                chapterIndex: 3,
+                voice: VoiceID("bf_emma"),
+                contentSignature: "aaaaaaaaaaaaaaaa"))
+        let otherChapter = tmp.appendingPathComponent(
+            NarrationFileNaming.chapterFileName(
+                audiobookID: bookID,
+                chapterIndex: 4,
+                voice: voice,
+                contentSignature: "aaaaaaaaaaaaaaaa"))
+        for url in [staleSigned, stalePartial, staleLegacy, otherVoice, otherChapter] {
+            _ = FileManager.default.createFile(atPath: url.path, contents: Data())
+        }
+
+        let store = PronunciationOverrideStore(directory: tmp)
+        let svc = PronunciationRepairService(
+            store: store,
+            issueDAO: issueDAO,
+            db: db.writer,
+            cacheDirectory: tmp,
+            voice: voice,
+            renderChapter: { _ in },
+            reRunQA: { _ in })
+
+        try await svc.applyFix(issue: issue, scope: .book(bookID))
+
+        #expect(!FileManager.default.fileExists(atPath: staleSigned.path))
+        #expect(!FileManager.default.fileExists(atPath: stalePartial.path))
+        #expect(!FileManager.default.fileExists(atPath: staleLegacy.path))
+        #expect(FileManager.default.fileExists(atPath: otherVoice.path))
+        #expect(FileManager.default.fileExists(atPath: otherChapter.path))
+    }
 }

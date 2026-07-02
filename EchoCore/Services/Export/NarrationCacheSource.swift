@@ -20,6 +20,7 @@ struct NarrationCacheSource: ExportSource {
 
         var titlesByChapterIndex: [Int: String] = [:]
         var voiceByChapterIndex: [Int: VoiceID] = [:]
+        var preferredFileNamesByChapterIndex: [Int: Set<String>] = [:]
         if let databaseWriter {
             let tracks = try TrackDAO(db: databaseWriter).tracks(for: audiobookID)
             for track in tracks {
@@ -27,16 +28,21 @@ struct NarrationCacheSource: ExportSource {
                 let fileName = URL(fileURLWithPath: track.filePath).lastPathComponent
                 let chapterIndex =
                     NarrationFileNaming.segmentLocation(fromFileName: fileName)?.chapterIndex
+                    ?? NarrationFileNaming.chapterIndex(fromFileName: fileName)
                     ?? track.sortOrder
                 titlesByChapterIndex[chapterIndex] = track.title
                 voiceByChapterIndex[chapterIndex] = VoiceID(voice)
+                preferredFileNamesByChapterIndex[chapterIndex, default: []].insert(fileName)
             }
         }
         // Collapse stale chapter renders while preserving segment-only chapters:
         // a full chapter file remains authoritative for its chapter, so stray or
         // partial segment caches can't shadow a complete chapter export.
         let deduped = Self.currentVersionFiles(
-            files: files, audiobookID: audiobookID, voiceByChapterIndex: voiceByChapterIndex)
+            files: files,
+            audiobookID: audiobookID,
+            voiceByChapterIndex: voiceByChapterIndex,
+            preferredFileNamesByChapterIndex: preferredFileNamesByChapterIndex)
         return Self.orderedItems(files: deduped, titlesByChapterIndex: titlesByChapterIndex)
     }
 
@@ -47,7 +53,10 @@ struct NarrationCacheSource: ExportSource {
     /// falls back to a single deterministic file when that exact file isn't on disk,
     /// so a not-yet-re-rendered chapter is still exported rather than dropped.
     nonisolated static func currentVersionFiles(
-        files: [URL], audiobookID: String, voiceByChapterIndex: [Int: VoiceID]
+        files: [URL],
+        audiobookID: String,
+        voiceByChapterIndex: [Int: VoiceID],
+        preferredFileNamesByChapterIndex: [Int: Set<String>] = [:]
     ) -> [URL] {
         var filesByChapterIndex: [Int: [URL]] = [:]
         for url in files {
@@ -64,10 +73,14 @@ struct NarrationCacheSource: ExportSource {
                     files: chapterFiles,
                     audiobookID: audiobookID,
                     chapterIndex: index,
-                    voice: voiceByChapterIndex[index]
+                    voice: voiceByChapterIndex[index],
+                    preferredFileNames: preferredFileNamesByChapterIndex[index] ?? []
                 ).map { [$0] } ?? []
             }
-            return Self.currentSegmentFiles(files: group, voice: voiceByChapterIndex[index])
+            return Self.currentSegmentFiles(
+                files: group,
+                voice: voiceByChapterIndex[index],
+                preferredFileNames: preferredFileNamesByChapterIndex[index] ?? [])
         }.sorted(by: Self.isOrderedBefore)
     }
 
@@ -96,8 +109,12 @@ struct NarrationCacheSource: ExportSource {
         files: [URL],
         audiobookID: String,
         chapterIndex: Int,
-        voice: VoiceID?
+        voice: VoiceID?,
+        preferredFileNames: Set<String>
     ) -> URL? {
+        if let match = files.first(where: { preferredFileNames.contains($0.lastPathComponent) }) {
+            return match
+        }
         if let voice {
             let canonical = NarrationFileNaming.chapterFileName(
                 audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice)
@@ -108,9 +125,17 @@ struct NarrationCacheSource: ExportSource {
         return files.min { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    private nonisolated static func currentSegmentFiles(files: [URL], voice: VoiceID?) -> [URL] {
+    private nonisolated static func currentSegmentFiles(
+        files: [URL],
+        voice: VoiceID?,
+        preferredFileNames: Set<String>
+    ) -> [URL] {
         let segmentFiles = files.filter {
             NarrationFileNaming.segmentLocation(fromFileName: $0.lastPathComponent) != nil
+        }
+        let preferred = segmentFiles.filter { preferredFileNames.contains($0.lastPathComponent) }
+        if !preferred.isEmpty {
+            return preferred.sorted(by: Self.isOrderedBefore)
         }
         if let voice {
             let suffix = "-\(voice.rawValue)-v\(NarrationFileNaming.renderVersion).m4a"

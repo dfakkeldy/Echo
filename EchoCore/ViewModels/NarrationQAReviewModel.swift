@@ -17,7 +17,7 @@ final class NarrationQAReviewModel {
     struct Dependencies {
         typealias ClassifierFactory =
             @MainActor (_ preference: String, _ availabilityIsAvailable: Bool)
-                -> DivergenceClassifier
+            -> DivergenceClassifier
 
         var classifierPreference: @MainActor () -> String
         var foundationModelsAvailable: @MainActor () -> Bool
@@ -198,16 +198,7 @@ final class NarrationQAReviewModel {
             let voice = Self.resolveVoice()
             let chapters: [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])]
             do {
-                let blocksByChapter = try EPubBlockDAO(db: db).blocksByChapter(for: audiobookID)
-                let dir = NarrationCache.directory()
-                chapters = NarrationQAService.chaptersToQA(
-                    blocksByChapter: blocksByChapter,
-                    fileURL: {
-                        dir.appendingPathComponent(
-                            NarrationFileNaming.chapterFileName(
-                                audiobookID: audiobookID, chapterIndex: $0, voice: voice))
-                    },
-                    fileExists: { FileManager.default.fileExists(atPath: $0.path) })
+                chapters = try await renderedChaptersForQA(voice: voice)
             } catch {
                 logger.error("runFullQA chapter scan failed: \(error.localizedDescription)")
                 lastError = "Couldn't read this book's chapters: \(error.localizedDescription)"
@@ -225,6 +216,24 @@ final class NarrationQAReviewModel {
             let service = dependencies.narrationServiceFactory(db, audiobookID)
             cachedNarrationService = service
             return service
+        }
+
+        func renderedChaptersForQA(
+            voice: VoiceID
+        ) async throws -> [(chapterIndex: Int, fileURL: URL, spokenBlockIDs: [String])] {
+            let blocksByChapter = try EPubBlockDAO(db: db).blocksByChapter(for: audiobookID)
+            let narration = narrationService()
+            var fileURLsByChapter: [Int: URL] = [:]
+            for chapterIndex in blocksByChapter.keys {
+                fileURLsByChapter[chapterIndex] = await narration.chapterCacheURL(
+                    chapterIndex: chapterIndex,
+                    blocks: blocksByChapter[chapterIndex] ?? [],
+                    voice: voice)
+            }
+            return NarrationQAService.chaptersToQA(
+                blocksByChapter: blocksByChapter,
+                fileURL: { fileURLsByChapter[$0] ?? NarrationCache.directory() },
+                fileExists: { FileManager.default.fileExists(atPath: $0.path) })
         }
     #endif
 
@@ -257,9 +266,10 @@ final class NarrationQAReviewModel {
                 },
                 reRunQA: { [audiobookID] chapterIndex in
                     let blocks = try blockDAO.blocks(for: audiobookID, chapterIndex: chapterIndex)
-                    let fileURL = NarrationCache.directory().appendingPathComponent(
-                        NarrationFileNaming.chapterFileName(
-                            audiobookID: audiobookID, chapterIndex: chapterIndex, voice: voice))
+                    let fileURL = await narration.chapterCacheURL(
+                        chapterIndex: chapterIndex,
+                        blocks: blocks,
+                        voice: voice)
                     try await qa.runQA(
                         audiobookID: audiobookID,
                         chapters: [
