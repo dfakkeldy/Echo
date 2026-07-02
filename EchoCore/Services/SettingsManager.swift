@@ -74,6 +74,17 @@ final class SettingsManager {
         static let chimeSound: String = ChimeSound.softChime.rawValue
         static let chimeVolume: Double = 0.3
         static let soundscapeVolume: Float = 0.5
+        static let checkpointTimeoutSeconds = 30
+        #if os(macOS)
+            // A Mac screen doesn't sleep mid-session the way a pocketed phone
+            // does; auto-Again fired at an empty desk chair would be dishonest
+            // data, so macOS defaults to Wait (no countdown).
+            static let checkpointTimeoutBehavior = CheckpointTimeoutBehavior.wait.rawValue
+        #else
+            static let checkpointTimeoutBehavior = CheckpointTimeoutBehavior.replay.rawValue
+        #endif
+        static let checkpointAutoAdvance = true
+        static let checkpointRemoteGrading = true
     }
 
     private enum Keys {
@@ -140,6 +151,10 @@ final class SettingsManager {
         static let chimeSound = "chimeSound"
         static let chimeVolume = "chimeVolume"
         static let soundscapeVolume = "soundscapeVolume"
+        static let checkpointTimeoutSeconds = "checkpointTimeoutSeconds"
+        static let checkpointTimeoutBehavior = "checkpointTimeoutBehavior"
+        static let checkpointAutoAdvance = "checkpointAutoAdvance"
+        static let checkpointRemoteGrading = "checkpointRemoteGrading"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -334,6 +349,25 @@ final class SettingsManager {
     }
     var reviewNotificationsEnabled: Bool {
         didSet { defaults.set(reviewNotificationsEnabled, forKey: Keys.reviewNotificationsEnabled) }
+    }
+    var checkpointTimeoutSeconds: Int {
+        didSet {
+            let snapped = StudyCheckpointSettings.snappedTimeoutSeconds(checkpointTimeoutSeconds)
+            guard checkpointTimeoutSeconds == snapped else {
+                checkpointTimeoutSeconds = snapped
+                return
+            }
+            defaults.set(snapped, forKey: Keys.checkpointTimeoutSeconds)
+        }
+    }
+    var checkpointTimeoutBehavior: String {
+        didSet { defaults.set(checkpointTimeoutBehavior, forKey: Keys.checkpointTimeoutBehavior) }
+    }
+    var checkpointAutoAdvance: Bool {
+        didSet { defaults.set(checkpointAutoAdvance, forKey: Keys.checkpointAutoAdvance) }
+    }
+    var checkpointRemoteGrading: Bool {
+        didSet { defaults.set(checkpointRemoteGrading, forKey: Keys.checkpointRemoteGrading) }
     }
 
     // MARK: - Auto-Alignment
@@ -689,6 +723,19 @@ final class SettingsManager {
             defaults.object(forKey: Keys.studyGlobalNewChapterLimit) as? Int
                 ?? Defaults.studyGlobalNewChapterLimit
         )
+        checkpointTimeoutSeconds = StudyCheckpointSettings.snappedTimeoutSeconds(
+            defaults.object(forKey: Keys.checkpointTimeoutSeconds) as? Int
+                ?? Defaults.checkpointTimeoutSeconds
+        )
+        checkpointTimeoutBehavior =
+            defaults.string(forKey: Keys.checkpointTimeoutBehavior)
+            ?? Defaults.checkpointTimeoutBehavior
+        checkpointAutoAdvance =
+            defaults.object(forKey: Keys.checkpointAutoAdvance) as? Bool
+            ?? Defaults.checkpointAutoAdvance
+        checkpointRemoteGrading =
+            defaults.object(forKey: Keys.checkpointRemoteGrading) as? Bool
+            ?? Defaults.checkpointRemoteGrading
 
         chimeInterval =
             defaults.object(forKey: Keys.chimeInterval) as? TimeInterval ?? Defaults.chimeInterval
@@ -761,6 +808,10 @@ final class SettingsManager {
             Keys.readerCardTint: Defaults.readerCardTint,
             Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
             Keys.reviewNotificationsEnabled: Defaults.reviewNotificationsEnabled,
+            Keys.checkpointTimeoutSeconds: Defaults.checkpointTimeoutSeconds,
+            Keys.checkpointTimeoutBehavior: Defaults.checkpointTimeoutBehavior,
+            Keys.checkpointAutoAdvance: Defaults.checkpointAutoAdvance,
+            Keys.checkpointRemoteGrading: Defaults.checkpointRemoteGrading,
             Keys.autoAlignmentEnabled: Defaults.autoAlignmentEnabled,
             Keys.locationCaptureEnabled: Defaults.locationCaptureEnabled,
             Keys.debugLoggingEnabled: Defaults.debugLoggingEnabled,
