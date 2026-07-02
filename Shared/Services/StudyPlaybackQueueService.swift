@@ -30,10 +30,15 @@ struct StudyPlaybackQueueService {
         )
         let playable = queue.entries.compactMap(Self.playableItem)
 
-        var remaining = playable[...]
-        if let flashcardID,
-           let index = playable.firstIndex(where: { $0.flashcardID == flashcardID }) {
-            remaining = playable[(index + 1)...]
+        let remaining: [StudyPlayableItem]
+        if let flashcardID {
+            if let index = playable.firstIndex(where: { $0.flashcardID == flashcardID }) {
+                remaining = playable[(index + 1)...].filter { $0.flashcardID != flashcardID }
+            } else {
+                remaining = playable.filter { $0.flashcardID != flashcardID }
+            }
+        } else {
+            remaining = playable
         }
 
         var skipped: [StudyPlayableItem] = []

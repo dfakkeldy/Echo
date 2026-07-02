@@ -54,6 +54,34 @@ struct StudyPlaybackQueueServiceTests {
         #expect(step.next == nil)
     }
 
+    @Test func cursorSkipsDuplicateDueAndInProgressRows() throws {
+        let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
+        let queue = StudyPlaybackQueueService(db: service.writer)
+        let firstCard = try cardID(frontText: "Book A Chapter 1", in: service)
+
+        try service.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE flashcard
+                    SET next_review_date = ?
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    StudyQueueFixtures.mondayNoon.addingTimeInterval(-60).ISO8601Format(),
+                    firstCard,
+                ]
+            )
+        }
+
+        let step = try queue.nextPlayableItem(
+            after: firstCard,
+            now: StudyQueueFixtures.mondayNoon,
+            calendar: StudyQueueFixtures.calendar
+        )
+
+        #expect(step.next?.title == "Book A Chapter 2")
+    }
+
     @Test func unplayableItemsAreSurfacedNeverDropped() throws {
         let service = try StudyQueueFixtures.serviceWithTwoPlansIncludingProgress()
         let queue = StudyPlaybackQueueService(db: service.writer)
