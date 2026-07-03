@@ -1,13 +1,9 @@
 # Claude Code Guidelines for Echo: Audiobook Study Player
 
-## Role & Tone
-You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo developer. I am learning as I go, so whenever you propose an architectural decision or provide code, briefly explain *why* you chose that approach. 
-
-## Subagent Workflow Defaults
-* Default to using subagents for all non-trivial tasks when the active tooling supports them. At the start of each task, decide whether to delegate exploration, implementation, review, or verification to one or more focused subagents.
-* For implementation work, prefer a fresh subagent per independent task or feature slice, followed by a focused review subagent for that slice. Keep each subagent prompt self-contained, with clear file ownership and constraints.
-* Use parallel subagents only when work is independent and write scopes do not overlap. Do not run concurrent `xcodebuild` invocations; coordinate build and test verification from the main agent unless explicitly safe.
-* Skip subagents only for truly trivial requests, tasks where no subagent tooling is available, or work that cannot be split without creating coordination risk. If skipping them for a substantive task, briefly state why.
+<!-- Loads the repo's AGENTS.md (modern Swift/SwiftUI rules + Echo branch/PR workflow) alongside this file.
+     Global defaults (role & tone, subagent workflow, response rules, RAM gate) come from
+     ~/.claude/CLAUDE.md — do not duplicate them here. -->
+@AGENTS.md
 
 ## Project Context
 * **App:** Open-source media player app (GPL-3.0 License).
@@ -19,11 +15,11 @@ You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo dev
 * **Transcript/Narration QA:** Audio-only books can materialize ASR into read-along text; source-backed books compare ASR against canonical EPUB/PDF text; generated narration can be re-transcribed for reviewable divergences; accepted pronunciation fixes persist overrides before re-render/re-QA.
 
 ## Architecture & Coding Guidelines
-* **Separation of Concerns:** Keep Views clean and focused only on the UI. Use standard SwiftUI patterns (MVVM) and proper State management (`@State`, `@Binding`, `@StateObject`, etc.) to prevent memory leaks and unnecessary redraws.
+* **Separation of Concerns:** Keep Views clean and focused only on the UI. Use standard SwiftUI patterns (MVVM) and modern state management (`@Observable`, `@State`, `@Binding`, `@Environment`) to prevent memory leaks and unnecessary redraws.
 * **Dependency Injection — follow `DatabaseService`:** the working pattern is **concrete-type + closure/constructor injection**, unit-tested with `DatabaseService(inMemory:)` (no `.shared`). Inject seams that way.
     * **History (2026-06-14, `CODE_AUDIT.md` §10.1 — RESOLVED):** an earlier "protocol-oriented" abstraction (`MediaPlayable` + `PlaybackControllerProtocol`/`BookmarkStoreProtocol`/`SleepTimerManagerProtocol`/`StoreManagerProtocol`/`SettingsManagerProtocol` and the orphaned `EchoTests/Mocks`) was **deleted** — it was never used as an injection seam (`PlayerModel` hard-constructs its services; `@Environment` binds the concrete `@Observable` type, so those protocols couldn't be env keys anyway). **Add a protocol back only when a real second implementation (e.g. future video) or a genuinely wired-in test double exists — do not reintroduce unused protocols/mocks.**
 * **Database Safety:** Prioritize parameterized queries, safe wrappers, and thread-safe background execution so the UI never freezes during data operations.
-* **Testability:** When refactoring logic or creating new services, utilize the existing mock files to ensure the new architecture remains highly testable. 
+* **Testability:** When refactoring logic or creating new services, utilize the existing mock files to ensure the new architecture remains highly testable.
 
 ## Documentation & Workflow Sync (CRITICAL)
 * Before starting a major refactor, autonomously read `ARCHITECTURE.md` to understand the current blueprint.
@@ -31,28 +27,14 @@ You are an expert, patient Senior Apple Ecosystem Developer mentoring a solo dev
 * Automatically provide the markdown snippets to add to my documentation, or confidently use your file-editing tools to make the updates if I approve.
 
 ## Branching & Release Workflow (CRITICAL)
-Echo ships on a **promotion-ladder** release model. Code flows one direction only:
+Echo ships on the standard promotion ladder — `feature/* → nightly → weekly → main` — and the authoritative branch/PR rules live in **AGENTS.md ▸ PR instructions** (imported above): base feature work on `nightly`, rebase onto `origin/nightly` and auto-push/PR into `nightly` when work is ready, and never push directly to the protected branches.
 
-```
-feature/* ──▶ nightly ──▶ weekly ──▶ main (stable)
-            (integrate)  (promote)  (promote + tag → App Store)
-```
-
-* **Feature work is based on `nightly`, NOT `main`.** Before starting work in a fresh worktree, check the base: `git merge-base --is-ancestor origin/nightly HEAD || (git fetch origin nightly && git reset --hard origin/nightly)`. The worktree tooling may cut a branch from `main` (the repo's default branch) — if so, rebase/reset it onto `origin/nightly` first, so the work builds on the integration line (which carries the latest engine/migrations) instead of the stale stable line. Do this *before* any edits, while the branch has no commits of its own.
-* **Start with explicit branch hygiene.** Run `git status --short --branch`, fetch `origin/nightly`, and confirm the current branch includes `origin/nightly` before editing. Detached HEAD is a normal worktree state, not a blocker: create a named feature branch from the detached commit before making commits or opening a PR. If local commits or dirty user changes make rebasing unsafe, stop and explain the branch/base choices instead of guessing or rewriting history.
-* **Commit at sensible checkpoints as you work — don't wait to be asked.** Once the worktree is on `nightly`, commit whenever the work reaches a coherent, building state (Conventional Commits; see Response Rules) instead of batching everything into one final commit. Pushing or opening the PR still gets a heads-up first, and never push directly to a protected branch.
-* **Default PR target is `nightly`, NOT `main`.** When you finish a feature or fix, push the named feature branch and open a ready-for-review PR against **`nightly`** (`gh pr create --base nightly …`; gh/GitHub default to `main`) unless the user explicitly asks to keep the work local. Do **not** open PRs against `main` (or push to it directly); `main` is the stable App Store line and is only ever reached by promotion from `weekly`. Targeting `main` bypasses the entire ladder.
-* **Do not silently create draft PRs.** "Do the PR" means a normal, ready PR. Use draft status only when the user asks for it or explicitly agrees after you name the reason.
-* **Promotions are their own PRs:** `nightly → weekly` (weekly), then `weekly → main` (release). These are normally done by the maintainer; only open one if explicitly asked.
-* **Never push directly** to `main`, `weekly`, or `nightly` — all three are protected and changed only through PRs (the one exception is the maintainer's release tagging on `main`).
-* **Hotfixes** are the lone upstream exception: branch from `main`, fix, PR back into `main`, then merge `main` *down* into `weekly` and `nightly` so the fix survives the next promotion.
-* CI (`Build gate + tests`) gates all three branches; scheduled `release-trains.yml` builds `nightly` daily and `weekly` Mondays to TestFlight. After opening or updating a PR, check hosted CI with `gh pr checks` or the relevant Actions run. If it fails, inspect the failing job logs first, fix the concrete blocker, push again, and re-check until CI is passing, pending for an external reason, or clearly blocked. Full detail lives in **ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder**; read it before doing anything release- or branch-related.
+Echo specifics on top of those rules:
+* CI (`Build gate + tests`) gates all three protected branches; scheduled `release-trains.yml` builds `nightly` daily and `weekly` Mondays to TestFlight.
+* After opening or updating a PR, follow hosted CI with `gh pr checks`; if it fails, inspect the failing job logs first, fix the concrete blocker, push, and re-check until it is passing, pending for an external reason, or clearly blocked.
+* Full detail lives in **ARCHITECTURE.md ▸ Release Engineering — Promotion Ladder**; read it before doing anything release- or branch-related.
 
 ## Building & testing
 - Run unit tests with `make test`; for edit→test loops use `make build-tests` once, then `make test-only FILTER=EchoTests/<Suite>`.
-- This is a 16 GB machine: never run xcodebuild with parallel testing enabled or uncapped -jobs, and never run two xcodebuild invocations concurrently.
+- Build concurrency is governed by the global memory-pressure RAM gate (`~/.claude/bin/xcode-build-gate.sh`); let it decide rather than serializing by hand, and never enable uncapped parallel testing or `-jobs`.
 - UI tests are intentionally excluded from the Echo scheme's test action.
-
-## Response Rules
-* When outputting code in the chat, do not output entire files unless explicitly requested. Only show the modified functions, structs, or protocols, using clear comments to indicate exactly where the new code belongs.
-* If drafting git commits, strictly follow the Conventional Commits specification.
