@@ -5,8 +5,8 @@ import Testing
 @testable import Echo
 
 @Suite struct NarrationFileNamingTests {
-    @Test func renderVersionRegeneratesCachesForQualityRetryGuardrails() {
-        #expect(NarrationFileNaming.renderVersion == 9)
+    @Test func renderVersionRegeneratesCachesForPronunciationFrontEndRefresh() {
+        #expect(NarrationFileNaming.renderVersion == 10)
     }
 
     @Test func parsesChapterIndexFromFileName() {

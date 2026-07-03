@@ -98,6 +98,20 @@ import Testing
         #expect(result.fallbackHits.isEmpty)
     }
 
+    @Test func reportedEasyWordCorpusAvoidsFallbackAndBadWordJoins() {
+        let g2p = KokoroG2P()
+        let carPlay = g2p.result(for: "CarPlay")
+        let reviewed = g2p.result(
+            for: HomographPronunciationResolver.apply(
+                to: "The resumes are attached. Arithmetic is hard."))
+
+        #expect(carPlay.phonemes == "kˈɑɹ plˈA")
+        #expect(carPlay.fallbackHits.isEmpty)
+        #expect(reviewed.phonemes.contains("ɹˈɛzʊmˌAz"))
+        #expect(reviewed.phonemes.contains("əɹˈɪθmətˌɪk"))
+        #expect(reviewed.fallbackHits.isEmpty)
+    }
+
     @Test func userEntryOverridesBuiltInDefault() {
         // A user's own pronunciation for the same word must win over the built-in.
         let out =
