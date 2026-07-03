@@ -140,6 +140,18 @@ struct SettingsExtractionTests {
         #expect(source.contains("ReviewNotificationService.requestAuthorization()"))
     }
 
+    @Test func studySettingsExposeAutoExportRows() throws {
+        let rows = try Self.source(named: "AutoExportSettingsRows.swift")
+        #expect(rows.contains("Auto-Export Study Notes"))
+        #expect(rows.contains(".fileImporter"))
+        #expect(rows.contains("allowedContentTypes: [.folder]"))
+        #expect(rows.contains("store.isPro"))
+        #expect(rows.contains("PaywallView(context: .export)"))
+
+        let shell = try Self.source(named: "SettingsView.swift")
+        #expect(shell.contains("AutoExportSettingsRows()"))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -455,6 +455,25 @@ struct EchoCoreTests {
         #expect(defaults.integer(forKey: "studyNewCardsPerDayLimit") == 100)
     }
 
+    @Test func settingsPersistsStudyAutoExportEnabled() {
+        let suiteName = "auto-export-\(UUID().uuidString)"
+        let appGroupName = "auto-export-ag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let appGroupDefaults = UserDefaults(suiteName: appGroupName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            appGroupDefaults.removePersistentDomain(forName: appGroupName)
+        }
+
+        let settings = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        #expect(SettingsManager.Defaults.studyAutoExportEnabled == false)
+        #expect(settings.studyAutoExportEnabled == false)
+
+        settings.studyAutoExportEnabled = true
+        let reloaded = SettingsManager(defaults: defaults, appGroupDefaults: appGroupDefaults)
+        #expect(reloaded.studyAutoExportEnabled == true)
+    }
+
     @Test func settingsPersistsAndReloadsReaderDefaults() {
         let suiteName = "reader-defaults-\(UUID().uuidString)"
         let appGroupName = "reader-defaults-ag-\(UUID().uuidString)"
