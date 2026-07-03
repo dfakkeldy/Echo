@@ -584,6 +584,15 @@ import Testing
         }.joined(separator: " ")
     }
 
+    private func plannedSpeechSegments(for blocks: [EPubBlockRecord]) -> [String] {
+        let g2p = KokoroG2P()
+        return NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:]),
+            phonemeCount: g2p.phonemeCount(for:)
+        ).blocks.flatMap(\.speechSegments)
+    }
+
     @Test func multiSubChunkBlockStillYieldsOneAnchorSpanningSummedDuration() async throws {
         let db = try DatabaseService(inMemory: ())
         // A long multi-sentence block that the chunker splits into several
@@ -592,7 +601,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = NarrationTextChunker.split(TextNormalizer.normalize(long))
+        let subChunks = plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)  // guard: the block really does fan out
 
         let secondsPerChar = 0.1
@@ -625,7 +634,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = NarrationTextChunker.split(TextNormalizer.normalize(long))
+        let subChunks = plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)
 
         let secondsPerChar = 0.1
@@ -661,7 +670,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = NarrationTextChunker.split(TextNormalizer.normalize(long))
+        let subChunks = plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)
 
         let secondsPerChar = 0.1

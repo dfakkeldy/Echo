@@ -35,7 +35,9 @@ enum NarrationRenderPlanner {
     static func make(
         blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
-        maxChars: Int = 350
+        maxChars: Int = 350,
+        maxPhonemes: Int = 420,
+        phonemeCount: (String) -> Int = { $0.count }
     ) -> NarrationRenderPlan {
         let candidates = blocks.filter { block in
             guard block.text?.isEmpty == false else { return false }
@@ -56,7 +58,10 @@ enum NarrationRenderPlanner {
             }
 
             let rewritten = HomographPronunciationResolver.apply(to: overrides.apply(to: normalized))
-            let speech = NarrationTextChunker.split(rewritten, maxChars: maxChars)
+            let speech = NarrationTextChunker.splitByEstimatedPhonemes(
+                rewritten,
+                maxPhonemes: maxPhonemes,
+                phonemeCount: phonemeCount)
             planned.append(
                 NarrationPlannedBlock(
                     blockID: block.id,

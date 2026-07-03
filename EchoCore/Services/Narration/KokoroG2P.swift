@@ -33,6 +33,10 @@
             result(for: text).phonemes
         }
 
+        func phonemeCount(for text: String) -> Int {
+            phonemes(for: text).count
+        }
+
         /// IPA phonemes plus OOV fallback metadata for pronunciation discovery.
         func result(for text: String) -> Result {
             let result = engine.phonemizeWithMetadata(text: text)

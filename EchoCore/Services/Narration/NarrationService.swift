@@ -710,7 +710,11 @@ final class NarrationService {
             blocks,
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
-        return NarrationRenderPlanner.make(blocks: preparedBlocks, overrides: overrides)
+        let g2p = KokoroG2P()
+        return NarrationRenderPlanner.make(
+            blocks: preparedBlocks,
+            overrides: overrides,
+            phonemeCount: g2p.phonemeCount(for:))
     }
 
     private func prepareBlocksForRenderPlan(
