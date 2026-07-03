@@ -155,6 +155,31 @@ import Testing
         #expect(pieces.filter { $0.contains("kəm.pjuː.tər") }.count == 1)
     }
 
+    @Test func phonemeBudgetAllowsLongerLowRiskChunks() {
+        let text = Array(repeating: "we go", count: 60).joined(separator: ". ") + "."
+        let pieces = NarrationTextChunker.splitByEstimatedPhonemes(
+            text,
+            maxPhonemes: 420,
+            phonemeCount: { $0.count / 2 })
+
+        #expect(pieces.count < NarrationTextChunker.split(text, maxChars: 200).count)
+        #expect(pieces.allSatisfy { ($0.count / 2) <= 420 })
+    }
+
+    @Test func phonemeBudgetDoesNotSplitPronunciationLinks() {
+        let text = Array(repeating: "padding", count: 40).joined(separator: " ")
+            + " [Kubernetes](/kuːbərˈnɛtɪs/) "
+            + Array(repeating: "padding", count: 40).joined(separator: " ")
+
+        let pieces = NarrationTextChunker.splitByEstimatedPhonemes(
+            text,
+            maxPhonemes: 120,
+            phonemeCount: { $0.count })
+
+        #expect(pieces.joined(separator: " ").contains("[Kubernetes](/kuːbərˈnɛtɪs/)"))
+        #expect(!pieces.contains { $0.contains("[Kubernetes]") && !$0.contains("kuːbərˈnɛtɪs") })
+    }
+
     @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
         // `[sic]`/footnote brackets are not pronunciation links: sentence
         // terminators after them must still split.

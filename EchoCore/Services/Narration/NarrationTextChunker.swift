@@ -72,12 +72,60 @@ enum NarrationTextChunker {
         return pieces
     }
 
+    static func splitByEstimatedPhonemes(
+        _ text: String,
+        maxPhonemes: Int = 420,
+        phonemeCount: (String) -> Int
+    ) -> [String] {
+        guard maxPhonemes > 0 else { return [] }
+        let normalized = text.split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return [] }
+
+        let units = splitUnits(normalized, isBoundary: isSentenceBoundary)
+        let pieces = mergeByPhonemeBudget(
+            units,
+            maxPhonemes: maxPhonemes,
+            phonemeCount: phonemeCount
+        ).flatMap { unit -> [String] in
+            if phonemeCount(unit) <= maxPhonemes { return [unit] }
+            return wrapByWords(
+                unit,
+                maxPhonemes: maxPhonemes,
+                phonemeCount: phonemeCount)
+        }
+        return pieces.filter { chunk in
+            let speakable = chunk.filter { $0.isLetter || $0.isNumber }
+            return !speakable.isEmpty
+        }
+    }
+
     /// Splits `text` at the boundaries `isBoundary` accepts, then greedily merges
     /// adjacent units so each accumulated piece stays `<= maxChars`. Boundaries
     /// keep their trailing punctuation; newlines were already folded to spaces by
     /// `split`. Reused for both tiers — sentence terminators, then clause marks.
     private static func mergedUnits(
         _ text: String, maxChars: Int, isBoundary: (Character, Int, [Character]) -> Bool
+    ) -> [String] {
+        let units = splitUnits(text, isBoundary: isBoundary)
+
+        // Greedily merge adjacent units that still fit under the budget, so a
+        // paragraph of short sentences doesn't produce one synth call per
+        // sentence (which would over-fragment the audio).
+        var merged: [String] = []
+        for s in units {
+            if let last = merged.last, last.count + 1 + s.count <= maxChars {
+                merged[merged.count - 1] = last + " " + s
+            } else {
+                merged.append(s)
+            }
+        }
+        return merged
+    }
+
+    private static func splitUnits(
+        _ text: String,
+        isBoundary: (Character, Int, [Character]) -> Bool
     ) -> [String] {
         var units: [String] = []
         var current = ""
@@ -113,15 +161,25 @@ enum NarrationTextChunker {
         }
         flush()
 
-        // Greedily merge adjacent units that still fit under the budget, so a
-        // paragraph of short sentences doesn't produce one synth call per
-        // sentence (which would over-fragment the audio).
+        return units
+    }
+
+    private static func mergeByPhonemeBudget(
+        _ units: [String],
+        maxPhonemes: Int,
+        phonemeCount: (String) -> Int
+    ) -> [String] {
         var merged: [String] = []
-        for s in units {
-            if let last = merged.last, last.count + 1 + s.count <= maxChars {
-                merged[merged.count - 1] = last + " " + s
+        for unit in units {
+            guard let last = merged.last else {
+                merged.append(unit)
+                continue
+            }
+            let candidate = last + " " + unit
+            if phonemeCount(candidate) <= maxPhonemes {
+                merged[merged.count - 1] = candidate
             } else {
-                merged.append(s)
+                merged.append(unit)
             }
         }
         return merged
@@ -178,6 +236,33 @@ enum NarrationTextChunker {
                 current = w
             } else if current.count + 1 + w.count <= maxChars {
                 current += " " + w
+            } else {
+                pieces.append(current)
+                current = w
+            }
+        }
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
+    }
+
+    private static func wrapByWords(
+        _ text: String,
+        maxPhonemes: Int,
+        phonemeCount: (String) -> Int
+    ) -> [String] {
+        var pieces: [String] = []
+        var current = ""
+
+        for word in text.split(separator: " ") {
+            let w = String(word)
+            if current.isEmpty {
+                current = w
+                continue
+            }
+
+            let candidate = current + " " + w
+            if phonemeCount(candidate) <= maxPhonemes {
+                current = candidate
             } else {
                 pieces.append(current)
                 current = w

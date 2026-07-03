@@ -18,6 +18,13 @@ import Testing
         #expect(a == b)
     }
 
+    @Test func phonemeCountMatchesPhonemeStringLength() {
+        let g2p = KokoroG2P()
+        let phonemes = g2p.phonemes(for: "Hello world.")
+
+        #expect(g2p.phonemeCount(for: "Hello world.") == phonemes.count)
+    }
+
     @Test func resultReportsOOVFallbackHits() {
         let result = KokoroG2P().result(for: "Jacqui said hello.")
         #expect(!result.phonemes.isEmpty)
