@@ -32,7 +32,6 @@ enum DocumentImportFinalizer {
             do {
                 let data = try Data(contentsOf: alignmentSidecarURL)
                 let exports = try AlignmentSidecar.decode(data)
-                logger.info("Found alignment.json sidecar with \(exports.count) anchors.")
                 // Sidecar block ids are the portable `s<i>-b<j>` suffix. Re-prefix
                 // each with THIS device's audiobookID and drop any whose block isn't
                 // present locally (stale/foreign sidecar) so we never insert orphan
@@ -63,15 +62,26 @@ enum DocumentImportFinalizer {
                     )
                 } else {
                     do {
-                        try replaceMachineAnchors(
-                            with: resolved,
+                        if try machineAnchorsMatch(
+                            resolved,
                             audiobookID: audiobookID,
-                            writer: databaseService.writer,
-                            alignmentService: alignmentService
-                        )
-                        logger.info(
-                            "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
-                        )
+                            writer: databaseService.writer
+                        ) {
+                            logger.debug(
+                                "alignment.json sidecar already ingested for \(audiobookID); skipping anchor rewrite"
+                            )
+                        } else {
+                            logger.info("Found alignment.json sidecar with \(exports.count) anchors.")
+                            try replaceMachineAnchors(
+                                with: resolved,
+                                audiobookID: audiobookID,
+                                writer: databaseService.writer,
+                                alignmentService: alignmentService
+                            )
+                            logger.info(
+                                "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
+                            )
+                        }
                     } catch {
                         logger.error(
                             "Failed to persist alignment.json anchors: \(error.localizedDescription)"
@@ -213,6 +223,60 @@ enum DocumentImportFinalizer {
             }
         }
         try alignmentService.recalculateTimeline()
+    }
+
+    private static func machineAnchorsMatch(
+        _ anchors: [AlignmentAnchorRecord],
+        audiobookID: String,
+        writer: DatabaseWriter
+    ) throws -> Bool {
+        let existing = try writer.read { db in
+            try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(!humanAnchorSources.contains(Column("source")))
+                .fetchAll(db)
+        }
+        return anchorsSemanticallyMatch(existing, anchors)
+    }
+
+    private static func anchorsSemanticallyMatch(
+        _ lhs: [AlignmentAnchorRecord],
+        _ rhs: [AlignmentAnchorRecord]
+    ) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+
+        let sortedLHS = lhs.sorted(by: compareAnchors)
+        let sortedRHS = rhs.sorted(by: compareAnchors)
+        for (left, right) in zip(sortedLHS, sortedRHS) {
+            guard left.epubBlockID == right.epubBlockID else { return false }
+            guard left.anchorKind == right.anchorKind else { return false }
+            guard left.source == right.source else { return false }
+            guard timesMatch(left.audioTime, right.audioTime) else { return false }
+            guard timesMatch(left.audioEndTime, right.audioEndTime) else { return false }
+        }
+        return true
+    }
+
+    private static func compareAnchors(
+        _ lhs: AlignmentAnchorRecord,
+        _ rhs: AlignmentAnchorRecord
+    ) -> Bool {
+        if lhs.epubBlockID != rhs.epubBlockID { return lhs.epubBlockID < rhs.epubBlockID }
+        if lhs.source != rhs.source { return lhs.source < rhs.source }
+        if lhs.anchorKind != rhs.anchorKind { return lhs.anchorKind < rhs.anchorKind }
+        if !timesMatch(lhs.audioTime, rhs.audioTime) { return lhs.audioTime < rhs.audioTime }
+        return (lhs.audioEndTime ?? -.infinity) < (rhs.audioEndTime ?? -.infinity)
+    }
+
+    private static func timesMatch(_ lhs: TimeInterval?, _ rhs: TimeInterval?) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none):
+            return true
+        case let (.some(left), .some(right)):
+            return abs(left - right) < 0.001
+        default:
+            return false
+        }
     }
 
     /// Replays only the alignment-sidecar branch for documents whose text blocks

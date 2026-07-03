@@ -45,7 +45,7 @@ struct LibraryView: View {
                 }
                 Menu("Library Options", systemImage: "ellipsis.circle") {
                     Toggle("Show Missing Books", isOn: showUnavailable)
-                    Button("Manage Roots", systemImage: "externaldrive.badge.gearshape") {
+                    Button("Manage Roots", systemImage: "folder.badge.gearshape") {
                         showingManageRoots = true
                     }
                 }

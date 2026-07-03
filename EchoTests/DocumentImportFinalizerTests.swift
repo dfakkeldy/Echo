@@ -140,6 +140,57 @@ struct DocumentImportFinalizerTests {
         #expect(anchors.count == 2)
     }
 
+    @Test func repeatedExistingSidecarFinalizationDoesNotRewriteAnchors() async throws {
+        let audiobookID = "book-1"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(id: "epub-\(audiobookID)-s0-b0", audiobookID: audiobookID, sequenceIndex: 0),
+            block(id: "epub-\(audiobookID)-s0-b1", audiobookID: audiobookID, sequenceIndex: 1),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 12.5, confidence: 1),
+            AlignmentSidecar.Anchor(blockId: "s0-b1", timestamp: 75, confidence: 1),
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        let firstFinalized = await DocumentImportFinalizer
+            .finalizeExistingImportIfAlignmentSidecarPresent(
+                audiobookID: audiobookID,
+                fileURL: fileURL,
+                duration: 100,
+                databaseService: databaseService
+            )
+
+        let anchorDAO = AlignmentAnchorDAO(db: databaseService.writer)
+        let firstAnchorIDs = try anchorDAO.anchors(for: audiobookID)
+            .sorted { $0.epubBlockID < $1.epubBlockID }
+            .map(\.id)
+
+        let secondFinalized = await DocumentImportFinalizer
+            .finalizeExistingImportIfAlignmentSidecarPresent(
+                audiobookID: audiobookID,
+                fileURL: fileURL,
+                duration: 100,
+                databaseService: databaseService
+            )
+
+        let secondAnchorIDs = try anchorDAO.anchors(for: audiobookID)
+            .sorted { $0.epubBlockID < $1.epubBlockID }
+            .map(\.id)
+
+        #expect(firstFinalized)
+        #expect(secondFinalized)
+        #expect(
+            secondAnchorIDs == firstAnchorIDs,
+            "Unchanged sidecars should not rewrite existing anchors on every app launch."
+        )
+    }
+
     @Test func malformedSidecarDoesNotFailDocumentFinalization() async throws {
         let audiobookID = "book-1"
         let databaseService = try DatabaseService(inMemory: ())
