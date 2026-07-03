@@ -5,25 +5,29 @@ import ZIPFoundation
 /// Generates an Obsidian-compatible Markdown study-notes bundle per book.
 /// Output: `BookTitle/BookTitle.md` + `assets/` directory with media files.
 struct StudyNotesExportService {
-    struct Book: Equatable {
+    nonisolated struct Book: Equatable {
         var id: String
         var title: String
+        var author: String?
         var sourceFolderURL: URL?
 
-        init(id: String, title: String, sourceFolderURL: URL? = nil) {
+        init(id: String, title: String, author: String? = nil, sourceFolderURL: URL? = nil) {
             self.id = id
             self.title = title
+            self.author = author
             self.sourceFolderURL = sourceFolderURL
         }
     }
 
-    struct Note: Equatable {
+    nonisolated struct Note: Equatable {
+        var id: String? = nil
         var text: String
         var timestamp: TimeInterval?
         var createdAt: String
     }
 
-    struct Card: Equatable {
+    nonisolated struct Card: Equatable {
+        var id: String? = nil
         var front: String
         var back: String
         var timestamp: TimeInterval?
@@ -33,7 +37,7 @@ struct StudyNotesExportService {
         var createdAt: String?
     }
 
-    struct ChapterEntry: Equatable {
+    nonisolated struct ChapterEntry: Equatable {
         var title: String
         var startSeconds: TimeInterval
     }

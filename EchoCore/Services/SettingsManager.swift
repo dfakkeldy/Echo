@@ -61,6 +61,7 @@ final class SettingsManager {
         static let readerCardTint: String = "#F5F0E8"
         static let studyGlobalNewChapterLimit = 12
         static let studyNewCardsPerDayLimit = 20
+        static let studyAutoExportEnabled = false
         static let reviewNotificationsEnabled = false
         static let autoAlignmentEnabled = true
         static let locationCaptureEnabled = false
@@ -139,6 +140,7 @@ final class SettingsManager {
         static let readerCardTint = "readerCardTint"
         static let studyGlobalNewChapterLimit = "studyGlobalNewChapterLimit"
         static let studyNewCardsPerDayLimit = "studyNewCardsPerDayLimit"
+        static let studyAutoExportEnabled = "studyAutoExportEnabled"
         static let reviewNotificationsEnabled = "reviewNotificationsEnabled"
         static let autoAlignmentEnabled = "autoAlignmentEnabled"
         static let locationCaptureEnabled = "locationCaptureEnabled"
@@ -359,6 +361,9 @@ final class SettingsManager {
             }
             defaults.set(boundedValue, forKey: Keys.studyNewCardsPerDayLimit)
         }
+    }
+    var studyAutoExportEnabled: Bool {
+        didSet { defaults.set(studyAutoExportEnabled, forKey: Keys.studyAutoExportEnabled) }
     }
     var reviewNotificationsEnabled: Bool {
         didSet { defaults.set(reviewNotificationsEnabled, forKey: Keys.reviewNotificationsEnabled) }
@@ -740,6 +745,9 @@ final class SettingsManager {
             defaults.object(forKey: Keys.studyNewCardsPerDayLimit) as? Int
                 ?? Defaults.studyNewCardsPerDayLimit
         )
+        studyAutoExportEnabled =
+            defaults.object(forKey: Keys.studyAutoExportEnabled) as? Bool
+            ?? Defaults.studyAutoExportEnabled
         checkpointTimeoutSeconds = StudyCheckpointSettings.snappedTimeoutSeconds(
             defaults.object(forKey: Keys.checkpointTimeoutSeconds) as? Int
                 ?? Defaults.checkpointTimeoutSeconds
@@ -825,6 +833,7 @@ final class SettingsManager {
             Keys.readerCardTint: Defaults.readerCardTint,
             Keys.studyGlobalNewChapterLimit: Defaults.studyGlobalNewChapterLimit,
             Keys.studyNewCardsPerDayLimit: Defaults.studyNewCardsPerDayLimit,
+            Keys.studyAutoExportEnabled: Defaults.studyAutoExportEnabled,
             Keys.reviewNotificationsEnabled: Defaults.reviewNotificationsEnabled,
             Keys.checkpointTimeoutSeconds: Defaults.checkpointTimeoutSeconds,
             Keys.checkpointTimeoutBehavior: Defaults.checkpointTimeoutBehavior,

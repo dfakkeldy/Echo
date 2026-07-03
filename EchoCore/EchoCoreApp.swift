@@ -15,6 +15,7 @@ struct EchoCoreApp: App {
     @State private var settings: SettingsManager
     @State private var storeManager = StoreManager()
     @State private var freeTierGate: FreeTierGate!
+    @State private var autoExport: AutoExportService!
     @State private var pendingDeepLink: PlayerDeepLink?
     @State private var databaseError: Error?
 
@@ -57,11 +58,27 @@ struct EchoCoreApp: App {
         let initialFreeTierGate = FreeTierGate(entitlement: initialStoreManager)
         initialModel.setFreeTierGate(initialFreeTierGate)
 
+        let exportDatabase =
+            initialModel.databaseService
+            ?? {
+                do {
+                    return try DatabaseService(inMemory: ())
+                } catch {
+                    fatalError("Unable to create auto-export fallback database: \(error)")
+                }
+            }()
+        let initialAutoExport = AutoExportService(
+            database: exportDatabase,
+            isEnabled: { initialSettings.studyAutoExportEnabled && initialStoreManager.isPro }
+        )
+        initialAutoExport.start()
+
         _model = State(wrappedValue: initialModel)
         _settings = State(wrappedValue: initialSettings)
         _storeManager = State(wrappedValue: initialStoreManager)
         _databaseError = State(wrappedValue: initialError)
         _freeTierGate = State(wrappedValue: initialFreeTierGate)
+        _autoExport = State(wrappedValue: initialAutoExport)
         Self.playerModel = initialModel
 
         // Wire the live DB counts into the free-tier gate so cap enforcement
@@ -88,6 +105,7 @@ struct EchoCoreApp: App {
                 .environment(settings)
                 .environment(storeManager)
                 .environment(freeTierGate)
+                .environment(autoExport)
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -104,6 +122,12 @@ struct EchoCoreApp: App {
                         do {
                             let db = try DatabaseService()
                             model.databaseService = db
+                            let replacementAutoExport = AutoExportService(
+                                database: db,
+                                isEnabled: { settings.studyAutoExportEnabled && storeManager.isPro }
+                            )
+                            replacementAutoExport.start()
+                            autoExport = replacementAutoExport
                             databaseError = nil
                         } catch {
                             databaseError = error

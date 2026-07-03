@@ -149,6 +149,9 @@ final class DatabaseService {
         migrator.registerMigration("v33_study_plan_card_pacing") { db in
             try Schema_V33.migrate(db)
         }
+        migrator.registerMigration("v34_study_auto_export") { db in
+            try Schema_V34.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }

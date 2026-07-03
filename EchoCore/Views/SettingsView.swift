@@ -93,6 +93,8 @@ struct SettingsView: View {
                     .disabled(model.databaseService == nil)
                 }
 
+                AutoExportSettingsRows()
+
                 Section("Advanced & Privacy") {
                     NavigationLink("Pronunciation") {
                         PronunciationDictionaryView(store: .shared)

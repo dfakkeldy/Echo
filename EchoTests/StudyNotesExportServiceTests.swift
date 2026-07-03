@@ -161,6 +161,66 @@ struct StudyNotesExportServiceTests {
         #expect(try Data(contentsOf: memoURL) == Data("voice".utf8))
     }
 
+    @Test func databaseSourcePopulatesCaptureIDsAndAuthor() throws {
+        let db = try DatabaseService(inMemory: ())
+        let bookID = "file:///books/tides/"
+
+        try AudiobookDAO(db: db.writer).insert(
+            AudiobookRecord(
+                id: bookID,
+                title: "The Field Guide to Tides",
+                author: "M. Ostrander",
+                duration: 3_600,
+                fileCount: 1,
+                addedAt: "2026-07-01T00:00:00Z"
+            )
+        )
+        try NoteDAO(db: db.writer).insert(
+            NoteRecord(
+                id: "note-1",
+                audiobookID: bookID,
+                text: "Neap = nipped range",
+                mediaTimestamp: 760,
+                realTimestamp: nil,
+                isEnabled: true,
+                playlistPosition: nil,
+                createdAt: "2026-07-01T20:58:31Z",
+                modifiedAt: "2026-07-01T20:58:31Z"
+            )
+        )
+        try FlashcardDAO(db: db.writer).insert(
+            Flashcard(
+                id: "card-1",
+                audiobookID: bookID,
+                frontText: "What is neap tide?",
+                backText: "A smaller tidal range.",
+                mediaTimestamp: 780,
+                endTimestamp: nil,
+                triggerTiming: .beginning,
+                nextReviewDate: nil,
+                intervalDays: 0,
+                easeFactor: 2.5,
+                repetitions: 0,
+                lastReviewedAt: nil,
+                lastGrade: nil,
+                isEnabled: true,
+                deckID: nil,
+                tags: nil,
+                mediaJSON: nil,
+                sourceBlockID: nil,
+                playlistPosition: nil,
+                createdAt: "2026-07-01T20:59:00Z",
+                modifiedAt: "2026-07-01T20:59:00Z"
+            )
+        )
+
+        let source = StudyNotesExportDatabaseSource(databaseWriter: db.writer)
+
+        #expect(try source.books().first?.author == "M. Ostrander")
+        #expect(try source.notes(for: bookID).first?.id == "note-1")
+        #expect(try source.cards(for: bookID).first?.id == "card-1")
+    }
+
     private func findFile(named name: String, under root: URL) -> URL? {
         findFiles(named: name, under: root).first
     }

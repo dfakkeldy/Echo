@@ -14,6 +14,7 @@ struct StudyNotesExportDatabaseSource {
                 StudyNotesExportService.Book(
                     id: $0.id,
                     title: $0.title,
+                    author: $0.author,
                     sourceFolderURL: URL(string: $0.id)
                 )
             }
@@ -33,6 +34,7 @@ struct StudyNotesExportDatabaseSource {
             .notes(for: audiobookID)
             .map {
                 StudyNotesExportService.Note(
+                    id: $0.id,
                     text: $0.text,
                     timestamp: $0.mediaTimestamp,
                     createdAt: $0.createdAt
@@ -45,6 +47,7 @@ struct StudyNotesExportDatabaseSource {
             .flashcards(for: audiobookID)
             .map {
                 StudyNotesExportService.Card(
+                    id: $0.id,
                     front: $0.frontText,
                     back: $0.backText,
                     timestamp: $0.mediaTimestamp,

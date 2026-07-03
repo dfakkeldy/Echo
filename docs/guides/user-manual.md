@@ -409,9 +409,20 @@ Your data is yours, in formats you can read, forever. The database schema is ope
 |---|---|
 | **Audiobook → chaptered .m4b** (today) | Export a narrated EPUB, or an audiobook you imported, as a single chaptered `.m4b` (cover, metadata, chapter markers) — playable in any audiobook app. iPhone: player More menu. Mac: File menu, plus overnight batch-narrate a folder of EPUBs and export each. `.m4b` only; mp3 export 🔭 Roadmap. |
 | **Bookmarks → Markdown** (today) | Timestamps, notes, deep links that reopen Echo at the exact second. |
-| **Study Notes bundle** 🚧 | Per book: one Markdown file (bookmarks, Book Notes, flashcards, chapter headings, places) + `assets/` (voice memos, photos). Obsidian/Logseq/Notion-ready. Per book or bulk in Settings. |
+| **Auto-export study Markdown** (Echo Pro) | One deterministic Markdown file per book, continuously updated in a folder you pick. Includes bookmarks, notes, flashcards, chapter attribution, and stable capture markers. Text-only in v1; voice memos, photos, and location data stay in Echo. |
+| **Study Notes bundle** 🚧 | A fuller media bundle remains planned for voice memos, photos, and imported card media. |
 | **Deck → JSON** 🚧 | `.echodeck.json` with every field incl. scheduling; re-imports losslessly — backup + migration. |
 | **Anki .apkg import** 🚧 | Inbound — see The Study System. (.apkg *export* 🔭 Roadmap.) |
+
+### Auto-export your study notes
+
+Echo can keep a folder of Markdown files, one per book, continuously in sync with your notes, bookmarks, and flashcards. Point it at an iCloud Drive folder and your captures appear on your Mac a few seconds after you make them, ready for whatever notes system you use there.
+
+1. Open **Settings -> Study & Notes** and turn on **Auto-Export Study Notes** (Echo Pro).
+2. Tap **Export Folder** and pick a folder. Echo writes into an `Echo Study Notes` subfolder it manages.
+3. Capture as you listen. Files update a few seconds after each capture and whenever you leave the app.
+
+Each book becomes one Markdown file with your bookmarks, notes, and flashcards in listening order, tagged with chapter and timestamp. Voice memos, photos, card media, and bookmark location data stay in Echo; use the manual export path when you need a richer handoff. If the folder becomes unavailable, Echo quietly queues your changes and the Settings row asks you to re-select the folder; nothing is lost.
 
 ---
 
@@ -494,14 +505,14 @@ Echo has no servers and no accounts — sync rides on *your* iCloud.
 | Playback | Default speed · per-book speed memory · volume boost gain · seek durations (5–60 s) |
 | Smart Rewind | Three tiers with per-tier rewind amounts |
 | Bookmarks | Inline voice memo playback (global + per book) · quick-bookmark timeout |
-| Study | Daily review notification · inline flashcard triggers · deck defaults 🚧 |
+| Study | Daily review notification · inline flashcard triggers · auto-export study notes · deck defaults 🚧 |
 | Privacy & Location 🚧 | Context Memory toggle (off by default) · Delete Location History |
 | Reader | Font (incl. Lexend, OpenDyslexic) · text size · line spacing · card tint · per-card colors |
 | Appearance | Accent color or Artwork mode · dark mode · app icon · player layout · button sizes |
 | Player Controls | Five tap + five long-press actions |
 | Controls → Watch App Settings | Layout designer (5×5) · Crown mode · artwork layout · haptics · date overlay · title scroll speed |
 | Per-book overrides | Any global setting, pinned per book |
-| Data | Study-notes bulk export 🚧 · deck export 🚧 |
+| Data | Auto-export study Markdown · Study-notes bulk export 🚧 · deck export 🚧 |
 | Help | The full in-app help library |
 | Language | English and Dutch |
 
@@ -561,7 +572,7 @@ First run downloads and warms the on-device model, and transcription is real Neu
 JSON decks import today. Real `.apkg` files — scheduling included — arrive with 1.0 🚧. Newest-format decks: re-export from Anki with *"Support older Anki versions"* checked. Cloze cards flatten to plain Q&A in v1.
 
 **Can I get my flashcards and notes back out?**
-Yes — that's policy. Bookmarks → Markdown today; with 1.0, decks → portable JSON (lossless re-import) and books → full study-notes bundles for Obsidian/Logseq/Notion 🚧. The schema is open source; your data is never hostage.
+Yes — that's policy. Bookmarks -> Markdown and Echo Pro auto-exported study Markdown are available today; with 1.0, decks -> portable JSON (lossless re-import) and fuller media bundles remain planned. The schema is open source; your data is never hostage.
 
 **Inline flashcards interrupt me too much.**
 Set those cards to *manual only*, or disable inline triggers in Settings → Study. In 1.0 the Card Inbox replaces mid-playback popups entirely 🚧.
