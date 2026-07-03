@@ -66,12 +66,12 @@ import Testing
         #expect(rows.allSatisfy { $0.source == "synthesis" })
     }
 
-    @Test func keepsInterpolatedWhenEngineEmitsNoTimings() async throws {
+    @Test func writesSynthesizedRowsWhenEngineEmitsNoTimings() async throws {
         let db = try DatabaseService(inMemory: ())
         try seed(db, [block("blk0", "one two")])
         try await render(db, emit: false)
         let rows = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1", blockID: "blk0")
         #expect(rows.count == 2)
-        #expect(rows.allSatisfy { $0.source == "interpolated" })
+        #expect(rows.allSatisfy { $0.source == "synthesized" })
     }
 }
