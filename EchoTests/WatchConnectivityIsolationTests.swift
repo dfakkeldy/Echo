@@ -39,6 +39,24 @@ struct WatchConnectivityIsolationTests {
         )
     }
 
+    @Test func watchWakeStateRefreshAttemptsLiveRequestWithoutReachabilityGate() throws {
+        let source = try Self.source(at: "Echo Watch App/Services/WatchViewModel.swift")
+        let requestCurrentState = try Self.slice(
+            of: source,
+            after: "func requestCurrentState() -> Bool",
+            until: "func refreshAfterWake()"
+        )
+
+        #expect(
+            requestCurrentState.contains("session.sendMessage("),
+            "Wrist-raise refresh must actively request current phone state, not only replay the last durable application context."
+        )
+        #expect(
+            !requestCurrentState.contains("session.isReachable"),
+            "Wrist-raise refresh must attempt the same live request path as button commands; gating on isReachable leaves the watch stale until a button press."
+        )
+    }
+
     @Test func watchCommandCallbacksDoNotInheritMainActorIsolation() throws {
         let source = try Self.source(at: "Echo Watch App/Services/WatchViewModel.swift")
         let sendCommand = try Self.slice(

@@ -696,7 +696,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
         let session = WCSession.default
         applyReceivedApplicationContext(session.receivedApplicationContext)
-        guard session.activationState == .activated, session.isReachable else { return false }
+        guard session.activationState == .activated else { return false }
         // WatchConnectivity invokes these reply/error handlers on a background
         // serial queue, not the main thread. @Sendable keeps the closures from
         // inheriting this type's MainActor isolation before they can hop back.

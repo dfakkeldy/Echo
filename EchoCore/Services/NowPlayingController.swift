@@ -183,7 +183,9 @@ final class NowPlayingController {
     }
 
     /// Updates only the elapsed time in the current Now Playing info, preserving
-    /// all other metadata. Call this at the audio engine's tick rate.
+    /// all other metadata. Use this for discrete position jumps such as restored
+    /// seeks; ordinary playback should let the system infer progress from the
+    /// last elapsed time plus playback rate.
     /// Does NOT create a new info dictionary from scratch — that would lack
     /// the playback rate and cause the Lock Screen to show the wrong button.
     func updateElapsedTime(_ elapsed: TimeInterval, chapterStartOffset: TimeInterval?) {
