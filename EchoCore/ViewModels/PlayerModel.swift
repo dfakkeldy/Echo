@@ -932,6 +932,7 @@ final class PlayerModel {
             if !isManual {
                 self.updateCurrentChapterFromPlayerTime()
             }
+            self.updateNowPlayingInfo(isPaused: !self.isPlaying)
             self.sessionRecorder?.yield(
                 .seeked(toPosition: self.audioEngine.currentTime, at: Date()))
         }
@@ -946,7 +947,6 @@ final class PlayerModel {
             self?.canBookmarkLoop ?? false
         }
         playbackController.coordinator_refreshProgress = { [weak self] in
-            self?.updateNowPlayingElapsedTime()
             self?.updateProgressFromPlayer()
             if let self, self.audioEngine.currentTime.isFinite {
                 self.sessionRecorder?.yield(

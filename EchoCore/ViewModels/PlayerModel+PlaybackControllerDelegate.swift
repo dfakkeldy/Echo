@@ -7,7 +7,6 @@ import SwiftUI
 extension PlayerModel: PlaybackControllerDelegate {
     func playbackController(_ controller: PlaybackController, didUpdateTime currentTime: TimeInterval) {
         autoreleasepool {
-            updateNowPlayingElapsedTime()
             updateCurrentChapterFromPlayerTime()
             updateProgressFromPlayer()
             artworkCoordinator.updateCurrentDisplayArtwork(at: currentTime)
