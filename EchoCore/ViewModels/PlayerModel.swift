@@ -404,16 +404,33 @@ final class PlayerModel {
     }
     var currentChapterIndex: Int? { state.currentChapterIndex }
 
-    /// True when the loaded book has at least two chapters and the current
-    /// position is not the first chapter. Drives the "previous chapter" chevron.
-    /// `currentChapterIndex` is optional; an unresolved index is treated as 0.
-    var hasPreviousChapter: Bool { chapters.count >= 2 && (currentChapterIndex ?? 0) > 0 }
+    /// True when the loaded book has chapter-style navigation. M4B/M4A chapter
+    /// metadata uses `chapters`; MP3 folders usually expose one synthetic
+    /// chapter per file, so their chapter navigation falls back to the track list.
+    var hasChapterNavigation: Bool { chapters.count >= 2 || tracks.count >= 2 }
 
-    /// True when the loaded book has at least two chapters and the current
-    /// position is not the last chapter. Drives the "next chapter" chevron.
-    /// `currentChapterIndex` is optional; an unresolved index is treated as 0.
+    /// True when the loaded book can navigate to a previous chapter-like item.
+    /// `currentChapterIndex` is optional; an unresolved parsed-chapter index is
+    /// treated as 0. MP3-folder books fall back to previous enabled tracks.
+    var hasPreviousChapter: Bool {
+        if chapters.count >= 2 {
+            return (currentChapterIndex ?? 0) > 0
+        }
+        guard tracks.indices.contains(currentIndex), currentIndex > 0 else { return false }
+        return tracks[..<currentIndex].contains { $0.isEnabled }
+    }
+
+    /// True when the loaded book can navigate to a next chapter-like item.
+    /// `currentChapterIndex` is optional; an unresolved parsed-chapter index is
+    /// treated as 0. MP3-folder books fall back to next enabled tracks.
     var hasNextChapter: Bool {
-        chapters.count >= 2 && (currentChapterIndex ?? 0) < chapters.count - 1
+        if chapters.count >= 2 {
+            return (currentChapterIndex ?? 0) < chapters.count - 1
+        }
+        guard tracks.indices.contains(currentIndex), currentIndex < tracks.count - 1 else {
+            return false
+        }
+        return tracks[(currentIndex + 1)...].contains { $0.isEnabled }
     }
 
     var chapterWordClouds: [Int: [WordFrequency]] {

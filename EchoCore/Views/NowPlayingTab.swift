@@ -202,12 +202,10 @@ struct NowPlayingTab: View {
             .accessibilityLabel(Text("Book info"))
             .accessibilityValue(Text(secondaryLineText))
 
-            // Hero line: chapter-nav chevrons flank the chapter-title marquee.
-            // Chevrons reuse skip*Navigation (chapter-aware; falls back to track)
-            // so this in-app bar matches the lock screen byte-for-byte. The whole
-            // bar is gated on chapters.count >= 2 to mirror `titleText`; a
-            // single-chapter / marker-less book renders the bare marquee as before.
-            if model.chapters.count >= 2 {
+            // Hero line: chapter-nav chevrons flank the title marquee. Chevrons
+            // reuse skip*Navigation, which uses parsed chapters when available
+            // and falls back to folder tracks for MP3-folder books.
+            if model.hasChapterNavigation {
                 HStack(spacing: 8) {
                     Button {
                         model.skipBackwardNavigation()

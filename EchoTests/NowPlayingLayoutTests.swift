@@ -39,6 +39,10 @@ struct NowPlayingLayoutTests {
             "The next-chapter chevron must reuse the chapter-aware skipForwardNavigation, matching the lock screen."
         )
         #expect(
+            source.contains("if model.hasChapterNavigation"),
+            "MP3-folder books should show chevrons when chapter navigation falls back to folder tracks."
+        )
+        #expect(
             source.contains(".disabled(!model.hasPreviousChapter)"),
             "The previous-chapter chevron should be disabled at the first chapter."
         )
