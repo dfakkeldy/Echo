@@ -100,8 +100,10 @@ import Testing
             try TrackRecord.filter(Column("audiobook_id") == "b1").fetchOne(db)
         }
         #expect(track?.sortOrder == 0)
-        // (4+2)×0.1 spoken + the lead-out pad appended once at the chapter end.
-        let expectedDuration = 0.6 + NarrationService.leadOutPadSeconds
+        // (4+2)×0.1 spoken + a paragraph pause + the chapter lead-out pad.
+        let expectedDuration =
+            0.6 + NarrationPlannedSilence.paragraph.duration
+            + NarrationService.leadOutPadSeconds
         #expect(track.map { abs($0.duration - expectedDuration) < 0.0001 } == true)
         // Direct column check — proves narration_voice mapping:
         let voiceCol = try db.read { db in
@@ -150,7 +152,65 @@ import Testing
         #expect(anchors.allSatisfy { $0.source == "synthesized" })
         #expect(anchors[0].epubBlockID == "blk0")
         #expect(abs(anchors[0].audioTime - 0.0) < 0.0001)
-        #expect(abs(anchors[1].audioTime - 0.4) < 0.0001)
+        #expect(
+            abs(anchors[1].audioTime - (0.4 + NarrationPlannedSilence.paragraph.duration))
+                < 0.0001)
+    }
+
+    @Test func plannedParagraphPauseAdvancesNextAnchorWithoutStretchingPreviousAnchor()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["abcd", "ef"])
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+        try await svc.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("af_warm"))
+
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1")
+                .order(Column("audio_time")).fetchAll(db)
+        }
+
+        #expect(anchors.count == 2)
+        #expect(abs(anchors[0].audioTime - 0.0) < 0.0001)
+        #expect(abs((anchors[0].audioEndTime ?? -1) - 0.4) < 0.0001)
+        #expect(
+            abs(anchors[1].audioTime - (0.4 + NarrationPlannedSilence.paragraph.duration))
+                < 0.0001)
+        #expect(
+            abs(
+                (anchors[1].audioEndTime ?? -1)
+                    - (0.6 + NarrationPlannedSilence.paragraph.duration)) < 0.0001)
+    }
+
+    @Test func decorativeSectionBreakCreatesSilenceButNoAnchor() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let records = [
+            block("b1", id: "blk0", seq: 0, text: "first"),
+            block("b1", id: "sep", seq: 1, text: "* * *"),
+            block("b1", id: "blk2", seq: 2, text: "next"),
+        ]
+        let blocks = try seed(db, records: records)
+        let writer = MockAudioWriter()
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: writer)
+
+        try await svc.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("af_warm"))
+
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1")
+                .order(Column("audio_time")).fetchAll(db)
+        }
+
+        #expect(anchors.map(\.epubBlockID) == ["blk0", "blk2"])
+        #expect(abs((anchors[0].audioEndTime ?? -1) - 0.5) < 0.0001)
+        #expect(
+            abs(anchors[1].audioTime - (0.5 + NarrationPlannedSilence.sectionBreak.duration))
+                < 0.0001)
+        #expect(writer.chunkCounts == [4])
     }
 
     /// Read-along write-side: rendering a chapter must propagate its synthesized
@@ -219,12 +279,17 @@ import Testing
         #expect(rendered.segmentIndex == 2)
 
         let secondDuration = Double("second".count) * 0.1
-        let spokenDuration = secondDuration + Double("third".count) * 0.1
-        #expect(abs(rendered.duration - spokenDuration) < 0.0001)
-        #expect(writer.chunkCounts == [2])
+        let expectedDuration =
+            secondDuration + NarrationPlannedSilence.paragraph.duration
+            + Double("third".count) * 0.1
+        #expect(abs(rendered.duration - expectedDuration) < 0.0001)
+        #expect(writer.chunkCounts == [3])
         #expect(rendered.anchors.map(\.epubBlockID) == ["blk1", "blk2"])
         #expect(abs(rendered.anchors[0].audioTime - 0.0) < 0.0001)
-        #expect(abs(rendered.anchors[1].audioTime - secondDuration) < 0.0001)
+        #expect(
+            abs(
+                rendered.anchors[1].audioTime
+                    - (secondDuration + NarrationPlannedSilence.paragraph.duration)) < 0.0001)
 
         let trackCount = try db.read { db in try TrackRecord.fetchCount(db) }
         let persistedAnchorCount = try db.read { db in
@@ -417,7 +482,10 @@ import Testing
         #expect(tracks.map(\.title) == ["ch. 1: Opening", "ch. 1: Opening"])
         #expect(tracks.map(\.sortOrder) == [0, 1])
         #expect(tracks.map(\.narrationVoice) == ["af_warm", "af_warm"])
-        #expect(abs((tracks.first?.duration ?? -1) - 1.1) < 0.0001)
+        #expect(
+            abs(
+                (tracks.first?.duration ?? -1)
+                    - (1.1 + NarrationPlannedSilence.paragraph.duration)) < 0.0001)
         #expect(abs((tracks.last?.duration ?? -1) - 0.5) < 0.0001)
 
         let expectedNames = tracks.map {
@@ -432,7 +500,10 @@ import Testing
                 .fetchAll(db)
         }
         #expect(anchors.map(\.epubBlockID) == ["blk0", "blk1", "blk2"])
-        #expect(anchors.map(\.audioTime) == [0.0, 0.5, 0.0])
+        #expect(
+            anchors.map(\.audioTime) == [
+                0.0, 0.5 + NarrationPlannedSilence.paragraph.duration, 0.0,
+            ])
 
         let rows = try db.read { db in
             try Row.fetchAll(
@@ -448,8 +519,14 @@ import Testing
         }
         #expect(rows.compactMap { $0["epub_block_id"] as String? } == ["blk0", "blk1", "blk2"])
         #expect(rows.compactMap { $0["segment_key"] as String? } == ["0-0", "0-0", "0-1"])
-        #expect(rows.compactMap { $0["audio_start_time"] as Double? } == [0.0, 0.5, 0.0])
-        #expect(rows.compactMap { $0["audio_end_time"] as Double? } == [0.5, 1.1, 0.5])
+        #expect(
+            rows.compactMap { $0["audio_start_time"] as Double? } == [
+                0.0, 0.5 + NarrationPlannedSilence.paragraph.duration, 0.0,
+            ])
+        #expect(
+            rows.compactMap { $0["audio_end_time"] as Double? } == [
+                0.5, 1.1 + NarrationPlannedSilence.paragraph.duration, 0.5,
+            ])
     }
 
     @Test func skipsBlocksWithNoText() async throws {
@@ -591,6 +668,70 @@ import Testing
         let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
         #expect(abs(span - expectedDuration) < 0.0001)
         #expect(writer.chunkCounts == [survivors.count + 1])
+    }
+
+    @Test func skippedOnlySpeechChunkDoesNotCreateZeroLengthAnchor() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text = "too long"
+        let blocks = try seed(db, [text])
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        mock.lengthCapOnText = text
+        let writer = MockAudioWriter()
+        let svc = makeService(db, tts: mock, writer: writer)
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_warm"))
+
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchAll(db)
+        }
+        #expect(anchors.isEmpty)
+        #expect(writer.chunkCounts == [0])
+    }
+
+    @Test func silentSpeechChunkRetriesWithSmallerPieces() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        mock.silentOnText = NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:])
+        ).blocks[0].speechSegments[0]
+        let svc = makeService(db, tts: mock, writer: MockAudioWriter())
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        let retryCalls = mock.calls.dropFirst()
+        #expect(!retryCalls.isEmpty)
+        #expect(retryCalls.allSatisfy { $0.text.count < text.count })
+    }
+
+    @Test func partialLowQualityRetryFallsBackToOriginalChunk() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let firstSegment = NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:])
+        ).blocks[0].speechSegments[0]
+        let retryTexts = NarrationTextChunker.split(
+            firstSegment,
+            maxChars: max(20, min(80, firstSegment.count / 2)))
+        #expect(retryTexts.count > 1)
+
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        mock.silentTexts = [firstSegment, retryTexts[0]]
+        let writer = MockAudioWriter()
+        let svc = makeService(db, tts: mock, writer: writer)
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchAll(db)
+        }
+        let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
+        #expect(abs(span - Double(firstSegment.count) * 0.1) < 0.0001)
+        #expect(writer.chunkCounts == [2])
     }
 
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {

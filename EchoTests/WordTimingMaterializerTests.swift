@@ -49,6 +49,39 @@ struct WordTimingMaterializerTests {
         #expect(b1[0].audioStartTime >= 10.0)
     }
 
+    @Test func explicitBlockEndPreventsWordsFromStretchingAcrossPlannedSilence() throws {
+        let db = try DatabaseService(inMemory: ())
+        try db.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO audiobook (id, title, duration)
+                    VALUES ('bk', 'Book', 100.0)
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO epub_block
+                      (id, audiobook_id, spine_href, spine_index, block_index,
+                       sequence_index, block_kind, text, is_hidden)
+                    VALUES ('b0','bk','c.xhtml',0,0,0,'paragraph','one two', 0),
+                           ('b1','bk','c.xhtml',0,1,1,'paragraph','three four', 0)
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO timeline_item
+                      (id, audiobook_id, item_type, title, audio_start_time, audio_end_time,
+                       granularity_level, is_enabled, epub_block_id)
+                    VALUES ('t0','bk','textSegment','', 0.0, 1.0, 1, 1, 'b0'),
+                           ('t1','bk','textSegment','', 1.75, 2.75, 1, 1, 'b1')
+                    """)
+        }
+
+        try WordTimingMaterializer.materialize(audiobookID: "bk", writer: db.writer)
+
+        let words = try WordTimingDAO(db: db.writer).words(forAudiobook: "bk", blockID: "b0")
+        #expect(words.map(\.word) == ["one", "two"])
+        #expect(words.last!.audioEndTime <= 1.01)
+    }
+
     @Test func reRunClearsPriorRows() throws {
         let db = try DatabaseService(inMemory: ())
         try db.write { db in

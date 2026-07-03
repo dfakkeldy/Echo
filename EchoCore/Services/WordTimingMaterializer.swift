@@ -82,18 +82,18 @@ enum WordTimingMaterializer {
     }
 
     /// Interpolates per-word rows for a run of aligned blocks. Each block's end
-    /// bound is the next block's start, else its own end, else a ~15 cps estimate
-    /// so the last block still gets ranges.
+    /// bound is its explicit end, else the next block's start, else a ~15 cps
+    /// estimate so the last block still gets ranges.
     private static func records(
         from blocks: [Block], audiobookID: String
     ) -> [WordTimingRecord] {
         var records: [WordTimingRecord] = []
         for (i, block) in blocks.enumerated() {
             let blockEnd: TimeInterval
-            if i + 1 < blocks.count {
-                blockEnd = max(block.start, blocks[i + 1].start)
-            } else if let end = block.end, end > block.start {
+            if let end = block.end, end > block.start {
                 blockEnd = end
+            } else if i + 1 < blocks.count {
+                blockEnd = max(block.start, blocks[i + 1].start)
             } else {
                 blockEnd = block.start + Double(block.text.count) / 15.0
             }

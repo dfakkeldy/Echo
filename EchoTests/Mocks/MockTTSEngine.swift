@@ -18,6 +18,10 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     /// Sub-chunk text that should mimic ONNX Runtime's invalid Expand-shape
     /// failure, which is another skippable over-long-fragment signal.
     var invalidExpandShapeOnText: String?
+    /// Sub-chunk text that should return digital silence while still reporting a
+    /// duration, so render tests can exercise acoustic quality retry behavior.
+    var silentOnText: String?
+    var silentTexts: Set<String> = []
     var pronunciationFallbackHitsByText: [String: [PronunciationFallbackHit]] = [:]
 
     init(secondsPerChar: Double = 0.1) { self.secondsPerChar = secondsPerChar }
@@ -36,8 +40,18 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
         }
         if let bad = throwOnText, text == bad { throw NarrationError.synthesisFailed }
         let duration = Double(text.count) * secondsPerChar
+        if silentOnText == text || silentTexts.contains(text) {
+            return TTSChunk(
+                samples: [Float](repeating: 0, count: max(1, text.count)),
+                sampleRate: 24_000,
+                duration: duration)
+        }
+        let sampleCount = max(1, text.count)
+        let samples = (0..<sampleCount).map { index in
+            index.isMultiple(of: 2) ? Float(0.05) : Float(-0.05)
+        }
         return TTSChunk(
-            samples: [Float](repeating: 0, count: max(1, text.count)),
+            samples: samples,
             sampleRate: 24_000,
             duration: duration,
             pronunciationFallbackHits: pronunciationFallbackHitsByText[text] ?? [])
