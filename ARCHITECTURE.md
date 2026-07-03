@@ -3,7 +3,7 @@
 <!-- ⚠️  AUTO-GENERATED — do not edit directly. -->
 <!-- Regenerate with: `make architecture`                        -->
 
-**Last generated:** 2026-06-27 12:06:54
+**Last generated:** 2026-07-03 01:38:20
 
 This document maps the source-tree layout of the Xcode targets and Shared/
 module in the Echo: Audiobook Study Player project. Folders are shown in the order
@@ -24,6 +24,7 @@ DailyPlanner/RealTimeProjectionService.swift
 DailyPlanner/SchedulingSheet.swift
 Development Assets/.gitkeep
 Development Assets/aliceinwonderland_1102_librivox/Alice's Adventures in Wonderland.epub
+Development Assets/standardebooks_great_gatsby/f-scott-fitzgerald_the-great-gatsby.epub
 EchoCore.entitlements
 EchoCoreApp.swift
 Info.plist
@@ -32,6 +33,8 @@ Models/AggregatedChapter.swift
 Models/Chapter.swift
 Models/EchoPlaylistManifest.swift
 Models/FeedItemInjector.swift
+Models/FeedbackCategory.swift
+Models/FeedbackEntry.swift
 Models/FlashcardDeckImport.swift
 Models/LoopMode.swift
 Models/M4BBook.swift
@@ -41,6 +44,7 @@ Models/PlayerDeepLink.swift
 Models/ReaderCardItem.swift
 Models/ReaderFeedDisplayBuilder+Filter.swift
 Models/ReaderFeedDisplayBuilder.swift
+Models/ReaderSurfaceMode.swift
 Models/RealTimeEventType.swift
 Models/SleepTimerMode.swift
 Models/SpeedSuggestion.swift
@@ -128,6 +132,8 @@ Services/AutoAlignmentService.swift
 Services/AutoAlignmentState.swift
 Services/AutoAlignmentTextMatcher.swift
 Services/AutoAlignmentWorker.swift
+Services/AutoExportMarkdown.swift
+Services/AutoExportService.swift
 Services/BookPreferencesService.swift
 Services/BookSettingsOverrideStore.swift
 Services/BookmarkArtworkCoordinator.swift
@@ -139,6 +145,10 @@ Services/ChapterService.swift
 Services/ChapterTitleMatcher.swift
 Services/CloudKitSyncService.swift
 Services/ContinuousAlignmentService.swift
+Services/Contribution/ContributionConsent.swift
+Services/Contribution/ContributionPayloadFilter.swift
+Services/Contribution/ContributionTransport.swift
+Services/Contribution/PronunciationContributionPayload.swift
 Services/CoverThemeBuilder.swift
 Services/DeckImportResult.swift
 Services/DeckImportService.swift
@@ -153,6 +163,7 @@ Services/EPUBAutoImportScanner.swift
 Services/EPUBImportCoordinator.swift
 Services/EPUBImportService.swift
 Services/EPUBSourceAnchorResolver.swift
+Services/EchoDeckBuilderHandoffService.swift
 Services/Export/AudioExportService.swift
 Services/Export/ExportFileName.swift
 Services/Export/ExportMetadata+Completeness.swift
@@ -163,6 +174,8 @@ Services/Export/ExportSourceResolver.swift
 Services/Export/ImportedBookSource.swift
 Services/Export/M4BRetagger.swift
 Services/Export/NarrationCacheSource.swift
+Services/FeedbackDiagnostics.swift
+Services/FeedbackMailBuilder.swift
 Services/Library/LibraryAccess.swift
 Services/Library/LibraryScanner.swift
 Services/Library/LibraryService.swift
@@ -178,7 +191,9 @@ Services/Narration/AudioFileWriting.swift
 Services/Narration/AudioMarkerStub.swift
 Services/Narration/EpubCoverResolver.swift
 Services/Narration/FMNormalizer.swift
+Services/Narration/HeadlessNarrationQAManifest.swift
 Services/Narration/HeadlessNarrationRunner.swift
+Services/Narration/HomographPronunciationResolver.swift
 Services/Narration/KokoroFrontEnd.swift
 Services/Narration/KokoroG2P.swift
 Services/Narration/KokoroPhonemeVocab.swift
@@ -189,11 +204,14 @@ Services/Narration/MisakiResources/us_silver.json
 Services/Narration/NarrationCache.swift
 Services/Narration/NarrationCapability.swift
 Services/Narration/NarrationChapterPlanner.swift
+Services/Narration/NarrationChunkQuality.swift
 Services/Narration/NarrationEngineFactory.swift
 Services/Narration/NarrationEntitlementCounter.swift
 Services/Narration/NarrationFileNaming.swift
 Services/Narration/NarrationOutlineBuilder.swift
 Services/Narration/NarrationProgressText.swift
+Services/Narration/NarrationPronunciationPreflight.swift
+Services/Narration/NarrationRenderPlan.swift
 Services/Narration/NarrationRenderPolicy.swift
 Services/Narration/NarrationResources.swift
 Services/Narration/NarrationSegmentAssembly.swift
@@ -203,12 +221,16 @@ Services/Narration/NarrationSegmentReadiness.swift
 Services/Narration/NarrationService.swift
 Services/Narration/NarrationSilenceGuard.swift
 Services/Narration/NarrationState.swift
+Services/Narration/NarrationSynthesisTiming.swift
 Services/Narration/NarrationTextChunker.swift
 Services/Narration/NarrationWordTimingAssembler.swift
 Services/Narration/OnnxKokoroEngine.swift
 Services/Narration/ProgressFanOut.swift
+Services/Narration/PronunciationFallbackDiscovery.swift
+Services/Narration/PronunciationOccurrenceOverrides.swift
 Services/Narration/PronunciationOverrideStore.swift
 Services/Narration/PronunciationOverrides.swift
+Services/Narration/PronunciationRepairService.swift
 Services/Narration/QA/DivergenceClassifier.swift
 Services/Narration/QA/DivergenceClassifierFactory.swift
 Services/Narration/QA/DivergenceTypes.swift
@@ -223,6 +245,7 @@ Services/Narration/kokoro_dur_head.onnx
 Services/NowPlayingController.swift
 Services/OffStateResolver.swift
 Services/PDFAutoImportScanner.swift
+Services/PDFBlockPageMapper.swift
 Services/PDFImportCoordinator.swift
 Services/Persistence.swift
 Services/PlaybackController.swift
@@ -234,18 +257,24 @@ Services/PlayerTimelinePersistenceService.swift
 Services/PlaylistManager.swift
 Services/PlaylistManifestService.swift
 Services/ReviewNotificationService.swift
+Services/ReviewPromptManager.swift
 Services/SecurityScopeManager.swift
 Services/SettingsManager.swift
 Services/SilenceDetectionService.swift
 Services/SleepTimerManager.swift
 Services/SmartRewindPolicy.swift
 Services/SnippetPlayer.swift
+Services/SourceBackedAlignmentCoordinator.swift
 Services/StandaloneTranscriptionService.swift
 Services/Store/FoundersWindow.swift
 Services/Store/FreeTierGate.swift
 Services/Store/ProEntitlement.swift
 Services/Store/ProductIDs.swift
 Services/StoreManager.swift
+Services/StudyCheckpointAnnouncer.swift
+Services/StudyCheckpointCoordinator.swift
+Services/StudyCheckpointNotificationService.swift
+Services/StudyDeckFileExporter.swift
 Services/StudyNotesExportDatabaseSource.swift
 Services/StudyNotesExportService.swift
 Services/TOCTreeBuilder.swift
@@ -253,6 +282,7 @@ Services/TextAutoImportScanner.swift
 Services/TimelineIngestionFactory.swift
 Services/TimelineIngestionService.swift
 Services/TokenDTW.swift
+Services/TranscriptMaterializer.swift
 Services/TranscriptService.swift
 Services/VoiceMemoRecorder.swift
 Services/WatchCommandRouter.swift
@@ -260,6 +290,7 @@ Services/WatchConnectivityCoordinator.swift
 Services/WatchStateContextBuilder.swift
 Services/WatchSyncManager.swift
 Services/WhisperSession.swift
+Services/WidgetStatePublisher.swift
 Services/WordTimingMaterializer.swift
 Services/WordTimingRefiner.swift
 State/PlaybackState.swift
@@ -279,6 +310,7 @@ ViewModels/PlayerModel+MarkedPassages.swift
 ViewModels/PlayerModel+Narration.swift
 ViewModels/PlayerModel+PlaybackControllerDelegate.swift
 ViewModels/PlayerModel+PlaybackLogging.swift
+ViewModels/PlayerModel+StudyCheckpoint.swift
 ViewModels/PlayerModel+WatchState.swift
 ViewModels/PlayerModel.swift
 ViewModels/ReaderFeedViewModel.swift
@@ -286,12 +318,14 @@ ViewModels/SessionRecapViewModel.swift
 ViewModels/StudyDeckGenerationViewModel.swift
 ViewModels/StudyPlanViewModel.swift
 ViewModels/StudySessionViewModel.swift
+ViewModels/TranscribeBookCoordinator.swift
 Views/ABSBrowseView.swift
 Views/ABSConnectionsSettingsView.swift
 Views/AICardGenerationSettingsView.swift
 Views/AllStudyNotesExportView.swift
 Views/AppIconSelectionView.swift
 Views/AutoAlignmentProgressView.swift
+Views/AutoExportSettingsRows.swift
 Views/BookSettingsView.swift
 Views/BookmarkCardView.swift
 Views/Bookmarks.swift
@@ -317,10 +351,12 @@ Views/Components/UnifiedBottomDock.swift
 Views/Components/UnifiedTopHeader.swift
 Views/Components/WordCloudView.swift
 Views/DashboardShelf.swift
+Views/DictionaryLookupPresenter.swift
 Views/EPUBHeadingPickerSheet.swift
 Views/ExportDetailsSheet.swift
 Views/ExportProgressView.swift
 Views/FeedCaptureBar.swift
+Views/FeedbackFormView.swift
 Views/FeedbackSupportView.swift
 Views/Fidget/BubblePopView.swift
 Views/Fidget/DoodlePadView.swift
@@ -340,10 +376,10 @@ Views/Library/LibraryShelfGrid.swift
 Views/Library/LibraryStatusDot.swift
 Views/Library/LibraryView.swift
 Views/Library/ManageRootsView.swift
-Views/Narration/NarrationQAReviewView.swift
 Views/ListeningProgressModuleView.swift
 Views/ManualAlignmentSheet.swift
 Views/Narration/NarrationNudgeView.swift
+Views/Narration/NarrationQAReviewView.swift
 Views/Narration/NarrationStatusView.swift
 Views/Narration/VoicePickerView.swift
 Views/NoteEditorView.swift
@@ -351,6 +387,8 @@ Views/NoteFeedCell.swift
 Views/NowPlayingLayout.swift
 Views/NowPlayingTab.swift
 Views/PDFDocumentView.swift
+Views/PDFReadAlongController.swift
+Views/PDFReadingSurface.swift
 Views/Paywall/PaywallContext.swift
 Views/Paywall/PaywallView.swift
 Views/PhonePlayerSettingsView.swift
@@ -360,6 +398,7 @@ Views/PlayerScrubberView.swift
 Views/PlayheadLineView.swift
 Views/ProTranscriptsSettingsView.swift
 Views/PronunciationDictionaryView.swift
+Views/ReaderDefaultsSettingsView.swift
 Views/ReaderEmptyState.swift
 Views/ReaderFeedCollectionView.swift
 Views/ReaderHeaderView.swift
@@ -372,6 +411,7 @@ Views/SessionDetailFeedView.swift
 Views/SessionsListView.swift
 Views/SettingsAdvancedView.swift
 Views/SettingsAppearanceView.swift
+Views/SettingsNowPlayingView.swift
 Views/SettingsView.swift
 Views/SleepTimerCardView.swift
 Views/SmartRewindSettingsView.swift
@@ -387,10 +427,13 @@ Views/Stats/StatsView.swift
 Views/StatsModuleView.swift
 Views/StreakModuleView.swift
 Views/StudyAssignmentCardView.swift
+Views/StudyCheckpointPanelView.swift
+Views/StudyDeckGenerationSheet.swift
 Views/StudyNotesExportView.swift
 Views/StudyPlanSheet.swift
 Views/StudySessionView.swift
 Views/ThemeSelectionView.swift
+Views/TranscribeProgressView.swift
 Views/TransportControlsView+LongPress.swift
 Views/TransportControlsView.swift
 Views/UpcomingReviewsModuleView.swift
@@ -498,6 +541,7 @@ Database/DAOs/PDFBlockPageDAO.swift
 Database/DAOs/PlannedSessionDAO.swift
 Database/DAOs/PlaybackEventDAO.swift
 Database/DAOs/RealTimeEventDAO.swift
+Database/DAOs/StudyAutoExportDAO.swift
 Database/DAOs/StudyPlanDAO.swift
 Database/DAOs/TimelineDAO.swift
 Database/DAOs/TrackDAO.swift
@@ -520,6 +564,8 @@ Database/Migrations/Schema_V29.swift
 Database/Migrations/Schema_V30.swift
 Database/Migrations/Schema_V31.swift
 Database/Migrations/Schema_V32.swift
+Database/Migrations/Schema_V33.swift
+Database/Migrations/Schema_V34.swift
 Database/NarrationQualityIssueRecord.swift
 Database/NoteRecord.swift
 Database/PDFBlockPageRecord.swift
@@ -537,6 +583,7 @@ Database/TranscriptionRecord.swift
 Database/TranscriptionWord.swift
 Database/VoiceMemoRecord.swift
 Database/WordTimingRecord.swift
+DictionaryLookupTerm.swift
 EPUBBlockParser.swift
 EPUBHeuristicEngine.swift
 EPUBStructureChaptering.swift
@@ -557,16 +604,36 @@ Models/PDFViewState.swift
 Models/SessionSummary.swift
 NarrationNudgePolicy.swift
 NarrationTrackOrdering.swift
+Networking/AnthropicMessagesClient.swift
+Networking/LooseJSONExtractor.swift
 NotificationNames.swift
 ReaderActiveBlockResolver.swift
 ReaderSettings.swift
 SafeFileName.swift
+Services/AI/AIProviderConfig.swift
+Services/AI/AIProviderConnectionTester.swift
+Services/AI/AIProviderSettingsStore.swift
+Services/AI/AnthropicStudyDeckGenerator.swift
+Services/AI/FoundationModelsStudyDeckGenerator.swift
+Services/AI/StudyDeckBatcher.swift
+Services/AI/StudyDeckFMAvailability.swift
+Services/AI/StudyDeckOutputValidation.swift
+Services/AI/StudyDeckPromptBuilder.swift
+Services/APIKeyStore.swift
 Services/ChapterAudioStatusResolver.swift
 Services/ChapterCardDrafter.swift
 Services/FeedFilterModel.swift
 Services/FeedScopeResolver.swift
+Services/FixtureStudyDeckGenerator.swift
 Services/SessionSummaryService.swift
+Services/StudyChapterRetireService.swift
+Services/StudyDeckAcceptanceService.swift
+Services/StudyDeckDraftDeduplicator.swift
+Services/StudyDeckGenerating.swift
+Services/StudyDeckGenerationTypes.swift
+Services/StudyDeckSourceBuilder.swift
 Services/StudyPlanGenerator.swift
+Services/StudyPlaybackQueueService.swift
 Services/StudyQueueBuilder.swift
 SessionScopeReducer.swift
 SoundscapePreset.swift
@@ -578,7 +645,10 @@ Stats/StatsAggregator.swift
 Stats/StatsModels.swift
 Stats/StatsRepository.swift
 String+Levenshtein.swift
+Study/StudyCheckpointTypes.swift
 Study/StudyPlanTypes.swift
+Study/VocabularyCardBuilder.swift
+Study/VocabularyCardContext.swift
 SyncMarker.swift
 TabSelection.swift
 TextAlignmentUtilities.swift
@@ -592,7 +662,9 @@ WatchFlashcard.swift
 WatchMessageKey.swift
 WatchReviewFeedbackPolicy.swift
 WatchReviewQueueStore.swift
+WidgetPlaybackState.swift
 WordFrequency.swift
+WordSentenceContext.swift
 WordTimingInterpolator.swift
 WordTokenizer.swift
 ```
@@ -882,6 +954,18 @@ Both sources expose the same chapter-ordered `[URL]` list consumed by the shared
 
 **mp3 is intentionally deferred.** Apple frameworks cannot encode mp3; it needs a vendored LAME encoder. The decided strategy (per-chapter mp3 files) is recorded but not yet implemented.
 
+### Auto-Export Study Captures (July 2026)
+
+When enabled (Settings -> Study & Notes -> Auto-Export), Echo continuously mirrors each book's study captures as one deterministic Markdown file per book inside an Echo-owned `Echo Study Notes/` subfolder of a user-picked destination, typically iCloud Drive so Mac-side tools can ingest the files. iOS cannot watch folders, so Echo pushes: `AutoExportService` (`@MainActor @Observable`) observes the `note`, `bookmark`, and `flashcard` tables via GRDB `DatabaseRegionObservation`, debounces 5 seconds, and rewrites dirty books atomically with `NSFileCoordinator` plus atomic replace. Rendering is the pure `AutoExportMarkdown` enum: YAML frontmatter (`book`, optional `author`, `book_key` = SHA-256-prefix of the book id), HTML-comment capture-ID markers for downstream dedup, chapter attribution by timestamp, text-only output in v1, and no export timestamp in the file.
+
+**Schema V34** adds `study_export_destination` (single-row security-scoped bookmark, following the `library_root` precedent) and `study_export_state` (per-book `dirty` flags as a persisted retry outbox, plus `file_name`, `content_sha256`, and `last_error`). Failures keep books dirty and retry on the next capture, foreground, or session-end flush; an unresolvable destination sets `needs_repick` and pauses passes; a stale-but-resolvable bookmark self-heals. The exporter never reads destination files, never exports bookmark location fields, and SHA-skips unchanged content to avoid iCloud churn. Title changes, deleted books, and books whose captures are removed clean up stale mirror files from the Echo-managed subfolder.
+
+**Settings and entitlement:** `SettingsManager.studyAutoExportEnabled` persists the user preference. `AutoExportSettingsRows` mounts under Study & Notes, presents a folder picker, shows passive status, and currently gates enablement on Echo Pro (`StoreManager.isPro`). Manual per-book/all-books study-note export is unchanged. The macOS Settings pane is a deliberate fast-follow; the engine and database pieces remain shared.
+
+**Test coverage:** `SchemaV34Tests`, `StudyAutoExportDAOTests`, `AutoExportMarkdownTests`, `AutoExportServiceTests`, `StudyNotesExportServiceTests`, `EchoCoreTests`, and settings structural guardrails.
+
+Design spec: `docs/superpowers/specs/2026-07-02-auto-export-to-folder-design.md`; implementation plan: `docs/superpowers/plans/2026-07-02-auto-export-to-folder.md`.
+
 ### EPUB Reader Feed (Current)
 
 The Reader tab renders EPUB content as a feed of styled cards aligned to the audio playback position. It replaces the earlier Timeline Feed prototype with a simpler, purpose-built reader surface.
@@ -915,6 +999,8 @@ The Reader tab renders EPUB content as a feed of styled cards aligned to the aud
 | V30 | `narration_quality_issue` table + `idx_narration_quality_issue_book_status` — reviewable generated-narration QA divergences, cascade-deleted with the book |
 | V31 | `abs_server.is_active` (BOOLEAN, default false) — preserves the active server across the single-server iOS flow while allowing macOS to save multiple servers and switch the active one |
 | V32 | `epub_block.narration_text` (TEXT, nullable) — persisted FM-refined TTS input; narration renders from it when present and QA compares against it while the original `text` remains the source of truth |
+| V33 | `study_plan.new_cards_per_day` and `study_plan.chapter_pacing` — per-plan AI card pacing controls |
+| V34 | `study_export_destination` + `study_export_state` — auto-export destination security bookmark and per-book dirty/retry state for deterministic Markdown study mirrors |
 
 Key indexes: `idx_epub_block_sequence` (audiobook_id, sequence_index), `idx_epub_block_chapter` (audiobook_id, chapter_index), `idx_epub_block_hidden` (audiobook_id, is_hidden), `idx_alignment_anchor_time` (audiobook_id, audio_time), `idx_alignment_anchor_block` (audiobook_id, epub_block_id).
 
