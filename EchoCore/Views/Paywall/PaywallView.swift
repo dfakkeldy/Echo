@@ -39,7 +39,7 @@ struct PaywallView: View {
                     }
 
                     Text(
-                        "Subscriptions can include App Store trials. Lifetime stays available when you're ready to own Echo forever."
+                        "The yearly plan can include a 7-day App Store trial. Monthly, lifetime, and founders unlocks start immediately."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -90,10 +90,11 @@ struct PaywallView: View {
 
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 8) {
-            benefitLabel("♾️", "Unlimited flashcards with FSRS spaced repetition")
-            benefitLabel("🗣️", "Unlimited on-device AI narration")
-            benefitLabel("📊", "Insights — listening & study streaks")
-            benefitLabel("📤", "Export any book as a chaptered .m4b audiobook")
+            benefitLabel("♾️", "Unlimited flashcards with FSRS scheduling")
+            benefitLabel("⌚", "Apple Watch review sessions")
+            benefitLabel("📊", "Insights for listening and study streaks")
+            benefitLabel("📤", "Study export: Markdown, Anki decks, and chaptered .m4b")
+            benefitLabel("⬇️", "Audiobookshelf offline downloads and background sync")
             benefitLabel("🔒", "No Echo account or servers, no tracking")
         }
     }

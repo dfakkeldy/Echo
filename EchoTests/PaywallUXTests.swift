@@ -22,7 +22,7 @@ struct PaywallUXTests {
         #expect(source.contains("ProductIDs.yearly"))
         #expect(source.contains("ProductIDs.monthly"))
         #expect(source.contains("ProductIDs.lifetime"))
-        #expect(source.contains("Subscriptions can include App Store trials"))
+        #expect(source.contains("The yearly plan can include a 7-day App Store trial"))
         #expect(source.contains("Lifetime"))
         #expect(source.contains("Restore Purchases"))
         #expect(source.contains("Terms"))
@@ -30,6 +30,23 @@ struct PaywallUXTests {
         #expect(source.contains("FeedbackSupport.privacyPolicyURL"))
         #expect(!source.contains("kinnokilabs.com/apps/echo/privacy"))
         #expect(source.contains("Open source — you can build it yourself."))
+        #expect(source.contains("Unlimited flashcards with FSRS scheduling"))
+        #expect(source.contains("Apple Watch review sessions"))
+        #expect(source.contains("Insights for listening and study streaks"))
+        #expect(source.contains("Study export: Markdown, Anki decks, and chaptered .m4b"))
+        #expect(source.contains("Audiobookshelf offline downloads and background sync"))
+        let retiredNarrationClaim = [
+            "unlimited",
+            "on-device AI narration",
+        ].joined(separator: " ")
+        let retiredLibraryClaim = [
+            "unlocks",
+            "the",
+            "whole",
+            "library",
+        ].joined(separator: " ")
+        #expect(!source.localizedStandardContains(retiredNarrationClaim))
+        #expect(!source.localizedStandardContains(retiredLibraryClaim))
     }
 
     @Test func paywallUsesStoreKitDisplayPricesForEveryPlan() throws {
