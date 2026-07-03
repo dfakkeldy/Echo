@@ -24,7 +24,11 @@ nonisolated enum NarrationFileNaming {
     /// v7 = segment-render cache layout groundwork. The renderer still writes
     /// chapter files until segment orchestration lands, but the cache version
     /// changes so v6 per-chapter files are swept when the segment layout takes over.
-    static let renderVersion = 7
+    /// v8 = render-time planned silence for paragraph, heading, and section
+    /// breaks changes rendered audio bytes for the same source text.
+    /// v9 = acoustic chunk quality retry/fallback guardrails; cached v8 files may
+    /// contain already-rendered silent/truncated chunks and must regenerate once.
+    static let renderVersion = 9
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {
@@ -68,9 +72,10 @@ nonisolated enum NarrationFileNaming {
             "blockCount=\(spokenBlocks.count)",
             "textCount=\(renderedTexts.count)",
         ]
-        components.reserveCapacity(components.count + spokenBlocks.count * 2)
+        components.reserveCapacity(components.count + spokenBlocks.count * 3)
         for (offset, block) in spokenBlocks.enumerated() {
             components.append("blockID:\(block.id.count):\(block.id)")
+            components.append("blockKind:\(block.blockKind.count):\(block.blockKind)")
             let text = offset < renderedTexts.count ? renderedTexts[offset] : ""
             components.append("text:\(text.count):\(text)")
         }
