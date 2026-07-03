@@ -19,6 +19,9 @@ nonisolated enum HomographPronunciationResolver {
         static let livesVerb = "lˈɪvz"
         static let contentNoun = "kˈɑntɛnt"
         static let contentSatisfied = "kəntˈɛnt"
+        static let resumeDocument = "ɹˈɛzʊmˌA"
+        static let resumesDocuments = "ɹˈɛzʊmˌAz"
+        static let arithmeticNoun = "əɹˈɪθmətˌɪk"
     }
 
     private static let wordRegex = try! NSRegularExpression(pattern: #"\b[\p{L}]+\b"#)
@@ -74,6 +77,25 @@ nonisolated enum HomographPronunciationResolver {
     private static let contentSatisfiedFollowers: Set<String> = [
         "to", "with",
     ]
+    private static let resumeDocumentPreceders: Set<String> = [
+        "all", "applicant", "applicants", "candidate", "candidates", "her", "his",
+        "many", "my", "our", "several", "the", "their", "these", "those", "your",
+    ]
+    private static let resumeDocumentFollowers: Set<String> = [
+        "attached", "changed", "includes", "is", "lists", "mentions", "shows",
+        "submitted", "was",
+    ]
+    private static let resumesDocumentFollowers: Set<String> = [
+        "are", "attached", "include", "list", "mention", "show", "submitted", "were",
+    ]
+    private static let resumeVerbPreceders: Set<String> = [
+        "can", "could", "does", "may", "might", "must", "should", "to", "will",
+        "would",
+    ]
+    private static let arithmeticAdjectiveFollowers: Set<String> = [
+        "mean", "means", "operation", "operations", "operator", "operators",
+        "progression", "progressions", "sequence", "sequences",
+    ]
 
     static func apply(to text: String) -> String {
         let tokens = tokens(in: text)
@@ -102,6 +124,16 @@ nonisolated enum HomographPronunciationResolver {
             return livesIPA(at: index, tokens: tokens)
         case "content":
             return contentIPA(at: index, tokens: tokens)
+        case "resume":
+            return resumeIPA(at: index, tokens: tokens)
+        case "resumes":
+            return resumesIPA(at: index, tokens: tokens)
+        case "résumé":
+            return IPA.resumeDocument
+        case "résumés":
+            return IPA.resumesDocuments
+        case "arithmetic":
+            return arithmeticIPA(at: index, tokens: tokens)
         default:
             return nil
         }
@@ -141,6 +173,49 @@ nonisolated enum HomographPronunciationResolver {
         }
 
         return nil
+    }
+
+    private static func resumeIPA(at index: Int, tokens: [Token]) -> String? {
+        if previousLowercased(tokens, index).map(resumeVerbPreceders.contains) == true {
+            return nil
+        }
+
+        let next = nextLowercased(tokens, index, limit: 1)
+        if previousLowercased(tokens, index).map(resumeDocumentPreceders.contains) == true {
+            return IPA.resumeDocument
+        }
+
+        if next.contains(where: resumeDocumentFollowers.contains) {
+            return IPA.resumeDocument
+        }
+
+        return nil
+    }
+
+    private static func resumesIPA(at index: Int, tokens: [Token]) -> String? {
+        let next = nextLowercased(tokens, index, limit: 1)
+        if previousLowercased(tokens, index).map(resumeDocumentPreceders.contains) == true {
+            return IPA.resumesDocuments
+        }
+
+        if next.contains(where: resumesDocumentFollowers.contains) {
+            return IPA.resumesDocuments
+        }
+
+        if index == tokens.startIndex, next.isEmpty {
+            return IPA.resumesDocuments
+        }
+
+        return nil
+    }
+
+    private static func arithmeticIPA(at index: Int, tokens: [Token]) -> String? {
+        let next = nextLowercased(tokens, index, limit: 1)
+        if next.contains(where: arithmeticAdjectiveFollowers.contains) {
+            return nil
+        }
+
+        return IPA.arithmeticNoun
     }
 
     private static func liveIPA(at index: Int, tokens: [Token]) -> String? {

@@ -61,6 +61,39 @@ import Testing
                 == "I am [content](/kəntˈɛnt/) with this narration.")
     }
 
+    @Test func resolvesResumeDocumentContextsWithoutBreakingVerbContexts() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "The resumes are attached.")
+                == "The [resumes](/ɹˈɛzʊmˌAz/) are attached.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Resumes.")
+                == "[Resumes](/ɹˈɛzʊmˌAz/).")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The book resumes here.")
+                == "The book resumes here.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Playback will resume shortly.")
+                == "Playback will resume shortly.")
+    }
+
+    @Test func resolvesAccentedResumeDocuments() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Her résumé is attached.")
+                == "Her [résumé](/ɹˈɛzʊmˌA/) is attached.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The résumés were submitted.")
+                == "The [résumés](/ɹˈɛzʊmˌAz/) were submitted.")
+    }
+
+    @Test func resolvesArithmeticNounStressButKeepsTechnicalAdjectiveContexts() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Arithmetic is hard.")
+                == "[Arithmetic](/əɹˈɪθmətˌɪk/) is hard.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The arithmetic mean is useful.")
+                == "The arithmetic mean is useful.")
+    }
+
     @Test func doesNotRewriteHyphenatedCompounds() {
         let text = "This is a read-only live-in setup."
 
@@ -81,5 +114,14 @@ import Testing
         let phonemes = KokoroG2P().phonemes(for: text)
 
         #expect(phonemes.contains("ɹˈɛd"))
+    }
+
+    @Test func reportedEasyWordRepairsReachG2PAsExactPhonemes() {
+        let text = HomographPronunciationResolver.apply(
+            to: "The resumes are attached. Arithmetic is hard.")
+        let phonemes = KokoroG2P().phonemes(for: text)
+
+        #expect(phonemes.contains("ɹˈɛzʊmˌAz"))
+        #expect(phonemes.contains("əɹˈɪθmətˌɪk"))
     }
 }

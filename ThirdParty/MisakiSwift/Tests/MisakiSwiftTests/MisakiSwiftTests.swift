@@ -70,3 +70,29 @@ let texts: [(originalText: String, requiredPhonemes: [String])] = [
   #expect(result.phonemes == "vˈɛɹəfˌId")
   #expect(result.fallbackHits.isEmpty)
 }
+
+@Test func testCamelCaseCompoundsPreserveKnownWordBreaks() async throws {
+  let englishG2P = EnglishG2P(british: false)
+  let result = englishG2P.phonemizeWithMetadata(text: "CarPlay")
+
+  #expect(result.phonemes == "kˈɑɹ plˈA")
+  #expect(result.fallbackHits.isEmpty)
+}
+
+@Test func testCamelCaseDoesNotSplitMcSurnamePrefix() async throws {
+  let englishG2P = EnglishG2P(british: false)
+  let result = englishG2P.phonemizeWithMetadata(text: "McDonald")
+
+  #expect(!result.phonemes.contains(" "))
+}
+
+@Test func testArithmeticKeepsNounAndTechnicalAdjectiveStress() async throws {
+  let englishG2P = EnglishG2P(british: false)
+  let noun = englishG2P.phonemizeWithMetadata(text: "Arithmetic is hard.")
+  let adjective = englishG2P.phonemizeWithMetadata(text: "The arithmetic mean is useful.")
+
+  #expect(noun.phonemes.hasPrefix("əɹˈɪθmətˌɪk "))
+  #expect(adjective.phonemes.contains("ˌɛɹɪθmˈɛTɪk mˈin"))
+  #expect(noun.fallbackHits.isEmpty)
+  #expect(adjective.fallbackHits.isEmpty)
+}

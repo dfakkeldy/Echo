@@ -52,6 +52,10 @@ final public class EnglishG2P {
   static let stresses = "ˌˈ"
   static let primaryStress = stresses[stresses.index(stresses.startIndex, offsetBy: 1)]
   static let secondaryStress = stresses[stresses.index(stresses.startIndex, offsetBy: 0)]
+  static let arithmeticAdjectiveFollowers: Set<String> = [
+    "mean", "means", "operation", "operations", "operator", "operators",
+    "progression", "progressions", "sequence", "sequences",
+  ]
   // Splits words into subtokens such as acronym boundaries, signs, commas, decimals, multiple quotes, camelCase boundaries and so forth.
   static let subtokenizeRegexPattern = #"^[''']+|\p{Lu}(?=\p{Lu}\p{Ll})|(?:^-)?(?:\d?[,.]?\d)+|[-_]+|[''']{2,}|\p{L}*?(?:[''']\p{L})*?\p{Ll}(?=\p{Lu})|\p{L}+(?:[''']\p{L})*|[^-_\p{L}'''\d]|[''']+$"#
   static let subtokenizeRegex = try! NSRegularExpression(pattern: EnglishG2P.subtokenizeRegexPattern, options: [])
@@ -110,7 +114,8 @@ final public class EnglishG2P {
   
   private func resolveTokens(_ tokens: inout [MToken]) {
     let text = tokens.dropLast().map { $0.text + $0.whitespace }.joined() + (tokens.last?.text ?? "")
-    let prespace = text.contains(" ") || text.contains("/") || Set(text.compactMap { c -> Int? in
+    let hasExplicitWordBreak = tokens.contains { $0.`_`.prespace }
+    let prespace = hasExplicitWordBreak || text.contains(" ") || text.contains("/") || Set(text.compactMap { c -> Int? in
       if EnglishG2P.subTokenJunks.contains(c) { return nil }
       
       if c.isLetter { return 0 }
@@ -128,7 +133,7 @@ final public class EnglishG2P {
           tokens[i].`_`.rating = 3
         }
       } else if i > 0 {
-          tokens[i].`_`.prespace = prespace
+          tokens[i].`_`.prespace = tokens[i].`_`.prespace || prespace
       }
     }
     
@@ -355,7 +360,7 @@ final public class EnglishG2P {
     var words: [Any] = []
     var currency: String? = nil
     
-    for (i, token) in tokens.enumerated() {
+    for token in tokens {
       let needsSplit = (token.`_`.alias == nil && token.phonemes == nil)
       var subtokens: [MToken] = []
       if needsSplit {
@@ -368,6 +373,7 @@ final public class EnglishG2P {
           t.`_`.prespace = false
           return t
         }
+        preserveCamelCaseWordBreaks(in: &subtokens, original: token.text)
       } else {
         subtokens = [token]
       }
@@ -431,6 +437,75 @@ final public class EnglishG2P {
       return item
     }
   }
+
+  private func preserveCamelCaseWordBreaks(in subtokens: inout [MToken], original: String) {
+    guard subtokens.count > 1, hasCamelCaseBoundary(original) else { return }
+
+    for index in subtokens.indices.dropFirst() {
+      let previous = subtokens[subtokens.index(before: index)].text
+      let current = subtokens[index].text
+      guard shouldSeparateCamelCase(previous: previous, current: current) else { continue }
+      subtokens[index].`_`.prespace = true
+    }
+  }
+
+  private func hasCamelCaseBoundary(_ word: String) -> Bool {
+    let characters = Array(word)
+    guard characters.count > 1 else { return false }
+
+    for index in 1..<characters.count {
+      if characters[index].isUppercase, characters[index - 1].isLowercase {
+        return true
+      }
+      if index + 1 < characters.count,
+         characters[index - 1].isUppercase,
+         characters[index].isUppercase,
+         characters[index + 1].isLowercase {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private func shouldSeparateCamelCase(previous: String, current: String) -> Bool {
+    guard previous.contains(where: \.isLetter), current.contains(where: \.isLetter) else {
+      return false
+    }
+
+    // "McDonald" is a surname prefix, not a product-style compound.
+    if previous.lowercased() == "mc" { return false }
+
+    return true
+  }
+
+  private func normalizeContextualTag(_ token: MToken, followingWord: String?) {
+    guard token.text.lowercased() == "arithmetic" else { return }
+
+    if let followingWord,
+       Self.arithmeticAdjectiveFollowers.contains(followingWord.lowercased()) {
+      return
+    }
+
+    token.tag = .noun
+  }
+
+  private func nextWordText(in words: [Any], after index: Int) -> String? {
+    guard index + 1 < words.count else { return nil }
+
+    for item in words[(index + 1)...] {
+      if let token = item as? MToken, token.text.contains(where: \.isLetter) {
+        return token.text
+      }
+
+      if let tokens = item as? [MToken],
+         let token = tokens.first(where: { $0.text.contains(where: \.isLetter) }) {
+        return token.text
+      }
+    }
+
+    return nil
+  }
    
   /// Never-voiceless guarantee for a single token's phonemes.
   ///
@@ -478,6 +553,7 @@ final public class EnglishG2P {
     var fallbackHits: [EnglishG2PFallbackHit] = []
     for i in stride(from: words.count - 1, through: 0, by: -1) {
       if let w = words[i] as? MToken {
+        normalizeContextualTag(w, followingWord: nextWordText(in: words, after: i))
         if w.phonemes == nil {
           let out = lexicon.transcribe(w, ctx: ctx)
           w.phonemes = out.0
@@ -493,59 +569,81 @@ final public class EnglishG2P {
         
         ctx = tokenContext(ctx, ps: w.phonemes, token: w)
       } else if var arr = words[i] as? [MToken] {
-        var left = 0
-        var right = arr.count
-        var shouldFallback = false
-        while left < right {
-          let hasFixed = arr[left..<right].contains { $0.`_`.alias != nil || $0.phonemes != nil }
-          let token: MToken? = hasFixed ? nil : mergeTokens(Array(arr[left..<right]))
-          let res: (String?, Int?) = (token == nil) ? (nil, nil) : lexicon.transcribe(token!, ctx: ctx)
-          
-          if let phonemes = res.0 {
-            arr[left].phonemes = phonemes
-            arr[left].`_`.rating = res.1
-            for j in (left + 1)..<right {
-              arr[j].phonemes = ""
-              arr[j].`_`.rating = res.1
+        if arr.contains(where: { $0.`_`.prespace }) {
+          for j in stride(from: arr.count - 1, through: 0, by: -1) {
+            let token = arr[j]
+            if token.phonemes == nil {
+              let out = lexicon.transcribe(token, ctx: ctx)
+              token.phonemes = out.0
+              token.`_`.rating = out.1
             }
-            ctx = tokenContext(ctx, ps: phonemes, token: token!)
-            right = left
-            left = 0
-          } else if left + 1 < right {
-            left += 1
-          } else {
-            right -= 1
-            let last = arr[right]
-            if last.phonemes == nil {
-              if last.text.allSatisfy({ EnglishG2P.subTokenJunks.contains($0) }) {
-                last.phonemes = ""
-                last.`_`.rating = 3
-              } else {
-                shouldFallback = true
-                break
+
+            if token.phonemes == nil {
+              let out = fallback(token)
+              token.phonemes = out.0
+              token.`_`.rating = out.1
+              fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))
+            }
+
+            ctx = tokenContext(ctx, ps: token.phonemes, token: token)
+            arr[j] = token
+          }
+          resolveTokens(&arr)
+        } else {
+          var left = 0
+          var right = arr.count
+          var shouldFallback = false
+          while left < right {
+            let hasFixed = arr[left..<right].contains { $0.`_`.alias != nil || $0.phonemes != nil }
+            let token: MToken? = hasFixed ? nil : mergeTokens(Array(arr[left..<right]))
+            let res: (String?, Int?) = (token == nil) ? (nil, nil) : lexicon.transcribe(token!, ctx: ctx)
+
+            if let phonemes = res.0 {
+              arr[left].phonemes = phonemes
+              arr[left].`_`.rating = res.1
+              for j in (left + 1)..<right {
+                arr[j].phonemes = ""
+                arr[j].`_`.rating = res.1
+              }
+              ctx = tokenContext(ctx, ps: phonemes, token: token!)
+              right = left
+              left = 0
+            } else if left + 1 < right {
+              left += 1
+            } else {
+              right -= 1
+              let last = arr[right]
+              if last.phonemes == nil {
+                if last.text.allSatisfy({ EnglishG2P.subTokenJunks.contains($0) }) {
+                  last.phonemes = ""
+                  last.`_`.rating = 3
+                } else {
+                  shouldFallback = true
+                  break
+                }
+              }
+              left = 0
+              arr[right] = last
+            }
+          }
+
+          if shouldFallback {
+            let token = mergeTokens(arr)
+            let first = arr[0]
+            let out = fallback(token)
+            first.phonemes = out.0
+            first.`_`.rating = out.1
+            fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))
+            arr[0] = first
+            if arr.count > 1 {
+              for j in 1..<arr.count {
+                arr[j].phonemes = ""
+                arr[j].`_`.rating = out.1
               }
             }
-            left = 0
-            arr[right] = last
+          } else {
+            resolveTokens(&arr)
           }
-        }
-        
-        if shouldFallback {
-          let token = mergeTokens(arr)
-          let first = arr[0]
-          let out = fallback(token)
-          first.phonemes = out.0
-          first.`_`.rating = out.1
-          fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))
-          arr[0] = first
-          if arr.count > 1 {
-            for j in 1..<arr.count {
-              arr[j].phonemes = ""
-              arr[j].`_`.rating = out.1
-            }
-          }
-        } else {
-          resolveTokens(&arr)
         }
       }
     }
