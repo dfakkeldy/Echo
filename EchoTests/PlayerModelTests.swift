@@ -163,6 +163,7 @@ struct PlayerModelTests {
         let model = PlayerModel()
 
         // No chapters → both false (single-chapter / marker-less book).
+        #expect(model.hasChapterNavigation == false)
         #expect(model.hasPreviousChapter == false)
         #expect(model.hasNextChapter == false)
 
@@ -173,6 +174,7 @@ struct PlayerModelTests {
             Chapter(index: 2, title: "Three", startSeconds: 20, endSeconds: 30),
         ]
         model.state.currentChapterIndex = 0
+        #expect(model.hasChapterNavigation == true)
         #expect(model.hasPreviousChapter == false)
         #expect(model.hasNextChapter == true)
 
@@ -189,6 +191,24 @@ struct PlayerModelTests {
         // chapters present but index unresolved (nil) → treated as index 0.
         model.state.currentChapterIndex = nil
         #expect(model.hasPreviousChapter == false)
+        #expect(model.hasNextChapter == true)
+
+        // MP3-folder books load as multiple tracks, but each MP3 usually has a
+        // single synthetic chapter. The chapter chevrons still need to navigate
+        // between files so users do not have to open the chapter/file picker for
+        // every track.
+        model.state.chapters = [
+            Chapter(index: 0, title: "05 - Chapter 5", startSeconds: 0, endSeconds: 600)
+        ]
+        model.state.tracks = [
+            Track(url: URL(fileURLWithPath: "/tmp/book/04.mp3"), title: "04 - Chapter 4"),
+            Track(url: URL(fileURLWithPath: "/tmp/book/05.mp3"), title: "05 - Chapter 5"),
+            Track(url: URL(fileURLWithPath: "/tmp/book/06.mp3"), title: "06 - Chapter 6"),
+        ]
+        model.state.currentIndex = 1
+        model.state.currentChapterIndex = nil
+        #expect(model.hasChapterNavigation == true)
+        #expect(model.hasPreviousChapter == true)
         #expect(model.hasNextChapter == true)
     }
 
