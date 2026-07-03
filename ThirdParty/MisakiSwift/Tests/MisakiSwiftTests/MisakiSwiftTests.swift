@@ -62,3 +62,11 @@ let texts: [(originalText: String, requiredPhonemes: [String])] = [
   #expect(result.contains("dˈɑləɹ"))  // "dollar" phoneme
   #expect(result.contains("jˈʊɹOz"))  // "euro" phoneme
 }
+
+@Test func testPastTense_IedVerbsUseKnownYStem() async throws {
+  let englishG2P = EnglishG2P(british: false)
+  let result = englishG2P.phonemizeWithMetadata(text: "verified")
+
+  #expect(result.phonemes == "vˈɛɹəfˌId")
+  #expect(result.fallbackHits.isEmpty)
+}

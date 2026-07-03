@@ -26,11 +26,28 @@ import Testing
         #expect(candidates[0].occurrenceCount == 3)
     }
 
+    @Test func flagsFallbackPronunciationsBeforeRender() {
+        let candidates = NarrationPronunciationPreflight.scan(
+            texts: ["verified verified inclusive"],
+            overrides: PronunciationOverrides(entries: [:]),
+            pronunciation: { word in
+                if word == "verified" {
+                    return ("vˈɛɹɪfid", [PronunciationFallbackHit(word: word, ipa: "vˈɛɹɪfid")])
+                }
+                return ("ok", [])
+            })
+
+        #expect(candidates.count == 1)
+        #expect(candidates[0].word == "verified")
+        #expect(candidates[0].reasons == [.fallbackPronunciation])
+        #expect(candidates[0].occurrenceCount == 2)
+    }
+
     @Test func candidatesEncodeAsStableLocalReportJSON() throws {
         let candidates = [
             NarrationPronunciationCandidate(
                 word: "Xcode",
-                reasons: [.emptyPhonemes, .properNoun],
+                reasons: [.emptyPhonemes, .fallbackPronunciation, .properNoun],
                 occurrenceCount: 4)
         ]
 
@@ -40,6 +57,7 @@ import Testing
         #expect(json.contains(#""word" : "Xcode""#))
         #expect(json.contains(#""occurrenceCount" : 4"#))
         #expect(json.contains("emptyPhonemes"))
+        #expect(json.contains("fallbackPronunciation"))
         #expect(json.contains("properNoun"))
     }
 }

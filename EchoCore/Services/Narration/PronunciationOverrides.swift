@@ -90,6 +90,8 @@ struct PronunciationOverrides {
         "xcassets": "ˈɛks sˈi ˈæsˌɛts",
         "timeframe": "tˈImfɹˌAm",
         "re": "ɹi",
+        "README": "ɹˈid mˌi",
+        "readme": "ɹˈid mˌi",
     ]
 
     /// The built-in defaults with the user's `entries` layered on top. Matching
