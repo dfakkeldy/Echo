@@ -42,11 +42,12 @@ import Testing
 
     @Test func builtInDefaultsCoverReportedKokoroMispronunciations() {
         let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
-            to: "Xcode fixed the timeframe, re-rendered the chapter, and opened Assets.xcassets.")
+            to: "Xcode fixed the timeframe, re-rendered the README, and opened Assets.xcassets.")
 
         #expect(out.contains("[Xcode](/ˈɛks kˈOd/)"))
         #expect(out.contains("[timeframe](/tˈImfɹˌAm/)"))
         #expect(out.contains("[re](/ɹi/)-rendered"))
+        #expect(out.contains("[README](/ɹˈid mˌi/)"))
         #expect(out.contains("[xcassets](/ˈɛks sˈi ˈæsˌɛts/)"))
     }
 
@@ -80,13 +81,21 @@ import Testing
 
     @Test func reportedKokoroMispronunciationsReachG2PAsExactPhonemes() {
         let text = PronunciationOverrides.withBuiltInDefaults([:]).apply(
-            to: "Xcode fixed the timeframe, re-rendered the chapter, and opened Assets.xcassets.")
+            to: "Xcode fixed the timeframe, re-rendered the README, and opened Assets.xcassets.")
         let phonemes = KokoroG2P().phonemes(for: text)
 
         #expect(phonemes.contains("ˈɛks kˈOd"))
         #expect(phonemes.contains("tˈImfɹˌAm"))
         #expect(phonemes.contains("ɹi ɹˈɛndəɹd"))
+        #expect(phonemes.contains("ɹˈid mˌi"))
         #expect(phonemes.contains("ˈɛks sˈi ˈæsˌɛts"))
+    }
+
+    @Test func reportedPastTensePronunciationUsesKnownStemInsteadOfFallback() {
+        let result = KokoroG2P().result(for: "verified")
+
+        #expect(result.phonemes == "vˈɛɹəfˌId")
+        #expect(result.fallbackHits.isEmpty)
     }
 
     @Test func userEntryOverridesBuiltInDefault() {

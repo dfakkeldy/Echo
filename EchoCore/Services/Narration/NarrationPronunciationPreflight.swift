@@ -5,6 +5,7 @@ struct NarrationPronunciationCandidate: Codable, Equatable, Sendable {
     enum Reason: String, Codable, Sendable {
         case emptyPhonemes
         case acronym
+        case fallbackPronunciation
         case properNoun
     }
 
@@ -47,6 +48,17 @@ enum NarrationPronunciationPreflight {
         overrides: PronunciationOverrides,
         phonemes: (String) -> String
     ) -> [NarrationPronunciationCandidate] {
+        scan(
+            texts: texts,
+            overrides: overrides,
+            pronunciation: { word in (phonemes(word), []) })
+    }
+
+    static func scan(
+        texts: [String],
+        overrides: PronunciationOverrides,
+        pronunciation: (String) -> (phonemes: String, fallbackHits: [PronunciationFallbackHit])
+    ) -> [NarrationPronunciationCandidate] {
         var buckets: [
             String: (
                 display: String,
@@ -65,7 +77,9 @@ enum NarrationPronunciationPreflight {
                 guard !overridden.contains(key) else { continue }
 
                 var reasons: Set<NarrationPronunciationCandidate.Reason> = []
-                if phonemes(word).isEmpty { reasons.insert(.emptyPhonemes) }
+                let result = pronunciation(word)
+                if result.phonemes.isEmpty { reasons.insert(.emptyPhonemes) }
+                if !result.fallbackHits.isEmpty { reasons.insert(.fallbackPronunciation) }
                 if word.allSatisfy(\.isUppercase), word.count >= 2 { reasons.insert(.acronym) }
                 if word.first?.isUppercase == true, !word.allSatisfy(\.isUppercase) {
                     reasons.insert(.properNoun)
@@ -115,7 +129,10 @@ enum NarrationPronunciationPreflight {
             scan(
                 texts: blocks.compactMap(\.text),
                 overrides: overrides,
-                phonemes: g2p.phonemes(for:))
+                pronunciation: { word in
+                    let result = g2p.result(for: word)
+                    return (result.phonemes, result.fallbackHits)
+                })
         }
     }
 #endif

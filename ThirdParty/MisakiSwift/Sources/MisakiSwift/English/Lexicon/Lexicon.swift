@@ -367,6 +367,8 @@ final class Lexicon {
     
     if !word.hasSuffix("dd"), isKnown(String(word.dropLast())) {
       stem = String(word.dropLast())
+    } else if word.count > 4 && word.hasSuffix("ied"), isKnown(String(word.dropLast(3)) + "y") {
+      stem = String(word.dropLast(3)) + "y"
     } else if word.count > 4 && word.hasSuffix("ed") && !word.hasSuffix("eed"), isKnown(String(word.dropLast(2))) {
       stem = String(word.dropLast(2))
     }
