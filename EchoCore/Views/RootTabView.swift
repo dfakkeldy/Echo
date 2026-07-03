@@ -116,6 +116,7 @@ struct RootTabView: View {
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
     @Environment(StoreManager.self) private var storeManager
+    @Environment(AutoExportService.self) private var autoExport
     @Environment(\.displayScale) private var displayScale
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
@@ -529,7 +530,10 @@ struct RootTabView: View {
                 // Widget/Siri "Create Bookmark" can only stage into the App Group;
                 // pull those into the real per-book store now that we're foreground.
                 model.drainPendingWidgetBookmarks()
+                Task { await autoExport.retryPendingIfAny() }
             } else if newPhase == .background || newPhase == .inactive {
+                Task { await autoExport.flushNow() }
+
                 // Persist navigation paths
                 if let codable = nowPlayingPath.codable,
                     let data = try? JSONEncoder().encode(codable)

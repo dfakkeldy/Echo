@@ -152,6 +152,12 @@ struct SettingsExtractionTests {
         #expect(shell.contains("AutoExportSettingsRows()"))
     }
 
+    @Test func rootTabViewFlushesAutoExportOnBackground() throws {
+        let source = try Self.source(named: "RootTabView.swift")
+        #expect(source.contains("autoExport.flushNow()"))
+        #expect(source.contains("autoExport.retryPendingIfAny()"))
+    }
+
     private static func source(named fileName: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
