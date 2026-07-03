@@ -87,6 +87,7 @@ struct PronunciationOverrides {
         "Fakkeldy": "fˈækəldi",
         "Campbell": "kˈæmbəl",
         "Xcode": "ˈɛks kˈOd",
+        "xcassets": "ˈɛks sˈi ˈæsˌɛts",
         "timeframe": "tˈImfɹˌAm",
         "re": "ɹi",
     ]

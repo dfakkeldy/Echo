@@ -99,4 +99,52 @@ import Testing
         #expect(store.overrides(forBookID: "file:///Books/LOTR/").entries["Bree"] == nil)
         #expect(store.overrides(forBookID: "file:///Books/Other/").entries["Bree"] == "brˈeɪ")
     }
+
+    // MARK: - Occurrence override tests
+
+    @MainActor
+    @Test func occurrenceEntriesRoundTripThroughDisk() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let bookID = "file:///Books/LOTR/"
+        let store = PronunciationOverrideStore(directory: tmp)
+        try store.setOccurrence(
+            word: "content",
+            ipa: "kˈɑntɛnt",
+            forBookID: bookID,
+            blockID: "blk1",
+            wordStart: 2,
+            wordEnd: 2)
+
+        let reloaded = PronunciationOverrideStore(directory: tmp)
+        let out = reloaded.occurrenceOverrides(forBookID: bookID)
+            .apply(to: "Useful story content lives here.", blockID: "blk1")
+
+        #expect(out == "Useful story [content](/kˈɑntɛnt/) lives here.")
+    }
+
+    @MainActor
+    @Test func occurrenceEntryUpsertsSameLocation() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let store = PronunciationOverrideStore(directory: tmp)
+        let bookID = "file:///Books/LOTR/"
+        try store.setOccurrence(
+            word: "content", ipa: "kˈɑntɛnt",
+            forBookID: bookID, blockID: "blk1", wordStart: 1, wordEnd: 1)
+        try store.setOccurrence(
+            word: "content", ipa: "kəntˈɛnt",
+            forBookID: bookID, blockID: "blk1", wordStart: 1, wordEnd: 1)
+
+        let out = store.occurrenceOverrides(forBookID: bookID)
+            .apply(to: "The content stayed.", blockID: "blk1")
+
+        #expect(out == "The [content](/kəntˈɛnt/) stayed.")
+    }
 }

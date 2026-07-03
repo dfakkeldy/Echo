@@ -87,6 +87,10 @@ final class NarrationQAReviewModel {
                     state: NarrationState(),
                     pronunciationOverrides: { [audiobookID] in
                         PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+                    },
+                    pronunciationOccurrenceOverrides: { [audiobookID] in
+                        PronunciationOverrideStore.shared.occurrenceOverrides(
+                            forBookID: audiobookID)
                     })
             }
         #endif
@@ -286,6 +290,9 @@ final class NarrationQAReviewModel {
             } catch NarrationRepairError.noUsableFix {
                 lastError =
                     "This issue has no pronunciation fix to apply. Add an IPA spelling first."
+            } catch NarrationRepairError.sourceOccurrenceUnavailable {
+                lastError =
+                    "This issue has no source word position. Use This Book or All Books instead."
             } catch {
                 logger.error("acceptFix failed: \(error.localizedDescription)")
                 lastError = "Couldn't apply the fix: \(error.localizedDescription)"

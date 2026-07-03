@@ -76,12 +76,18 @@ final class NarrationService {
     /// read at render time; defaults to an empty map, so callers and tests that
     /// don't pass one are unaffected by the feature.
     private let pronunciationOverrides: () -> PronunciationOverrides
+    /// Supplies source-position pronunciation overrides accepted from narration QA.
+    /// Read at render time for the same reason as the word dictionary above.
+    private let pronunciationOccurrenceOverrides: () -> PronunciationOccurrenceOverrides
 
     init(
         db: DatabaseWriter, audiobookID: String, tts: TTSEngine,
         audioWriter: AudioFileWriting, cacheDirectory: URL, state: NarrationState,
         pronunciationOverrides: @escaping () -> PronunciationOverrides = {
             PronunciationOverrides(entries: [:])
+        },
+        pronunciationOccurrenceOverrides: @escaping () -> PronunciationOccurrenceOverrides = {
+            .empty
         },
         fmEnabled: @escaping () -> Bool = {
             UserDefaults.standard.string(forKey: "narrationQAClassifier") ?? "auto" == "auto"
@@ -94,6 +100,7 @@ final class NarrationService {
         self.cacheDirectory = cacheDirectory
         self.state = state
         self.pronunciationOverrides = pronunciationOverrides
+        self.pronunciationOccurrenceOverrides = pronunciationOccurrenceOverrides
         self.fmEnabledProvider = fmEnabled
     }
 
@@ -144,6 +151,7 @@ final class NarrationService {
             blocks: blocks,
             voice: voice,
             overrides: pronunciationOverrides(),
+            occurrenceOverrides: pronunciationOccurrenceOverrides(),
             normalizationMode: normalizationMode(fmEnabled: fmEnabled))
     }
 
@@ -159,6 +167,7 @@ final class NarrationService {
             blocks: blocks,
             voice: voice,
             overrides: pronunciationOverrides(),
+            occurrenceOverrides: pronunciationOccurrenceOverrides(),
             normalizationMode: normalizationMode(fmEnabled: fmEnabled))
     }
 
@@ -167,12 +176,14 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String
     ) -> URL {
         let signature = contentSignature(
             for: blocks,
             includeLeadOutPad: true,
             overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
             normalizationMode: normalizationMode)
         return cacheDirectory.appendingPathComponent(
             NarrationFileNaming.chapterFileName(
@@ -188,12 +199,14 @@ final class NarrationService {
         blocks: [EPubBlockRecord],
         voice: VoiceID,
         overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String
     ) -> URL {
         let signature = contentSignature(
             for: blocks,
             includeLeadOutPad: false,
             overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
             normalizationMode: normalizationMode)
         return cacheDirectory.appendingPathComponent(
             NarrationFileNaming.segmentFileName(
@@ -208,6 +221,7 @@ final class NarrationService {
         for blocks: [EPubBlockRecord],
         includeLeadOutPad: Bool,
         overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String
     ) -> String {
         let spoken = blocks.filter { $0.text?.isEmpty == false }
@@ -215,7 +229,12 @@ final class NarrationService {
         renderedTexts.reserveCapacity(spoken.count)
         for block in spoken {
             let normalized = TextNormalizer.normalize(block.text ?? "")
-            renderedTexts.append(Self.renderedText(fromNormalized: normalized, overrides: overrides))
+            renderedTexts.append(
+                Self.renderedText(
+                    fromNormalized: normalized,
+                    blockID: block.id,
+                    overrides: overrides,
+                    occurrenceOverrides: occurrenceOverrides))
         }
         return NarrationFileNaming.contentSignature(
             spokenBlocks: spoken,
@@ -226,9 +245,12 @@ final class NarrationService {
 
     private static func renderedText(
         fromNormalized normalized: String,
-        overrides: PronunciationOverrides
+        blockID: String,
+        overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides
     ) -> String {
-        HomographPronunciationResolver.apply(to: overrides.apply(to: normalized))
+        let occurrenceSpecific = occurrenceOverrides.apply(to: normalized, blockID: blockID)
+        return HomographPronunciationResolver.apply(to: overrides.apply(to: occurrenceSpecific))
     }
 
     private func normalizationMode(fmEnabled: Bool) -> String {
@@ -265,12 +287,14 @@ final class NarrationService {
             displayNumber: displayNumber, blocks: blocks, chapterTitle: chapterTitle)
         let chapterStart = Date()
         let overrides = pronunciationOverrides()
+        let occurrenceOverrides = pronunciationOccurrenceOverrides()
         let fmEnabled = fmEnabled
         let fileURL = chapterCacheURL(
             chapterIndex: chapterIndex,
             blocks: blocks,
             voice: voice,
             overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
             normalizationMode: normalizationMode(fmEnabled: fmEnabled))
         let rendered = try await renderNarrationFile(
             chapterIndex: chapterIndex,
@@ -282,6 +306,7 @@ final class NarrationService {
             includeLeadOutPad: true,
             reportsProgress: true,
             overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled,
             onBlockProgress: onBlockProgress)
         try await persistRenderedNarration(
@@ -369,6 +394,7 @@ final class NarrationService {
             nil
     ) async throws -> RenderedNarrationFile {
         let overrides = pronunciationOverrides()
+        let occurrenceOverrides = pronunciationOccurrenceOverrides()
         let fmEnabled = fmEnabled
         let fileURL = segmentCacheURL(
             chapterIndex: chapterIndex,
@@ -376,6 +402,7 @@ final class NarrationService {
             blocks: blocks,
             voice: voice,
             overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
             normalizationMode: normalizationMode(fmEnabled: fmEnabled))
         return try await renderNarrationFile(
             chapterIndex: chapterIndex,
@@ -387,6 +414,7 @@ final class NarrationService {
             includeLeadOutPad: false,
             reportsProgress: false,
             overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled,
             onBlockProgress: onBlockProgress)
     }
@@ -521,6 +549,7 @@ final class NarrationService {
         includeLeadOutPad: Bool,
         reportsProgress: Bool,
         overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)?
     ) async throws -> RenderedNarrationFile {
@@ -530,7 +559,11 @@ final class NarrationService {
                 statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
         }
 
-        let plan = await renderPlan(for: blocks, overrides: overrides, fmEnabled: fmEnabled)
+        let plan = await renderPlan(
+            for: blocks,
+            overrides: overrides,
+            occurrenceOverrides: occurrenceOverrides,
+            fmEnabled: fmEnabled)
         let speakableBlockIDs = plan.blocks.filter(\.isSpeakable).map(\.blockID)
         var renderedSpeakableBlocks = 0
         let unitLabel =
@@ -670,14 +703,19 @@ final class NarrationService {
     private func renderPlan(
         for blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
     ) async -> NarrationRenderPlan {
-        let preparedBlocks = await prepareBlocksForRenderPlan(blocks, fmEnabled: fmEnabled)
+        let preparedBlocks = await prepareBlocksForRenderPlan(
+            blocks,
+            occurrenceOverrides: occurrenceOverrides,
+            fmEnabled: fmEnabled)
         return NarrationRenderPlanner.make(blocks: preparedBlocks, overrides: overrides)
     }
 
     private func prepareBlocksForRenderPlan(
         _ blocks: [EPubBlockRecord],
+        occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
     ) async -> [EPubBlockRecord] {
         var prepared: [EPubBlockRecord] = []
@@ -706,7 +744,7 @@ final class NarrationService {
             }
 
             var preparedBlock = block
-            preparedBlock.text = refined
+            preparedBlock.text = occurrenceOverrides.apply(to: refined, blockID: block.id)
             preparedBlock.narrationText = refined == normalized ? block.narrationText : refined
             prepared.append(preparedBlock)
         }

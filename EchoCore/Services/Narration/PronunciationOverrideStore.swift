@@ -24,9 +24,14 @@
         /// Directory holding per-book override maps: `<base>/books/<sha256(bookID)>.json`.
         /// Kept separate from `global.json` so book-scoped fixes never leak across books.
         private let booksDirectory: URL
+        /// Directory holding per-book occurrence corrections:
+        /// `<base>/occurrences/<sha256(bookID)>.json`.
+        private let occurrencesDirectory: URL
         /// Lazily-rehydrated per-book maps, keyed by the canonical audiobook id
         /// (`folderURL.absoluteString`). Loaded from disk on first read of a book.
         private var bookEntries: [String: [String: String]] = [:]
+        /// Lazily-rehydrated per-book occurrence corrections, keyed by audiobook id.
+        private var occurrenceEntries: [String: [PronunciationOccurrenceOverride]] = [:]
         private let logger = Logger(category: "PronunciationOverrides")
 
         /// Production initializer: persists under the shared Narration directory.
@@ -44,8 +49,13 @@
                 at: directory, withIntermediateDirectories: true)
             self.fileURL = directory.appendingPathComponent("global.json")
             self.booksDirectory = directory.appendingPathComponent("books", isDirectory: true)
+            self.occurrencesDirectory = directory.appendingPathComponent(
+                "occurrences",
+                isDirectory: true)
             try? FileManager.default.createDirectory(
                 at: booksDirectory, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(
+                at: occurrencesDirectory, withIntermediateDirectories: true)
             if let data = try? Data(contentsOf: fileURL),
                 let decoded = try? JSONDecoder().decode([String: String].self, from: data)
             {
@@ -80,7 +90,49 @@
             try persistBook(bookID)
         }
 
-        /// The override map `NarrationService` applies before G2P. v1: global only.
+        /// Set a pronunciation for one source occurrence. Replaces any existing
+        /// correction at the same block + word-index span for this book.
+        func setOccurrence(
+            word: String,
+            ipa: String,
+            forBookID bookID: String,
+            blockID: String,
+            wordStart: Int,
+            wordEnd: Int
+        ) throws {
+            guard wordStart >= 0, wordEnd >= wordStart else { return }
+            var book = loadedOccurrenceEntries(bookID)
+            book.removeAll {
+                $0.blockID == blockID && $0.wordStart == wordStart && $0.wordEnd == wordEnd
+            }
+            book.append(
+                PronunciationOccurrenceOverride(
+                    blockID: blockID,
+                    wordStart: wordStart,
+                    wordEnd: wordEnd,
+                    word: word,
+                    ipa: ipa))
+            occurrenceEntries[bookID] = book
+            try persistOccurrences(bookID)
+        }
+
+        /// Remove a single source-position pronunciation. Leaves broader
+        /// global/book pronunciations untouched.
+        func removeOccurrence(
+            forBookID bookID: String,
+            blockID: String,
+            wordStart: Int,
+            wordEnd: Int
+        ) throws {
+            var book = loadedOccurrenceEntries(bookID)
+            book.removeAll {
+                $0.blockID == blockID && $0.wordStart == wordStart && $0.wordEnd == wordEnd
+            }
+            occurrenceEntries[bookID] = book
+            try persistOccurrences(bookID)
+        }
+
+        /// The global override map `NarrationService` applies before G2P.
         /// Echo's built-in defaults (e.g. the author's surname) are layered
         /// underneath the user's entries — a user override of the same word wins.
         func overrides() -> PronunciationOverrides {
@@ -95,6 +147,12 @@
             return PronunciationOverrides.merging(global: global, book: loadedBookEntries(bookID))
         }
 
+        /// Source-position corrections for a book. Applied before global/book
+        /// dictionary overrides so one accepted occurrence can beat a broader rule.
+        func occurrenceOverrides(forBookID bookID: String) -> PronunciationOccurrenceOverrides {
+            PronunciationOccurrenceOverrides(entries: loadedOccurrenceEntries(bookID))
+        }
+
         // MARK: - Private
 
         private func persist() throws {
@@ -107,9 +165,16 @@
         /// audiobook id keeps the filename stable and filesystem-safe regardless of
         /// the id's characters (URLs contain `/`, `:`, etc.).
         private func bookFileURL(_ bookID: String) -> URL {
-            let hash = SHA256.hash(data: Data(bookID.utf8))
+            booksDirectory.appendingPathComponent("\(hashedBookID(bookID)).json")
+        }
+
+        private func occurrencesFileURL(_ bookID: String) -> URL {
+            occurrencesDirectory.appendingPathComponent("\(hashedBookID(bookID)).json")
+        }
+
+        private func hashedBookID(_ bookID: String) -> String {
+            SHA256.hash(data: Data(bookID.utf8))
                 .compactMap { String(format: "%02x", $0) }.joined()
-            return booksDirectory.appendingPathComponent("\(hash).json")
         }
 
         /// Return this book's map, rehydrating from disk into the cache on first access.
@@ -134,11 +199,42 @@
             return loaded
         }
 
+        private func loadedOccurrenceEntries(_ bookID: String) -> [PronunciationOccurrenceOverride] {
+            if let cached = occurrenceEntries[bookID] { return cached }
+            let fileURL = occurrencesFileURL(bookID)
+            let loaded: [PronunciationOccurrenceOverride]
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                do {
+                    let data = try Data(contentsOf: fileURL)
+                    loaded = try JSONDecoder().decode(
+                        [PronunciationOccurrenceOverride].self,
+                        from: data)
+                } catch {
+                    logger.error(
+                        "Failed to decode per-occurrence pronunciation overrides \(fileURL.lastPathComponent): \(error.localizedDescription)"
+                    )
+                    loaded = []
+                }
+            } else {
+                loaded = []
+            }
+            occurrenceEntries[bookID] = loaded
+            return loaded
+        }
+
         private func persistBook(_ bookID: String) throws {
             let data = try JSONEncoder().encode(bookEntries[bookID] ?? [:])
             try data.write(to: bookFileURL(bookID), options: .atomic)
             logger.info(
                 "Saved \(self.bookEntries[bookID]?.count ?? 0, privacy: .public) per-book pronunciation overrides."
+            )
+        }
+
+        private func persistOccurrences(_ bookID: String) throws {
+            let data = try JSONEncoder().encode(occurrenceEntries[bookID] ?? [])
+            try data.write(to: occurrencesFileURL(bookID), options: .atomic)
+            logger.info(
+                "Saved \(self.occurrenceEntries[bookID]?.count ?? 0, privacy: .public) per-occurrence pronunciation overrides."
             )
         }
     }

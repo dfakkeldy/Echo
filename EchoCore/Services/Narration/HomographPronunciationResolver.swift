@@ -17,6 +17,8 @@ nonisolated enum HomographPronunciationResolver {
         static let liveVerb = "lˈɪv"
         static let livesNoun = "lˈIvz"
         static let livesVerb = "lˈɪvz"
+        static let contentNoun = "kˈɑntɛnt"
+        static let contentSatisfied = "kəntˈɛnt"
     }
 
     private static let wordRegex = try! NSRegularExpression(pattern: #"\b[\p{L}]+\b"#)
@@ -31,17 +33,20 @@ nonisolated enum HomographPronunciationResolver {
     ]
 
     private static let liveVerbPreceders: Set<String> = [
-        "can", "could", "i", "may", "might", "must", "shall", "should", "they",
-        "to", "we", "will", "would", "you",
+        "can", "children", "could", "i", "may", "might", "must", "people", "readers",
+        "shall", "should", "they", "to", "we", "will", "would", "you",
     ]
     private static let liveVerbFollowers: Set<String> = [
-        "at", "here", "in", "near", "nearby", "on", "there", "together", "with",
+        "alone", "at", "downtown", "elsewhere", "forever", "here", "in", "inside",
+        "longer", "near", "nearby", "on", "outside", "there", "together", "upstairs",
+        "well", "with",
     ]
     private static let liveAdjectiveFollowers: Set<String> = [
-        "audience", "broadcast", "broadcasts", "coverage", "demo", "demos",
-        "event", "events", "feed", "feeds", "music", "performance",
-        "performances", "recording", "recordings", "show", "shows", "stream",
-        "streams", "wire", "wires",
+        "asset", "assets", "audience", "broadcast", "broadcasts", "content", "coverage",
+        "demo", "demos", "event", "events", "feed", "feeds", "lesson", "lessons",
+        "lecture", "lectures", "music", "performance", "performances", "recording",
+        "recordings", "session", "sessions", "show", "shows", "stream", "streams",
+        "update", "updates", "wire", "wires",
     ]
 
     private static let livesNounPreceders: Set<String> = [
@@ -51,6 +56,23 @@ nonisolated enum HomographPronunciationResolver {
     private static let livesVerbPreceders: Set<String> = [
         "everyone", "he", "it", "nobody", "one", "she", "somebody", "someone",
         "that", "who",
+    ]
+
+    private static let contentNounPreceders: Set<String> = [
+        "all", "any", "app", "audio", "book", "chapter", "course", "digital", "educational",
+        "her", "his", "its", "more", "my", "new", "our", "page", "site", "some",
+        "story", "that", "the", "their", "these", "this", "those", "training", "video",
+        "web", "your",
+    ]
+    private static let contentNounFollowers: Set<String> = [
+        "changed", "includes", "is", "lives", "ships", "shipped", "stayed", "stays",
+        "was",
+    ]
+    private static let contentNounSentenceStartFollowers: Set<String> = [
+        "i", "it", "that", "they", "this", "we", "you",
+    ]
+    private static let contentSatisfiedFollowers: Set<String> = [
+        "to", "with",
     ]
 
     static func apply(to text: String) -> String {
@@ -78,6 +100,8 @@ nonisolated enum HomographPronunciationResolver {
             return liveIPA(at: index, tokens: tokens)
         case "lives":
             return livesIPA(at: index, tokens: tokens)
+        case "content":
+            return contentIPA(at: index, tokens: tokens)
         default:
             return nil
         }
@@ -90,6 +114,30 @@ nonisolated enum HomographPronunciationResolver {
 
         if nextLowercased(tokens, index, limit: 4).contains(where: pastReadFollowers.contains) {
             return IPA.readPast
+        }
+
+        return nil
+    }
+
+    private static func contentIPA(at index: Int, tokens: [Token]) -> String? {
+        let next = nextLowercased(tokens, index, limit: 1)
+
+        if next.contains(where: contentSatisfiedFollowers.contains) {
+            return IPA.contentSatisfied
+        }
+
+        if previousLowercased(tokens, index).map(contentNounPreceders.contains) == true {
+            return IPA.contentNoun
+        }
+
+        if next.contains(where: contentNounFollowers.contains) {
+            return IPA.contentNoun
+        }
+
+        if index == tokens.startIndex,
+            next.contains(where: contentNounSentenceStartFollowers.contains)
+        {
+            return IPA.contentNoun
         }
 
         return nil

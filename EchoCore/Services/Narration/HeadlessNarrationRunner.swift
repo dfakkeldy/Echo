@@ -272,6 +272,9 @@ struct NarrationRunResult {
             audioWriter: writer, cacheDirectory: config.workDir, state: NarrationState(),
             pronunciationOverrides: {
                 PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+            },
+            pronunciationOccurrenceOverrides: {
+                PronunciationOverrideStore.shared.occurrenceOverrides(forBookID: audiobookID)
             })
 
         let totalCount = chapterIndices.count

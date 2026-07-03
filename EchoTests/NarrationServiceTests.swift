@@ -69,12 +69,28 @@ import Testing
         _ db: DatabaseService, tts: TTSEngine, writer: AudioFileWriting,
         overrides: @escaping () -> PronunciationOverrides
     ) -> NarrationService {
+        makeService(
+            db,
+            tts: tts,
+            writer: writer,
+            overrides: overrides,
+            occurrenceOverrides: { .empty })
+    }
+
+    private func makeService(
+        _ db: DatabaseService,
+        tts: TTSEngine,
+        writer: AudioFileWriting,
+        overrides: @escaping () -> PronunciationOverrides,
+        occurrenceOverrides: @escaping () -> PronunciationOccurrenceOverrides
+    ) -> NarrationService {
         NarrationService(
             db: db.writer, audiobookID: "b1",
             tts: tts, audioWriter: writer,
             cacheDirectory: FileManager.default.temporaryDirectory,
             state: NarrationState(),
             pronunciationOverrides: overrides,
+            pronunciationOccurrenceOverrides: occurrenceOverrides,
             fmEnabled: { false })
     }
 
@@ -840,6 +856,32 @@ import Testing
         try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
 
         #expect(mock.calls.map(\.text) == ["Plain text here."])
+    }
+
+    @Test func occurrenceOverrideReachesOnlyMatchingBlockAsLinkSyntax() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The content stays here.", "The content changes here."])
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        let svc = makeService(
+            db,
+            tts: mock,
+            writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["content": "kəntˈɛnt"]) },
+            occurrenceOverrides: {
+                PronunciationOccurrenceOverrides(entries: [
+                    PronunciationOccurrenceOverride(
+                        blockID: "blk1",
+                        wordStart: 1,
+                        wordEnd: 1,
+                        word: "content",
+                        ipa: "kˈɑntɛnt")
+                ])
+            })
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        #expect(linkOccurrences(mock.calls, "[content](/kˈɑntɛnt/)") == 1)
+        #expect(linkOccurrences(mock.calls, "[content](/kəntˈɛnt/)") == 1)
     }
 
     @Test func renderChapterRecordsDedupedFallbackPronunciationSuggestion() async throws {

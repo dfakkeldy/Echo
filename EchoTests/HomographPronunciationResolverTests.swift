@@ -27,8 +27,14 @@ import Testing
             HomographPronunciationResolver.apply(to: "They live nearby.")
                 == "They [live](/lˈɪv/) nearby.")
         #expect(
+            HomographPronunciationResolver.apply(to: "People live longer with clean audio.")
+                == "People [live](/lˈɪv/) longer with clean audio.")
+        #expect(
             HomographPronunciationResolver.apply(to: "It was a live show.")
                 == "It was a [live](/lˈIv/) show.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The live content shipped today.")
+                == "The [live](/lˈIv/) [content](/kˈɑntɛnt/) shipped today.")
     }
 
     @Test func resolvesLivesVerbAndNounContexts() {
@@ -36,8 +42,23 @@ import Testing
             HomographPronunciationResolver.apply(to: "She lives in Halifax.")
                 == "She [lives](/lˈɪvz/) in Halifax.")
         #expect(
+            HomographPronunciationResolver.apply(to: "The author lives alone.")
+                == "The author [lives](/lˈɪvz/) alone.")
+        #expect(
             HomographPronunciationResolver.apply(to: "Their lives changed.")
                 == "Their [lives](/lˈIvz/) changed.")
+    }
+
+    @Test func resolvesContentNounAndSatisfiedContexts() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Content I found useful stayed here.")
+                == "[Content](/kˈɑntɛnt/) I found useful stayed here.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The audio content shipped today.")
+                == "The audio [content](/kˈɑntɛnt/) shipped today.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "I am content with this narration.")
+                == "I am [content](/kəntˈɛnt/) with this narration.")
     }
 
     @Test func doesNotRewriteHyphenatedCompounds() {
