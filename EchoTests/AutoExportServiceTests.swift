@@ -152,4 +152,45 @@ struct AutoExportServiceTests {
         #expect(!FileManager.default.fileExists(atPath: mirrorURL(in: destination).path))
         #expect(try StudyAutoExportDAO(db: database.writer).state(for: bookID) == nil)
     }
+
+    @Test func captureCommitTriggersDebouncedExport() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let destination = try makeTempDestination()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        try saveDestination(database, at: destination)
+        try seedBookWithNote(database)
+
+        let service = AutoExportService(
+            database: database,
+            isEnabled: { true },
+            debounce: .milliseconds(50)
+        )
+        service.start()
+
+        try NoteDAO(db: database.writer).insert(
+            NoteRecord(
+                id: "note-2",
+                audiobookID: bookID,
+                text: "Slack water window",
+                mediaTimestamp: 900,
+                realTimestamp: nil,
+                isEnabled: true,
+                playlistPosition: nil,
+                createdAt: "2026-07-01T21:10:00Z",
+                modifiedAt: "2026-07-01T21:10:00Z"
+            )
+        )
+
+        var exported = false
+        for _ in 0..<100 {
+            if let content = try? String(contentsOf: mirrorURL(in: destination), encoding: .utf8),
+                content.contains("<!-- echo:note note-2 -->")
+            {
+                exported = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(exported)
+    }
 }

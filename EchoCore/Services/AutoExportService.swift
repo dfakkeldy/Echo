@@ -19,6 +19,7 @@ final class AutoExportService {
     @ObservationIgnored private let isEnabled: () -> Bool
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
+    @ObservationIgnored private var observationCancellable: AnyDatabaseCancellable?
 
     init(
         database: DatabaseService,
@@ -29,6 +30,31 @@ final class AutoExportService {
         self.isEnabled = isEnabled
         self.debounce = debounce
         refreshStatus()
+    }
+
+    func start() {
+        guard observationCancellable == nil else { return }
+
+        let observation = DatabaseRegionObservation(tracking: [
+            Table(NoteRecord.databaseTableName),
+            Table(BookmarkRecord.databaseTableName),
+            Table(Flashcard.databaseTableName),
+        ])
+        observationCancellable = observation.start(
+            in: database.writer,
+            onError: { error in
+                Self.logger.error("Capture observation failed: \(error.localizedDescription)")
+            },
+            onChange: { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.captureDidChange()
+                }
+            }
+        )
+
+        if isEnabled() {
+            Task { await retryPendingIfAny() }
+        }
     }
 
     func flushNow() async {
@@ -88,6 +114,34 @@ final class AutoExportService {
         needsFolderRepick = destination?.needsRepick ?? false
     }
 
+    private func captureDidChange() {
+        guard isEnabled() else { return }
+        debounceTask?.cancel()
+        debounceTask = Task { [debounce, weak self] in
+            try? await Task.sleep(for: debounce)
+            guard !Task.isCancelled else { return }
+            await self?.markDirtyAndExport()
+        }
+    }
+
+    func retryPendingIfAny() async {
+        guard isEnabled() else {
+            refreshStatus()
+            return
+        }
+
+        let writer = database.writer
+        let hasPending = (try? StudyAutoExportDAO(db: writer).dirtyStates().isEmpty == false) ?? false
+        guard hasPending else {
+            refreshStatus()
+            return
+        }
+
+        let outcome = await Self.runPass(writer: writer)
+        apply(outcome: outcome)
+        refreshStatus()
+    }
+
     private func markDirtyAndExport() async {
         let writer = database.writer
         do {
@@ -98,6 +152,10 @@ final class AutoExportService {
         }
 
         let outcome = await Self.runPass(writer: writer)
+        apply(outcome: outcome)
+    }
+
+    private func apply(outcome: PassOutcome) {
         if outcome.exported > 0 || outcome.skipped > 0 {
             lastExportAt = .now
         }
