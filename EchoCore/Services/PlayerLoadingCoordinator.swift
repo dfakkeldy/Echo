@@ -84,9 +84,17 @@ final class PlayerLoadingCoordinator {
         // Must stay alive through async EPUB import, which runs after this method returns.
         // Uses the document picker's exact URL — security scope is tied to this URL.
         securityScope?.startSelection(url: url)
+        let pickedIsDirectory =
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        if !pickedIsDirectory {
+            // A picked file may need its parent scope before sibling scans
+            // can find companion audio, EPUB, PDF, or playlist files.
+            securityScope?.startParent(url: url.deletingLastPathComponent())
+        }
 
-        let isDir = loadTracksAndDetectDirectory(
+        let trackSelection = loadTracksAndDetectDirectory(
             url: url, state: state, playlistManager: playlistManager)
+        let isDir = trackSelection.isDirectory
         state.bookTimeIndex = .empty
         state.pendingBookTimeSeek = nil
         state.pendingBookTimeSeekSuppressesProgressPush = false
@@ -108,12 +116,8 @@ final class PlayerLoadingCoordinator {
             let parentDir = url.deletingLastPathComponent()
             state.folderURL = parentDir
             state.sourceDocumentURL = PlaylistManager.isDocumentFile(url) ? url : nil
-            // Track security-scoped access on the parent directory so EPUB
-            // auto-import can enumerate sibling files. Tracked (not a bare
-            // start) so it's released on the next loadFolder / on teardown,
-            // instead of leaking a grant per single-file open.
-            securityScope?.startParent(url: parentDir)
         }
+        let canonicalFolderURL = state.folderURL ?? url
 
         // A no-audio book (e.g. a study EPUB) must not inherit the previously
         // open book's chapters / artwork / transcript / duration: prepareToPlay —
@@ -142,15 +146,17 @@ final class PlayerLoadingCoordinator {
 
         // Ingest chapter metadata (M4B aggregation or multi-track chapter parsing).
         ingestChapterMetadata(
-            folderURL: url, state: state, timelinePersistence: timelinePersistence)
+            folderURL: canonicalFolderURL, state: state, timelinePersistence: timelinePersistence)
 
         // Restore last track position or start from the beginning.
         restoreTrackPosition(
-            folderURL: url, state: state, persistence: persistence, autoplay: autoplay)
+            folderURL: canonicalFolderURL, state: state, persistence: persistence,
+            autoplay: autoplay, preferredTrackURL: trackSelection.preferredTrackURL)
 
         // Migrate per-folder UserDefaults state into .echoplaylist.json if needed.
         migrateManifestIfNeeded(
-            isDir: isDir, folderURL: url, state: state, persistence: persistence,
+            isDir: isDir || trackSelection.preferredTrackURL != nil, folderURL: canonicalFolderURL,
+            state: state, persistence: persistence,
             bookmarkStore: bookmarkStore)
 
         if persistBookmark {
@@ -291,25 +297,15 @@ final class PlayerLoadingCoordinator {
 
     // MARK: - loadFolder helpers
 
-    /// Loads tracks from a folder or single file, returning whether the URL was a directory.
+    /// Loads tracks from a folder or single file, returning how the playlist was resolved.
     private func loadTracksAndDetectDirectory(
         url: URL, state: PlaybackState, playlistManager: PlaylistManager
-    ) -> Bool {
-        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-        if isDir {
-            state.tracks = playlistManager.loadTracks(from: url)
-        } else if PlaylistManager.isDocumentFile(url) {
-            // A study document (EPUB/PDF) opened directly is not a playable
-            // track — leave tracks empty so the book opens audio-less; the
-            // no-audio document import below ingests it. folderURL is normalised
-            // to the parent in loadFolder, so opening the file or its folder
-            // yields one book. Every NON-document file (including non-default
-            // audio like .wav/.aiff/.aac) still loads as a track, as before.
-            state.tracks = []
-        } else {
-            state.tracks = [Track(url: url, title: url.deletingPathExtension().lastPathComponent)]
+    ) -> PlaylistSelectionResolver.Result {
+        let result = PlaylistSelectionResolver.resolve(url: url) { folderURL in
+            playlistManager.loadTracks(from: folderURL)
         }
-        return isDir
+        state.tracks = result.tracks
+        return result
     }
 
     /// Ingests chapter metadata: multi-M4B aggregation or per-track chapter parsing.
@@ -444,13 +440,20 @@ final class PlayerLoadingCoordinator {
 
     /// Restores the last-played track index, or defaults to 0.
     private func restoreTrackPosition(
-        folderURL: URL, state: PlaybackState, persistence: Persistence, autoplay: Bool
+        folderURL: URL, state: PlaybackState, persistence: Persistence, autoplay: Bool,
+        preferredTrackURL: URL? = nil
     ) {
         if let folderKey = state.folderURL?.absoluteString {
             state.pauseTimestamp = persistence.getPauseTimestamp(for: folderKey)
             if let savedTrackId = persistence.getLastTrack(
                 for: folderKey, folderURL: state.folderURL),
                 let idx = state.tracks.firstIndex(where: { $0.id == savedTrackId })
+            {
+                state.currentIndex = idx
+            } else if let preferredTrackURL,
+                let idx = state.tracks.firstIndex(where: {
+                    PlaylistSelectionResolver.urlsMatch($0.url, preferredTrackURL)
+                })
             {
                 state.currentIndex = idx
             } else {
@@ -699,5 +702,56 @@ final class PlayerLoadingCoordinator {
         if case .seek(let time) = action {
             playbackController.seek(toSeconds: time)
         }
+    }
+}
+
+enum PlaylistSelectionResolver {
+    struct Result {
+        var isDirectory: Bool
+        var tracks: [Track]
+        var preferredTrackURL: URL?
+    }
+
+    static func resolve(
+        url: URL,
+        loadTracksFromFolder: (URL) -> [Track]
+    ) -> Result {
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        if isDir {
+            return Result(
+                isDirectory: true,
+                tracks: loadTracksFromFolder(url),
+                preferredTrackURL: nil)
+        }
+
+        if PlaylistManager.isDocumentFile(url) {
+            // A study document (EPUB/PDF) opened directly is not a playable
+            // track. Leave tracks empty so the no-audio document import path
+            // ingests it while preserving the normalized parent book key.
+            return Result(isDirectory: false, tracks: [], preferredTrackURL: nil)
+        }
+
+        if PlaylistManager.isAudioFile(url) {
+            let parent = url.deletingLastPathComponent()
+            let siblingTracks = loadTracksFromFolder(parent)
+            if siblingTracks.count > 1,
+                siblingTracks.contains(where: { urlsMatch($0.url, url) })
+            {
+                return Result(
+                    isDirectory: false,
+                    tracks: siblingTracks,
+                    preferredTrackURL: url)
+            }
+        }
+
+        return Result(
+            isDirectory: false,
+            tracks: [Track(url: url, title: url.deletingPathExtension().lastPathComponent)],
+            preferredTrackURL: nil)
+    }
+
+    static func urlsMatch(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL == rhs.standardizedFileURL
+            || lhs.resolvingSymlinksInPath() == rhs.resolvingSymlinksInPath()
     }
 }

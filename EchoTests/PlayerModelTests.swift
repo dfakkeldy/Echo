@@ -26,6 +26,30 @@ struct PlayerModelTests {
         #expect(model.currentPlaybackTime == 0)
     }
 
+    @Test("Selecting one MP3 from a folder resolves the whole sibling playlist")
+    func selectedMP3ExpandsToSiblingPlaylist() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let first = folder.appendingPathComponent("01.mp3")
+        let selected = folder.appendingPathComponent("02.mp3")
+        try Data().write(to: first)
+        try Data().write(to: selected)
+
+        let result = PlaylistSelectionResolver.resolve(url: selected) { folderURL in
+            [
+                Track(url: folderURL.appendingPathComponent("01.mp3"), title: "01"),
+                Track(url: folderURL.appendingPathComponent("02.mp3"), title: "02"),
+            ]
+        }
+
+        #expect(result.isDirectory == false)
+        #expect(result.tracks.map(\.url) == [first, selected])
+        #expect(result.preferredTrackURL == selected)
+    }
+
     @Test(
         "PlayerModel importEPUB preserves the source EPUB file when imported from the same folder")
     func importEPUBPreservesSourceWhenSameFolder() async throws {

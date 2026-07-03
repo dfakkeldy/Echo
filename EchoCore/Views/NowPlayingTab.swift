@@ -310,8 +310,7 @@ struct NowPlayingTab: View {
     private func bookProgressParts() -> (elapsed: String, remaining: String) {
         let speed = model.speed > 0 ? Double(model.speed) : 1.0
         let elapsedSeconds = model.cumulativePlaybackTime
-        let totalBookDuration =
-            model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
+        let totalBookDuration = model.effectiveBookDuration
         let scaledElapsed = elapsedSeconds / speed
         let scaledDuration = totalBookDuration / speed
         let scaledRemaining = max(0, scaledDuration - scaledElapsed)

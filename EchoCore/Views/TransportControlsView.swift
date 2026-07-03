@@ -44,14 +44,9 @@ struct TransportControlsView: View {
     ) -> some View {
         switch action {
         case .playPause:
-            let totalDuration =
-                model.isMultiM4B ? model.totalBookDuration : (model.durationSeconds ?? 0)
-            let elapsedSeconds = model.cumulativePlaybackTime
-            let totalFraction = totalDuration > 0 ? (elapsedSeconds / totalDuration) : 0.0
-
             CircularProgressPlayButton(
                 isPlaying: model.isPlaying,
-                totalProgress: totalFraction,
+                totalProgress: model.bookProgressFraction,
                 chapterProgress: model.progressFraction,
                 action: {
                     model.togglePlayPause()

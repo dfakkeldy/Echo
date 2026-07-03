@@ -155,6 +155,41 @@ final class PlaybackState {
             ?? (currentBookStartOffset + max(0, offset))
     }
 
+    func currentScopeProgressFraction(forCurrentTrackOffset offset: TimeInterval) -> Double {
+        if chapters.count >= 2,
+            let chapterIndex = currentChapterIndex,
+            chapters.indices.contains(chapterIndex)
+        {
+            let chapter = chapters[chapterIndex]
+            let duration = chapter.endSeconds - chapter.startSeconds
+            guard offset.isFinite, duration.isFinite, duration > 0 else { return 0 }
+            return min(1, max(0, (offset - chapter.startSeconds) / duration))
+        }
+
+        let duration = durationSeconds ?? 0
+        guard offset.isFinite, duration.isFinite, duration > 0 else { return 0 }
+        return min(1, max(0, offset / duration))
+    }
+
+    func bookProgressFraction(forCurrentTrackOffset offset: TimeInterval) -> Double {
+        let duration = effectiveBookDuration
+        guard duration.isFinite, duration > 0 else { return 0 }
+        return min(1, max(0, bookTime(forCurrentTrackOffset: offset) / duration))
+    }
+
+    var bookProgressBoundaryFractions: [Double] {
+        let duration = bookTimeIndex.totalDuration
+        guard duration.isFinite, duration > 0 else { return [] }
+        return bookTimeIndex.tracks.dropFirst().compactMap { track in
+            let fraction = track.startTime / duration
+            return (fraction > 0 && fraction < 1) ? fraction : nil
+        }
+    }
+
+    var hasWholeBookProgress: Bool {
+        bookTimeIndex.tracks.count >= 2 && effectiveBookDuration > 0
+    }
+
     func trackOffset(forBookTime bookTime: TimeInterval, trackID: String) -> TimeInterval? {
         guard let resolved = bookTimeIndex.resolve(bookTime: bookTime),
             resolved.trackID == trackID
