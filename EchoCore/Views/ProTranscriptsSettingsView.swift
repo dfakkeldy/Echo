@@ -46,7 +46,9 @@ struct ProTranscriptsSettingsView: View {
                 }
                 .disabled(isRestoringPurchases)
             } footer: {
-                Text("Echo Pro unlocks transcript overlays plus unlimited study and narration tools.")
+                Text(
+                    "Echo Pro includes transcript overlays, unlimited flashcards, study export, insights, Watch review, and Audiobookshelf offline sync."
+                )
             }
 
             if let lastStoreError = storeManager.lastStoreError {

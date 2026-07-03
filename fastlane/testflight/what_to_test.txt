@@ -7,7 +7,7 @@ PLEASE FOCUS ON
 • Try a plain .md / .markdown / .txt file too — does it import and narrate, with chapter breaks in sensible places?
 • Read along while it narrates: do the words light up in time? Scrub, then tap a paragraph — does the voice follow?
 • Switch narrator voice and re-narrate a chapter.
-• Free covers one chapter per book; Echo Pro unlocks the whole library (see #4).
+• Free covers one chapter per book while narration remains beta; Echo Pro adds expanded beta access after that limit (see #4).
 
 2) PDF COMPANION
 • Add a PDF next to (or instead of) an audiobook. Reader tab: continuous scroll + pinch-zoom smooth? If it has matching audio, does tap-to-seek / read-along behave?
