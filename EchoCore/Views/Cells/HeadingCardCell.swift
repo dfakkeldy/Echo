@@ -229,6 +229,26 @@ final class HeadingCardCell: UICollectionViewCell {
         renderWordHighlight(wordIndex)
     }
 
+    /// Word glyph rect in `contentView` coordinates, used by the collection view
+    /// to keep the spoken word visible inside long heading cards.
+    func rectForWord(at wordIndex: Int) -> CGRect? {
+        guard wordIndex >= 0, wordIndex < wordRanges.count else { return nil }
+        label.layoutIfNeeded()
+        label.layoutManager.ensureLayout(for: label.textContainer)
+        let characterRange = wordRanges[wordIndex]
+        let glyphRange = label.layoutManager.glyphRange(
+            forCharacterRange: characterRange,
+            actualCharacterRange: nil
+        )
+        var rect = label.layoutManager.boundingRect(
+            forGlyphRange: glyphRange,
+            in: label.textContainer
+        )
+        rect.origin.x += label.textContainerInset.left
+        rect.origin.y += label.textContainerInset.top
+        return label.convert(rect.insetBy(dx: -4, dy: -4), to: contentView)
+    }
+
     /// Maps a point in `contentView` coordinates to the index of the word under
     /// it (over `wordRanges`), or nil if the point is outside any word glyph.
     func wordIndex(at point: CGPoint) -> Int? {
