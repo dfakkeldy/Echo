@@ -266,6 +266,25 @@ import Testing
         #expect(abs((starts.first ?? -1) - 0.0) < 0.0001)
     }
 
+    @Test func synthesizedWordTimingUsesSpeechRangesNotPauseGaps() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["First words.", "* * *", "Second words."])
+        let svc = makeService(
+            db, tts: MockTTSEngine(secondsPerChar: 0.1), writer: MockAudioWriter())
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        let firstRows = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1", blockID: "blk0")
+        let secondRows = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1", blockID: "blk2")
+        let firstEnd = try #require(firstRows.map(\.audioEndTime).max())
+        let secondStart = try #require(secondRows.map(\.audioStartTime).min())
+
+        #expect(!firstRows.isEmpty)
+        #expect(!secondRows.isEmpty)
+        #expect(firstEnd < secondStart)
+        #expect(firstRows.map(\.source).allSatisfy { $0 == "synthesized" })
+    }
+
     @Test func renderSegmentFileWritesSegmentCacheWithoutPersistingPlaybackState() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["first", "second", "third"])

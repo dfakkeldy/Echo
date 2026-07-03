@@ -112,6 +112,10 @@ final class NarrationService {
         let duration: TimeInterval
         let anchors: [AlignmentAnchorRecord]
         let spokenBlockIDs: [String]
+        /// Per-block synthesized speech ranges captured from the render stream.
+        /// These ranges exclude planned silence so generated read-along rows do
+        /// not stretch words through intentional pauses.
+        let speechRangesByBlock: [String: [NarrationSpeechRange]]
         /// Per-block file-relative word timings captured at synthesis (empty when
         /// the engine emitted none). Applied over the interpolated baseline.
         let synthesisWordTimingsByBlock: [String: [ChunkWordTiming]]
@@ -126,6 +130,7 @@ final class NarrationService {
             duration: TimeInterval,
             anchors: [AlignmentAnchorRecord],
             spokenBlockIDs: [String],
+            speechRangesByBlock: [String: [NarrationSpeechRange]] = [:],
             synthesisWordTimingsByBlock: [String: [ChunkWordTiming]],
             pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = []
         ) {
@@ -136,6 +141,7 @@ final class NarrationService {
             self.duration = duration
             self.anchors = anchors
             self.spokenBlockIDs = spokenBlockIDs
+            self.speechRangesByBlock = speechRangesByBlock
             self.synthesisWordTimingsByBlock = synthesisWordTimingsByBlock
             self.pronunciationFallbackHits = pronunciationFallbackHits
         }
@@ -483,8 +489,15 @@ final class NarrationService {
             // unit's words below, so per-word read-along lights up incrementally.
             try AlignmentService(db: db, audiobookID: audiobookID)
                 .recalculateTimeline(anchoredOnly: true, materializeWordTimings: false)
-            try WordTimingMaterializer.materializeChapter(
-                audiobookID: audiobookID, blockIDs: rendered.spokenBlockIDs, writer: db)
+            if rendered.speechRangesByBlock.isEmpty {
+                try WordTimingMaterializer.materializeChapter(
+                    audiobookID: audiobookID, blockIDs: rendered.spokenBlockIDs, writer: db)
+            } else {
+                try WordTimingMaterializer.materializeSynthesizedChapter(
+                    audiobookID: audiobookID,
+                    speechRangesByBlock: rendered.speechRangesByBlock,
+                    writer: db)
+            }
             let overridden = try WordTimingMaterializer.refineWithSynthesis(
                 audiobookID: audiobookID,
                 synthesisByBlock: rendered.synthesisWordTimingsByBlock,
@@ -573,6 +586,7 @@ final class NarrationService {
         logger.notice("\(unitLabel): synthesizing \(speakableBlockIDs.count) block(s)…")
         var anchors: [AlignmentAnchorRecord] = []
         var spokenBlockIDs: [String] = []
+        var speechRangesByBlock: [String: [NarrationSpeechRange]] = [:]
         var synthesisWordTimingsByBlock: [String: [ChunkWordTiming]] = [:]
         var pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = []
         var cursor: TimeInterval = 0
@@ -602,6 +616,7 @@ final class NarrationService {
             // block (keyed on block.id) is preserved by spanning the summed sub-chunk
             // durations, so read-along is unchanged regardless of how it sub-chunks.
             var blockDuration: TimeInterval = 0
+            var timing = NarrationSynthesisTiming(blockID: plannedBlock.blockID, blockStart: cursor)
             var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
             for subText in plannedBlock.speechSegments {
                 try Task.checkCancellation()
@@ -609,6 +624,7 @@ final class NarrationService {
                     for chunk in try await synthesizeWithQualityRetry(subText, voice: voice) {
                         let chunkStartInFile = cursor + blockDuration
                         try await stream.append(chunk)
+                        timing.appendSpeech(text: subText, duration: chunk.duration)
                         blockChunkTimings.append((chunk.wordTimings, chunkStartInFile))
                         pronunciationFallbackHits.append(
                             contentsOf: chunk.pronunciationFallbackHits.map {
@@ -633,6 +649,9 @@ final class NarrationService {
             }
             if let assembled = NarrationWordTimingAssembler.assemble(blockChunkTimings) {
                 synthesisWordTimingsByBlock[block.id] = assembled
+            }
+            if !timing.speechRanges.isEmpty {
+                speechRangesByBlock[plannedBlock.blockID] = timing.speechRanges
             }
 
             if plannedBlock.isSpeakable {
@@ -696,6 +715,7 @@ final class NarrationService {
             duration: duration,
             anchors: anchors,
             spokenBlockIDs: spokenBlockIDs,
+            speechRangesByBlock: speechRangesByBlock,
             synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
             pronunciationFallbackHits: pronunciationFallbackHits)
     }

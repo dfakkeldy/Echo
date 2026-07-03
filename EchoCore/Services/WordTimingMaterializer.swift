@@ -46,6 +46,42 @@ enum WordTimingMaterializer {
         try dao.insert(records(from: blocks, audiobookID: audiobookID))
     }
 
+    static func materializeSynthesizedChapter(
+        audiobookID: String,
+        speechRangesByBlock: [String: [NarrationSpeechRange]],
+        writer: DatabaseWriter
+    ) throws {
+        let blockIDs = Array(speechRangesByBlock.keys)
+        guard !blockIDs.isEmpty else { return }
+
+        let dao = WordTimingDAO(db: writer)
+        try dao.deleteAll(forAudiobook: audiobookID, blockIDs: blockIDs)
+
+        var records: [WordTimingRecord] = []
+        for (blockID, ranges) in speechRangesByBlock {
+            for (rangeIndex, range) in ranges.sorted(by: { $0.start < $1.start }).enumerated() {
+                guard !WordTokenizer.words(in: range.text).isEmpty else { continue }
+                for interpolated in WordTimingInterpolator.interpolate(
+                    text: range.text,
+                    blockStart: range.start,
+                    blockEnd: range.end)
+                {
+                    records.append(
+                        WordTimingRecord(
+                            audiobookID: audiobookID,
+                            epubBlockID: blockID,
+                            wordIndex: rangeIndex * 10_000 + interpolated.index,
+                            word: interpolated.word,
+                            audioStartTime: interpolated.start,
+                            audioEndTime: interpolated.end,
+                            confidence: 0.7,
+                            source: "synthesized"))
+                }
+            }
+        }
+        try dao.insert(records)
+    }
+
     // MARK: - Shared
 
     /// Aligned, text-bearing blocks ordered by audio time. `audio_start_time < 0`
