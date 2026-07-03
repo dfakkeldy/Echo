@@ -68,8 +68,9 @@ enum DocumentImportFinalizer {
                             writer: databaseService.writer
                         ) {
                             logger.debug(
-                                "alignment.json sidecar already ingested for \(audiobookID); skipping anchor rewrite"
+                                "alignment.json sidecar already ingested for \(audiobookID); refreshing timeline and word timings without rewriting anchors"
                             )
+                            try alignmentService.recalculateTimeline()
                         } else {
                             logger.info("Found alignment.json sidecar with \(exports.count) anchors.")
                             try replaceMachineAnchors(

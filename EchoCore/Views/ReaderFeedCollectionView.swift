@@ -651,9 +651,47 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
             // the highlight index and preserves the existing attributed font runs.
             if let para = cell as? ParagraphCardCell {
                 para.applyWordHighlight(word.index)
+                scrollActiveWordIfNeeded(word.index, in: para, collectionView: collectionView)
             } else if let heading = cell as? HeadingCardCell {
                 heading.applyWordHighlight(word.index)
+                scrollActiveWordIfNeeded(word.index, in: heading, collectionView: collectionView)
             }
+        }
+
+        private func scrollActiveWordIfNeeded(
+            _ wordIndex: Int,
+            in cell: UICollectionViewCell,
+            collectionView: UICollectionView
+        ) {
+            guard autoScrollEnabled.wrappedValue else { return }
+
+            let rectInCell: CGRect?
+            if let paragraph = cell as? ParagraphCardCell {
+                rectInCell = paragraph.rectForWord(at: wordIndex)
+            } else if let heading = cell as? HeadingCardCell {
+                rectInCell = heading.rectForWord(at: wordIndex)
+            } else {
+                rectInCell = nil
+            }
+
+            guard let rectInCell else { return }
+            let wordRect = cell.contentView.convert(rectInCell, to: collectionView)
+            guard
+                let targetY = ReaderWordFollowScroll.targetOffsetY(
+                    currentOffsetY: Double(collectionView.contentOffset.y),
+                    viewportHeight: Double(collectionView.bounds.height),
+                    contentHeight: Double(collectionView.contentSize.height),
+                    wordMinY: Double(wordRect.minY),
+                    wordMaxY: Double(wordRect.maxY),
+                    topMargin: Double(collectionView.adjustedContentInset.top + 96),
+                    bottomMargin: Double(collectionView.adjustedContentInset.bottom + 120)
+                )
+            else { return }
+
+            collectionView.setContentOffset(
+                CGPoint(x: collectionView.contentOffset.x, y: CGFloat(targetY)),
+                animated: true
+            )
         }
 
         /// Triggers a brief scale-pulse animation on the cell for the given block ID.

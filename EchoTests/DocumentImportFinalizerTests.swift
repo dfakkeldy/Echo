@@ -191,6 +191,67 @@ struct DocumentImportFinalizerTests {
         )
     }
 
+    @Test func existingMatchingSidecarRefreshesTimelineAndWordTimings() async throws {
+        let audiobookID = "book-1"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0",
+                audiobookID: audiobookID,
+                sequenceIndex: 0,
+                text: "First stale paragraph"),
+            block(
+                id: "epub-\(audiobookID)-s0-b1",
+                audiobookID: audiobookID,
+                sequenceIndex: 1,
+                text: "Second stale paragraph"),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+
+        let anchorDAO = AlignmentAnchorDAO(db: databaseService.writer)
+        try anchorDAO.insert(
+            anchor(
+                id: "already-ingested-0",
+                audiobookID: audiobookID,
+                blockID: blocks[0].id,
+                source: .autoAlignment,
+                audioTime: 0
+            )
+        )
+        try anchorDAO.insert(
+            anchor(
+                id: "already-ingested-1",
+                audiobookID: audiobookID,
+                blockID: blocks[1].id,
+                source: .autoAlignment,
+                audioTime: 20
+            )
+        )
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 0, confidence: 1),
+            AlignmentSidecar.Anchor(blockId: "s0-b1", timestamp: 20, confidence: 1),
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        let finalized = await DocumentImportFinalizer
+            .finalizeExistingImportIfAlignmentSidecarPresent(
+                audiobookID: audiobookID,
+                fileURL: fileURL,
+                duration: 40,
+                databaseService: databaseService
+            )
+
+        #expect(finalized)
+        let timelineItems = try TimelineDAO(db: databaseService.writer).items(for: audiobookID)
+        #expect(timelineItems.count == 2)
+        let words = try WordTimingDAO(db: databaseService.writer).words(forAudiobook: audiobookID)
+        #expect(words.map(\.word) == ["First", "stale", "paragraph", "Second", "stale", "paragraph"])
+    }
+
     @Test func malformedSidecarDoesNotFailDocumentFinalization() async throws {
         let audiobookID = "book-1"
         let databaseService = try DatabaseService(inMemory: ())
@@ -232,7 +293,8 @@ struct DocumentImportFinalizerTests {
     private func block(
         id: String,
         audiobookID: String,
-        sequenceIndex: Int
+        sequenceIndex: Int,
+        text: String? = nil
     ) -> EPubBlockRecord {
         EPubBlockRecord(
             id: id,
@@ -242,7 +304,7 @@ struct DocumentImportFinalizerTests {
             blockIndex: sequenceIndex,
             sequenceIndex: sequenceIndex,
             blockKind: "paragraph",
-            text: "Block \(sequenceIndex)",
+            text: text ?? "Block \(sequenceIndex)",
             chapterIndex: 0,
             isHidden: false
         )
