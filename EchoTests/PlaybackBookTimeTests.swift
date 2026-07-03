@@ -101,6 +101,43 @@ import Testing
         #expect(state.trackOffset(forBookTime: 90, trackID: second.id) == 30)
     }
 
+    @Test func currentScopeProgressRemainsTrackRelativeForMP3Folder() {
+        let state = PlaybackState()
+        let first = Track(url: URL(string: "file:///lib/01.mp3")!, title: "One")
+        let second = Track(url: URL(string: "file:///lib/02.mp3")!, title: "Two")
+        let third = Track(url: URL(string: "file:///lib/03.mp3")!, title: "Three")
+        state.tracks = [first, second, third]
+        state.currentIndex = 1
+        state.durationSeconds = 60
+        state.bookTimeIndex = PlaybackBookTimeIndex(orderedTracks: [
+            (first, 60),
+            (second, 60),
+            (third, 60),
+        ])
+
+        #expect(state.currentScopeProgressFraction(forCurrentTrackOffset: 15) == 0.25)
+    }
+
+    @Test func bookProgressUsesPlaylistTimelineForMP3Folder() {
+        let state = PlaybackState()
+        let first = Track(url: URL(string: "file:///lib/01.mp3")!, title: "One")
+        let second = Track(url: URL(string: "file:///lib/02.mp3")!, title: "Two")
+        let third = Track(url: URL(string: "file:///lib/03.mp3")!, title: "Three")
+        state.tracks = [first, second, third]
+        state.currentIndex = 1
+        state.durationSeconds = 60
+        state.bookTimeIndex = PlaybackBookTimeIndex(orderedTracks: [
+            (first, 60),
+            (second, 60),
+            (third, 60),
+        ])
+
+        #expect(abs(state.bookProgressFraction(forCurrentTrackOffset: 15) - (75.0 / 180.0)) < 0.0001)
+        #expect(state.bookProgressBoundaryFractions.count == 2)
+        #expect(abs(state.bookProgressBoundaryFractions[0] - (60.0 / 180.0)) < 0.0001)
+        #expect(abs(state.bookProgressBoundaryFractions[1] - (120.0 / 180.0)) < 0.0001)
+    }
+
     @Test func playbackStateFallsBackToM4BBookOffsetWhenNoIndexExists() {
         let state = PlaybackState()
         let a = book("BookA", offset: 0, duration: 100)

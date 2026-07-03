@@ -93,26 +93,9 @@ final class PlaybackProgressPresenter {
         // integer changes, so observers re-render ~1 Hz instead of every tick.
         let bookElapsed = state.bookTime(forCurrentTrackOffset: elapsed)
         let bookDuration = state.effectiveBookDuration
-        let usesBookTime = state.bookTimeIndex.totalDuration > 0 || state.isMultiM4B
         if bookDuration > 0 {
             let percent = Int(min(1.0, max(0, bookElapsed / bookDuration)) * 100)
             if state.bookProgressPercent != percent { state.bookProgressPercent = percent }
-        }
-
-        // Multi-file books use the shared book-time axis for progress.
-        if bookDuration > 0, usesBookTime {
-            let frac = min(1, max(0, bookElapsed / bookDuration))
-            let didChange = abs(state.progressFraction - frac) > 0.005
-            state.progressFraction = frac
-            state.elapsedText = NowPlayingController.formatTime(max(0, bookElapsed) / speed)
-            let remaining = max(0, bookDuration - bookElapsed) / speed
-            state.progressText = "-\(NowPlayingController.formatTime(remaining))"
-            state.durationText = NowPlayingController.formatTime(bookDuration / speed)
-            if didChange { onSyncToWatch?() }
-        }
-
-        if usesBookTime, state.chapters.count < 2 {
-            return
         }
 
         if state.chapters.count >= 2 {
@@ -131,11 +114,8 @@ final class PlaybackProgressPresenter {
                 let chapterDuration = c.endSeconds - c.startSeconds
                 let chapterElapsed = elapsed - c.startSeconds
 
-                // Multi-file: book-level progress is already set above; skip chapter-level override.
-                if usesBookTime { return }
-
                 if chapterElapsed.isFinite, chapterDuration.isFinite, chapterDuration > 0 {
-                    let frac = min(1, max(0, chapterElapsed / chapterDuration))
+                    let frac = state.currentScopeProgressFraction(forCurrentTrackOffset: elapsed)
                     let didChange = abs(state.progressFraction - frac) > 0.005
                     state.progressFraction = frac
                     let remaining = max(0, chapterDuration - chapterElapsed) / speed
@@ -159,7 +139,7 @@ final class PlaybackProgressPresenter {
             return
         }
 
-        let frac = min(1, max(0, elapsed / duration))
+        let frac = state.currentScopeProgressFraction(forCurrentTrackOffset: elapsed)
         let didChange = abs(state.progressFraction - frac) > 0.005
         state.progressFraction = frac
 

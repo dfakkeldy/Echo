@@ -273,6 +273,12 @@ final class PlayerModel {
     var cumulativePlaybackTime: TimeInterval {
         state.bookTime(forCurrentTrackOffset: currentPlaybackTime)
     }
+    var effectiveBookDuration: TimeInterval { state.effectiveBookDuration }
+    var bookProgressFraction: Double {
+        state.bookProgressFraction(forCurrentTrackOffset: currentPlaybackTime)
+    }
+    var bookProgressBoundaryFractions: [Double] { state.bookProgressBoundaryFractions }
+    var hasWholeBookProgress: Bool { state.hasWholeBookProgress }
     /// Coarse 0–100 book progress that changes ~1 Hz, not per tick (§7.3).
     var bookProgressPercent: Int { state.bookProgressPercent }
     var thumbnailImage: UIImage? { state.thumbnailImage }
