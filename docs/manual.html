@@ -193,7 +193,7 @@ iCloud Drive/
                 <p>The Now Playing tab gives you five configurable transport buttons. Defaults: skip back, previous chapter, play/pause, next chapter, skip forward.</p>
                 <ul>
                     <li><strong>Skip durations</strong> are configurable from 5–60 seconds, independently for forward and backward, and sync to the watch.</li>
-                    <li><strong>Long-press secondary actions:</strong> each of the five buttons can carry a second action on long-press (e.g., long-press skip-forward for next chapter). Configure under <em>Settings → Player Controls</em>.</li>
+                    <li><strong>Long-press secondary actions:</strong> each of the five buttons can carry a second action on long-press (e.g., long-press skip-forward for next chapter). Configure under <em>Settings → Controls → Phone Player Settings</em>.</li>
                     <li><strong>Sections:</strong> books with fine-grained chapter files (e.g., "Chapter 11. A", "Chapter 11. B") are automatically grouped into logical chapters. Next/Previous Section actions jump between the sub-sections; the scrubber shows a tick mark at each boundary and snaps to them with a haptic tap while dragging.</li>
                     <li><strong>Mark for a flashcard</strong> <span class="tag-soon">🚧 Coming in 1.0</span> — a one-tap Mark action drops the passage into your <a href="#study">Card Inbox</a> without pausing playback.</li>
                 </ul>
@@ -226,7 +226,7 @@ iCloud Drive/
                         <tr><td>Hours–days (overnight, the weekend)</td><td>the most</td></tr>
                     </tbody>
                 </table>
-                <p>All three tiers are configurable under <em>Settings → Smart Rewind</em>. The rewind happens silently and automatically; you just press play and the story makes sense again.</p>
+                <p>All three tiers are configurable under <em>Settings → Now Playing → Playback Defaults → Smart Rewind</em>. The rewind happens silently and automatically; you just press play and the story makes sense again.</p>
                 <p>This is Echo's signature feature: it makes interruption free. You never scrub backward hunting for the last sentence you remember.</p>
 
                 <h2 id="loop-modes"><span class="sec-num">06</span>Loop Modes</h2>
@@ -459,7 +459,7 @@ iCloud Drive/
                 </figure>
 
                 <h2 id="places"><span class="sec-num">15</span>Context Memory (Location) <span class="tag-soon">🚧 Coming in 1.0</span></h2>
-                <p>Your brain files <em>where</em> alongside <em>what</em> — Echo can capture the "where" for you. Off by default; flip <strong>Settings → Privacy &amp; Location → Context Memory</strong> to opt in.</p>
+                <p>Your brain files <em>where</em> alongside <em>what</em> — Echo can capture the "where" for you. Off by default; flip <strong>Settings → Advanced &amp; Privacy → Advanced → Context Memory</strong> to opt in.</p>
                 <h3>What it captures (and what it doesn't)</h3>
                 <ul>
                     <li><strong>Approximate places only:</strong> Echo uses reduced-accuracy location — neighborhood level, not your doorstep — and stores a coarse place name like "Maple Ridge, Halifax".</li>
@@ -570,19 +570,13 @@ iCloud Drive/
                 <table>
                     <thead><tr><th scope="col">Group</th><th scope="col">Settings</th></tr></thead>
                     <tbody>
-                        <tr><td><strong>Playback</strong></td><td>Default speed · per-book speed memory · volume boost gain · seek forward/back durations (5–60s)</td></tr>
-                        <tr><td><strong>Smart Rewind</strong></td><td>Three tiers (short/medium/long pause) with per-tier rewind amounts</td></tr>
-                        <tr><td><strong>Bookmarks</strong></td><td>Inline voice memo playback (global + per book) · quick-bookmark timeout</td></tr>
-                        <tr><td><strong>Study</strong></td><td>Daily review notification · inline flashcard triggers · deck defaults <span class="tag-soon">🚧</span></td></tr>
-                        <tr><td><strong>Privacy &amp; Location</strong> <span class="tag-soon">🚧</span></td><td>Context Memory toggle (off by default) · Delete Location History</td></tr>
-                        <tr><td><strong>Reader</strong></td><td>Font (incl. Lexend, OpenDyslexic) · text size · line spacing · card tint · per-card colors</td></tr>
-                        <tr><td><strong>Appearance</strong></td><td>Theme accent color or <strong>Artwork mode</strong> (accent derived from the cover, automatically adjusted for legibility) · dark mode · app icon · player layout (Default/Compact) · transport button sizes</td></tr>
-                        <tr><td><strong>Player Controls</strong></td><td>Five tap actions + five long-press actions for the transport row</td></tr>
-                        <tr><td><strong>Controls → Watch App Settings</strong></td><td>Button layout designer (5 pages × 5 slots) · Digital Crown mode · artwork layout · haptics · date overlay · title scroll speed</td></tr>
-                        <tr><td><strong>Per-book overrides</strong></td><td>Speed, font, volume boost, inline memos — any global setting, pinned per book</td></tr>
-                        <tr><td><strong>Data</strong></td><td>Study-notes bulk export <span class="tag-soon">🚧</span> · deck export <span class="tag-soon">🚧</span></td></tr>
-                        <tr><td><strong>Help</strong></td><td>The full in-app help library</td></tr>
-                        <tr><td><strong>Language</strong></td><td>English and Dutch</td></tr>
+                        <tr><td><strong>Now Playing</strong></td><td>Playback defaults · Smart Rewind · skip durations · Play Bookmarks Inline</td></tr>
+                        <tr><td><strong>Appearance</strong></td><td>Color scheme · app icon · accent color · font · Reader Defaults · chapter-name truncation</td></tr>
+                        <tr><td><strong>Controls</strong></td><td>Phone Player Settings · Watch App Settings · mini-player buttons · focus tools</td></tr>
+                        <tr><td><strong>Library &amp; Accounts</strong></td><td>Audiobookshelf connections · Echo Pro</td></tr>
+                        <tr><td><strong>Study &amp; Notes</strong></td><td>AI card generation · deck import · Global New Chapters · auto-export study notes · bulk study-note export</td></tr>
+                        <tr><td><strong>Advanced &amp; Privacy</strong></td><td>Pronunciation · continuous auto-alignment · Context Memory · diagnostics</td></tr>
+                        <tr><td><strong>Support &amp; About</strong></td><td>Feedback &amp; Support · Help · Privacy Policy · version and commit</td></tr>
                     </tbody>
                 </table>
 
@@ -670,7 +664,7 @@ iCloud Drive/
                 <details class="faq-item">
                     <summary>Inline flashcards interrupt me too much.</summary>
                     <div class="faq-body">
-                        <p>Set those cards to <em>manual only</em>, or disable inline triggers in Settings → Study — your reviews then live only in Daily Review. This gets better in 1.0: the <a href="#study">Card Inbox</a> replaces mid-playback popups entirely — capture becomes one silent tap, and review happens when you choose <span class="tag-soon">🚧</span>.</p>
+                        <p>Set those cards to <em>manual only</em>, or disable inline triggers in Settings → Now Playing → Playback Defaults — your reviews then live only in Daily Review. This gets better in 1.0: the <a href="#study">Card Inbox</a> replaces mid-playback popups entirely — capture becomes one silent tap, and review happens when you choose <span class="tag-soon">🚧</span>.</p>
                     </div>
                 </details>
                 <details class="faq-item">

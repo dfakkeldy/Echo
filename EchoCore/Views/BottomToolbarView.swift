@@ -9,7 +9,6 @@ struct BottomToolbarView: View {
     /// on NowPlayingTab; these just forward the user's intent upward.
     var onShowChapters: () -> Void
     var onShowBookmarks: () -> Void
-    var onShowSettings: () -> Void
     var onShowPlaybackOptions: () -> Void
     var canCreateReaderCapture: Bool = false
     var isReaderVoiceMemoRecording: Bool = false
@@ -21,8 +20,7 @@ struct BottomToolbarView: View {
         HStack {
             PlayerMoreMenu(
                 onShowChapters: onShowChapters,
-                onShowBookmarks: onShowBookmarks,
-                onShowSettings: onShowSettings
+                onShowBookmarks: onShowBookmarks
             )
             Spacer()
             speedMenu

@@ -150,7 +150,7 @@ The compact bottom dock keeps playback controls available while you move between
 Five configurable transport buttons. Defaults: skip back, previous chapter, play/pause, next chapter, skip forward.
 
 - **Skip durations** configurable 5–60 s, independently forward/backward, synced to the watch.
-- **Long-press secondary actions:** each button can carry a second action on long-press. Configure under *Settings → Player Controls*.
+- **Long-press secondary actions:** each button can carry a second action on long-press. Configure under *Settings → Controls → Phone Player Settings*.
 - **Sections:** fine-grained chapter files are grouped into logical chapters; Next/Previous Section jumps sub-sections; the scrubber shows tick marks and snaps with a haptic tap.
 - **Mark for a flashcard** 🚧 Coming in 1.0 — a one-tap Mark action drops the passage into your Card Inbox without pausing playback.
 
@@ -172,7 +172,7 @@ Up to +9 dB of clean gain (configurable), independent of system volume.
 
 ## 5. Smart Rewind
 
-Every time you press play after a pause, Echo rewinds first — proportionally to how long you were gone (seconds → a few seconds; minutes → more; hours–days → the most). All three tiers configurable under *Settings → Smart Rewind*. This is Echo's signature feature: it makes interruption free.
+Every time you press play after a pause, Echo rewinds first — proportionally to how long you were gone (seconds → a few seconds; minutes → more; hours–days → the most). All three tiers are configurable under *Settings → Now Playing → Playback Defaults → Smart Rewind*. This is Echo's signature feature: it makes interruption free.
 
 ---
 
@@ -391,7 +391,7 @@ The dashboard gets live teaser modules (listened-today, streak, upcoming reviews
 
 ## 15. Context Memory (Location) 🚧 Coming in 1.0
 
-Off by default; opt in via **Settings → Privacy & Location → Context Memory**.
+Off by default; opt in via **Settings → Advanced & Privacy → Advanced → Context Memory**.
 
 - **Approximate places only:** reduced-accuracy location, neighborhood level — never your doorstep.
 - **Three capture points:** session start, bookmark creation, chapter start. Powers bookmark place chips, "Chapter 3 started at Oak Street" in per-book Insights, and the Places list.
@@ -418,7 +418,7 @@ Your data is yours, in formats you can read, forever. The database schema is ope
 
 Echo can keep a folder of Markdown files, one per book, continuously in sync with your notes, bookmarks, and flashcards. Point it at an iCloud Drive folder and your captures appear on your Mac a few seconds after you make them, ready for whatever notes system you use there.
 
-1. Open **Settings -> Study & Notes** and turn on **Auto-Export Study Notes** (Echo Pro).
+1. Open **Settings → Study & Notes** and turn on **Auto-Export Study Notes** (Echo Pro).
 2. Tap **Export Folder** and pick a folder. Echo writes into an `Echo Study Notes` subfolder it manages.
 3. Capture as you listen. Files update a few seconds after each capture and whenever you leave the app.
 
@@ -502,19 +502,13 @@ Echo has no servers and no accounts — sync rides on *your* iCloud.
 
 | Group | Settings |
 |---|---|
-| Playback | Default speed · per-book speed memory · volume boost gain · seek durations (5–60 s) |
-| Smart Rewind | Three tiers with per-tier rewind amounts |
-| Bookmarks | Inline voice memo playback (global + per book) · quick-bookmark timeout |
-| Study | Daily review notification · inline flashcard triggers · auto-export study notes · deck defaults 🚧 |
-| Privacy & Location 🚧 | Context Memory toggle (off by default) · Delete Location History |
-| Reader | Font (incl. Lexend, OpenDyslexic) · text size · line spacing · card tint · per-card colors |
-| Appearance | Accent color or Artwork mode · dark mode · app icon · player layout · button sizes |
-| Player Controls | Five tap + five long-press actions |
-| Controls → Watch App Settings | Layout designer (5×5) · Crown mode · artwork layout · haptics · date overlay · title scroll speed |
-| Per-book overrides | Any global setting, pinned per book |
-| Data | Auto-export study Markdown · Study-notes bulk export 🚧 · deck export 🚧 |
-| Help | The full in-app help library |
-| Language | English and Dutch |
+| Now Playing | Playback defaults · Smart Rewind · skip durations · Play Bookmarks Inline |
+| Appearance | Color scheme · app icon · accent color · font · Reader Defaults · chapter-name truncation |
+| Controls | Phone Player Settings · Watch App Settings · mini-player buttons · focus tools |
+| Library & Accounts | Audiobookshelf connections · Echo Pro |
+| Study & Notes | AI card generation · deck import · Global New Chapters · auto-export study notes · bulk study-note export |
+| Advanced & Privacy | Pronunciation · continuous auto-alignment · Context Memory · diagnostics |
+| Support & About | Feedback & Support · Help · Privacy Policy · version and commit |
 
 ---
 
@@ -575,7 +569,7 @@ JSON decks import today. Real `.apkg` files — scheduling included — arrive w
 Yes — that's policy. Bookmarks -> Markdown and Echo Pro auto-exported study Markdown are available today; with 1.0, decks -> portable JSON (lossless re-import) and fuller media bundles remain planned. The schema is open source; your data is never hostage.
 
 **Inline flashcards interrupt me too much.**
-Set those cards to *manual only*, or disable inline triggers in Settings → Study. In 1.0 the Card Inbox replaces mid-playback popups entirely 🚧.
+Set those cards to *manual only*, or disable inline triggers in Settings → Now Playing → Playback Defaults. In 1.0 the Card Inbox replaces mid-playback popups entirely 🚧.
 
 **What's the difference between a bookmark, a note, and a flashcard?**
 **Bookmark** = a *moment* (timestamp; optional memo/photo/place). **Note** 🚧 = an *untethered thought* (the brain-dump). **Flashcard** = a *question* you want to keep answering. Notes and bookmarks both promote into flashcards — capture cheap first, decide later.

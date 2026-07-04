@@ -4,7 +4,7 @@ import SwiftUI
 /// The player-scoped overflow menu, hosted in the Now Playing utility dock
 /// (BottomToolbarView). Distinct from the app-level ellipsis menu in
 /// `UnifiedTopHeader` (Stats / Fidget / Settings / Help): this one carries
-/// *playback-context* actions — Chapters, Bookmarks, Sleep timer, Settings.
+/// *playback-context* actions — Chapters, Bookmarks, and Sleep Timer.
 /// It uses a filled `ellipsis.circle.fill` glyph inside the dock's utility chip
 /// to read as a clearly different overflow affordance than the global header's
 /// bare `ellipsis`.
@@ -19,8 +19,6 @@ struct PlayerMoreMenu: View {
     var onShowChapters: () -> Void
     /// Reveal the bookmarks list (parent switches to the Study/Timeline tab).
     var onShowBookmarks: () -> Void
-    /// Raise the unified Settings sheet (parent owns the binding).
-    var onShowSettings: () -> Void
 
     /// Active state mirrors the dock's other chips: filled when a sleep timer
     /// is armed, so the overflow chip carries a subtle "something is on" signal.
@@ -83,12 +81,6 @@ struct PlayerMoreMenu: View {
                 }
             } label: {
                 Label("Sleep Timer", systemImage: "moon.zzz")
-            }
-
-            Divider()
-
-            Button(action: onShowSettings) {
-                Label("Settings", systemImage: "gearshape")
             }
         } label: {
             chip
