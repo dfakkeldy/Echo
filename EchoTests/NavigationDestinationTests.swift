@@ -19,11 +19,11 @@ struct NavigationDestinationTests {
         throw CocoaError(.fileNoSuchFile)
     }
 
-    @Test func audioSettingsRouteUsesRealPlaybackOptionsSurface() throws {
+    @Test func audioSettingsRouteUsesNowPlayingSettingsSurface() throws {
         let src = try source()
 
         #expect(src.contains("case .settingsAudio:"))
-        #expect(src.contains("PlaybackOptionsSheet()"))
+        #expect(src.contains("SettingsNowPlayingView()"))
         #expect(!src.contains("SettingsPlaceholder(title: \"Audio Settings\")"))
     }
 }

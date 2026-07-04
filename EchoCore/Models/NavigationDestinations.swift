@@ -23,7 +23,7 @@ enum NavigationDestination: Hashable, Codable {
         case .settingsAppearance:
             SettingsAppearanceView()
         case .settingsAudio:
-            PlaybackOptionsSheet()
+            SettingsNowPlayingView()
         case .settingsChimes:
             ChimeSettingsView(engine: nil)
         case .settingsSmartRewind:

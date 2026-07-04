@@ -85,6 +85,8 @@ struct SettingsView: View {
 
                     SettingsStudyRows()
 
+                    AutoExportSettingsRows()
+
                     Button {
                         showingAllStudyNotesExport = true
                     } label: {
@@ -92,8 +94,6 @@ struct SettingsView: View {
                     }
                     .disabled(model.databaseService == nil)
                 }
-
-                AutoExportSettingsRows()
 
                 Section("Advanced & Privacy") {
                     NavigationLink("Pronunciation") {

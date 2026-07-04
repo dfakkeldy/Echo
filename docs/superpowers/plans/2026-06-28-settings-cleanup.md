@@ -84,7 +84,7 @@
   - `SettingsManager.Defaults.circularRingMode == "total"`
   - `SettingsManager.Defaults.watchArtworkLayout == "classic"`
 
-- [ ] **Step 1: Add failing defaults tests**
+- [x] **Step 1: Add failing defaults tests**
 
 Add these tests after `settingsPersistsWatchBackgroundStyle()` in `EchoTests/EchoCoreTests.swift`:
 
@@ -135,7 +135,7 @@ Add these tests after `settingsPersistsWatchBackgroundStyle()` in `EchoTests/Ech
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -146,7 +146,7 @@ make test-only FILTER=EchoTests/EchoCoreTests
 
 Expected: `settingsUsesClassicWatchFaceAndProgressDefaults` fails because defaults still report `watchArtworkLayout == "immersive"`, `linearBarMode == "total"`, and `circularRingMode == "chapter"`.
 
-- [ ] **Step 3: Change the defaults**
+- [x] **Step 3: Change the defaults**
 
 In `EchoCore/Services/SettingsManager.swift`, change the defaults block from:
 
@@ -168,7 +168,7 @@ to:
         static let watchArtworkLayout = "classic"
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run:
 
@@ -178,7 +178,7 @@ make test-only FILTER=EchoTests/EchoCoreTests
 
 Expected: all `EchoCoreTests` pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Services/SettingsManager.swift EchoTests/EchoCoreTests.swift
@@ -197,7 +197,7 @@ git commit -m "test: pin watch settings defaults"
 - Consumes: `SettingsManager.defaultPlaybackSpeed`, `SettingsManager.seekBackwardDuration`, `SettingsManager.seekForwardDuration`, `SettingsManager.playBookmarksInline`, `PlaybackOptionsSheet.seekDurationOptions`, `SmartRewindSettingsView`.
 - Produces: `SettingsNowPlayingView`, a native `Form` screen for durable playback defaults.
 
-- [ ] **Step 1: Add failing extraction tests**
+- [x] **Step 1: Add failing extraction tests**
 
 Add this test after `proTranscriptsSubViewIsExtracted()` in `EchoTests/SettingsExtractionTests.swift`:
 
@@ -214,7 +214,7 @@ Add this test after `proTranscriptsSubViewIsExtracted()` in `EchoTests/SettingsE
 
 Also update `source(named:)` so it can find the new file once created. No code change is needed if it already walks `EchoCore/Views`; the failing test is enough.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -224,7 +224,7 @@ make test-only FILTER=EchoTests/SettingsExtractionTests
 
 Expected: `nowPlayingSubViewIsExtracted` fails with `CocoaError(.fileNoSuchFile)` because `SettingsNowPlayingView.swift` does not exist yet.
 
-- [ ] **Step 3: Create the Now Playing settings screen**
+- [x] **Step 3: Create the Now Playing settings screen**
 
 Create `EchoCore/Views/SettingsNowPlayingView.swift`:
 
@@ -303,7 +303,7 @@ struct SettingsNowPlayingView: View {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run:
 
@@ -313,7 +313,7 @@ make test-only FILTER=EchoTests/SettingsExtractionTests
 
 Expected: `SettingsExtractionTests` pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Views/SettingsNowPlayingView.swift EchoTests/SettingsExtractionTests.swift
@@ -332,7 +332,7 @@ git commit -m "feat: add now playing settings screen"
 - Consumes: `SettingsNowPlayingView`, `SettingsAppearanceView`, `PhonePlayerSettingsView`, `WatchAppSettingsView`, `ABSConnectionsSettingsView`, `ProTranscriptsSettingsView`, `SettingsAdvancedView`, `FeedbackSupportView`, `AllStudyNotesExportView`.
 - Produces: root settings sections: `Now Playing`, `Appearance`, `Controls`, `Library & Accounts`, `Study & Notes`, `Advanced & Privacy`, `Support & About`.
 
-- [ ] **Step 1: Update the structural test first**
+- [x] **Step 1: Update the structural test first**
 
 Replace `settingsShellExposesSubscreenLinksOnly()` in `EchoTests/SettingsExtractionTests.swift` with:
 
@@ -380,7 +380,7 @@ Update `settingsShellExposesStudyGlobalChapterCap()` to keep only the study asse
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -390,7 +390,7 @@ make test-only FILTER=EchoTests/SettingsExtractionTests
 
 Expected: `settingsShellUsesApprovedInformationArchitecture` fails because `SettingsView` still has the old section names.
 
-- [ ] **Step 3: Replace the root sections**
+- [x] **Step 3: Replace the root sections**
 
 In `EchoCore/Views/SettingsView.swift`, replace the `Form` contents from the first section after `BookOverridesSections` through `BuildMetadataSection(buildMetadata:)` with:
 
@@ -527,7 +527,7 @@ private struct SettingsSupportAboutSection: View {
 }
 ```
 
-- [ ] **Step 4: Replace the study section helper with a row helper**
+- [x] **Step 4: Replace the study section helper with a row helper**
 
 Because `Section("Study & Notes")` now owns the grouping, replace `SettingsStudySection` with this row-only helper:
 
@@ -556,7 +556,7 @@ private struct SettingsStudyRows: View {
 
 Call `SettingsStudyRows()` inside `Section("Study & Notes")`; the tests from Step 1 already assert this.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run:
 
@@ -566,7 +566,7 @@ make test-only FILTER=EchoTests/SettingsExtractionTests
 
 Expected: all `SettingsExtractionTests` pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add EchoCore/Views/SettingsView.swift EchoTests/SettingsExtractionTests.swift
@@ -586,7 +586,7 @@ git commit -m "feat: reorganize settings information architecture"
 - Consumes: `SettingsManager.readerFontSize`, `SettingsManager.readerLineSpacing`, `SettingsManager.readerCardTint`.
 - Produces: `ReaderDefaultsSettingsView` and an Appearance row named `Reader Defaults`.
 
-- [ ] **Step 1: Add failing extraction tests**
+- [x] **Step 1: Add failing extraction tests**
 
 Add after `themeSelectionSubViewIsExtracted()`:
 
@@ -606,7 +606,7 @@ Add to `settingsViewNoLongerDeclaresExtractedSubViews()`:
         #expect(!source.contains("private struct ReaderDefaultsSettingsView"))
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -616,7 +616,7 @@ make test-only FILTER=EchoTests/SettingsExtractionTests
 
 Expected: `readerDefaultsSubViewIsExtracted` fails because the file does not exist yet.
 
-- [ ] **Step 3: Create the reader defaults screen**
+- [x] **Step 3: Create the reader defaults screen**
 
 Create `EchoCore/Views/ReaderDefaultsSettingsView.swift`:
 
@@ -721,7 +721,7 @@ private struct ReaderDefaultsColorSwatch: Identifiable {
 }
 ```
 
-- [ ] **Step 4: Link it from Appearance**
+- [x] **Step 4: Link it from Appearance**
 
 In `EchoCore/Views/SettingsAppearanceView.swift`, add a `NavigationLink` inside `Section("Typography")` after the font row:
 
@@ -738,7 +738,7 @@ In `EchoCore/Views/SettingsAppearanceView.swift`, add a `NavigationLink` inside 
                 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -748,7 +748,7 @@ make test-only FILTER=EchoTests/SettingsExtractionTests
 
 Expected: all `SettingsExtractionTests` pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add EchoCore/Views/ReaderDefaultsSettingsView.swift EchoCore/Views/SettingsAppearanceView.swift EchoTests/SettingsExtractionTests.swift
@@ -767,7 +767,7 @@ git commit -m "feat: expose reader defaults in appearance settings"
 - Consumes: existing watch page slot state, `settings.watchArtworkLayout`, `settings.linearBarMode`, `settings.circularRingMode`, visibility toggles, `model.syncToWatch()`.
 - Produces: `WatchAppSettingsView` as a `Form`; progress segmented controls with `Book`/`Chapter` labels.
 
-- [ ] **Step 1: Add failing watch structure tests**
+- [x] **Step 1: Add failing watch structure tests**
 
 Append this test to `WatchAppDesignerAccessibilityTests`:
 
@@ -797,7 +797,7 @@ Append this test to `WatchAppDesignerAccessibilityTests`:
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -807,7 +807,7 @@ make test-only FILTER=EchoTests/WatchAppDesignerAccessibilityTests
 
 Expected: `watchSettingsUsesFormSectionsAndSegmentedProgressControls` fails because the view still uses a top-level `ScrollView` and progress menu pickers.
 
-- [ ] **Step 3: Replace the top-level `ScrollView` with `Form` sections**
+- [x] **Step 3: Replace the top-level `ScrollView` with `Form` sections**
 
 In `EchoCore/Views/WatchAppSettingsView.swift`, replace the current top-level `ScrollView` body in `var body` with this structure. Keep the helper types below line 441 unchanged.
 
@@ -1064,7 +1064,7 @@ In `EchoCore/Views/WatchAppSettingsView.swift`, replace the current top-level `S
         }
 ```
 
-- [ ] **Step 4: Keep the Swift concurrency drag/drop fix**
+- [x] **Step 4: Keep the Swift concurrency drag/drop fix**
 
 In `DropSlot.onDrop`, preserve the existing main-actor hop. If the file still contains `DispatchQueue.main.async`, replace that dispatch body with:
 
@@ -1075,7 +1075,7 @@ In `DropSlot.onDrop`, preserve the existing main-actor hop. If the file still co
                     }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -1085,7 +1085,7 @@ make test-only FILTER=EchoTests/WatchAppDesignerAccessibilityTests
 
 Expected: all `WatchAppDesignerAccessibilityTests` pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add EchoCore/Views/WatchAppSettingsView.swift EchoTests/WatchAppDesignerAccessibilityTests.swift
@@ -1104,7 +1104,7 @@ git commit -m "feat: normalize watch settings layout"
 - Consumes: existing phone slots, long-press slots, `PhoneSlotPickerGrid`, `PhonePreviewCanvas`, `SoundscapePickerView`, `ChimeSettingsView`.
 - Produces: `PhonePlayerSettingsView` as a `Form` with `Layout`, `Mini-Player`, `Player Buttons`, `Focus Tools`, `Available Actions`, and `Presets` sections.
 
-- [ ] **Step 1: Add failing phone settings structure test**
+- [x] **Step 1: Add failing phone settings structure test**
 
 Append this test to `PhonePlayerPaletteTests`:
 
@@ -1125,7 +1125,7 @@ Append this test to `PhonePlayerPaletteTests`:
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -1135,7 +1135,7 @@ make test-only FILTER=EchoTests/PhonePlayerPaletteTests
 
 Expected: `phoneSettingsUsesFormSectionsAndSharedDesignerTerms` fails because the view still uses a top-level `ScrollView` and `Layout Presets`.
 
-- [ ] **Step 3: Replace the top-level phone `ScrollView` with `Form` sections**
+- [x] **Step 3: Replace the top-level phone `ScrollView` with `Form` sections**
 
 In `EchoCore/Views/PhonePlayerSettingsView.swift`, replace the body `ScrollView` with:
 
@@ -1299,7 +1299,7 @@ In `EchoCore/Views/PhonePlayerSettingsView.swift`, replace the body `ScrollView`
         }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -1309,7 +1309,7 @@ make test-only FILTER=EchoTests/PhonePlayerPaletteTests
 
 Expected: all `PhonePlayerPaletteTests` pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Views/PhonePlayerSettingsView.swift EchoTests/PhonePlayerPaletteTests.swift
@@ -1328,7 +1328,7 @@ git commit -m "feat: normalize phone player settings layout"
 - Consumes: `PhonePlayerSettingsView`.
 - Produces: toolbar link labeled `More Controls`.
 
-- [ ] **Step 1: Add failing toolbar label test**
+- [x] **Step 1: Add failing toolbar label test**
 
 Add this test to `PlaybackOptionsSheetTests`:
 
@@ -1341,7 +1341,7 @@ Add this test to `PlaybackOptionsSheetTests`:
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -1351,7 +1351,7 @@ make test-only FILTER=EchoTests/PlaybackOptionsSheetTests
 
 Expected: `sheetLinksToDurableControlsSettings` fails because the toolbar label is still `More`.
 
-- [ ] **Step 3: Rename the toolbar label and comment**
+- [x] **Step 3: Rename the toolbar label and comment**
 
 In `EchoCore/Views/PlaybackOptionsSheet.swift`, replace:
 
@@ -1380,7 +1380,7 @@ with:
                 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -1390,7 +1390,7 @@ make test-only FILTER=EchoTests/PlaybackOptionsSheetTests
 
 Expected: all `PlaybackOptionsSheetTests` pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Views/PlaybackOptionsSheet.swift EchoTests/PlaybackOptionsSheetTests.swift
@@ -1417,7 +1417,7 @@ git commit -m "chore: clarify playback options controls link"
   - `Settings > Controls > Watch App Settings`
   - `Settings > Appearance > Reader Defaults`
 
-- [ ] **Step 1: Add failing help path test**
+- [x] **Step 1: Add failing help path test**
 
 Create `EchoTests/SettingsHelpPathTests.swift`:
 
@@ -1454,7 +1454,7 @@ struct SettingsHelpPathTests {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -1464,7 +1464,7 @@ make test-only FILTER=EchoTests/SettingsHelpPathTests
 
 Expected: the new test fails because `HelpContent.swift` still has stale paths.
 
-- [ ] **Step 3: Update `HelpContent.swift` paths**
+- [x] **Step 3: Update `HelpContent.swift` paths**
 
 In `EchoCore/Views/HelpContent.swift`, replace these sentences:
 
@@ -1526,7 +1526,7 @@ with:
             Configure all watch options from the iPhone app under Settings > Controls > Watch App Settings.
 ```
 
-- [ ] **Step 4: Update docs**
+- [x] **Step 4: Update docs**
 
 In `ARCHITECTURE.md`, replace:
 
@@ -1552,7 +1552,7 @@ In `docs/guides/user-manual.md`, replace `Settings → Watch App` with `Settings
 
 In `docs/manual.html`, replace `Settings → Watch App` with `Settings → Controls → Watch App Settings` and update the watch-app settings table label if present.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -1562,7 +1562,7 @@ make test-only FILTER=EchoTests/SettingsHelpPathTests
 
 Expected: `SettingsHelpPathTests` passes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add EchoCore/Views/HelpContent.swift ARCHITECTURE.md docs/guides/user-manual.md docs/manual.html EchoTests/SettingsHelpPathTests.swift
@@ -1580,7 +1580,7 @@ git commit -m "docs: update settings help paths"
 - Consumes: all previous tasks.
 - Produces: green targeted tests and a clean worktree.
 
-- [ ] **Step 1: Run source-scanning settings tests**
+- [x] **Step 1: Run source-scanning settings tests**
 
 Run:
 
@@ -1594,7 +1594,7 @@ make test-only FILTER=EchoTests/SettingsHelpPathTests
 
 Expected: all commands pass.
 
-- [ ] **Step 2: Run settings/defaults behavior tests**
+- [x] **Step 2: Run settings/defaults behavior tests**
 
 Run:
 
@@ -1604,7 +1604,9 @@ make test-only FILTER=EchoTests/EchoCoreTests
 
 Expected: all `EchoCoreTests` pass.
 
-- [ ] **Step 3: Build the app tests if test-without-building reports stale products**
+- [x] **Step 3: Build the app tests if test-without-building reports stale products**
+
+Result: not required; every targeted `make test-only` command completed without stale-product failures.
 
 Run only if any `make test-only` command fails because test products are stale:
 
@@ -1614,7 +1616,7 @@ make build-tests
 
 Expected: build-for-testing succeeds.
 
-- [ ] **Step 4: Run full unit tests**
+- [x] **Step 4: Run full unit tests**
 
 Run:
 
@@ -1624,7 +1626,7 @@ make test
 
 Expected: the Echo unit test action succeeds. UI tests remain intentionally excluded from the Echo scheme's test action.
 
-- [ ] **Step 5: Inspect the diff for accidental unrelated changes**
+- [x] **Step 5: Inspect the diff for accidental unrelated changes**
 
 Run:
 
@@ -1636,7 +1638,9 @@ git diff --stat origin/nightly...HEAD
 
 Expected: only settings cleanup files, docs, and tests are changed; `git diff --check` prints no whitespace errors.
 
-- [ ] **Step 6: Commit final fixes if needed**
+- [x] **Step 6: Commit final fixes if needed**
+
+Result: no additional verification fixes were needed after Steps 1-5; the final branch commit carries the scoped settings, docs, tests, and checklist updates.
 
 If Step 1-5 required edits, commit them:
 

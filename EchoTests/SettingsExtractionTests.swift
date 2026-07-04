@@ -76,13 +76,12 @@ struct SettingsExtractionTests {
         #expect(!source.contains("Seek Forward"))
     }
 
-    /// Auto-alignment + bookmarks-inline preferences moved into the Advanced
-    /// subscreen, which preserves the configureContinuousAlignment side-effect.
-    @Test func advancedSubViewOwnsAutoAlignmentAndBookmarks() throws {
+    /// Auto-alignment and diagnostics live in the Advanced subscreen, which
+    /// preserves the configureContinuousAlignment side-effect.
+    @Test func advancedSubViewOwnsAutoAlignmentAndDiagnostics() throws {
         let source = try Self.source(named: "SettingsAdvancedView.swift")
         #expect(source.contains("struct SettingsAdvancedView"))
         #expect(source.contains("configureContinuousAlignment()"))
-        #expect(source.contains("playBookmarksInline"))
         #expect(source.contains("debugLoggingEnabled"))
         #expect(source.contains("Verbose Diagnostic Logging"))
     }
@@ -110,6 +109,7 @@ struct SettingsExtractionTests {
         #expect(source.contains("ProTranscriptsSettingsView()"))
         #expect(source.contains("Section(\"Study & Notes\")"))
         #expect(source.contains("SettingsStudyRows()"))
+        #expect(source.contains("AutoExportSettingsRows()"))
         #expect(source.contains("AllStudyNotesExportView"))
         #expect(source.contains("Section(\"Advanced & Privacy\")"))
         #expect(source.contains("PronunciationDictionaryView(store: .shared)"))
@@ -147,9 +147,23 @@ struct SettingsExtractionTests {
         #expect(rows.contains("allowedContentTypes: [.folder]"))
         #expect(rows.contains("store.isPro"))
         #expect(rows.contains("PaywallView(context: .export)"))
+        #expect(!rows.contains("Section {"))
 
         let shell = try Self.source(named: "SettingsView.swift")
-        #expect(shell.contains("AutoExportSettingsRows()"))
+        let studySlice = try Self.slice(
+            of: shell,
+            after: "Section(\"Study & Notes\")",
+            until: "Section(\"Advanced & Privacy\")"
+        )
+        #expect(studySlice.contains("AutoExportSettingsRows()"))
+    }
+
+    @Test func bookmarksInlineLivesInNowPlayingSettings() throws {
+        let nowPlaying = try Self.source(named: "SettingsNowPlayingView.swift")
+        #expect(nowPlaying.contains("playBookmarksInline"))
+
+        let advanced = try Self.source(named: "SettingsAdvancedView.swift")
+        #expect(!advanced.contains("playBookmarksInline"))
     }
 
     @Test func rootTabViewFlushesAutoExportOnBackground() throws {
@@ -177,5 +191,16 @@ struct SettingsExtractionTests {
             directory.deleteLastPathComponent()
         }
         throw CocoaError(.fileNoSuchFile)
+    }
+
+    private static func slice(of source: String, after: String, until: String) throws -> String {
+        guard let startRange = source.range(of: after) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let tail = source[startRange.upperBound...]
+        guard let endRange = tail.range(of: until) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return String(tail[..<endRange.lowerBound])
     }
 }

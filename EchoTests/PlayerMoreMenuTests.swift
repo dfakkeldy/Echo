@@ -26,9 +26,16 @@ struct PlayerMoreMenuTests {
         #expect(source.contains("struct PlayerMoreMenu"), "PlayerMoreMenu type must exist.")
         #expect(source.contains("onShowChapters"), "More menu must surface Chapters.")
         #expect(source.contains("onShowBookmarks"), "More menu must surface Bookmarks.")
-        #expect(source.contains("onShowSettings"), "More menu must surface Settings.")
         #expect(
             source.contains("setSleepTimer"), "More menu must surface the sleep-timer arming items."
+        )
+        #expect(
+            !source.contains("onShowSettings"),
+            "Settings belongs to the global More menu, not the player-scoped More menu."
+        )
+        #expect(
+            !source.contains("Label(\"Settings\""),
+            "Settings belongs to the global More menu, not the player-scoped More menu."
         )
         // Must NOT reuse the global header menu's app-level entries.
         #expect(
@@ -42,8 +49,20 @@ struct PlayerMoreMenuTests {
     @Test func rootDockWiresTheMoreMenu() throws {
         let root = try Self.source(named: "RootTabView.swift")
         #expect(
-            root.contains("onShowChapters:") && root.contains("onShowSettings:"),
+            root.contains("onShowChapters:") && root.contains("onShowBookmarks:"),
             "RootTabView's overlay dock must wire the player-More closures."
+        )
+        #expect(
+            !root.contains("onShowSettings:"),
+            "The player-scoped More menu must not duplicate the global Settings route."
+        )
+    }
+
+    @Test func globalMoreMenuOwnsSettingsEntryPoint() throws {
+        let header = try Self.source(named: "Components/UnifiedTopHeader.swift")
+        #expect(
+            header.contains("Label(\"Settings\", systemImage: \"gearshape\")"),
+            "The global More menu should keep the single obvious Settings entry point."
         )
     }
 
@@ -88,14 +107,14 @@ struct PlayerMoreMenuTests {
             return "PlayerMoreMenu( utilityChip"
         } else if fileName == "PlayerMoreMenu.swift" {
             return
-                "struct PlayerMoreMenu onShowChapters onShowBookmarks onShowSettings setSleepTimer"
+                "struct PlayerMoreMenu onShowChapters onShowBookmarks setSleepTimer"
         } else if fileName == "NowPlayingTab.swift" {
-            return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet"
+            return "onShowChapters: onShowBookmarks: ChapterPickerSheet"
         } else if fileName == "RootTabView.swift" {
-            return "onShowChapters: onShowBookmarks: onShowSettings: ChapterPickerSheet "
+            return "onShowChapters: onShowBookmarks: ChapterPickerSheet "
                 + ".fileImporter( companionDocumentTypes .pdf model.importPDFDocument(from: url) model.importEPUBDocument(from: url)"
         } else if fileName == "Components/UnifiedTopHeader.swift" {
-            return "onAddDocumentTap Add Document"
+            return "onAddDocumentTap Add Document Label(\"Settings\", systemImage: \"gearshape\")"
         }
         throw CocoaError(.fileNoSuchFile)
     }

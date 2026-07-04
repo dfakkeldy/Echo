@@ -10,7 +10,7 @@ struct AutoExportSettingsRows: View {
     @State private var showingPaywall = false
 
     var body: some View {
-        Section {
+        Group {
             Toggle("Auto-Export Study Notes", isOn: enabledBinding)
 
             if settings.studyAutoExportEnabled {
@@ -25,10 +25,9 @@ struct AutoExportSettingsRows: View {
                     }
                 }
             }
-        } header: {
-            Text("Auto-Export")
-        } footer: {
             Text(statusText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
         .fileImporter(
             isPresented: $showingFolderPicker,
