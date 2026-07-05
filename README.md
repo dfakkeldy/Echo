@@ -305,6 +305,9 @@ settings and the full rhythm.
 
 Nightly builds auto-draft their TestFlight "What to Test" copy from the commit
 history (`make whats-new`); weekly/external builds keep the human-curated copy.
+Weekly builds also submit the committed Beta App Review details and, after a
+successful TestFlight upload, push reviewed App Store screenshots/metadata when
+PNG/JPG assets exist.
 
 ---
 

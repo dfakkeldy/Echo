@@ -32,6 +32,52 @@ def github_warning(message)
   end
 end
 
+def fastlane_file_value(path)
+  File.read(path).strip
+rescue Errno::ENOENT
+  ""
+end
+
+def required_fastlane_file_value(path, label)
+  value = fastlane_file_value(path)
+  return value unless value.empty?
+
+  UI.user_error!("Missing #{label}. Fill fastlane/#{path} before submitting external TestFlight builds.")
+end
+
+def beta_app_review_info
+  demo_user = fastlane_file_value("metadata/review_information/demo_user.txt")
+  demo_password = fastlane_file_value("metadata/review_information/demo_password.txt")
+  demo_account_required = !demo_user.empty? || !demo_password.empty?
+
+  if demo_account_required && (demo_user.empty? || demo_password.empty?)
+    UI.user_error!(
+      "External TestFlight beta review needs both fastlane/metadata/review_information/demo_user.txt " \
+      "and demo_password.txt, or neither when Echo does not require a demo login."
+    )
+  end
+
+  info = {
+    contact_email: required_fastlane_file_value("metadata/review_information/email_address.txt", "beta review contact email"),
+    contact_first_name: required_fastlane_file_value("metadata/review_information/first_name.txt", "beta review contact first name"),
+    contact_last_name: required_fastlane_file_value("metadata/review_information/last_name.txt", "beta review contact last name"),
+    contact_phone: required_fastlane_file_value("metadata/review_information/phone_number.txt", "beta review contact phone number"),
+    demo_account_required: demo_account_required,
+    notes: required_fastlane_file_value("metadata/review_information/notes.txt", "beta review notes")
+  }
+
+  if demo_account_required
+    info[:demo_account_name] = demo_user
+    info[:demo_account_password] = demo_password
+  end
+
+  info
+end
+
+def screenshot_upload_files
+  Dir.glob("screenshots/**/*.{png,jpg,jpeg}", File::FNM_CASEFOLD).select { |path| File.file?(path) }
+end
+
 def clear_snapshot_helper_cache!
   require "fileutils"
   helper_cache = File.expand_path("~/Library/Caches/tools.fastlane/screenshots")
@@ -238,6 +284,7 @@ platform :ios do
     # TestFlight copy lives in version-controlled files (paths relative to fastlane/):
     #   testflight/what_to_test.txt          → per-build "What to Test" (≤4000 chars)
     #   testflight/beta_app_description.txt  → Test Information description (≤4000 chars)
+    #   metadata/review_information/*         → Beta App Review contact/demo info
     tf_options = {
       api_key: @api_key,
       # pilot needs a single bundle id; the Appfile's for_lane(:beta) sets
@@ -258,10 +305,14 @@ platform :ios do
     # (demo account, contact, notes), so passing the internal group makes the lane
     # fail with "Missing required information to submit for external testing". The
     # external Weekly group genuinely submits for review, so it keeps the groups +
-    # distribute_external path.
+    # distribute_external path and supplies the committed Beta App Review details.
     if tf_group && tf_external
+      review_info = beta_app_review_info
       tf_options[:groups] = [tf_group]
       tf_options[:distribute_external] = true
+      tf_options[:submit_beta_review] = true
+      tf_options[:beta_app_review_info] = review_info
+      tf_options[:demo_account_required] = review_info[:demo_account_required]
     end
     upload_to_testflight(tf_options)
   end
@@ -334,5 +385,30 @@ platform :ios do
       run_precheck_before_submit: false,
       force: true # skip the HTML preview/confirmation prompt
     )
+  end
+
+  desc <<~DESC
+    Upload screenshots + metadata only when reviewed screenshot files exist.
+
+    Used by the weekly release train after TestFlight upload. If the screenshot
+    folder only contains documentation, the lane logs a skip instead of blocking
+    external TestFlight iteration.
+  DESC
+  lane :upload_screenshots_if_available do
+    require_api_key!
+
+    files = screenshot_upload_files
+    if files.empty?
+      UI.important("No PNG/JPG screenshots found under fastlane/screenshots; skipping App Store screenshot upload.")
+    else
+      UI.message("Uploading #{files.count} screenshot file(s) and metadata to App Store Connect.")
+      upload_to_app_store(
+        api_key: @api_key,
+        skip_binary_upload: true,
+        overwrite_screenshots: true,
+        run_precheck_before_submit: false,
+        force: true # skip the HTML preview/confirmation prompt
+      )
+    end
   end
 end

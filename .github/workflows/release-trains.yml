@@ -226,3 +226,10 @@ jobs:
       - name: Upload ${{ needs.resolve.outputs.channel }} build to TestFlight
         if: steps.creds.outputs.ready == 'true'
         run: bundle exec fastlane beta channel:${{ needs.resolve.outputs.channel }}
+
+      # Weekly is the external beta channel. After the build upload/review
+      # submission succeeds, keep App Store screenshot iteration on the same
+      # train. The lane skips cleanly until reviewed PNG/JPG assets exist.
+      - name: Upload reviewed App Store screenshots and metadata
+        if: steps.creds.outputs.ready == 'true' && needs.resolve.outputs.channel == 'weekly'
+        run: bundle exec fastlane upload_screenshots_if_available
