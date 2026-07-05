@@ -1549,6 +1549,14 @@ review. External testers are the general public; the **first build of a given
 marketing version** must clear Beta App Review (a lighter, faster pass than full
 App Store review — usually hours) before any external tester can install it.
 
+**Beta App Review details.** Weekly external submissions are automated in
+`fastlane beta channel:weekly`: the lane reads contact, notes, and optional demo
+login fields from `fastlane/metadata/review_information/`, passes them to
+Fastlane as `beta_app_review_info`, sets `submit_beta_review`, and distributes
+the build to the external Weekly group. Leave `demo_user.txt` and
+`demo_password.txt` blank while Echo requires no login; fill both together if a
+future build needs reviewer credentials.
+
 **The shareable link.** "Send me a link" = a TestFlight **public link**
 (`https://testflight.apple.com/join/XXXXXXXX`). It is a property of an *external*
 group (Weekly), not internal, and it only goes live once that group has a build
@@ -1561,6 +1569,14 @@ Link ▸ Enable**, then share the URL anywhere. Testers must install Apple's
 `fastlane/testflight/what_to_test.txt` (the changelog) and
 `beta_app_description.txt` (the group's Test Information). Edit those, not the
 dashboard — the lane reads them on every upload.
+
+**App Store screenshots.** Capture and review screenshots with
+`bundle exec fastlane screenshots` or the assisted script described in
+`fastlane/screenshots/en-US/README_SCREENSHOTS.md`. The weekly release-train
+workflow runs `bundle exec fastlane upload_screenshots_if_available` after a
+successful TestFlight upload; it uploads screenshots plus metadata when PNG/JPG
+files are present and logs a skip while the folder contains only documentation,
+so missing screenshots never block external TestFlight iteration.
 
 **Nightly "What to Test" auto-draft.** On the `nightly` channel only, the
 `fastlane beta` lane regenerates `what_to_test.txt` in the working tree (never

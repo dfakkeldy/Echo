@@ -153,6 +153,11 @@ bundle exec fastlane upload_screenshots   # screenshots + metadata, no binary
 (Requires `fastlane/api_key.json`.) Add device frames first with
 `bundle exec fastlane frame_app_store_screenshots` (needs `brew install imagemagick`).
 
+The weekly release train also runs
+`bundle exec fastlane upload_screenshots_if_available` after a successful
+TestFlight upload. It uploads reviewed PNG/JPG assets when they exist and skips
+without failing while this folder contains only docs.
+
 ## Notes
 
 - Screenshots are git-ignored (`.gitignore` → `fastlane/screenshots/**/*.png`).
