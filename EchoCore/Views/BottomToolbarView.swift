@@ -9,18 +9,31 @@ struct BottomToolbarView: View {
     /// on NowPlayingTab; these just forward the user's intent upward.
     var onShowChapters: () -> Void
     var onShowBookmarks: () -> Void
+    var onStats: () -> Void
+    var onFidget: () -> Void
+    var onSettings: () -> Void
+    var onHelp: () -> Void
+    var onAddDocument: (() -> Void)?
+    var onExport: (() -> Void)?
+    var onStudyNotesExport: (() -> Void)?
     var onShowPlaybackOptions: () -> Void
     var canCreateReaderCapture: Bool = false
     var isReaderVoiceMemoRecording: Bool = false
     var onAddReaderNote: (@MainActor () -> Void)?
     var onToggleReaderMemo: (@MainActor () -> Void)?
-    // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
 
     var body: some View {
         HStack {
             PlayerMoreMenu(
                 onShowChapters: onShowChapters,
-                onShowBookmarks: onShowBookmarks
+                onShowBookmarks: onShowBookmarks,
+                onStats: onStats,
+                onFidget: onFidget,
+                onSettings: onSettings,
+                onHelp: onHelp,
+                onAddDocument: onAddDocument,
+                onExport: onExport,
+                onStudyNotesExport: onStudyNotesExport
             )
             Spacer()
             speedMenu
