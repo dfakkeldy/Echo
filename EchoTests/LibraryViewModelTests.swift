@@ -78,6 +78,54 @@ struct LibraryViewModelTests {
         #expect(vm.statusMap["a"]?.processing.contains(.narrated) == true)
     }
 
+    @Test func siblingEditionsReturnOtherMembersInGroup() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "audio", title: "Dune", author: "Frank Herbert", duration: 100,
+                fileCount: 1, addedAt: "2026-07-05T00:00:00Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        try dao.save(
+            AudiobookRecord(
+                id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        let vm = LibraryViewModel(db: db, openBook: { _ in })
+
+        vm.reload()
+        let visible = try #require(vm.sections.first?.books.first)
+
+        #expect(vm.siblingEditions(of: visible).map(\.id) == ["text"])
+    }
+
+    @Test func separateEditionOptsOutAndReloadsShelf() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "audio", title: "Dune", author: "Frank Herbert", duration: 100,
+                fileCount: 1, addedAt: "2026-07-05T00:00:00Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        try dao.save(
+            AudiobookRecord(
+                id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        let vm = LibraryViewModel(db: db, openBook: { _ in })
+
+        vm.reload()
+        let visible = try #require(vm.sections.first?.books.first)
+        vm.separateEdition(visible)
+
+        let separated = try #require(try dao.get("audio"))
+        let sibling = try #require(try dao.get("text"))
+        #expect(separated.editionGroupID == nil)
+        #expect(separated.editionGroupOptOut == true)
+        #expect(sibling.editionGroupID == nil)
+        #expect(vm.sections.flatMap(\.books).map(\.id).sorted() == ["audio", "text"])
+    }
+
     @Test func openUnavailableBookStartsRecoveryInsteadOfOpening() throws {
         let db = try DatabaseService(inMemory: ())
         let book = AudiobookRecord(

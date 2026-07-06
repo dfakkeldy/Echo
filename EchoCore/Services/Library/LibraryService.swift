@@ -369,6 +369,54 @@ struct LibraryService {
         }
     }
 
+    /// Returns the other visible editions in each displayed book's group.
+    func siblingEditionsMap(for books: [AudiobookRecord]) throws -> [String: [AudiobookRecord]] {
+        let groupIDs = Set(
+            books.compactMap { book -> String? in
+                guard let groupID = book.editionGroupID,
+                    !groupID.isEmpty,
+                    !book.editionGroupOptOut
+                else { return nil }
+                return groupID
+            })
+        guard !groupIDs.isEmpty else { return [:] }
+
+        let members = try db.writer.read { db in
+            try AudiobookRecord
+                .filter(Column("is_available") == true)
+                .fetchAll(db)
+        }
+        let byGroup = Dictionary(
+            grouping: members.filter { book in
+                guard let groupID = book.editionGroupID else { return false }
+                return groupIDs.contains(groupID) && !book.editionGroupOptOut
+            },
+            by: { $0.editionGroupID! }
+        )
+
+        var result: [String: [AudiobookRecord]] = [:]
+        for book in books {
+            guard let groupID = book.editionGroupID,
+                let siblings = byGroup[groupID]
+            else { continue }
+            result[book.id] = siblings
+                .filter { $0.id != book.id }
+                .sorted(by: editionDisplaySort)
+        }
+        return result
+    }
+
+    /// Removes one persisted edition from its presentation group and refreshes
+    /// remaining groups so singleton leftovers become ordinary standalone cards.
+    func separateEdition(_ book: AudiobookRecord) throws {
+        let dao = AudiobookDAO(db: db.writer)
+        guard var persisted = try dao.get(book.id) else { return }
+        persisted.editionGroupID = nil
+        persisted.editionGroupOptOut = true
+        try dao.save(persisted)
+        try refreshEditionGroups()
+    }
+
     // MARK: - Derived status
 
     /// Study progress, derived from `playback_state.last_position` vs the book's
@@ -534,6 +582,14 @@ struct LibraryService {
         if lhsHasAudio != rhsHasAudio { return lhsHasAudio && !rhsHasAudio }
         if lhs.duration != rhs.duration { return lhs.duration > rhs.duration }
         return lhs.addedAt > rhs.addedAt
+    }
+
+    private func editionDisplaySort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
+        let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+        if titleOrder != .orderedSame {
+            return titleOrder == .orderedAscending
+        }
+        return lhs.id < rhs.id
     }
 
     private func refreshEditionGroups() throws {
