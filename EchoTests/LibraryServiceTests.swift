@@ -151,6 +151,41 @@ struct LibraryServiceTests {
         #expect(book?.coverArtPath != nil)
     }
 
+    @Test func metadataRescanBackfillsCoverFromCompanionEPUBWhenAudioHasNoCover() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-epub-cover-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+
+        let dune = DiscoveredBook(
+            folderURL: URL(fileURLWithPath: "/Lib/Dune", isDirectory: true),
+            audioFiles: [URL(fileURLWithPath: "/Lib/Dune/d.m4b")],
+            companionEPUB: URL(fileURLWithPath: "/Lib/Dune/dune.epub"))
+        let covers = FileManager.default.temporaryDirectory
+            .appendingPathComponent("covers-epub-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: covers) }
+        let coverData = Data([0xFF, 0xD8, 0xFF])
+
+        _ = try await service.rescan(
+            root: root,
+            discover: { _ in [dune] },
+            readMetadata: { _ in
+                LibraryScanner.ScannedMetadata(
+                    title: "Dune", author: "Frank Herbert", narrator: nil,
+                    duration: 0, coverImageData: nil)
+            },
+            companionCoverData: { _ in coverData },
+            coversDir: covers,
+            now: fixedNow)
+
+        let book = try #require(try AudiobookDAO(db: db.writer).get("file:///Lib/Dune/"))
+        let coverPath = try #require(book.coverArtPath)
+        #expect(try Data(contentsOf: covers.appendingPathComponent(coverPath)) == coverData)
+    }
+
     @Test func metadataRescanStartsSecurityScopeAroundDiscovery() async throws {
         let db = try DatabaseService(inMemory: ())
         let service = LibraryService(db: db)
@@ -306,6 +341,63 @@ struct LibraryServiceTests {
 
         #expect(sections.map(\.title) == ["Frank Herbert", "Ursula K. Le Guin"])
         #expect(sections.map(\.books.count) == [1, 1])
+    }
+
+    @Test func booksCollapseEditionGroupsAndBorrowCoverFromTextEdition() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "audio", title: "Dune", author: "Frank Herbert", duration: 100,
+                fileCount: 1, addedAt: "2026-07-05T00:00:00Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        try dao.save(
+            AudiobookRecord(
+                id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: 0, addedAt: "2026-07-05T00:00:01Z", coverArtPath: "dune.jpg",
+                isAvailable: true, editionGroupID: "edition-dune"))
+
+        let service = LibraryService(db: db)
+        let books = try service.books(includeUnavailable: false)
+
+        #expect(books.map(\.id) == ["audio"])
+        #expect(books.first?.coverArtPath == "dune.jpg")
+    }
+
+    @Test func metadataRescanAssignsEditionGroupsToMatchingBooks() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let service = LibraryService(db: db)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lib-editions-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let root = try service.registerRoot(url: tmp, now: fixedNow)
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/DuneText/", title: "Dune", author: "Frank Herbert",
+                duration: 0, fileCount: 0, addedAt: fixedNow(), isAvailable: true))
+
+        let audio = DiscoveredBook(
+            folderURL: URL(fileURLWithPath: "/Lib/DuneAudio", isDirectory: true),
+            audioFiles: [URL(fileURLWithPath: "/Lib/DuneAudio/d.m4b")], companionEPUB: nil)
+
+        _ = try await service.rescan(
+            root: root,
+            discover: { _ in [audio] },
+            readMetadata: { _ in
+                LibraryScanner.ScannedMetadata(
+                    title: "The Dune", author: "Frank Herbert", narrator: nil,
+                    duration: 100, coverImageData: nil)
+            },
+            coversDir: FileManager.default.temporaryDirectory
+                .appendingPathComponent("covers-editions-\(UUID().uuidString)", isDirectory: true),
+            now: fixedNow)
+
+        let text = try #require(try dao.get("file:///Lib/DuneText/"))
+        let audioRecord = try #require(try dao.get("file:///Lib/DuneAudio/"))
+        #expect(text.editionGroupID == audioRecord.editionGroupID)
+        #expect(text.editionGroupID != nil)
     }
 
     // MARK: - Task 10: derived study + processing status

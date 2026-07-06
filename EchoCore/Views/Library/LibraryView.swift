@@ -25,8 +25,14 @@ struct LibraryView: View {
             if vm.isEmpty {
                 emptyState
             } else {
-                LibraryShelfGrid(sections: vm.sections, statusMap: vm.statusMap) { book in
+                LibraryShelfGrid(
+                    sections: vm.sections,
+                    statusMap: vm.statusMap,
+                    siblingEditions: { vm.siblingEditions(of: $0) }
+                ) { book in
                     vm.open(book)
+                } onSeparateEdition: { book in
+                    vm.separateEdition(book)
                 }
             }
         }

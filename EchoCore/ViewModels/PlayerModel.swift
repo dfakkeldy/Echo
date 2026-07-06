@@ -103,6 +103,7 @@ final class PlayerModel {
     var epubSearchText: String = ""
     var showReaderSettings: Bool = false
     var showReaderTOC: Bool = false
+    var readerChromeHidden: Bool = false
     var epubScrollToActiveTrigger: Int = 0
     var readerCaptureAnchorBlockID: String?
     var isReaderVoiceMemoRecording: Bool = false

@@ -4,7 +4,9 @@ import SwiftUI
 struct LibraryShelfGrid: View {
     let sections: [LibrarySection]
     let statusMap: [String: LibraryBookStatus]
+    let siblingEditions: (AudiobookRecord) -> [AudiobookRecord]
     let onTapBook: (AudiobookRecord) -> Void
+    let onSeparateEdition: (AudiobookRecord) -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 112), spacing: 14)]
 
@@ -20,9 +22,14 @@ struct LibraryShelfGrid: View {
                             ForEach(section.books, id: \.id) { book in
                                 LibraryCoverCell(
                                     book: book,
-                                    processing: statusMap[book.id]?.processing ?? []
+                                    processing: statusMap[book.id]?.processing ?? [],
+                                    siblingEditions: siblingEditions(book)
                                 ) {
                                     onTapBook(book)
+                                } onSelectEdition: { edition in
+                                    onTapBook(edition)
+                                } onSeparateEdition: {
+                                    onSeparateEdition(book)
                                 }
                             }
                         }

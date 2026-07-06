@@ -11,17 +11,22 @@ struct WatchAppDesignerAccessibilityTests {
         )
         #expect(
             source.contains("choices: watchSlotChoices"),
-            "Watch slot pickers must use the same selectable action set as the drag palette plus Empty."
+            "Watch slot pickers must use the shared watch action set."
         )
         #expect(
-            !source.contains("Available Actions (Drag to slots)"),
-            "Watch App Designer copy must not imply dragging is the only configuration path."
+            source.contains("Choose actions for this page using the menus below."),
+            "Watch App Designer copy must point to the picker menus as the configuration path."
         )
+        #expect(!source.contains("PaletteItem("))
+        #expect(!source.contains("private struct PaletteItem"))
+        #expect(!source.contains(".onDrag"))
+        #expect(!source.contains(".onDrop"))
+        #expect(!source.contains("import UniformTypeIdentifiers"))
 
         let pickerSlice = try Self.slice(
             of: source,
             after: "private struct WatchSlotPickerGrid",
-            until: "private struct PaletteItem"
+            until: "private struct WatchPreviewCanvas"
         )
         #expect(
             pickerSlice.contains("ForEach(0..<5"),
@@ -40,8 +45,8 @@ struct WatchAppDesignerAccessibilityTests {
             "Watch slot picker changes must persist and sync through the existing save path."
         )
         #expect(
-            source.contains("Task { @MainActor in"),
-            "Watch drag-and-drop persistence should hop back to the main actor with Swift concurrency."
+            source.contains("action.displayName"),
+            "Watch slot labels must use the shared WatchAction display names."
         )
     }
 
@@ -52,7 +57,7 @@ struct WatchAppDesignerAccessibilityTests {
         #expect(source.contains("Section(\"Progress\")"))
         #expect(source.contains("Section(\"Controls\")"))
         #expect(source.contains("Section(\"Layout Designer\")"))
-        #expect(source.contains("Section(\"Available Actions\")"))
+        #expect(!source.contains("Section(\"Available Actions\")"))
         #expect(source.contains("Section(\"Presets\")"))
         #expect(!source.contains("ScrollView {"))
 

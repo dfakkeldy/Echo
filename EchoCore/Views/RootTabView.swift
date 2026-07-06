@@ -262,22 +262,11 @@ struct RootTabView: View {
 
             // Unified Top Header System (Row 1: global navigation), overlaid
             // at the top of the Z-stack on top of the content behind it.
-            UnifiedTopHeader(
-                onFolderTap: { showingFolderPicker = true },
-                onSettingsTap: { showingSettings = true },
-                onBookSettingsTap: { showingBookSettings = true },
-                onHelpTap: { model.showingHelp = true },
-                onStatsTap: { showingStats = true },
-                onFidgetTap: { showingFidget = true },
-                onAddDocumentTap: (model.folderURL != nil
-                    && !model.narrationPlaybackState.isRunning)
-                    ? { model.showingDocumentImporter = true } : nil,
-                onExportTap: (model.folderURL != nil && !model.narrationPlaybackState.isRunning)
-                    ? { showingExport = true } : nil,
-                onStudyNotesExportTap: (model.folderURL != nil
-                    && !model.narrationPlaybackState.isRunning)
-                    ? { showingStudyNotesExport = true } : nil
-            )
+            UnifiedTopHeader(onFolderTap: { showingFolderPicker = true })
+                .opacity(topChromeHidden ? 0 : 1)
+                .offset(y: topChromeHidden ? -UnifiedTopHeader.rowOneHeight : 0)
+                .allowsHitTesting(!topChromeHidden)
+                .animation(.easeInOut(duration: 0.25), value: topChromeHidden)
 
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
@@ -287,11 +276,21 @@ struct RootTabView: View {
                     UnifiedBottomDock(
                         onCreateBookmark: { draft in newBookmarkDraft = draft },
                         onShowPlaybackOptions: { showingPlaybackOptions = true },
-                        // WS-C C2: the player-More closures are required on the dock.
-                        // Full wiring on this non-NowPlaying overlay (chapter sheet
-                        // binding) is task C3; Bookmarks reuse existing state.
                         onShowChapters: { showingChapterPicker = true },
-                        onShowBookmarks: { model.selectedTab = .read }
+                        onShowBookmarks: { model.selectedTab = .read },
+                        onStats: { showingStats = true },
+                        onFidget: { showingFidget = true },
+                        onSettings: { showingSettings = true },
+                        onHelp: { model.showingHelp = true },
+                        onAddDocument: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { model.showingDocumentImporter = true } : nil,
+                        onExport: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { showingExport = true } : nil,
+                        onStudyNotesExport: (model.folderURL != nil
+                            && !model.narrationPlaybackState.isRunning)
+                            ? { showingStudyNotesExport = true } : nil
                     )
                     .environment(\.showPlaybackOptions, { showingPlaybackOptions = true })
                 }
@@ -577,6 +576,10 @@ struct RootTabView: View {
 
     private var companionDocumentTypes: [UTType] {
         [UTType(filenameExtension: "epub") ?? .data, .pdf]
+    }
+
+    private var topChromeHidden: Bool {
+        model.selectedTab == .read && model.readerChromeHidden
     }
 
     private var documentImportErrorPresented: Binding<Bool> {

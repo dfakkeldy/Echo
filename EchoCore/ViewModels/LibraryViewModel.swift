@@ -18,6 +18,7 @@ final class LibraryViewModel {
     @ObservationIgnored private let service: LibraryService
     @ObservationIgnored private let openBook: (LibraryOpenTarget) -> Void
     @ObservationIgnored private let logger = Logger(category: "LibraryViewModel")
+    @ObservationIgnored private var siblingEditionsByBookID: [String: [AudiobookRecord]] = [:]
 
     init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) -> Void) {
         self.database = db
@@ -38,9 +39,12 @@ final class LibraryViewModel {
             sections = try service.sections(by: selectedAxis, includeUnavailable: showUnavailable)
             let bookIDs = sections.flatMap(\.books).map(\.id)
             statusMap = try service.statusMap(for: bookIDs)
+            siblingEditionsByBookID = try service.siblingEditionsMap(
+                for: sections.flatMap(\.books))
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+            siblingEditionsByBookID = [:]
             logger.error("Library reload failed: \(error.localizedDescription)")
         }
     }
@@ -67,6 +71,20 @@ final class LibraryViewModel {
         } catch {
             errorMessage = "This book can't be opened. Its folder may have moved."
             logger.error("Open failed for \(book.id): \(error.localizedDescription)")
+        }
+    }
+
+    func siblingEditions(of book: AudiobookRecord) -> [AudiobookRecord] {
+        siblingEditionsByBookID[book.id] ?? []
+    }
+
+    func separateEdition(_ book: AudiobookRecord) {
+        do {
+            try service.separateEdition(book)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+            logger.error("Separate edition failed for \(book.id): \(error.localizedDescription)")
         }
     }
 

@@ -167,10 +167,9 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         itemID.hasPrefix("b-")
                     {
                         let blockID = String(itemID.dropFirst(2))
-                        let timeString =
-                            audioStartTimeByBlockID[blockID].map {
-                                Duration.seconds($0).formatted(.time(pattern: .minuteSecond))
-                            } ?? "None"
+                        let timeString = readerAlignmentTimestampString(
+                            audioStartTimeByBlockID[blockID]
+                        )
                         let isAnchored = alignmentStatusByBlockID[blockID] == "lockedAnchor"
 
                         if let headingCell = cell as? HeadingCardCell {
@@ -464,10 +463,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: headingWordIdx)
                     headingCell.isActiveBlock = (block.id == activeBlockID)
-                    let timeString =
-                        audioStartTimeByBlockID[block.id].map {
-                            Duration.seconds($0).formatted(.time(pattern: .minuteSecond))
-                        } ?? "None"
+                    let timeString = readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     headingCell.setManuallyAligned(isAnchored, timeString: timeString)
                     headingCell.configureAccessibility(
@@ -513,10 +509,7 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: paraWordIdx)
                     paraCell.isActiveBlock = (block.id == activeBlockID)
-                    let timeString =
-                        audioStartTimeByBlockID[block.id].map {
-                            Duration.seconds($0).formatted(.time(pattern: .minuteSecond))
-                        } ?? "None"
+                    let timeString = readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     paraCell.setManuallyAligned(isAnchored, timeString: timeString)
                     paraCell.configureAccessibility(

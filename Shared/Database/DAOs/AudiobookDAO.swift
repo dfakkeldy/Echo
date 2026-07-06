@@ -65,6 +65,8 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
     var authorSort: String? = nil
     var sourceRootID: String? = nil
     var textOrigin: String? = nil
+    var editionGroupID: String? = nil
+    var editionGroupOptOut: Bool = false
 
     static let databaseTableName = "audiobook"
 
@@ -84,5 +86,7 @@ struct AudiobookRecord: Codable, FetchableRecord, MutablePersistableRecord {
         case authorSort = "author_sort"
         case sourceRootID = "source_root_id"
         case textOrigin = "text_origin"
+        case editionGroupID = "edition_group_id"
+        case editionGroupOptOut = "edition_group_optout"
     }
 }

@@ -4,7 +4,10 @@ import SwiftUI
 struct LibraryCoverCell: View {
     let book: AudiobookRecord
     let processing: ProcessingStatus
+    let siblingEditions: [AudiobookRecord]
     let onTap: () -> Void
+    let onSelectEdition: (AudiobookRecord) -> Void
+    let onSeparateEdition: () -> Void
 
     var body: some View {
         Button(action: onTap) {
@@ -42,6 +45,23 @@ struct LibraryCoverCell: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            ForEach(siblingEditions, id: \.id) { edition in
+                Button {
+                    onSelectEdition(edition)
+                } label: {
+                    Label("Open \(edition.title)", systemImage: editionIcon(for: edition))
+                }
+            }
+            if book.editionGroupID?.isEmpty == false {
+                if !siblingEditions.isEmpty {
+                    Divider()
+                }
+                Button("Separate This Edition", systemImage: "rectangle.split.2x1") {
+                    onSeparateEdition()
+                }
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityLabel))
     }
@@ -52,5 +72,10 @@ struct LibraryCoverCell: View {
             return "\(book.title), \(author)\(availability)"
         }
         return "\(book.title)\(availability)"
+    }
+
+    private func editionIcon(for edition: AudiobookRecord) -> String {
+        let hasAudio = (edition.fileCount ?? 0) > 0 || edition.duration > 0
+        return hasAudio ? "headphones" : "book.pages"
     }
 }

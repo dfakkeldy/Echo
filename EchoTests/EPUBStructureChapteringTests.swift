@@ -49,6 +49,35 @@ struct EPUBStructureChapteringTests {
         #expect(result["b4"] == 1)
     }
 
+    @Test func tocFrontMatterEntriesDoNotConsumeChapterIndices() {
+        let blocks = [
+            blk("title", seq: 0, spine: 0, frontMatter: true),
+            blk("copyright", seq: 1, spine: 1, frontMatter: true),
+            blk("dedication", seq: 2, spine: 2, frontMatter: true),
+            blk("chapter1", seq: 3, spine: 3),
+            blk("chapter1body", seq: 4, spine: 3),
+            blk("chapter2", seq: 5, spine: 4),
+            blk("chapter2body", seq: 6, spine: 4),
+        ]
+        let toc = [
+            toc("Title Page", block: "title", depth: 0, order: 0),
+            toc("Copyright", block: "copyright", depth: 0, order: 1),
+            toc("Dedication", block: "dedication", depth: 0, order: 2),
+            toc("Chapter One", block: "chapter1", depth: 0, order: 3),
+            toc("Chapter Two", block: "chapter2", depth: 0, order: 4),
+        ]
+
+        let result = EPUBStructureChaptering.chapterIndices(blocks: blocks, tocEntries: toc)
+
+        #expect(result["title"] == nil)
+        #expect(result["copyright"] == nil)
+        #expect(result["dedication"] == nil)
+        #expect(result["chapter1"] == 0)
+        #expect(result["chapter1body"] == 0)
+        #expect(result["chapter2"] == 1)
+        #expect(result["chapter2body"] == 1)
+    }
+
     @Test func chaptersByShallowestRepeatingDepth() {
         // A single "Part I" at depth 0 must not become the only chapter; the
         // three depth-1 chapters that actually repeat are the chapter level.

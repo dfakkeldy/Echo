@@ -21,3 +21,8 @@ public nonisolated func formatHMS(_ seconds: TimeInterval) -> String {
     }
     return "\(paddedMinute):\(paddedSecond)"
 }
+
+nonisolated func readerAlignmentTimestampString(_ seconds: TimeInterval?) -> String? {
+    guard let seconds, seconds.isFinite, !seconds.isNaN else { return nil }
+    return Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond))
+}

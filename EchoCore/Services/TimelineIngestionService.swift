@@ -47,6 +47,14 @@ struct TimelineIngestionService {
             audiobook.duration = resolvedDuration
             audiobook.fileCount = tracks.count
             audiobook.isAvailable = true
+            if audiobook.coverArtPath == nil,
+                let coverData = EpubCoverResolver.coverData(forAudiobookID: audiobookID)
+            {
+                audiobook.coverArtPath = LibraryCoverStore.writeCover(
+                    coverData,
+                    id: audiobookID,
+                    coversDir: FileLocations.libraryCoversDirectory)
+            }
             let records = tracks.enumerated().map { (i, track) in
                 TrackRecord(
                     id: track.id,

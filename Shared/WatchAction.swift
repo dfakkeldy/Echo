@@ -21,6 +21,25 @@ public enum WatchAction: String, Codable, CaseIterable, Identifiable {
 
     public var id: String { rawValue }
 
+    public var displayName: String {
+        switch self {
+        case .playPause: return String(localized: "Play / Pause")
+        case .skipForward: return String(localized: "Skip Forward")
+        case .skipBackward: return String(localized: "Skip Back")
+        case .nextTrack: return String(localized: "Next Chapter")
+        case .previousTrack: return String(localized: "Previous Chapter")
+        case .nextSection: return String(localized: "Next Section")
+        case .previousSection: return String(localized: "Previous Section")
+        case .loopMode: return String(localized: "Loop Mode")
+        case .speed: return String(localized: "Speed")
+        case .sleepTimer: return String(localized: "Sleep Timer")
+        case .bookmark: return String(localized: "Bookmark")
+        case .markPassage: return String(localized: "Mark Passage")
+        case .pomodoro: return String(localized: "Pomodoro")
+        case .empty: return String(localized: "Empty")
+        }
+    }
+
     public var iconName: String {
         switch self {
         case .playPause:     return "playpause.fill"

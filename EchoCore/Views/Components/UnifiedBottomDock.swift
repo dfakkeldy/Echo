@@ -10,7 +10,13 @@ struct UnifiedBottomDock: View {
     /// Player-More menu closures (WS-C), forwarded to BottomToolbarView.
     var onShowChapters: () -> Void
     var onShowBookmarks: () -> Void
-    // onShowFidget removed — Fidget now lives in the More menu (UnifiedTopHeader).
+    var onStats: () -> Void
+    var onFidget: () -> Void
+    var onSettings: () -> Void
+    var onHelp: () -> Void
+    var onAddDocument: (() -> Void)?
+    var onExport: (() -> Void)?
+    var onStudyNotesExport: (() -> Void)?
 
     /// Platform-agnostic separator color.
     @MainActor private var separatorColor: Color {
@@ -70,6 +76,13 @@ struct UnifiedBottomDock: View {
                 onCreateBookmark: onCreateBookmark,
                 onShowChapters: onShowChapters,
                 onShowBookmarks: onShowBookmarks,
+                onStats: onStats,
+                onFidget: onFidget,
+                onSettings: onSettings,
+                onHelp: onHelp,
+                onAddDocument: onAddDocument,
+                onExport: onExport,
+                onStudyNotesExport: onStudyNotesExport,
                 onShowPlaybackOptions: onShowPlaybackOptions,
                 canCreateReaderCapture: model.readerCaptureAnchorBlockID != nil,
                 isReaderVoiceMemoRecording: model.isReaderVoiceMemoRecording,

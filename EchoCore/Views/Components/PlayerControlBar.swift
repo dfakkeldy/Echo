@@ -150,13 +150,15 @@ struct PlayerControlBar: View {
     }
 
     private var titleText: String {
+        let title: String
         if model.chapters.count >= 2 {
-            return model.currentSubtitle.isEmpty
+            title = model.currentSubtitle.isEmpty
                 ? String(localized: "Ch \((model.currentChapterIndex ?? 0) + 1)")
                 : model.currentSubtitle
         } else {
-            return model.currentTitle
+            title = model.currentTitle
         }
+        return title.strippingTrackNumberPrefix()
     }
 
     private var accessibilityValueText: String {

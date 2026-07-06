@@ -76,7 +76,8 @@ extension LibraryScanner {
         let asset = AVURLAsset(url: first)
         let metadata = (try? await asset.load(.commonMetadata)) ?? []
 
-        let title = await stringValue(in: metadata, key: .commonKeyTitle)
+        let trackTitle = await stringValue(in: metadata, key: .commonKeyTitle)
+        let albumTitle = await stringValue(in: metadata, key: .commonKeyAlbumName)
         let author = await stringValue(in: metadata, key: .commonKeyArtist)
         let duration =
             ((try? await asset.load(.duration))?.seconds).flatMap {
@@ -86,8 +87,21 @@ extension LibraryScanner {
         let cover = await coverArtworkJPEGData(for: first)
 
         return ScannedMetadata(
-            title: title?.isEmpty == false ? title! : fallbackTitle(for: book),
+            title: resolveBookTitle(
+                album: albumTitle,
+                track: trackTitle,
+                fallback: fallbackTitle(for: book)),
             author: author, narrator: nil, duration: duration, coverImageData: cover)
+    }
+
+    static func resolveBookTitle(album: String?, track: String?, fallback: String) -> String {
+        if let album = album?.trimmingCharacters(in: .whitespacesAndNewlines), !album.isEmpty {
+            return album
+        }
+        if let track = track?.trimmingCharacters(in: .whitespacesAndNewlines), !track.isEmpty {
+            return track
+        }
+        return fallback
     }
 
     private static func stringValue(

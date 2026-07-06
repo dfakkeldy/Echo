@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import CryptoKit
 import Foundation
 import GRDB
 import os.log
@@ -181,6 +180,8 @@ struct LibraryService {
             result.hidden += 1
         }
 
+        try refreshEditionGroups()
+
         var stampedRoot = root
         stampedRoot.lastScannedAt = timestamp
         try LibraryRootDAO(db: db.writer).save(stampedRoot)
@@ -196,6 +197,11 @@ struct LibraryService {
         root: LibraryRootRecord,
         discover: (URL) -> [DiscoveredBook] = { LibraryScanner.discoverBooks(in: $0) },
         readMetadata: (DiscoveredBook) async -> LibraryScanner.ScannedMetadata,
+        companionCoverData: (DiscoveredBook) -> Data? = { book in
+            guard let epub = book.companionEPUB else { return nil }
+            return EpubCoverResolver.coverData(epubArchiveURL: epub)
+                ?? EpubCoverResolver.coverData(expandedEPUBDir: epub)
+        },
         coversDir: URL,
         startScope: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
         stopScope: (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
@@ -221,7 +227,10 @@ struct LibraryService {
         for book in found {
             let id = book.folderURL.absoluteString
             let meta = await readMetadata(book)
-            let coverPath = writeCover(meta.coverImageData, id: id, coversDir: coversDir)
+            let coverPath = writeCover(
+                meta.coverImageData ?? companionCoverData(book),
+                id: id,
+                coversDir: coversDir)
             let existing = try dao.get(id)
             var record: AudiobookRecord
             if let e = existing {
@@ -265,6 +274,8 @@ struct LibraryService {
             try dao.save(hidden)
             result.hidden += 1
         }
+
+        try refreshEditionGroups()
 
         var stampedRoot = root
         stampedRoot.lastScannedAt = timestamp
@@ -311,24 +322,7 @@ struct LibraryService {
     /// the book id for cross-launch stability. Returns the relative filename, or
     /// nil if `data` is nil or the write fails.
     private func writeCover(_ data: Data?, id: String, coversDir: URL) -> String? {
-        guard let data else { return nil }
-        let name = coverFilename(for: id)
-        let url = coversDir.appendingPathComponent(name)
-        do {
-            try data.write(to: url)
-            return name
-        } catch {
-            logger.error("Cover write failed for \(id): \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Derives a stable, cross-launch cover filename by SHA-256 hashing the book
-    /// id. Unlike Swift's `Hasher` (per-run seeded), SHA-256 is deterministic so
-    /// the same book always maps to the same file, preventing orphaned covers.
-    private func coverFilename(for id: String) -> String {
-        let digest = SHA256.hash(data: Data(id.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
+        LibraryCoverStore.writeCover(data, id: id, coversDir: coversDir)
     }
 
     // MARK: - Query
@@ -341,7 +335,7 @@ struct LibraryService {
             if !includeUnavailable {
                 request = request.filter(Column("is_available") == true)
             }
-            return try request.fetchAll(db)
+            return collapseEditionGroups(try request.fetchAll(db))
         }
     }
 
@@ -373,6 +367,54 @@ struct LibraryService {
         case .processingStatus:
             return try processingStatusSections(all)
         }
+    }
+
+    /// Returns the other visible editions in each displayed book's group.
+    func siblingEditionsMap(for books: [AudiobookRecord]) throws -> [String: [AudiobookRecord]] {
+        let groupIDs = Set(
+            books.compactMap { book -> String? in
+                guard let groupID = book.editionGroupID,
+                    !groupID.isEmpty,
+                    !book.editionGroupOptOut
+                else { return nil }
+                return groupID
+            })
+        guard !groupIDs.isEmpty else { return [:] }
+
+        let members = try db.writer.read { db in
+            try AudiobookRecord
+                .filter(Column("is_available") == true)
+                .fetchAll(db)
+        }
+        let byGroup = Dictionary(
+            grouping: members.filter { book in
+                guard let groupID = book.editionGroupID else { return false }
+                return groupIDs.contains(groupID) && !book.editionGroupOptOut
+            },
+            by: { $0.editionGroupID! }
+        )
+
+        var result: [String: [AudiobookRecord]] = [:]
+        for book in books {
+            guard let groupID = book.editionGroupID,
+                let siblings = byGroup[groupID]
+            else { continue }
+            result[book.id] = siblings
+                .filter { $0.id != book.id }
+                .sorted(by: editionDisplaySort)
+        }
+        return result
+    }
+
+    /// Removes one persisted edition from its presentation group and refreshes
+    /// remaining groups so singleton leftovers become ordinary standalone cards.
+    func separateEdition(_ book: AudiobookRecord) throws {
+        let dao = AudiobookDAO(db: db.writer)
+        guard var persisted = try dao.get(book.id) else { return }
+        persisted.editionGroupID = nil
+        persisted.editionGroupOptOut = true
+        try dao.save(persisted)
+        try refreshEditionGroups()
     }
 
     // MARK: - Derived status
@@ -503,6 +545,71 @@ struct LibraryService {
         return groups.keys.sorted().map { k in
             let items = groups[k]!.sorted { $0.title < $1.title }
             return LibrarySection(title: title(items[0]), books: items)
+        }
+    }
+
+    private func collapseEditionGroups(_ books: [AudiobookRecord]) -> [AudiobookRecord] {
+        let grouped = Dictionary(grouping: books) { book in
+            if let editionGroupID = book.editionGroupID,
+                !editionGroupID.isEmpty,
+                !book.editionGroupOptOut
+            {
+                return "edition:\(editionGroupID)"
+            }
+            return "book:\(book.id)"
+        }
+
+        return grouped.values.map { editions in
+            var representative = editions.sorted(by: editionSort).first!
+            if representative.coverArtPath == nil {
+                representative.coverArtPath = editions.compactMap(\.coverArtPath).first
+            }
+            if representative.author == nil {
+                representative.author = editions.compactMap(\.author).first
+            }
+            if representative.authorSort == nil {
+                representative.authorSort = editions.compactMap(\.authorSort).first
+            }
+            return representative
+        }
+        .sorted { $0.addedAt > $1.addedAt }
+    }
+
+    private func editionSort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
+        if lhs.isAvailable != rhs.isAvailable { return lhs.isAvailable && !rhs.isAvailable }
+        let lhsHasAudio = (lhs.fileCount ?? 0) > 0 || lhs.duration > 0
+        let rhsHasAudio = (rhs.fileCount ?? 0) > 0 || rhs.duration > 0
+        if lhsHasAudio != rhsHasAudio { return lhsHasAudio && !rhsHasAudio }
+        if lhs.duration != rhs.duration { return lhs.duration > rhs.duration }
+        return lhs.addedAt > rhs.addedAt
+    }
+
+    private func editionDisplaySort(_ lhs: AudiobookRecord, _ rhs: AudiobookRecord) -> Bool {
+        let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+        if titleOrder != .orderedSame {
+            return titleOrder == .orderedAscending
+        }
+        return lhs.id < rhs.id
+    }
+
+    private func refreshEditionGroups() throws {
+        let all = try db.writer.read { db in
+            try AudiobookRecord
+                .filter(Column("is_available") == true)
+                .fetchAll(db)
+        }
+        let identities = all
+            .filter { !$0.editionGroupOptOut }
+            .map { EditionMatcher.Identity(id: $0.id, title: $0.title, author: $0.author) }
+        let groupIDs = EditionMatcher.groups(for: identities)
+        let dao = AudiobookDAO(db: db.writer)
+        for book in all {
+            let desiredID = book.editionGroupOptOut ? nil : groupIDs[book.id]
+            if book.editionGroupID != desiredID {
+                var updated = book
+                updated.editionGroupID = desiredID
+                try dao.save(updated)
+            }
         }
     }
 

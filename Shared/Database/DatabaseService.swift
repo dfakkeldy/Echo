@@ -152,6 +152,9 @@ final class DatabaseService {
         migrator.registerMigration("v34_study_auto_export") { db in
             try Schema_V34.migrate(db)
         }
+        migrator.registerMigration("v35_library_edition_grouping") { db in
+            try Schema_V35.migrate(db)
+        }
         try migrator.migrate(writer)
     }
 }

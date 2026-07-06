@@ -11,18 +11,18 @@ struct ReaderTab: View {
     @Environment(SettingsManager.self) private var settingsManager
     @Environment(FreeTierGate.self) var freeTierGate
 
-    @State var viewModel: ReaderFeedViewModel?
-    @State var showChapterPickerForBlockID: String? = nil
-    @State var showCardColorPickerForBlockID: String? = nil
-    @State var showChapterThemePickerForBlockID: String? = nil
+    @State internal var viewModel: ReaderFeedViewModel?
+    @State internal var showChapterPickerForBlockID: String? = nil
+    @State internal var showCardColorPickerForBlockID: String? = nil
+    @State internal var showChapterThemePickerForBlockID: String? = nil
     @State private var isHeaderVisible = true
     @State private var autoScrollEnabled = true
     @State private var topPartTitle: String? = nil
     @State private var topChapterTitle: String? = nil
     @State private var topSectionTitle: String? = nil
     @State private var topChapterThemeColor: String? = nil
-    @State var pulseBlockID: String? = nil
-    @State var pulseResetTask: Task<Void, Never>?
+    @State internal var pulseBlockID: String? = nil
+    @State internal var pulseResetTask: Task<Void, Never>?
     @State private var forceScrollBlockID: String? = nil
     @State private var forceScrollTrigger: Int = 0
 
@@ -403,6 +403,9 @@ struct ReaderTab: View {
             .onChange(of: viewModel?.activeBlockID) { _, newValue in
                 model.readerCaptureAnchorBlockID = newValue
             }
+            .onChange(of: isHeaderVisible) { _, visible in
+                model.readerChromeHidden = !visible
+            }
             .onChange(of: model.epubScrollToActiveTrigger) { _, _ in
                 scrollReaderToActiveBlock()
             }
@@ -634,6 +637,7 @@ struct ReaderTab: View {
     }
 
     private func tearDownReader() {
+        model.readerChromeHidden = false
         pulseResetTask?.cancel()
         pulseResetTask = nil
         pulseBlockID = nil
