@@ -21,58 +21,60 @@ struct PlayerMoreMenuTests {
         )
     }
 
-    @Test func playerMoreMenuExposesPlayerScopedActions() throws {
+    @Test func playerMoreMenuExposesConsolidatedActions() throws {
         let source = try Self.source(named: "PlayerMoreMenu.swift")
         #expect(source.contains("struct PlayerMoreMenu"), "PlayerMoreMenu type must exist.")
         #expect(source.contains("onShowChapters"), "More menu must surface Chapters.")
         #expect(source.contains("onShowBookmarks"), "More menu must surface Bookmarks.")
+        #expect(source.contains("onAddDocument"), "More menu must surface the companion-document attach action.")
+        #expect(source.contains("onExport"), "More menu must surface M4B export.")
+        #expect(source.contains("onStudyNotesExport"), "More menu must surface study-note export.")
+        #expect(source.contains("onStats"), "More menu must surface Stats.")
+        #expect(source.contains("onFidget"), "More menu must surface Fidget.")
+        #expect(source.contains("onSettings"), "More menu must surface Settings.")
+        #expect(source.contains("onHelp"), "More menu must surface Help.")
         #expect(
-            source.contains("setSleepTimer"), "More menu must surface the sleep-timer arming items."
+            source.contains("Label(\"Settings\", systemImage: \"gearshape\")"),
+            "The consolidated More menu should keep the obvious Settings entry point."
         )
         #expect(
-            !source.contains("onShowSettings"),
-            "Settings belongs to the global More menu, not the player-scoped More menu."
+            !source.contains("setSleepTimer"),
+            "Sleep timer arming belongs to SleepTimerPill, not the consolidated More menu."
         )
-        #expect(
-            !source.contains("Label(\"Settings\""),
-            "Settings belongs to the global More menu, not the player-scoped More menu."
-        )
-        // Must NOT reuse the global header menu's app-level entries.
-        #expect(
-            !source.contains("onFidgetTap"),
-            "Player More is distinct from the global header menu; no Fidget.")
-        #expect(
-            !source.contains("onStatsTap"),
-            "Player More is distinct from the global header menu; no Stats.")
     }
 
     @Test func rootDockWiresTheMoreMenu() throws {
         let root = try Self.source(named: "RootTabView.swift")
         #expect(
-            root.contains("onShowChapters:") && root.contains("onShowBookmarks:"),
-            "RootTabView's overlay dock must wire the player-More closures."
-        )
-        #expect(
-            !root.contains("onShowSettings:"),
-            "The player-scoped More menu must not duplicate the global Settings route."
-        )
-    }
-
-    @Test func globalMoreMenuOwnsSettingsEntryPoint() throws {
-        let header = try Self.source(named: "Components/UnifiedTopHeader.swift")
-        #expect(
-            header.contains("Label(\"Settings\", systemImage: \"gearshape\")"),
-            "The global More menu should keep the single obvious Settings entry point."
+            root.contains("onShowChapters:")
+                && root.contains("onShowBookmarks:")
+                && root.contains("onSettings:")
+                && root.contains("onAddDocument:"),
+            "RootTabView's overlay dock must wire the consolidated More menu closures."
         )
     }
 
-    @Test func globalMoreMenuCanAttachCompanionDocument() throws {
+    @Test func topHeaderNoLongerOwnsGlobalMoreMenu() throws {
         let header = try Self.source(named: "Components/UnifiedTopHeader.swift")
+        #expect(
+            !header.contains("Label(\"Settings\", systemImage: \"gearshape\")"),
+            "UnifiedTopHeader should no longer host the global settings menu."
+        )
+        #expect(
+            header.contains("model.selectedTab == .library") && header.contains("SleepTimerPill()"),
+            "UnifiedTopHeader should be limited to the Library folder chip and sleep-timer pill."
+        )
+    }
+
+    @Test func consolidatedMoreMenuCanAttachCompanionDocument() throws {
+        let menu = try Self.source(named: "PlayerMoreMenu.swift")
         let root = try Self.source(named: "RootTabView.swift")
 
         #expect(
-            header.contains("onAddDocumentTap") && header.contains("Add Document"),
-            "The global More menu should expose a discoverable companion-document attach action."
+            menu.contains("onAddDocument")
+                && menu.contains("Add Document")
+                && menu.contains("Replace Document"),
+            "The consolidated More menu should expose a discoverable companion-document attach action."
         )
         #expect(
             root.contains("companionDocumentTypes")
@@ -107,14 +109,16 @@ struct PlayerMoreMenuTests {
             return "PlayerMoreMenu( utilityChip"
         } else if fileName == "PlayerMoreMenu.swift" {
             return
-                "struct PlayerMoreMenu onShowChapters onShowBookmarks setSleepTimer"
+                "struct PlayerMoreMenu onShowChapters onShowBookmarks onAddDocument onExport "
+                + "onStudyNotesExport onStats onFidget onSettings onHelp Add Document "
+                + "Replace Document Label(\"Settings\", systemImage: \"gearshape\")"
         } else if fileName == "NowPlayingTab.swift" {
             return "onShowChapters: onShowBookmarks: ChapterPickerSheet"
         } else if fileName == "RootTabView.swift" {
-            return "onShowChapters: onShowBookmarks: ChapterPickerSheet "
+            return "onShowChapters: onShowBookmarks: onSettings: onAddDocument: ChapterPickerSheet "
                 + ".fileImporter( companionDocumentTypes .pdf model.importPDFDocument(from: url) model.importEPUBDocument(from: url)"
         } else if fileName == "Components/UnifiedTopHeader.swift" {
-            return "onAddDocumentTap Add Document Label(\"Settings\", systemImage: \"gearshape\")"
+            return "model.selectedTab == .library SleepTimerPill()"
         }
         throw CocoaError(.fileNoSuchFile)
     }
