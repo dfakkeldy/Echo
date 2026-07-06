@@ -263,6 +263,10 @@ struct RootTabView: View {
             // Unified Top Header System (Row 1: global navigation), overlaid
             // at the top of the Z-stack on top of the content behind it.
             UnifiedTopHeader(onFolderTap: { showingFolderPicker = true })
+                .opacity(topChromeHidden ? 0 : 1)
+                .offset(y: topChromeHidden ? -UnifiedTopHeader.rowOneHeight : 0)
+                .allowsHitTesting(!topChromeHidden)
+                .animation(.easeInOut(duration: 0.25), value: topChromeHidden)
 
             // The bottom deck is root-owned so Now Playing and Reader share the
             // exact same bottom edge during tab transitions.
@@ -572,6 +576,10 @@ struct RootTabView: View {
 
     private var companionDocumentTypes: [UTType] {
         [UTType(filenameExtension: "epub") ?? .data, .pdf]
+    }
+
+    private var topChromeHidden: Bool {
+        model.selectedTab == .read && model.readerChromeHidden
     }
 
     private var documentImportErrorPresented: Binding<Bool> {

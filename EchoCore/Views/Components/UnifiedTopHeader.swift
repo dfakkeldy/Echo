@@ -6,8 +6,8 @@ struct UnifiedTopHeader: View {
 
     // MARK: - Row 1 layout (single source of truth)
 
-    /// Diameter of the circular navigation chips (folder / ellipsis). The chips
-    /// are the tallest element in Row 1, so they govern the row's height.
+    /// Diameter of the circular navigation chip. The chip is the tallest
+    /// element in Row 1, so it governs the row's height.
     static let chipDiameter: CGFloat = 48
 
     /// Vertical padding wrapping Row 1 above and below the chips.
@@ -29,20 +29,23 @@ struct UnifiedTopHeader: View {
         VStack(spacing: 0) {
             // Row 1: Global Navigation Frame (Folder, Remaining Time)
             HStack {
-                Button(action: onFolderTap) {
-                    Image(systemName: "folder")
-                        .font(.title3.bold())
-                        .frame(width: Self.chipDiameter, height: Self.chipDiameter)
-                        .background {
-                            Circle()
-                                .fill(chipFill)
-                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                if model.selectedTab == .library {
+                    Button(action: onFolderTap) {
+                        Image(systemName: "folder")
+                            .font(.title3.bold())
+                            .frame(width: Self.chipDiameter, height: Self.chipDiameter)
+                            .background {
+                                Circle()
+                                    .fill(chipFill)
+                                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                            }
                         }
+                    // Use the artwork-derived accent (matches the transport buttons),
+                    // not the static system blue, so the chrome tints to the cover.
+                    .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
+                    .accessibilityLabel(Text("Open book or folder"))
+                    .transition(.opacity)
                 }
-                // Use the artwork-derived accent (matches the transport buttons),
-                // not the static system blue, so the chrome tints to the cover.
-                .foregroundStyle(model.resolvedThemeTint ?? Color.accentColor)
-                .accessibilityLabel(Text("Open book or folder"))
 
                 Spacer()
 
@@ -57,6 +60,7 @@ struct UnifiedTopHeader: View {
             .padding(.horizontal, 16)
             .padding(.top, Self.rowOneVerticalPadding)
             .padding(.bottom, Self.rowOneVerticalPadding)
+            .animation(.easeInOut(duration: 0.2), value: model.selectedTab)
         }
         .background(headerBackground)
     }
