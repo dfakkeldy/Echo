@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
 
 struct WatchAppSettingsView: View {
@@ -17,14 +16,8 @@ struct WatchAppSettingsView: View {
     @State private var showingSaveAlert = false
     @State private var newPresetName = ""
 
-    private let palette: [WatchAction] = [
-        .playPause, .skipForward, .skipBackward, .nextTrack,
-        .previousTrack, .nextSection, .previousSection,
-        .loopMode, .speed, .sleepTimer, .bookmark, .markPassage, .pomodoro
-    ]
-
     private var watchSlotChoices: [WatchAction] {
-        palette + [.empty]
+        WatchAction.allCases
     }
 
     var body: some View {
@@ -192,25 +185,13 @@ struct WatchAppSettingsView: View {
                     .frame(height: 320)
                     .indexViewStyle(.page(backgroundDisplayMode: .always))
 
-                    Text("Choose actions for this page below, or drag actions into the watch preview.")
+                    Text("Choose actions for this page using the menus below.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
                     selectedPageSlotPickers
                 }
                 .frame(maxWidth: .infinity)
-            }
-
-            Section("Available Actions") {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 18) {
-                        ForEach(palette) { action in
-                            PaletteItem(action: action)
-                        }
-                    }
-                    .padding(.vertical, 8)
-                }
-                .scrollIndicators(.hidden)
             }
 
             Section("Presets") {
@@ -229,7 +210,7 @@ struct WatchAppSettingsView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(preset.name)
-                                Text("P1: \(preset.page1.map { $0 == .empty ? "Empty" : $0.rawValue }.joined(separator: ", "))")
+                                Text("P1: \(preset.page1.map(\.displayName).joined(separator: ", "))")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
@@ -343,7 +324,7 @@ private struct WatchSlotPickerGrid: View {
                     selection: slotBinding(for: slot)
                 ) {
                     ForEach(choices) { action in
-                        Label(actionName(action), systemImage: action.iconName)
+                        Label(action.displayName, systemImage: action.iconName)
                             .tag(action)
                     }
                 }
@@ -366,53 +347,6 @@ private struct WatchSlotPickerGrid: View {
         )
     }
 
-    private func actionName(_ action: WatchAction) -> String {
-        switch action {
-        case .playPause: return String(localized: "Play / Pause")
-        case .skipForward: return String(localized: "Skip Forward")
-        case .skipBackward: return String(localized: "Skip Back")
-        case .nextTrack: return String(localized: "Next Chapter")
-        case .previousTrack: return String(localized: "Previous Chapter")
-        case .nextSection: return String(localized: "Next Section")
-        case .previousSection: return String(localized: "Previous Section")
-        case .loopMode: return String(localized: "Loop Mode")
-        case .speed: return String(localized: "Speed")
-        case .sleepTimer: return String(localized: "Sleep Timer")
-        case .bookmark: return String(localized: "Bookmark")
-        case .markPassage: return String(localized: "Mark Passage")
-        case .pomodoro: return String(localized: "Pomodoro")
-        case .empty: return String(localized: "Empty")
-        }
-    }
-}
-
-// A draggable palette chip showing the action icon + label.
-private struct PaletteItem: View {
-    let action: WatchAction
-    @Environment(SettingsManager.self) private var settings
-
-    var body: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.18))
-                    .frame(width: 56, height: 56)
-                let duration = action == .skipBackward ? settings.seekBackwardDuration : settings.seekForwardDuration
-                Image(systemName: action.dynamicIconName(forDuration: duration))
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.tint)
-            }
-            Text(action.rawValue)
-                .customFont(.caption, appFont: settings.appFont)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .frame(width: 78)
-        .accessibilityLabel(Text("Action: \(action.rawValue)"))
-        .onDrag {
-            NSItemProvider(object: NSString(string: action.rawValue))
-        }
-    }
 }
 
 // Faux Apple Watch frame that previews the live layout. This view is laid out
@@ -454,9 +388,9 @@ private struct WatchPreviewCanvas: View {
                     .padding(.horizontal, 8)
 
                 HStack(spacing: 8) {
-                    DropSlot(slot: $slots[2], shape: .circle, onChange: onChange)
-                    DropSlot(slot: $slots[3], shape: .circle,   onChange: onChange)
-                    DropSlot(slot: $slots[4], shape: .circle, onChange: onChange)
+                    PreviewSlot(slot: $slots[2], shape: .circle, onChange: onChange)
+                    PreviewSlot(slot: $slots[3], shape: .circle, onChange: onChange)
+                    PreviewSlot(slot: $slots[4], shape: .circle, onChange: onChange)
                 }
                 .padding(.top, 2)
                 .padding(.vertical, 4)
@@ -470,10 +404,10 @@ private struct WatchPreviewCanvas: View {
             // crowd the title. This mirrors the watch's actual layout.
             VStack {
                 HStack {
-                    DropSlot(slot: $slots[0], shape: .topGlyph, onChange: onChange)
+                    PreviewSlot(slot: $slots[0], shape: .topGlyph, onChange: onChange)
                         .padding(.leading, 12)
                     Spacer()
-                    DropSlot(slot: $slots[1], shape: .topGlyph, onChange: onChange)
+                    PreviewSlot(slot: $slots[1], shape: .topGlyph, onChange: onChange)
                         .padding(.trailing, 12)
                 }
                 .padding(.top, 12)
@@ -484,7 +418,7 @@ private struct WatchPreviewCanvas: View {
     }
 }
 
-// MARK: - Drop slot
+// MARK: - Preview slot
 
 private struct DesignerControlBackground<S: Shape>: View {
     let shape: S
@@ -499,7 +433,7 @@ private struct DesignerControlBackground<S: Shape>: View {
     }
 }
 
-private struct DropSlot: View {
+private struct PreviewSlot: View {
     enum SlotShape { case squircle, circle, topGlyph }
 
     @Binding var slot: WatchAction
@@ -507,7 +441,6 @@ private struct DropSlot: View {
     var onChange: () -> Void
 
     @Environment(SettingsManager.self) private var settings
-    @State private var isTargeted: Bool = false
 
     var body: some View {
         ZStack {
@@ -516,26 +449,12 @@ private struct DropSlot: View {
         }
         .frame(width: width, height: height)
         // Expand the invisible hit-target to satisfy Apple HIG's 44x44 minimum
-        // interaction size (and a bit more for comfortable drag-and-drop).
+        // interaction size.
         // The visible dashed placeholder above keeps its original proportions;
         // the surrounding padding becomes a transparent "catch area".
         .padding(max(0, (max(60, width + 20) - width) / 2))
         .frame(minWidth: 60, minHeight: 60)
         .contentShape(Rectangle())
-        .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
-
-            guard let provider = providers.first else { return false }
-            provider.loadObject(ofClass: NSString.self) { string, _ in
-                if let raw = string as? String,
-                   let action = WatchAction(rawValue: raw) {
-                    Task { @MainActor in
-                        slot = action
-                        onChange()
-                    }
-                }
-            }
-            return true
-        }
         .contextMenu {
             Button(role: .destructive) {
                 slot = .empty
@@ -559,7 +478,7 @@ private struct DropSlot: View {
     private var background: some View {
         let isEmpty = slot == .empty
         let dashed = StrokeStyle(lineWidth: 2, dash: [5, 5])
-        let dashColor = Color.gray.opacity(isTargeted ? 0.9 : 0.7)
+        let dashColor = Color.gray.opacity(0.7)
 
         switch shape {
         case .squircle:
