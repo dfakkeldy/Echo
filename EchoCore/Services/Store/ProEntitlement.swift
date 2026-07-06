@@ -7,10 +7,16 @@ enum ProEntitlement {
     static func isPro(
         subscriptionActive: Bool,
         lifetimeOwned: Bool,
-        foundersOwned: Bool
+        foundersOwned: Bool,
+        paywallDisabled: Bool = false
     ) -> Bool {
-        subscriptionActive || lifetimeOwned || foundersOwned
+        paywallDisabled || subscriptionActive || lifetimeOwned || foundersOwned
     }
+}
+
+enum StoreAccessPolicy {
+    /// Temporary launch/beta bypass while App Store products are being configured.
+    static let paywallDisabled = true
 }
 
 /// What gating code depends on — mockable in tests.
