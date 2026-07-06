@@ -46,6 +46,17 @@ struct StoreEntitlementTests {
         )
     }
 
+    @Test func temporaryPaywallBypassIsPro() {
+        #expect(
+            ProEntitlement.isPro(
+                subscriptionActive: false,
+                lifetimeOwned: false,
+                foundersOwned: false,
+                paywallDisabled: true
+            )
+        )
+    }
+
     @Test func nothingOwnedIsNotPro() {
         #expect(
             !ProEntitlement.isPro(
