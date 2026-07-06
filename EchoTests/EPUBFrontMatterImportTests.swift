@@ -118,6 +118,97 @@ struct EPUBFrontMatterImportTests {
         return tmp
     }
 
+    private func makeHeadingBearingKeywordFrontMatterEPUB() throws -> URL {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        let metaInf = tmp.appendingPathComponent("META-INF", isDirectory: true)
+        try FileManager.default.createDirectory(at: metaInf, withIntermediateDirectories: true)
+        try """
+        <?xml version="1.0"?>
+        <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+          <rootfiles>
+            <rootfile full-path="content.opf" media-type="application/oebps-package+xml"/>
+          </rootfiles>
+        </container>
+        """.write(to: metaInf.appendingPathComponent("container.xml"), atomically: true, encoding: .utf8)
+
+        try """
+        <?xml version="1.0"?>
+        <package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+          <metadata><dc:title>The High-Conflict Couple</dc:title></metadata>
+          <manifest>
+            <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+            <item id="title" href="titlepage.xhtml" media-type="application/xhtml+xml"/>
+            <item id="copy" href="copyright.xhtml" media-type="application/xhtml+xml"/>
+            <item id="dedication" href="dedication.xhtml" media-type="application/xhtml+xml"/>
+            <item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine toc="ncx">
+            <itemref idref="title"/>
+            <itemref idref="copy"/>
+            <itemref idref="dedication"/>
+            <itemref idref="ch1"/>
+          </spine>
+        </package>
+        """.write(to: tmp.appendingPathComponent("content.opf"), atomically: true, encoding: .utf8)
+
+        try """
+        <?xml version="1.0"?>
+        <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+          <navMap>
+            <navPoint id="n1" playOrder="1">
+              <navLabel><text>The High-Conflict Couple</text></navLabel>
+              <content src="titlepage.xhtml"/>
+            </navPoint>
+            <navPoint id="n2" playOrder="2">
+              <navLabel><text>Copyright</text></navLabel>
+              <content src="copyright.xhtml"/>
+            </navPoint>
+            <navPoint id="n3" playOrder="3">
+              <navLabel><text>Dedication</text></navLabel>
+              <content src="dedication.xhtml"/>
+            </navPoint>
+            <navPoint id="n4" playOrder="4">
+              <navLabel><text>Chapter One</text></navLabel>
+              <content src="chapter1.xhtml"/>
+            </navPoint>
+          </navMap>
+        </ncx>
+        """.write(to: tmp.appendingPathComponent("toc.ncx"), atomically: true, encoding: .utf8)
+
+        try """
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <head><title>The High-Conflict Couple</title></head>
+        <body><h1>The High-Conflict Couple</h1><p>Alan E. Fruzzetti</p></body>
+        </html>
+        """.write(to: tmp.appendingPathComponent("titlepage.xhtml"), atomically: true, encoding: .utf8)
+
+        try """
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <head><title>Copyright</title></head>
+        <body><h1>Copyright</h1><p>All rights reserved.</p></body>
+        </html>
+        """.write(to: tmp.appendingPathComponent("copyright.xhtml"), atomically: true, encoding: .utf8)
+
+        try """
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <head><title>Dedication</title></head>
+        <body><h1>Dedication</h1><p>For the people we love.</p></body>
+        </html>
+        """.write(to: tmp.appendingPathComponent("dedication.xhtml"), atomically: true, encoding: .utf8)
+
+        try """
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <head><title>Chapter One</title></head>
+        <body><h1>Chapter One</h1><p>The real chapter starts here.</p></body>
+        </html>
+        """.write(to: tmp.appendingPathComponent("chapter1.xhtml"), atomically: true, encoding: .utf8)
+
+        return tmp
+    }
+
     private func importBlocks(includeGuide: Bool) async throws -> [EPubBlockRecord] {
         let db = try DatabaseService(inMemory: ())
         let epubDir = try makeFrontMatterEPUB(includeGuide: includeGuide)
@@ -187,6 +278,23 @@ struct EPUBFrontMatterImportTests {
         }
         #expect(epilogueHeading?.text == "Epilogue")
         #expect(epilogueHeading?.isFrontMatter == false)
+    }
+
+    @Test func headingBearingTitleCopyrightAndDedicationSpinesStayFrontMatter() throws {
+        let epubDir = try makeHeadingBearingKeywordFrontMatterEPUB()
+        defer { try? FileManager.default.removeItem(at: epubDir) }
+
+        let parse = try parseEPUBBlocks(audiobookID: "book-1", epubURL: epubDir)
+
+        let titleBlocks = parse.blocks.filter { $0.spineIndex == 0 }
+        let copyrightBlocks = parse.blocks.filter { $0.spineIndex == 1 }
+        let dedicationBlocks = parse.blocks.filter { $0.spineIndex == 2 }
+        let chapterBlocks = parse.blocks.filter { $0.spineIndex == 3 }
+
+        #expect(!titleBlocks.isEmpty && titleBlocks.allSatisfy(\.isFrontMatter))
+        #expect(!copyrightBlocks.isEmpty && copyrightBlocks.allSatisfy(\.isFrontMatter))
+        #expect(!dedicationBlocks.isEmpty && dedicationBlocks.allSatisfy(\.isFrontMatter))
+        #expect(!chapterBlocks.isEmpty && chapterBlocks.allSatisfy { !$0.isFrontMatter })
     }
 
     @Test func frontMatterFlagRoundTripsThroughDatabase() async throws {

@@ -177,11 +177,19 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
         let structuralFrontMatter =
             !spine[i].linear
             || (bodyStartSpineIndex.map { i < $0 } ?? false)
+        let canUseTitleHeuristic = bodyStartSpineIndex == nil && !hasSeenContentHeading
+        let titleMatchesFrontMatterKeyword =
+            canUseTitleHeuristic
+            && (
+                EPUBStructure.matchesFrontMatterTitleKeyword(fallbackTitle)
+                    || EPUBStructure.hrefMatchesFrontMatterTitleKeyword(spineHref)
+            )
         let isFrontMatterSpine =
             structuralFrontMatter
-            || (!hasContentHeading && titleIsNonContent && !hasSeenContentHeading)
+            || (canUseTitleHeuristic && !hasContentHeading && titleIsNonContent)
+            || titleMatchesFrontMatterKeyword
 
-        if hasContentHeading {
+        if hasContentHeading && !isFrontMatterSpine {
             hasSeenContentHeading = true
         } else if !isFrontMatterSpine, !titleIsNonContent,
             let title = fallbackTitle, !title.isEmpty,
@@ -245,6 +253,45 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
 /// driver (and the iOS importer's TOC resolution) agree on href normalization
 /// and body-matter detection.
 enum EPUBStructure {
+
+    /// Spine/heading titles that are front matter even when the file carries a
+    /// real heading. Deliberately excludes foreword, preface, and introduction:
+    /// those are listenable content and keep their own chapters.
+    private static let frontMatterTitleKeywords: Set<String> = [
+        "title page", "titlepage", "copyright", "copyright page", "colophon",
+        "dedication", "epigraph", "table of contents", "contents", "half title",
+        "halftitle", "frontispiece", "about the author", "also by",
+        "acknowledgments", "acknowledgements",
+    ]
+
+    static func matchesFrontMatterTitleKeyword(_ title: String?) -> Bool {
+        guard let title else { return false }
+        let normalized = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return false }
+
+        if frontMatterTitleKeywords.contains(normalized) {
+            return true
+        }
+        let compact = normalized.replacing(" ", with: "")
+        if frontMatterTitleKeywords.contains(compact) {
+            return true
+        }
+        return frontMatterTitleKeywords.contains { keyword in
+            normalized.hasPrefix("\(keyword) ")
+        }
+    }
+
+    static func hrefMatchesFrontMatterTitleKeyword(_ href: String) -> Bool {
+        let normalized = normalizeHref(href)
+        let stem = URL(fileURLWithPath: normalized)
+            .deletingPathExtension()
+            .lastPathComponent
+        return matchesFrontMatterTitleKeyword(stem)
+    }
 
     /// Spine index where body matter starts, from EPUB 3 landmarks
     /// (`epub:type="bodymatter"`) or the EPUB 2 guide (`type="text"`).

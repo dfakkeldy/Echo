@@ -38,10 +38,14 @@ enum EPUBStructureChaptering {
 
         let seqByBlockID = Dictionary(
             blocks.map { ($0.id, $0.sequenceIndex) }, uniquingKeysWith: { first, _ in first })
+        let frontMatterBlockIDs = Set(blocks.lazy.filter(\.isFrontMatter).map(\.id))
 
         // TOC entries resolved to a concrete block, with depth + reading position.
         let anchored: [(depth: Int, seq: Int)] = tocEntries.compactMap { entry in
-            guard let blockID = entry.blockID, let seq = seqByBlockID[blockID] else { return nil }
+            guard let blockID = entry.blockID,
+                !frontMatterBlockIDs.contains(blockID),
+                let seq = seqByBlockID[blockID]
+            else { return nil }
             return (entry.depth, seq)
         }
         guard !anchored.isEmpty else { return nil }
