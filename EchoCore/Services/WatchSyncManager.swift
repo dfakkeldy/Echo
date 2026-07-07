@@ -19,6 +19,38 @@ nonisolated private struct WatchConnectivityFile: @unchecked Sendable {
     let value: WCSessionFile
 }
 
+struct WatchDurableContextPolicy {
+    var minimumProgressInterval: TimeInterval
+    private var lastDurableContextRefresh: Date?
+
+    init(minimumProgressInterval: TimeInterval = 30) {
+        self.minimumProgressInterval = minimumProgressInterval
+    }
+
+    mutating func shouldRefreshDurableContext(
+        reason: WatchSyncManager.SyncReason,
+        context: [String: Any],
+        now: Date = .now
+    ) -> Bool {
+        switch reason {
+        case .significant:
+            lastDurableContextRefresh = now
+            return true
+        case .progress:
+            guard context["isPlaying"] as? Bool == true else { return false }
+            guard let lastDurableContextRefresh else {
+                self.lastDurableContextRefresh = now
+                return true
+            }
+            guard now.timeIntervalSince(lastDurableContextRefresh) >= minimumProgressInterval else {
+                return false
+            }
+            self.lastDurableContextRefresh = now
+            return true
+        }
+    }
+}
+
 /// Manages bidirectional WatchConnectivity communication with the Apple Watch companion.
 ///
 /// Uses closure-based callbacks rather than a delegate protocol so PlayerModel can wire
@@ -56,6 +88,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     // MARK: - Private State
 
     private var lastSyncedArtworkKey: String?
+    private var durableContextPolicy = WatchDurableContextPolicy()
 
     // MARK: - Init
 
@@ -86,8 +119,9 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
     /// timer, settings) are written to `updateApplicationContext` — the durable,
     /// latest-wins channel the system guarantees to deliver on the watch's next
     /// activation (and immediately if it is already active). `.progress` ticks
-    /// are ephemeral: the watch interpolates position with its own timer, so
-    /// they are sent live-only and never churn the application context.
+    /// remain live-first, while active playback periodically refreshes the
+    /// application context so a locked or disconnected watch wakes with a recent
+    /// "now" instead of the last significant transport change.
     enum SyncReason {
         case significant
         case progress
@@ -107,7 +141,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         // watch app state. The system coalesces to the most recent context.
         // Deliberately NOT transferUserInfo — that FIFO queue replays stale
         // snapshots (the same hazard the watch warns about for commands).
-        if reason == .significant {
+        if durableContextPolicy.shouldRefreshDurableContext(reason: reason, context: context) {
             #if DEBUG
                 assertExpectedKeys(in: context)
             #endif
