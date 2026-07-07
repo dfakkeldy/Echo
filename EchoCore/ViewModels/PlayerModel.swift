@@ -1233,6 +1233,9 @@ final class PlayerModel {
 
     func registerLibraryRoot(url: URL) async {
         guard let db = databaseService else { return }
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        guard isDirectory else { return }
+
         let service = LibraryService(db: db)
         do {
             let root = try service.registerRoot(url: url)
