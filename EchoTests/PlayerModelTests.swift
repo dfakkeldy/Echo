@@ -164,6 +164,25 @@ struct PlayerModelTests {
         #expect(model.selectedTab == .nowPlaying)
     }
 
+    @Test("registerLibraryRoot ignores picked files")
+    func registerLibraryRootIgnoresPickedFiles() async throws {
+        let model = PlayerModel()
+        let db = try DatabaseService(inMemory: ())
+        model.databaseService = db
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let pickedFile = folder.appendingPathComponent("Book.m4b")
+        try Data().write(to: pickedFile)
+
+        await model.registerLibraryRoot(url: pickedFile)
+
+        #expect(try LibraryRootDAO(db: db.writer).all().isEmpty)
+    }
+
     @Test("Reader tab reserves compact bottom dock clearance")
     func readerTabUsesCompactBottomInset() {
         let model = PlayerModel()
