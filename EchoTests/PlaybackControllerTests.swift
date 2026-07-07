@@ -105,6 +105,31 @@ import Testing
         #expect(loadedIndex == nil)
     }
 
+    @Test func lastChapterLoopResumesAfterTerminalTrackEnd() async throws {
+        let c = PlaybackController()
+        let audioURL = try await SilentAudioFixture.makeSilentM4A(seconds: 3)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        c.audioEngine.configureAudioSession()
+        c.audioEngine.replaceCurrentItem(with: audioURL)
+        defer { c.audioEngine.cleanup() }
+
+        c.state.tracks = [Track(url: audioURL, title: "Book")]
+        c.state.currentIndex = 0
+        c.state.chapters = [
+            Chapter(index: 0, title: "One", startSeconds: 0, endSeconds: 1.5),
+            Chapter(index: 1, title: "Two", startSeconds: 1.5, endSeconds: 3),
+        ]
+        c.state.currentChapterIndex = 1
+        c.loopMode = .chapter
+        c.speed = 1.0
+        c.state.isPlaying = true
+
+        c.handleTrackEnded()
+
+        #expect(abs(c.audioEngine.currentTime - 1.55) < 0.01)
+        #expect(c.audioEngine.isPlaying)
+    }
+
     @Test func findNextEnabledTrackIndexDoesNotTrapPastEnd() {
         let c = PlaybackController()
         let t = Track(url: URL(string: "file:///tmp/a.m4a")!, title: "A")

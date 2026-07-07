@@ -954,10 +954,11 @@ final class PlaybackController {
             if loopMode == .chapter {
                 if let idx = state.currentChapterIndex {
                     let targetSeconds = state.chapters[idx].startSeconds + 0.05
+                    let shouldResumeAfterLoopSeek = state.isPlaying
                     state.progressFraction = 0
                     audioEngine.seek(to: targetSeconds) { [weak self] _ in
                         guard let self else { return }
-                        if self.isPlaying {
+                        if shouldResumeAfterLoopSeek {
                             self.audioEngine.playImmediately(atRate: self.speed)
                             self.applySpeedToCurrentItem()
                         } else {
@@ -973,10 +974,11 @@ final class PlaybackController {
         }
 
         if loopMode == .chapter {
+            let shouldResumeAfterLoopSeek = state.isPlaying
             state.progressFraction = 0
             audioEngine.seek(to: 0) { [weak self] _ in
                 guard let self else { return }
-                if self.isPlaying {
+                if shouldResumeAfterLoopSeek {
                     self.audioEngine.playImmediately(atRate: self.speed)
                     self.applySpeedToCurrentItem()
                 } else {
