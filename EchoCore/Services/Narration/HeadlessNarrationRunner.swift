@@ -29,6 +29,9 @@ struct NarrationRunConfig {
     /// database is used — this keeps FM-refined `narration_text` and QA rows
     /// ephemeral. Set to a .sqlite path to persist across runs for inspection.
     var databaseURL: URL?
+    /// Headless batch renders default to deterministic text normalization so the
+    /// CLI never waits on optional Foundation Models availability.
+    var enableFMNormalization: Bool = false
 }
 
 // MARK: - Progress
@@ -275,7 +278,8 @@ struct NarrationRunResult {
             },
             pronunciationOccurrenceOverrides: {
                 PronunciationOverrideStore.shared.occurrenceOverrides(forBookID: audiobookID)
-            })
+            },
+            fmEnabled: { config.enableFMNormalization })
 
         let totalCount = chapterIndices.count
         for (batchPos, idx) in batch.enumerated() {
