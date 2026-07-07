@@ -158,6 +158,12 @@ struct SettingsExtractionTests {
         #expect(studySlice.contains("AutoExportSettingsRows()"))
     }
 
+    @Test func studyNotesExportSheetExposesAutoExportRows() throws {
+        let source = try Self.source(named: "StudyNotesExportView.swift")
+        #expect(source.contains("Section(\"Auto-Export Study Notes\")"))
+        #expect(source.contains("AutoExportSettingsRows()"))
+    }
+
     @Test func bookmarksInlineLivesInNowPlayingSettings() throws {
         let nowPlaying = try Self.source(named: "SettingsNowPlayingView.swift")
         #expect(nowPlaying.contains("playBookmarksInline"))

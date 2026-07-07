@@ -17,24 +17,37 @@
         @State private var errorText: String?
 
         var body: some View {
-            VStack(spacing: 20) {
-                if isExporting {
-                    ProgressView("Exporting study notes...")
-                } else if let exportedURL {
-                    Label("Study notes ready", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    ShareLink(item: exportedURL) {
-                        Label("Share Study Notes (.zip)", systemImage: "square.and.arrow.up")
+            NavigationStack {
+                Form {
+                    Section {
+                        if isExporting {
+                            ProgressView("Exporting study notes...")
+                        } else if let exportedURL {
+                            Label("Study notes ready", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            ShareLink(item: exportedURL) {
+                                Label("Share Study Notes (.zip)", systemImage: "square.and.arrow.up")
+                            }
+                        } else if let errorText {
+                            Label(errorText, systemImage: "xmark.circle.fill")
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.leading)
+                            Button("Done") { dismiss() }
+                        }
                     }
-                } else if let errorText {
-                    Label(errorText, systemImage: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                    Button("Done") { dismiss() }
+
+                    Section("Auto-Export Study Notes") {
+                        AutoExportSettingsRows()
+                    }
                 }
+                .navigationTitle("Study & Notes")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+                .task { runExport() }
             }
-            .padding()
-            .task { runExport() }
         }
 
         private func runExport() {

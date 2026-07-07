@@ -749,9 +749,9 @@ struct NewBookmarkView: View {
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.secondary)
 
-                // Primary, low-friction "Quick Bookmark" action. Bypasses the
-                // microphone entirely and inserts a generic bookmark with a
-                // title derived from the current bookmarks count.
+                // Low-friction "Quick Bookmark" action. Bypasses the microphone
+                // entirely and inserts a generic bookmark with a title derived
+                // from the current bookmarks count.
                 if !recorder.isRecording {
                     Button {
                         cancelQuickBookmarkTimer()
@@ -762,7 +762,7 @@ struct NewBookmarkView: View {
                         Label("Quick Bookmark", systemImage: "bookmark.fill")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .accessibilityHint("Adds Bookmark #\(viewModel.bookmarks.count + 1) without recording audio")
                 }
 
@@ -772,8 +772,9 @@ struct NewBookmarkView: View {
                     Label(recorder.isRecording ? String(localized: "Stop") : String(localized: "Record Note"), systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .tint(recorder.isRecording ? .red : .accentColor)
+                .handGestureShortcut(.primaryAction)
             }
 
             .padding(.horizontal)
