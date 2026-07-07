@@ -95,4 +95,33 @@ struct Echo_Watch_AppTests {
         #expect(viewModel.progressFraction == 0.5)
     }
 
+    @Test func newBookmarkVoiceMemoButtonIsDoubleTapPrimaryAction() throws {
+        let source = try Self.source(named: "PlayerPage.swift")
+        let newBookmarkView = try Self.slice(
+            of: source,
+            after: "struct NewBookmarkView: View",
+            until: "struct MarqueeText: View"
+        )
+
+        #expect(newBookmarkView.contains("recorder.isRecording ? saveVoiceMemo() : startVoiceBookmark()"))
+        #expect(newBookmarkView.contains(".handGestureShortcut(.primaryAction)"))
+    }
+
+    private static func source(named fileName: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let candidate = root
+            .appendingPathComponent("Echo Watch App")
+            .appendingPathComponent("Views")
+            .appendingPathComponent(fileName)
+        return try String(contentsOf: candidate, encoding: .utf8)
+    }
+
+    private static func slice(of source: String, after start: String, until end: String) throws -> String {
+        let startRange = try #require(source.range(of: start))
+        let endRange = try #require(source[startRange.upperBound...].range(of: end))
+        return String(source[startRange.upperBound..<endRange.lowerBound])
+    }
+
 }
