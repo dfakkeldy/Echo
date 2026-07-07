@@ -19,6 +19,20 @@ import ZIPFoundation
         }
     }
 
+    @Test func batchRendersDefaultToDeterministicNormalization() {
+        let cfg = NarrationRunConfig(
+            epubURL: URL(fileURLWithPath: "/tmp/book.epub"),
+            outM4BURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            sidecarURL: nil,
+            workDir: URL(fileURLWithPath: "/tmp/work", isDirectory: true),
+            voice: VoiceID("af_heart"),
+            title: "Fixture",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+
+        #expect(cfg.enableFMNormalization == false)
+    }
+
     @Test func producesM4BAndSidecarAndResumes() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)

@@ -701,6 +701,7 @@
 				2B1676B37843CC4B6A7A86DF /* Sources */,
 				AAE51A78DC033637B1DE35C1 /* Frameworks */,
 				95300DF22F2694306AD5F79C /* Copy Narration Resources */,
+				3F7E5D9A8B2C4D6E90A1B2C3 /* Copy all Kokoro voice resources */,
 			);
 			buildRules = (
 			);
@@ -1153,6 +1154,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# onnxruntime + onnxruntime_extensions are STATIC libs wrapped as .frameworks.\n# SPM embeds the wrappers into Frameworks/, which App Store validation rejects\n# (ITMS-90208 Invalid Bundle). The static code is already linked into the app\n# binary, so the embedded copies are redundant for archive/export products.\n# Keep normal builds intact so Xcode can sign and install to physical devices.\n# Requires ENABLE_USER_SCRIPT_SANDBOXING=NO (set on this target).\nif [ \"${ACTION}\" != \"install\" ]; then\n  echo \"note: ITMS-90208 fix — keeping statically-linked onnxruntime frameworks for ${ACTION}\"\n  exit 0\nfi\n\nif [ -n \"${FRAMEWORKS_FOLDER_PATH}\" ]; then\n  DIR=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\n  for fw in onnxruntime onnxruntime_extensions; do\n    if [ -d \"${DIR}/${fw}.framework\" ]; then\n      echo \"note: ITMS-90208 fix — removing statically-linked ${fw}.framework\"\n      rm -rf \"${DIR}/${fw}.framework\"\n    fi\n  done\nfi\n";
+		};
+		3F7E5D9A8B2C4D6E90A1B2C3 /* Copy all Kokoro voice resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/EchoCore/Resources",
+			);
+			name = "Copy all Kokoro voice resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_michael.f32",
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_michael.rows",
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_puck.f32",
+				"$(TARGET_BUILD_DIR)/EchoNarrationResources/am_puck.rows",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/EchoCore/Resources\"\nDST=\"${TARGET_BUILD_DIR}/EchoNarrationResources\"\n/bin/mkdir -p \"${DST}\"\n/usr/bin/ditto \"${SRC}\" \"${DST}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
