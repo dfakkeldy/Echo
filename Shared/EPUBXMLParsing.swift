@@ -141,7 +141,7 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
     private var currentAttributes: [String: String] = [:]
 
     func parse(_ data: Data) {
-        let parser = XMLParser(data: data)
+        let parser = XMLParser(data: opfDataEscapingBareAmpersands(data))
         parser.delegate = self
         parser.shouldProcessNamespaces = true
         parser.parse()
@@ -195,6 +195,99 @@ final class OPFParserDelegate: NSObject, XMLParserDelegate {
                 id: item.id, href: item.href, mediaType: item.mediaType, linear: ref.linear)
         }
     }
+}
+
+/// Some publisher OPFs in real libraries contain unescaped ampersands in
+/// metadata text (`Eating & Diet`). That is malformed XML, but the spine and
+/// manifest are still usable, so repair bare ampersands before parsing package
+/// metadata.
+private func opfDataEscapingBareAmpersands(_ data: Data) -> Data {
+    guard let string = String(data: data, encoding: .utf8), string.contains("&") else {
+        return data
+    }
+
+    var repaired = ""
+    repaired.reserveCapacity(string.count)
+
+    var index = string.startIndex
+    while index < string.endIndex {
+        guard string[index] == "&" else {
+            repaired.append(string[index])
+            index = string.index(after: index)
+            continue
+        }
+
+        let next = string.index(after: index)
+        if isXMLReference(in: string, startingAt: next) {
+            repaired.append("&")
+        } else {
+            repaired.append("&amp;")
+        }
+        index = next
+    }
+
+    return Data(repaired.utf8)
+}
+
+private func isXMLReference(in string: String, startingAt start: String.Index) -> Bool {
+    guard start < string.endIndex else { return false }
+
+    if string[start] == "#" {
+        return isXMLCharacterReference(in: string, startingAt: string.index(after: start))
+    }
+
+    var index = start
+    guard let first = string[index].unicodeScalars.first, isXMLNameStart(first) else {
+        return false
+    }
+    index = string.index(after: index)
+
+    while index < string.endIndex {
+        if string[index] == ";" { return true }
+        guard let scalar = string[index].unicodeScalars.first, isXMLNameCharacter(scalar) else {
+            return false
+        }
+        index = string.index(after: index)
+    }
+    return false
+}
+
+private func isXMLCharacterReference(in string: String, startingAt start: String.Index) -> Bool {
+    guard start < string.endIndex else { return false }
+
+    var index = start
+    if string[index] == "x" || string[index] == "X" {
+        index = string.index(after: index)
+        let digitStart = index
+        while index < string.endIndex, isHexDigit(string[index]) {
+            index = string.index(after: index)
+        }
+        return index > digitStart && index < string.endIndex && string[index] == ";"
+    }
+
+    let digitStart = index
+    while index < string.endIndex, string[index].isNumber {
+        index = string.index(after: index)
+    }
+    return index > digitStart && index < string.endIndex && string[index] == ";"
+}
+
+private func isXMLNameStart(_ scalar: Unicode.Scalar) -> Bool {
+    scalar == ":" || scalar == "_"
+        || ("A"..."Z").contains(Character(scalar))
+        || ("a"..."z").contains(Character(scalar))
+}
+
+private func isXMLNameCharacter(_ scalar: Unicode.Scalar) -> Bool {
+    isXMLNameStart(scalar)
+        || ("0"..."9").contains(Character(scalar))
+        || scalar == "-" || scalar == "."
+}
+
+private func isHexDigit(_ character: Character) -> Bool {
+    ("0"..."9").contains(character)
+        || ("A"..."F").contains(character)
+        || ("a"..."f").contains(character)
 }
 
 // MARK: - TOC Parser
