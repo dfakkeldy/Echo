@@ -14,6 +14,8 @@ struct NowPlayingTab: View {
 
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
+    @State private var visualListeningViewModel: VisualListeningViewModel?
+    @State private var visualListeningSyncPoint: VisualListeningSyncPoint = .midpoint
 
     /// The saved voice preference, or the system default on first launch.
     private var preferredVoice: NarrationVoice {
@@ -40,9 +42,9 @@ struct NowPlayingTab: View {
                         // Flexible top slack — balances the artwork block vertically.
                         Spacer(minLength: 0)
 
-                        // B. Artwork Component
-                        artworkView
-                            .frame(minHeight: 150, maxHeight: 330)
+                        // B. Artwork / visual listening component
+                        visualListeningOrArtworkView
+                            .frame(minHeight: 150, maxHeight: 360)
 
                         // C. Metadata & Typography Area
                         metadataArea
@@ -145,11 +147,26 @@ struct NowPlayingTab: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task(id: model.folderURL) {
+            await reloadVisualListeningViewModel()
+
             // Pre-warm the ANE model compile so the first Listen tap isn't a long
             // stall — only where narration is actually supported (A15+).
             if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
                 try? await model.narrationTTS.prepare()
             }
+        }
+        .onChange(of: model.currentPlaybackTime) { _, newTime in
+            updateVisualListeningSnapshot(time: newTime)
+        }
+        .onChange(of: model.currentIndex) { _, _ in
+            updateVisualListeningSnapshot(time: model.currentPlaybackTime)
+        }
+        .onChange(of: visualListeningSyncPoint) { _, newSyncPoint in
+            visualListeningViewModel?.syncPoint = newSyncPoint
+            updateVisualListeningSnapshot(time: model.currentPlaybackTime)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
+            handleTimelineItemsIngested($0)
         }
         .sheet(isPresented: $showingVoicePicker) {
             VoicePickerView(selectedVoice: $selectedVoice) {
@@ -160,6 +177,22 @@ struct NowPlayingTab: View {
     }
 
     // MARK: - Subviews
+
+    @ViewBuilder
+    private var visualListeningOrArtworkView: some View {
+        if visualListeningViewModel?.hasVisualListeningContent == true,
+            let snapshot = visualListeningViewModel?.snapshot
+        {
+            VisualListeningStageView(
+                snapshot: snapshot,
+                syncPoint: $visualListeningSyncPoint,
+                appFont: model.resolvedAppFont
+            )
+            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+        } else {
+            artworkView
+        }
+    }
 
     private var artworkView: some View {
         Group {
@@ -335,6 +368,36 @@ struct NowPlayingTab: View {
             localized:
                 "Track \(trackIndex) of \(trackCount), \(parts.elapsed) elapsed, \(parts.remaining) remaining"
         )
+    }
+
+    private func reloadVisualListeningViewModel() async {
+        guard let audiobookID = model.folderURL?.absoluteString,
+            let db = model.databaseService?.writer
+        else {
+            visualListeningViewModel = nil
+            return
+        }
+
+        let viewModel = VisualListeningViewModel(audiobookID: audiobookID, db: db)
+        viewModel.syncPoint = visualListeningSyncPoint
+        await viewModel.reload()
+        visualListeningViewModel = viewModel
+        updateVisualListeningSnapshot(time: model.currentPlaybackTime)
+    }
+
+    private func updateVisualListeningSnapshot(time: TimeInterval) {
+        visualListeningViewModel?.update(
+            time: time,
+            currentTrackSegmentKey: model.currentTrackSegmentKey,
+            currentTrackChapterIndices: model.currentTrackChapterIndices
+        )
+    }
+
+    private func handleTimelineItemsIngested(_ notification: Notification) {
+        guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
+            ingestedID == model.folderURL?.absoluteString
+        else { return }
+        Task { await reloadVisualListeningViewModel() }
     }
 }
 
