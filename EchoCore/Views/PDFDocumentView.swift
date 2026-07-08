@@ -107,6 +107,58 @@ nonisolated enum PDFCompanionSelector {
     }
 }
 
+nonisolated enum PDFWordHighlightSearch {
+    static func range(for term: String, in pageText: String, after previous: NSRange?) -> NSRange?
+    {
+        let target = normalizedToken(term)
+        guard !target.isEmpty else { return nil }
+
+        let tokenRanges = WordTokenizer.wordRanges(in: pageText)
+        let previousUpperBound = previous.map { $0.location + $0.length }
+        if let previousUpperBound,
+            let next = tokenRanges.first(where: { range in
+                let nsRange = NSRange(range, in: pageText)
+                return nsRange.location >= previousUpperBound
+                    && normalizedToken(String(pageText[range])) == target
+            })
+        {
+            return NSRange(next, in: pageText)
+        }
+
+        return tokenRanges.first(where: {
+            normalizedToken(String(pageText[$0])) == target
+        }).map { NSRange($0, in: pageText) }
+    }
+
+    private static func normalizedToken(_ value: String) -> String {
+        trimmedBoundaryPunctuation(value)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    private static func trimmedBoundaryPunctuation(_ value: String) -> String {
+        let characters = Array(value)
+        var start = 0
+        var end = characters.count
+
+        while start < end, isBoundaryPunctuation(characters[start]) {
+            start += 1
+        }
+        while end > start, isBoundaryPunctuation(characters[end - 1]) {
+            end -= 1
+        }
+
+        return String(characters[start..<end])
+    }
+
+    private static func isBoundaryPunctuation(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy {
+            CharacterSet.punctuationCharacters.contains($0)
+                || CharacterSet.symbols.contains($0)
+        }
+    }
+}
+
 struct PDFDocumentView: View {
     let folderURL: URL
     @Environment(PlayerModel.self) private var model
@@ -133,6 +185,8 @@ struct PDFDocumentView: View {
     @State private var activePageIndex: Int?
     /// Word text to highlight on the current page (best-effort). nil = no highlight.
     @State private var activeWordTerm: String?
+    /// Stable identity for the current spoken word, used to distinguish repeated terms.
+    @State private var activeWordPositionKey: String?
 
     var body: some View {
         ZStack {
@@ -148,6 +202,7 @@ struct PDFDocumentView: View {
                     ),
                     activePageIndex: activePageIndex,
                     activeWordTerm: activeWordTerm,
+                    activeWordPositionKey: activeWordPositionKey,
                     isPlaying: model.isPlaying,
                     onStateChange: { state in
                         updateCurrentPDFState(state)
@@ -208,19 +263,25 @@ struct PDFDocumentView: View {
                     currentTrackChapterIndices: currentTrackChapterIndices)
             else {
                 activeWordTerm = nil
+                activeWordPositionKey = nil
                 return
             }
             if let page = ra.pageIndex(forBlock: active.blockID) {
                 activePageIndex = page
             }
-            activeWordTerm = active.wordIndex.flatMap {
-                ra.wordText(blockID: active.blockID, wordIndex: $0)
+            if let wordIndex = active.wordIndex {
+                activeWordTerm = ra.wordText(blockID: active.blockID, wordIndex: wordIndex)
+                activeWordPositionKey = "\(active.blockID)#\(wordIndex)"
+            } else {
+                activeWordTerm = nil
+                activeWordPositionKey = nil
             }
         }
         // Clear highlight when paused so it does not persist stale.
         .onChange(of: model.isPlaying) { _, playing in
             if !playing {
                 activeWordTerm = nil
+                activeWordPositionKey = nil
             }
         }
         .confirmationDialog("Align PDF View", isPresented: $showingAlignmentOptions) {
@@ -524,6 +585,8 @@ private struct PDFKitView: UIViewRepresentable {
     let activePageIndex: Int?
     /// Best-effort word term to highlight on the current page.
     let activeWordTerm: String?
+    /// Stable `"blockID#wordIndex"` identity for repeated spoken terms.
+    let activeWordPositionKey: String?
     /// Whether narration is actively playing. Auto-follow is suppressed when false.
     let isPlaying: Bool
     let onStateChange: (PDFViewState) -> Void
@@ -604,7 +667,8 @@ private struct PDFKitView: UIViewRepresentable {
         }
 
         // Best-effort word highlight: search the current page for the term.
-        context.coordinator.updateWordHighlight(term: activeWordTerm, in: uiView)
+        context.coordinator.updateWordHighlight(
+            term: activeWordTerm, positionKey: activeWordPositionKey, in: uiView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -620,9 +684,12 @@ private struct PDFKitView: UIViewRepresentable {
         // MARK: Best-effort word highlight (M3 Task 3, secondary)
         // A single semi-transparent UIView overlaid on the PDFView. Positioned via
         // PDFKit coordinate conversion each time the active word changes.
-        // Throttled: we skip the update if the term has not changed since last paint.
+        // Throttled: we skip the update if the spoken word has not changed since last paint.
         private weak var highlightView: UIView?
         private var lastHighlightedTerm: String?
+        private var lastHighlightPositionKey: String?
+        private weak var lastHighlightedPage: PDFPage?
+        private var lastHighlightedRange: NSRange?
 
         init(_ parent: PDFKitView) {
             self.parent = parent
@@ -645,31 +712,33 @@ private struct PDFKitView: UIViewRepresentable {
 
         /// Positions (or hides) the highlight overlay for `term` on the visible page.
         /// Best-effort: if the search returns no match on the current page, hides.
-        /// Throttled: no-op when `term` matches `lastHighlightedTerm`.
-        func updateWordHighlight(term: String?, in pdfView: PDFView) {
-            // Throttle: skip if same term as last update.
-            guard term != lastHighlightedTerm else { return }
-            lastHighlightedTerm = term
-
+        /// Throttled: no-op when the same spoken word is already highlighted.
+        func updateWordHighlight(term: String?, positionKey: String?, in pdfView: PDFView) {
             guard let highlightView,
                 let term, !term.isEmpty,
-                let currentPage = pdfView.currentPage,
-                let document = pdfView.document
+                let positionKey,
+                let currentPage = pdfView.currentPage
             else {
-                highlightView?.isHidden = true
+                clearHighlightIfNeeded()
                 return
             }
 
-            // Search the document for the term; filter to the current page.
-            // PDFKit's findString is synchronous and searches the whole document.
-            // For short single-word terms this is fast enough at ~12 Hz.
-            let selections = document.findString(term, withOptions: .caseInsensitive)
+            if positionKey == lastHighlightPositionKey, currentPage === lastHighlightedPage,
+                !highlightView.isHidden
+            {
+                return
+            }
+
+            let previousRange =
+                (term == lastHighlightedTerm && currentPage === lastHighlightedPage)
+                ? lastHighlightedRange : nil
             guard
-                let selection = selections.first(where: { sel in
-                    // A selection can span pages; check if it touches the current page.
-                    sel.pages.contains(currentPage)
-                })
+                let pageText = currentPage.string,
+                let matchRange = PDFWordHighlightSearch.range(
+                    for: term, in: pageText, after: previousRange),
+                let selection = currentPage.selection(for: matchRange)
             else {
+                rememberHighlightMiss(term: term, positionKey: positionKey, page: currentPage)
                 highlightView.isHidden = true
                 return
             }
@@ -687,8 +756,27 @@ private struct PDFKitView: UIViewRepresentable {
 
             highlightView.frame = viewBounds
             highlightView.isHidden = false
+            lastHighlightedTerm = term
+            lastHighlightPositionKey = positionKey
+            lastHighlightedPage = currentPage
+            lastHighlightedRange = matchRange
             // Keep the highlight above PDF content but below gesture recognizers.
             pdfView.bringSubviewToFront(highlightView)
+        }
+
+        private func rememberHighlightMiss(term: String, positionKey: String, page: PDFPage) {
+            lastHighlightedTerm = term
+            lastHighlightPositionKey = positionKey
+            lastHighlightedPage = page
+            lastHighlightedRange = nil
+        }
+
+        private func clearHighlightIfNeeded() {
+            highlightView?.isHidden = true
+            lastHighlightedTerm = nil
+            lastHighlightPositionKey = nil
+            lastHighlightedPage = nil
+            lastHighlightedRange = nil
         }
 
         func configureAccessibilityActions(for pdfView: PDFView) {
@@ -739,8 +827,7 @@ private struct PDFKitView: UIViewRepresentable {
                 parent.onStateChange(state)
             }
             // Hide highlight on page change; updateUIView will re-position if still valid.
-            highlightView?.isHidden = true
-            lastHighlightedTerm = nil
+            clearHighlightIfNeeded()
         }
 
         @objc func handleScaleChange() {
@@ -748,7 +835,7 @@ private struct PDFKitView: UIViewRepresentable {
                 parent.onStateChange(state)
             }
             // Reposition after zoom; force re-paint by resetting the throttle guard.
-            lastHighlightedTerm = nil
+            lastHighlightPositionKey = nil
         }
 
         @objc func handleScroll() {

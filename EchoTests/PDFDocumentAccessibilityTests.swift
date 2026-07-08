@@ -57,6 +57,20 @@ struct PDFDocumentAccessibilityTests {
         )
     }
 
+    @Test func pdfReadAlongWordHighlightStaysPageScoped() throws {
+        let source = try Self.source("EchoCore/Views/PDFDocumentView.swift")
+
+        #expect(
+            source.contains("activeWordPositionKey"),
+            "PDF word highlighting must be keyed by spoken word position, not just the word text.")
+        #expect(
+            !source.contains("document.findString(term, withOptions: .caseInsensitive)"),
+            "Playback ticks must not run a synchronous whole-document PDFKit search per spoken word.")
+        #expect(
+            source.contains("currentPage.selection(for:"),
+            "PDF word highlighting should resolve the match on the current page only.")
+    }
+
     private static func source(_ relativePath: String) throws -> String {
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while directory.path != "/" {
