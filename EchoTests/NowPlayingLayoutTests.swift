@@ -131,6 +131,64 @@ struct NowPlayingLayoutTests {
         )
     }
 
+    @Test func visualListeningSlideshowUsesResolvedContentAndTrackScope() throws {
+        let source = try Self.source(named: "NowPlayingTab.swift")
+        let stageSource = try Self.source(named: "VisualListeningStageView.swift")
+
+        #expect(
+            source.contains("VisualListeningViewModel"),
+            "Now Playing should load slideshow snapshots from the shared visual-listening view model."
+        )
+        #expect(
+            source.contains("VisualListeningStageView("),
+            "Now Playing should render a slideshow stage when a book has visual listening content."
+        )
+        #expect(
+            source.contains("visualListeningViewModel?.update("),
+            "The slideshow must refresh from live playback ticks."
+        )
+        #expect(
+            source.contains("model.currentTrackSegmentKey"),
+            "Slideshow cues must use the same segment scope as the reader."
+        )
+        #expect(
+            source.contains("model.currentTrackChapterIndices"),
+            "Slideshow cues must use the same chapter scope as the reader."
+        )
+        #expect(
+            source.contains("visualListeningViewModel?.hasVisualListeningContent == true"),
+            "Ordinary books should keep the existing artwork path unless image and subtitle cues are available."
+        )
+        #expect(
+            source.contains("snapshot.subtitleCue != nil"),
+            "The visual listening stage should only appear when a subtitle cue is available."
+        )
+        #expect(
+            source.contains("onGeometryChange(for: Bool.self)"),
+            "Now Playing should use container geometry for the iPad landscape visual-listening layout."
+        )
+        #expect(
+            source.contains("usesWideVisualListeningLayout"),
+            "Now Playing should have a distinct regular-width visual-listening layout for iPad."
+        )
+        #expect(
+            source.contains("wideVisualListeningLayout(snapshot:"),
+            "The iPad layout should place the visual stage beside compact playback controls."
+        )
+        #expect(
+            stageSource.contains("Picker(\"Image timing\""),
+            "The image sync-point choice should be available from the slideshow surface."
+        )
+        #expect(
+            stageSource.contains("Current figure"),
+            "The slideshow image should have a VoiceOver label with current-figure context."
+        )
+        #expect(
+            stageSource.contains("Subtitle:"),
+            "The subtitle overlay should have a VoiceOver label with subtitle context."
+        )
+    }
+
     @Test func noBookStateIsActionLedInsteadOfPlayableChrome() throws {
         let nowPlaying = try Self.source(named: "NowPlayingTab.swift")
         let library = try Self.source(named: "Library/LibraryView.swift")
@@ -169,7 +227,15 @@ struct NowPlayingLayoutTests {
                 + "chevron.left chevron.right model.skipBackwardNavigation() "
                 + "model.skipForwardNavigation() .disabled(!model.hasPreviousChapter) "
                 + ".disabled(!model.hasNextChapter) "
-                + "model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration"
+                + "model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration "
+                + "VisualListeningViewModel VisualListeningStageView( "
+                + "visualListeningViewModel?.update( model.currentTrackSegmentKey "
+                + "model.currentTrackChapterIndices "
+                + "visualListeningViewModel?.hasVisualListeningContent == true "
+                + "snapshot.subtitleCue != nil onGeometryChange(for: Bool.self) "
+                + "usesWideVisualListeningLayout wideVisualListeningLayout(snapshot:"
+        } else if fileName == "VisualListeningStageView.swift" {
+            return "Picker(\"Image timing\" Current figure Subtitle:"
         } else if fileName == "Components/AdaptiveBackground.swift" {
             return "LinearGradient coverTheme"
         } else if fileName == "PlayerScrubberView.swift" {

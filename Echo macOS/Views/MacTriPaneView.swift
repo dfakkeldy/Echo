@@ -27,150 +27,248 @@ struct MacTriPaneView: View {
     @State private var studyDeckGenerationPresentation: MacStudyDeckGenerationPresentation?
     @State private var showingDeckImporter = false
     @State private var studyWorkflowAlert: (title: String, message: String)?
+    @State private var visualListeningViewModel: VisualListeningViewModel?
+    @State private var visualListeningSyncPoint: VisualListeningSyncPoint = .midpoint
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            VStack(spacing: 0) {
-                MacLibraryView(db: dbService) { target in
-                    player.openLibraryBook(target)
-                }
-                .frame(minHeight: 220, idealHeight: 280, maxHeight: 360)
+        fullyConfiguredSplitView
+    }
 
-                Divider()
+    private var fullyConfiguredSplitView: some View {
+        splitViewWithNotifications
+            .fileImporter(
+                isPresented: $showingDeckImporter,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false,
+                onCompletion: handleDeckImportResult
+            )
+            .modifier(MacStudyWorkflowAlertModifier(alert: $studyWorkflowAlert))
+    }
 
-                MacTOCTreeView()
-            }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
-        } content: {
-            VStack(spacing: 0) {
-                // Transcript-QA toolbar (shown when a book is loaded)
-                if player.hasMedia {
-                    transcriptQAToolbar
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                    Divider()
+    private var splitViewWithStartup: some View {
+        splitView
+            .navigationSplitViewStyle(.balanced)
+            .task {
+                if !dbServiceWired {
+                    player.dbService = dbService
+                    player.settings = settings
+                    player.loadBookmarksFromDB()
+                    player.migrateLegacyBookmarksIfNeeded()
+                    dbServiceWired = true
                 }
+            }
+            // `player.settings` is injected once, so its `didSet`/`applySettings()` only
+            // seeds skip intervals at launch. Push later Preferences-window changes to the
+            // live player so the skip buttons/menu use the new durations immediately.
+            .onChange(of: settings.seekForwardDuration) { _, newValue in
+                player.skipInterval = newValue
+            }
+            .onChange(of: settings.seekBackwardDuration) { _, newValue in
+                player.skipBackInterval = newValue
+            }
+    }
 
-                MacReaderFeedView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var splitViewWithVisualListening: some View {
+        splitViewWithStartup
+            .task(id: player.audiobookID) {
+                await reloadVisualListeningViewModel()
+            }
+            .onChange(of: player.currentTime) { _, newTime in
+                updateVisualListeningSnapshot(time: newTime)
+            }
+            .onChange(of: player.currentTrackIndex) { _, _ in
+                updateVisualListeningSnapshot(time: player.currentTime)
+            }
+            .onChange(of: player.documentIngestionTrigger) { _, _ in
+                Task { await reloadVisualListeningViewModel() }
+            }
+            .onChange(of: visualListeningSyncPoint) { _, newSyncPoint in
+                visualListeningViewModel?.syncPoint = newSyncPoint
+                updateVisualListeningSnapshot(time: player.currentTime)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
+                handleTimelineItemsIngested($0)
+            }
+    }
 
-                Divider()
-
-                playerBar
-                    .frame(height: 48)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+    private var splitViewWithNotifications: some View {
+        splitViewWithVisualListening
+            .onReceive(NotificationCenter.default.publisher(for: .requestDailyReview)) { _ in
+                showingDailyReview = true
             }
-            .navigationSplitViewColumnWidth(min: 300, ideal: 450)
-            .overlay(alignment: .bottom) {
-                if let coordinator = player.checkpointCoordinator,
-                    coordinator.state != .idle
-                {
-                    StudyCheckpointPanelView(coordinator: coordinator)
-                        .padding(.bottom, 64)
-                }
+            .onReceive(NotificationCenter.default.publisher(for: .requestCardInbox)) { _ in
+                showingCardInbox = true
             }
-            .sheet(isPresented: $showingTranscribeProgress) {
-                if let coordinator = transcribeCoordinator {
-                    MacTranscribeProgressView(
-                        progress: coordinator.service.progress,
-                        isFinalizing: coordinator.isFinalizing,
-                        onCancel: { coordinator.service.cancel() }
-                    )
-                }
+            .onReceive(NotificationCenter.default.publisher(for: .requestStudyPlan)) { _ in
+                showingStudyPlan = true
             }
-            .sheet(isPresented: $showingQAReview) {
-                if let id = player.audiobookID, let db = player.dbService {
-                    MacNarrationQAReviewView(db: db.writer, audiobookID: id)
-                }
+            .onReceive(NotificationCenter.default.publisher(for: .requestAudiobookshelf)) { _ in
+                showingAudiobookshelf = true
             }
-            .sheet(isPresented: $showingDailyReview) {
-                MacDailyReviewView(
-                    db: dbService.writer,
-                    folderURL: player.folderURL,
-                    reviewNotificationsEnabled: settings.reviewNotificationsEnabled)
+            .onReceive(NotificationCenter.default.publisher(for: .requestGenerateStudyDeck)) { _ in
+                presentStudyDeckGeneration()
             }
-            .sheet(isPresented: $showingCardInbox) {
-                MacCardInboxView(db: dbService.writer)
+            .onReceive(NotificationCenter.default.publisher(for: .requestImportDeck)) { _ in
+                showingDeckImporter = true
             }
-            .sheet(isPresented: $showingStudyPlan) {
-                if let audiobookID = player.audiobookID {
-                    MacStudyPlanSheetHost(
-                        audiobookID: audiobookID,
-                        bookTitle: player.currentTitle,
-                        db: dbService.writer)
-                }
-            }
-            .sheet(isPresented: $showingAudiobookshelf) {
-                MacAudiobookshelfView(db: dbService) { url in
-                    player.loadFolder(url: url)
-                }
-            }
-            .sheet(item: $studyDeckGenerationPresentation) { presentation in
-                MacStudyDeckGenerationSheetHost(presentation: presentation)
-            }
-        } detail: {
-            MacNotesPane()
-                .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
-        }
-        .navigationSplitViewStyle(.balanced)
-        .task {
-            if !dbServiceWired {
-                player.dbService = dbService
-                player.settings = settings
-                player.loadBookmarksFromDB()
-                player.migrateLegacyBookmarksIfNeeded()
-                dbServiceWired = true
-            }
-        }
-        // `player.settings` is injected once, so its `didSet`/`applySettings()` only
-        // seeds skip intervals at launch. Push later Preferences-window changes to the
-        // live player so the skip buttons/menu use the new durations immediately.
-        .onChange(of: settings.seekForwardDuration) { _, newValue in
-            player.skipInterval = newValue
-        }
-        .onChange(of: settings.seekBackwardDuration) { _, newValue in
-            player.skipBackInterval = newValue
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestDailyReview)) { _ in
-            showingDailyReview = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestCardInbox)) { _ in
-            showingCardInbox = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestStudyPlan)) { _ in
-            showingStudyPlan = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestAudiobookshelf)) { _ in
-            showingAudiobookshelf = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestGenerateStudyDeck)) { _ in
-            presentStudyDeckGeneration()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestImportDeck)) { _ in
-            showingDeckImporter = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
-            withAnimation {
-                columnVisibility =
-                    columnVisibility == .detailOnly
-                    ? .all
+            .onReceive(NotificationCenter.default.publisher(for: .requestToggleDetailPane)) { _ in
+                withAnimation {
+                    columnVisibility =
+                        columnVisibility == .detailOnly
+                        ? .all
                     : (columnVisibility == .all ? .detailOnly : .all)
+                }
+            }
+    }
+
+    private var splitView: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebarPane
+        } content: {
+            centerPane
+        } detail: {
+            detailPane
+        }
+    }
+
+    private var sidebarPane: some View {
+        VStack(spacing: 0) {
+            MacLibraryView(db: dbService) { target in
+                player.openLibraryBook(target)
+            }
+            .frame(minHeight: 220, idealHeight: 280, maxHeight: 360)
+
+            Divider()
+
+            MacTOCTreeView()
+        }
+        .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
+    }
+
+    private var centerPane: some View {
+        VStack(spacing: 0) {
+            if player.hasMedia {
+                transcriptQAToolbar
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                Divider()
+            }
+
+            if let snapshot = activeVisualListeningSnapshot {
+                MacVisualStageView(
+                    snapshot: snapshot,
+                    syncPoint: $visualListeningSyncPoint,
+                    folderURL: player.folderURL,
+                    appFont: settings.appFont
+                )
+                .frame(minHeight: 160, idealHeight: 220, maxHeight: 280)
+                .padding(12)
+
+                Divider()
+            }
+
+            MacReaderFeedView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            playerBar
+                .frame(height: 48)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        }
+        .navigationSplitViewColumnWidth(min: 300, ideal: 450)
+        .overlay(alignment: .bottom) {
+            if let coordinator = player.checkpointCoordinator,
+                coordinator.state != .idle
+            {
+                StudyCheckpointPanelView(coordinator: coordinator)
+                    .padding(.bottom, 64)
             }
         }
-        .fileImporter(
-            isPresented: $showingDeckImporter,
-            allowedContentTypes: [.json],
-            allowsMultipleSelection: false,
-            onCompletion: handleDeckImportResult
+        .sheet(isPresented: $showingTranscribeProgress) {
+            if let coordinator = transcribeCoordinator {
+                MacTranscribeProgressView(
+                    progress: coordinator.service.progress,
+                    isFinalizing: coordinator.isFinalizing,
+                    onCancel: { coordinator.service.cancel() }
+                )
+            }
+        }
+        .sheet(isPresented: $showingQAReview) {
+            if let id = player.audiobookID, let db = player.dbService {
+                MacNarrationQAReviewView(db: db.writer, audiobookID: id)
+            }
+        }
+        .sheet(isPresented: $showingDailyReview) {
+            MacDailyReviewView(
+                db: dbService.writer,
+                folderURL: player.folderURL,
+                reviewNotificationsEnabled: settings.reviewNotificationsEnabled)
+        }
+        .sheet(isPresented: $showingCardInbox) {
+            MacCardInboxView(db: dbService.writer)
+        }
+        .sheet(isPresented: $showingStudyPlan) {
+            if let audiobookID = player.audiobookID {
+                MacStudyPlanSheetHost(
+                    audiobookID: audiobookID,
+                    bookTitle: player.currentTitle,
+                    db: dbService.writer)
+            }
+        }
+        .sheet(isPresented: $showingAudiobookshelf) {
+            MacAudiobookshelfView(db: dbService) { url in
+                player.loadFolder(url: url)
+            }
+        }
+        .sheet(item: $studyDeckGenerationPresentation) { presentation in
+            MacStudyDeckGenerationSheetHost(presentation: presentation)
+        }
+    }
+
+    private var detailPane: some View {
+        MacNotesPane()
+            .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 500)
+    }
+
+    // MARK: - Visual Listening
+
+    private func reloadVisualListeningViewModel() async {
+        guard let audiobookID = player.audiobookID else {
+            visualListeningViewModel = nil
+            return
+        }
+
+        let viewModel = VisualListeningViewModel(audiobookID: audiobookID, db: dbService.writer)
+        viewModel.syncPoint = visualListeningSyncPoint
+        await viewModel.reload()
+        visualListeningViewModel = viewModel
+        updateVisualListeningSnapshot(time: player.currentTime)
+    }
+
+    private var activeVisualListeningSnapshot: VisualListeningSnapshot? {
+        guard visualListeningViewModel?.hasVisualListeningContent == true,
+            let snapshot = visualListeningViewModel?.snapshot,
+            snapshot.imageCue != nil,
+            snapshot.subtitleCue != nil
+        else { return nil }
+        return snapshot
+    }
+
+    private func updateVisualListeningSnapshot(time: TimeInterval) {
+        visualListeningViewModel?.update(
+            time: time,
+            currentTrackSegmentKey: player.currentTrackSegmentKey,
+            currentTrackChapterIndices: player.currentTrackChapterIndices
         )
-        .alert(studyWorkflowAlert?.title ?? "", isPresented: isShowingStudyWorkflowAlert) {
-            Button("OK") { studyWorkflowAlert = nil }
-        } message: {
-            if let message = studyWorkflowAlert?.message {
-                Text(message)
-            }
-        }
+    }
+
+    private func handleTimelineItemsIngested(_ notification: Notification) {
+        guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
+            ingestedID == player.audiobookID
+        else { return }
+        Task { await reloadVisualListeningViewModel() }
     }
 
     // MARK: - Player Bar
@@ -403,13 +501,6 @@ struct MacTriPaneView: View {
 
     // MARK: - Study Decks
 
-    private var isShowingStudyWorkflowAlert: Binding<Bool> {
-        Binding(
-            get: { studyWorkflowAlert != nil },
-            set: { if !$0 { studyWorkflowAlert = nil } }
-        )
-    }
-
     private func presentStudyDeckGeneration() {
         guard
             let presentation = MacStudyDeckGenerationPresentation(
@@ -457,6 +548,34 @@ struct MacTriPaneView: View {
         }
         return
             "Imported \(result.importedCount) cards. \(result.anchoredCount) anchored to EPUB text. \(result.warningCount) warnings."
+    }
+}
+
+private struct MacStudyWorkflowAlertModifier: ViewModifier {
+    @Binding var alert: (title: String, message: String)?
+
+    func body(content: Content) -> some View {
+        content
+            .alert(title, isPresented: isPresented) {
+                Button("OK") { alert = nil }
+            } message: {
+                Text(message)
+            }
+    }
+
+    private var isPresented: Binding<Bool> {
+        Binding(
+            get: { alert != nil },
+            set: { if !$0 { alert = nil } }
+        )
+    }
+
+    private var title: String {
+        alert?.title ?? ""
+    }
+
+    private var message: String {
+        alert?.message ?? ""
     }
 }
 

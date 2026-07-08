@@ -11,9 +11,14 @@ struct NowPlayingTab: View {
 
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var selectedVoice: NarrationVoice = VoiceCatalog.default
     @State private var showingVoicePicker = false
+    @State private var visualListeningViewModel: VisualListeningViewModel?
+    @State private var visualListeningSyncPoint: VisualListeningSyncPoint = .midpoint
+    @State private var isWideVisualListeningLayout = false
 
     /// The saved voice preference, or the system default on first launch.
     private var preferredVoice: NarrationVoice {
@@ -40,75 +45,13 @@ struct NowPlayingTab: View {
                         // Flexible top slack — balances the artwork block vertically.
                         Spacer(minLength: 0)
 
-                        // B. Artwork Component
-                        artworkView
-                            .frame(minHeight: 150, maxHeight: 330)
-
-                        // C. Metadata & Typography Area
-                        metadataArea
-                            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
-                            .padding(.top, 16)
-
-                        // C2. On-device narration — only for audio-less EPUB books, or
-                        // books whose tracks are rendered narration cache files. Imported
-                        // audiobooks with a companion EPUB already have audio, so the
-                        // "No audiobook" nudge must stay hidden.
-                        if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
-                            VStack(spacing: 8) {
-                                NarrationStatusView(state: model.narrationPlaybackState)
-                                // Offer narration only when the book has NO audio loaded yet.
-                                // Gating on `!isRunning` alone re-showed "No audiobook" on a
-                                // fully-rendered narration (isRunning flips false on completion);
-                                // `tracks.isEmpty` keeps the offer for a fresh EPUB but hides it
-                                // once any audio is queued (mid-render or completed). See
-                                // NarrationNudgePolicy.
-                                if NarrationNudgePolicy.showsNudge(
-                                    tracksEmpty: model.tracks.isEmpty,
-                                    isRunning: model.narrationPlaybackState.isRunning)
-                                {
-                                    NarrationNudgeView {
-                                        // Save the voice preference and start narration
-                                        // directly — no voice picker on the primary path.
-                                        settings.narrationVoiceID = preferredVoice.id.rawValue
-                                        model.startNarrationPlayback(voice: preferredVoice)
-                                    }
-                                    // Secondary path: choose a different narrator voice.
-                                    // (The picker's "Start Narration" saves the choice and
-                                    // re-renders with it.) Without this the picker sheet was
-                                    // unreachable — narration was locked to the default voice.
-                                    Button {
-                                        selectedVoice = preferredVoice
-                                        showingVoicePicker = true
-                                    } label: {
-                                        Label(
-                                            "Voice: \(preferredVoice.displayName)",
-                                            systemImage: "person.wave.2"
-                                        )
-                                        .font(.subheadline)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.secondary)
-                                    .accessibilityHint("Choose the narrator voice")
-                                }
-                                // M4B export folded into the global More menu (UnifiedTopHeader)
-                                // so it works for imported books too, not just rendered narration.
-                            }
-                            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
-                            .padding(.top, 12)
+                        if usesWideVisualListeningLayout,
+                            let snapshot = activeVisualListeningSnapshot
+                        {
+                            wideVisualListeningLayout(snapshot: snapshot)
+                        } else {
+                            compactPlaybackLayout
                         }
-
-                        // D. Main Scrubber (completely exposed, floating over background)
-                        // `containerRelativeFrame` (not `.padding`) sets an explicit
-                        // width: the scrubber's greedy `Slider`/`maxWidth: .infinity`
-                        // content overflows a padding-reduced proposal back to full
-                        // bleed, so padding alone left the slider + time labels jammed
-                        // against the screen edges.
-                        PlayerScrubberView()
-                            .containerRelativeFrame(.horizontal) { width, _ in
-                                max(0, width - 2 * NowPlayingLayout.horizontalPadding)
-                            }
-                            .tint(model.resolvedThemeTint)
-                            .padding(.vertical, 16)
 
                         // Flexible gap above the root-owned bottom deck.
                         Spacer(minLength: 0)
@@ -142,14 +85,34 @@ struct NowPlayingTab: View {
 
         }
         .animation(.easeInOut(duration: 0.2), value: model.isPlayingVoiceMemo)
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.size.width >= 760 && proxy.size.width > proxy.size.height * 1.05
+        } action: { _, newValue in
+            isWideVisualListeningLayout = newValue
+        }
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task(id: model.folderURL) {
+            await reloadVisualListeningViewModel()
+
             // Pre-warm the ANE model compile so the first Listen tap isn't a long
             // stall — only where narration is actually supported (A15+).
             if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
                 try? await model.narrationTTS.prepare()
             }
+        }
+        .onChange(of: model.currentPlaybackTime) { _, newTime in
+            updateVisualListeningSnapshot(time: newTime)
+        }
+        .onChange(of: model.currentIndex) { _, _ in
+            updateVisualListeningSnapshot(time: model.currentPlaybackTime)
+        }
+        .onChange(of: visualListeningSyncPoint) { _, newSyncPoint in
+            visualListeningViewModel?.syncPoint = newSyncPoint
+            updateVisualListeningSnapshot(time: model.currentPlaybackTime)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
+            handleTimelineItemsIngested($0)
         }
         .sheet(isPresented: $showingVoicePicker) {
             VoicePickerView(selectedVoice: $selectedVoice) {
@@ -160,6 +123,140 @@ struct NowPlayingTab: View {
     }
 
     // MARK: - Subviews
+
+    @ViewBuilder
+    private var visualListeningOrArtworkView: some View {
+        if let snapshot = activeVisualListeningSnapshot {
+            VisualListeningStageView(
+                snapshot: snapshot,
+                syncPoint: $visualListeningSyncPoint,
+                appFont: model.resolvedAppFont
+            )
+            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+        } else {
+            artworkView
+        }
+    }
+
+    private var activeVisualListeningSnapshot: VisualListeningSnapshot? {
+        guard visualListeningViewModel?.hasVisualListeningContent == true,
+            let snapshot = visualListeningViewModel?.snapshot,
+            snapshot.imageCue != nil,
+            snapshot.subtitleCue != nil
+        else { return nil }
+        return snapshot
+    }
+
+    private var usesWideVisualListeningLayout: Bool {
+        horizontalSizeClass == .regular
+            && isWideVisualListeningLayout
+            && !dynamicTypeSize.isAccessibilitySize
+            && activeVisualListeningSnapshot != nil
+    }
+
+    private var compactPlaybackLayout: some View {
+        VStack(spacing: 0) {
+            // B. Artwork / visual listening component
+            visualListeningOrArtworkView
+                .frame(minHeight: 150, maxHeight: 360)
+
+            playbackDetailsAndScrubber
+        }
+    }
+
+    private func wideVisualListeningLayout(snapshot: VisualListeningSnapshot) -> some View {
+        HStack(alignment: .center, spacing: 24) {
+            VisualListeningStageView(
+                snapshot: snapshot,
+                syncPoint: $visualListeningSyncPoint,
+                appFont: model.resolvedAppFont
+            )
+            .frame(minWidth: 340, idealWidth: 500, maxWidth: 620, minHeight: 260, maxHeight: 430)
+
+            playbackDetailsAndScrubber(usesContainerRelativeScrubberWidth: false)
+                .frame(minWidth: 260, idealWidth: 320, maxWidth: 420)
+        }
+        .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+    }
+
+    private var playbackDetailsAndScrubber: some View {
+        playbackDetailsAndScrubber(usesContainerRelativeScrubberWidth: true)
+    }
+
+    private func playbackDetailsAndScrubber(
+        usesContainerRelativeScrubberWidth: Bool
+    ) -> some View {
+        VStack(spacing: 0) {
+            // C. Metadata & Typography Area
+            metadataArea
+                .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                .padding(.top, 16)
+
+            narrationNudgeSection
+
+            // D. Main Scrubber (completely exposed, floating over background)
+            // `containerRelativeFrame` (not `.padding`) sets an explicit
+            // width: the scrubber's greedy `Slider`/`maxWidth: .infinity`
+            // content overflows a padding-reduced proposal back to full
+            // bleed, so padding alone left the slider + time labels jammed
+            // against the screen edges.
+            scrubberView(usesContainerRelativeWidth: usesContainerRelativeScrubberWidth)
+        }
+    }
+
+    @ViewBuilder
+    private func scrubberView(usesContainerRelativeWidth: Bool) -> some View {
+        if usesContainerRelativeWidth {
+            PlayerScrubberView()
+                .containerRelativeFrame(.horizontal) { width, _ in
+                    max(0, width - 2 * NowPlayingLayout.horizontalPadding)
+                }
+                .tint(model.resolvedThemeTint)
+                .padding(.vertical, 16)
+        } else {
+            PlayerScrubberView()
+                .tint(model.resolvedThemeTint)
+                .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+                .padding(.vertical, 16)
+        }
+    }
+
+    @ViewBuilder
+    private var narrationNudgeSection: some View {
+        // On-device narration — only for audio-less EPUB books, or books whose
+        // tracks are rendered narration cache files. Imported audiobooks with a
+        // companion EPUB already have audio, so the "No audiobook" nudge must stay hidden.
+        if model.isNarrationBook && NarrationCapability.supportsOnDeviceNarration {
+            VStack(spacing: 8) {
+                NarrationStatusView(state: model.narrationPlaybackState)
+                // Offer narration only when the book has NO audio loaded yet.
+                if NarrationNudgePolicy.showsNudge(
+                    tracksEmpty: model.tracks.isEmpty,
+                    isRunning: model.narrationPlaybackState.isRunning)
+                {
+                    NarrationNudgeView {
+                        settings.narrationVoiceID = preferredVoice.id.rawValue
+                        model.startNarrationPlayback(voice: preferredVoice)
+                    }
+                    Button {
+                        selectedVoice = preferredVoice
+                        showingVoicePicker = true
+                    } label: {
+                        Label(
+                            "Voice: \(preferredVoice.displayName)",
+                            systemImage: "person.wave.2"
+                        )
+                        .font(.subheadline)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHint("Choose the narrator voice")
+                }
+            }
+            .padding(.horizontal, NowPlayingLayout.horizontalPadding)
+            .padding(.top, 12)
+        }
+    }
 
     private var artworkView: some View {
         Group {
@@ -335,6 +432,36 @@ struct NowPlayingTab: View {
             localized:
                 "Track \(trackIndex) of \(trackCount), \(parts.elapsed) elapsed, \(parts.remaining) remaining"
         )
+    }
+
+    private func reloadVisualListeningViewModel() async {
+        guard let audiobookID = model.folderURL?.absoluteString,
+            let db = model.databaseService?.writer
+        else {
+            visualListeningViewModel = nil
+            return
+        }
+
+        let viewModel = VisualListeningViewModel(audiobookID: audiobookID, db: db)
+        viewModel.syncPoint = visualListeningSyncPoint
+        await viewModel.reload()
+        visualListeningViewModel = viewModel
+        updateVisualListeningSnapshot(time: model.currentPlaybackTime)
+    }
+
+    private func updateVisualListeningSnapshot(time: TimeInterval) {
+        visualListeningViewModel?.update(
+            time: time,
+            currentTrackSegmentKey: model.currentTrackSegmentKey,
+            currentTrackChapterIndices: model.currentTrackChapterIndices
+        )
+    }
+
+    private func handleTimelineItemsIngested(_ notification: Notification) {
+        guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
+            ingestedID == model.folderURL?.absoluteString
+        else { return }
+        Task { await reloadVisualListeningViewModel() }
     }
 }
 
