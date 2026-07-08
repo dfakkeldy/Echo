@@ -23,7 +23,8 @@ struct StudyCheckpointPanelView: View {
             .padding(.horizontal, 24)
             .accessibilityElement(children: .contain)
         } else if case .quizActive(let context) = coordinator.state,
-                  let card = coordinator.currentQuizCard {
+            let card = coordinator.currentQuizCard
+        {
             VStack(spacing: 16) {
                 quizHeader(context: context)
                 #if os(macOS)
@@ -36,6 +37,7 @@ struct StudyCheckpointPanelView: View {
                     FlashcardReviewCard(
                         frontText: card.frontText,
                         backText: card.backText,
+                        imagePath: StudyCardMedia.imagePath(fromMediaJSON: card.mediaJSON),
                         onGrade: { grade in
                             if let reviewGrade = ReviewGrade(rawValue: grade) {
                                 coordinator.gradeQuizCard(reviewGrade)
