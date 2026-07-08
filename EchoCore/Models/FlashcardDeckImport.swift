@@ -38,6 +38,12 @@ nonisolated struct FlashcardDeckImport: Codable, Sendable {
         /// message, rather than failing decode as a generic `invalidJSON`.
         let triggerTiming: String
         let sourceAnchor: String?
+        /// Portable `s<i>-b<j>` anchor of an in-book figure block (an extracted
+        /// PDF figure). Mutually exclusive with `imageFile`.
+        var imageAnchor: String?
+        /// Path (relative to the deck bundle's folder) of a bundled image file,
+        /// e.g. a Codex-generated mnemonic. Mutually exclusive with `imageAnchor`.
+        var imageFile: String?
     }
 }
 
@@ -48,6 +54,7 @@ enum DeckImportError: LocalizedError {
     case emptyDeck
     case emptyCardText(cardIndex: Int)
     case invalidTimeRange(cardIndex: Int)
+    case conflictingImageFields(cardIndex: Int)
 
     var errorDescription: String? {
         switch self {
@@ -63,6 +70,8 @@ enum DeckImportError: LocalizedError {
             "Card \(index + 1): frontText and backText must not be empty."
         case .invalidTimeRange(let index):
             "Card \(index + 1): startTime must be less than endTime and both must be non-negative unless sourceAnchor resolves to an EPUB block."
+        case .conflictingImageFields(let index):
+            "Card \(index + 1): imageAnchor and imageFile are mutually exclusive; set at most one."
         }
     }
 }

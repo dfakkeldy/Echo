@@ -91,12 +91,14 @@ private struct StudySessionCardView: View {
                 StudyInlineReviewCard(
                     frontText: entry.flashcard.frontText,
                     backText: entry.flashcard.backText,
+                    imagePath: StudyCardMedia.imagePath(fromMediaJSON: entry.flashcard.mediaJSON),
                     onGrade: { viewModel.gradeCurrent($0) }
                 )
             #else
                 FlashcardReviewCard(
                     frontText: entry.flashcard.frontText,
                     backText: entry.flashcard.backText,
+                    imagePath: StudyCardMedia.imagePath(fromMediaJSON: entry.flashcard.mediaJSON),
                     onGrade: { grade in
                         if let reviewGrade = ReviewGrade(rawValue: grade) {
                             viewModel.gradeCurrent(reviewGrade)
@@ -111,12 +113,17 @@ private struct StudySessionCardView: View {
 private struct StudyInlineReviewCard: View {
     let frontText: String
     let backText: String
+    var imagePath: String? = nil
     let onGrade: (ReviewGrade) -> Void
 
     @State private var isRevealed = false
 
     var body: some View {
         VStack(spacing: 16) {
+            if let imagePath {
+                StudyLocalImageView(path: imagePath, accessibilityLabel: frontText)
+                    .frame(maxHeight: 220)
+            }
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isRevealed.toggle()

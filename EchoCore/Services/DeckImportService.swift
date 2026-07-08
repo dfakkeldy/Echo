@@ -45,6 +45,10 @@ struct DeckImportService {
                     card.triggerTiming, cardIndex: index)
             }
             triggerTimings.append(triggerTiming)
+
+            if !(card.imageAnchor?.isEmpty ?? true) && !(card.imageFile?.isEmpty ?? true) {
+                throw DeckImportError.conflictingImageFields(cardIndex: index)
+            }
         }
 
         var warnings: [ImportDeckWarning] = []
@@ -119,6 +123,7 @@ struct DeckImportService {
         // text, timings, and source anchors are applied instead of skipped.
         try replaceExistingCards(in: writer, deckID: deckID)
 
+        let bundleDir = url.deletingLastPathComponent()
         let dao = FlashcardDAO(db: writer)
         for (index, card) in deck.cards.enumerated() {
             let flashcard = Flashcard(
@@ -138,7 +143,9 @@ struct DeckImportService {
                 isEnabled: true,
                 deckID: deckID,
                 tags: nil,
-                mediaJSON: nil,
+                mediaJSON: resolveCardImageJSON(
+                    card: card, targetMediaID: deck.targetMediaID,
+                    bundleDir: bundleDir, deckID: deckID, writer: writer),
                 sourceBlockID: resolvedSourceBlockIDs[index],
                 playlistPosition: nil,
                 createdAt: Date().ISO8601Format(),
@@ -213,5 +220,82 @@ struct DeckImportService {
             return nil
         }
         return card.endTime
+    }
+
+    /// Produces the `media_json` value for a card's image, or nil if it has none.
+    /// `imageAnchor` -> the in-book figure block's `image_path`; `imageFile` ->
+    /// a bundled PNG copied into per-deck storage. Both-set is already rejected by
+    /// the early validation loop, so this only resolves a single field.
+    ///
+    /// Non-throwing by design: this runs inside the per-card INSERT loop, which
+    /// executes *after* `replaceExistingCards` has already deleted the deck's old
+    /// cards. Throwing mid-loop would leave the deck half-imported with no rollback,
+    /// so any I/O or DB failure resolving an image degrades the card to text-only
+    /// (mediaJSON nil) instead of aborting the whole import.
+    private func resolveCardImageJSON(
+        card: FlashcardDeckImport.ImportedCard,
+        targetMediaID: String,
+        bundleDir: URL,
+        deckID: String,
+        writer: DatabaseWriter
+    ) -> String? {
+        let imagePath: String?
+        if let anchor = card.imageAnchor, !anchor.isEmpty {
+            imagePath = figureImagePath(
+                anchor: anchor, targetMediaID: targetMediaID, writer: writer)
+        } else if let rel = card.imageFile, !rel.isEmpty {
+            imagePath = copyBundledImage(relativePath: rel, bundleDir: bundleDir, deckID: deckID)
+        } else {
+            imagePath = nil
+        }
+        guard let imagePath else { return nil }  // missing/unresolved -> card imports text-only
+        guard let data = try? JSONEncoder().encode(StudyCardMedia(imagePath: imagePath)) else {
+            return nil
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func figureImagePath(
+        anchor: String, targetMediaID: String, writer: DatabaseWriter
+    ) -> String? {
+        let resolution =
+            (try? EPUBSourceAnchorResolver(dbReader: writer).resolve(
+                sourceAnchor: anchor, targetMediaID: targetMediaID, cardReference: "image-anchor"))
+            ?? .none
+        guard case .resolved(let blockID) = resolution else { return nil }
+        let imagePath = try? writer.read { db in
+            try EPubBlockRecord.filter(Column("id") == blockID).fetchOne(db)?.imagePath
+        }
+        return imagePath ?? nil
+    }
+
+    /// Copies a bundled deck image into per-deck storage and returns its absolute
+    /// path, or nil on any failure. `imageFile` comes from untrusted, shareable
+    /// deck JSON, so absolute paths and any value escaping the bundle dir (e.g.
+    /// `../evil.png`) are rejected before the copy. Non-throwing: a failed copy
+    /// degrades the card to text-only rather than aborting the import.
+    private func copyBundledImage(
+        relativePath: String, bundleDir: URL, deckID: String
+    ) -> String? {
+        guard !relativePath.hasPrefix("/") else { return nil }  // no absolute paths
+        let source = bundleDir.appendingPathComponent(relativePath).standardizedFileURL
+        let root = bundleDir.standardizedFileURL
+        // Stay inside the bundle dir: reject path-traversal escapes.
+        guard source.path == root.path || source.path.hasPrefix(root.path + "/") else { return nil }
+        guard FileManager.default.fileExists(atPath: source.path) else { return nil }
+        let destRoot = URL.applicationSupportDirectory
+            .appending(path: "DeckMedia", directoryHint: .isDirectory)
+            .appending(path: deckID, directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(at: destRoot, withIntermediateDirectories: true)
+            let dest = destRoot.appendingPathComponent(source.lastPathComponent)
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: source, to: dest)
+            return dest.path
+        } catch {
+            return nil  // non-fatal
+        }
     }
 }
