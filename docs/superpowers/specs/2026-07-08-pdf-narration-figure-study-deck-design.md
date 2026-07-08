@@ -1,6 +1,6 @@
 # On-Device PDF Narration + Aligned Read-Along + Figure-Rich Study Deck — Design
 
-- **Status:** Approved design (implementation plan: _to be written next_)
+- **Status:** Approved design (implementation plan: [`2026-07-08-pdf-narration-figure-study-deck.md`](../plans/2026-07-08-pdf-narration-figure-study-deck.md))
 - **Date:** 2026-07-08
 - **Author:** Dan Fakkeldy (with Claude)
 - **Branch base:** `nightly` (`claude/ios-pdf-narration-study-deck-fae1f8`, history includes `origin/nightly` @ `a66bf39d`)
