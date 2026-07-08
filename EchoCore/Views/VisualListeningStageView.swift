@@ -104,8 +104,7 @@ private struct VisualListeningSubtitleView: View {
         Text(attributedSubtitle)
             .customFont(.headline, weight: .semibold, appFont: appFont)
             .multilineTextAlignment(.center)
-            .lineLimit(3)
-            .minimumScaleFactor(0.82)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
@@ -125,7 +124,6 @@ private struct VisualListeningSubtitleView: View {
             let attributedRange = lower..<upper
             if cue.activeWordIndex == index {
                 subtitle[attributedRange].foregroundColor = .primary
-                subtitle[attributedRange].font = .headline.bold()
             } else if index < cue.alreadyHeardWordCount {
                 subtitle[attributedRange].foregroundColor = .primary.opacity(0.72)
             } else {

@@ -109,8 +109,7 @@ private struct MacVisualSubtitleView: View {
     var body: some View {
         Text(attributedSubtitle)
             .customFont(.headline, weight: .semibold, appFont: appFont)
-            .lineLimit(4)
-            .minimumScaleFactor(0.82)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -130,7 +129,6 @@ private struct MacVisualSubtitleView: View {
             let attributedRange = lower..<upper
             if cue.activeWordIndex == index {
                 subtitle[attributedRange].foregroundColor = .primary
-                subtitle[attributedRange].font = .headline.bold()
             } else if index < cue.alreadyHeardWordCount {
                 subtitle[attributedRange].foregroundColor = .primary.opacity(0.76)
             } else {

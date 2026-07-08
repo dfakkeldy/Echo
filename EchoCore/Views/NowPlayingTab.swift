@@ -173,13 +173,19 @@ struct NowPlayingTab: View {
             )
             .frame(minWidth: 340, idealWidth: 500, maxWidth: 620, minHeight: 260, maxHeight: 430)
 
-            playbackDetailsAndScrubber
+            playbackDetailsAndScrubber(usesContainerRelativeScrubberWidth: false)
                 .frame(minWidth: 260, idealWidth: 320, maxWidth: 420)
         }
         .padding(.horizontal, NowPlayingLayout.horizontalPadding)
     }
 
     private var playbackDetailsAndScrubber: some View {
+        playbackDetailsAndScrubber(usesContainerRelativeScrubberWidth: true)
+    }
+
+    private func playbackDetailsAndScrubber(
+        usesContainerRelativeScrubberWidth: Bool
+    ) -> some View {
         VStack(spacing: 0) {
             // C. Metadata & Typography Area
             metadataArea
@@ -194,11 +200,23 @@ struct NowPlayingTab: View {
             // content overflows a padding-reduced proposal back to full
             // bleed, so padding alone left the slider + time labels jammed
             // against the screen edges.
+            scrubberView(usesContainerRelativeWidth: usesContainerRelativeScrubberWidth)
+        }
+    }
+
+    @ViewBuilder
+    private func scrubberView(usesContainerRelativeWidth: Bool) -> some View {
+        if usesContainerRelativeWidth {
             PlayerScrubberView()
                 .containerRelativeFrame(.horizontal) { width, _ in
                     max(0, width - 2 * NowPlayingLayout.horizontalPadding)
                 }
                 .tint(model.resolvedThemeTint)
+                .padding(.vertical, 16)
+        } else {
+            PlayerScrubberView()
+                .tint(model.resolvedThemeTint)
+                .padding(.horizontal, NowPlayingLayout.horizontalPadding)
                 .padding(.vertical, 16)
         }
     }

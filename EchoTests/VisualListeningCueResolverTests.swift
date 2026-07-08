@@ -51,6 +51,9 @@ struct VisualListeningCueResolverTests {
         #expect(snapshot.imageCue?.displayStartTime == 30)
         #expect(snapshot.imageCue?.displayEndTime == 40)
         #expect(snapshot.imageCue?.source == .explicitTimeline)
+        #expect(snapshot.imageCue?.subtitleBlockID == "text")
+        #expect(snapshot.subtitleCue?.blockID == "text")
+        #expect(snapshot.subtitleCue?.text == "This text has its own timing.")
     }
 
     @Test func trackScopePreventsSameTimeImageCollisions() {
@@ -159,6 +162,28 @@ struct VisualListeningCueResolverTests {
 
         #expect(snapshot.activeBlockID == "text")
         #expect(snapshot.subtitleCue?.text == "One two three.")
+        #expect(snapshot.subtitleCue?.activeWordIndex == 1)
+        #expect(snapshot.subtitleCue?.alreadyHeardWordCount == 1)
+    }
+
+    @Test func subtitleWordProgressUsesDisplayOrdinalForSparseTimingIndices() {
+        let blocks = [
+            block("text", sequence: 0, kind: .paragraph, text: "One two three."),
+        ]
+        let snapshot = VisualListeningCueResolver.snapshot(
+            blocks: blocks,
+            timeline: [timeline(0, 10, blockID: "text")],
+            words: [
+                (start: 0, end: 1, blockID: "text", wordIndex: 0),
+                (start: 1, end: 2, blockID: "text", wordIndex: 10_000),
+                (start: 2, end: 3, blockID: "text", wordIndex: 20_000),
+            ],
+            time: 1.5,
+            currentTrackSegmentKey: nil,
+            currentTrackChapterIndices: nil,
+            syncPoint: .begin
+        )
+
         #expect(snapshot.subtitleCue?.activeWordIndex == 1)
         #expect(snapshot.subtitleCue?.alreadyHeardWordCount == 1)
     }

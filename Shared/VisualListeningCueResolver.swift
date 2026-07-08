@@ -29,6 +29,9 @@ struct VisualListeningImageCue: Equatable, Identifiable, Sendable {
 struct VisualListeningSubtitleCue: Equatable, Sendable {
     let blockID: String
     let text: String
+    /// Display-token ordinal for the subtitle string, not the raw persisted
+    /// `word_timing.word_index` value. Generated timings may use sparse source
+    /// indices, while the stage renderer walks visible tokens contiguously.
     let activeWordIndex: Int?
     let alreadyHeardWordCount: Int
 }
@@ -145,10 +148,14 @@ enum VisualListeningCueResolver {
 
         return imageBlocks.compactMap { block in
             if let explicit = scopedRows.first(where: { $0.blockID == block.id && $0.end > $0.start }) {
+                let subtitleBlockID = block.text?.isEmpty == false
+                    ? block.id
+                    : referenceRow(for: block, rows: scopedRows, blocksByID: blocksByID)?.blockID
+
                 return makeImageCue(
                     block: block,
                     imagePath: block.imagePath ?? "",
-                    subtitleBlockID: block.text?.isEmpty == false ? block.id : nil,
+                    subtitleBlockID: subtitleBlockID,
                     displayStart: explicit.start,
                     displayEnd: explicit.end,
                     syncPoint: syncPoint,
@@ -266,14 +273,19 @@ enum VisualListeningCueResolver {
             !text.isEmpty
         else { return nil }
 
-        let activeWordIndex = ReaderActiveBlockResolver.activeWord(
-            in: words,
-            time: time,
-            activeBlockID: blockID
-        )
-        let alreadyHeardWordCount = words.filter {
-            $0.blockID == blockID && $0.end <= time
-        }.count
+        let blockWords = words
+            .filter { $0.blockID == blockID }
+            .sorted { lhs, rhs in
+                if lhs.start == rhs.start {
+                    if lhs.end == rhs.end { return lhs.wordIndex < rhs.wordIndex }
+                    return lhs.end < rhs.end
+                }
+                return lhs.start < rhs.start
+            }
+        let activeWordIndex = blockWords.firstIndex { word in
+            time >= word.start && time < word.end
+        }
+        let alreadyHeardWordCount = blockWords.filter { $0.end <= time }.count
 
         return VisualListeningSubtitleCue(
             blockID: blockID,
