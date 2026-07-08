@@ -65,6 +65,15 @@ struct StudyCardMedia: Codable, Equatable, Sendable {
         self.imagePath = imagePath
         self.retirePromptShownAt = retirePromptShownAt
     }
+
+    /// Decode a `flashcard.media_json` string into its image path, if any.
+    /// Returns nil when the JSON is absent, malformed, or has no image.
+    static func imagePath(fromMediaJSON json: String?) -> String? {
+        guard let json, let data = json.data(using: .utf8),
+            let media = try? JSONDecoder().decode(StudyCardMedia.self, from: data)
+        else { return nil }
+        return media.imagePath
+    }
 }
 
 struct StudyPlanCandidate: Identifiable, Equatable, Sendable {
