@@ -199,6 +199,23 @@ enum PDFAutoImportScanner {
                             id: nil, audiobookID: audiobookID, epubBlockID: $0.blockID,
                             pageIndex: $0.pageIndex)
                     })
+
+                // Figures: extract (detached, CoreGraphics) then persist as image
+                // blocks. Best-effort — a figure-less or figure-extraction-failed
+                // PDF must import exactly as before.
+                let figures = await Task.detached(priority: .userInitiated) {
+                    PDFFigureExtractor.extractFigures(from: pdfURL)
+                }.value
+                if !figures.isEmpty {
+                    let manifest = PDFFigureImporter.importFigures(
+                        figures, audiobookID: audiobookID, textBlocks: blocks,
+                        pageMapping: mapping, databaseService: databaseService)
+                    logger.info(
+                        "Imported \(manifest.count) PDF figures for \(sanitizedPath(audiobookID))"
+                    )
+                    Self.writeFigureManifest(manifest, audiobookID: audiobookID, pdfURL: pdfURL)
+                }
+
                 return .imported
             }
             return .failed(pdfURL, underlying: PDFAutoImportError.finalizationFailed(pdfURL))
@@ -216,6 +233,17 @@ enum PDFAutoImportScanner {
             logger.error("PDF auto-import failed: \(error.localizedDescription)")
             return .failed(pdfURL, underlying: error)
         }
+    }
+
+    /// Best-effort: writes the figure manifest (portable anchor → image path)
+    /// beside the PDF for deck authoring. Never throws — a write failure here
+    /// must not affect the (already-committed) figure import.
+    private static func writeFigureManifest(
+        _ manifest: [FigureManifestEntry], audiobookID: String, pdfURL: URL
+    ) {
+        guard let data = try? JSONEncoder().encode(manifest) else { return }
+        let url = pdfURL.deletingLastPathComponent().appendingPathComponent("figures.json")
+        try? data.write(to: url)
     }
 
     /// Extracts readable text from each page in the PDF.
