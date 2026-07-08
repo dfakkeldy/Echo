@@ -38,6 +38,12 @@ nonisolated struct FlashcardDeckImport: Codable, Sendable {
         /// message, rather than failing decode as a generic `invalidJSON`.
         let triggerTiming: String
         let sourceAnchor: String?
+        /// Portable `s<i>-b<j>` anchor of an in-book figure block (an extracted
+        /// PDF figure). Mutually exclusive with `imageFile`.
+        var imageAnchor: String?
+        /// Path (relative to the deck bundle's folder) of a bundled image file,
+        /// e.g. a Codex-generated mnemonic. Mutually exclusive with `imageAnchor`.
+        var imageFile: String?
     }
 }
 
