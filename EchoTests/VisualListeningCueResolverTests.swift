@@ -118,6 +118,27 @@ struct VisualListeningCueResolverTests {
         #expect(midpoint.imageCue?.displayEndTime == 25)
     }
 
+    @Test func midpointDerivedImageKeepsSubtitleBeforeReferenceTextStarts() {
+        let blocks = [
+            block("figure", sequence: 0, kind: .image, imagePath: "figure.jpg"),
+            block("text", sequence: 1, kind: .paragraph, text: "The captioned section."),
+        ]
+        let snapshot = VisualListeningCueResolver.snapshot(
+            blocks: blocks,
+            timeline: [timeline(10, 20, blockID: "text")],
+            words: [],
+            time: 6,
+            currentTrackSegmentKey: nil,
+            currentTrackChapterIndices: nil,
+            syncPoint: .midpoint
+        )
+
+        #expect(snapshot.imageCue?.blockID == "figure")
+        #expect(snapshot.imageCue?.subtitleBlockID == "text")
+        #expect(snapshot.subtitleCue?.blockID == "text")
+        #expect(snapshot.subtitleCue?.text == "The captioned section.")
+    }
+
     @Test func subtitleUsesActiveBlockAndWordProgress() {
         let blocks = [
             block("text", sequence: 0, kind: .paragraph, text: "One two three."),

@@ -160,6 +160,22 @@ struct NowPlayingLayoutTests {
             "Ordinary books should keep the existing artwork path unless image and subtitle cues are available."
         )
         #expect(
+            source.contains("snapshot.subtitleCue != nil"),
+            "The visual listening stage should only appear when a subtitle cue is available."
+        )
+        #expect(
+            source.contains("onGeometryChange(for: Bool.self)"),
+            "Now Playing should use container geometry for the iPad landscape visual-listening layout."
+        )
+        #expect(
+            source.contains("usesWideVisualListeningLayout"),
+            "Now Playing should have a distinct regular-width visual-listening layout for iPad."
+        )
+        #expect(
+            source.contains("wideVisualListeningLayout(snapshot:"),
+            "The iPad layout should place the visual stage beside compact playback controls."
+        )
+        #expect(
             stageSource.contains("Picker(\"Image timing\""),
             "The image sync-point choice should be available from the slideshow surface."
         )
@@ -215,7 +231,9 @@ struct NowPlayingLayoutTests {
                 + "VisualListeningViewModel VisualListeningStageView( "
                 + "visualListeningViewModel?.update( model.currentTrackSegmentKey "
                 + "model.currentTrackChapterIndices "
-                + "visualListeningViewModel?.hasVisualListeningContent == true"
+                + "visualListeningViewModel?.hasVisualListeningContent == true "
+                + "snapshot.subtitleCue != nil onGeometryChange(for: Bool.self) "
+                + "usesWideVisualListeningLayout wideVisualListeningLayout(snapshot:"
         } else if fileName == "VisualListeningStageView.swift" {
             return "Picker(\"Image timing\" Current figure Subtitle:"
         } else if fileName == "Components/AdaptiveBackground.swift" {

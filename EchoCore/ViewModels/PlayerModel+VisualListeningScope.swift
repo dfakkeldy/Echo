@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#if canImport(UIKit)
 import Foundation
 
 extension PlayerModel {
@@ -34,3 +35,4 @@ extension PlayerModel {
         )
     }
 }
+#endif

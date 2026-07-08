@@ -1,33 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#if canImport(UIKit)
+import AppKit
 import SwiftUI
-import UIKit
 
-struct VisualListeningStageView: View {
+struct MacVisualStageView: View {
     let snapshot: VisualListeningSnapshot
     @Binding var syncPoint: VisualListeningSyncPoint
+    let folderURL: URL?
     let appFont: String
 
-    @State private var image: UIImage?
+    @State private var image: NSImage?
     @State private var loadedImagePath: String?
 
     var body: some View {
-        VStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 16) {
             visualStage
-                .overlay(alignment: .bottom) {
-                    if let subtitleCue = snapshot.subtitleCue {
-                        VisualListeningSubtitleView(cue: subtitleCue, appFont: appFont)
-                            .padding(12)
-                    }
+
+            VStack(alignment: .leading, spacing: 12) {
+                if let subtitleCue = snapshot.subtitleCue {
+                    MacVisualSubtitleView(cue: subtitleCue, appFont: appFont)
                 }
 
-            Picker("Image timing", selection: $syncPoint) {
-                Text("Begin").tag(VisualListeningSyncPoint.begin)
-                Text("Middle").tag(VisualListeningSyncPoint.midpoint)
+                Picker("Image timing", selection: $syncPoint) {
+                    Text("Begin").tag(VisualListeningSyncPoint.begin)
+                    Text("Middle").tag(VisualListeningSyncPoint.midpoint)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 180)
+                .accessibilityLabel(Text("Image timing"))
+
+                Spacer(minLength: 0)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityLabel(Text("Image timing"))
+            .frame(maxWidth: 320, alignment: .topLeading)
         }
         .onAppear(perform: loadImageIfNeeded)
         .onChange(of: snapshot.imageCue?.imagePath) { _, _ in
@@ -38,11 +42,11 @@ struct VisualListeningStageView: View {
 
     private var visualStage: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.primary.opacity(0.08))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.07))
 
             if let image {
-                Image(uiImage: image)
+                Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .transition(.opacity)
@@ -55,8 +59,7 @@ struct VisualListeningStageView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(.rect(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
+        .clipShape(.rect(cornerRadius: 12))
         .animation(.easeInOut(duration: 0.25), value: snapshot.imageCue?.id)
         .accessibilityLabel(Text(accessibilityLabel))
     }
@@ -82,34 +85,36 @@ struct VisualListeningStageView: View {
         image = visualListeningImage(at: imagePath)
     }
 
-    private func visualListeningImage(at imagePath: String) -> UIImage? {
-        var url = URL(fileURLWithPath: imagePath)
-        if !FileManager.default.fileExists(atPath: url.path) {
-            let filename = url.lastPathComponent
-            let dirName = url.deletingLastPathComponent().lastPathComponent
-            url = FileLocations.applicationSupportDirectory
-                .appendingPathComponent("EPUBAssets")
-                .appendingPathComponent(dirName)
-                .appendingPathComponent(filename)
+    private func visualListeningImage(at imagePath: String) -> NSImage? {
+        if FileManager.default.fileExists(atPath: imagePath) {
+            return NSImage(contentsOfFile: imagePath)
         }
-        return UIImage(contentsOfFile: url.path)
+
+        guard let folderURL else { return nil }
+        let assetsDir = SafeFileName.fromAudiobookID(folderURL.absoluteString)
+        let resolvedURL = folderURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(assetsDir)
+            .appendingPathComponent("EPUBAssets")
+            .appendingPathComponent(imagePath)
+        guard FileManager.default.fileExists(atPath: resolvedURL.path) else { return nil }
+        return NSImage(contentsOf: resolvedURL)
     }
 }
 
-private struct VisualListeningSubtitleView: View {
+private struct MacVisualSubtitleView: View {
     let cue: VisualListeningSubtitleCue
     let appFont: String
 
     var body: some View {
         Text(attributedSubtitle)
             .customFont(.headline, weight: .semibold, appFont: appFont)
-            .multilineTextAlignment(.center)
-            .lineLimit(3)
+            .lineLimit(4)
             .minimumScaleFactor(0.82)
-            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
-            .background(.regularMaterial, in: .rect(cornerRadius: 12))
+            .background(.regularMaterial, in: .rect(cornerRadius: 10))
             .accessibilityLabel(Text("Subtitle: \(cue.text)"))
     }
 
@@ -127,7 +132,7 @@ private struct VisualListeningSubtitleView: View {
                 subtitle[attributedRange].foregroundColor = .primary
                 subtitle[attributedRange].font = .headline.bold()
             } else if index < cue.alreadyHeardWordCount {
-                subtitle[attributedRange].foregroundColor = .primary.opacity(0.72)
+                subtitle[attributedRange].foregroundColor = .primary.opacity(0.76)
             } else {
                 subtitle[attributedRange].foregroundColor = .secondary
             }
@@ -136,4 +141,3 @@ private struct VisualListeningSubtitleView: View {
         return subtitle
     }
 }
-#endif

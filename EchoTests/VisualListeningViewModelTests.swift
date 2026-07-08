@@ -186,6 +186,7 @@ struct VisualListeningViewModelTests {
 
         #expect(viewModel.snapshot.imageCue?.blockID == "image")
         #expect(viewModel.snapshot.imageCue?.displayStartTime == 5)
+        #expect(viewModel.snapshot.subtitleCue?.blockID == "text")
     }
 
     private func makeDatabase() throws -> DatabaseService {

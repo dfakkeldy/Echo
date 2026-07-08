@@ -17,6 +17,7 @@ struct VisualListeningImageCue: Equatable, Identifiable, Sendable {
     let blockID: String
     let imagePath: String
     let caption: String?
+    let subtitleBlockID: String?
     let chapterIndex: Int?
     let sequenceIndex: Int
     let displayStartTime: TimeInterval
@@ -77,7 +78,12 @@ enum VisualListeningCueResolver {
             syncPoint: syncPoint
         )
         let subtitleCue = subtitleCue(
-            activeBlockID: activeBlockID,
+            blockID: activeBlockID,
+            blocksByID: blocksByID,
+            words: words,
+            time: time
+        ) ?? subtitleCue(
+            blockID: imageCue?.subtitleBlockID,
             blocksByID: blocksByID,
             words: words,
             time: time
@@ -142,6 +148,7 @@ enum VisualListeningCueResolver {
                 return makeImageCue(
                     block: block,
                     imagePath: block.imagePath ?? "",
+                    subtitleBlockID: block.text?.isEmpty == false ? block.id : nil,
                     displayStart: explicit.start,
                     displayEnd: explicit.end,
                     syncPoint: syncPoint,
@@ -165,6 +172,7 @@ enum VisualListeningCueResolver {
             return makeImageCue(
                 block: block,
                 imagePath: block.imagePath ?? "",
+                subtitleBlockID: reference.blockID,
                 displayStart: window.start,
                 displayEnd: window.end,
                 syncPoint: syncPoint,
@@ -226,6 +234,7 @@ enum VisualListeningCueResolver {
     private static func makeImageCue(
         block: EPubBlockRecord,
         imagePath: String,
+        subtitleBlockID: String?,
         displayStart: TimeInterval,
         displayEnd: TimeInterval,
         syncPoint: VisualListeningSyncPoint,
@@ -235,6 +244,7 @@ enum VisualListeningCueResolver {
             blockID: block.id,
             imagePath: imagePath,
             caption: block.text,
+            subtitleBlockID: subtitleBlockID,
             chapterIndex: block.chapterIndex,
             sequenceIndex: block.sequenceIndex,
             displayStartTime: displayStart,
@@ -245,13 +255,13 @@ enum VisualListeningCueResolver {
     }
 
     private static func subtitleCue(
-        activeBlockID: String?,
+        blockID: String?,
         blocksByID: [String: EPubBlockRecord],
         words: [ReaderActiveBlockResolver.WordRow],
         time: TimeInterval
     ) -> VisualListeningSubtitleCue? {
-        guard let activeBlockID,
-            let block = blocksByID[activeBlockID],
+        guard let blockID,
+            let block = blocksByID[blockID],
             let text = block.text,
             !text.isEmpty
         else { return nil }
@@ -259,14 +269,14 @@ enum VisualListeningCueResolver {
         let activeWordIndex = ReaderActiveBlockResolver.activeWord(
             in: words,
             time: time,
-            activeBlockID: activeBlockID
+            activeBlockID: blockID
         )
         let alreadyHeardWordCount = words.filter {
-            $0.blockID == activeBlockID && $0.end <= time
+            $0.blockID == blockID && $0.end <= time
         }.count
 
         return VisualListeningSubtitleCue(
-            blockID: activeBlockID,
+            blockID: blockID,
             text: text,
             activeWordIndex: activeWordIndex,
             alreadyHeardWordCount: alreadyHeardWordCount
