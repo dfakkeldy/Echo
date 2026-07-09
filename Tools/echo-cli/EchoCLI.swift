@@ -12,6 +12,8 @@ struct EchoCLI: AsyncParsableCommand {
             RetagCommand.self,
             NarrationQACommand.self,
             GenerateDeckCommand.self,
+            SidecarFromChapteredAudioCommand.self,
+            VerifySidecarCommand.self,
         ])
 
     /// A bare command-line tool has no .app bundle, so point the narration

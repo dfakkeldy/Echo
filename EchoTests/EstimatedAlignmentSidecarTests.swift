@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import Testing
+
+@testable import Echo
+
+private final class EstimatedSidecarFixtureBundleLocator {}
+
+@Suite struct EstimatedAlignmentSidecarTests {
+    @Test func buildsEstimatedAnchorsByWordWeightInsideChapterTimings() throws {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 1, text: "Intro"),
+            block(spine: 0, index: 1, sequence: 1, words: 3, text: "one two three"),
+            block(spine: 1, index: 0, sequence: 2, words: 2, text: "next chapter"),
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 40),
+            EstimatedAlignmentSidecar.ChapterTiming(index: 1, start: 40, end: 100),
+        ]
+
+        let anchors = try EstimatedAlignmentSidecar.build(
+            blocks: blocks,
+            chapterTimings: chapters
+        )
+
+        #expect(anchors.map(\.blockId) == ["s0-b0", "s0-b1", "s1-b0"])
+        #expect(anchors.map(\.timestamp) == [0, 10, 40])
+        #expect(anchors.allSatisfy { $0.confidence == 0.5 })
+    }
+
+    @Test func buildSkipsHiddenImageAndEmptyTextBlocks() throws {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, kind: .image, words: 1, text: nil),
+            block(spine: 0, index: 1, sequence: 1, words: 1, text: "   "),
+            block(spine: 0, index: 2, sequence: 2, words: 2, text: "spoken block"),
+            block(spine: 0, index: 3, sequence: 3, words: 2, text: "hidden", isHidden: true),
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 5, end: 25),
+        ]
+
+        let anchors = try EstimatedAlignmentSidecar.build(
+            blocks: blocks,
+            chapterTimings: chapters
+        )
+
+        #expect(anchors.map(\.blockId) == ["s0-b2"])
+        #expect(anchors.first?.timestamp == 5)
+    }
+
+    @Test func verifyAcceptsResolvableMonotonicSidecarWithChapterCoverage() throws {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 1, text: "A"),
+            block(spine: 1, index: 0, sequence: 1, words: 1, text: "B"),
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10),
+            EstimatedAlignmentSidecar.ChapterTiming(index: 1, start: 10, end: 20),
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 0, confidence: 0.5),
+            AlignmentSidecar.Anchor(blockId: "s1-b0", timestamp: 10, confidence: 0.5),
+        ]
+
+        let report = try AlignmentSidecarVerifier.verify(
+            anchors: anchors,
+            blocks: blocks,
+            chapterTimings: chapters,
+            audioDuration: 20
+        )
+
+        #expect(report.anchorCount == 2)
+        #expect(report.chapterCount == 2)
+    }
+
+    @Test func verifyReportsUnresolvedNonMonotonicOutOfRangeAndEmptyChapterIssues() {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 1, text: "A"),
+            block(spine: 1, index: 0, sequence: 1, words: 1, text: "B"),
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10),
+            EstimatedAlignmentSidecar.ChapterTiming(index: 1, start: 10, end: 20),
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 12, confidence: 0.5),
+            AlignmentSidecar.Anchor(blockId: "s9-b9", timestamp: 8, confidence: 0.5),
+            AlignmentSidecar.Anchor(blockId: "s1-b0", timestamp: 30, confidence: 0.5),
+        ]
+
+        do {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: anchors,
+                blocks: blocks,
+                chapterTimings: chapters,
+                audioDuration: 20
+            )
+            Issue.record("Expected sidecar verification to fail.")
+        } catch let error as AlignmentSidecarVerifier.VerificationError {
+            #expect(error.issues.contains(.unresolvedBlockID("s9-b9")))
+            #expect(error.issues.contains(.timestampDecreased(blockID: "s9-b9", timestamp: 8)))
+            #expect(error.issues.contains(.timestampOutOfRange(blockID: "s1-b0", timestamp: 30)))
+            #expect(error.issues.contains(.chapterWithoutAnchors(index: 0)))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func audioTimingReaderUsesM4BChapterMarkers() async throws {
+        let source = try await SilentAudioFixture.makeSilentM4A(seconds: 6)
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("m4b")
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: output)
+        }
+
+        try await ChapterMarkerWriter().writeChapters(
+            [
+                ChapterAtom(startTime: 0, title: "Intro"),
+                ChapterAtom(startTime: 3, title: "Body"),
+            ],
+            to: source,
+            outputURL: output
+        )
+
+        let result = try await ChapteredAudioTimingReader.timings(at: output)
+
+        #expect(abs(result.duration - 6) < 0.25)
+        #expect(result.chapterTimings.map(\.index) == [0, 1])
+        #expect(abs(result.chapterTimings[0].start - 0) < 0.25)
+        #expect(abs(result.chapterTimings[0].end - 3) < 0.25)
+        #expect(abs(result.chapterTimings[1].start - 3) < 0.25)
+        #expect(abs(result.chapterTimings[1].end - 6) < 0.25)
+    }
+
+    @Test func audioTimingReaderTreatsAudioDirectoryAsSortedChapterFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let firstSource = try await SilentAudioFixture.makeSilentM4A(seconds: 1)
+        let secondSource = try await SilentAudioFixture.makeSilentM4A(seconds: 2)
+        let first = directory.appendingPathComponent("01-intro.m4a")
+        let second = directory.appendingPathComponent("02-body.m4a")
+        try FileManager.default.moveItem(at: firstSource, to: first)
+        try FileManager.default.moveItem(at: secondSource, to: second)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let result = try await ChapteredAudioTimingReader.timings(at: directory)
+
+        #expect(abs(result.duration - 3) < 0.25)
+        #expect(result.chapterTimings.map(\.index) == [0, 1])
+        #expect(abs(result.chapterTimings[0].start - 0) < 0.25)
+        #expect(abs(result.chapterTimings[0].end - 1) < 0.25)
+        #expect(abs(result.chapterTimings[1].start - 1) < 0.25)
+        #expect(abs(result.chapterTimings[1].end - 3) < 0.25)
+    }
+
+    @Test func sourceBlockLoaderImportsZippedEPUBWithPortableBlockSuffixes() async throws {
+        let fixtureURL = try #require(
+            Bundle(for: EstimatedSidecarFixtureBundleLocator.self)
+                .url(forResource: "minimal-book", withExtension: "epub"),
+            "minimal-book.epub is missing from the EchoTests bundle resources"
+        )
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let sourceURL = folder.appendingPathComponent("minimal-book.epub")
+        try FileManager.default.copyItem(at: fixtureURL, to: sourceURL)
+        let audiobookID = "sidecar-test-\(UUID().uuidString)"
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            cleanupEPUBCache(audiobookID: audiobookID)
+        }
+
+        let blocks = try await SidecarSourceBlockLoader.blocks(
+            from: sourceURL,
+            audiobookID: audiobookID
+        )
+
+        #expect(!blocks.isEmpty)
+        #expect(Set(blocks.map(\.spineIndex)) == Set([0, 1]))
+        #expect(blocks.map { AlignmentSidecar.portableSuffix(of: $0.id) }.contains("s0-b0"))
+    }
+
+    private func block(
+        spine: Int,
+        index: Int,
+        sequence: Int,
+        kind: EPubBlockRecord.Kind = .paragraph,
+        words: Int,
+        text: String?,
+        isHidden: Bool = false
+    ) -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: "epub-book-s\(spine)-b\(index)",
+            audiobookID: "book",
+            spineHref: "ch\(spine).xhtml",
+            spineIndex: spine,
+            blockIndex: index,
+            sequenceIndex: sequence,
+            blockKind: kind.rawValue,
+            text: text,
+            htmlContent: nil,
+            cardColor: nil,
+            chapterThemeColor: nil,
+            imagePath: nil,
+            chapterIndex: nil,
+            isHidden: isHidden,
+            hiddenReason: nil,
+            isFrontMatter: false,
+            wordCount: words,
+            markers: nil,
+            textFormats: nil,
+            narrationText: nil,
+            createdAt: nil,
+            modifiedAt: nil
+        )
+    }
+
+    private func cleanupEPUBCache(audiobookID: String) {
+        let safeID = SafeFileName.fromAudiobookID(audiobookID)
+        if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(
+                at:
+                    caches
+                    .appendingPathComponent("EPUBUnpacked", isDirectory: true)
+                    .appendingPathComponent(safeID, isDirectory: true)
+            )
+        }
+        if let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            try? FileManager.default.removeItem(
+                at:
+                    appSupport
+                    .appendingPathComponent("EPUBAssets", isDirectory: true)
+                    .appendingPathComponent(safeID, isDirectory: true)
+            )
+        }
+    }
+}
