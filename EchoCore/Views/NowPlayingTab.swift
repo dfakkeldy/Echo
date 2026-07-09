@@ -29,7 +29,12 @@ struct NowPlayingTab: View {
 
     var body: some View {
         ZStack {
-            // 1. ADAPTIVE GRADIENT BACKGROUND (Rendered globally at RootTabView)
+            // 1. ADAPTIVE GRADIENT BACKGROUND — must live INSIDE this tab's
+            // NavigationStack: the stack's UINavigationController paints an
+            // opaque systemBackground, so a ramp layered behind the stack (the
+            // pre-2026-07 RootTabView arrangement) is invisible and the player
+            // reads as plain black/white.
+            AdaptiveBackground()
 
             // 2. MAIN LAYOUT STACK
             Group {
@@ -375,7 +380,9 @@ struct NowPlayingTab: View {
 
     private var secondaryLineText: String {
         if model.chapters.count >= 2 {
-            let bookTitle = model.currentTitle
+            // Metadata display title, never the raw file slug (audit 2026-07:
+            // "SYSTEM-THAT-DOES-THE-REVIEWING" leaked into the eyebrow).
+            let bookTitle = model.bookDisplayTitle
             let author = authorText
             return author.isEmpty ? bookTitle : "\(bookTitle) • \(author)"
         } else {
@@ -384,6 +391,11 @@ struct NowPlayingTab: View {
     }
 
     private var authorText: String {
+        // Library metadata first; the parent-folder guess below mislabels
+        // category folders ("Books") as the author.
+        if let author = model.bookMetadataAuthor {
+            return author
+        }
         if let folderURL = model.folderURL {
             let author = folderURL.deletingLastPathComponent().lastPathComponent
             if author != "Developer" && author != "Documents" && !author.isEmpty {

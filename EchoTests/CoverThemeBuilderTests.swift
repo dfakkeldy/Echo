@@ -128,8 +128,11 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
                 boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.13, nearWhite: 0.53),
                 scheme: scheme, brand: brand)
             let accent = OKLCH.fromSRGB(r.accent)
+            // Ceiling sits well under the standard dark recipe's L 0.78 pale
+            // pink, with headroom for `enforcedAccent`'s contrast stepping
+            // against the 2026-07 richer (lighter) dark ramp (~L 0.63 at hue 22).
             XCTAssertLessThanOrEqual(
-                accent.L, 0.62, "accent should be a bold (low-L) red, not pink, in \(scheme)")
+                accent.L, 0.65, "accent should be a bold (low-L) red, not pink, in \(scheme)")
             XCTAssertTrue(
                 accent.H < 45 || accent.H > 350,
                 "accent stays in the red family in \(scheme), got hue \(accent.H)")
@@ -143,14 +146,43 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
         }
     }
 
-    func testBlackWhiteDominantCoverGetsNeutralBackgroundRamp() {
-        let r = CoverThemeBuilder.resolve(
-            boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.13, nearWhite: 0.53),
-            scheme: .dark, brand: brand)
-        XCTAssertLessThanOrEqual(
-            OKLCH.fromSRGB(r.backgroundTop).C, 0.03,
-            "background ramp should be near-neutral graphite")
-        XCTAssertLessThanOrEqual(OKLCH.fromSRGB(r.backgroundBottom).C, 0.03)
+    func testBlackWhiteDominantCoverKeepsCoverHuedBackground() {
+        // Regression (2026-07): a bold accent on a black/white-dominant cover
+        // (e.g. a teal mark on black) must keep a cover-hued room in BOTH
+        // schemes. An earlier neutral graphite/paper strip here read as
+        // "the theme is just dark" — the background wash is the one place the
+        // cover-derived theme is unmistakable, so it never goes neutral while
+        // the cover has an identity hue.
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            let r = CoverThemeBuilder.resolve(
+                boldSignature(hue: 22, chroma: 0.162, nearBlack: 0.13, nearWhite: 0.53),
+                scheme: scheme, brand: brand)
+            XCTAssertGreaterThan(
+                OKLCH.fromSRGB(r.backgroundTop).C, 0.03,
+                "background keeps the cover hue in \(scheme)")
+            XCTAssertEqual(
+                OKLCH.fromSRGB(r.backgroundTop).H, 22, accuracy: 25,
+                "background hue family follows the cover in \(scheme)")
+        }
+    }
+
+    func testRampsAreVisiblyCoverTinted() {
+        // The full-screen wash must READ as the cover's colour at a glance
+        // (pale tinted paper in light, an immersive coloured room in dark) —
+        // not collapse to near-neutral. Floors are generous under the gamut
+        // clamp's worst hue, but well above "visually grey" (C ≈ 0.01).
+        let light = CoverThemeBuilder.resolve(signature(hue: 55), scheme: .light, brand: brand)
+        XCTAssertGreaterThanOrEqual(OKLCH.fromSRGB(light.backgroundTop).C, 0.04)
+        XCTAssertGreaterThanOrEqual(OKLCH.fromSRGB(light.backgroundBottom).C, 0.05)
+        let dark = CoverThemeBuilder.resolve(signature(hue: 55), scheme: .dark, brand: brand)
+        XCTAssertGreaterThanOrEqual(OKLCH.fromSRGB(dark.backgroundTop).C, 0.05)
+        XCTAssertGreaterThanOrEqual(OKLCH.fromSRGB(dark.backgroundBottom).C, 0.05)
+        // Even at the gamut clamp's tightest hue (blue-violet light / teal dark)
+        // the wash stays visibly tinted.
+        let blue = CoverThemeBuilder.resolve(signature(hue: 268), scheme: .light, brand: brand)
+        XCTAssertGreaterThanOrEqual(OKLCH.fromSRGB(blue.backgroundTop).C, 0.03)
+        let teal = CoverThemeBuilder.resolve(signature(hue: 200), scheme: .dark, brand: brand)
+        XCTAssertGreaterThanOrEqual(OKLCH.fromSRGB(teal.backgroundTop).C, 0.03)
     }
 
     func testSolidVividCoverGetsBoldAccentButKeepsTonalBackground() {
@@ -161,7 +193,8 @@ nonisolated final class CoverThemeBuilderTests: XCTestCase {
             scheme: .dark, brand: brand)
         XCTAssertGreaterThan(
             OKLCH.fromSRGB(r.backgroundTop).C, 0.02, "non-B/W cover keeps a tinted background")
-        XCTAssertLessThanOrEqual(OKLCH.fromSRGB(r.accent).L, 0.62, "still a bold accent")
+        // Same enforcement headroom as testBoldAccentCoverThemesBoldNotPink.
+        XCTAssertLessThanOrEqual(OKLCH.fromSRGB(r.accent).L, 0.65, "still a bold accent")
     }
 
     func testStandardChromaCoverStaysTonal() {

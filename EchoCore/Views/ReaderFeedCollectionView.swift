@@ -62,6 +62,15 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
         let word: String
     }
 
+    /// Alignment debugging aid: gates the per-card red timestamp labels
+    /// (`anchorLabel` on Paragraph/HeadingCardCell). OFF by default so the labels
+    /// never overlap reader text in normal use; the toggle lives in
+    /// Settings ▸ Debug Menu. Read once per launch so cell dequeue/scrolling
+    /// never re-hits UserDefaults.
+    fileprivate static let showsAlignmentTimestamps = UserDefaults.standard.bool(
+        forKey: "reader.showAlignmentTimestamps"
+    )
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onTapBlock: onTapBlock,
@@ -167,9 +176,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                         itemID.hasPrefix("b-")
                     {
                         let blockID = String(itemID.dropFirst(2))
-                        let timeString = readerAlignmentTimestampString(
-                            audioStartTimeByBlockID[blockID]
-                        )
+                        // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
+                        let timeString =
+                            Self.showsAlignmentTimestamps
+                            ? readerAlignmentTimestampString(audioStartTimeByBlockID[blockID])
+                            : nil
                         let isAnchored = alignmentStatusByBlockID[blockID] == "lockedAnchor"
 
                         if let headingCell = cell as? HeadingCardCell {
@@ -463,7 +474,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: headingWordIdx)
                     headingCell.isActiveBlock = (block.id == activeBlockID)
-                    let timeString = readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
+                    // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
+                    let timeString =
+                        ReaderFeedCollectionView.showsAlignmentTimestamps
+                        ? readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
+                        : nil
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     headingCell.setManuallyAligned(isAnchored, timeString: timeString)
                     headingCell.configureAccessibility(
@@ -509,7 +524,11 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                             || block.chapterThemeColor != nil, searchQuery: searchQuery,
                         highlightedWordIndex: paraWordIdx)
                     paraCell.isActiveBlock = (block.id == activeBlockID)
-                    let timeString = readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
+                    // Debug-only overlay (Settings ▸ Debug Menu); nil keeps the label hidden.
+                    let timeString =
+                        ReaderFeedCollectionView.showsAlignmentTimestamps
+                        ? readerAlignmentTimestampString(audioStartTimeByBlockID[block.id])
+                        : nil
                     let isAnchored = alignmentStatusByBlockID[block.id] == "lockedAnchor"
                     paraCell.setManuallyAligned(isAnchored, timeString: timeString)
                     paraCell.configureAccessibility(

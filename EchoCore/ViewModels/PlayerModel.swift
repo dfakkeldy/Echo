@@ -287,6 +287,44 @@ final class PlayerModel {
     var currentDisplayArtworkVersion: Int { state.currentDisplayArtworkVersion }
     var watchThumbnailData: Data? { state.watchThumbnailData }
 
+    // MARK: - Book chrome (display title / author)
+
+    /// Human-facing book title for chrome (player eyebrow, book-settings
+    /// header): the persisted metadata title when the library has one, else
+    /// the folder name — both humanized. `currentTitle` is the raw track
+    /// FILENAME and can be a dash-slug ("system-that-does-the-reviewing").
+    var bookDisplayTitle: String { bookChrome.title }
+
+    /// Metadata author when the library knows one; nil lets callers fall back
+    /// to their own heuristics (e.g. the parent-folder guess in the eyebrow).
+    var bookMetadataAuthor: String? { bookChrome.author }
+
+    /// One DB lookup per loaded book (same retry-free cache pattern as
+    /// `cachedSignature`); metadata enriched after this session shows up on
+    /// the next book load.
+    @ObservationIgnored private var cachedBookChrome: (folder: URL, title: String, author: String?)?
+
+    private var bookChrome: (title: String, author: String?) {
+        guard let folder = folderURL else {
+            return (BookTitleFormatter.humanized(currentTitle), nil)
+        }
+        if let cached = cachedBookChrome, cached.folder == folder {
+            return (cached.title, cached.author)
+        }
+        var record: AudiobookRecord?
+        if let db = databaseService {
+            record = try? AudiobookDAO(db: db.writer).get(folder.absoluteString)
+        }
+        let title = BookTitleFormatter.displayTitle(
+            storedTitle: record?.title,
+            fallbackName: folder.deletingPathExtension().lastPathComponent
+        )
+        let trimmedAuthor = record?.author?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = (trimmedAuthor?.isEmpty ?? true) ? nil : trimmedAuthor
+        cachedBookChrome = (folder, title, author)
+        return (title, author)
+    }
+
     // MARK: - Dynamic accent colour from artwork
 
     /// Current UI colour scheme, fed from `RootTabView`. Drives theme

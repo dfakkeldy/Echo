@@ -162,13 +162,10 @@ struct RootTabView: View {
     var body: some View {
         @Bindable var model = model
         ZStack(alignment: .top) {
-            // Saturated dynamic background ONLY on the player tab
-            if model.selectedTab == .nowPlaying {
-                AdaptiveBackground()
-            } else {
-                Color(uiColor: .systemBackground)
-                    .ignoresSafeArea()
-            }
+            // NOTE: no background layer here. Each tab's NavigationStack paints
+            // an opaque systemBackground of its own, so anything placed behind
+            // the stacks in this ZStack can never show through. The player's
+            // cover-derived wash renders inside NowPlayingTab (AdaptiveBackground).
 
             // Per-tab NavigationStacks for independent navigation state.
             Group {

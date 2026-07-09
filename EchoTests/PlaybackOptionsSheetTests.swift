@@ -53,7 +53,8 @@ struct PlaybackOptionsSheetTests {
             "The Bookmark segment must be disabled while bookmark looping is unavailable."
         )
         #expect(
-            source.contains("Add at least two enabled bookmarks on this track to use bookmark looping."),
+            source.contains(
+                "Add at least two enabled bookmarks on this track to use bookmark looping."),
             "The sheet must explain why Bookmark loop is unavailable."
         )
     }
@@ -61,7 +62,14 @@ struct PlaybackOptionsSheetTests {
     @Test func sheetLinksToDurableControlsSettings() throws {
         let source = try Self.source(named: "PlaybackOptionsSheet.swift")
         #expect(source.contains("PhonePlayerSettingsView()"))
-        #expect(source.contains("Text(\"More Controls\")"))
+        #expect(
+            source.contains("Label(\"More Controls\", systemImage: \"slider.horizontal.3\")"),
+            "The More Controls affordance must keep its accessible title even when rendered icon-only."
+        )
+        #expect(
+            source.contains(".labelStyle(.iconOnly)"),
+            "More Controls renders icon-only so the inline navigation title never truncates."
+        )
         #expect(!source.contains("Text(\"More\")"))
     }
 

@@ -45,7 +45,9 @@ struct PlaybackOptionsSheet: View {
                     Text("Loop")
                 } footer: {
                     if bookmarkLoopUnavailable {
-                        Text("Add at least two enabled bookmarks on this track to use bookmark looping.")
+                        Text(
+                            "Add at least two enabled bookmarks on this track to use bookmark looping."
+                        )
                     }
                 }
 
@@ -86,7 +88,10 @@ struct PlaybackOptionsSheet: View {
                     NavigationLink {
                         PhonePlayerSettingsView()
                     } label: {
-                        Text("More Controls")
+                        // Icon-only so the inline "Playback Options" title never truncates;
+                        // the Label text stays as the accessibility label.
+                        Label("More Controls", systemImage: "slider.horizontal.3")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }
