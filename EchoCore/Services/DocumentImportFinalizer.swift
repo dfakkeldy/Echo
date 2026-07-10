@@ -28,6 +28,16 @@ enum DocumentImportFinalizer {
         let alignmentService = AlignmentService(
             db: databaseService.writer, audiobookID: audiobookID)
 
+        // Set when sidecar anchors were ingested (fresh or already-matching) and
+        // consumed AFTER every timeline recalc has run. Applying sidecar words
+        // inside the branch would be silently wiped for audio-less imports:
+        // the trailing `duration == nil` recalc below re-materializes
+        // (re-interpolates) the word rows, and text/markdown imports
+        // (`TextAutoImportScanner`) and audio-less EPUB/PDF imports
+        // (`PlayerLoadingCoordinator.importDocumentForAudiolessBook`) always
+        // finalize with `duration: nil`.
+        var ingestedSidecar: (exports: [AlignmentSidecar.Anchor], localBlockIDs: Set<String>)?
+
         if let alignmentSidecarURL = alignmentSidecarURL(for: fileURL) {
             do {
                 let data = try Data(contentsOf: alignmentSidecarURL)
@@ -84,17 +94,11 @@ enum DocumentImportFinalizer {
                                 "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
                             )
                         }
-                        // Word-level sidecar timings override the interpolated
-                        // rows the timeline recalc just materialized. Runs on
-                        // BOTH paths above: the refresh recalc also rebuilds
+                        // Stash for the single word-application pass below —
+                        // on BOTH paths above: the refresh recalc also rebuilds
                         // (re-interpolates) word rows, so an unchanged sidecar
                         // must re-apply its words on every finalize.
-                        applySidecarWordTimings(
-                            exports: exports,
-                            audiobookID: audiobookID,
-                            localBlockIDs: localBlockIDs,
-                            writer: databaseService.writer
-                        )
+                        ingestedSidecar = (exports, localBlockIDs)
                     } catch {
                         logger.error(
                             "Failed to persist alignment.json anchors: \(error.localizedDescription)"
@@ -205,6 +209,19 @@ enum DocumentImportFinalizer {
                 )
                 return false
             }
+        }
+
+        // Word-level sidecar timings override the interpolated rows materialized
+        // by whichever `recalculateTimeline` ran LAST — the ingest path's recalc,
+        // or the audio-less recalc just above (which would otherwise wipe rows
+        // applied earlier). No-op for word-less or un-ingested sidecars.
+        if let ingestedSidecar {
+            applySidecarWordTimings(
+                exports: ingestedSidecar.exports,
+                audiobookID: audiobookID,
+                localBlockIDs: ingestedSidecar.localBlockIDs,
+                writer: databaseService.writer
+            )
         }
 
         // Post notification to trigger UI refresh.

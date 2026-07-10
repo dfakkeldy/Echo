@@ -371,6 +371,126 @@ struct DocumentImportFinalizerTests {
         #expect(second.allSatisfy { $0.source == "interpolated" })
     }
 
+    /// Regression (review finding): audio-less imports (text/markdown via
+    /// `TextAutoImportScanner`, audio-less EPUB/PDF via
+    /// `PlayerLoadingCoordinator.importDocumentForAudiolessBook`) finalize with
+    /// `duration: nil`, which triggers a trailing `recalculateTimeline()` AFTER
+    /// the sidecar ingest. That recalc re-materializes (re-interpolates) word
+    /// rows — sidecar words must be applied after it, or they are silently
+    /// wiped back to interpolated 0.5-confidence rows.
+    @Test func sidecarWordsSurviveAudiolessFinalization() async throws {
+        let audiobookID = "book-1"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0",
+                audiobookID: audiobookID,
+                sequenceIndex: 0,
+                text: "one two three"),
+            block(
+                id: "epub-\(audiobookID)-s0-b1",
+                audiobookID: audiobookID,
+                sequenceIndex: 1,
+                text: "four five"),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0", timestamp: 0, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "one", start: 0.0, end: 0.4),
+                    AlignmentSidecar.Anchor.Word(word: "two", start: 0.4, end: 0.9),
+                    AlignmentSidecar.Anchor.Word(word: "three", start: 0.9, end: 1.5),
+                ]),
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b1", timestamp: 20, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "four", start: 20.0, end: 20.5),
+                    AlignmentSidecar.Anchor.Word(word: "five", start: 20.5, end: 21.2),
+                ]),
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        let finalized = await DocumentImportFinalizer.finalize(
+            audiobookID: audiobookID,
+            blocks: blocks,
+            fileURL: fileURL,
+            duration: nil,
+            databaseService: databaseService
+        )
+
+        #expect(finalized)
+        let dao = WordTimingDAO(db: databaseService.writer)
+        let first = try dao.words(forAudiobook: audiobookID, blockID: blocks[0].id)
+        #expect(first.allSatisfy { $0.source == "sidecar" })
+        #expect(first.allSatisfy { $0.confidence == 0.9 })
+        #expect(first.map(\.audioStartTime) == [0.0, 0.4, 0.9])
+        #expect(first.map(\.audioEndTime) == [0.4, 0.9, 1.5])
+        let second = try dao.words(forAudiobook: audiobookID, blockID: blocks[1].id)
+        #expect(second.allSatisfy { $0.source == "sidecar" })
+        #expect(second.map(\.audioStartTime) == [20.0, 20.5])
+    }
+
+    /// The `duration: nil` variant of `repeatedFinalizationReappliesSidecarWords`:
+    /// every re-finalize (each app launch) runs both the refresh recalc AND the
+    /// trailing audio-less recalc — sidecar words must survive both, repeatedly.
+    @Test func repeatedAudiolessFinalizationReappliesSidecarWords() async throws {
+        let audiobookID = "book-1"
+        let databaseService = try DatabaseService(inMemory: ())
+        let blocks = [
+            block(
+                id: "epub-\(audiobookID)-s0-b0",
+                audiobookID: audiobookID,
+                sequenceIndex: 0,
+                text: "one two three"),
+            block(
+                id: "epub-\(audiobookID)-s0-b1",
+                audiobookID: audiobookID,
+                sequenceIndex: 1,
+                text: "four five"),
+        ]
+        try insertAudiobook(audiobookID, databaseService: databaseService)
+        try EPubBlockDAO(db: databaseService.writer).insertAll(blocks)
+
+        let fileURL = try makeDocumentURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let sidecar = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0", timestamp: 0, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "one", start: 0.0, end: 0.4),
+                    AlignmentSidecar.Anchor.Word(word: "two", start: 0.4, end: 0.9),
+                    AlignmentSidecar.Anchor.Word(word: "three", start: 0.9, end: 1.5),
+                ]),
+            AlignmentSidecar.Anchor(blockId: "s0-b1", timestamp: 20, confidence: 1),
+        ]
+        try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
+
+        for _ in 0..<2 {
+            let finalized = await DocumentImportFinalizer.finalize(
+                audiobookID: audiobookID,
+                blocks: blocks,
+                fileURL: fileURL,
+                duration: nil,
+                databaseService: databaseService
+            )
+            #expect(finalized)
+        }
+
+        let dao = WordTimingDAO(db: databaseService.writer)
+        let first = try dao.words(forAudiobook: audiobookID, blockID: blocks[0].id)
+        #expect(first.allSatisfy { $0.source == "sidecar" })
+        #expect(first.allSatisfy { $0.confidence == 0.9 })
+        #expect(first.map(\.audioStartTime) == [0.0, 0.4, 0.9])
+        // The word-less anchor's block keeps its interpolated rows.
+        let second = try dao.words(forAudiobook: audiobookID, blockID: blocks[1].id)
+        #expect(second.allSatisfy { $0.source == "interpolated" })
+    }
+
     @Test func foreignBlockSidecarWordsAreDropped() async throws {
         let audiobookID = "book-1"
         let databaseService = try DatabaseService(inMemory: ())
