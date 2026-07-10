@@ -83,6 +83,41 @@ struct VerifySidecarCommand: AsyncParsableCommand {
     }
 }
 
+/// Dump an EPUB's visible source blocks as JSON, guaranteeing block-id parity
+/// with alignment sidecars: each block carries the portable `s<i>-b<j>` id that
+/// sidecar anchors reference, produced by the same import stack as the reader.
+struct ExportBlocksCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "export-blocks",
+        abstract: "Export an EPUB's visible source blocks as sidecar-parity JSON.")
+
+    @Option(help: "EPUB source file or expanded-EPUB directory.")
+    var epub: String
+    @Option(help: "Output .json path.")
+    var out: String
+
+    @MainActor func run() async throws {
+        let sourceURL = URL(fileURLWithPath: epub)
+        let outputURL = URL(fileURLWithPath: out)
+
+        let blocks = try await SidecarSourceBlockLoader.blocks(from: sourceURL)
+        let document = BlockExportDocument(
+            epubName: sourceURL.lastPathComponent,
+            records: blocks
+        )
+
+        try outputURL.createParentDirectoryIfNeeded()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(document).write(to: outputURL, options: .atomic)
+
+        let counts = document.kindCounts
+        print(
+            "EXPORTED \(document.blocks.count) blocks (\(counts.paragraphs)p/\(counts.headings)h/\(counts.sentences)s/\(counts.images)i) -> \(outputURL.path)"
+        )
+    }
+}
+
 extension URL {
     fileprivate func createParentDirectoryIfNeeded() throws {
         let parent = deletingLastPathComponent()

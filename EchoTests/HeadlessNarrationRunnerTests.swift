@@ -176,12 +176,14 @@ import ZIPFoundation
             title: "Fixture", author: "Tester", maxNewChaptersPerRun: nil)
 
         var reportedWordAnchors: Int?
-        let result = try await HeadlessNarrationRunner().run(cfg, tts: WordTimedStubEngine()) {
-            progress in
+        let result = try await HeadlessNarrationRunner().run(
+            cfg,
+            tts: WordTimedStubEngine(),
+            progress: { progress in
             if case .wroteSidecar(_, let anchorsWithWords) = progress {
                 reportedWordAnchors = anchorsWithWords
             }
-        }
+        })
         #expect(result.complete)
 
         let anchors = try AlignmentSidecar.decode(Data(contentsOf: sidecar))
