@@ -106,6 +106,144 @@ private final class EstimatedSidecarFixtureBundleLocator {}
         }
     }
 
+    @Test func verifyAcceptsAnchorsCarryingConsistentWordTimings() throws {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 2, text: "Hello there"),
+            block(spine: 1, index: 0, sequence: 1, words: 1, text: "Goodbye"),
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10),
+            EstimatedAlignmentSidecar.ChapterTiming(index: 1, start: 10, end: 20),
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0", timestamp: 0, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "Hello", start: 0.0, end: 0.4),
+                    AlignmentSidecar.Anchor.Word(word: "there", start: 0.4, end: 0.9),
+                ]),
+            // A word-less anchor in the same sidecar stays valid.
+            AlignmentSidecar.Anchor(blockId: "s1-b0", timestamp: 10, confidence: 1),
+        ]
+
+        let report = try AlignmentSidecarVerifier.verify(
+            anchors: anchors,
+            blocks: blocks,
+            chapterTimings: chapters,
+            audioDuration: 20
+        )
+
+        #expect(report.anchorCount == 2)
+        #expect(report.chapterCount == 2)
+        #expect(report.anchorsWithWords == 1)
+    }
+
+    @Test func verifyWordlessSidecarReportsZeroWordAnchors() throws {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 1, text: "A")
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10)
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 0, confidence: 0.5)
+        ]
+
+        let report = try AlignmentSidecarVerifier.verify(
+            anchors: anchors,
+            blocks: blocks,
+            chapterTimings: chapters,
+            audioDuration: 10
+        )
+
+        #expect(report.anchorCount == 1)
+        #expect(report.anchorsWithWords == 0)
+    }
+
+    @Test func verifyReportsEmptyWordListAndWordCountMismatch() {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 2, text: "Hello there"),
+            block(spine: 1, index: 0, sequence: 1, words: 1, text: "Goodbye"),
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10),
+            EstimatedAlignmentSidecar.ChapterTiming(index: 1, start: 10, end: 20),
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 0, confidence: 1, words: []),
+            AlignmentSidecar.Anchor(
+                blockId: "s1-b0", timestamp: 10, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "Goodbye", start: 10, end: 10.5),
+                    AlignmentSidecar.Anchor.Word(word: "extra", start: 10.5, end: 11),
+                ]),
+        ]
+
+        do {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: anchors,
+                blocks: blocks,
+                chapterTimings: chapters,
+                audioDuration: 20
+            )
+            Issue.record("Expected word verification to fail.")
+        } catch let error as AlignmentSidecarVerifier.VerificationError {
+            #expect(error.issues.contains(.emptyWordList(blockID: "s0-b0")))
+            #expect(
+                error.issues.contains(
+                    .wordCountMismatch(blockID: "s1-b0", words: 2, expected: 1)))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func verifyReportsNonMonotonicInvertedAndPreAnchorWordTimes() {
+        let blocks = [
+            block(spine: 0, index: 0, sequence: 0, words: 3, text: "one two three"),
+            block(spine: 1, index: 0, sequence: 1, words: 2, text: "four five"),
+        ]
+        let chapters = [
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 0, end: 10),
+            EstimatedAlignmentSidecar.ChapterTiming(index: 1, start: 10, end: 20),
+        ]
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0", timestamp: 1, confidence: 1,
+                words: [
+                    // Starts 0.5s before its anchor — beyond the epsilon.
+                    AlignmentSidecar.Anchor.Word(word: "one", start: 0.5, end: 1.2),
+                    // Start decreased vs the previous word.
+                    AlignmentSidecar.Anchor.Word(word: "two", start: 0.3, end: 1.6),
+                    // start > end.
+                    AlignmentSidecar.Anchor.Word(word: "three", start: 2.0, end: 1.8),
+                ]),
+            AlignmentSidecar.Anchor(
+                blockId: "s1-b0", timestamp: 10, confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "four", start: 10, end: 10.5),
+                    AlignmentSidecar.Anchor.Word(word: "five", start: 10.5, end: 11),
+                ]),
+        ]
+
+        do {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: anchors,
+                blocks: blocks,
+                chapterTimings: chapters,
+                audioDuration: 20
+            )
+            Issue.record("Expected word verification to fail.")
+        } catch let error as AlignmentSidecarVerifier.VerificationError {
+            #expect(
+                error.issues.contains(
+                    .wordStartsBeforeAnchor(blockID: "s0-b0", start: 0.5, anchor: 1)))
+            #expect(error.issues.contains(.wordStartDecreased(blockID: "s0-b0", wordIndex: 1)))
+            #expect(error.issues.contains(.wordRangeInvalid(blockID: "s0-b0", wordIndex: 2)))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test func audioTimingReaderUsesM4BChapterMarkers() async throws {
         let source = try await SilentAudioFixture.makeSilentM4A(seconds: 6)
         let output = FileManager.default.temporaryDirectory

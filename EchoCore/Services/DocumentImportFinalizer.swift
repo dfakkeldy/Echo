@@ -83,6 +83,17 @@ enum DocumentImportFinalizer {
                                 "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
                             )
                         }
+                        // Word-level sidecar timings override the interpolated
+                        // rows the timeline recalc just materialized. Runs on
+                        // BOTH paths above: the refresh recalc also rebuilds
+                        // (re-interpolates) word rows, so an unchanged sidecar
+                        // must re-apply its words on every finalize.
+                        applySidecarWordTimings(
+                            exports: exports,
+                            audiobookID: audiobookID,
+                            localBlockIDs: localBlockIDs,
+                            writer: databaseService.writer
+                        )
                     } catch {
                         logger.error(
                             "Failed to persist alignment.json anchors: \(error.localizedDescription)"
@@ -204,6 +215,45 @@ enum DocumentImportFinalizer {
             )
         }
         return true
+    }
+
+    /// Applies the word-level timings a sidecar carried, mirroring the anchor
+    /// ingest's re-prefix + drop-foreign resolution: only words whose portable
+    /// blockId resolves to a local block are considered, so a foreign or
+    /// word-less sidecar contributes nothing. Word-count mismatches are skipped
+    /// inside `WordTimingMaterializer.applySidecarWords` (the rows were
+    /// materialized from the block's tokenized text, so row count == token
+    /// count). Best-effort: a word-timing failure must never fail the import —
+    /// the anchors are already ingested and read-along works via interpolation.
+    private static func applySidecarWordTimings(
+        exports: [AlignmentSidecar.Anchor],
+        audiobookID: String,
+        localBlockIDs: Set<String>,
+        writer: DatabaseWriter
+    ) {
+        var wordsByBlock: [String: [AlignmentSidecar.Anchor.Word]] = [:]
+        for export in exports {
+            guard let words = export.words, !words.isEmpty else { continue }
+            let blockID = AlignmentSidecar.localBlockID(
+                export.blockId, audiobookID: audiobookID)
+            guard localBlockIDs.contains(blockID) else { continue }
+            wordsByBlock[blockID] = words
+        }
+        guard !wordsByBlock.isEmpty else { return }
+        do {
+            let applied = try WordTimingMaterializer.applySidecarWords(
+                audiobookID: audiobookID,
+                sidecarWordsByBlock: wordsByBlock,
+                writer: writer
+            )
+            logger.info(
+                "Applied sidecar word timings to \(applied)/\(wordsByBlock.count) word-bearing blocks (\(wordsByBlock.count - applied) skipped: word-count mismatch with block text)"
+            )
+        } catch {
+            logger.error(
+                "Failed to apply sidecar word timings (read-along falls back to interpolation): \(error.localizedDescription)"
+            )
+        }
     }
 
     private static func replaceMachineAnchors(

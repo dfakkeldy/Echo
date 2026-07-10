@@ -23,6 +23,10 @@ struct NarrateCommand: AsyncParsableCommand {
     @Option(name: .customLong("db"), help: "Persistent SQLite database path (default: in-memory).")
     var db: String?
     @Flag(help: "Continue from existing .anchors markers.") var resume = false
+    @Flag(
+        name: .customLong("no-word-timings"),
+        help: "Write block-level anchors only (omit per-word timings from the sidecar).")
+    var noWordTimings = false
 
     @MainActor func run() async throws {
         EchoCLI.configureResources()
@@ -56,7 +60,8 @@ struct NarrateCommand: AsyncParsableCommand {
             title: title,
             author: author,
             maxNewChaptersPerRun: maxChapters,
-            databaseURL: db.map { URL(fileURLWithPath: $0) })
+            databaseURL: db.map { URL(fileURLWithPath: $0) },
+            includeWordTimings: !noWordTimings)
 
         let result = try await HeadlessNarrationRunner().run(config) { progress in
             FileHandle.standardError.write(Data("\(progress)\n".utf8))

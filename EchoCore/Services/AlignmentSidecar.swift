@@ -24,10 +24,41 @@ nonisolated enum AlignmentSidecar {
     /// hand-edited sidecar that omits it still decodes — a missing *required*
     /// field would otherwise reject the entire file and silently drop every
     /// anchor (the exact foreign-sidecar case the drop-filter exists to tolerate).
+    ///
+    /// `words` is the anchor block's per-word timing, **optional** for the same
+    /// reason: legacy and hand-edited sidecars omit it, and old Echo builds
+    /// decoding a word-bearing sidecar simply ignore the unknown key. A `nil`
+    /// value is omitted on encode, so anchors-only sidecars keep their legacy
+    /// JSON shape byte-compatible.
     struct Anchor: Codable, Equatable {
         let blockId: String
         let timestamp: TimeInterval
         let confidence: Double?
+        /// Per-word `[start, end)` times for this anchor's block, in the block's
+        /// rendered reading order (whitespace tokenization per `WordTokenizer`,
+        /// so array position == `word_timing.wordIndex`). Times are ABSOLUTE in
+        /// the same timebase as `timestamp` (for m4b output: absolute book time
+        /// after the per-chapter relative→absolute conversion). Written by
+        /// Echo-generated narration from synthesis-time timings; no per-word
+        /// confidence in v1.
+        let words: [Word]?
+
+        /// One rendered word mapped to its absolute audio `[start, end)`.
+        struct Word: Codable, Equatable {
+            let word: String
+            let start: TimeInterval
+            let end: TimeInterval
+        }
+
+        init(
+            blockId: String, timestamp: TimeInterval, confidence: Double?,
+            words: [Word]? = nil
+        ) {
+            self.blockId = blockId
+            self.timestamp = timestamp
+            self.confidence = confidence
+            self.words = words
+        }
     }
 
     /// The sidecar file sitting next to an EPUB: `<base>.alignment.json`.
@@ -53,15 +84,24 @@ nonisolated enum AlignmentSidecar {
     }
 
     /// Serialize anchors to the portable sidecar form (suffix-only block ids).
+    /// Anchors-only — the Mac batch aligner's DTW alignment has no per-word
+    /// timing to export, so this overload never writes a `words` key.
     static func encode(_ anchors: [AlignmentAnchorRecord]) throws -> Data {
-        let exports = anchors.map {
-            Anchor(
-                blockId: portableSuffix(of: $0.epubBlockID),
-                timestamp: $0.audioTime, confidence: 1.0)
-        }
+        try encode(
+            anchors.map {
+                Anchor(
+                    blockId: portableSuffix(of: $0.epubBlockID),
+                    timestamp: $0.audioTime, confidence: 1.0)
+            })
+    }
+
+    /// Serialize already-portable anchors — the overload for callers that attach
+    /// per-anchor `words` (Echo-generated narration). Anchors without words
+    /// keep the legacy anchors-only JSON shape.
+    static func encode(_ anchors: [Anchor]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(exports)
+        return try encoder.encode(anchors)
     }
 
     static func decode(_ data: Data) throws -> [Anchor] {

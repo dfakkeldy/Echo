@@ -76,7 +76,9 @@ struct VerifySidecarCommand: AsyncParsableCommand {
             audioDuration: audioTiming.duration
         )
         print(
-            "SIDECAR_OK \(sidecarURL.path) - \(report.anchorCount) anchors, \(report.chapterCount) chapters"
+            "SIDECAR_OK \(sidecarURL.path) - \(report.anchorCount) anchors, "
+                + "\(report.chapterCount) chapters, "
+                + "\(report.anchorsWithWords) anchors with verified word timings"
         )
     }
 }

@@ -119,7 +119,20 @@ nonisolated enum AlignmentSidecarVerifier {
     struct Report: Equatable, Sendable {
         let anchorCount: Int
         let chapterCount: Int
+        /// Anchors whose `words` array passed the word-level checks. Word-less
+        /// sidecars report 0 and verify exactly as before words existed.
+        let anchorsWithWords: Int
+
+        init(anchorCount: Int, chapterCount: Int, anchorsWithWords: Int = 0) {
+            self.anchorCount = anchorCount
+            self.chapterCount = chapterCount
+            self.anchorsWithWords = anchorsWithWords
+        }
     }
+
+    /// Slack allowed between an anchor's timestamp and its first word's start —
+    /// covers float rounding in the relative→absolute conversion, not real drift.
+    static let wordAnchorEpsilon: TimeInterval = 0.05
 
     enum Issue: Equatable, Sendable, CustomStringConvertible {
         case emptySidecar
@@ -129,6 +142,11 @@ nonisolated enum AlignmentSidecarVerifier {
         case timestampDecreased(blockID: String, timestamp: TimeInterval)
         case timestampOutOfRange(blockID: String, timestamp: TimeInterval)
         case chapterWithoutAnchors(index: Int)
+        case emptyWordList(blockID: String)
+        case wordRangeInvalid(blockID: String, wordIndex: Int)
+        case wordStartDecreased(blockID: String, wordIndex: Int)
+        case wordStartsBeforeAnchor(blockID: String, start: TimeInterval, anchor: TimeInterval)
+        case wordCountMismatch(blockID: String, words: Int, expected: Int)
 
         var description: String {
             switch self {
@@ -146,6 +164,18 @@ nonisolated enum AlignmentSidecarVerifier {
                 return "timestamp is outside audio duration at \(blockID): \(timestamp)"
             case .chapterWithoutAnchors(let index):
                 return "audio chapter \(index) has no resolved sidecar anchors"
+            case .emptyWordList(let blockID):
+                return "words array is present but empty at \(blockID)"
+            case .wordRangeInvalid(let blockID, let wordIndex):
+                return "word \(wordIndex) at \(blockID) has an invalid [start, end) range"
+            case .wordStartDecreased(let blockID, let wordIndex):
+                return "word \(wordIndex) at \(blockID) starts before the previous word"
+            case .wordStartsBeforeAnchor(let blockID, let start, let anchor):
+                return
+                    "first word at \(blockID) starts at \(start), before its anchor timestamp \(anchor)"
+            case .wordCountMismatch(let blockID, let words, let expected):
+                return
+                    "word count at \(blockID) is \(words) but the source block tokenizes to \(expected) words"
             }
         }
     }
@@ -180,13 +210,22 @@ nonisolated enum AlignmentSidecarVerifier {
             issues.append(.invalidAudioDuration(audioDuration))
         }
 
+        let readable = EstimatedAlignmentSidecar.readableBlocks(from: blocks)
         let resolvableSuffixes = Set(
-            EstimatedAlignmentSidecar
-                .readableBlocks(from: blocks)
-                .map { AlignmentSidecar.portableSuffix(of: $0.id) }
+            readable.map { AlignmentSidecar.portableSuffix(of: $0.id) }
+        )
+        // Tokenized word count per resolvable block — the count a trustworthy
+        // words array must match so `array position == wordIndex` holds.
+        let tokenCountBySuffix = Dictionary(
+            readable.map {
+                (AlignmentSidecar.portableSuffix(of: $0.id),
+                 WordTokenizer.words(in: $0.text ?? "").count)
+            },
+            uniquingKeysWith: { first, _ in first }
         )
         var previousTimestamp: TimeInterval?
         var resolvedAnchors: [AlignmentSidecar.Anchor] = []
+        var anchorsWithWords = 0
 
         for anchor in anchors {
             let suffix = AlignmentSidecar.portableSuffix(of: anchor.blockId)
@@ -208,6 +247,19 @@ nonisolated enum AlignmentSidecarVerifier {
             } else if resolves {
                 resolvedAnchors.append(anchor)
             }
+
+            if let words = anchor.words {
+                let wordIssues = wordIssues(
+                    for: anchor,
+                    words: words,
+                    expectedCount: resolves ? tokenCountBySuffix[suffix] : nil
+                )
+                if wordIssues.isEmpty {
+                    anchorsWithWords += 1
+                } else {
+                    issues.append(contentsOf: wordIssues)
+                }
+            }
         }
 
         for timing in timings
@@ -223,6 +275,47 @@ nonisolated enum AlignmentSidecarVerifier {
         guard issues.isEmpty else {
             throw VerificationError(issues: issues)
         }
-        return Report(anchorCount: anchors.count, chapterCount: timings.count)
+        return Report(
+            anchorCount: anchors.count,
+            chapterCount: timings.count,
+            anchorsWithWords: anchorsWithWords
+        )
+    }
+
+    /// Word-level checks for one anchor's `words` array: non-empty, finite
+    /// non-inverted `[start, end)` ranges, monotonic non-decreasing starts, the
+    /// first word starting at/after the anchor timestamp (small epsilon), and —
+    /// when the anchor resolves to a source block — a word count equal to the
+    /// block's whitespace-tokenized text so `array position == wordIndex` holds.
+    private static func wordIssues(
+        for anchor: AlignmentSidecar.Anchor,
+        words: [AlignmentSidecar.Anchor.Word],
+        expectedCount: Int?
+    ) -> [Issue] {
+        var issues: [Issue] = []
+        guard !words.isEmpty else {
+            return [.emptyWordList(blockID: anchor.blockId)]
+        }
+        for (index, word) in words.enumerated() {
+            if !word.start.isFinite || !word.end.isFinite || word.start > word.end {
+                issues.append(.wordRangeInvalid(blockID: anchor.blockId, wordIndex: index))
+            }
+            if index > 0, word.start < words[index - 1].start {
+                issues.append(.wordStartDecreased(blockID: anchor.blockId, wordIndex: index))
+            }
+        }
+        if let first = words.first, first.start < anchor.timestamp - wordAnchorEpsilon {
+            issues.append(
+                .wordStartsBeforeAnchor(
+                    blockID: anchor.blockId, start: first.start, anchor: anchor.timestamp)
+            )
+        }
+        if let expectedCount, words.count != expectedCount {
+            issues.append(
+                .wordCountMismatch(
+                    blockID: anchor.blockId, words: words.count, expected: expectedCount)
+            )
+        }
+        return issues
     }
 }

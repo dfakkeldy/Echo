@@ -241,4 +241,54 @@ enum WordTimingMaterializer {
         try dao.update(updates)
         return blocksOverridden
     }
+
+    /// Confidence stamped on a word whose time was carried by an
+    /// `alignment.json` sidecar. Sidecar words are exported from synthesis-time
+    /// timings (the duration head's known-true times), so they carry the same
+    /// confidence as `synthesis` rows — above interpolation (0.5) and DTW (0.85).
+    private static let sidecarConfidence: Double = 0.9
+
+    /// Overrides already-materialized word times with the word-level timings an
+    /// `alignment.json` sidecar carried for `blockID`s that resolved locally.
+    /// Call AFTER the sidecar anchors were ingested and the timeline/word
+    /// materialization has run — the block's rows come from the block's
+    /// tokenized text, so a per-block word-count mismatch means the sidecar's
+    /// word list can't be trusted (array order == wordIndex would drift) and
+    /// that block keeps its interpolated rows.
+    ///
+    /// Mirrors `refineWithSynthesis(...)`: additive, retimes matched rows only,
+    /// never adds or deletes rows. Returns the number of blocks overridden.
+    ///
+    /// Note: a later in-app machine re-alignment (auto-alignment / transcript
+    /// DTW) rebuilds the book's word rows and supersedes sidecar words —
+    /// accepted v1 behavior, consistent with machine anchors being cleared per
+    /// alignment run.
+    @discardableResult
+    static func applySidecarWords(
+        audiobookID: String,
+        sidecarWordsByBlock: [String: [AlignmentSidecar.Anchor.Word]],
+        writer: DatabaseWriter
+    ) throws -> Int {
+        guard !sidecarWordsByBlock.isEmpty else { return 0 }
+        let dao = WordTimingDAO(db: writer)
+        var updates: [WordTimingRecord] = []
+        var blocksOverridden = 0
+        for (blockID, words) in sidecarWordsByBlock {
+            // Rows arrive ordered by word_index — the same reading order as the
+            // sidecar's words array (array position == wordIndex).
+            let rows = try dao.words(forAudiobook: audiobookID, blockID: blockID)
+            guard rows.count == words.count, !rows.isEmpty else { continue }
+            for (row, word) in zip(rows, words) {
+                var updated = row
+                updated.audioStartTime = word.start
+                updated.audioEndTime = word.end
+                updated.confidence = sidecarConfidence
+                updated.source = "sidecar"
+                updates.append(updated)
+            }
+            blocksOverridden += 1
+        }
+        try dao.update(updates)
+        return blocksOverridden
+    }
 }
