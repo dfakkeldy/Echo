@@ -7,7 +7,9 @@ import ZIPFoundation
 /// either `<meta name="cover" content="id">` (EPUB 2) or a manifest item with
 /// `properties="cover-image"` (EPUB 3) — NOT as an inline content image block, which
 /// is why scanning `epub_block` image rows misses it. Cross-platform (no UIKit).
-enum EpubCoverResolver {
+/// `nonisolated`: pure file I/O with no shared state; shared with
+/// `EpubMetadataResolver`, whose Library enrichment runs off the main actor.
+nonisolated enum EpubCoverResolver {
 
     /// Cover bytes for a zipped EPUB archive, or nil if none is declared / the
     /// referenced file is not a JPEG/PNG in the archive.
@@ -104,8 +106,9 @@ enum EpubCoverResolver {
     }
 
     /// Finds the OPF: first via `META-INF/container.xml`'s rootfile, else the first
-    /// `*.opf` anywhere under the directory.
-    private static func locateOPF(in dir: URL) -> URL? {
+    /// `*.opf` anywhere under the directory. Internal: shared with
+    /// `EpubMetadataResolver`, which reads dc:title/dc:creator from the same OPF.
+    static func locateOPF(in dir: URL) -> URL? {
         let containerURL = dir.appendingPathComponent("META-INF/container.xml")
         if let data = try? Data(contentsOf: containerURL) {
             let delegate = ContainerDelegate()
@@ -127,8 +130,8 @@ enum EpubCoverResolver {
     }
 
     /// Finds the OPF in a ZIP archive: first via `META-INF/container.xml`, then
-    /// via the first `*.opf` entry.
-    private static func locateOPF(in archive: Archive) -> String? {
+    /// via the first `*.opf` entry. Internal: shared with `EpubMetadataResolver`.
+    static func locateOPF(in archive: Archive) -> String? {
         if let containerEntry = archive["META-INF/container.xml"],
             let data = data(for: containerEntry, in: archive)
         {
@@ -147,7 +150,8 @@ enum EpubCoverResolver {
         return archive.first { pathExtension($0.path).lowercased() == "opf" }?.path
     }
 
-    private static func data(for entry: Entry, in archive: Archive) -> Data? {
+    /// Extracts an archive entry's bytes. Internal: shared with `EpubMetadataResolver`.
+    static func data(for entry: Entry, in archive: Archive) -> Data? {
         var result = Data()
         do {
             _ = try archive.extract(entry) { chunk in
@@ -193,7 +197,7 @@ enum EpubCoverResolver {
 }
 
 /// Reads `META-INF/container.xml` for the OPF rootfile path.
-private final class ContainerDelegate: NSObject, XMLParserDelegate {
+nonisolated private final class ContainerDelegate: NSObject, XMLParserDelegate {
     var rootfilePath: String?
     func parser(
         _ parser: XMLParser, didStartElement elementName: String,
@@ -209,7 +213,7 @@ private final class ContainerDelegate: NSObject, XMLParserDelegate {
 /// Extracts the cover image href from an OPF: the EPUB 3 `properties="cover-image"`
 /// manifest item wins; otherwise the EPUB 2 `<meta name="cover" content="id">` → the
 /// manifest item with that id.
-private final class CoverOPFDelegate: NSObject, XMLParserDelegate {
+nonisolated private final class CoverOPFDelegate: NSObject, XMLParserDelegate {
     private var coverMetaID: String?
     private var hrefByID: [String: String] = [:]
     private var coverImageHref: String?

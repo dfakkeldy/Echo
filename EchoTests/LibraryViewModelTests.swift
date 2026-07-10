@@ -15,9 +15,10 @@ struct LibraryViewModelTests {
     @Test func reloadLoadsAvailableBooksForAxis() throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
-        try dao.save(AudiobookRecord(
-            id: "a", title: "Atomic Habits", author: "James Clear", duration: 0,
-            fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: true))
+        try dao.save(
+            AudiobookRecord(
+                id: "a", title: "Atomic Habits", author: "James Clear", duration: 0,
+                fileCount: nil, addedAt: "2026-06-27T00:00:00Z", isAvailable: true))
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.reload()
         #expect(vm.sections.flatMap(\.books).map(\.id) == ["a"])
@@ -27,14 +28,48 @@ struct LibraryViewModelTests {
     @Test func selectingAxisReloadsSections() throws {
         let db = try DatabaseService(inMemory: ())
         let dao = AudiobookDAO(db: db.writer)
-        try dao.save(AudiobookRecord(
-            id: "a", title: "A", author: "Jane Author", duration: 0,
-            fileCount: nil, addedAt: "2026-06-27T00:00:00Z",
-            isAvailable: true, authorSort: "jane author"))
+        try dao.save(
+            AudiobookRecord(
+                id: "a", title: "A", author: "Jane Author", duration: 0,
+                fileCount: nil, addedAt: "2026-06-27T00:00:00Z",
+                isAvailable: true, authorSort: "jane author"))
         let vm = LibraryViewModel(db: db, openBook: { _ in })
         vm.selectAxis(.author)
         #expect(vm.selectedAxis == .author)
         #expect(vm.sections.map(\.title) == ["Jane Author"])
+    }
+
+    @Test func reloadRegroupsAndCollapsesDuplicateEditions() async throws {
+        // The duplicate-card bug end-to-end at the VM layer: an m4b row and a
+        // separately imported epub row (author nil) must collapse into one card
+        // once the background regroup pass lands, with the epub reachable as a
+        // sibling edition.
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/VMDuneAudio/", title: "Dune", author: "Frank Herbert",
+                duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:00Z", isAvailable: true))
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/VMDuneText/", title: "Dune", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true))
+
+        let vm = LibraryViewModel(db: db, openBook: { _ in })
+        vm.reload()
+        // The sync fetch publishes immediately (still two cards) …
+        #expect(vm.sections.flatMap(\.books).count == 2)
+        // … and the single-flight regroup pass re-publishes the collapsed shelf.
+        await vm.awaitShelfRegroup()
+        let books = vm.sections.flatMap(\.books)
+        #expect(books.map(\.id) == ["file:///Lib/VMDuneAudio/"])
+        #expect(
+            vm.siblingEditions(of: books[0]).map(\.id) == ["file:///Lib/VMDuneText/"])
+
+        // Reloading again is a stable no-op: still one card, no stacked passes.
+        vm.reload()
+        await vm.awaitShelfRegroup()
+        #expect(vm.sections.flatMap(\.books).count == 1)
     }
 
     @Test func openResolvesAndCallsOpenBookForStandaloneBook() throws {
@@ -65,11 +100,13 @@ struct LibraryViewModelTests {
     @Test func reloadPopulatesStatusMapForShelfDots() throws {
         let db = try DatabaseService(inMemory: ())
         try db.writer.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('a', 'A', 100)")
-            try db.execute(sql: """
-                INSERT INTO track (id, audiobook_id, title, duration, file_path, sort_order, narration_voice)
-                VALUES ('t1', 'a', 'c1', 50, '/a/c1.wav', 0, 'af_heart')
-                """)
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('a', 'A', 100)")
+            try db.execute(
+                sql: """
+                    INSERT INTO track (id, audiobook_id, title, duration, file_path, sort_order, narration_voice)
+                    VALUES ('t1', 'a', 'c1', 50, '/a/c1.wav', 0, 'af_heart')
+                    """)
         }
         let vm = LibraryViewModel(db: db, openBook: { _ in })
 

@@ -339,6 +339,20 @@ struct LibraryService {
         }
     }
 
+    /// Async variant of `books(includeUnavailable:)` for surfaces that must not
+    /// block the main actor while a large library loads (CarPlay connect —
+    /// audit §7.3). Same availability filter and edition-group collapse.
+    func booksAsync(includeUnavailable: Bool) async throws -> [AudiobookRecord] {
+        let rows = try await db.writer.read { db in
+            var request = AudiobookRecord.order(Column("added_at").desc)
+            if !includeUnavailable {
+                request = request.filter(Column("is_available") == true)
+            }
+            return try request.fetchAll(db)
+        }
+        return collapseEditionGroups(rows)
+    }
+
     /// Returns books grouped into sections according to `axis`. Books within each
     /// section are sorted by title; sections are sorted deterministically by key.
     func sections(by axis: LibraryAxis, includeUnavailable: Bool) throws -> [LibrarySection] {
@@ -399,7 +413,8 @@ struct LibraryService {
             guard let groupID = book.editionGroupID,
                 let siblings = byGroup[groupID]
             else { continue }
-            result[book.id] = siblings
+            result[book.id] =
+                siblings
                 .filter { $0.id != book.id }
                 .sorted(by: editionDisplaySort)
         }
@@ -415,6 +430,152 @@ struct LibraryService {
         persisted.editionGroupOptOut = true
         try dao.save(persisted)
         try refreshEditionGroups()
+    }
+
+    // MARK: - Shelf-load regroup
+
+    /// Best-effort metadata enrichment + edition-group refresh, run when the
+    /// shelf loads so direct-open/document imports (which never rescan) still
+    /// collapse into one card. Returns true when any row changed and the caller
+    /// should re-fetch. Never throws: a failed background regroup must leave the
+    /// shelf exactly as the sync fetch rendered it.
+    func regroupForShelfLoad() async -> Bool {
+        var changed = false
+        do {
+            changed = try await enrichTextOnlyBooks()
+        } catch {
+            logger.error("Text-only metadata enrichment failed: \(error.localizedDescription)")
+        }
+        do {
+            if try await refreshEditionGroupsAsync() > 0 { changed = true }
+        } catch {
+            logger.error("Edition group refresh failed: \(error.localizedDescription)")
+        }
+        return changed
+    }
+
+    /// Recomputes `edition_group_id` for all visible rows from the current
+    /// title/author metadata. Returns the number of rows whose assignment changed.
+    /// Synchronous — reserved for the explicit rescan/separate paths; the
+    /// per-shelf-load pass uses `refreshEditionGroupsAsync()` so the recurring
+    /// read + writes stay off the main actor.
+    @discardableResult
+    func refreshEditionGroups() throws -> Int {
+        let all = try db.writer.read { db in
+            try AudiobookRecord
+                .filter(Column("is_available") == true)
+                .fetchAll(db)
+        }
+        let updates = editionGroupUpdates(for: all)
+        let dao = AudiobookDAO(db: db.writer)
+        for record in updates {
+            try dao.save(record)
+        }
+        return updates.count
+    }
+
+    /// Async twin of `refreshEditionGroups()`: reads off the main actor and
+    /// commits every changed row in a single write transaction, so the
+    /// every-shelf-load regroup never blocks the UI (CLAUDE.md database-safety
+    /// rule; same concern as the rescan `FIXME(M3)`).
+    @discardableResult
+    func refreshEditionGroupsAsync() async throws -> Int {
+        let all = try await db.writer.read { db in
+            try AudiobookRecord
+                .filter(Column("is_available") == true)
+                .fetchAll(db)
+        }
+        let updates = editionGroupUpdates(for: all)
+        guard !updates.isEmpty else { return 0 }
+        try await db.writer.write { db in
+            for record in updates {
+                var mutable = record
+                try mutable.save(db)
+            }
+        }
+        return updates.count
+    }
+
+    /// Pure diff: the rows whose `edition_group_id` must change to match the
+    /// matcher's current assignment.
+    private func editionGroupUpdates(for all: [AudiobookRecord]) -> [AudiobookRecord] {
+        let identities =
+            all
+            .filter { !$0.editionGroupOptOut }
+            .map { EditionMatcher.Identity(id: $0.id, title: $0.title, author: $0.author) }
+        let groupIDs = EditionMatcher.groups(for: identities)
+        return all.compactMap { book in
+            let desiredID = book.editionGroupOptOut ? nil : groupIDs[book.id]
+            guard book.editionGroupID != desiredID else { return nil }
+            var updated = book
+            updated.editionGroupID = desiredID
+            return updated
+        }
+    }
+
+    /// Text-only rows already attempted this session, so unresolvable ids aren't
+    /// re-parsed (archive open + XML) on every shelf load.
+    private static var enrichmentAttemptedIDs: Set<String> = []
+
+    /// Fills `author` (and folder-name placeholder titles) for local text-only
+    /// rows from their EPUB's OPF metadata, so `EditionMatcher` can pair them
+    /// with the audio edition. Candidates are the rows a direct epub import
+    /// creates: local source, no audio, no author, not opted out. Per-row
+    /// resolution is best-effort — missing/unreadable epubs are skipped.
+    private func enrichTextOnlyBooks() async throws -> Bool {
+        let all = try await db.writer.read { db in
+            try AudiobookRecord
+                .filter(Column("is_available") == true)
+                .fetchAll(db)
+        }
+        let attempted = Self.enrichmentAttemptedIDs
+        let candidates = all.filter { book in
+            book.sourceType != "audiobookshelf"
+                && (book.fileCount ?? 0) == 0
+                && book.duration <= 0
+                && (book.author ?? "").isEmpty
+                && !book.editionGroupOptOut
+                && !attempted.contains(book.id)
+        }
+        guard !candidates.isEmpty else { return false }
+
+        var updates: [AudiobookRecord] = []
+        for book in candidates {
+            Self.enrichmentAttemptedIDs.insert(book.id)
+            let id = book.id
+            // Archive open + XML parse is file I/O — keep it off the main actor;
+            // only the row diff comes back.
+            let metadata = await Task.detached(priority: .utility) {
+                EpubMetadataResolver.metadata(forAudiobookID: id)
+            }.value
+            guard let metadata else { continue }
+
+            var updated = book
+            if let author = metadata.author, !author.isEmpty {
+                updated.author = author
+                updated.authorSort = LibraryAccess.authorSort(author)
+            }
+            // Only replace the folder-derived placeholder persistAudiobook wrote —
+            // never clobber a meaningful (tagged/ABS/user) title.
+            let folderDefault = URL(string: id)?.deletingPathExtension().lastPathComponent
+            if let title = metadata.title, !title.isEmpty, book.title == folderDefault {
+                updated.title = title
+            }
+            if updated.author != book.author || updated.title != book.title {
+                updates.append(updated)
+            }
+        }
+        guard !updates.isEmpty else { return false }
+        // One transaction off the main actor, matching refreshEditionGroupsAsync.
+        // Immutable snapshot: the Sendable write closure cannot capture a `var`.
+        let pendingWrites = updates
+        try await db.writer.write { db in
+            for record in pendingWrites {
+                var mutable = record
+                try mutable.save(db)
+            }
+        }
+        return true
     }
 
     // MARK: - Derived status
@@ -590,27 +751,6 @@ struct LibraryService {
             return titleOrder == .orderedAscending
         }
         return lhs.id < rhs.id
-    }
-
-    private func refreshEditionGroups() throws {
-        let all = try db.writer.read { db in
-            try AudiobookRecord
-                .filter(Column("is_available") == true)
-                .fetchAll(db)
-        }
-        let identities = all
-            .filter { !$0.editionGroupOptOut }
-            .map { EditionMatcher.Identity(id: $0.id, title: $0.title, author: $0.author) }
-        let groupIDs = EditionMatcher.groups(for: identities)
-        let dao = AudiobookDAO(db: db.writer)
-        for book in all {
-            let desiredID = book.editionGroupOptOut ? nil : groupIDs[book.id]
-            if book.editionGroupID != desiredID {
-                var updated = book
-                updated.editionGroupID = desiredID
-                try dao.save(updated)
-            }
-        }
     }
 
     /// Groups books by each decoded topic tag; a book with multiple topics appears

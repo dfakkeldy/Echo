@@ -400,6 +400,106 @@ struct LibraryServiceTests {
         #expect(text.editionGroupID != nil)
     }
 
+    // MARK: - Shelf-load regroup (edition unification)
+
+    @Test func regroupForShelfLoadCollapsesSeparatelyImportedText() async throws {
+        // The duplicate-card scenario: an m4b row (tagged) and a separately
+        // imported epub row (author nil, no audio) never see a rescan, so only
+        // the shelf-load regroup can pair them.
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/ShelfDuneAudio/", title: "Dune", author: "Frank Herbert",
+                duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:00Z", isAvailable: true))
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/ShelfDuneText/", title: "Dune", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true))
+
+        let service = LibraryService(db: db)
+        let changed = await service.regroupForShelfLoad()
+
+        #expect(changed)
+        let books = try service.books(includeUnavailable: false)
+        #expect(books.map(\.id) == ["file:///Lib/ShelfDuneAudio/"])
+        // Second pass with nothing new to do reports no changes.
+        #expect(await service.regroupForShelfLoad() == false)
+    }
+
+    @Test func regroupForShelfLoadRespectsSeparatedEditionOptOut() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/OptOutAudio/", title: "Dune", author: "Frank Herbert",
+                duration: 100, fileCount: 1, addedAt: "2026-07-10T00:00:00Z", isAvailable: true))
+        try dao.save(
+            AudiobookRecord(
+                id: "file:///Lib/OptOutText/", title: "Dune", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true,
+                editionGroupOptOut: true))
+
+        let service = LibraryService(db: db)
+        _ = await service.regroupForShelfLoad()
+
+        let books = try service.books(includeUnavailable: false)
+        #expect(
+            Set(books.map(\.id)) == ["file:///Lib/OptOutAudio/", "file:///Lib/OptOutText/"])
+        #expect(try dao.get("file:///Lib/OptOutText/")?.editionGroupID == nil)
+    }
+
+    @Test func regroupForShelfLoadEnrichesTextOnlyRowFromOPFMetadata() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        let fm = FileManager.default
+
+        // Two book folders, each holding an expanded fixture EPUB (dc:title
+        // "Fixture Book", dc:creator "Tester") staged as `book.epub` the way an
+        // import lays it out.
+        func makeBookFolder(_ name: String) throws -> URL {
+            let folder = fm.temporaryDirectory
+                .appendingPathComponent("\(name)-\(UUID().uuidString)", isDirectory: true)
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            let fixture = try TestEPUBFixture.twoChapters(in: folder)
+            try fm.moveItem(
+                at: fixture, to: folder.appendingPathComponent("book.epub", isDirectory: true))
+            return folder
+        }
+        let placeholderFolder = try makeBookFolder("enrich-placeholder")
+        let customFolder = try makeBookFolder("enrich-custom")
+        defer {
+            try? fm.removeItem(at: placeholderFolder)
+            try? fm.removeItem(at: customFolder)
+        }
+
+        // Row 1 carries the folder-name placeholder persistAudiobook writes.
+        let placeholderID = placeholderFolder.absoluteString
+        try dao.save(
+            AudiobookRecord(
+                id: placeholderID,
+                title: placeholderFolder.deletingPathExtension().lastPathComponent,
+                author: nil, duration: 0, fileCount: 0,
+                addedAt: "2026-07-10T00:00:00Z", isAvailable: true))
+        // Row 2 already has a meaningful title that must survive enrichment.
+        let customID = customFolder.absoluteString
+        try dao.save(
+            AudiobookRecord(
+                id: customID, title: "My Curated Title", author: nil,
+                duration: 0, fileCount: 0, addedAt: "2026-07-10T00:00:01Z", isAvailable: true))
+
+        let service = LibraryService(db: db)
+        let changed = await service.regroupForShelfLoad()
+
+        #expect(changed)
+        let placeholder = try #require(try dao.get(placeholderID))
+        #expect(placeholder.author == "Tester")
+        #expect(placeholder.title == "Fixture Book")
+        let custom = try #require(try dao.get(customID))
+        #expect(custom.author == "Tester")
+        #expect(custom.title == "My Curated Title")
+    }
+
     // MARK: - Task 10: derived study + processing status
 
     @Test func processingStatusReflectsNarrationAndTranscription() throws {
