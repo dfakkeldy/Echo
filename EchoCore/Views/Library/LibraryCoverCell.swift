@@ -5,8 +5,10 @@ struct LibraryCoverCell: View {
     let book: AudiobookRecord
     let processing: ProcessingStatus
     let siblingEditions: [AudiobookRecord]
+    let readAlongCandidates: [AudiobookRecord]
     let onTap: () -> Void
     let onSelectEdition: (AudiobookRecord) -> Void
+    let onUseAsReadAlong: (AudiobookRecord) -> Void
     let onSeparateEdition: () -> Void
 
     var body: some View {
@@ -51,6 +53,17 @@ struct LibraryCoverCell: View {
                     onSelectEdition(edition)
                 } label: {
                     Label("Open \(edition.title)", systemImage: editionIcon(for: edition))
+                }
+            }
+            if !readAlongCandidates.isEmpty {
+                Divider()
+                ForEach(readAlongCandidates, id: \.id) { edition in
+                    Button(
+                        "Use \(edition.title) as Read-Along Text",
+                        systemImage: "text.book.closed"
+                    ) {
+                        onUseAsReadAlong(edition)
+                    }
                 }
             }
             if book.editionGroupID?.isEmpty == false {

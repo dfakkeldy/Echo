@@ -16,14 +16,18 @@ final class LibraryViewModel {
 
     @ObservationIgnored let database: DatabaseService
     @ObservationIgnored private let service: LibraryService
+    @ObservationIgnored private let mergeService: ReadAlongMergeService
     @ObservationIgnored private let openBook: (LibraryOpenTarget) -> Void
     @ObservationIgnored private let logger = Logger(category: "LibraryViewModel")
     @ObservationIgnored private var siblingEditionsByBookID: [String: [AudiobookRecord]] = [:]
+    @ObservationIgnored private var booksWithText: Set<String> = []
     @ObservationIgnored private var regroupTask: Task<Void, Never>?
+    @ObservationIgnored private var mergeTask: Task<Void, Never>?
 
     init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) -> Void) {
         self.database = db
         self.service = LibraryService(db: db)
+        self.mergeService = ReadAlongMergeService(db: db)
         self.openBook = openBook
     }
 
@@ -49,10 +53,12 @@ final class LibraryViewModel {
             statusMap = try service.statusMap(for: bookIDs)
             siblingEditionsByBookID = try service.siblingEditionsMap(
                 for: sections.flatMap(\.books))
+            booksWithText = mergeService.audiobookIDsWithText().intersection(bookIDs)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
             siblingEditionsByBookID = [:]
+            booksWithText = []
             logger.error("Library reload failed: \(error.localizedDescription)")
         }
     }
@@ -103,6 +109,44 @@ final class LibraryViewModel {
 
     func siblingEditions(of book: AudiobookRecord) -> [AudiobookRecord] {
         siblingEditionsByBookID[book.id] ?? []
+    }
+
+    /// Sibling TEXT editions eligible for "Use as Read-Along Text". Offered
+    /// only on an audio card that has no `epub_block` rows yet: the import
+    /// coordinator runs `force: true`, which would wipe existing text blocks
+    /// and companion documents (spec Amendment A1 visibility guard).
+    func readAlongCandidates(of book: AudiobookRecord) -> [AudiobookRecord] {
+        let hasAudio = (book.fileCount ?? 0) > 0 || book.duration > 0
+        guard hasAudio, !booksWithText.contains(book.id) else { return [] }
+        return siblingEditions(of: book).filter {
+            ($0.fileCount ?? 0) == 0 && $0.duration <= 0
+        }
+    }
+
+    /// Imports `text`'s epub under `book`'s id so read-along works for the
+    /// pair. The standalone text row is left untouched (cascade-delete risk).
+    func useAsReadAlongText(_ text: AudiobookRecord, for book: AudiobookRecord) {
+        isScanning = true
+        mergeTask = Task {
+            defer {
+                isScanning = false
+                mergeTask = nil
+            }
+            do {
+                try await mergeService.merge(text: text, intoAudio: book, libraryService: service)
+                reload()
+            } catch {
+                errorMessage = error.localizedDescription
+                logger.error(
+                    "Read-along merge failed for \(book.id): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Awaits the in-flight read-along merge, if any. Deterministic seam for
+    /// tests, mirroring `awaitShelfRegroup()`.
+    func awaitReadAlongMerge() async {
+        await mergeTask?.value
     }
 
     func separateEdition(_ book: AudiobookRecord) {

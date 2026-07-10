@@ -5,7 +5,11 @@ struct LibraryShelfGrid: View {
     let sections: [LibrarySection]
     let statusMap: [String: LibraryBookStatus]
     let siblingEditions: (AudiobookRecord) -> [AudiobookRecord]
+    let readAlongCandidates: (AudiobookRecord) -> [AudiobookRecord]
     let onTapBook: (AudiobookRecord) -> Void
+    /// (text edition, displayed book): import the text edition's epub under
+    /// the displayed book's id.
+    let onUseAsReadAlong: (AudiobookRecord, AudiobookRecord) -> Void
     let onSeparateEdition: (AudiobookRecord) -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 112), spacing: 14)]
@@ -23,11 +27,14 @@ struct LibraryShelfGrid: View {
                                 LibraryCoverCell(
                                     book: book,
                                     processing: statusMap[book.id]?.processing ?? [],
-                                    siblingEditions: siblingEditions(book)
+                                    siblingEditions: siblingEditions(book),
+                                    readAlongCandidates: readAlongCandidates(book)
                                 ) {
                                     onTapBook(book)
                                 } onSelectEdition: { edition in
                                     onTapBook(edition)
+                                } onUseAsReadAlong: { edition in
+                                    onUseAsReadAlong(edition, book)
                                 } onSeparateEdition: {
                                     onSeparateEdition(book)
                                 }
