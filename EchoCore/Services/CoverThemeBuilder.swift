@@ -41,20 +41,23 @@ nonisolated enum CoverThemeBuilder {
         let onAccent: (l: Double, c: Double)
     }
 
-    /// Pale tonal ramp (spec §4, light column).
+    /// Tinted paper ramp (spec §4, light column; chroma raised 2026-07 so the
+    /// wash visibly reads as the cover's colour — the earlier near-white ramp
+    /// plus a NavigationStack occlusion left the player looking untinted).
+    /// Extreme hues ride the gamut clamp (`clampedChroma`) and soften gracefully.
     private static let light = Recipe(
-        backgroundTop: (0.96, 0.025),
-        backgroundBottom: (0.93, 0.040),
-        chip: (0.89, 0.050),
+        backgroundTop: (0.91, 0.070),
+        backgroundBottom: (0.86, 0.095),
+        chip: (0.82, 0.105),
         accent: (0.47, 0.130),
         onAccent: (0.97, 0.020)
     )
 
-    /// Immersive deep tones (spec §4, dark column).
+    /// Immersive coloured room (spec §4, dark column; same 2026-07 chroma raise).
     private static let dark = Recipe(
-        backgroundTop: (0.26, 0.045),
-        backgroundBottom: (0.21, 0.050),
-        chip: (0.32, 0.060),
+        backgroundTop: (0.33, 0.085),
+        backgroundBottom: (0.26, 0.095),
+        chip: (0.39, 0.110),
         accent: (0.78, 0.120),
         onAccent: (0.22, 0.040)
     )
@@ -77,12 +80,11 @@ nonisolated enum CoverThemeBuilder {
     /// discriminator: bold covers measure ~0.16+, muted/photographic covers
     /// ~0.03–0.10, with a wide empty gap. Sits above the 360-hue contrast test's
     /// stand-in chroma (0.12) so that sweep keeps exercising the standard recipe.
+    /// Unlike the accent, the BACKGROUND ramp always keeps the cover hue — a
+    /// neutral graphite/paper strip for black/white-dominant covers was tried
+    /// (PR #330) and read as "the theme is just dark/white", losing the
+    /// cover-derived identity the wash exists to carry.
     private static let boldAccentChromaFloor: Double = 0.14
-
-    /// On top of a bold accent, strip the background to a neutral graphite/paper
-    /// ramp (the "black/white + accent" look) only when the cover is itself
-    /// black/white-dominant. A solid vivid cover keeps its tonal background.
-    private static let neutralRampExtremeShare: Double = 0.45
 
     /// Contrast floors the construction must clear (spec §7).
     static let accentFloor: Double = 3.0
@@ -119,22 +121,13 @@ nonisolated enum CoverThemeBuilder {
         let primaryHue = primary.hue
 
         // A strongly-saturated primary (a bold cover) keeps a bold accent instead
-        // of the tonal-lightened one; if the cover is also black/white-dominant the
-        // background ramp goes neutral, giving the "black/white + accent" look.
+        // of the tonal-lightened one. The background/chip ramp always follows the
+        // cover's primary hue — even for black/white-dominant covers.
         let isBoldAccent = primary.chroma >= boldAccentChromaFloor
-        let useNeutralRamp =
-            isBoldAccent
-            && (signature.nearBlackShare + signature.nearWhiteShare) >= neutralRampExtremeShare
 
-        // Background + chip roles: neutral graphite/paper for black/white-dominant
-        // covers, else the tonal hue ramp at the cover's primary hue.
-        let rampHue = useNeutralRamp ? neutralHue : primaryHue
-        func ramp(_ role: (l: Double, c: Double)) -> ColorMetrics.RGB {
-            roleColor((role.l, useNeutralRamp ? neutralRampChroma : role.c), hue: rampHue)
-        }
-        let backgroundTop = ramp(recipe.backgroundTop)
-        let backgroundBottom = ramp(recipe.backgroundBottom)
-        let chip = ramp(recipe.chip)
+        let backgroundTop = roleColor(recipe.backgroundTop, hue: primaryHue)
+        let backgroundBottom = roleColor(recipe.backgroundBottom, hue: primaryHue)
+        let chip = roleColor(recipe.chip, hue: primaryHue)
 
         let accentRole =
             isBoldAccent ? (scheme == .dark ? boldAccentDark : boldAccentLight) : recipe.accent

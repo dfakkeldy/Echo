@@ -34,25 +34,6 @@ struct PhonePlayerSettingsView: View {
         palette + [.empty]
     }
 
-    private func miniPlayerChoiceName(_ action: WatchAction) -> String {
-        switch action {
-        case .playPause: return String(localized: "Play / Pause")
-        case .skipBackward: return String(localized: "Skip Back")
-        case .skipForward: return String(localized: "Skip Forward")
-        case .previousTrack: return String(localized: "Previous Chapter")
-        case .nextTrack: return String(localized: "Next Chapter")
-        case .previousSection: return String(localized: "Previous Section")
-        case .nextSection: return String(localized: "Next Section")
-        case .loopMode: return String(localized: "Loop Mode")
-        case .speed: return String(localized: "Speed")
-        case .bookmark: return String(localized: "Bookmark")
-        case .markPassage: return String(localized: "Mark Passage")
-        case .sleepTimer: return String(localized: "Sleep Timer")
-        case .pomodoro: return String(localized: "Pomodoro")
-        case .empty: return String(localized: "Empty")
-        }
-    }
-
     var body: some View {
         @Bindable var settings = settings
 
@@ -66,7 +47,9 @@ struct PhonePlayerSettingsView: View {
             } header: {
                 Text("Layout")
             } footer: {
-                Text("Compact uses a smaller scrubber and reorganizes transport controls for a more minimal player.")
+                Text(
+                    "Compact uses a smaller scrubber and reorganizes transport controls for a more minimal player."
+                )
             }
 
             Section {
@@ -87,7 +70,7 @@ struct PhonePlayerSettingsView: View {
                         )
                     ) {
                         ForEach(miniPlayerChoices) { action in
-                            Label(miniPlayerChoiceName(action), systemImage: action.iconName)
+                            Label(action.displayName, systemImage: action.iconName)
                                 .tag(action)
                         }
                     }
@@ -167,7 +150,7 @@ struct PhonePlayerSettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(preset.name)
                                 Text(
-                                    "Slots: \(preset.slots.map { $0 == .empty ? "Empty" : $0.rawValue }.joined(separator: ", "))"
+                                    "Slots: \(preset.slots.map(\.displayName).joined(separator: ", "))"
                                 )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -259,7 +242,7 @@ private struct PhoneSlotPickerGrid: View {
                     selection: slotBinding(for: slot)
                 ) {
                     ForEach(choices) { action in
-                        Label(actionName(action), systemImage: action.iconName)
+                        Label(action.displayName, systemImage: action.iconName)
                             .tag(action)
                     }
                 }
@@ -281,25 +264,6 @@ private struct PhoneSlotPickerGrid: View {
             }
         )
     }
-
-    private func actionName(_ action: WatchAction) -> String {
-        switch action {
-        case .playPause: return String(localized: "Play / Pause")
-        case .skipForward: return String(localized: "Skip Forward")
-        case .skipBackward: return String(localized: "Skip Back")
-        case .nextTrack: return String(localized: "Next Chapter")
-        case .previousTrack: return String(localized: "Previous Chapter")
-        case .nextSection: return String(localized: "Next Section")
-        case .previousSection: return String(localized: "Previous Section")
-        case .loopMode: return String(localized: "Loop Mode")
-        case .speed: return String(localized: "Speed")
-        case .sleepTimer: return String(localized: "Sleep Timer")
-        case .bookmark: return String(localized: "Bookmark")
-        case .markPassage: return String(localized: "Mark Passage")
-        case .pomodoro: return String(localized: "Pomodoro")
-        case .empty: return String(localized: "Empty")
-        }
-    }
 }
 
 // A draggable palette chip showing the action icon + label.
@@ -320,13 +284,13 @@ private struct PaletteItem: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.tint)
             }
-            Text(action.rawValue)
+            Text(action.displayName)
                 .customFont(.caption, appFont: settings.appFont)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .frame(width: 78)
-        .accessibilityLabel(Text("Action: \(action.rawValue)"))
+        .accessibilityLabel(Text("Action: \(action.displayName)"))
         .onDrag {
             NSItemProvider(object: NSString(string: action.rawValue))
         }

@@ -21,6 +21,9 @@ struct SettingsView: View {
     @State private var showingAllStudyNotesExport = false
     @State private var showingFeedback = false
     @State private var importAlert: (title: String, message: String)?
+    /// Debug-menu mirror of the reader's alignment-timestamp overlay toggle.
+    @State private var showAlignmentTimestamps = UserDefaults.standard.bool(
+        forKey: "reader.showAlignmentTimestamps")
 
     #if DEBUG
         @State private var debugNarrationPlayer: AVAudioPlayer?
@@ -119,6 +122,19 @@ struct SettingsView: View {
                         Button("🔊 Narrate Ch. 1 (Kokoro test)") {
                             runNarrationTest()
                         }
+                        // Alignment QA aid: per-block timestamps in the reader
+                        // (red = locked anchor, grey = interpolated). Off by
+                        // default so the overlay never collides with body text
+                        // during normal reading; ReaderFeedCollectionView reads
+                        // the same key.
+                        Toggle(
+                            "Show Alignment Timestamps",
+                            isOn: $showAlignmentTimestamps
+                        )
+                        .onChange(of: showAlignmentTimestamps) { _, newValue in
+                            UserDefaults.standard.set(
+                                newValue, forKey: "reader.showAlignmentTimestamps")
+                        }
                     } header: {
                         Text("Debug Menu")
                     } footer: {
@@ -173,7 +189,9 @@ struct SettingsView: View {
     }
 
     private var bookOverridesHeader: String {
-        let title = model.currentTitle
+        // Display title, never the raw folder slug (audit 2026-07:
+        // "system-that-does-the-reviewing — overrides global").
+        let title = model.bookDisplayTitle
         return title.isEmpty
             ? String(localized: "This Book — overrides global")
             : String(localized: "\(title) — overrides global")

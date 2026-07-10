@@ -1437,17 +1437,31 @@ construct-don't-rescue:
 `UIImage → DominantColorExtractor.signature(from:) → CoverSignature → CoverThemeBuilder.build(from:scheme:) → CoverTheme`
 
 **`CoverThemeBuilder`** converts the cover's primary hue to OKLCH and builds
-role colors from per-scheme tone recipes — pale ramps in light mode
-(background L≈0.93–0.96), immersive deep tones in dark mode (L≈0.21–0.26),
-accent at L 0.47 (light) / 0.78 (dark) with gamut-clamped chroma. Contrast is
-guaranteed by construction: `CoverThemeBuilderTests` sweeps all 360 hues in
-both schemes asserting accent ≥3:1 vs backgrounds, ≥2.5:1 vs chip, and
-onAccent ≥4.5:1 vs accent. A bounded lightness-stepping safety valve covers
-extreme gamut corners. Roles: `accent`, `onAccent`, `secondaryAccent`
-(first candidate ≥60° away with ≥15% of the primary's weight, else a +30°
-sibling), `backgroundTop`/`backgroundBottom` (the `AdaptiveBackground` ramp),
-and `chip` (pills/control circles). Neutral covers (greyscale or `isNeutral`)
-get a warm-grey ramp with the brand accent.
+role colors from per-scheme tone recipes — tinted paper in light mode
+(background L≈0.86–0.91, C≈0.07–0.095), an immersive coloured room in dark
+mode (L≈0.26–0.33, C≈0.085–0.095), accent at L 0.47 (light) / 0.78 (dark)
+with gamut-clamped chroma (extreme hues soften gracefully via
+`OKLCH.clampedChroma`). Contrast is guaranteed by construction:
+`CoverThemeBuilderTests` sweeps all 360 hues in both schemes asserting
+accent ≥3:1 vs backgrounds, ≥2.5:1 vs chip, and onAccent ≥4.5:1 vs accent,
+and pins a minimum background chroma so the wash never collapses to
+near-neutral. A bounded lightness-stepping safety valve covers extreme gamut
+corners. Roles: `accent`, `onAccent`, `secondaryAccent` (first candidate
+≥60° away with ≥15% of the primary's weight, else a +30° sibling),
+`backgroundTop`/`backgroundBottom` (the `AdaptiveBackground` ramp), and
+`chip` (pills/control circles). Neutral covers (greyscale or `isNeutral`)
+get a warm-grey ramp with the brand accent. Strongly saturated covers
+(primary chroma ≥0.14) get a bold, non-lightened accent; their background
+still follows the cover hue — a neutral graphite/paper strip for
+black/white-dominant covers was tried (PR #330) and reverted (2026-07)
+because it read as "the theme is just dark".
+
+**Placement gotcha:** `AdaptiveBackground` must render *inside* the Now
+Playing tab's `NavigationStack` (it lives in `NowPlayingTab`'s root
+`ZStack`). A stack's `UINavigationController` paints an opaque
+`systemBackground`, so a ramp layered behind the stack in `RootTabView`'s
+outer `ZStack` is invisible — that arrangement shipped between 2026-06-15
+and 2026-07-09 and made the player read as plain black/white.
 
 **Why OKLCH:** HSL lightness is not perceptual — yellow at HSL L 0.55 is
 near-white in real luminance while blue at the same L is dark. OKLab

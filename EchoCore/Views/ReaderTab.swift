@@ -454,7 +454,12 @@ struct ReaderTab: View {
             readerHeaderOverlay(vm: vm)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            Color.clear.frame(height: UnifiedTopHeader.rowOneHeight)
+            // Row-1 clearance collapses together with the chrome: while the
+            // reader header auto-hides, RootTabView fades/offsets
+            // UnifiedTopHeader away too, so keeping the reservation would
+            // leave a dead band above the chapter bar (the outer
+            // `.animation(value: isHeaderVisible)` animates the collapse).
+            Color.clear.frame(height: isHeaderVisible ? UnifiedTopHeader.rowOneHeight : 0)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: model.bottomInset)
