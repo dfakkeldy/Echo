@@ -27,13 +27,18 @@ struct TimelineIngestionService {
             let resolvedDuration = duration.flatMap(Self.validDuration) ?? existing?.duration ?? 0
             // Start from the existing row so enrichment written by the Library
             // rescan or ABS import survives a normal folder re-open. This loader
-            // only owns title (local books), duration, fileCount, and availability;
-            // everything else — coverArtPath, narrator, author, authorSort,
-            // sourceRootID, topicsJSON, source*, addedAt, lastSeenAt, indexState,
-            // textOrigin — belongs to those enrichment paths. The previous
-            // full-record REPLACE silently wiped them on EVERY play, so the Library
-            // shelf lost its covers and books lost the link to their rescannable
-            // root. (LibraryService.rescan coalesces for exactly this reason.)
+            // only owns duration, fileCount, availability, and — for local books
+            // WITH audio — title (the folder is the stable identity there, and a
+            // rescan re-reads audio tags anyway). Audio-less text books keep
+            // their persisted title after the first insert: Library OPF
+            // enrichment replaces the folder-name placeholder, and resetting it
+            // on every open would undo edition grouping. Everything else —
+            // coverArtPath, narrator, author, authorSort, sourceRootID,
+            // topicsJSON, source*, addedAt, lastSeenAt, indexState, textOrigin —
+            // belongs to the enrichment paths. The previous full-record REPLACE
+            // silently wiped them on EVERY play, so the Library shelf lost its
+            // covers and books lost the link to their rescannable root.
+            // (LibraryService.rescan coalesces for exactly this reason.)
             var audiobook =
                 existing
                 ?? AudiobookRecord(
@@ -43,7 +48,7 @@ struct TimelineIngestionService {
                     duration: resolvedDuration,
                     fileCount: tracks.count,
                     addedAt: Date().ISO8601Format())
-            if !isABS { audiobook.title = folderTitle }
+            if !isABS, !tracks.isEmpty { audiobook.title = folderTitle }
             audiobook.duration = resolvedDuration
             audiobook.fileCount = tracks.count
             audiobook.isAvailable = true

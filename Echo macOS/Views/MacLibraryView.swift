@@ -37,7 +37,11 @@ struct MacLibraryView: View {
                                     } label: {
                                         MacLibraryBookRow(
                                             book: book,
-                                            processing: libraryVM.statusMap[book.id]?.processing ?? [])
+                                            processing: libraryVM.statusMap[book.id]?.processing
+                                                ?? [],
+                                            siblingEditions: libraryVM.siblingEditions(of: book),
+                                            onSelectEdition: { libraryVM.open($0) },
+                                            onSeparateEdition: { libraryVM.separateEdition(book) })
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -98,7 +102,9 @@ struct MacLibraryView: View {
                 libraryVM.pendingRecoveryBook = nil
             }
         } message: { book in
-            Text("\(book.title) is missing. Relocate its library folder or remove it from the shelf.")
+            Text(
+                "\(book.title) is missing. Relocate its library folder or remove it from the shelf."
+            )
         }
         .alert("Library Error", isPresented: errorPresented) {
             Button("OK") {
@@ -192,6 +198,9 @@ struct MacLibraryView: View {
 private struct MacLibraryBookRow: View {
     let book: AudiobookRecord
     let processing: ProcessingStatus
+    let siblingEditions: [AudiobookRecord]
+    let onSelectEdition: (AudiobookRecord) -> Void
+    let onSeparateEdition: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -222,7 +231,29 @@ private struct MacLibraryBookRow: View {
         }
         .contentShape(.rect)
         .opacity(book.isAvailable ? 1 : 0.55)
+        .contextMenu {
+            ForEach(siblingEditions, id: \.id) { edition in
+                Button {
+                    onSelectEdition(edition)
+                } label: {
+                    Label("Open \(edition.title)", systemImage: editionIcon(for: edition))
+                }
+            }
+            if book.editionGroupID?.isEmpty == false {
+                if !siblingEditions.isEmpty {
+                    Divider()
+                }
+                Button("Separate This Edition", systemImage: "rectangle.split.2x1") {
+                    onSeparateEdition()
+                }
+            }
+        }
         .accessibilityElement(children: .combine)
+    }
+
+    private func editionIcon(for edition: AudiobookRecord) -> String {
+        let hasAudio = (edition.fileCount ?? 0) > 0 || edition.duration > 0
+        return hasAudio ? "headphones" : "book.pages"
     }
 }
 
@@ -257,8 +288,8 @@ private struct MacLibraryRootRow: View {
     }
 }
 
-private extension LibraryAxis {
-    var label: String {
+extension LibraryAxis {
+    fileprivate var label: String {
         switch self {
         case .recentlyAdded: "Recently Added"
         case .author: "Author"
@@ -269,7 +300,7 @@ private extension LibraryAxis {
         }
     }
 
-    var systemImage: String {
+    fileprivate var systemImage: String {
         switch self {
         case .recentlyAdded: "clock"
         case .author: "person"

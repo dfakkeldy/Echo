@@ -19,6 +19,7 @@ final class LibraryViewModel {
     @ObservationIgnored private let openBook: (LibraryOpenTarget) -> Void
     @ObservationIgnored private let logger = Logger(category: "LibraryViewModel")
     @ObservationIgnored private var siblingEditionsByBookID: [String: [AudiobookRecord]] = [:]
+    @ObservationIgnored private var regroupTask: Task<Void, Never>?
 
     init(db: DatabaseService, openBook: @escaping (LibraryOpenTarget) -> Void) {
         self.database = db
@@ -35,6 +36,13 @@ final class LibraryViewModel {
     }
 
     func reload() {
+        applyFetch()
+        scheduleShelfRegroup()
+    }
+
+    /// Fetches and publishes sections/status/siblings. Split from `reload()` so
+    /// the background regroup pass can re-publish without re-triggering itself.
+    private func applyFetch() {
         do {
             sections = try service.sections(by: selectedAxis, includeUnavailable: showUnavailable)
             let bookIDs = sections.flatMap(\.books).map(\.id)
@@ -46,6 +54,25 @@ final class LibraryViewModel {
             errorMessage = error.localizedDescription
             siblingEditionsByBookID = [:]
             logger.error("Library reload failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Awaits the in-flight shelf regroup pass, if any. Deterministic seam for
+    /// tests; production callers rely on the pass re-publishing by itself.
+    func awaitShelfRegroup() async {
+        await regroupTask?.value
+    }
+
+    /// Single-flight enrichment + edition-regroup pass: overlapping reloads
+    /// (axis switch, scan finish) must not stack passes; the running one
+    /// re-fetches when it reports changes.
+    private func scheduleShelfRegroup() {
+        guard regroupTask == nil else { return }
+        regroupTask = Task {
+            defer { regroupTask = nil }
+            if await service.regroupForShelfLoad() {
+                applyFetch()
+            }
         }
     }
 
