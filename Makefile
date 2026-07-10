@@ -1,4 +1,4 @@
-.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test test build-tests test-only hooks-test
+.PHONY: help docs architecture whats-new devlog-update devlog-pr-body doc-automation-test test build-tests test-only hooks-test echo-cli
 
 help: ## List available targets
 	@echo "Echo: Audiobook Study Player — available targets:"
@@ -67,3 +67,18 @@ test-only: ## Re-run without rebuilding: make test-only FILTER=EchoTests/TOCTree
 hooks-test: ## Run the Claude Code hook test suites (xcodebuild guard + swift-format)
 	@bash .claude/hooks/test-guard-xcodebuild.sh
 	@bash .claude/hooks/test-swift-format-on-edit.sh
+
+# Release is non-negotiable here: the scheme's default (Debug/-Onone) narrates
+# several times slower, and overnight agents have shipped whole books through
+# it. SWIFT_COMPILATION_MODE=incremental is equally non-negotiable: Release's
+# default wholemodule optimization miscompiles an async continuation in the
+# narration chain on macOS 26 (Swift 6.2 toolchain) and the binary hangs
+# forever at the first synthesize — incremental keeps full -O per function and
+# dodges it. A dedicated derivedDataPath gives agents one stable binary path
+# instead of rediscovering DerivedData each session.
+echo-cli: ## Build Release echo-cli → .build/cli/Build/Products/Release/echo-cli
+	set -o pipefail; xcodebuild build -scheme echo-cli \
+	  -destination 'platform=macOS' -configuration Release \
+	  SWIFT_COMPILATION_MODE=incremental \
+	  -derivedDataPath .build/cli -jobs 5 $(CODESIGN_OFF) -quiet
+	@echo "echo-cli (Release) ready at: .build/cli/Build/Products/Release/echo-cli"
