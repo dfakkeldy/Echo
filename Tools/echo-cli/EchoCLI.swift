@@ -19,6 +19,7 @@ struct EchoCLI: AsyncParsableCommand {
             GenerateDeckCommand.self,
             SidecarFromChapteredAudioCommand.self,
             VerifySidecarCommand.self,
+            ExportBlocksCommand.self,
         ])
 
     /// Render version + build configuration, so an overnight log (or
