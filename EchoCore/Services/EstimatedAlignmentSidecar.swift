@@ -29,7 +29,8 @@ nonisolated enum EstimatedAlignmentSidecar {
             case .noChapterTimings:
                 return "No usable audio chapter timings were found."
             case .chapterCountMismatch(let spineGroups, let chapterTimings):
-                return "Cannot estimate sidecar: \(spineGroups) source spine groups for \(chapterTimings) audio chapters."
+                return
+                    "Cannot estimate sidecar: \(spineGroups) source spine groups for \(chapterTimings) audio chapters."
             }
         }
     }
@@ -42,7 +43,8 @@ nonisolated enum EstimatedAlignmentSidecar {
         let readable = readableBlocks(from: blocks)
         guard !readable.isEmpty else { throw BuildError.noReadableBlocks }
 
-        let timings = chapterTimings
+        let timings =
+            chapterTimings
             .filter { $0.start.isFinite && $0.end.isFinite && $0.end > $0.start }
             .sorted { $0.start < $1.start }
         guard !timings.isEmpty else { throw BuildError.noChapterTimings }
@@ -200,7 +202,8 @@ nonisolated enum AlignmentSidecarVerifier {
             issues.append(.emptySidecar)
         }
 
-        let timings = chapterTimings
+        let timings =
+            chapterTimings
             .filter { $0.start.isFinite && $0.end.isFinite && $0.end > $0.start }
             .sorted { $0.start < $1.start }
         if timings.isEmpty {
@@ -218,8 +221,10 @@ nonisolated enum AlignmentSidecarVerifier {
         // words array must match so `array position == wordIndex` holds.
         let tokenCountBySuffix = Dictionary(
             readable.map {
-                (AlignmentSidecar.portableSuffix(of: $0.id),
-                 WordTokenizer.words(in: $0.text ?? "").count)
+                (
+                    AlignmentSidecar.portableSuffix(of: $0.id),
+                    WordTokenizer.words(in: $0.text ?? "").count
+                )
             },
             uniquingKeysWith: { first, _ in first }
         )
@@ -240,7 +245,9 @@ nonisolated enum AlignmentSidecarVerifier {
             }
             previousTimestamp = anchor.timestamp
 
-            if !anchor.timestamp.isFinite || anchor.timestamp < 0 || anchor.timestamp > audioDuration {
+            if !anchor.timestamp.isFinite || anchor.timestamp < 0
+                || anchor.timestamp > audioDuration
+            {
                 issues.append(
                     .timestampOutOfRange(blockID: anchor.blockId, timestamp: anchor.timestamp)
                 )

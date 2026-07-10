@@ -158,7 +158,8 @@ struct DocumentImportFinalizerTests {
         ]
         try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
 
-        let firstFinalized = await DocumentImportFinalizer
+        let firstFinalized =
+            await DocumentImportFinalizer
             .finalizeExistingImportIfAlignmentSidecarPresent(
                 audiobookID: audiobookID,
                 fileURL: fileURL,
@@ -171,7 +172,8 @@ struct DocumentImportFinalizerTests {
             .sorted { $0.epubBlockID < $1.epubBlockID }
             .map(\.id)
 
-        let secondFinalized = await DocumentImportFinalizer
+        let secondFinalized =
+            await DocumentImportFinalizer
             .finalizeExistingImportIfAlignmentSidecarPresent(
                 audiobookID: audiobookID,
                 fileURL: fileURL,
@@ -237,7 +239,8 @@ struct DocumentImportFinalizerTests {
         ]
         try JSONEncoder().encode(sidecar).write(to: AlignmentSidecar.url(forEPUB: fileURL))
 
-        let finalized = await DocumentImportFinalizer
+        let finalized =
+            await DocumentImportFinalizer
             .finalizeExistingImportIfAlignmentSidecarPresent(
                 audiobookID: audiobookID,
                 fileURL: fileURL,
@@ -249,7 +252,8 @@ struct DocumentImportFinalizerTests {
         let timelineItems = try TimelineDAO(db: databaseService.writer).items(for: audiobookID)
         #expect(timelineItems.count == 2)
         let words = try WordTimingDAO(db: databaseService.writer).words(forAudiobook: audiobookID)
-        #expect(words.map(\.word) == ["First", "stale", "paragraph", "Second", "stale", "paragraph"])
+        #expect(
+            words.map(\.word) == ["First", "stale", "paragraph", "Second", "stale", "paragraph"])
     }
 
     @Test func sidecarWordsBecomeSidecarSourcedWordTimingRows() async throws {
@@ -572,7 +576,8 @@ struct DocumentImportFinalizerTests {
         )
 
         #expect(finalized)
-        #expect(try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).isEmpty)
+        #expect(
+            try AlignmentAnchorDAO(db: databaseService.writer).anchors(for: audiobookID).isEmpty)
     }
 
     private func insertAudiobook(

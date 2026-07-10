@@ -72,7 +72,8 @@ enum DocumentImportFinalizer {
                             )
                             try alignmentService.recalculateTimeline()
                         } else {
-                            logger.info("Found alignment.json sidecar with \(exports.count) anchors.")
+                            logger.info(
+                                "Found alignment.json sidecar with \(exports.count) anchors.")
                             try replaceMachineAnchors(
                                 with: resolved,
                                 audiobookID: audiobookID,
@@ -323,7 +324,7 @@ enum DocumentImportFinalizer {
         switch (lhs, rhs) {
         case (.none, .none):
             return true
-        case let (.some(left), .some(right)):
+        case (.some(let left), .some(let right)):
             return abs(left - right) < 0.001
         default:
             return false
@@ -378,14 +379,24 @@ enum DocumentImportFinalizer {
         else { return nil }
 
         let exactName = exactURL.lastPathComponent
-        let sidecars = siblings
-            .filter { $0.lastPathComponent.localizedCaseInsensitiveCompare(exactName) == .orderedSame }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let sidecars =
+            siblings
+            .filter {
+                $0.lastPathComponent.localizedCaseInsensitiveCompare(exactName) == .orderedSame
+            }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
         if let match = sidecars.first { return match }
 
-        return siblings
+        return
+            siblings
             .filter { $0.lastPathComponent.lowercased().hasSuffix(".alignment.json") }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
             .first
     }
 }

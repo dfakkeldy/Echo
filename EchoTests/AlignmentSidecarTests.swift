@@ -76,8 +76,10 @@ import Testing
         let decoded = try AlignmentSidecar.decode(data)
         #expect(decoded == anchors)
         #expect(decoded[0].words?.count == 2)
-        #expect(decoded[0].words?[1] == AlignmentSidecar.Anchor.Word(
-            word: "quick", start: 123.61, end: 123.89))
+        #expect(
+            decoded[0].words?[1]
+                == AlignmentSidecar.Anchor.Word(
+                    word: "quick", start: 123.61, end: 123.89))
         #expect(decoded[1].words == nil)
     }
 

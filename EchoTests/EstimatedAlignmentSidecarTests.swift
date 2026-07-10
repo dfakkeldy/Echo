@@ -36,7 +36,7 @@ private final class EstimatedSidecarFixtureBundleLocator {}
             block(spine: 0, index: 3, sequence: 3, words: 2, text: "hidden", isHidden: true),
         ]
         let chapters = [
-            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 5, end: 25),
+            EstimatedAlignmentSidecar.ChapterTiming(index: 0, start: 5, end: 25)
         ]
 
         let anchors = try EstimatedAlignmentSidecar.build(

@@ -114,9 +114,10 @@ import ZIPFoundation
         #expect(assembled.anchorsWithWords == 2)
         #expect(assembled.anchors[0].words?.map(\.start) == [0.5, 0.9])
         // Chapter 2 words are offset by chapter 1's 10s duration.
-        #expect(assembled.anchors[1].words == [
-            AlignmentSidecar.Anchor.Word(word: "Again", start: 11.0, end: 11.6)
-        ])
+        #expect(
+            assembled.anchors[1].words == [
+                AlignmentSidecar.Anchor.Word(word: "Again", start: 11.0, end: 11.6)
+            ])
         // An anchor captured without words stays word-less.
         #expect(assembled.anchors[2].words == nil)
     }
