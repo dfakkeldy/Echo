@@ -21,8 +21,8 @@ enum NarrationRunProgressFormatter {
             return "chapter \(displayChapter)/\(of) · \(percent(fraction))% of batch"
         case .exporting:
             return "exporting m4b"
-        case .wroteSidecar(let anchors):
-            return "sidecar written (\(anchors) anchors)"
+        case .wroteSidecar(let anchors, let anchorsWithWords):
+            return "sidecar written (\(anchors) anchors, \(anchorsWithWords) with word timings)"
         }
     }
 

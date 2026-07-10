@@ -19,8 +19,9 @@ import Testing
                 == "chapter 3/12 · 25% of batch")
         #expect(NarrationRunProgressFormatter.message(for: .exporting) == "exporting m4b")
         #expect(
-            NarrationRunProgressFormatter.message(for: .wroteSidecar(anchors: 19))
-                == "sidecar written (19 anchors)")
+            NarrationRunProgressFormatter.message(
+                for: .wroteSidecar(anchors: 19, anchorsWithWords: 7))
+                == "sidecar written (19 anchors, 7 with word timings)")
     }
 
     @Test func chapterMessageClampsDisplayIndex() {

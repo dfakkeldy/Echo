@@ -28,6 +28,16 @@ enum DocumentImportFinalizer {
         let alignmentService = AlignmentService(
             db: databaseService.writer, audiobookID: audiobookID)
 
+        // Set when sidecar anchors were ingested (fresh or already-matching) and
+        // consumed AFTER every timeline recalc has run. Applying sidecar words
+        // inside the branch would be silently wiped for audio-less imports:
+        // the trailing `duration == nil` recalc below re-materializes
+        // (re-interpolates) the word rows, and text/markdown imports
+        // (`TextAutoImportScanner`) and audio-less EPUB/PDF imports
+        // (`PlayerLoadingCoordinator.importDocumentForAudiolessBook`) always
+        // finalize with `duration: nil`.
+        var ingestedSidecar: (exports: [AlignmentSidecar.Anchor], localBlockIDs: Set<String>)?
+
         if let alignmentSidecarURL = alignmentSidecarURL(for: fileURL) {
             do {
                 let data = try Data(contentsOf: alignmentSidecarURL)
@@ -72,7 +82,8 @@ enum DocumentImportFinalizer {
                             )
                             try alignmentService.recalculateTimeline()
                         } else {
-                            logger.info("Found alignment.json sidecar with \(exports.count) anchors.")
+                            logger.info(
+                                "Found alignment.json sidecar with \(exports.count) anchors.")
                             try replaceMachineAnchors(
                                 with: resolved,
                                 audiobookID: audiobookID,
@@ -83,6 +94,11 @@ enum DocumentImportFinalizer {
                                 "Ingested \(resolved.count)/\(exports.count) anchors from alignment.json (\(exports.count - resolved.count) dropped: block not present locally; user anchors preserved)"
                             )
                         }
+                        // Stash for the single word-application pass below —
+                        // on BOTH paths above: the refresh recalc also rebuilds
+                        // (re-interpolates) word rows, so an unchanged sidecar
+                        // must re-apply its words on every finalize.
+                        ingestedSidecar = (exports, localBlockIDs)
                     } catch {
                         logger.error(
                             "Failed to persist alignment.json anchors: \(error.localizedDescription)"
@@ -195,6 +211,19 @@ enum DocumentImportFinalizer {
             }
         }
 
+        // Word-level sidecar timings override the interpolated rows materialized
+        // by whichever `recalculateTimeline` ran LAST — the ingest path's recalc,
+        // or the audio-less recalc just above (which would otherwise wipe rows
+        // applied earlier). No-op for word-less or un-ingested sidecars.
+        if let ingestedSidecar {
+            applySidecarWordTimings(
+                exports: ingestedSidecar.exports,
+                audiobookID: audiobookID,
+                localBlockIDs: ingestedSidecar.localBlockIDs,
+                writer: databaseService.writer
+            )
+        }
+
         // Post notification to trigger UI refresh.
         await MainActor.run {
             NotificationCenter.default.post(
@@ -204,6 +233,45 @@ enum DocumentImportFinalizer {
             )
         }
         return true
+    }
+
+    /// Applies the word-level timings a sidecar carried, mirroring the anchor
+    /// ingest's re-prefix + drop-foreign resolution: only words whose portable
+    /// blockId resolves to a local block are considered, so a foreign or
+    /// word-less sidecar contributes nothing. Word-count mismatches are skipped
+    /// inside `WordTimingMaterializer.applySidecarWords` (the rows were
+    /// materialized from the block's tokenized text, so row count == token
+    /// count). Best-effort: a word-timing failure must never fail the import —
+    /// the anchors are already ingested and read-along works via interpolation.
+    private static func applySidecarWordTimings(
+        exports: [AlignmentSidecar.Anchor],
+        audiobookID: String,
+        localBlockIDs: Set<String>,
+        writer: DatabaseWriter
+    ) {
+        var wordsByBlock: [String: [AlignmentSidecar.Anchor.Word]] = [:]
+        for export in exports {
+            guard let words = export.words, !words.isEmpty else { continue }
+            let blockID = AlignmentSidecar.localBlockID(
+                export.blockId, audiobookID: audiobookID)
+            guard localBlockIDs.contains(blockID) else { continue }
+            wordsByBlock[blockID] = words
+        }
+        guard !wordsByBlock.isEmpty else { return }
+        do {
+            let applied = try WordTimingMaterializer.applySidecarWords(
+                audiobookID: audiobookID,
+                sidecarWordsByBlock: wordsByBlock,
+                writer: writer
+            )
+            logger.info(
+                "Applied sidecar word timings to \(applied)/\(wordsByBlock.count) word-bearing blocks (\(wordsByBlock.count - applied) skipped: word-count mismatch with block text)"
+            )
+        } catch {
+            logger.error(
+                "Failed to apply sidecar word timings (read-along falls back to interpolation): \(error.localizedDescription)"
+            )
+        }
     }
 
     private static func replaceMachineAnchors(
@@ -273,7 +341,7 @@ enum DocumentImportFinalizer {
         switch (lhs, rhs) {
         case (.none, .none):
             return true
-        case let (.some(left), .some(right)):
+        case (.some(let left), .some(let right)):
             return abs(left - right) < 0.001
         default:
             return false
@@ -328,14 +396,24 @@ enum DocumentImportFinalizer {
         else { return nil }
 
         let exactName = exactURL.lastPathComponent
-        let sidecars = siblings
-            .filter { $0.lastPathComponent.localizedCaseInsensitiveCompare(exactName) == .orderedSame }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let sidecars =
+            siblings
+            .filter {
+                $0.lastPathComponent.localizedCaseInsensitiveCompare(exactName) == .orderedSame
+            }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
         if let match = sidecars.first { return match }
 
-        return siblings
+        return
+            siblings
             .filter { $0.lastPathComponent.lowercased().hasSuffix(".alignment.json") }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                    == .orderedAscending
+            }
             .first
     }
 }

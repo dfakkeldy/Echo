@@ -37,6 +37,10 @@ struct NarrateCommand: AsyncParsableCommand {
     @Option(help: "ONNX intra-op threads per engine (default: auto for this machine and --jobs).")
     var threads: Int?
     @Flag(help: "Continue from existing .anchors markers.") var resume = false
+    @Flag(
+        name: .customLong("no-word-timings"),
+        help: "Write block-level anchors only (omit per-word timings from the sidecar).")
+    var noWordTimings = false
 
     @MainActor func run() async throws {
         EchoCLI.configureResources()
@@ -79,6 +83,7 @@ struct NarrateCommand: AsyncParsableCommand {
             author: author,
             maxNewChaptersPerRun: maxChapters,
             databaseURL: db.map { URL(fileURLWithPath: $0) },
+            includeWordTimings: !noWordTimings,
             jobs: max(1, jobs),
             intraOpThreads: threads.map(Int32.init))
 

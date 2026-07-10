@@ -32,6 +32,10 @@ struct NarrationRunConfig {
     /// Headless batch renders default to deterministic text normalization so the
     /// CLI never waits on optional Foundation Models availability.
     var enableFMNormalization: Bool = false
+    /// When `true` (the default), the sidecar's anchors carry per-word timings
+    /// read back from the run database's synthesis-time `word_timing` rows.
+    /// `false` (the CLI's `--no-word-timings`) writes block anchors only.
+    var includeWordTimings: Bool = true
     /// Number of chapters to render concurrently. Each worker owns a private
     /// engine (ONNX session + voice packs — several hundred MB resident), so on
     /// a 16 GB machine 2–4 is the practical ceiling. 1 (default) renders
@@ -56,8 +60,9 @@ enum NarrationRunProgress: Sendable {
     case chapter(index: Int, of: Int, fraction: Double)
     /// Concatenating chapter audio and writing the .m4b.
     case exporting
-    /// Sidecar written with `anchors` total anchor entries.
-    case wroteSidecar(anchors: Int)
+    /// Sidecar written with `anchors` total anchor entries, of which
+    /// `anchorsWithWords` carried per-word timings.
+    case wroteSidecar(anchors: Int, anchorsWithWords: Int)
 }
 
 // MARK: - Result
@@ -136,14 +141,102 @@ struct NarrationRunResult {
         }
     }
 
-    // MARK: Private helpers
+    // MARK: Capture & sidecar assembly
 
-    private struct ChapterCapture: Codable {
+    /// Per-chapter render capture persisted as `.anchors-ch<N>.json` in the work
+    /// dir. All times are chapter-file-relative (each chapter is its own 0-based
+    /// audio file); the sidecar assembly converts them to absolute book time.
+    /// Internal (not private) so the pure sidecar assembly is unit-testable.
+    struct ChapterCapture: Codable {
         let duration: TimeInterval
         let anchors: [Entry]
         struct Entry: Codable {
             let suffix: String
             let time: TimeInterval
+            /// Synthesis-time word timings for this block, chapter-file-relative,
+            /// in reading order (array position == `word_timing.wordIndex`).
+            /// Optional so capture files written by older builds — or with word
+            /// export disabled — still decode on a resumed run.
+            let words: [Word]?
+            struct Word: Codable {
+                let word: String
+                let start: TimeInterval
+                let end: TimeInterval
+            }
+
+            init(suffix: String, time: TimeInterval, words: [Word]? = nil) {
+                self.suffix = suffix
+                self.time = time
+                self.words = words
+            }
+        }
+    }
+
+    /// Pure step-7 assembly: chapter captures (in chapter order) → portable
+    /// sidecar anchors, converting per-chapter-relative anchor AND word times to
+    /// absolute book time with the same running chapter offset. When
+    /// `includeWordTimings` is false the anchors are emitted word-less even if
+    /// the captures recorded words (the `--no-word-timings` opt-out).
+    static func assembleSidecarAnchors(
+        captures: [ChapterCapture],
+        includeWordTimings: Bool
+    ) -> (anchors: [AlignmentSidecar.Anchor], anchorsWithWords: Int, totalDuration: TimeInterval) {
+        var anchors: [AlignmentSidecar.Anchor] = []
+        var anchorsWithWords = 0
+        var offset: TimeInterval = 0
+        for capture in captures {
+            for entry in capture.anchors {
+                var words: [AlignmentSidecar.Anchor.Word]?
+                if includeWordTimings, let captured = entry.words, !captured.isEmpty {
+                    words = captured.map {
+                        AlignmentSidecar.Anchor.Word(
+                            word: $0.word, start: offset + $0.start, end: offset + $0.end)
+                    }
+                    anchorsWithWords += 1
+                }
+                anchors.append(
+                    AlignmentSidecar.Anchor(
+                        blockId: entry.suffix, timestamp: offset + entry.time,
+                        confidence: 1.0, words: words))
+            }
+            offset += capture.duration
+        }
+        return (anchors, anchorsWithWords, offset)
+    }
+
+    /// Builds one chapter's capture entries, attaching each anchor's block's
+    /// synthesis word rows when — and only when — the row count matches the
+    /// block's whitespace-tokenized text (`WordTokenizer`). A mismatch means the
+    /// rendered tokenization diverged from the source text (normalization/G2P),
+    /// so `array order == wordIndex` could not hold for consumers; that block's
+    /// anchor is captured word-less and read-along falls back to interpolation.
+    private static func captureEntries(
+        anchors: [AlignmentAnchorRecord],
+        wordRows: [WordTimingRecord],
+        blocks: [EPubBlockRecord]
+    ) -> [ChapterCapture.Entry] {
+        let tokenCountByBlockID = Dictionary(
+            uniqueKeysWithValues: blocks.map {
+                ($0.id, WordTokenizer.words(in: $0.text ?? "").count)
+            })
+        let rowsByBlockID = Dictionary(grouping: wordRows, by: \.epubBlockID)
+        var usedBlockIDs: Set<String> = []
+        return anchors.map { anchor in
+            var words: [ChapterCapture.Entry.Word]?
+            if let rows = rowsByBlockID[anchor.epubBlockID],
+                rows.count == tokenCountByBlockID[anchor.epubBlockID],
+                !rows.isEmpty,
+                usedBlockIDs.insert(anchor.epubBlockID).inserted
+            {
+                words = rows.map {
+                    ChapterCapture.Entry.Word(
+                        word: $0.word, start: $0.audioStartTime, end: $0.audioEndTime)
+                }
+            }
+            return ChapterCapture.Entry(
+                suffix: AlignmentSidecar.portableSuffix(of: anchor.epubBlockID),
+                time: anchor.audioTime,
+                words: words)
         }
     }
 
@@ -172,7 +265,6 @@ struct NarrationRunResult {
             return 1.0
         }
     }
-
     private func captureURL(_ idx: Int, in workDir: URL) -> URL {
         workDir.appendingPathComponent(".anchors-ch\(idx).json")
     }
@@ -182,10 +274,16 @@ struct NarrationRunResult {
     /// closure, `dbWriter.read` would resolve to GRDB's *async* overload (whose
     /// closure must be `@Sendable`); a sync method forces the sync overload.
     private func capturedChapter(
-        dbWriter: DatabaseWriter, audiobookID: String, chapterIndex: Int, blockIDs: [String]
+        dbWriter: DatabaseWriter,
+        audiobookID: String,
+        chapterIndex: Int,
+        blocks: [EPubBlockRecord],
+        includeWordTimings: Bool
     ) throws -> ChapterCapture {
+        let blockIDs = blocks.map(\.id)
         let trackID = "syn-\(audiobookID)-ch\(chapterIndex)"
-        let (duration, entries): (TimeInterval, [ChapterCapture.Entry]) = try dbWriter.read { db in
+        let (duration, anchors, wordRows):
+            (TimeInterval, [AlignmentAnchorRecord], [WordTimingRecord]) = try dbWriter.read { db in
             let dur =
                 try TrackRecord.filter(Column("id") == trackID).fetchOne(db)?.duration ?? 0
             let anchors =
@@ -195,16 +293,24 @@ struct NarrationRunResult {
                 .filter(blockIDs.contains(Column("epub_block_id")))
                 .order(Column("audio_time"))
                 .fetchAll(db)
+            let words: [WordTimingRecord] =
+                includeWordTimings
+                ? try WordTimingRecord
+                    .filter(Column("audiobook_id") == audiobookID)
+                    .filter(blockIDs.contains(Column("epub_block_id")))
+                    .filter(Column("source") == "synthesis")
+                    .order(Column("word_index"))
+                    .fetchAll(db)
+                : []
             return (
                 dur,
-                anchors.map {
-                    ChapterCapture.Entry(
-                        suffix: AlignmentSidecar.portableSuffix(of: $0.epubBlockID),
-                        time: $0.audioTime)
-                }
+                anchors,
+                words
             )
         }
-        return ChapterCapture(duration: duration, anchors: entries)
+        return ChapterCapture(
+            duration: duration,
+            anchors: Self.captureEntries(anchors: anchors, wordRows: wordRows, blocks: blocks))
     }
 
     private func isCaptured(_ idx: Int, in workDir: URL) -> Bool {
@@ -421,7 +527,9 @@ struct NarrationRunResult {
                 }
                 let cap = try capturedChapter(
                     dbWriter: dbWriter, audiobookID: audiobookID,
-                    chapterIndex: idx, blockIDs: blockIDs)
+                    chapterIndex: idx,
+                    blocks: chapterBlocks,
+                    includeWordTimings: config.includeWordTimings)
                 try JSONEncoder().encode(cap).write(to: captureURL(idx, in: config.workDir))
             }
 
@@ -532,30 +640,26 @@ struct NarrationRunResult {
                 title: config.title, author: config.author, coverArt: coverData,
                 comment: Self.narrationVersionStamp()))
 
-        // 7. Assemble the portable alignment sidecar (per-chapter relative → absolute).
+        // 7. Assemble the portable alignment sidecar (per-chapter relative → absolute,
+        // for anchor timestamps AND their word times alike).
         var totalDuration: TimeInterval = 0
         if let sidecarURL = config.sidecarURL {
-            var sidecar: [AlignmentSidecar.Anchor] = []
-            var offset: TimeInterval = 0
-            for idx in chapterIndices {
-                let cap = try JSONDecoder().decode(
+            let captures = try chapterIndices.map { idx in
+                try JSONDecoder().decode(
                     ChapterCapture.self,
                     from: Data(contentsOf: captureURL(idx, in: config.workDir)))
-                for a in cap.anchors {
-                    sidecar.append(
-                        AlignmentSidecar.Anchor(
-                            blockId: a.suffix, timestamp: offset + a.time, confidence: 1.0))
-                }
-                offset += cap.duration
             }
-            totalDuration = offset
+            let assembled = Self.assembleSidecarAnchors(
+                captures: captures, includeWordTimings: config.includeWordTimings)
+            totalDuration = assembled.totalDuration
             try fm.createDirectory(
                 at: sidecarURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(sidecar).write(to: sidecarURL, options: .atomic)
-            progress(.wroteSidecar(anchors: sidecar.count))
+            try AlignmentSidecar.encode(assembled.anchors).write(to: sidecarURL, options: .atomic)
+            progress(
+                .wroteSidecar(
+                    anchors: assembled.anchors.count,
+                    anchorsWithWords: assembled.anchorsWithWords))
         } else {
             // Compute duration without sidecar.
             for idx in chapterIndices {

@@ -17,9 +17,15 @@ struct WordTimingRecord: Identifiable, Equatable, Codable, FetchableRecord, Muta
     var word: String
     var audioStartTime: TimeInterval
     var audioEndTime: TimeInterval
-    /// 0.0–1.0. Interpolated words get a fixed medium value; DTW-refined words higher.
+    /// 0.0–1.0. Interpolated words get a fixed medium value (0.5); DTW-refined
+    /// words higher (0.85); synthesis-time and sidecar-carried words highest
+    /// (0.9, known-true timing from the synthesizer's duration head).
     var confidence: Double
-    /// "interpolated" or "dtw".
+    /// Where the timing came from: "interpolated" (block-level estimate),
+    /// "synthesized" (per-speech-range estimate), "synthesis" (exact
+    /// synthesis-time timing), "dtw" (audio-matched refinement), "sidecar"
+    /// (word-level timing carried by an `alignment.json` sidecar), or
+    /// "transcript" (ASR materialization).
     var source: String
 
     static let databaseTableName = "word_timing"

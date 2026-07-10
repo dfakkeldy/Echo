@@ -62,6 +62,82 @@ import Testing
         #expect(decoded.first?.timestamp == 12.5)
     }
 
+    @Test func anchorsWithWordsRoundTrip() throws {
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s4-b12", timestamp: 123.45, confidence: 1.0,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "The", start: 123.45, end: 123.61),
+                    AlignmentSidecar.Anchor.Word(word: "quick", start: 123.61, end: 123.89),
+                ]),
+            AlignmentSidecar.Anchor(blockId: "s4-b13", timestamp: 130.0, confidence: 1.0),
+        ]
+        let data = try AlignmentSidecar.encode(anchors)
+        let decoded = try AlignmentSidecar.decode(data)
+        #expect(decoded == anchors)
+        #expect(decoded[0].words?.count == 2)
+        #expect(
+            decoded[0].words?[1]
+                == AlignmentSidecar.Anchor.Word(
+                    word: "quick", start: 123.61, end: 123.89))
+        #expect(decoded[1].words == nil)
+    }
+
+    /// Backward compatibility: a legacy anchors-only sidecar (no `words` key)
+    /// must still decode, with `words == nil`.
+    @Test func decodesLegacyAnchorsOnlySidecar() throws {
+        let legacy = Data(
+            """
+            [{"blockId":"s0-b1","confidence":1,"timestamp":75}]
+            """.utf8)
+        let decoded = try AlignmentSidecar.decode(legacy)
+        #expect(decoded.count == 1)
+        #expect(decoded[0].blockId == "s0-b1")
+        #expect(decoded[0].timestamp == 75)
+        #expect(decoded[0].words == nil)
+    }
+
+    /// Forward compatibility: an old Echo build's decoder (which knows nothing
+    /// about `words`) must decode a new word-bearing sidecar, ignoring the
+    /// unknown key — modeled here with the legacy anchor shape.
+    @Test func legacyDecoderIgnoresWordsKeyInNewSidecar() throws {
+        struct LegacyAnchor: Codable {
+            let blockId: String
+            let timestamp: TimeInterval
+            let confidence: Double?
+        }
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s4-b12", timestamp: 12.0, confidence: 1.0,
+                words: [AlignmentSidecar.Anchor.Word(word: "Hello", start: 12.0, end: 12.4)])
+        ]
+        let data = try AlignmentSidecar.encode(anchors)
+        let decoded = try JSONDecoder().decode([LegacyAnchor].self, from: data)
+        #expect(decoded.count == 1)
+        #expect(decoded[0].blockId == "s4-b12")
+        #expect(decoded[0].timestamp == 12.0)
+    }
+
+    /// Anchors without words must keep the legacy JSON shape: no `words` key at
+    /// all (a `"words":null` would be new-shape noise in hand-diffed sidecars).
+    @Test func encodingWithoutWordsOmitsTheKey() throws {
+        let data = try AlignmentSidecar.encode([
+            AlignmentSidecar.Anchor(blockId: "s0-b0", timestamp: 1.5, confidence: 1.0)
+        ])
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("words"))
+    }
+
+    /// The record-based export path (Mac batch aligner) stays anchors-only.
+    @Test func recordEncodeStaysAnchorsOnly() throws {
+        let data = try AlignmentSidecar.encode([
+            anchor(blockID: "epub-file:///Users/dan/Books/HC/-s2-b1", time: 12.5)
+        ])
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("words"))
+        #expect(try AlignmentSidecar.decode(data).first?.words == nil)
+    }
+
     @Test func sidecarURLIsEpubSibling() {
         let epub = URL(fileURLWithPath: "/x/Books/My Book.epub")
         #expect(
