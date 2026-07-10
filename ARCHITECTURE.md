@@ -848,6 +848,25 @@ failure (head absent, run error, word-count mismatch) leaves the interpolated
 baseline in place. Imported audiobooks are unaffected — they keep the
 WhisperKit + `TokenDTW` path.
 
+> **Update (2026-07-09 — duration-head output cast to fp32; synthesis timing actually lights up).**
+> The extracted duration head shipped with a **FLOAT16 graph output** (the
+> `ReduceSum` tensor is internal to `model_fp16.onnx`, so extraction inherited
+> fp16 — only the full model's own graph I/O is fp32). The ORT Swift package's
+> ObjC binding has no fp16 entry in its element-type table
+> (`objectivec/ort_enums.mm`), so `ORTValue.tensorData()` threw "unsupported
+> tensor element type…" on every read, `tokenDurations` soft-failed, and **every
+> platform silently fell back to interpolated timings** since PR #197 — Debug
+> and Release alike; `source:"synthesis"` rows never materialized. (The heavy
+> env-gated IT never caught it because `xcodebuild test` doesn't propagate shell
+> env into sim test processes.) `Tools/extract_kokoro_duration_head.py` now
+> renames the fp16 tensor and appends a `Cast→FLOAT` node that re-emits it under
+> the original output name, so the regenerated bundled artifact decodes as fp32
+> with **no Swift-side read change** (value differences are fp16-rounding noise,
+> smaller than the old head's own variance across ORT optimization levels).
+> Guarded by `EchoTests/KokoroDurationHeadTests`, which runs the real bundled
+> model with dummy inputs in the default suite via the
+> `OnnxKokoroEngine.probeDurationHead` test seam.
+
 **Data model (reuses existing tables):** A standalone EPUB is an `AudiobookRecord` with `epub_block` rows and **no tracks** (the natural empty state). Generating narration renders **one lossless ALAC `.m4a` file per chapter** (each block planned into bounded, phoneme-aware sub-chunks before synthesis - the compatibility chunker still exposes the older 350-character wrapper, but the render planner stays under Kokoro's ~510-phoneme context - then concatenated; see the upstream-chunking note above), inserted as a `TrackRecord` (`sort_order = chapterIndex`) carrying the voice in the new `narration_voice` column (**Schema V17**; non-null marks a synthesized track). `TrackRecord.title` comes from `NarrationChapterPlanner`: `ch. N: Heading` when the EPUB exposes a useful heading/title, otherwise the existing `Chapter N` fallback; cache-hit paths update old generic title rows without re-rendering audio. Each text block gets one `AlignmentAnchorRecord` with the new **`source = .synthesized`** written at synthesis time — so read-along highlighting and the study layer work for free, and re-alignment never confuses generated anchors for recovered ones.
 
 **Key types (engine core):**

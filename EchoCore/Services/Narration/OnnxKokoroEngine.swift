@@ -359,6 +359,40 @@
             }
         }
 
+        /// Test seam (see `remoteModelURLForTesting` for the pattern): creates a
+        /// one-off session for the duration head at `url`, runs it with dummy
+        /// in-vocab ids, and returns the decoded per-token frame durations.
+        /// Exists so the default test suite can guard the bundled artifact's
+        /// output element type — the ORT ObjC binding cannot read fp16
+        /// (`tensorData()` throws "unsupported tensor element type…"), which
+        /// silently disables synthesis word timing on every platform. Avoids
+        /// `prepare()` (no 163 MB model download) and the G2P front end (no
+        /// lexicon/voice load), so the probe is cheap enough for `make test`.
+        nonisolated static func probeDurationHead(at url: URL) throws -> [Float] {
+            let env = try ORTEnv(loggingLevel: ORTLoggingLevel.warning)
+            let session = try ORTSession(
+                env: env, modelPath: url.path, sessionOptions: ORTSessionOptions())
+            // BOS + two arbitrary in-vocab phoneme ids + EOS; the values only
+            // need to be valid embedding indices — the probe checks dtype
+            // plumbing, not prosody.
+            let ids: [Int64] = [0, 50, 60, 0]
+            let style = [Float](repeating: 0, count: 256)
+            let inputIds = try ORTValue(
+                tensorData: tensorData(ids), elementType: .int64,
+                shape: [NSNumber(value: 1), NSNumber(value: ids.count)])
+            let styleValue = try ORTValue(
+                tensorData: tensorData(style), elementType: .float,
+                shape: [NSNumber(value: 1), NSNumber(value: style.count)])
+            let speedValue = try ORTValue(
+                tensorData: tensorData([Float(1.0)]), elementType: .float,
+                shape: [NSNumber(value: 1)])
+            let outputs = try session.run(
+                withInputs: ["input_ids": inputIds, "style": styleValue, "speed": speedValue],
+                outputNames: [durationOutputName], runOptions: nil)
+            guard let durValue = outputs[durationOutputName] else { return [] }
+            return try durValue.tensorData().toFloatArray()
+        }
+
         // MARK: - Private
 
         private func store(env: ORTEnv, session: ORTSession, durationSession: ORTSession?) {
