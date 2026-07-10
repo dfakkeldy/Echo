@@ -18,6 +18,11 @@ struct NarrationQACommand: AsyncParsableCommand {
     var workDir: String
     @Option(help: "Optional sanitized JSON report path. Does not include source or heard text.")
     var report: String?
+    @Option(
+        help:
+            "Divergence classifier: 'auto' uses Foundation Models when actually available, 'deterministic' never does."
+    )
+    var classifier: String = "auto"
 
     @MainActor func run() async throws {
         EchoCLI.configureResources()
@@ -28,7 +33,7 @@ struct NarrationQACommand: AsyncParsableCommand {
         )
         let qa = NarrationQAService(
             db: database.writer,
-            classifier: EchoCLI.makeQAClassifier()
+            classifier: EchoCLI.makeQAClassifier(preference: classifier)
         )
         try await qa.runQA(
             audiobookID: audiobookID,

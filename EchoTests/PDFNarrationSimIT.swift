@@ -37,9 +37,13 @@
                 maxNewChaptersPerRun: e["ECHO_NARRATE_MAXCH"].flatMap { Int($0) } ?? 5,
                 databaseURL: e["ECHO_NARRATE_DB"].map { URL(fileURLWithPath: $0) })
 
-            let result = try await HeadlessNarrationRunner().run(config) { p in
-                FileHandle.standardError.write(Data("\(p)\n".utf8))
-            }
+            // `progress:` labeled explicitly — an unlabeled trailing closure
+            // would forward-scan-match the runner's `ttsFactory:` parameter.
+            let result = try await HeadlessNarrationRunner().run(
+                config,
+                progress: { p in
+                    FileHandle.standardError.write(Data("\(p)\n".utf8))
+                })
             FileHandle.standardError.write(Data("RESULT complete=\(result.complete)\n".utf8))
             // Not an assertion on completeness — partial is expected mid-batch.
             #expect(result.capturedThisRun >= 0)

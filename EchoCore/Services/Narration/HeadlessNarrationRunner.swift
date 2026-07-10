@@ -32,6 +32,14 @@ struct NarrationRunConfig {
     /// Headless batch renders default to deterministic text normalization so the
     /// CLI never waits on optional Foundation Models availability.
     var enableFMNormalization: Bool = false
+    /// Number of chapters to render concurrently. Each worker owns a private
+    /// engine (ONNX session + voice packs — several hundred MB resident), so on
+    /// a 16 GB machine 2–4 is the practical ceiling. 1 (default) renders
+    /// serially with semantics identical to the pre-parallel runner.
+    var jobs: Int = 1
+    /// ONNX intra-op threads per engine; `nil` resolves the platform default
+    /// for this machine and `jobs` via `NarrationEngineFactory`.
+    var intraOpThreads: Int32? = nil
 }
 
 // MARK: - Progress
@@ -40,6 +48,10 @@ struct NarrationRunConfig {
 enum NarrationRunProgress: Sendable {
     /// Importing and parsing the EPUB.
     case importing
+    /// One-time engine preparation before the first chapter: model download
+    /// fills 0…0.9 and session load 0.9…1. A warm cache jumps straight to 1,
+    /// so a fresh environment no longer sits silent through the 163 MB fetch.
+    case preparing(fraction: Double)
     /// Synthesizing a chapter (0-based `index` of `of` total chapters).
     case chapter(index: Int, of: Int, fraction: Double)
     /// Concatenating chapter audio and writing the .m4b.
@@ -135,8 +147,64 @@ struct NarrationRunResult {
         }
     }
 
+    /// Chapter-claim cursor shared by parallel render workers. All access is
+    /// MainActor-isolated and mutates between suspension points, so two workers
+    /// can never claim the same batch position.
+    @MainActor private final class BatchCursor {
+        /// Next unclaimed position in the batch.
+        var next = 0
+        /// Chapters fully rendered and captured so far.
+        var completed = 0
+        /// Per-worker in-flight block fraction (0…1) for aggregate progress.
+        var inflight: [Int: Double] = [:]
+    }
+
+    /// Collapses engine prepare steps into one 0…1 fraction for
+    /// `NarrationRunProgress.preparing`: model download fills 0…0.9, session
+    /// load 0.9…1.0. Pure — unit-tested without an engine.
+    static func prepareFraction(_ step: NarrationPrepareProgress) -> Double {
+        switch step {
+        case .downloadingModels(let fraction):
+            return 0.9 * min(max(fraction, 0), 1)
+        case .compilingModels(let done, let total):
+            return 0.9 + 0.1 * (total > 0 ? Double(done) / Double(total) : 0)
+        case .ready:
+            return 1.0
+        }
+    }
+
     private func captureURL(_ idx: Int, in workDir: URL) -> URL {
         workDir.appendingPathComponent(".anchors-ch\(idx).json")
+    }
+
+    /// Reads one rendered chapter's track duration + synthesized anchors into a
+    /// `ChapterCapture`. Synchronous on purpose: inside the async render worker
+    /// closure, `dbWriter.read` would resolve to GRDB's *async* overload (whose
+    /// closure must be `@Sendable`); a sync method forces the sync overload.
+    private func capturedChapter(
+        dbWriter: DatabaseWriter, audiobookID: String, chapterIndex: Int, blockIDs: [String]
+    ) throws -> ChapterCapture {
+        let trackID = "syn-\(audiobookID)-ch\(chapterIndex)"
+        let (duration, entries): (TimeInterval, [ChapterCapture.Entry]) = try dbWriter.read { db in
+            let dur =
+                try TrackRecord.filter(Column("id") == trackID).fetchOne(db)?.duration ?? 0
+            let anchors =
+                try AlignmentAnchorRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .filter(Column("source") == AlignmentAnchorRecord.Source.synthesized.rawValue)
+                .filter(blockIDs.contains(Column("epub_block_id")))
+                .order(Column("audio_time"))
+                .fetchAll(db)
+            return (
+                dur,
+                anchors.map {
+                    ChapterCapture.Entry(
+                        suffix: AlignmentSidecar.portableSuffix(of: $0.epubBlockID),
+                        time: $0.audioTime)
+                }
+            )
+        }
+        return ChapterCapture(duration: duration, anchors: entries)
     }
 
     private func isCaptured(_ idx: Int, in workDir: URL) -> Bool {
@@ -210,15 +278,18 @@ struct NarrationRunResult {
     /// - Parameters:
     ///   - config: All inputs for this run.
     ///   - tts: Engine to use; defaults to `NarrationEngineFactory.make()`.
+    ///     When `config.jobs > 1` this single instance is shared by every
+    ///     worker — pass `ttsFactory` instead for per-worker engines.
+    ///   - ttsFactory: Builds one engine per parallel worker; wins over `tts`.
     ///   - progress: Callback invoked on `@MainActor` as phases complete.
     /// - Returns: A `NarrationRunResult` describing what happened.
     func run(
         _ config: NarrationRunConfig,
         tts: TTSEngine? = nil,
+        ttsFactory: (@MainActor () -> TTSEngine)? = nil,
         progress: @escaping @MainActor (NarrationRunProgress) -> Void = { _ in }
     ) async throws -> NarrationRunResult {
         let fm = FileManager.default
-        let engine = tts ?? NarrationEngineFactory.make()
 
         let source = try resolveNarrationSource(at: config.epubURL)
         let sourceURL = source.sourceURL
@@ -268,77 +339,146 @@ struct NarrationRunResult {
         let maxNew = config.maxNewChaptersPerRun ?? Int.max
         let batch = Array(pending.prefix(maxNew))
 
-        // 4. Narrate each chapter in the batch.
-        let writer = AVFoundationAudioWriter()
-        let svc = NarrationService(
-            db: db.writer, audiobookID: audiobookID, tts: engine,
-            audioWriter: writer, cacheDirectory: config.workDir, state: NarrationState(),
-            pronunciationOverrides: {
-                PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
-            },
-            pronunciationOccurrenceOverrides: {
-                PronunciationOverrideStore.shared.occurrenceOverrides(forBookID: audiobookID)
-            },
-            fmEnabled: { config.enableFMNormalization })
-
+        // 4. Narrate the batch — one worker renders serially with semantics
+        //    identical to the historical loop; `config.jobs > 1` runs that many
+        //    workers, each owning a private engine + writer. Chapter claims go
+        //    through the MainActor `BatchCursor` between suspension points, so
+        //    two workers can never take the same chapter; per-chapter capture
+        //    markers, m4a files, and track IDs are disjoint by chapter index;
+        //    GRDB's single writer queue serializes all database effects, and the
+        //    audiobook-scope timeline recalc after each chapter is an idempotent
+        //    full recompute, so completion order doesn't matter.
         let totalCount = chapterIndices.count
-        for (batchPos, idx) in batch.enumerated() {
-            let displayNumber =
-                plannedByChapterIndex[idx]?.displayNumber
-                ?? ((chapterIndices.firstIndex(of: idx) ?? 0) + 1)
-            let chapterBlocks = byChapter[idx]!.sorted { $0.sequenceIndex < $1.sequenceIndex }
-            let chapterTitle = plannedByChapterIndex[idx]?.title
+        let workers = max(1, min(config.jobs, max(batch.count, 1)))
+        let resolvedThreads =
+            config.intraOpThreads
+            ?? NarrationEngineFactory.defaultIntraOpThreads(jobs: workers)
+        let makeEngine: @MainActor () -> TTSEngine
+        if let ttsFactory {
+            makeEngine = ttsFactory
+        } else if let tts {
+            makeEngine = { tts }
+        } else {
+            makeEngine = { NarrationEngineFactory.make(intraOpThreads: resolvedThreads) }
+        }
 
+        let engines = batch.isEmpty ? [] : (0..<workers).map { _ in makeEngine() }
+        if let first = engines.first {
+            // Surface the one-time model download/session load that previously
+            // happened silently inside the first synthesize call (a fresh
+            // environment sat mute through a 163 MB fetch). The other workers'
+            // prepare is a fast cache hit on their first synthesize.
+            try await first.prepare { step in
+                Task { @MainActor in
+                    progress(.preparing(fraction: Self.prepareFraction(step)))
+                }
+            }
+        }
+
+        let cursor = BatchCursor()
+        // Aggregate batch progress: completed chapters plus every worker's
+        // in-flight block fraction. With one worker this reproduces the
+        // historical serial values exactly ((batchPos + blockFraction) / count).
+        let emitChapterProgress: @MainActor () -> Void = {
+            let inflight = cursor.inflight.values.reduce(0, +)
+            let fraction =
+                (Double(cursor.completed) + inflight) / Double(max(batch.count, 1))
             progress(
                 .chapter(
-                    index: batchPos, of: batch.count,
-                    fraction: Double(batchPos) / Double(max(batch.count, 1))))
-
-            try await svc.renderChapter(
-                chapterIndex: idx, chapterNumber: displayNumber,
-                blocks: chapterBlocks, voice: config.voice, chapterTitle: chapterTitle
-            ) { _, blockFraction in
-                let batchFraction =
-                    (Double(batchPos) + blockFraction)
-                    / Double(max(batch.count, 1))
-                progress(
-                    .chapter(
-                        index: batchPos,
-                        of: batch.count,
-                        fraction: batchFraction))
-            }
-
-            // Capture anchors + track duration for this chapter.
-            let blockIDs = chapterBlocks.map(\.id)
-            guard !blockIDs.isEmpty else {
-                // Chapter has no text blocks — SQLite `IN ()` would crash; skip the DB read.
-                let cap = ChapterCapture(duration: 0, anchors: [])
-                try JSONEncoder().encode(cap).write(to: captureURL(idx, in: config.workDir))
-                continue
-            }
-            let trackID = "syn-\(audiobookID)-ch\(idx)"
-            let (duration, entries): (TimeInterval, [ChapterCapture.Entry]) = try db.read { db in
-                let dur =
-                    try TrackRecord.filter(Column("id") == trackID).fetchOne(db)?.duration ?? 0
-                let anchors =
-                    try AlignmentAnchorRecord
-                    .filter(Column("audiobook_id") == audiobookID)
-                    .filter(Column("source") == AlignmentAnchorRecord.Source.synthesized.rawValue)
-                    .filter(blockIDs.contains(Column("epub_block_id")))
-                    .order(Column("audio_time"))
-                    .fetchAll(db)
-                return (
-                    dur,
-                    anchors.map {
-                        ChapterCapture.Entry(
-                            suffix: AlignmentSidecar.portableSuffix(of: $0.epubBlockID),
-                            time: $0.audioTime)
-                    }
-                )
-            }
-            let cap = ChapterCapture(duration: duration, anchors: entries)
-            try JSONEncoder().encode(cap).write(to: captureURL(idx, in: config.workDir))
+                    index: min(cursor.completed, max(batch.count - 1, 0)),
+                    of: batch.count,
+                    fraction: fraction))
         }
+
+        // Children capture GRDB's `DatabaseWriter` (Sendable), never the
+        // non-Sendable `DatabaseService` wrapper — the region-based isolation
+        // checker cannot model the wrapper crossing into N loop-created tasks.
+        let dbWriter = db.writer
+
+        let renderChapterAndCapture: @MainActor (Int, NarrationService, Int) async throws -> Void =
+            { [self] idx, svc, worker in
+                let displayNumber =
+                    plannedByChapterIndex[idx]?.displayNumber
+                    ?? ((chapterIndices.firstIndex(of: idx) ?? 0) + 1)
+                let chapterBlocks = byChapter[idx]!.sorted { $0.sequenceIndex < $1.sequenceIndex }
+                let chapterTitle = plannedByChapterIndex[idx]?.title
+
+                try await svc.renderChapter(
+                    chapterIndex: idx, chapterNumber: displayNumber,
+                    blocks: chapterBlocks, voice: config.voice, chapterTitle: chapterTitle
+                ) { _, blockFraction in
+                    cursor.inflight[worker] = blockFraction
+                    emitChapterProgress()
+                }
+
+                // Capture anchors + track duration for this chapter.
+                let blockIDs = chapterBlocks.map(\.id)
+                guard !blockIDs.isEmpty else {
+                    // Chapter has no text blocks — SQLite `IN ()` would crash; skip the DB read.
+                    let cap = ChapterCapture(duration: 0, anchors: [])
+                    try JSONEncoder().encode(cap).write(to: captureURL(idx, in: config.workDir))
+                    return
+                }
+                let cap = try capturedChapter(
+                    dbWriter: dbWriter, audiobookID: audiobookID,
+                    chapterIndex: idx, blockIDs: blockIDs)
+                try JSONEncoder().encode(cap).write(to: captureURL(idx, in: config.workDir))
+            }
+
+        // Unstructured Tasks (not a TaskGroup) on purpose: `Task {}` inherits
+        // this method's MainActor isolation, so captures need no Sendable
+        // proof — the region-based isolation checker rejects the equivalent
+        // `group.addTask` pattern outright ("pattern … does not understand").
+        // Error semantics match the group: the first failure stops further
+        // chapter claims (in-flight chapters finish and persist their capture
+        // markers, keeping the work dir resume-safe) and is rethrown.
+        var workerTasks: [Task<Void, Error>] = []
+        for worker in 0..<(batch.isEmpty ? 0 : workers) {
+            let engine = engines[worker]
+            workerTasks.append(
+                Task {
+                    let svc = NarrationService(
+                        db: dbWriter, audiobookID: audiobookID, tts: engine,
+                        audioWriter: AVFoundationAudioWriter(),
+                        cacheDirectory: config.workDir, state: NarrationState(),
+                        pronunciationOverrides: {
+                            PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+                        },
+                        pronunciationOccurrenceOverrides: {
+                            PronunciationOverrideStore.shared.occurrenceOverrides(
+                                forBookID: audiobookID)
+                        },
+                        fmEnabled: { config.enableFMNormalization })
+                    while cursor.next < batch.count {
+                        let pos = cursor.next
+                        cursor.next += 1
+                        cursor.inflight[worker] = 0
+                        emitChapterProgress()
+                        do {
+                            try await renderChapterAndCapture(batch[pos], svc, worker)
+                        } catch {
+                            cursor.inflight[worker] = nil
+                            throw error
+                        }
+                        // Clear in-flight BEFORE counting the chapter complete,
+                        // or the aggregate transiently double-counts it.
+                        cursor.inflight[worker] = nil
+                        cursor.completed += 1
+                        emitChapterProgress()
+                    }
+                })
+        }
+        var firstWorkerError: Error?
+        for task in workerTasks {
+            do {
+                try await task.value
+            } catch {
+                if firstWorkerError == nil { firstWorkerError = error }
+                // Stop idle workers from claiming further chapters.
+                cursor.next = batch.count
+            }
+        }
+        if let firstWorkerError { throw firstWorkerError }
 
         // 5. Check if all chapters are now captured.
         let stillPending = chapterIndices.filter { !isCaptured($0, in: config.workDir) }

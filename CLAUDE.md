@@ -36,5 +36,6 @@ Echo specifics on top of those rules:
 
 ## Building & testing
 - Run unit tests with `make test`; for edit→test loops use `make build-tests` once, then `make test-only FILTER=EchoTests/<Suite>`.
+- Build echo-cli with `make echo-cli` ONLY (pins Release + `SWIFT_COMPILATION_MODE=incremental` → `.build/cli/Build/Products/Release/echo-cli`). A bare `xcodebuild -scheme echo-cli` produces a Debug (-Onone) binary (scheme default is Debug) — ~26% slower on inference-bound narrate, far worse on Swift-heavy qa/deck/sidecar paths — and adding `-configuration Release` alone HANGS at first synthesize on macOS 26 (wholemodule miscompiles an async continuation) — see ARCHITECTURE.md ▸ Headless CLI export.
 - Build concurrency is governed by the global memory-pressure RAM gate (`~/.claude/bin/xcode-build-gate.sh`); let it decide rather than serializing by hand, and never enable uncapped parallel testing or `-jobs`.
 - UI tests are intentionally excluded from the Echo scheme's test action.
