@@ -12,10 +12,10 @@ struct NarrateCommand: AsyncParsableCommand {
             batch (re-run with --resume to continue); 1 = any other failure.
 
             Performance: build with `make echo-cli` (Release). A plain \
-            `xcodebuild build -scheme echo-cli` produces a Debug (-Onone) binary \
-            that narrates several times slower. Use --jobs to render chapters in \
-            parallel — each worker holds its own engine (several hundred MB), so \
-            2–4 is the practical ceiling on a 16 GB machine.
+            `xcodebuild build -scheme echo-cli` produces a slower Debug (-Onone) \
+            binary. The big lever is --jobs: render chapters in parallel — each \
+            worker holds its own engine (several hundred MB), so 2–4 is the \
+            practical ceiling on a 16 GB machine.
             """)
 
     @Option(

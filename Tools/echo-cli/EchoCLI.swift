@@ -45,7 +45,7 @@ struct EchoCLI: AsyncParsableCommand {
         #if DEBUG
             FileHandle.standardError.write(
                 Data(
-                    "warning: echo-cli was built in Debug (-Onone) and narrates several times slower — build with `make echo-cli` (Release)\n"
+                    "warning: echo-cli was built in Debug (-Onone) — slower everywhere, drastically so outside narrate — build with `make echo-cli` (Release)\n"
                         .utf8))
         #endif
         guard ProcessInfo.processInfo.environment["ECHO_RESOURCE_DIR"] == nil else { return }

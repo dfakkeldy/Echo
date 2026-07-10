@@ -68,8 +68,9 @@ hooks-test: ## Run the Claude Code hook test suites (xcodebuild guard + swift-fo
 	@bash .claude/hooks/test-guard-xcodebuild.sh
 	@bash .claude/hooks/test-swift-format-on-edit.sh
 
-# Release is non-negotiable here: the scheme's default (Debug/-Onone) narrates
-# several times slower, and overnight agents have shipped whole books through
+# Release is non-negotiable here: the scheme's default (Debug/-Onone) is
+# ~26% slower on inference-bound narrate and far slower on Swift-heavy
+# qa/deck/sidecar paths, and overnight agents have shipped whole books through
 # it. SWIFT_COMPILATION_MODE=incremental is equally non-negotiable: Release's
 # default wholemodule optimization miscompiles an async continuation in the
 # narration chain on macOS 26 (Swift 6.2 toolchain) and the binary hangs
