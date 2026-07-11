@@ -572,7 +572,7 @@ final class NarrationService {
                 statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
         }
 
-        let plan = await renderPlan(
+        let plan = try await renderPlan(
             for: blocks,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
@@ -618,8 +618,9 @@ final class NarrationService {
             var blockDuration: TimeInterval = 0
             var timing = NarrationSynthesisTiming(blockID: plannedBlock.blockID, blockStart: cursor)
             var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
-            for subText in plannedBlock.speechSegments {
+            for synthesisChunk in plannedBlock.synthesisChunks {
                 try Task.checkCancellation()
+                let subText = synthesisChunk.g2pInputText
                 do {
                     for chunk in try await synthesizeWithQualityRetry(subText, voice: voice) {
                         let chunkStartInFile = cursor + blockDuration
@@ -725,13 +726,13 @@ final class NarrationService {
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
-    ) async -> NarrationRenderPlan {
+    ) async throws -> NarrationRenderPlan {
         let preparedBlocks = await prepareBlocksForRenderPlan(
             blocks,
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
         let g2p = KokoroG2P()
-        return NarrationRenderPlanner.make(
+        return try NarrationRenderPlanner.make(
             blocks: preparedBlocks,
             overrides: overrides,
             phonemeCount: g2p.phonemeCount(for:))
@@ -752,7 +753,8 @@ final class NarrationService {
             }
 
             let normalized = TextNormalizer.normalize(block.text ?? "")
-            let refined = fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
+            let refined =
+                fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
             if refined != normalized {
                 do {
                     try await db.write { db in
@@ -776,7 +778,10 @@ final class NarrationService {
         return prepared
     }
 
-    private func synthesizeWithQualityRetry(_ text: String, voice: VoiceID) async throws -> [TTSChunk] {
+    private func synthesizeWithQualityRetry(
+        _ text: String,
+        voice: VoiceID
+    ) async throws -> [TTSChunk] {
         let first = try await tts.synthesize(text, voice: voice)
         guard case .rejected(let reason) = NarrationChunkQuality.evaluate(first, text: text) else {
             return [first]

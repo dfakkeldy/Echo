@@ -603,13 +603,15 @@ import Testing
         }.joined(separator: " ")
     }
 
-    private func plannedSpeechSegments(for blocks: [EPubBlockRecord]) -> [String] {
+    private func plannedSpeechSegments(for blocks: [EPubBlockRecord]) throws -> [String] {
         let g2p = KokoroG2P()
-        return NarrationRenderPlanner.make(
+        return try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:]),
             phonemeCount: g2p.phonemeCount(for:)
-        ).blocks.flatMap(\.speechSegments)
+        ).blocks.flatMap { block in
+            block.synthesisChunks.map(\.g2pInputText)
+        }
     }
 
     @Test func multiSubChunkBlockStillYieldsOneAnchorSpanningSummedDuration() async throws {
@@ -620,7 +622,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = plannedSpeechSegments(for: blocks)
+        let subChunks = try plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)  // guard: the block really does fan out
 
         let secondsPerChar = 0.1
@@ -653,7 +655,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = plannedSpeechSegments(for: blocks)
+        let subChunks = try plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)
 
         let secondsPerChar = 0.1
@@ -689,7 +691,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = plannedSpeechSegments(for: blocks)
+        let subChunks = try plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)
 
         let secondsPerChar = 0.1
@@ -737,10 +739,10 @@ import Testing
         let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
         let blocks = try seed(db, [text])
         let mock = MockTTSEngine(secondsPerChar: 0.1)
-        mock.silentOnText = NarrationRenderPlanner.make(
+        mock.silentOnText = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:])
-        ).blocks[0].speechSegments[0]
+        ).blocks[0].synthesisChunks[0].g2pInputText
         let svc = makeService(db, tts: mock, writer: MockAudioWriter())
 
         try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
@@ -754,10 +756,10 @@ import Testing
         let db = try DatabaseService(inMemory: ())
         let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
         let blocks = try seed(db, [text])
-        let firstSegment = NarrationRenderPlanner.make(
+        let firstSegment = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:])
-        ).blocks[0].speechSegments[0]
+        ).blocks[0].synthesisChunks[0].g2pInputText
         let retryTexts = NarrationTextChunker.split(
             firstSegment,
             maxChars: max(20, min(80, firstSegment.count / 2)))
