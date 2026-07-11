@@ -6,7 +6,8 @@ import Testing
 
 @Suite struct NarrationFileNamingTests {
     @Test func renderVersionRegeneratesCachesForPronunciationFrontEndRefresh() {
-        #expect(NarrationFileNaming.renderVersion == 10)
+        // v11 moves pronunciation planning before TTS, so v10 audio must not be reused.
+        #expect(NarrationFileNaming.renderVersion == 11)
     }
 
     @Test func parsesChapterIndexFromFileName() {

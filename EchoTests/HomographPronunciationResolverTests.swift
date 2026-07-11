@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Testing
+
 @testable import Echo
 
 @Suite struct HomographPronunciationResolverTests {
@@ -19,7 +20,8 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: "I will read the book.")
                 == "I will read the book.")
-        #expect(HomographPronunciationResolver.apply(to: "I read every day.") == "I read every day.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "I read every day.") == "I read every day.")
     }
 
     @Test func resolvesLiveVerbAndAdjectiveContexts() {
@@ -42,11 +44,50 @@ import Testing
             HomographPronunciationResolver.apply(to: "She lives in Halifax.")
                 == "She [lives](/lˈɪvz/) in Halifax.")
         #expect(
+            HomographPronunciationResolver.apply(to: "The receipt lives in the archive.")
+                == "The receipt [lives](/lˈɪvz/) in the archive.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The receipt lives securely.")
+                == "The receipt [lives](/lˈɪvz/) securely.")
+        #expect(
             HomographPronunciationResolver.apply(to: "The author lives alone.")
                 == "The author [lives](/lˈɪvz/) alone.")
         #expect(
             HomographPronunciationResolver.apply(to: "Their lives changed.")
                 == "Their [lives](/lˈIvz/) changed.")
+    }
+
+    @Test func resolvesRecordVerbNounAndCompoundNounContexts() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Please record the result.")
+                == "Please [record](/ɹəkˈɔɹd/) the result.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Review the record before restart.")
+                == "Review the [record](/ɹˈɛkəɹd/) before restart.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Record sales increased.")
+                == "[Record](/ɹˈɛkəɹd/) sales increased.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Should record labels pay artists?")
+                == "Should [record](/ɹˈɛkəɹd/) labels pay artists?")
+    }
+
+    @Test func recordRulesStayNarrowAndRespectCompoundPrecedence() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "We should record tomorrow.")
+                == "We should [record](/ɹəkˈɔɹd/) tomorrow.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "We need to record tomorrow.")
+                == "We need to [record](/ɹəkˈɔɹd/) tomorrow.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "A record player waits nearby.")
+                == "A [record](/ɹˈɛkəɹd/) player waits nearby.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Could record stores survive?")
+                == "Could [record](/ɹˈɛkəɹd/) stores survive?")
+        #expect(
+            HomographPronunciationResolver.apply(to: "This recording is clear.")
+                == "This recording is clear.")
     }
 
     @Test func resolvesContentNounAndSatisfiedContexts() {
@@ -95,7 +136,7 @@ import Testing
     }
 
     @Test func doesNotRewriteHyphenatedCompounds() {
-        let text = "This is a read-only live-in setup."
+        let text = "This is a read-only live-in record-breaking setup."
 
         #expect(HomographPronunciationResolver.apply(to: text) == text)
     }
@@ -107,6 +148,12 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: overridden)
                 == "I [read](/ɹˈid/) the book yesterday.")
+    }
+
+    @Test func authoredRecordLinkWinsOverContextualRules() {
+        let text = "Please [record](/ɹˈɛkəɹd/) the result."
+
+        #expect(HomographPronunciationResolver.apply(to: text) == text)
     }
 
     @Test func resolvedLinksReachG2PAsExactPhonemes() {

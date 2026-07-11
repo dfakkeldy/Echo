@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Testing
+
 @testable import Echo
 
 @Suite struct PronunciationOverridesTests {
@@ -31,7 +32,7 @@ import Testing
         let ovr = PronunciationOverrides.merging(
             global: ["docker": "ˈdɒkə"],
             book: ["docker": "ˈdɑkər"])
-        #expect(ovr.entries["docker"] == "ˈdɑkər") // book overrides global
+        #expect(ovr.entries["docker"] == "ˈdɑkər")  // book overrides global
     }
 
     @Test func emptyOverridesAreNoOp() throws {
@@ -44,7 +45,7 @@ import Testing
         // If the source already contains a Misaki link, don't re-wrap.
         let ovr = PronunciationOverrides(entries: ["Kokoro": "kˈOkəɹO"])
         let out = ovr.apply(to: "[Kokoro](/kˈOkəɹO/) models")
-        #expect(out == "[Kokoro](/kˈOkəɹO/) models") // unchanged
+        #expect(out == "[Kokoro](/kˈOkəɹO/) models")  // unchanged
     }
 
     @Test func reOverrideDoesNotCorruptContractions() throws {
@@ -68,5 +69,24 @@ import Testing
 
         #expect(out.contains("'[Kubernetes](/kuːbərˈnɛtɪs/)'"))
         #expect(out.contains("’[Fakkeldy](/fˈækəldi/)’"))
+    }
+
+    @Test func builtInCompatibilityWordsUseApprovedPronunciations() {
+        let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "The process is startable. The filesystem stores the verified result.")
+
+        #expect(out.contains("[startable](/stˈɑɹɾəbᵊl/)"))
+        #expect(out.contains("[filesystem](/fˈIl sˌɪstəm/)"))
+        #expect(out.contains("verified"))
+        #expect(!out.contains("[verified]"))
+    }
+
+    @Test func userEntriesOverrideCompatibilityWordsCaseInsensitively() {
+        let out = PronunciationOverrides.withBuiltInDefaults([
+            "STARTABLE": "stˈɑɹtəbəl",
+            "FileSystem": "fˈaɪl sˌɪstəm",
+        ]).apply(to: "startable filesystem")
+
+        #expect(out == "[startable](/stˈɑɹtəbəl/) [filesystem](/fˈaɪl sˌɪstəm/)")
     }
 }

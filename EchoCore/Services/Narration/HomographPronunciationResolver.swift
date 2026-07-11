@@ -17,6 +17,8 @@ nonisolated enum HomographPronunciationResolver {
         static let liveVerb = "lˈɪv"
         static let livesNoun = "lˈIvz"
         static let livesVerb = "lˈɪvz"
+        static let recordNoun = "ɹˈɛkəɹd"
+        static let recordVerb = "ɹəkˈɔɹd"
         static let contentNoun = "kˈɑntɛnt"
         static let contentSatisfied = "kəntˈɛnt"
         static let resumeDocument = "ɹˈɛzʊmˌA"
@@ -58,7 +60,19 @@ nonisolated enum HomographPronunciationResolver {
     ]
     private static let livesVerbPreceders: Set<String> = [
         "everyone", "he", "it", "nobody", "one", "she", "somebody", "someone",
-        "that", "who",
+        "that", "who", "receipt",
+    ]
+
+    private static let recordNounPreceders: Set<String> = [
+        "a", "an", "another", "each", "every", "her", "his", "its", "my", "our",
+        "that", "the", "their", "these", "this", "those", "your",
+    ]
+    private static let recordNounCompoundFollowers: Set<String> = [
+        "label", "labels", "player", "sales", "store", "stores",
+    ]
+    private static let recordVerbPreceders: Set<String> = [
+        "can", "could", "may", "might", "must", "please", "shall", "should", "to", "will",
+        "would",
     ]
 
     private static let contentNounPreceders: Set<String> = [
@@ -122,6 +136,8 @@ nonisolated enum HomographPronunciationResolver {
             return liveIPA(at: index, tokens: tokens)
         case "lives":
             return livesIPA(at: index, tokens: tokens)
+        case "record":
+            return recordIPA(at: index, tokens: tokens)
         case "content":
             return contentIPA(at: index, tokens: tokens)
         case "resume":
@@ -227,7 +243,8 @@ nonisolated enum HomographPronunciationResolver {
             return IPA.liveVerb
         }
 
-        if nextLowercased(tokens, index, limit: 1).contains(where: liveAdjectiveFollowers.contains) {
+        if nextLowercased(tokens, index, limit: 1).contains(where: liveAdjectiveFollowers.contains)
+        {
             return IPA.liveAdjective
         }
 
@@ -250,12 +267,30 @@ nonisolated enum HomographPronunciationResolver {
         return nil
     }
 
+    private static func recordIPA(at index: Int, tokens: [Token]) -> String? {
+        let next = nextLowercased(tokens, index, limit: 1)
+        if next.contains(where: recordNounCompoundFollowers.contains) {
+            return IPA.recordNoun
+        }
+
+        if previousLowercased(tokens, index).map(recordNounPreceders.contains) == true {
+            return IPA.recordNoun
+        }
+
+        if previousLowercased(tokens, index).map(recordVerbPreceders.contains) == true {
+            return IPA.recordVerb
+        }
+
+        return nil
+    }
+
     private static func tokens(in text: String) -> [Token] {
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
         return wordRegex.matches(in: text, range: fullRange).compactMap { match in
             guard let range = Range(match.range, in: text) else { return nil }
             let value = String(text[range])
-            return Token(text: value, lowercased: value.lowercased(), range: range, nsRange: match.range)
+            return Token(
+                text: value, lowercased: value.lowercased(), range: range, nsRange: match.range)
         }
     }
 

@@ -89,6 +89,8 @@ struct PronunciationOverrides {
         "Xcode": "ˈɛks kˈOd",
         "xcassets": "ˈɛks sˈi ˈæsˌɛts",
         "timeframe": "tˈImfɹˌAm",
+        "startable": "stˈɑɹɾəbᵊl",
+        "filesystem": "fˈIl sˌɪstəm",
         "re": "ɹi",
         "README": "ɹˈid mˌi",
         "readme": "ɹˈid mˌi",

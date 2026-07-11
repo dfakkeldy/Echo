@@ -282,6 +282,10 @@ final class MacBatchProcessingService {
                         cacheDirectory: NarrationCache.directory(), state: NarrationState(),
                         pronunciationOverrides: {
                             PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+                        },
+                        pronunciationOccurrenceOverrides: {
+                            PronunciationOverrideStore.shared.occurrenceOverrides(
+                                forBookID: audiobookID)
                         })
                 }
                 var service = makeService()
