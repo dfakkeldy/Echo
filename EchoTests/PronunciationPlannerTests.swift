@@ -26,4 +26,13 @@ import Testing
         #expect(plan.phonemes.contains("vˈɛɹəfˌId"))
         #expect(plan.pronunciationFallbackHits.allSatisfy { $0.word.lowercased() != "verified" })
     }
+
+    @Test func planResolvedPreservesSuppliedLinkAndDerivesDisplayText() throws {
+        let resolved = "[record](/ɹəkˈɔɹd/)"
+        let plan = try PronunciationPlanner().planResolved(resolved)
+
+        #expect(plan.displayText == "record")
+        #expect(plan.g2pInputText == resolved)
+        #expect(plan.phonemes.contains("ɹəkˈɔɹd"))
+    }
 }

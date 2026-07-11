@@ -20,4 +20,12 @@ nonisolated final class PronunciationPlanner {
             wordCount: WordTokenizer.words(in: displayText).count,
             pronunciationFallbackHits: result.fallbackHits)
     }
+
+    /// Plans text whose pronunciation choices have already been resolved.
+    func planResolved(_ resolvedText: String) throws -> PlannedSynthesisChunk {
+        try plan(
+            displayText: MisakiPronunciationMarkup.displayText(from: resolvedText),
+            g2pInputText: resolvedText
+        )
+    }
 }
