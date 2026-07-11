@@ -39,4 +39,13 @@ nonisolated final class PronunciationPlanner {
             g2pInputText: resolvedText
         )
     }
+
+    /// Phoneme count for `text`, reusing the planner's already-loaded G2P.
+    ///
+    /// Chunkers need this to size splits; routing it through the planner keeps
+    /// the ~12 MB Misaki lexicon loaded exactly once per render unit instead of
+    /// forcing every caller to construct a second `KokoroG2P`.
+    func phonemeCount(for text: String) -> Int {
+        g2p.phonemeCount(for: text)
+    }
 }

@@ -36,17 +36,12 @@ enum NarrationRenderPlanner {
         blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         maxChars: Int = 350,
-        maxPhonemes: Int = 420,
-        phonemeCount: ((String) -> Int)? = nil
+        maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
+        // One planner owns the single `KokoroG2P` (and its ~12 MB lexicon) for
+        // this render unit; the chunker sizes splits via its phoneme count.
         let pronunciationPlanner = try PronunciationPlanner()
-        let resolvedPhonemeCount: (String) -> Int
-        if let phonemeCount {
-            resolvedPhonemeCount = phonemeCount
-        } else {
-            let g2p = KokoroG2P()
-            resolvedPhonemeCount = g2p.phonemeCount(for:)
-        }
+        let resolvedPhonemeCount = pronunciationPlanner.phonemeCount(for:)
         let candidates = blocks.filter { block in
             guard block.text?.isEmpty == false else { return false }
             return !block.isHidden
