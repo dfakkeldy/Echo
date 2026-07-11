@@ -14,10 +14,11 @@
     /// runs on the **CPU EP by construction** — which also means it never touches
     /// the ANE, so it can't hit the A14 BNNS vocoder trap either.
     ///
-    /// Reuses Echo's existing front-half verbatim: MisakiSwift G2P → KokoroPhonemeVocab
-    /// (BOS/EOS-wrapped ids) → KokoroVoicePack (256-dim af_heart refS). Only the
-    /// runtime changes. The single ONNX graph (`model_fp16.onnx`, 163 MB) contains
-    /// duration, F0/N, decoder-pre, hn-NSF, and the generator internally.
+    /// Planned synthesis consumes the exact BOS/EOS-wrapped phoneme ids already
+    /// approved upstream and asks `KokoroVoicePack` only for its 256-dim style row.
+    /// The legacy string overload builds one plan before delegating. The single ONNX
+    /// graph (`model_fp16.onnx`, 163 MB) contains duration, F0/N, decoder-pre, hn-NSF,
+    /// and the generator internally.
     ///
     /// Model I/O contract (verified against onnx-community/Kokoro-82M-v1.0-ONNX):
     ///   inputs : input_ids INT64 [1, n] · style FLOAT [1, 256] · speed FLOAT [1]
@@ -39,9 +40,9 @@
         private var progressFanOut: ProgressFanOut?
         private var didLogFirstSynthesis = false
 
-        /// Immutable Kokoro front-half (G2P + vocab + per-voice style packs), loaded
-        /// once and reused across every synthesize call instead of being rebuilt per
-        /// sub-chunk (~6 MB lexicon parse + voice-blob read each). See KokoroFrontEnd.
+        /// Actor-confined Kokoro compatibility front end and per-voice style cache.
+        /// Planned synthesis only asks it for a style row; its legacy G2P/vocab path
+        /// remains available to compatibility callers. See `KokoroFrontEnd`.
         private let frontEnd = KokoroFrontEnd()
 
         /// Resolves the local model URL (downloading once if absent). Injected so a
@@ -212,33 +213,37 @@
         nonisolated static let silenceRecoverySpeeds: [Float] = [1.0, 1.03, 0.97]
 
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            let planned = try PronunciationPlanner().planResolved(text)
+            return try await synthesize(planned, voice: voice)
+        }
+
+        func synthesize(_ planned: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
             try await prepare()
             guard session != nil else { throw NarrationError.engineUnavailable }
-            let fallbackHits = frontEnd.fallbackHits(for: text)
+            let inputs = try Self.plannedInputs(
+                for: planned, voice: voice, frontEnd: frontEnd)
 
             // The ONNX model occasionally returns a full-length but all-zero
-            // waveform (digital silence) for a non-empty input. Recover in order of
-            // increasing prosody cost: a small speed nudge on the whole fragment
-            // (one utterance, no seam) first, then — if every speed is still silent —
-            // the guard's text perturb/split ladder. The speed nudge applies to each
-            // fragment the guard tries, including split halves.
-            let samples = try await NarrationSilenceGuard.synthesize(text) { piece in
-                try await NarrationSilenceGuard.synthesizeWithSpeedNudge(
-                    speeds: Self.silenceRecoverySpeeds
-                ) { speed in
-                    try await self.runModel(piece, voice: voice, speed: speed)
-                }
+            // waveform (digital silence) for a non-empty input. Every speed retry
+            // reuses the immutable planned ids; text splitting and re-planning belong
+            // to NarrationService so approved pronunciation choices stay intact.
+            let samples = try await NarrationSilenceGuard.synthesizeWithSpeedNudge(
+                speeds: Self.silenceRecoverySpeeds
+            ) { speed in
+                try await self.runModel(
+                    ids32: inputs.waveformIDs, refS: inputs.refS, speed: speed)
             }
             let audioS = Double(samples.count) / 24_000
 
-            // Word timings from the duration head (computed on the original text;
-            // robust to the silence guard's internal speed nudges / splits via the
-            // normalization in KokoroWordTimer). Soft-fails to nil → interpolation.
+            // Word timings from the duration head use the exact same planned ids.
+            // The plan's display-text word count, rather than pronunciation markup,
+            // drives token-to-word mapping. Soft-fails to nil → interpolation.
             var wordTimings: [ChunkWordTiming]?
-            if let (ids, frames) = tokenDurations(forText: text, voice: voice) {
-                let wordCount = text.split(whereSeparator: { $0.isWhitespace }).count
+            if let (ids, frames) = tokenDurations(
+                ids32: inputs.durationIDs, refS: inputs.refS)
+            {
                 wordTimings = KokoroWordTimer.wordTimings(
-                    ids: ids, perTokenFrames: frames, wordCount: wordCount,
+                    ids: ids, perTokenFrames: frames, wordCount: inputs.wordCount,
                     sampleCount: samples.count, sampleRate: 24_000)
             }
             return TTSChunk(
@@ -246,23 +251,33 @@
                 sampleRate: 24_000,
                 duration: audioS,
                 wordTimings: wordTimings,
-                pronunciationFallbackHits: fallbackHits)
+                pronunciationFallbackHits: planned.pronunciationFallbackHits)
         }
 
-        /// One encode + ONNX run for a single text fragment at a given `speed` → PCM
-        /// samples (an empty array means "nothing to synthesize", e.g. an
-        /// all-punctuation fragment). Wrapped by `NarrationSilenceGuard`, which
-        /// speed-nudges / retries / re-splits when the model returns a silent
-        /// (all-zero) waveform.
-        private func runModel(_ text: String, voice: VoiceID, speed: Float) async throws -> [Float]
-        {
-            guard let session else { throw NarrationError.engineUnavailable }
+        /// Pure seam for proving that both production model calls consume the ids
+        /// approved by `PronunciationPlanner`. The style lookup is the only front-end
+        /// work on this path; it does not initialize or invoke G2P.
+        nonisolated static func plannedInputs(
+            for planned: PlannedSynthesisChunk,
+            voice: VoiceID,
+            frontEnd: KokoroFrontEnd
+        ) throws -> (
+            waveformIDs: [Int32], durationIDs: [Int32], refS: [Float], wordCount: Int
+        ) {
+            let refS = try frontEnd.referenceStyle(
+                voice: voice, phonemeCount: planned.phonemes.count)
+            return (
+                waveformIDs: planned.phonemeIDs,
+                durationIDs: planned.phonemeIDs,
+                refS: refS,
+                wordCount: planned.wordCount
+            )
+        }
 
-            // Reuse Echo's verified front-half: G2P → vocab ids (BOS/EOS-wrapped)
-            // → af_heart refS row (clamped by phoneme count). Cached on `frontEnd`
-            // so the ~6 MB MisakiSwift lexicon + the voice blob load ONCE, not on
-            // every text sub-chunk (which is what NarrationService feeds us).
-            let (ids32, refS) = try frontEnd.encode(text: text, voice: voice)
+        /// One ONNX waveform run for the supplied planned ids and style row at a
+        /// given `speed`. Speed retries receive these same values unchanged.
+        private func runModel(ids32: [Int32], refS: [Float], speed: Float) async throws -> [Float] {
+            guard let session else { throw NarrationError.engineUnavailable }
 
             // Boundary-only ids ([BOS, EOS]) mean every phoneme was dropped — there
             // is nothing to say. Treat it as empty (a legit zero-length fragment the
@@ -297,7 +312,8 @@
             let computeS = Date().timeIntervalSince(runStart)
 
             guard let waveform = outputs["waveform"] else { throw NarrationError.engineUnavailable }
-            let data = try waveform.tensorData()  // ObjC tensorDataWithError: → throwing tensorData()
+            // ObjC tensorDataWithError: bridges to throwing tensorData().
+            let data = try waveform.tensorData()
             let samples = data.toFloatArray()
             let audioS = Double(samples.count) / 24_000
 
@@ -320,18 +336,17 @@
             return samples
         }
 
-        /// Runs the duration head for `text` to get per-token frame durations,
-        /// returning the BOS/EOS-wrapped token ids alongside them (so callers can
-        /// map tokens→words). `nil` when the head isn't loaded or anything fails —
-        /// always a soft failure, never throwing into the synthesis path. `speed`
-        /// is fixed at 1.0: it only globally scales durations, which the per-word
-        /// normalization to the real sample count absorbs.
-        private func tokenDurations(forText text: String, voice: VoiceID)
+        /// Runs the duration head with the supplied planned ids and style row,
+        /// returning those same ids alongside their per-token frame durations.
+        /// `nil` when the head isn't loaded or anything fails — always a soft
+        /// failure, never throwing into the synthesis path. `speed` is fixed at
+        /// 1.0: it only globally scales durations, which per-word normalization to
+        /// the real sample count absorbs.
+        private func tokenDurations(ids32: [Int32], refS: [Float])
             -> (ids: [Int32], frames: [Float])?
         {
             guard let durationSession else { return nil }
             do {
-                let (ids32, refS) = try frontEnd.encode(text: text, voice: voice)
                 guard ids32.contains(where: { $0 != KokoroPhonemeVocab.boundaryTokenId }) else {
                     return nil
                 }

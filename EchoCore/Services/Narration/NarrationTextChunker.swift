@@ -100,6 +100,46 @@ enum NarrationTextChunker {
         }
     }
 
+    /// Splits text whose pronunciation links have already been resolved. Valid
+    /// Misaki links remain byte-for-byte intact and count as one word even when
+    /// their IPA contains spaces.
+    static func splitResolved(
+        _ text: String,
+        maxPhonemes: Int = 420,
+        phonemeCount: (String) -> Int
+    ) -> [String] {
+        guard maxPhonemes > 0 else { return [] }
+        let normalized = normalizeResolvedText(text)
+        guard !normalized.isEmpty else { return [] }
+
+        let sentences = mergeByPhonemeBudget(
+            splitResolvedUnits(normalized, isBoundary: isSentenceBoundary),
+            maxPhonemes: maxPhonemes,
+            phonemeCount: phonemeCount
+        )
+
+        let pieces = sentences.flatMap { sentence -> [String] in
+            if phonemeCount(sentence) <= maxPhonemes { return [sentence] }
+
+            return mergeByPhonemeBudget(
+                splitResolvedUnits(sentence, isBoundary: isClauseBoundary),
+                maxPhonemes: maxPhonemes,
+                phonemeCount: phonemeCount
+            ).flatMap { clause -> [String] in
+                if phonemeCount(clause) <= maxPhonemes { return [clause] }
+                return wrapResolvedByWords(
+                    clause,
+                    maxPhonemes: maxPhonemes,
+                    phonemeCount: phonemeCount
+                )
+            }
+        }
+
+        return pieces.filter { chunk in
+            chunk.contains { $0.isLetter || $0.isNumber }
+        }
+    }
+
     /// Splits `text` at the boundaries `isBoundary` accepts, then greedily merges
     /// adjacent units so each accumulated piece stays `<= maxChars`. Boundaries
     /// keep their trailing punctuation; newlines were already folded to spaces by
@@ -158,6 +198,71 @@ enum NarrationTextChunker {
             if !inLink, isBoundary(ch, i, chars) {
                 flush()
             }
+        }
+        flush()
+
+        return units
+    }
+
+    private static func normalizeResolvedText(_ text: String) -> String {
+        var normalized = ""
+        var index = text.startIndex
+        var needsSpace = false
+
+        while index < text.endIndex {
+            if let link = MisakiPronunciationMarkup.link(in: text, startingAt: index) {
+                if needsSpace, !normalized.isEmpty { normalized.append(" ") }
+                normalized.append(contentsOf: text[link.range])
+                needsSpace = false
+                index = link.range.upperBound
+                continue
+            }
+
+            let character = text[index]
+            if character.isWhitespace {
+                needsSpace = !normalized.isEmpty
+            } else {
+                if needsSpace { normalized.append(" ") }
+                normalized.append(character)
+                needsSpace = false
+            }
+            index = text.index(after: index)
+        }
+
+        return normalized
+    }
+
+    private static func splitResolvedUnits(
+        _ text: String,
+        isBoundary: (Character, Int, [Character]) -> Bool
+    ) -> [String] {
+        var units: [String] = []
+        var current = ""
+        var textIndex = text.startIndex
+        var characterIndex = 0
+        let characters = Array(text)
+
+        func flush() {
+            let trimmed = current.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { units.append(trimmed) }
+            current = ""
+        }
+
+        while textIndex < text.endIndex {
+            if let link = MisakiPronunciationMarkup.link(in: text, startingAt: textIndex) {
+                current.append(contentsOf: text[link.range])
+                characterIndex += text[link.range].count
+                textIndex = link.range.upperBound
+                continue
+            }
+
+            let character = text[textIndex]
+            current.append(character)
+            if isBoundary(character, characterIndex, characters) {
+                flush()
+            }
+            characterIndex += 1
+            textIndex = text.index(after: textIndex)
         }
         flush()
 
@@ -270,6 +375,62 @@ enum NarrationTextChunker {
         }
         if !current.isEmpty { pieces.append(current) }
         return pieces
+    }
+
+    private static func wrapResolvedByWords(
+        _ text: String,
+        maxPhonemes: Int,
+        phonemeCount: (String) -> Int
+    ) -> [String] {
+        var pieces: [String] = []
+        var current = ""
+
+        for word in resolvedWords(in: text) {
+            if current.isEmpty {
+                current = word
+                continue
+            }
+
+            let candidate = current + " " + word
+            if phonemeCount(candidate) <= maxPhonemes {
+                current = candidate
+            } else {
+                pieces.append(current)
+                current = word
+            }
+        }
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
+    }
+
+    private static func resolvedWords(in text: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var index = text.startIndex
+
+        func flush() {
+            if !current.isEmpty { words.append(current) }
+            current = ""
+        }
+
+        while index < text.endIndex {
+            if let link = MisakiPronunciationMarkup.link(in: text, startingAt: index) {
+                current.append(contentsOf: text[link.range])
+                index = link.range.upperBound
+                continue
+            }
+
+            let character = text[index]
+            if character.isWhitespace {
+                flush()
+            } else {
+                current.append(character)
+            }
+            index = text.index(after: index)
+        }
+        flush()
+
+        return words
     }
 
     /// Hard-splits a single token longer than `maxChars` into fixed-size slices.

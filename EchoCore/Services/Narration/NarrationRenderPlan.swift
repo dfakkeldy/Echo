@@ -8,10 +8,10 @@ struct NarrationRenderPlan: Equatable, Sendable {
 struct NarrationPlannedBlock: Equatable, Sendable {
     let blockID: String
     let originalBlock: EPubBlockRecord
-    let speechSegments: [String]
+    let synthesisChunks: [PlannedSynthesisChunk]
     let trailingSilence: NarrationPlannedSilence?
 
-    var isSpeakable: Bool { !speechSegments.isEmpty }
+    var isSpeakable: Bool { !synthesisChunks.isEmpty }
 }
 
 enum NarrationPlannedSilence: Equatable, Sendable {
@@ -37,8 +37,16 @@ enum NarrationRenderPlanner {
         overrides: PronunciationOverrides,
         maxChars: Int = 350,
         maxPhonemes: Int = 420,
-        phonemeCount: (String) -> Int = { $0.count }
-    ) -> NarrationRenderPlan {
+        phonemeCount: ((String) -> Int)? = nil
+    ) throws -> NarrationRenderPlan {
+        let pronunciationPlanner = try PronunciationPlanner()
+        let resolvedPhonemeCount: (String) -> Int
+        if let phonemeCount {
+            resolvedPhonemeCount = phonemeCount
+        } else {
+            let g2p = KokoroG2P()
+            resolvedPhonemeCount = g2p.phonemeCount(for:)
+        }
         let candidates = blocks.filter { block in
             guard block.text?.isEmpty == false else { return false }
             return !block.isHidden
@@ -52,21 +60,25 @@ enum NarrationRenderPlanner {
                     NarrationPlannedBlock(
                         blockID: block.id,
                         originalBlock: block,
-                        speechSegments: [],
+                        synthesisChunks: [],
                         trailingSilence: .sectionBreak))
                 continue
             }
 
-            let rewritten = HomographPronunciationResolver.apply(to: overrides.apply(to: normalized))
-            let speech = NarrationTextChunker.splitByEstimatedPhonemes(
-                rewritten,
+            let resolved = HomographPronunciationResolver.apply(
+                to: overrides.apply(to: normalized))
+            let fragments = NarrationTextChunker.splitResolved(
+                resolved,
                 maxPhonemes: maxPhonemes,
-                phonemeCount: phonemeCount)
+                phonemeCount: resolvedPhonemeCount)
+            let synthesisChunks = try fragments.map { fragment in
+                try pronunciationPlanner.planResolved(fragment)
+            }
             planned.append(
                 NarrationPlannedBlock(
                     blockID: block.id,
                     originalBlock: block,
-                    speechSegments: speech,
+                    synthesisChunks: synthesisChunks,
                     trailingSilence: nil))
         }
 
@@ -81,7 +93,8 @@ enum NarrationRenderPlanner {
         return blocks.enumerated().map { index, block in
             if block.trailingSilence == .sectionBreak { return block }
             guard block.isSpeakable, index != lastSpeakableIndex else { return block }
-            let nextIsSectionBreak = index + 1 < blocks.count
+            let nextIsSectionBreak =
+                index + 1 < blocks.count
                 && blocks[index + 1].trailingSilence == .sectionBreak
             guard !nextIsSectionBreak else { return block }
             let silence: NarrationPlannedSilence =
@@ -89,7 +102,7 @@ enum NarrationRenderPlanner {
             return NarrationPlannedBlock(
                 blockID: block.blockID,
                 originalBlock: block.originalBlock,
-                speechSegments: block.speechSegments,
+                synthesisChunks: block.synthesisChunks,
                 trailingSilence: silence)
         }
     }

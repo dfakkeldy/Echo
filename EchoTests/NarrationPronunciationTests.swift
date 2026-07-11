@@ -92,10 +92,38 @@ import Testing
     }
 
     @Test func reportedPastTensePronunciationUsesKnownStemInsteadOfFallback() {
+        let prepared = PronunciationOverrides.withBuiltInDefaults([:]).apply(to: "verified")
         let result = KokoroG2P().result(for: "verified")
 
+        #expect(prepared == "verified")
         #expect(result.phonemes == "vˈɛɹəfˌId")
         #expect(result.fallbackHits.isEmpty)
+    }
+
+    @Test func approvedSixWordMatrixProducesExpectedCompatibilityLinks() {
+        let cases: [(source: String, expectedLink: String)] = [
+            ("The process is startable today.", "[startable](/stˈɑɹɾəbᵊl/)"),
+            ("The filesystem stores the verified result.", "[filesystem](/fˈIl sˌɪstəm/)"),
+            ("They live nearby.", "[live](/lˈɪv/)"),
+            ("It was a live show.", "[live](/lˈIv/)"),
+            ("She lives in Halifax.", "[lives](/lˈɪvz/)"),
+            ("The receipt lives in the archive.", "[lives](/lˈɪvz/)"),
+            ("Their lives changed.", "[lives](/lˈIvz/)"),
+            ("Please record the result.", "[record](/ɹəkˈɔɹd/)"),
+            ("Review the record before restart.", "[record](/ɹˈɛkəɹd/)"),
+            ("Record sales increased.", "[Record](/ɹˈɛkəɹd/)"),
+            ("Should record labels pay artists?", "[record](/ɹˈɛkəɹd/)"),
+        ]
+
+        for testCase in cases {
+            let overridden = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+                to: testCase.source)
+            let resolved = HomographPronunciationResolver.apply(to: overridden)
+
+            #expect(
+                resolved.contains(testCase.expectedLink),
+                "Expected \(testCase.expectedLink) in \(resolved)")
+        }
     }
 
     @Test func reportedEasyWordCorpusAvoidsFallbackAndBadWordJoins() {

@@ -8,6 +8,20 @@ import Testing
 @MainActor
 @Suite struct NarrationServiceTests {
 
+    enum SkippableRetryChildError: CaseIterable, Sendable {
+        case lengthCap
+        case invalidExpand
+
+        func configure(_ engine: MockTTSEngine, on text: String) {
+            switch self {
+            case .lengthCap:
+                engine.lengthCapOnText = text
+            case .invalidExpand:
+                engine.invalidExpandShapeOnText = text
+            }
+        }
+    }
+
     private func blocks(_ audiobookID: String, _ texts: [String?]) -> [EPubBlockRecord] {
         texts.enumerated().map { i, t in
             block(audiobookID, id: "blk\(i)", seq: i, text: t)
@@ -603,13 +617,15 @@ import Testing
         }.joined(separator: " ")
     }
 
-    private func plannedSpeechSegments(for blocks: [EPubBlockRecord]) -> [String] {
+    private func plannedSpeechSegments(for blocks: [EPubBlockRecord]) throws -> [String] {
         let g2p = KokoroG2P()
-        return NarrationRenderPlanner.make(
+        return try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:]),
             phonemeCount: g2p.phonemeCount(for:)
-        ).blocks.flatMap(\.speechSegments)
+        ).blocks.flatMap { block in
+            block.synthesisChunks.map(\.g2pInputText)
+        }
     }
 
     @Test func multiSubChunkBlockStillYieldsOneAnchorSpanningSummedDuration() async throws {
@@ -620,7 +636,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = plannedSpeechSegments(for: blocks)
+        let subChunks = try plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)  // guard: the block really does fan out
 
         let secondsPerChar = 0.1
@@ -653,7 +669,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = plannedSpeechSegments(for: blocks)
+        let subChunks = try plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)
 
         let secondsPerChar = 0.1
@@ -689,7 +705,7 @@ import Testing
         let long = longDistinctBlockText()
         let blocks = try seed(db, [long])
 
-        let subChunks = plannedSpeechSegments(for: blocks)
+        let subChunks = try plannedSpeechSegments(for: blocks)
         #expect(subChunks.count > 1)
 
         let secondsPerChar = 0.1
@@ -737,10 +753,10 @@ import Testing
         let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
         let blocks = try seed(db, [text])
         let mock = MockTTSEngine(secondsPerChar: 0.1)
-        mock.silentOnText = NarrationRenderPlanner.make(
+        mock.silentOnText = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:])
-        ).blocks[0].speechSegments[0]
+        ).blocks[0].synthesisChunks[0].g2pInputText
         let svc = makeService(db, tts: mock, writer: MockAudioWriter())
 
         try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
@@ -750,21 +766,268 @@ import Testing
         #expect(retryCalls.allSatisfy { $0.text.count < text.count })
     }
 
-    @Test func partialLowQualityRetryFallsBackToOriginalChunk() async throws {
+    @Test func renderChapterDispatchesApprovedPlanThroughTTSEngine() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The filesystem stores the verified result."])
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": "fˈIl sˌɪstəm"]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        let call = try #require(engine.plannedCalls.first)
+        #expect(call.chunk.g2pInputText.contains("[filesystem](/fˈIl sˌɪstəm/)"))
+        #expect(call.chunk.phonemes.contains("fˈIl sˌɪstəm"))
+        #expect(call.chunk.displayText == "The filesystem stores the verified result.")
+    }
+
+    @Test func plannedQualityEvaluationUsesDisplayTextInsteadOfPronunciationMarkup() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["filesystem"])
+        let spacedIPA = "f ˈI l s ˌɪ s t ə m"
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": spacedIPA]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        #expect(engine.plannedCalls.count == 1)
+        #expect(engine.plannedCalls.first?.chunk.displayText == "filesystem")
+    }
+
+    @Test func qualityRetrySplitsOnlyTheResolvedPronunciationFragment() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "The filesystem stores alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let planned = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: ["filesystem": "fˈIl sˌɪstəm"])
+            ).blocks.first?.synthesisChunks.first)
+        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        engine.silentOnText = planned.g2pInputText
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": "fˈIl sˌɪstəm"]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        let retryCalls = engine.plannedCalls.dropFirst()
+        let link = "[filesystem](/fˈIl sˌɪstəm/)"
+        #expect(retryCalls.count > 1)
+        #expect(
+            retryCalls.reduce(0) {
+                $0 + $1.chunk.g2pInputText.components(separatedBy: link).count - 1
+            } == 1)
+        #expect(
+            retryCalls.allSatisfy {
+                $0.chunk.g2pInputText.contains("[filesystem]") == false
+                    || $0.chunk.g2pInputText.contains(link)
+            })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func qualityRetryTerminatesWhenOneAtomicLinkExceedsTheRetryBudget() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["filesystem"])
+        let longIPA = Array(repeating: "f", count: 40).joined(separator: " ")
+        let planned = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: ["filesystem": longIPA])
+            ).blocks.first?.synthesisChunks.first)
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        engine.silentOnText = planned.g2pInputText
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": longIPA]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        #expect(engine.plannedCalls.count == 1)
+    }
+
+    @Test func retryAggregatesOnlyAcceptedPlannedFallbackEvidenceOnce() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text = "Jacqui met alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let planned = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: [:])
+            ).blocks.first?.synthesisChunks.first)
+        let fallback = try #require(
+            planned.pronunciationFallbackHits.first { $0.word.lowercased() == "jacqui" })
+        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        engine.silentOnText = planned.g2pInputText
+        let service = makeService(db, tts: engine, writer: MockAudioWriter())
+
+        let rendered = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        #expect(engine.plannedCalls.count > 1)
+        #expect(rendered.pronunciationFallbackHits.map(\.fallback) == [fallback])
+    }
+
+    @Test func laterRejectedRetryChildRollsBackEarlierAcceptedSiblingsAtomically() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "Jacqui discusses alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu. startable"
+        let blocks = try seed(db, [text])
+        let parentPlan = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: [:])
+            ).blocks.first?.synthesisChunks.first)
+        let g2p = KokoroG2P()
+        let retryMaxPhonemes = max(20, min(80, parentPlan.phonemes.count / 2))
+        let retryFragments = NarrationTextChunker.splitResolved(
+            parentPlan.g2pInputText,
+            maxPhonemes: retryMaxPhonemes,
+            phonemeCount: g2p.phonemeCount(for:))
+        try #require(retryFragments.count > 1)
+        let laterFragment = try #require(retryFragments.last)
+        try #require(MisakiPronunciationMarkup.displayText(from: laterFragment) == "startable")
+
+        let laterPlan = try PronunciationPlanner().planResolved(laterFragment)
+        let nestedMaxPhonemes = max(20, min(80, laterPlan.phonemes.count / 2))
+        let nestedFragments = NarrationTextChunker.splitResolved(
+            laterPlan.g2pInputText,
+            maxPhonemes: nestedMaxPhonemes,
+            phonemeCount: g2p.phonemeCount(for:))
+        try #require(nestedFragments.count == 1)
+        try #require(
+            parentPlan.pronunciationFallbackHits.contains {
+                $0.word.lowercased() == "jacqui"
+            })
+        try #require(
+            laterPlan.pronunciationFallbackHits.contains {
+                $0.word.lowercased() == "startable"
+            })
+
+        let secondsPerChar = 0.1
+        let engine = MockTTSEngine(secondsPerChar: secondsPerChar)
+        engine.silentTexts = [parentPlan.g2pInputText, laterPlan.g2pInputText]
+        let writer = MockAudioWriter()
+        let service = makeService(db, tts: engine, writer: writer)
+
+        let rendered = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        let expectedDuration = Double(parentPlan.g2pInputText.count) * secondsPerChar
+        #expect(rendered.anchors.count == 1)
+        let anchor = try #require(rendered.anchors.first)
+        let childTexts = engine.plannedCalls.dropFirst().map(\.chunk.g2pInputText)
+        let rejectedChildIndex = try #require(childTexts.firstIndex(of: laterPlan.g2pInputText))
+        #expect(rejectedChildIndex > 0)
+        #expect(writer.chunkCounts == [1])
+        #expect(abs(rendered.duration - expectedDuration) < 0.0001)
+        #expect(abs(anchor.audioTime) < 0.0001)
+        #expect(abs((anchor.audioEndTime ?? -1) - expectedDuration) < 0.0001)
+        #expect(
+            rendered.pronunciationFallbackHits.map(\.fallback)
+                == parentPlan.pronunciationFallbackHits)
+    }
+
+    @Test(arguments: SkippableRetryChildError.allCases)
+    func laterSkippableRetryChildKeepsOriginalParentAtomically(
+        _ childError: SkippableRetryChildError
+    ) async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "Jacqui discusses alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu. startable"
+        let blocks = try seed(db, [text])
+        let parentPlan = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: [:])
+            ).blocks.first?.synthesisChunks.first)
+        let g2p = KokoroG2P()
+        let retryMaxPhonemes = max(20, min(80, parentPlan.phonemes.count / 2))
+        let retryFragments = NarrationTextChunker.splitResolved(
+            parentPlan.g2pInputText,
+            maxPhonemes: retryMaxPhonemes,
+            phonemeCount: g2p.phonemeCount(for:))
+        try #require(retryFragments.count > 1)
+        let laterPlan = try PronunciationPlanner().planResolved(try #require(retryFragments.last))
+        try #require(parentPlan.pronunciationFallbackHits.isEmpty == false)
+
+        let secondsPerChar = 0.1
+        let engine = MockTTSEngine(secondsPerChar: secondsPerChar)
+        engine.silentOnText = parentPlan.g2pInputText
+        childError.configure(engine, on: laterPlan.g2pInputText)
+        let writer = MockAudioWriter()
+        let service = makeService(db, tts: engine, writer: writer)
+
+        let rendered = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        let expectedDuration = Double(parentPlan.g2pInputText.count) * secondsPerChar
+        let childTexts = engine.plannedCalls.dropFirst().map(\.chunk.g2pInputText)
+        let failedChildIndex = try #require(childTexts.firstIndex(of: laterPlan.g2pInputText))
+        #expect(failedChildIndex > 0)
+        #expect(writer.chunkCounts == [1])
+        #expect(abs(rendered.duration - expectedDuration) < 0.0001)
+        #expect(rendered.anchors.count == 1)
+        let anchor = try #require(rendered.anchors.first)
+        #expect(abs(anchor.audioTime) < 0.0001)
+        #expect(abs((anchor.audioEndTime ?? -1) - expectedDuration) < 0.0001)
+
+        let speechRanges = try #require(rendered.speechRangesByBlock["blk0"])
+        #expect(
+            speechRanges
+                == [
+                    NarrationSpeechRange(
+                        blockID: "blk0",
+                        text: parentPlan.displayText,
+                        start: 0,
+                        end: expectedDuration)
+                ])
+        #expect(rendered.synthesisWordTimingsByBlock.isEmpty)
+        #expect(
+            rendered.pronunciationFallbackHits.map(\.fallback)
+                == parentPlan.pronunciationFallbackHits)
+        #expect(
+            rendered.pronunciationFallbackHits.allSatisfy {
+                $0.blockID == "blk0" && abs($0.audioStartTime) < 0.0001
+                    && abs($0.audioEndTime - expectedDuration) < 0.0001
+            })
+    }
+
+    @Test func exhaustedLowQualityRetryFallsBackToOriginalChunk() async throws {
         let db = try DatabaseService(inMemory: ())
         let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
         let blocks = try seed(db, [text])
-        let firstSegment = NarrationRenderPlanner.make(
+        let firstSegment = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:])
-        ).blocks[0].speechSegments[0]
-        let retryTexts = NarrationTextChunker.split(
-            firstSegment,
-            maxChars: max(20, min(80, firstSegment.count / 2)))
-        #expect(retryTexts.count > 1)
+        ).blocks[0].synthesisChunks[0].g2pInputText
 
         let mock = MockTTSEngine(secondsPerChar: 0.1)
-        mock.silentTexts = [firstSegment, retryTexts[0]]
+        mock.returnsSilenceForAllText = true
         let writer = MockAudioWriter()
         let svc = makeService(db, tts: mock, writer: writer)
 
@@ -776,6 +1039,7 @@ import Testing
         let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
         #expect(abs(span - Double(firstSegment.count) * 0.1) < 0.0001)
         #expect(writer.chunkCounts == [2])
+        #expect((2...4).contains(mock.plannedCalls.count))
     }
 
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {

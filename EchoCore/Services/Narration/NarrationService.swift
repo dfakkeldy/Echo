@@ -40,6 +40,7 @@ enum NarrationError: Error, Equatable {
 @MainActor @Observable
 final class NarrationService {
     private let logger = Logger(category: "Narration")
+    private static let maximumQualityRetryDepth = 3
     /// Trailing silence appended to every rendered chapter so the final word
     /// isn't clipped when the player advances to the next chapter. Kokoro ends a
     /// chunk right on the last phoneme (no ring-out) and the gapless engine
@@ -572,7 +573,7 @@ final class NarrationService {
                 statusMessage: "Preparing chapter \(chapterDisplayNumber)…")
         }
 
-        let plan = await renderPlan(
+        let plan = try await renderPlan(
             for: blocks,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
@@ -618,13 +619,19 @@ final class NarrationService {
             var blockDuration: TimeInterval = 0
             var timing = NarrationSynthesisTiming(blockID: plannedBlock.blockID, blockStart: cursor)
             var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
-            for subText in plannedBlock.speechSegments {
+            for synthesisChunk in plannedBlock.synthesisChunks {
                 try Task.checkCancellation()
                 do {
-                    for chunk in try await synthesizeWithQualityRetry(subText, voice: voice) {
+                    for synthesized in try await synthesizeWithQualityRetry(
+                        synthesisChunk,
+                        voice: voice
+                    ) {
+                        let chunk = synthesized.audio
                         let chunkStartInFile = cursor + blockDuration
                         try await stream.append(chunk)
-                        timing.appendSpeech(text: subText, duration: chunk.duration)
+                        timing.appendSpeech(
+                            text: synthesized.plan.displayText,
+                            duration: chunk.duration)
                         blockChunkTimings.append((chunk.wordTimings, chunkStartInFile))
                         pronunciationFallbackHits.append(
                             contentsOf: chunk.pronunciationFallbackHits.map {
@@ -725,13 +732,13 @@ final class NarrationService {
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
-    ) async -> NarrationRenderPlan {
+    ) async throws -> NarrationRenderPlan {
         let preparedBlocks = await prepareBlocksForRenderPlan(
             blocks,
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
         let g2p = KokoroG2P()
-        return NarrationRenderPlanner.make(
+        return try NarrationRenderPlanner.make(
             blocks: preparedBlocks,
             overrides: overrides,
             phonemeCount: g2p.phonemeCount(for:))
@@ -752,7 +759,8 @@ final class NarrationService {
             }
 
             let normalized = TextNormalizer.normalize(block.text ?? "")
-            let refined = fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
+            let refined =
+                fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized
             if refined != normalized {
                 do {
                     try await db.write { db in
@@ -776,41 +784,126 @@ final class NarrationService {
         return prepared
     }
 
-    private func synthesizeWithQualityRetry(_ text: String, voice: VoiceID) async throws -> [TTSChunk] {
-        let first = try await tts.synthesize(text, voice: voice)
-        guard case .rejected(let reason) = NarrationChunkQuality.evaluate(first, text: text) else {
+    private struct PlannedSynthesisOutput {
+        let plan: PlannedSynthesisChunk
+        let audio: TTSChunk
+    }
+
+    private struct QualityRetryResult {
+        let chunks: [PlannedSynthesisOutput]
+        let allAccepted: Bool
+    }
+
+    private struct QualityRetryContext {
+        let planner: PronunciationPlanner
+        let g2p: KokoroG2P
+
+        init() throws {
+            planner = try PronunciationPlanner()
+            g2p = KokoroG2P()
+        }
+    }
+
+    private func synthesizeWithQualityRetry(
+        _ plan: PlannedSynthesisChunk,
+        voice: VoiceID
+    ) async throws -> [PlannedSynthesisOutput] {
+        let first = try await synthesize(plan, voice: voice)
+        guard
+            case .rejected(let reason) = NarrationChunkQuality.evaluate(
+                first.audio,
+                text: plan.displayText)
+        else {
             return [first]
         }
 
-        let retryMaxChars = max(20, min(80, text.count / 2))
-        let retryTexts = NarrationTextChunker.split(text, maxChars: retryMaxChars)
-        guard retryTexts.count > 1 else {
+        let context = try QualityRetryContext()
+        return try await recoverRejectedSynthesis(
+            first,
+            reason: reason,
+            voice: voice,
+            retryDepth: 0,
+            context: context
+        ).chunks
+    }
+
+    private func synthesize(
+        _ plan: PlannedSynthesisChunk,
+        voice: VoiceID
+    ) async throws -> PlannedSynthesisOutput {
+        try Task.checkCancellation()
+        return PlannedSynthesisOutput(
+            plan: plan,
+            audio: try await tts.synthesize(plan, voice: voice))
+    }
+
+    private func recoverRejectedSynthesis(
+        _ rejected: PlannedSynthesisOutput,
+        reason: NarrationChunkQuality.RejectionReason,
+        voice: VoiceID,
+        retryDepth: Int,
+        context: QualityRetryContext
+    ) async throws -> QualityRetryResult {
+        guard retryDepth < Self.maximumQualityRetryDepth else {
+            logger.error(
+                "Low-quality narration retry reached the bounded retry depth; keeping the original chunk: \(String(describing: reason), privacy: .public)"
+            )
+            return QualityRetryResult(chunks: [rejected], allAccepted: false)
+        }
+
+        let retryMaxPhonemes = max(20, min(80, rejected.plan.phonemes.count / 2))
+        let retryFragments = NarrationTextChunker.splitResolved(
+            rejected.plan.g2pInputText,
+            maxPhonemes: retryMaxPhonemes,
+            phonemeCount: context.g2p.phonemeCount(for:))
+        guard retryFragments.count > 1 else {
             logger.error(
                 "Low-quality narration chunk could not be split for retry: \(String(describing: reason), privacy: .public)"
             )
-            return [first]
+            return QualityRetryResult(chunks: [rejected], allAccepted: false)
         }
 
         logger.warning(
-            "Retrying low-quality narration chunk as \(retryTexts.count, privacy: .public) smaller piece(s): \(String(describing: reason), privacy: .public)"
+            "Retrying low-quality narration chunk as \(retryFragments.count, privacy: .public) smaller piece(s): \(String(describing: reason), privacy: .public)"
         )
-        var retryChunks: [TTSChunk] = []
-        retryChunks.reserveCapacity(retryTexts.count)
-        for retryText in retryTexts {
+        var retryChunks: [PlannedSynthesisOutput] = []
+        retryChunks.reserveCapacity(retryFragments.count)
+        for retryFragment in retryFragments {
             try Task.checkCancellation()
-            let retryChunk = try await tts.synthesize(retryText, voice: voice)
-            switch NarrationChunkQuality.evaluate(retryChunk, text: retryText) {
-            case .acceptable:
-                retryChunks.append(retryChunk)
-            case .rejected(let retryReason):
+            let retryPlan = try context.planner.planResolved(retryFragment)
+            let retry: PlannedSynthesisOutput
+            do {
+                retry = try await synthesize(retryPlan, voice: voice)
+            } catch let error where Self.isLengthCapError(error) {
                 logger.error(
-                    "Low-quality narration retry piece rejected; keeping original chunk to avoid dropping source text: \(String(describing: retryReason), privacy: .public)"
+                    "Low-quality narration retry piece exceeded the synthesis length cap; keeping original chunk to avoid dropping source text: \(error.localizedDescription)"
                 )
-                return [first]
+                return QualityRetryResult(chunks: [rejected], allAccepted: false)
+            }
+            switch NarrationChunkQuality.evaluate(retry.audio, text: retryPlan.displayText) {
+            case .acceptable:
+                retryChunks.append(retry)
+            case .rejected(let retryReason):
+                let recovered = try await recoverRejectedSynthesis(
+                    retry,
+                    reason: retryReason,
+                    voice: voice,
+                    retryDepth: retryDepth + 1,
+                    context: context)
+                guard recovered.allAccepted else {
+                    logger.error(
+                        "Low-quality narration retry piece rejected; keeping original chunk to avoid dropping source text: \(String(describing: retryReason), privacy: .public)"
+                    )
+                    return QualityRetryResult(chunks: [rejected], allAccepted: false)
+                }
+                retryChunks.append(contentsOf: recovered.chunks)
             }
         }
 
-        return retryChunks.isEmpty ? [first] : retryChunks
+        guard !retryChunks.isEmpty else {
+            return QualityRetryResult(chunks: [rejected], allAccepted: false)
+        }
+        return QualityRetryResult(chunks: retryChunks, allAccepted: true)
     }
 
     #if DEBUG && os(iOS)

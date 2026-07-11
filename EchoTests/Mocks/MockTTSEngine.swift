@@ -11,6 +11,7 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     }
     let secondsPerChar: Double
     private(set) var calls: [(text: String, voice: VoiceID)] = []
+    private(set) var plannedCalls: [(chunk: PlannedSynthesisChunk, voice: VoiceID)] = []
     var throwOnText: String?
     /// Sub-chunk text that should raise the skippable length-cap error, so tests
     /// can verify a single over-long sub-chunk is skipped without aborting.
@@ -22,6 +23,7 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
     /// duration, so render tests can exercise acoustic quality retry behavior.
     var silentOnText: String?
     var silentTexts: Set<String> = []
+    var returnsSilenceForAllText = false
     var pronunciationFallbackHitsByText: [String: [PronunciationFallbackHit]] = [:]
 
     init(secondsPerChar: Double = 0.1) { self.secondsPerChar = secondsPerChar }
@@ -40,7 +42,7 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
         }
         if let bad = throwOnText, text == bad { throw NarrationError.synthesisFailed }
         let duration = Double(text.count) * secondsPerChar
-        if silentOnText == text || silentTexts.contains(text) {
+        if returnsSilenceForAllText || silentOnText == text || silentTexts.contains(text) {
             return TTSChunk(
                 samples: [Float](repeating: 0, count: max(1, text.count)),
                 sampleRate: 24_000,
@@ -55,5 +57,16 @@ final class MockTTSEngine: TTSEngine, @unchecked Sendable {
             sampleRate: 24_000,
             duration: duration,
             pronunciationFallbackHits: pronunciationFallbackHitsByText[text] ?? [])
+    }
+
+    func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
+        plannedCalls.append((chunk, voice))
+        let synthesized = try await synthesize(chunk.g2pInputText, voice: voice)
+        return TTSChunk(
+            samples: synthesized.samples,
+            sampleRate: synthesized.sampleRate,
+            duration: synthesized.duration,
+            wordTimings: synthesized.wordTimings,
+            pronunciationFallbackHits: chunk.pronunciationFallbackHits)
     }
 }

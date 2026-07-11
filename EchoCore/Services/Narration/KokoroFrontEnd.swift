@@ -36,12 +36,18 @@
         func encode(text: String, voice: VoiceID) throws -> (ids: [Int32], refS: [Float]) {
             let g2p = g2p(for: text)
             let vocab = try phonemeVocab()
-            let pack = try voicePack(named: voice.rawValue)
 
             let phonemes = g2p.result(for: text).phonemes
             let ids = vocab.ids(forPhonemes: phonemes)
-            let refS = pack.refS(forPhonemeCount: phonemes.count)
+            let refS = try referenceStyle(voice: voice, phonemeCount: phonemes.count)
             return (ids, refS)
+        }
+
+        /// Returns only the requested voice's style row. Planned synthesis already
+        /// owns its final phonemes and token ids, so this path must not initialize or
+        /// invoke G2P merely to select the matching reference style.
+        func referenceStyle(voice: VoiceID, phonemeCount: Int) throws -> [Float] {
+            try voicePack(named: voice.rawValue).refS(forPhonemeCount: phonemeCount)
         }
 
         func fallbackHits(for text: String) -> [PronunciationFallbackHit] {

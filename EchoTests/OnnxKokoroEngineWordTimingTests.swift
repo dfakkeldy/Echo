@@ -16,14 +16,17 @@
         func synthesizeEmitsMonotonicWordTimings() async throws {
             let engine = OnnxKokoroEngine()
             try await engine.prepare()
-            let chunk = try await engine.synthesize(
-                "Hello there world.", voice: VoiceID("af_heart"))
+            let planned = try PronunciationPlanner().planResolved("Hello there world.")
+
+            let chunk = try await engine.synthesize(planned, voice: VoiceID("af_heart"))
             let timings = try #require(chunk.wordTimings, "expected synthesis word timings")
-            #expect(timings.count == 3)
+            #expect(timings.count == planned.wordCount)
             for i in 1..<timings.count {
                 #expect(timings[i].start >= timings[i - 1].end - 1e-3)
             }
-            #expect(timings.last!.end <= chunk.duration + 1e-3)
+            let last = try #require(timings.last)
+            #expect(last.end <= chunk.duration + 1e-3)
+            #expect(chunk.pronunciationFallbackHits == planned.pronunciationFallbackHits)
         }
     }
 #endif

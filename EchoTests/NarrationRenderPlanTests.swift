@@ -21,47 +21,52 @@ import Testing
             textFormats: nil, createdAt: nil, modifiedAt: nil)
     }
 
-    @Test func plansSpeechBlocksWithNormalizedOverrideText() {
+    @Test func plansSpeechBlocksWithNormalizedOverrideText() throws {
         let blocks = [
             block(id: "b0", text: "Deploy Kubernetes — now.", index: 0)
         ]
         let overrides = PronunciationOverrides(entries: ["Kubernetes": "kuːbərˈnɛtɪs"])
 
-        let plan = NarrationRenderPlanner.make(blocks: blocks, overrides: overrides, maxChars: 350)
+        let plan = try NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: overrides,
+            maxChars: 350)
 
         #expect(plan.blocks.count == 1)
         #expect(plan.blocks[0].blockID == "b0")
-        #expect(plan.blocks[0].speechSegments == ["Deploy [Kubernetes](/kuːbərˈnɛtɪs/), now."])
+        #expect(
+            plan.blocks[0].synthesisChunks.map(\.g2pInputText)
+                == ["Deploy [Kubernetes](/kuːbərˈnɛtɪs/), now."])
         #expect(plan.blocks[0].trailingSilence == nil)
     }
 
-    @Test func decorativeBlockBecomesSectionBreakSilenceOnly() {
+    @Test func decorativeBlockBecomesSectionBreakSilenceOnly() throws {
         let blocks = [
             block(id: "b0", text: "Before.", index: 0),
             block(id: "b1", text: "* * *", index: 1),
-            block(id: "b2", text: "After.", index: 2)
+            block(id: "b2", text: "After.", index: 2),
         ]
 
-        let plan = NarrationRenderPlanner.make(
+        let plan = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:]),
             maxChars: 350)
 
         #expect(plan.blocks.map(\.blockID) == ["b0", "b1", "b2"])
-        #expect(plan.blocks[0].speechSegments == ["Before."])
+        #expect(plan.blocks[0].synthesisChunks.map(\.displayText) == ["Before."])
         #expect(plan.blocks[0].trailingSilence == nil)
-        #expect(plan.blocks[1].speechSegments.isEmpty)
+        #expect(plan.blocks[1].synthesisChunks.isEmpty)
         #expect(plan.blocks[1].trailingSilence == .sectionBreak)
-        #expect(plan.blocks[2].speechSegments == ["After."])
+        #expect(plan.blocks[2].synthesisChunks.map(\.displayText) == ["After."])
     }
 
-    @Test func finalSpeakableBlockHasNoTrailingParagraphPause() {
+    @Test func finalSpeakableBlockHasNoTrailingParagraphPause() throws {
         let blocks = [
             block(id: "b0", text: "Before.", index: 0),
-            block(id: "b1", text: "After.", index: 1)
+            block(id: "b1", text: "After.", index: 1),
         ]
 
-        let plan = NarrationRenderPlanner.make(
+        let plan = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:]),
             maxChars: 350)
@@ -70,18 +75,33 @@ import Testing
         #expect(plan.blocks[1].trailingSilence == nil)
     }
 
-    @Test func headingGetsLongerPauseThanParagraph() {
+    @Test func headingGetsLongerPauseThanParagraph() throws {
         let blocks = [
             block(id: "h", text: "Chapter One", kind: "heading", index: 0),
-            block(id: "p", text: "The first paragraph.", index: 1)
+            block(id: "p", text: "The first paragraph.", index: 1),
         ]
 
-        let plan = NarrationRenderPlanner.make(
+        let plan = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:]),
             maxChars: 350)
 
         #expect(plan.blocks[0].trailingSilence == .heading)
         #expect(plan.blocks[1].trailingSilence == nil)
+    }
+
+    @Test func resolvesFullBlockBeforePlanningChunks() throws {
+        let overrides = PronunciationOverrides(entries: ["filesystem": "fˈIl sˌɪstəm"])
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "b0", text: "They live by the filesystem.", index: 0)],
+            overrides: overrides,
+            maxPhonemes: 420
+        )
+
+        let chunk = try #require(plan.blocks.first?.synthesisChunks.first)
+        #expect(chunk.displayText == "They live by the filesystem.")
+        #expect(chunk.g2pInputText.contains("[live](/lˈɪv/)"))
+        #expect(chunk.g2pInputText.contains("[filesystem](/fˈIl sˌɪstəm/)"))
+        #expect(chunk.phonemeIDs.count > 2)
     }
 }

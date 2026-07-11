@@ -9,6 +9,7 @@ nonisolated enum HomographPronunciationResolver {
         let lowercased: String
         let range: Range<String.Index>
         let nsRange: NSRange
+        let isAuthoredLinkDisplay: Bool
     }
 
     private enum IPA {
@@ -17,6 +18,8 @@ nonisolated enum HomographPronunciationResolver {
         static let liveVerb = "lˈɪv"
         static let livesNoun = "lˈIvz"
         static let livesVerb = "lˈɪvz"
+        static let recordNoun = "ɹˈɛkəɹd"
+        static let recordVerb = "ɹəkˈɔɹd"
         static let contentNoun = "kˈɑntɛnt"
         static let contentSatisfied = "kəntˈɛnt"
         static let resumeDocument = "ɹˈɛzʊmˌA"
@@ -58,7 +61,19 @@ nonisolated enum HomographPronunciationResolver {
     ]
     private static let livesVerbPreceders: Set<String> = [
         "everyone", "he", "it", "nobody", "one", "she", "somebody", "someone",
-        "that", "who",
+        "that", "who", "receipt",
+    ]
+
+    private static let recordNounPreceders: Set<String> = [
+        "a", "an", "another", "each", "every", "her", "his", "its", "my", "our",
+        "that", "the", "their", "these", "this", "those", "your",
+    ]
+    private static let recordNounCompoundFollowers: Set<String> = [
+        "label", "labels", "player", "players", "sales", "store", "stores",
+    ]
+    private static let recordVerbPreceders: Set<String> = [
+        "can", "could", "may", "might", "must", "please", "shall", "should", "to", "will",
+        "would",
     ]
 
     private static let contentNounPreceders: Set<String> = [
@@ -104,7 +119,7 @@ nonisolated enum HomographPronunciationResolver {
         var result = text
         for index in tokens.indices.reversed() {
             let token = tokens[index]
-            guard !isInsideMisakiLinkDisplay(token.range, in: text) else { continue }
+            guard !token.isAuthoredLinkDisplay else { continue }
             guard !isHyphenated(token.range, in: text) else { continue }
             guard let ipa = ipa(for: token, at: index, tokens: tokens) else { continue }
             guard let range = Range(token.nsRange, in: result) else { continue }
@@ -122,6 +137,8 @@ nonisolated enum HomographPronunciationResolver {
             return liveIPA(at: index, tokens: tokens)
         case "lives":
             return livesIPA(at: index, tokens: tokens)
+        case "record":
+            return recordIPA(at: index, tokens: tokens)
         case "content":
             return contentIPA(at: index, tokens: tokens)
         case "resume":
@@ -227,7 +244,8 @@ nonisolated enum HomographPronunciationResolver {
             return IPA.liveVerb
         }
 
-        if nextLowercased(tokens, index, limit: 1).contains(where: liveAdjectiveFollowers.contains) {
+        if nextLowercased(tokens, index, limit: 1).contains(where: liveAdjectiveFollowers.contains)
+        {
             return IPA.liveAdjective
         }
 
@@ -250,13 +268,75 @@ nonisolated enum HomographPronunciationResolver {
         return nil
     }
 
-    private static func tokens(in text: String) -> [Token] {
-        let fullRange = NSRange(location: 0, length: (text as NSString).length)
-        return wordRegex.matches(in: text, range: fullRange).compactMap { match in
-            guard let range = Range(match.range, in: text) else { return nil }
-            let value = String(text[range])
-            return Token(text: value, lowercased: value.lowercased(), range: range, nsRange: match.range)
+    private static func recordIPA(at index: Int, tokens: [Token]) -> String? {
+        let next = nextLowercased(tokens, index, limit: 1)
+        if next.contains(where: recordNounCompoundFollowers.contains) {
+            return IPA.recordNoun
         }
+
+        if previousLowercased(tokens, index).map(recordNounPreceders.contains) == true {
+            return IPA.recordNoun
+        }
+
+        if previousLowercased(tokens, index).map(recordVerbPreceders.contains) == true {
+            return IPA.recordVerb
+        }
+
+        return nil
+    }
+
+    private static func tokens(in text: String) -> [Token] {
+        var result: [Token] = []
+        var plainTextStart = text.startIndex
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            guard let link = MisakiPronunciationMarkup.link(in: text, startingAt: index) else {
+                index = text.index(after: index)
+                continue
+            }
+
+            appendTokens(
+                in: plainTextStart..<link.range.lowerBound,
+                of: text,
+                isAuthoredLinkDisplay: false,
+                to: &result)
+            appendTokens(
+                in: link.displayText.startIndex..<link.displayText.endIndex,
+                of: text,
+                isAuthoredLinkDisplay: true,
+                to: &result)
+            index = link.range.upperBound
+            plainTextStart = index
+        }
+
+        appendTokens(
+            in: plainTextStart..<text.endIndex,
+            of: text,
+            isAuthoredLinkDisplay: false,
+            to: &result)
+        return result
+    }
+
+    private static func appendTokens(
+        in searchRange: Range<String.Index>,
+        of text: String,
+        isAuthoredLinkDisplay: Bool,
+        to tokens: inout [Token]
+    ) {
+        let nsSearchRange = NSRange(searchRange, in: text)
+        tokens.append(
+            contentsOf: wordRegex.matches(in: text, range: nsSearchRange).compactMap {
+                match in
+                guard let range = Range(match.range, in: text) else { return nil }
+                let value = String(text[range])
+                return Token(
+                    text: value,
+                    lowercased: value.lowercased(),
+                    range: range,
+                    nsRange: match.range,
+                    isAuthoredLinkDisplay: isAuthoredLinkDisplay)
+            })
     }
 
     private static func previousLowercased(_ tokens: [Token], _ index: Int) -> String? {
@@ -286,15 +366,4 @@ nonisolated enum HomographPronunciationResolver {
         return false
     }
 
-    private static func isInsideMisakiLinkDisplay(_ range: Range<String.Index>, in text: String)
-        -> Bool
-    {
-        var index = range.lowerBound
-        while index > text.startIndex {
-            index = text.index(before: index)
-            if text[index] == "]" { return false }
-            if text[index] == "[" { return true }
-        }
-        return false
-    }
 }

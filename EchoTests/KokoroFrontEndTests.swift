@@ -48,5 +48,20 @@
             // Two encodes for the same voice load exactly one pack.
             #expect(frontEnd.cachedVoices == [voice.rawValue])
         }
+
+        @Test func referenceStyleUsesSuppliedPhonemeCount() throws {
+            let voice = VoiceID("am_michael")
+            let phonemeCount = 37
+            let frontEnd = KokoroFrontEnd()
+
+            let style = try frontEnd.referenceStyle(
+                voice: voice, phonemeCount: phonemeCount)
+            let expected = try KokoroVoicePack(named: voice.rawValue)
+                .refS(forPhonemeCount: phonemeCount)
+
+            #expect(style == expected)
+            #expect(style.count == KokoroVoicePack.embeddingDim)
+            #expect(frontEnd.cachedVoices == [voice.rawValue])
+        }
     }
 #endif

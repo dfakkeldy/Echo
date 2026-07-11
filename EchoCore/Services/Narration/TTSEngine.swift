@@ -71,6 +71,10 @@ protocol TTSEngine: Sendable {
     /// that can't report progress (`MockTTSEngine`) need not implement it.
     func prepare(progress: @escaping @Sendable (NarrationPrepareProgress) -> Void) async throws
     func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk
+    /// Synthesizes an immutable pronunciation plan. This must be a protocol
+    /// requirement so calls through `any TTSEngine` dynamically dispatch to an
+    /// engine that consumes the approved phonemes and token IDs directly.
+    func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk
 }
 
 /// One step of the engine's one-time `prepare()` — surfaced so the UI can show
@@ -91,6 +95,12 @@ extension TTSEngine {
         progress: @escaping @Sendable (NarrationPrepareProgress) -> Void
     ) async throws {
         try await prepare()
+    }
+
+    /// Compatibility path for engines that still accept text. Production Kokoro
+    /// overrides this requirement to consume the supplied plan directly.
+    func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
+        try await synthesize(chunk.g2pInputText, voice: voice)
     }
 }
 

@@ -30,7 +30,9 @@ nonisolated enum NarrationFileNaming {
     /// contain already-rendered silent/truncated chunks and must regenerate once.
     /// v10 = pronunciation front-end refresh: CamelCase compound word breaks,
     /// fallback preflight reporting, and reviewed homograph/stress repairs.
-    static let renderVersion = 10
+    /// v11 = pronunciation planning moves before TTS so waveform, duration,
+    /// quality retry, and silence recovery consume the same exact phoneme IDs.
+    static let renderVersion = 11
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {

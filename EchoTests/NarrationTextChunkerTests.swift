@@ -167,7 +167,8 @@ import Testing
     }
 
     @Test func phonemeBudgetDoesNotSplitPronunciationLinks() {
-        let text = Array(repeating: "padding", count: 40).joined(separator: " ")
+        let text =
+            Array(repeating: "padding", count: 40).joined(separator: " ")
             + " [Kubernetes](/kuːbərˈnɛtɪs/) "
             + Array(repeating: "padding", count: 40).joined(separator: " ")
 
@@ -178,6 +179,20 @@ import Testing
 
         #expect(pieces.joined(separator: " ").contains("[Kubernetes](/kuːbərˈnɛtɪs/)"))
         #expect(!pieces.contains { $0.contains("[Kubernetes]") && !$0.contains("kuːbərˈnɛtɪs") })
+    }
+
+    @Test func resolvedSplitKeepsIPASpacesInsideOneLink() {
+        let source = "The [filesystem](/fˈIl sˌɪstəm/) stores the verified result."
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 14) { text in
+            text.count
+        }
+        #expect(pieces.count > 1)
+        #expect(pieces.joined(separator: " ").contains("[filesystem](/fˈIl sˌɪstəm/)"))
+        #expect(
+            pieces.allSatisfy {
+                !$0.contains("[filesystem](/fˈIl") || $0.contains("sˌɪstəm/)")
+            }
+        )
     }
 
     @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
