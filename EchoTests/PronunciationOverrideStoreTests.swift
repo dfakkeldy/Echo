@@ -165,4 +165,53 @@ import Testing
 
         #expect(out == "The [content](/kəntˈɛnt/) stayed.")
     }
+
+    // MARK: - IPA entry validation
+
+    @MainActor
+    @Test func rejectsGlobalOverrideWithUnsupportedIPACharacters() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let store = PronunciationOverrideStore(directory: tmp)
+        // "guːɡəl" starts with ASCII "g" (U+0067), a look-alike for IPA "ɡ"
+        // (U+0261) that the Kokoro vocab can't encode. Must be rejected at entry so
+        // it can't silently brick the book's next chapter render.
+        #expect(throws: PronunciationOverrideError.self) {
+            try store.set(word: "Google", ipa: "guːɡəl")
+        }
+        #expect(store.entries["Google"] == nil)  // nothing persisted
+
+        // The all-IPA spelling is accepted and stored.
+        try store.set(word: "Google", ipa: "ɡuːɡəl")
+        #expect(store.entries["Google"] == "ɡuːɡəl")
+    }
+
+    @MainActor
+    @Test func rejectsPerBookAndOccurrenceOverridesWithUnsupportedIPA() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let store = PronunciationOverrideStore(directory: tmp)
+        let bookID = "file:///Books/X/"
+        // "hɝ" uses ɝ (U+025D r-colored schwa), common in dictionaries but absent
+        // from the Kokoro vocab. Both the per-book and occurrence entry paths must
+        // reject it and persist nothing.
+        #expect(throws: PronunciationOverrideError.self) {
+            try store.set(word: "her", ipa: "hɝ", forBookID: bookID)
+        }
+        #expect(throws: PronunciationOverrideError.self) {
+            try store.setOccurrence(
+                word: "her", ipa: "hɝ",
+                forBookID: bookID, blockID: "b", wordStart: 0, wordEnd: 0)
+        }
+        #expect(store.overrides(forBookID: bookID).entries["her"] == nil)
+        #expect(
+            store.occurrenceOverrides(forBookID: bookID).apply(to: "her book", blockID: "b")
+                == "her book")
+    }
 }

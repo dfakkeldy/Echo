@@ -4,6 +4,22 @@
     import Foundation
     import os.log
 
+    /// Thrown when a user-entered pronunciation can't be represented by the Kokoro
+    /// phoneme vocab. Surfaced by the Settings UI so a typo is corrected at entry
+    /// time instead of aborting a whole chapter render later (see
+    /// `PronunciationPlanner` / `KokoroPhonemeVocab.validatedIDs`).
+    enum PronunciationOverrideError: LocalizedError, Equatable {
+        case unsupportedIPA(characters: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unsupportedIPA(let characters):
+                return
+                    "These characters aren't valid IPA phonemes: \(characters). Enter IPA symbols only — e.g. kuːbərˈnɛtɪs. A common mix-up is typing the ASCII letter “g” instead of the IPA “ɡ”."
+            }
+        }
+    }
+
     /// Owns the user's pronunciation-override dictionary and persists it to
     /// Application Support as JSON. Per-book overrides live in
     /// `<directory>/books/<sha256(bookID)>.json` and are merged book-wins over
@@ -33,6 +49,12 @@
         /// Lazily-rehydrated per-book occurrence corrections, keyed by audiobook id.
         private var occurrenceEntries: [String: [PronunciationOccurrenceOverride]] = [:]
         private let logger = Logger(category: "PronunciationOverrides")
+        /// The Kokoro phoneme vocab, loaded once to validate entered IPA. `nil` if
+        /// the bundled vocab resource can't load — in which case entry validation
+        /// is skipped (fail open) so a missing bundle never blocks the user; the
+        /// render path still degrades gracefully. Not observable UI state.
+        @ObservationIgnored
+        private lazy var phonemeVocab: KokoroPhonemeVocab? = try? KokoroPhonemeVocab()
 
         /// Production initializer: persists under the shared Narration directory.
         /// Main-actor-isolated like the rest of the class; the Settings UI and
@@ -64,6 +86,7 @@
         }
 
         func set(word: String, ipa: String) throws {
+            try validateIPA(ipa)
             entries[word] = ipa
             try persist()
         }
@@ -76,6 +99,7 @@
         /// Set a pronunciation that applies only to `bookID`. Book entries win over
         /// the global map at merge time (see `overrides(forBookID:)`).
         func set(word: String, ipa: String, forBookID bookID: String) throws {
+            try validateIPA(ipa)
             var book = loadedBookEntries(bookID)
             book[word] = ipa
             bookEntries[bookID] = book
@@ -101,6 +125,7 @@
             wordEnd: Int
         ) throws {
             guard wordStart >= 0, wordEnd >= wordStart else { return }
+            try validateIPA(ipa)
             var book = loadedOccurrenceEntries(bookID)
             book.removeAll {
                 $0.blockID == blockID && $0.wordStart == wordStart && $0.wordEnd == wordEnd
@@ -155,6 +180,19 @@
 
         // MARK: - Private
 
+        /// Rejects a pronunciation whose IPA contains characters the Kokoro vocab
+        /// can't encode, so the failure surfaces at entry time in the UI instead of
+        /// aborting the book's next chapter render (the entered IPA is passed
+        /// through to Kokoro verbatim via Misaki `[word](/ipa/)` link syntax). Fails
+        /// open when the vocab resource is unavailable.
+        private func validateIPA(_ ipa: String) throws {
+            guard let phonemeVocab else { return }
+            let unsupported = phonemeVocab.unsupportedCharacters(in: ipa)
+            guard unsupported.isEmpty else {
+                throw PronunciationOverrideError.unsupportedIPA(characters: String(unsupported))
+            }
+        }
+
         private func persist() throws {
             let data = try JSONEncoder().encode(entries)
             try data.write(to: fileURL, options: .atomic)
@@ -199,7 +237,8 @@
             return loaded
         }
 
-        private func loadedOccurrenceEntries(_ bookID: String) -> [PronunciationOccurrenceOverride] {
+        private func loadedOccurrenceEntries(_ bookID: String) -> [PronunciationOccurrenceOverride]
+        {
             if let cached = occurrenceEntries[bookID] { return cached }
             let fileURL = occurrencesFileURL(bookID)
             let loaded: [PronunciationOccurrenceOverride]
