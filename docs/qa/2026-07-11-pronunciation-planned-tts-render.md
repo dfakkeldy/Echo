@@ -5,14 +5,15 @@ Status: automated Release render gate passed; human listening pending.
 ## Provenance
 
 - Branch: `codex/pronunciation-planned-tts-slice`
-- Render source commit: `9d52706fc4fc552f117bedec886bf7a65f77ccef`
+- Pre-rebase render source commit: `9d52706fc4fc552f117bedec886bf7a65f77ccef`
+- Rebased equivalent implementation commit: `1d42c555`
 - External run directory:
   `/Users/dfakkeldy/Developer/echo-overnight/pronunciation-regression-20260711/`
 - Source PDF SHA-256:
   `172d652c80176d1db51d49e7abdb41aee0603cd35bd587dd5664eadfc8736512`
 - Release CLI: `.build/cli/Build/Products/Release/echo-cli`
 - CLI identity: `ONNX rv11 (Release)`, universal `arm64` + `x86_64`
-- CLI SHA-256:
+- Render CLI SHA-256:
   `1d376245d505c5628be512a59c1727f07053bcb06c469d0bff62b313651d63a1`
 - Cached model:
   `~/Library/Application Support/Narration/Models/kokoro-onnx-v6/model_fp16.onnx`
@@ -23,6 +24,28 @@ Status: automated Release render gate passed; human listening pending.
 Both renders were fresh, used `env -u ECHO_RESOURCE_DIR`, `--jobs 1`, and
 `--threads 2`, and did not use `--resume`. The generated raw chapter cache names
 carry narration cache version `v11`.
+
+## Post-rebase verification
+
+The feature stack rebased cleanly onto `origin/nightly` at `e27d5c30`. Those six
+upstream commits changed library/UI and documentation files, not the production
+pronunciation sources. A path-scoped `git diff --exit-code` confirmed the
+rendered pronunciation sources are byte-identical between `9d52706f` and the
+rebased branch.
+
+- Focused pronunciation matrix: 134 passed, 0 failed, 0 skipped
+  (`/tmp/echo-pronunciation-final-focused.xcresult`).
+- Full Echo scheme: 2,245 passed, 0 failed, 3 skipped
+  (`/tmp/echo-pronunciation-final-full.xcresult`).
+- Gated `Echo macOS` build: exit 0.
+- Gated Release `make echo-cli`: exit 0, still `ONNX rv11 (Release)` universal
+  `arm64` + `x86_64`.
+- Post-rebase rebuilt CLI SHA-256:
+  `b0c3ee381febed7ab61c9085cdaac47203918e5c7f2a20ae9433cd8437f04b94`.
+
+The audio artifacts remain tied to the separately recorded render CLI hash.
+They were not relabeled as output from the rebuilt binary; source identity is
+reported explicitly instead.
 
 ## Corpus and approved planning matrix
 
