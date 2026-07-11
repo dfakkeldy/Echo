@@ -99,6 +99,62 @@ import Testing
                 == "This recording is clear.")
     }
 
+    @Test func recordVerbBeatsCompoundNounGuardAfterVerbSignals() {
+        // BUG 1: the compound-noun guard must not force the noun when `record`
+        // is clearly the verb. Infinitival "to" is an unambiguous verb signal.
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "The service is designed to record sales events.")
+                == "The service is designed to [record](/ɹəkˈɔɹd/) sales events.")
+        // A modal that is not fronting a question keeps the verb reading too.
+        #expect(
+            HomographPronunciationResolver.apply(to: "We will record sales today.")
+                == "We will [record](/ɹəkˈɔɹd/) sales today.")
+        // Tokenization ignores sentence boundaries, so the next sentence's noun
+        // must not be treated as a compound-noun follower across the period.
+        #expect(
+            HomographPronunciationResolver.apply(to: "Please record. Players arrived.")
+                == "Please [record](/ɹəkˈɔɹd/). Players arrived.")
+        // Infinitival "to" is a verb signal even when it opens the sentence.
+        #expect(
+            HomographPronunciationResolver.apply(to: "To record sales, hire staff.")
+                == "To [record](/ɹəkˈɔɹd/) sales, hire staff.")
+        // A modal in the previous sentence must not leak across the boundary and
+        // flip a genuinely attributive "record sales" into the verb.
+        #expect(
+            HomographPronunciationResolver.apply(to: "We should. Record sales fell.")
+                == "We should. [Record](/ɹˈɛkəɹd/) sales fell.")
+
+        // Regressions — genuine attributive compound nouns stay nouns.
+        #expect(
+            HomographPronunciationResolver.apply(to: "Record sales increased.")
+                == "[Record](/ɹˈɛkəɹd/) sales increased.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Should record labels pay artists?")
+                == "Should [record](/ɹˈɛkəɹd/) labels pay artists?")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Could record stores survive?")
+                == "Could [record](/ɹˈɛkəɹd/) stores survive?")
+    }
+
+    // A bare word before a guarded compound ("systems record sales") is
+    // indistinguishable from a common attributive noun phrase ("major record
+    // labels", "local record stores"): both are just <word> + compound. The
+    // resolver deliberately keeps the noun for these rather than risk verbing
+    // the far more common attributive phrases. Only an explicit verb signal
+    // ("to", a mid-sentence modal) or a sentence boundary flips it.
+    @Test func recordCompoundGuardStaysConservativeForAmbiguousPreceders() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Major record labels dominate.")
+                == "Major [record](/ɹˈɛkəɹd/) labels dominate.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Local record stores closed.")
+                == "Local [record](/ɹˈɛkəɹd/) stores closed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Our systems record sales data.")
+                == "Our systems [record](/ɹˈɛkəɹd/) sales data.")
+    }
+
     @Test func resolvesContentNounAndSatisfiedContexts() {
         #expect(
             HomographPronunciationResolver.apply(to: "Content I found useful stayed here.")
@@ -106,6 +162,26 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: "The audio content shipped today.")
                 == "The audio [content](/kˈɑntɛnt/) shipped today.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "I am content with this narration.")
+                == "I am [content](/kəntˈɛnt/) with this narration.")
+    }
+
+    @Test func contentNounBeatsSatisfiedGuardUnlessCopulaPreceder() {
+        // BUG 2: "content to/with" is a noun unless a copula/linking verb
+        // precedes. A following "to"/"with" alone must not flip it to the
+        // satisfied adjective.
+        #expect(
+            HomographPronunciationResolver.apply(to: "Add content to the page.")
+                == "Add content to the page.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The content with images loaded slowly.")
+                == "The [content](/kˈɑntɛnt/) with images loaded slowly.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Upload content to the server.")
+                == "Upload content to the server.")
+
+        // Regression — a copula preceder keeps the satisfied adjective reading.
         #expect(
             HomographPronunciationResolver.apply(to: "I am content with this narration.")
                 == "I am [content](/kəntˈɛnt/) with this narration.")
