@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close GitHub issue #421 by exporting quality-preserving word timings from both Mac sidecar producers without corrupting multi-file audiobook timebases.
+**Goal:** Close GitHub issue #421 by exporting quality-preserving word timings from both Mac sidecar producers without blocking the Mac UI or corrupting multi-file audiobook state.
 
-**Architecture:** Extend the optional sidecar word contract with per-word confidence, then add one pure `AlignmentSidecarAssembler` that joins anchors to ordered `word_timing` rows and applies the same offset to anchor and word times. The Mac DTW path will perform the word-refinement pass it currently omits; both Mac alignment and Mac narration will use the assembler. Single-container audio receives portable word-bearing sidecars, while multi-file folders are explicitly prevented from emitting a misleading cross-track sidecar until the format carries track identity.
+**Architecture:** Reuse the already-tested `AutoAlignmentWorker` for normalized, cancellable DTW work on the concurrent executor; extract a DB-backed persistence helper so the Mac and source-backed paths share “replace anchors → materialize → refine” ordering; and add one pure sidecar assembler for anchors, ordered words, confidence, and offsets. Mac DTW exports unknown anchor confidence as `nil` rather than inventing a probability, while Mac narration exports exact anchor confidence `1.0`. Because the current portable sidecar lacks track identity and the existing per-file queue overwrites one folder-derived audiobook, multi-file alignment fails before import or database mutation with a clear error.
 
 **Tech Stack:** Swift 6, Swift Testing, GRDB, AVFoundation, WhisperKit, Xcode 26.6.
 
@@ -15,21 +15,21 @@
 - Add no third-party dependencies and make no visible UI changes.
 - Keep legacy anchors-only JSON and existing synthesis-word JSON decodable in both directions.
 - Treat generated `.alignment.json` files as local artefacts; never commit real-book sidecars.
-- Run all `xcodebuild` and `make build|test` commands through `$HOME/.claude/bin/xcode-build-gate.sh --wait`; keep tests serial and do not add uncapped `-jobs`.
+- Run every `xcodebuild` and `make build|test` command through `$HOME/.claude/bin/xcode-build-gate.sh --wait`; keep tests serial and do not add uncapped `-jobs`.
 - Work from current `origin/nightly`, commit coherent Conventional Commit checkpoints, rebase onto current `origin/nightly`, and open a ready PR back to `nightly`.
-- Do not close #421 until the implementation PR is merged and current hosted `Build gate + tests` is green.
+- Do not close #421 until its implementation PR is merged and current hosted `Build gate + tests` is green.
 
 ## Audit Context
 
-- #297 and #305 were already fixed by PR #321 and were tracker-cleanup items.
-- #421 is the sole unresolved issue in the 2026-07-11 issue audit.
-- PR #423 added optional `words` to the shared sidecar contract but explicitly left both Mac exporters anchors-only.
-- `MacAlignmentService` currently materializes interpolated `word_timing` rows but never calls `TokenDTW.wordMatchesWithBisection` or `WordTimingMaterializer.refine`; the issue body's assumption that DTW rows already exist is stale.
-- `FolderAudioScanner` queues each audio file separately under a folder-derived audiobook ID, so writing one portable sidecar from each zero-based track can overwrite prior track data and violate global monotonicity.
+- #297 and #305 were already fixed by PR #321 and were closed during the 2026-07-11 tracker-cleanup pass.
+- #421 is the sole unresolved issue from that audit.
+- PR #423 added optional sidecar `words`, import, and verification, but explicitly left both Mac exporters anchors-only.
+- `MacAlignmentService` currently passes whole paragraphs and mostly raw Whisper words into token-level DTW, runs synchronous DTW from an `@MainActor` type, and never performs `WordTimingMaterializer.refine`.
+- `FolderAudioScanner` currently queues sibling tracks separately under one folder-derived audiobook ID; each alignment replaces the previous automatic anchors and word rows. Merely skipping the sidecar write would still corrupt Mac-local state.
 
 ---
 
-### Task 1: Preserve optional per-word quality through encode, verify, and import
+### Task 1: Preserve optional per-word quality through encode, verification, and import
 
 **Files:**
 - Modify: `EchoCore/Services/AlignmentSidecar.swift`
@@ -42,29 +42,28 @@
 **Interfaces:**
 - Produces: `AlignmentSidecar.Anchor.Word.init(word:start:end:confidence:)`, where `confidence` is optional.
 - Produces: `AlignmentSidecar.write(_:forEPUB:)` for `[AlignmentSidecar.Anchor]`.
-- Produces: sidecar import semantics in which a missing confidence retains legacy `0.9`, a valid `0...1` value is preserved, and an invalid value falls back conservatively to `0.5`.
+- Produces: import semantics where missing confidence retains legacy synthesis quality `0.9`, valid `0...1` confidence is preserved, and invalid confidence falls back conservatively to `0.5`.
 
-- [ ] **Step 1: Add failing sidecar-contract tests.**
+- [ ] **Step 1: Add failing contract tests.**
 
-Add these cases to `AlignmentSidecarTests`:
+Add to `AlignmentSidecarTests`:
 
 ```swift
 @Test func wordConfidenceRoundTripsWhileLegacyWordsRemainCompatible() throws {
     let current = AlignmentSidecar.Anchor(
-        blockId: "s0-b0", timestamp: 10, confidence: 0.7,
+        blockId: "s0-b0", timestamp: 10, confidence: nil,
         words: [
             .init(word: "matched", start: 10, end: 10.4, confidence: 0.85),
             .init(word: "estimated", start: 10.4, end: 10.9, confidence: 0.5),
         ])
-    let decoded = try AlignmentSidecar.decode(AlignmentSidecar.encode([current]))
-    #expect(decoded == [current])
+    #expect(try AlignmentSidecar.decode(AlignmentSidecar.encode([current])) == [current])
 
     let legacy = Data(
         #"[{"blockId":"s0-b0","timestamp":10,"words":[{"word":"legacy","start":10,"end":10.4}]}]"#.utf8)
     #expect(try AlignmentSidecar.decode(legacy)[0].words?[0].confidence == nil)
 }
 
-@Test func anchorWriteOverloadWritesPortableWordBearingSidecar() throws {
+@Test func anchorWriteOverloadWritesWordBearingSidecar() throws {
     let folder = FileManager.default.temporaryDirectory
         .appending(path: "sidecar-write-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -72,7 +71,7 @@ Add these cases to `AlignmentSidecarTests`:
     let epub = folder.appending(path: "Book.epub")
     let anchors = [
         AlignmentSidecar.Anchor(
-            blockId: "s0-b0", timestamp: 2, confidence: 0.85,
+            blockId: "s0-b0", timestamp: 2, confidence: nil,
             words: [.init(word: "Book", start: 2, end: 2.4, confidence: 0.85)])
     ]
     let url = try AlignmentSidecar.write(anchors, forEPUB: epub)
@@ -80,37 +79,21 @@ Add these cases to `AlignmentSidecarTests`:
 }
 ```
 
-- [ ] **Step 2: Add failing importer and verifier tests.**
-
-In the existing `sidecarWordsBecomeSidecarSourcedWordTimingRows` test, give the first anchor's three words explicit confidences and leave the second anchor's words without confidence:
+In `DocumentImportFinalizerTests.sidecarWordsBecomeSidecarSourcedWordTimingRows`, assign explicit confidences `[0.85, 0.5, 0.85]` to the first anchor's words, leave the second anchor's words without confidence, and assert:
 
 ```swift
-words: [
-    AlignmentSidecar.Anchor.Word(
-        word: "one", start: 0.0, end: 0.4, confidence: 0.85),
-    AlignmentSidecar.Anchor.Word(
-        word: "two", start: 0.4, end: 0.9, confidence: 0.5),
-    AlignmentSidecar.Anchor.Word(
-        word: "three", start: 0.9, end: 1.5, confidence: 0.85),
-]
-
-// After finalize:
 #expect(first.map(\.confidence) == [0.85, 0.5, 0.85])
 #expect(first.allSatisfy { $0.source == "sidecar" })
 #expect(second.allSatisfy { $0.confidence == 0.9 })
 ```
 
-The second anchor in that test is the legacy compatibility case: its omitted values must continue to import at `0.9`.
-
-In `EstimatedAlignmentSidecarTests`, add an anchor whose word confidence is `1.2` and assert that verification reports:
+In `EstimatedAlignmentSidecarTests`, verify that a present value `1.2` produces:
 
 ```swift
 .wordConfidenceOutOfRange(blockID: "s0-b0", wordIndex: 0, confidence: 1.2)
 ```
 
-- [ ] **Step 3: Run the focused suites and confirm the new assertions fail.**
-
-Run:
+- [ ] **Step 2: Run the focused suites and confirm failure.**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild test \
@@ -123,9 +106,9 @@ Run:
   -only-testing:EchoTests/EstimatedAlignmentSidecarTests
 ```
 
-Expected: failures because `Word.confidence`, the `[Anchor]` write overload, quality-preserving import, and verifier issue do not exist yet.
+Expected: failures because per-word confidence, the `[Anchor]` writer, quality-preserving import, and the verifier issue do not exist.
 
-- [ ] **Step 4: Extend the optional word contract.**
+- [ ] **Step 3: Extend the optional word contract and writer.**
 
 Change `AlignmentSidecar.Anchor.Word` to:
 
@@ -150,7 +133,7 @@ struct Word: Codable, Equatable {
 }
 ```
 
-Add the shared write overload and make the record overload call it:
+Add:
 
 ```swift
 @discardableResult
@@ -159,59 +142,38 @@ static func write(_ anchors: [Anchor], forEPUB epubURL: URL) throws -> URL {
     try encode(anchors).write(to: destination, options: .atomic)
     return destination
 }
-
-@discardableResult
-static func write(
-    _ anchors: [AlignmentAnchorRecord],
-    forEPUB epubURL: URL
-) throws -> URL {
-    try write(
-        anchors.map {
-            Anchor(
-                blockId: portableSuffix(of: $0.epubBlockID),
-                timestamp: $0.audioTime,
-                confidence: 1.0)
-        },
-        forEPUB: epubURL)
-}
 ```
 
-- [ ] **Step 5: Preserve valid confidence on import.**
+Keep the record-based overload for legacy callers, but route its mapped `[Anchor]` through this writer.
 
-In `WordTimingMaterializer`, replace the fixed `sidecarConfidence` assignment inside `applySidecarWords` with:
+- [ ] **Step 4: Preserve valid confidence during import.**
+
+In `WordTimingMaterializer` add:
 
 ```swift
-private static let legacySidecarConfidence = 0.9
-private static let invalidSidecarConfidence = 0.5
-
-private static func importedSidecarConfidence(
-    _ confidence: Double?
-) -> Double {
-    guard let confidence else { return legacySidecarConfidence }
-    guard confidence.isFinite, (0.0...1.0).contains(confidence) else {
-        return invalidSidecarConfidence
-    }
+private static func importedSidecarConfidence(_ confidence: Double?) -> Double {
+    guard let confidence else { return 0.9 }
+    guard confidence.isFinite, (0.0...1.0).contains(confidence) else { return 0.5 }
     return confidence
 }
 ```
 
-Then set:
+Inside `applySidecarWords`, set:
 
 ```swift
 updated.confidence = importedSidecarConfidence(word.confidence)
 updated.source = "sidecar"
 ```
 
-- [ ] **Step 6: Validate present confidence values.**
+- [ ] **Step 5: Validate present confidence values.**
 
-Add this verifier issue and its description:
+Add the verifier case:
 
 ```swift
 case wordConfidenceOutOfRange(
     blockID: String,
     wordIndex: Int,
-    confidence: Double
-)
+    confidence: Double)
 ```
 
 Inside `wordIssues`, add:
@@ -228,11 +190,9 @@ if let confidence = word.confidence,
 }
 ```
 
-- [ ] **Step 7: Re-run the three suites and confirm they pass.**
+- [ ] **Step 6: Re-run the Task 1 suites and commit.**
 
-Run the Step 3 command. Expected: all selected tests pass with no failures.
-
-- [ ] **Step 8: Commit the sidecar-contract checkpoint.**
+Expected: all selected tests pass.
 
 ```bash
 git add EchoCore/Services/AlignmentSidecar.swift \
@@ -246,124 +206,205 @@ git commit -m "feat(alignment): preserve sidecar word confidence"
 
 ---
 
-### Task 2: Add one pure anchor-and-word sidecar assembler
+### Task 2: Share DB-backed DTW persistence and refinement
 
 **Files:**
-- Create: `EchoCore/Services/AlignmentSidecarAssembler.swift`
-- Create: `EchoTests/AlignmentSidecarAssemblerTests.swift`
+- Create: `EchoCore/Services/DTWAlignmentPersistence.swift`
+- Modify: `EchoCore/Services/SourceBackedAlignmentCoordinator.swift`
+- Create: `EchoTests/DTWAlignmentPersistenceTests.swift`
+- Modify: `EchoTests/SourceBackedAlignmentCoordinatorTests.swift`
 
 **Interfaces:**
-- Produces: `AlignmentSidecarAssembler.assemble(anchors:wordRows:tokenCountByBlockID:offsetByBlockID:) -> [AlignmentSidecar.Anchor]`.
-- Guarantees: portable block IDs; one words array per block; word-index ordering; token-count safety; identical anchor/word offset; mean per-word anchor confidence; monotonic output ordering.
+- Consumes: selected `TokenDTW.AnchorCandidate` values and grouped `TokenDTW.WordMatch` values.
+- Produces: `DTWAlignmentPersistence.replaceAndRefine(audiobookID:source:note:selectedCandidates:wordMatchesByBlock:writer:) -> [AlignmentAnchorRecord]`.
+- Guarantees: clear only the named automatic source; write anchors; materialize baseline words; refine matched words; preserve unrelated human/source anchors.
 
-- [ ] **Step 1: Write failing pure assembler tests.**
+- [ ] **Step 1: Write a failing DB-backed test.**
 
-Cover these exact behaviors:
+Create an in-memory `DatabaseService`; insert audiobook `book`, two text blocks (`alpha bravo charlie`, `delta echo foxtrot`), one prior `.transcriptAlignment` anchor, and one `.moveToNow` human anchor. Call the new helper with a selected candidate for the first block and three `WordMatch` values at `10.0`, `10.4`, and `10.8`. Assert:
 
 ```swift
-@Suite struct AlignmentSidecarAssemblerTests {
-    private func makeAnchor(
-        blockID: String,
-        time: TimeInterval,
-        id: String = UUID().uuidString
-    ) -> AlignmentAnchorRecord {
-        AlignmentAnchorRecord(
-            id: id,
-            audiobookID: "book",
-            epubBlockID: blockID,
-            audioTime: time,
-            audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-            source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
-            note: nil,
-            createdAt: "2026-07-11T00:00:00Z",
-            modifiedAt: nil)
-    }
+#expect(records.count == 1)
+#expect(records[0].source == AlignmentAnchorRecord.Source.transcriptAlignment.rawValue)
+let words = try WordTimingDAO(db: database.writer)
+    .words(forAudiobook: "book", blockID: firstBlock.id)
+#expect(words.prefix(3).allSatisfy { $0.source == "dtw" })
+#expect(words.prefix(3).map(\.confidence) == [0.85, 0.85, 0.85])
+let anchors = try AlignmentAnchorDAO(db: database.writer).anchors(for: "book")
+#expect(anchors.contains { $0.source == AlignmentAnchorRecord.Source.moveToNow.rawValue })
+#expect(anchors.filter { $0.source == AlignmentAnchorRecord.Source.transcriptAlignment.rawValue }.count == 1)
+```
 
-    private func makeWord(
-        blockID: String,
-        index: Int,
-        word: String = "one",
-        start: TimeInterval = 4,
-        end: TimeInterval = 4.4,
-        confidence: Double = 0.5,
-        source: String = "interpolated"
-    ) -> WordTimingRecord {
-        WordTimingRecord(
-            audiobookID: "book",
-            epubBlockID: blockID,
-            wordIndex: index,
-            word: word,
-            audioStartTime: start,
-            audioEndTime: end,
-            confidence: confidence,
-            source: source)
-    }
+Run `EchoTests/DTWAlignmentPersistenceTests`; expected: compile failure because the helper does not exist.
 
-    @Test func assemblesMixedDTWAndInterpolatedRowsWithOneSharedOffset() {
-        let anchor = makeAnchor(blockID: "epub-book-s1-b2", time: 3)
-        let rows = [
-            makeWord(blockID: anchor.epubBlockID, index: 1, word: "two", start: 3.4, end: 3.8, confidence: 0.5, source: "interpolated"),
-            makeWord(blockID: anchor.epubBlockID, index: 0, word: "one", start: 3.0, end: 3.4, confidence: 0.85, source: "dtw"),
-        ]
+- [ ] **Step 2: Implement the shared persistence order.**
 
-        let result = AlignmentSidecarAssembler.assemble(
-            anchors: [anchor],
-            wordRows: rows,
-            tokenCountByBlockID: [anchor.epubBlockID: 2],
-            offsetByBlockID: [anchor.epubBlockID: 100])
+Create:
 
-        #expect(result[0].blockId == "s1-b2")
-        #expect(result[0].timestamp == 103)
-        #expect(abs((result[0].confidence ?? 0) - 0.675) < 0.000_001)
-        #expect(result[0].words?.map(\.word) == ["one", "two"])
-        #expect(result[0].words?.map(\.start) == [103.0, 103.4])
-        #expect(result[0].words?.map(\.confidence) == [0.85, 0.5])
-    }
+```swift
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+import GRDB
 
-    @Test func countMismatchKeepsAnchorButOmitsWordsAndQuality() {
-        let anchor = makeAnchor(blockID: "epub-book-s0-b0", time: 4)
-        let result = AlignmentSidecarAssembler.assemble(
-            anchors: [anchor],
-            wordRows: [makeWord(blockID: anchor.epubBlockID, index: 0)],
-            tokenCountByBlockID: [anchor.epubBlockID: 2])
-        #expect(result[0].words == nil)
-        #expect(result[0].confidence == nil)
-    }
+@MainActor enum DTWAlignmentPersistence {
+    static func replaceAndRefine(
+        audiobookID: String,
+        source: AlignmentAnchorRecord.Source,
+        note: String,
+        selectedCandidates: [TokenDTW.AnchorCandidate],
+        wordMatchesByBlock: [String: [TokenDTW.WordMatch]],
+        writer: DatabaseWriter
+    ) throws -> [AlignmentAnchorRecord] {
+        let sourceValue = source.rawValue
+        _ = try AlignmentAnchorDAO(db: writer)
+            .deleteAnchors(for: audiobookID, source: sourceValue)
+        guard !selectedCandidates.isEmpty else { return [] }
 
-    @Test func outputSortsByOffsetTimestampAndAttachesWordsOnlyOncePerBlock() {
-        let repeatedBlock = "epub-book-s1-b2"
-        let earlierBlock = "epub-book-s0-b0"
-        let anchors = [
-            makeAnchor(blockID: repeatedBlock, time: 4, id: "first"),
-            makeAnchor(blockID: earlierBlock, time: 10, id: "earlier-after-offset"),
-            makeAnchor(blockID: repeatedBlock, time: 5, id: "duplicate"),
-        ]
-        let rows = [
-            makeWord(blockID: repeatedBlock, index: 0, start: 4, end: 4.4),
-            makeWord(blockID: earlierBlock, index: 0, start: 10, end: 10.4),
-        ]
-        let result = AlignmentSidecarAssembler.assemble(
-            anchors: anchors,
-            wordRows: rows,
-            tokenCountByBlockID: [repeatedBlock: 1, earlierBlock: 1],
-            offsetByBlockID: [repeatedBlock: 20, earlierBlock: 0])
-
-        #expect(result.map(\.blockId) == ["s0-b0", "s1-b2", "s1-b2"])
-        #expect(result.map(\.timestamp) == [10, 24, 25])
-        #expect(result.compactMap(\.words).count == 2)
-        #expect(result.filter { $0.blockId == "s1-b2" }.compactMap(\.words).count == 1)
+        let createdAt = AlignmentService.isoFormatter.string(from: Date())
+        let records = selectedCandidates.map { candidate in
+            AlignmentAnchorRecord(
+                id: UUID().uuidString,
+                audiobookID: audiobookID,
+                epubBlockID: candidate.blockID,
+                audioTime: candidate.time,
+                audioEndTime: nil,
+                anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+                source: sourceValue,
+                note: note,
+                createdAt: createdAt,
+                modifiedAt: nil)
+        }
+        let service = AlignmentService(db: writer, audiobookID: audiobookID)
+        try service.insertAnchors(records)
+        try WordTimingMaterializer.refine(
+            audiobookID: audiobookID,
+            dtwMatchesByBlock: wordMatchesByBlock,
+            writer: writer)
+        return records
     }
 }
 ```
 
-- [ ] **Step 2: Run the new suite and confirm it fails to compile because the assembler is absent.**
+- [ ] **Step 3: Refactor `SourceBackedAlignmentCoordinator.align` to call the helper.**
 
-Use the Task 1 command with `-only-testing:EchoTests/AlignmentSidecarAssemblerTests`.
+Keep its existing token acquisition and `AutoAlignmentWorker`/DTW selection behavior. Replace its hand-written clear/record/insert/refine tail with:
 
-- [ ] **Step 3: Implement the pure assembler.**
+```swift
+_ = try DTWAlignmentPersistence.replaceAndRefine(
+    audiobookID: audiobookID,
+    source: .transcriptAlignment,
+    note: "Source-backed transcript alignment (TokenDTW + AnchorSelector)",
+    selectedCandidates: selected,
+    wordMatchesByBlock: matchesByBlock,
+    writer: dbService.writer)
+```
 
-Create `AlignmentSidecarAssembler.swift` with this implementation:
+- [ ] **Step 4: Run DB-backed and existing source-alignment suites.**
+
+Select:
+
+```text
+EchoTests/DTWAlignmentPersistenceTests
+EchoTests/SourceBackedAlignmentCoordinatorTests
+EchoTests/SourceBackedAlignmentConfidenceTests
+EchoTests/WordTimingMaterializerTests
+```
+
+Expected: all selected tests pass; source-backed behavior remains unchanged.
+
+- [ ] **Step 5: Commit the persistence checkpoint.**
+
+```bash
+git add EchoCore/Services/DTWAlignmentPersistence.swift \
+  EchoCore/Services/SourceBackedAlignmentCoordinator.swift \
+  EchoTests/DTWAlignmentPersistenceTests.swift \
+  EchoTests/SourceBackedAlignmentCoordinatorTests.swift
+git commit -m "refactor(alignment): share DTW persistence and refinement"
+```
+
+---
+
+### Task 3: Add a Sendable, pure sidecar assembler with explicit anchor confidence
+
+**Files:**
+- Modify: `Shared/Database/WordTimingRecord.swift`
+- Create: `EchoCore/Services/AlignmentSidecarAssembler.swift`
+- Create: `EchoTests/AlignmentSidecarAssemblerTests.swift`
+
+**Interfaces:**
+- Produces: `WordTimingRecord: Sendable` (all stored fields are Sendable value types).
+- Produces: `AlignmentSidecarAssembler.assemble(anchors:wordRows:tokenCountByBlockID:offsetByBlockID:anchorConfidenceByBlockID:) -> [AlignmentSidecar.Anchor]`.
+- Guarantees: portable IDs; word-index ordering; one words array per block; token-count safety; identical anchor/word offsets; caller-supplied anchor confidence only; monotonic output sorting.
+
+- [ ] **Step 1: Write failing assembler tests with complete local fixtures.**
+
+```swift
+@Suite struct AlignmentSidecarAssemblerTests {
+    private func anchor(_ blockID: String, _ time: TimeInterval) -> AlignmentAnchorRecord {
+        AlignmentAnchorRecord(
+            id: UUID().uuidString, audiobookID: "book", epubBlockID: blockID,
+            audioTime: time, audioEndTime: nil,
+            anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
+            source: AlignmentAnchorRecord.Source.autoAlignment.rawValue,
+            note: nil, createdAt: "2026-07-11T00:00:00Z", modifiedAt: nil)
+    }
+
+    private func word(
+        _ blockID: String, _ index: Int, _ text: String,
+        _ start: TimeInterval, _ confidence: Double, _ source: String
+    ) -> WordTimingRecord {
+        WordTimingRecord(
+            audiobookID: "book", epubBlockID: blockID, wordIndex: index,
+            word: text, audioStartTime: start, audioEndTime: start + 0.4,
+            confidence: confidence, source: source)
+    }
+
+    @Test func appliesOneOffsetToAnchorAndMixedQualityWords() {
+        let blockID = "epub-book-s1-b2"
+        let result = AlignmentSidecarAssembler.assemble(
+            anchors: [anchor(blockID, 3)],
+            wordRows: [
+                word(blockID, 1, "two", 3.4, 0.5, "interpolated"),
+                word(blockID, 0, "one", 3.0, 0.85, "dtw"),
+            ],
+            tokenCountByBlockID: [blockID: 2],
+            offsetByBlockID: [blockID: 100],
+            anchorConfidenceByBlockID: [:])
+        #expect(result[0].blockId == "s1-b2")
+        #expect(result[0].timestamp == 103)
+        #expect(result[0].confidence == nil)
+        #expect(result[0].words?.map(\.start) == [103.0, 103.4])
+        #expect(result[0].words?.map(\.confidence) == [0.85, 0.5])
+    }
+
+    @Test func exactCallerConfidenceIsPreservedWithoutDerivingItFromWords() {
+        let blockID = "epub-book-s0-b0"
+        let result = AlignmentSidecarAssembler.assemble(
+            anchors: [anchor(blockID, 1)],
+            wordRows: [word(blockID, 0, "one", 1, 0.9, "synthesis")],
+            tokenCountByBlockID: [blockID: 1],
+            anchorConfidenceByBlockID: [blockID: 1.0])
+        #expect(result[0].confidence == 1.0)
+    }
+
+    @Test func countMismatchKeepsAnchorAndOmitsWords() {
+        let blockID = "epub-book-s0-b0"
+        let result = AlignmentSidecarAssembler.assemble(
+            anchors: [anchor(blockID, 1)],
+            wordRows: [word(blockID, 0, "one", 1, 0.5, "interpolated")],
+            tokenCountByBlockID: [blockID: 2])
+        #expect(result[0].words == nil)
+    }
+}
+```
+
+- [ ] **Step 2: Run the new suite and confirm compile failure.**
+
+Expected: the assembler and `WordTimingRecord.Sendable` conformance are absent.
+
+- [ ] **Step 3: Add the conformance and assembler.**
+
+Add `Sendable` to `WordTimingRecord`'s conformance list, then create:
 
 ```swift
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -374,160 +415,187 @@ nonisolated enum AlignmentSidecarAssembler {
         anchors: [AlignmentAnchorRecord],
         wordRows: [WordTimingRecord],
         tokenCountByBlockID: [String: Int],
-        offsetByBlockID: [String: TimeInterval] = [:]
+        offsetByBlockID: [String: TimeInterval] = [:],
+        anchorConfidenceByBlockID: [String: Double] = [:]
     ) -> [AlignmentSidecar.Anchor] {
         let rowsByBlockID = Dictionary(grouping: wordRows, by: \.epubBlockID)
-        let sortedAnchors = anchors.sorted {
-            let lhs = $0.audioTime + (offsetByBlockID[$0.epubBlockID] ?? 0)
-            let rhs = $1.audioTime + (offsetByBlockID[$1.epubBlockID] ?? 0)
-            if lhs != rhs { return lhs < rhs }
-            return $0.epubBlockID < $1.epubBlockID
-        }
-        var wordBearingBlocks: Set<String> = []
-
-        return sortedAnchors.map { anchor in
+        var usedBlocks: Set<String> = []
+        return anchors.sorted {
+            $0.audioTime + (offsetByBlockID[$0.epubBlockID] ?? 0)
+                < $1.audioTime + (offsetByBlockID[$1.epubBlockID] ?? 0)
+        }.map { anchor in
             let offset = offsetByBlockID[anchor.epubBlockID] ?? 0
             let rows = (rowsByBlockID[anchor.epubBlockID] ?? [])
                 .sorted { $0.wordIndex < $1.wordIndex }
-            let expectedCount = tokenCountByBlockID[anchor.epubBlockID]
-            let canAttachWords =
-                !rows.isEmpty
-                && rows.count == expectedCount
-                && wordBearingBlocks.insert(anchor.epubBlockID).inserted
-            let words: [AlignmentSidecar.Anchor.Word]? = canAttachWords
-                ? rows.map {
-                    .init(
-                        word: $0.word,
-                        start: $0.audioStartTime + offset,
-                        end: $0.audioEndTime + offset,
-                        confidence: $0.confidence)
-                }
-                : nil
-            let confidence: Double? = canAttachWords
-                ? rows.map(\.confidence).reduce(0, +) / Double(rows.count)
-                : nil
-
+            let attach = !rows.isEmpty
+                && rows.count == tokenCountByBlockID[anchor.epubBlockID]
+                && usedBlocks.insert(anchor.epubBlockID).inserted
+            let words = attach ? rows.map {
+                AlignmentSidecar.Anchor.Word(
+                    word: $0.word,
+                    start: $0.audioStartTime + offset,
+                    end: $0.audioEndTime + offset,
+                    confidence: $0.confidence)
+            } : nil
             return AlignmentSidecar.Anchor(
                 blockId: AlignmentSidecar.portableSuffix(of: anchor.epubBlockID),
                 timestamp: anchor.audioTime + offset,
-                confidence: confidence,
+                confidence: anchorConfidenceByBlockID[anchor.epubBlockID],
                 words: words)
         }
     }
 }
 ```
 
-- [ ] **Step 4: Run the assembler and contract suites.**
+- [ ] **Step 4: Run assembler and contract suites, then commit.**
 
-Run the Task 1 command with these selectors:
-
-```text
-EchoTests/AlignmentSidecarAssemblerTests
-EchoTests/AlignmentSidecarTests
-EchoTests/EstimatedAlignmentSidecarTests
-```
-
-Expected: all selected tests pass.
-
-- [ ] **Step 5: Commit the assembler checkpoint.**
+Select `AlignmentSidecarAssemblerTests`, `AlignmentSidecarTests`, and `EstimatedAlignmentSidecarTests`. Expected: pass.
 
 ```bash
-git add EchoCore/Services/AlignmentSidecarAssembler.swift \
+git add Shared/Database/WordTimingRecord.swift \
+  EchoCore/Services/AlignmentSidecarAssembler.swift \
   EchoTests/AlignmentSidecarAssemblerTests.swift
 git commit -m "feat(alignment): assemble portable word sidecars"
 ```
 
 ---
 
-### Task 3: Refine and export Mac DTW word timings
+### Task 4: Move Mac DTW work off Main Actor and export refined words
 
 **Files:**
 - Modify: `Echo macOS/Services/MacAlignmentService.swift`
 - Create: `EchoTests/MacAlignmentSidecarWiringTests.swift`
+- Modify: `EchoTests/AutoAlignmentWorkerTests.swift`
 
 **Interfaces:**
-- Consumes: `AlignmentSidecarAssembler.assemble` from Task 2.
-- Produces: `MacAlignmentService.align(..., exportPortableSidecar: Bool = true)`.
-- Produces: DTW-refined `word_timing` rows before sidecar export.
+- Consumes: `AutoAlignmentWorker.alignChapter`, `DTWAlignmentPersistence`, and `AlignmentSidecarAssembler`.
+- Produces: normalized, cancellable whole-book Mac alignment and word-bearing sidecar export.
+- Confidence rule: Mac DTW anchor confidence is `nil` because `exactRunLength` is evidence, not a calibrated probability; word rows retain `0.85` DTW or `0.5` interpolation.
 
-- [ ] **Step 1: Add a failing macOS wiring contract test.**
+- [ ] **Step 1: Strengthen the behavioral worker test.**
 
-Use the repo's `MacSource` convention because the macOS target is not linked into `EchoTests`:
+Add this case to `AutoAlignmentWorkerTests`; it proves the worker normalizes a whole source block and punctuation-bearing Whisper words, including digit-to-word expansion, before the Mac path adopts it:
+
+```swift
+@Test func workerNormalizesWholeBlockAndPunctuatedTranscriptWords() async throws {
+    let output = try await AutoAlignmentWorker.alignChapter(
+        AutoAlignmentWorker.Input(
+            words: [
+                word("Chapter,", 2.0),
+                word("2", 2.4),
+                word("Beginning.", 2.8),
+            ],
+            alignmentBlocks: [block("chapter", "Chapter 2: Beginning")],
+            anchoredBlockIDs: [],
+            windowStart: 0,
+            windowEnd: 10,
+            lastGlobalAnchorTime: 0,
+            minAnchorRunLength: 3))
+
+    #expect(output.selectedCandidates.map(\.blockID) == ["chapter"])
+    #expect(output.wordMatchesByBlock["chapter"]?.count == 3)
+    #expect(output.audioTokenCount == 3)
+    #expect(output.epubTokenCount == 3)
+}
+```
+
+- [ ] **Step 2: Add a narrow wiring-order test.**
 
 ```swift
 @Suite struct MacAlignmentSidecarWiringTests {
-    @Test func alignmentRefinesWordsBeforeSharedSidecarAssembly() throws {
+    @Test func MacAlignmentUsesConcurrentWorkerThenSharedPersistenceAndAssembly() throws {
         let source = try MacSource.read("Services/MacAlignmentService.swift")
-        #expect(source.contains("TokenDTW.wordMatchesWithBisection"))
-        #expect(source.contains("WordTimingMaterializer.refine"))
-        #expect(source.contains("AlignmentSidecarAssembler.assemble"))
-        #expect(source.contains("AlignmentSidecar.write(sidecarAnchors"))
+        let worker = try #require(source.range(of: "try await AutoAlignmentWorker.alignChapter"))
+        let persist = try #require(source.range(of: "DTWAlignmentPersistence.replaceAndRefine"))
+        let assemble = try #require(source.range(of: "AlignmentSidecarAssembler.assemble"))
+        #expect(worker.lowerBound < persist.lowerBound)
+        #expect(persist.lowerBound < assemble.lowerBound)
+        #expect(!source.contains("TokenDTW.alignWithBisection(epub:"))
         #expect(!source.contains("AlignmentSidecar.write(records"))
     }
 }
 ```
 
-- [ ] **Step 2: Run the wiring test and confirm it fails.**
+The behavioral worker, persistence, and assembler suites carry correctness; this source test only locks Mac-target integration order.
 
-Run the Task 1 command with `-only-testing:EchoTests/MacAlignmentSidecarWiringTests`.
+- [ ] **Step 3: Replace raw `AudioToken` accumulation with `TranscribedWord`.**
 
-- [ ] **Step 3: Add the missing DTW word-refinement pass.**
-
-Immediately after `insertAnchors(records)` in `MacAlignmentService.align`, add:
+Inside each chunk result loop, append:
 
 ```swift
-let wordMatches = TokenDTW.wordMatchesWithBisection(
-    epub: epubTokens,
-    audio: audioTokens)
-let matchesByBlock = Dictionary(grouping: wordMatches, by: \.blockID)
-try WordTimingMaterializer.refine(
-    audiobookID: audiobookID,
-    dtwMatchesByBlock: matchesByBlock,
-    writer: dbService.writer)
+transcribedWords.append(
+    TranscribedWord(
+        text: token.word,
+        start: chunkStartTime + token.start))
 ```
 
-- [ ] **Step 4: Replace the anchors-only writer with shared assembly.**
+Do not pre-normalize in the Mac target; `AutoAlignmentWorker` owns normalization for both streams.
 
-Change the signature to accept `exportPortableSidecar: Bool = true`. When true, fetch all book words, derive token counts from the parsed blocks, assemble, and write:
+- [ ] **Step 4: Await the concurrent cancellable worker.**
 
 ```swift
-if exportPortableSidecar {
-    do {
-        let wordRows = try WordTimingDAO(db: dbService.writer)
-            .words(forAudiobook: audiobookID)
-            .filter { $0.source == "dtw" || $0.source == "interpolated" }
-        let tokenCounts = Dictionary(
-            uniqueKeysWithValues: parsed.blocks.map {
-                ($0.id, WordTokenizer.words(in: $0.text ?? "").count)
-            })
-        let sidecarAnchors = AlignmentSidecarAssembler.assemble(
-            anchors: records,
-            wordRows: wordRows,
-            tokenCountByBlockID: tokenCounts)
-        let sidecarURL = try AlignmentSidecar.write(sidecarAnchors, forEPUB: epubURL)
-        logger.info("Wrote alignment sidecar: \(sidecarURL.lastPathComponent)")
-    } catch {
-        logger.error("Failed to write alignment sidecar: \(error.localizedDescription)")
-    }
+let alignmentBlocks = parsed.blocks.map {
+    AutoAlignmentWorker.AlignmentBlock(
+        id: $0.id,
+        text: $0.text,
+        isHidden: $0.isHidden)
 }
+let output = try await AutoAlignmentWorker.alignChapter(
+    AutoAlignmentWorker.Input(
+        words: transcribedWords,
+        alignmentBlocks: alignmentBlocks,
+        anchoredBlockIDs: [],
+        windowStart: 0,
+        windowEnd: totalDuration,
+        lastGlobalAnchorTime: 0,
+        minAnchorRunLength: 3))
+guard !output.selectedCandidates.isEmpty else { throw AlignmentError.noAnchorsProduced }
 ```
 
-The assembler's mean word confidence replaces the false `1.0`: a mixed block reports a value between interpolation `0.5` and DTW `0.85`; a block whose word count cannot be trusted has no words and no confidence.
+This call leaves `@MainActor` while the two cancellable DTW passes run, and cancellation propagates back through `align`.
 
-- [ ] **Step 5: Run the wiring, assembler, and word-refiner suites.**
+- [ ] **Step 5: Persist/refine, assemble, and write.**
+
+```swift
+let records = try DTWAlignmentPersistence.replaceAndRefine(
+    audiobookID: audiobookID,
+    source: .autoAlignment,
+    note: "Mac DTW alignment (TokenDTW + AnchorSelector)",
+    selectedCandidates: output.selectedCandidates,
+    wordMatchesByBlock: output.wordMatchesByBlock,
+    writer: dbService.writer)
+let words = try WordTimingDAO(db: dbService.writer)
+    .words(forAudiobook: audiobookID)
+    .filter { $0.source == "dtw" || $0.source == "interpolated" }
+let tokenCounts = Dictionary(
+    uniqueKeysWithValues: parsed.blocks.map {
+        ($0.id, WordTokenizer.words(in: $0.text ?? "").count)
+    })
+let sidecarAnchors = AlignmentSidecarAssembler.assemble(
+    anchors: records,
+    wordRows: words,
+    tokenCountByBlockID: tokenCounts,
+    anchorConfidenceByBlockID: [:])
+_ = try AlignmentSidecar.write(sidecarAnchors, forEPUB: epubURL)
+```
+
+Keep sidecar writing best-effort after DB persistence, as it is today.
+
+- [ ] **Step 6: Run behavioral and integration suites.**
 
 Select:
 
 ```text
-EchoTests/MacAlignmentSidecarWiringTests
+EchoTests/AutoAlignmentWorkerTests
+EchoTests/DTWAlignmentPersistenceTests
 EchoTests/AlignmentSidecarAssemblerTests
-EchoTests/WordTimingRefinerTests
+EchoTests/MacAlignmentSidecarWiringTests
 EchoTests/WordTimingMaterializerTests
 ```
 
-Expected: all selected tests pass.
+Expected: pass with zero failures.
 
-- [ ] **Step 6: Build the macOS target.**
+- [ ] **Step 7: Build the macOS target and commit.**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build \
@@ -535,49 +603,32 @@ Expected: all selected tests pass.
   -destination 'platform=macOS' \
   -derivedDataPath /tmp/EchoIssue421MacDerivedData \
   CODE_SIGNING_ALLOWED=NO -quiet
-```
 
-Expected: `** BUILD SUCCEEDED **` and exit code 0.
-
-- [ ] **Step 7: Commit the Mac alignment checkpoint.**
-
-```bash
 git add 'Echo macOS/Services/MacAlignmentService.swift' \
-  EchoTests/MacAlignmentSidecarWiringTests.swift
-git commit -m "feat(mac): export DTW word timing sidecars"
+  EchoTests/MacAlignmentSidecarWiringTests.swift \
+  EchoTests/AutoAlignmentWorkerTests.swift
+git commit -m "feat(mac): export refined DTW word sidecars"
 ```
 
 ---
 
-### Task 4: Route Mac narration sidecars through the shared assembler
+### Task 5: Route Mac narration through the same assembler
 
 **Files:**
 - Modify: `Echo macOS/Services/MacBatchProcessingService.swift`
 - Modify: `EchoTests/MacAlignmentSidecarWiringTests.swift`
 
 **Interfaces:**
-- Consumes: the Task 2 assembler.
-- Produces: Mac-narrated sidecars with synthesis words and the same cumulative chapter offset applied to anchors and every word range.
+- Consumes: `AlignmentSidecarAssembler`.
+- Produces: Mac-narrated sidecars whose synthesis words and anchors receive the same cumulative chapter offset and whose exact anchors carry `1.0` confidence.
 
-- [ ] **Step 1: Extend the failing wiring test.**
+- [ ] **Step 1: Add wiring assertions.**
 
-Add:
+Read `MacBatchProcessingService.swift` via `MacSource` and assert it contains `AlignmentSidecarAssembler.assemble`, filters words with `$0.source == "synthesis"`, supplies `offsetByBlockID`, supplies `anchorConfidenceByBlockID`, and no longer contains `timestamp: a.audioTime + off, confidence: 1.0`.
 
-```swift
-@Test func batchNarrationUsesSharedWordAssembler() throws {
-    let source = try MacSource.read("Services/MacBatchProcessingService.swift")
-    #expect(source.contains("AlignmentSidecarAssembler.assemble"))
-    #expect(source.contains("$0.source == \"synthesis\""))
-    #expect(source.contains("offsetByBlockID"))
-    #expect(!source.contains("timestamp: a.audioTime + off, confidence: 1.0"))
-}
-```
+- [ ] **Step 2: Replace the hand-built narration array.**
 
-- [ ] **Step 2: Run the wiring test and confirm this new case fails.**
-
-- [ ] **Step 3: Replace the hand-built narration array.**
-
-Inside the narration sidecar `do` block, keep the existing track-duration accumulation, then build per-block offsets and fetch anchors, words, and block token counts:
+Keep the existing cumulative track-duration calculation. Then use:
 
 ```swift
 let offsetByBlockID = Dictionary(
@@ -592,37 +643,24 @@ let tokenCounts = Dictionary(
     uniqueKeysWithValues: blocks.map {
         ($0.id, WordTokenizer.words(in: $0.text ?? "").count)
     })
+let exactConfidence = Dictionary(
+    uniqueKeysWithValues: anchors.map { ($0.epubBlockID, 1.0) })
 let sidecar = AlignmentSidecarAssembler.assemble(
     anchors: anchors,
     wordRows: words,
     tokenCountByBlockID: tokenCounts,
-    offsetByBlockID: offsetByBlockID)
+    offsetByBlockID: offsetByBlockID,
+    anchorConfidenceByBlockID: exactConfidence)
 if !sidecar.isEmpty {
-    let sidecarURL = try AlignmentSidecar.write(sidecar, forEPUB: epubURL)
-    logger.info("Wrote narration sidecar: \(sidecarURL.lastPathComponent, privacy: .public)")
+    _ = try AlignmentSidecar.write(sidecar, forEPUB: epubURL)
 }
 ```
 
-Use the `blocks` value already loaded for the narration job; do not reparse the EPUB.
+- [ ] **Step 3: Run `MacAlignmentSidecarWiringTests`, `AlignmentSidecarAssemblerTests`, `HeadlessNarrationRunnerTests`, and `DocumentImportFinalizerTests`.**
 
-- [ ] **Step 4: Run the wiring, assembler, headless-runner, and import suites.**
+Expected: pass; existing CLI narration remains compatible.
 
-Select:
-
-```text
-EchoTests/MacAlignmentSidecarWiringTests
-EchoTests/AlignmentSidecarAssemblerTests
-EchoTests/HeadlessNarrationRunnerTests
-EchoTests/DocumentImportFinalizerTests
-```
-
-Expected: all selected tests pass and existing CLI narration semantics remain unchanged.
-
-- [ ] **Step 5: Rebuild `Echo macOS`.**
-
-Run Task 3 Step 6. Expected: build succeeds.
-
-- [ ] **Step 6: Commit the Mac narration checkpoint.**
+- [ ] **Step 4: Rebuild `Echo macOS` and commit.**
 
 ```bash
 git add 'Echo macOS/Services/MacBatchProcessingService.swift' \
@@ -632,108 +670,165 @@ git commit -m "feat(mac): include synthesis words in batch sidecars"
 
 ---
 
-### Task 5: Make multi-file timebase safety explicit and document the shipped boundary
+### Task 6: Reject multi-file alignment before mutation and document the boundary
 
 **Files:**
+- Create: `EchoCore/Services/AlignmentSidecarTimebasePolicy.swift`
 - Modify: `Echo macOS/Services/FolderAudioScanner.swift`
-- Modify: `Echo macOS/Services/MacBatchProcessingService.swift`
+- Create: `EchoTests/AlignmentSidecarTimebasePolicyTests.swift`
 - Modify: `EchoTests/MacAlignmentSidecarWiringTests.swift`
 - Modify: `ARCHITECTURE.md`
 - Modify: `CHANGELOG.md`
 
 **Interfaces:**
-- Produces: `FolderAudioScanner.audioFilesAlongside(_:) -> [URL]`.
-- Consumes: `MacAlignmentService.align(..., exportPortableSidecar:)` from Task 3.
-- Guarantees: a folder with multiple direct audio siblings does not emit a portable sidecar whose timestamps reset or overwrite another track.
+- Produces: `AlignmentSidecarTimebasePolicy.Decision` with `.enqueue([URL])` and `.rejectMultiFile([UnsupportedGroup])`.
+- Guarantees: the decision is made inside `FolderAudioScanner.enqueueFolder` while the user-selected folder's security scope is active, before any call to `MacBatchProcessingService.enqueue`.
+- Guarantees: multi-file groups create no queue record, so import, anchor deletion, word materialization, and sidecar writing never begin.
 
-- [ ] **Step 1: Add a failing timebase-policy wiring test.**
+- [ ] **Step 1: Write the failing two-track behavioral policy test.**
 
 ```swift
-@Test func multiFileFoldersDisablePortableSidecarExport() throws {
-    let scanner = try MacSource.read("Services/FolderAudioScanner.swift")
-    let batch = try MacSource.read("Services/MacBatchProcessingService.swift")
-    #expect(scanner.contains("static func audioFilesAlongside"))
-    #expect(batch.contains("let exportPortableSidecar = siblingAudioFiles.count == 1"))
-    #expect(batch.contains("exportPortableSidecar: exportPortableSidecar"))
-    #expect(batch.contains("portable sidecar skipped for multi-file book"))
+@Suite struct AlignmentSidecarTimebasePolicyTests {
+    @Test func separateSingleFileBooksEnqueueButSiblingTracksRejectAtomically() {
+        let bookA = URL(fileURLWithPath: "/library/A/Book A.m4b")
+        let bookB = URL(fileURLWithPath: "/library/B/Book B.m4b")
+        let track1 = URL(fileURLWithPath: "/library/C/01.mp3")
+        let track2 = URL(fileURLWithPath: "/library/C/02.mp3")
+
+        #expect(
+            AlignmentSidecarTimebasePolicy.decision(for: [bookB, bookA])
+                == .enqueue([bookA, bookB]))
+        #expect(
+            AlignmentSidecarTimebasePolicy.decision(for: [bookA, track1, track2])
+                == .rejectMultiFile([
+                    .init(directory: track1.deletingLastPathComponent(), fileCount: 2)
+                ]))
+    }
 }
 ```
 
-- [ ] **Step 2: Run the wiring suite and confirm this case fails.**
-
-- [ ] **Step 3: Add the direct-sibling helper.**
-
-In `FolderAudioScanner`, centralize the extension set and add:
+- [ ] **Step 2: Implement the pure policy.**
 
 ```swift
-private static let audioExtensions = Set(["m4b", "mp3", "m4a", "aax", "wav", "flac"])
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
 
-static func audioFilesAlongside(_ audioURL: URL) -> [URL] {
-    let directory = audioURL.deletingLastPathComponent()
-    let siblings = (try? FileManager.default.contentsOfDirectory(
-        at: directory,
-        includingPropertiesForKeys: nil,
-        options: .skipsHiddenFiles)) ?? []
-    return siblings
-        .filter { audioExtensions.contains($0.pathExtension.lowercased()) }
-        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+nonisolated enum AlignmentSidecarTimebasePolicy {
+    struct UnsupportedGroup: Equatable, Sendable {
+        let directory: URL
+        let fileCount: Int
+    }
+
+    enum Decision: Equatable, Sendable {
+        case enqueue([URL])
+        case rejectMultiFile([UnsupportedGroup])
+    }
+
+    static func decision(for audioFiles: [URL]) -> Decision {
+        let sorted = audioFiles.sorted { $0.path < $1.path }
+        let groups = Dictionary(grouping: sorted) {
+            $0.deletingLastPathComponent().standardizedFileURL
+        }
+        let unsupported = groups.compactMap { directory, files in
+            files.count > 1
+                ? UnsupportedGroup(directory: directory, fileCount: files.count)
+                : nil
+        }.sorted { $0.directory.path < $1.directory.path }
+        return unsupported.isEmpty ? .enqueue(sorted) : .rejectMultiFile(unsupported)
+    }
 }
 ```
 
-Use the same `audioExtensions` constant in `scanForAudioFiles`.
+- [ ] **Step 3: Classify the already-authorized scan before enqueuing.**
 
-- [ ] **Step 4: Gate only the portable export.**
-
-Before calling `alignmentService.align`, add:
+Add `import os.log`. Replace the immediate `for audioURL in scanForAudioFiles(in: folderURL)` loop in `FolderAudioScanner.enqueueFolder` with a plan-first switch while `folderURL` access is still active:
 
 ```swift
-let siblingAudioFiles = FolderAudioScanner.audioFilesAlongside(url)
-let exportPortableSidecar = siblingAudioFiles.count == 1
-if !exportPortableSidecar {
-    logger.warning(
-        "Alignment will remain Mac-local; portable sidecar skipped for multi-file book because alignment.json does not carry track identity"
-    )
+let audioFiles = scanForAudioFiles(in: folderURL)
+switch AlignmentSidecarTimebasePolicy.decision(for: audioFiles) {
+case .enqueue(let supportedFiles):
+    for audioURL in supportedFiles {
+        try service.enqueue(
+            fileURL: audioURL,
+            companionEPUB: companionEPUB(for: audioURL))
+    }
+case .rejectMultiFile(let groups):
+    let summary = groups.map {
+        "\($0.directory.lastPathComponent) (\($0.fileCount) tracks)"
+    }.joined(separator: ", ")
+    logger.error(
+        "Rejected multi-file alignment before enqueue: \(summary, privacy: .public)")
+    throw ScanError.multiFileAlignmentUnsupported(summary)
 }
-try await alignmentService.align(
-    audiobookID: audiobookID,
-    audioURL: url,
-    epubURL: epubURL,
-    dbService: dbService,
-    exportPortableSidecar: exportPortableSidecar)
 ```
 
-Continue to align and materialize local word timing; only the unsafe cross-device file write is suppressed.
+Add a file-local logger and error:
 
-- [ ] **Step 5: Update durable architecture and release notes.**
+```swift
+private static let logger = Logger(category: "FolderAudioScanner")
 
-In `ARCHITECTURE.md` replace “The Mac DTW paths remain anchors-only” with a paragraph that states:
+enum ScanError: LocalizedError {
+    case multiFileAlignmentUnsupported(String)
 
-- Mac DTW now exports mixed DTW/interpolated words with optional per-word confidence.
-- Mac narration exports synthesis words through the same assembler.
-- Missing word confidence is legacy synthesis quality `0.9`; present confidence survives import.
-- Anchor confidence is the mean attached word confidence rather than a hardcoded probability.
-- Multi-file folders remain Mac-local because the current portable contract lacks track identity; the exporter logs and skips instead of writing a corrupt sidecar.
+    var errorDescription: String? {
+        switch self {
+        case .multiFileAlignmentUnsupported(let summary):
+            return "Multi-file alignment is not yet portable: \(summary). Combine each book into one M4B before batch alignment."
+        }
+    }
+}
+```
 
-Add the same behavior, compatibility statement, and multi-file boundary under the current Unreleased section in `CHANGELOG.md`.
+- [ ] **Step 4: Prove the folder-scope and no-enqueue ordering.**
 
-- [ ] **Step 6: Run all focused suites.**
+Extend `MacAlignmentSidecarWiringTests` to read `FolderAudioScanner.swift` and assert:
+
+```swift
+let source = try MacSource.read("Services/FolderAudioScanner.swift")
+let scope = try #require(source.range(of: "startAccessingSecurityScopedResource"))
+let policy = try #require(source.range(of: "AlignmentSidecarTimebasePolicy.decision"))
+let enqueue = try #require(source.range(of: "try service.enqueue"))
+#expect(scope.lowerBound < policy.lowerBound)
+#expect(policy.lowerBound < enqueue.lowerBound)
+#expect(source.contains("case .rejectMultiFile"))
+```
+
+The behavioral policy test proves grouping; this integration-order assertion proves the Mac target makes that decision with folder authorization and before the only queue mutation call.
+
+- [ ] **Step 5: Keep failed groups out of the queue entirely.**
+
+Do not add a process-time sibling scan and do not add a `BatchQueueRecord` field. The folder-scoped preflight either computes the complete supported file list and enqueues it, or throws before the loop starts. This avoids both sandbox false negatives and partial queue/database state.
+
+- [ ] **Step 6: Update architecture and release notes.**
+
+Replace “The Mac DTW paths remain anchors-only” with the exact shipped rules:
+
+- Mac DTW reuses normalized, cancellable `AutoAlignmentWorker` computation and shared DB persistence.
+- Word arrays preserve per-word quality: `0.85` DTW, `0.5` interpolation, `0.9` synthesis/legacy sidecar.
+- Mac DTW anchor confidence is omitted (`nil`) because run length is not a calibrated probability; Mac narration anchors remain exact `1.0`.
+- Both Mac producers use one offset-safe assembler.
+- Multi-file groups are detected during folder-scoped discovery and rejected before queue mutation until a future track-aware sidecar contract exists; users can combine tracks into one M4B.
+
+Add the same user-facing behavior and compatibility note to the current Unreleased section of `CHANGELOG.md`.
+
+- [ ] **Step 7: Run all focused suites and builds.**
 
 Run one serial test invocation selecting:
 
 ```text
 EchoTests/AlignmentSidecarTests
 EchoTests/AlignmentSidecarAssemblerTests
+EchoTests/AlignmentSidecarTimebasePolicyTests
+EchoTests/AutoAlignmentWorkerTests
+EchoTests/DTWAlignmentPersistenceTests
 EchoTests/DocumentImportFinalizerTests
 EchoTests/EstimatedAlignmentSidecarTests
 EchoTests/MacAlignmentSidecarWiringTests
+EchoTests/SourceBackedAlignmentCoordinatorTests
 EchoTests/WordTimingMaterializerTests
-EchoTests/WordTimingRefinerTests
-EchoTests/HeadlessNarrationRunnerTests
 ```
 
-Expected: all selected tests pass with zero failures.
-
-- [ ] **Step 7: Run final builds and static checks.**
+Then run:
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && xcodebuild build \
@@ -749,48 +844,27 @@ Expected: all selected tests pass with zero failures.
   CODE_SIGNING_ALLOWED=NO -quiet
 
 git diff --check origin/nightly...HEAD
-swift format lint --recursive \
-  EchoCore/Services/AlignmentSidecar.swift \
-  EchoCore/Services/AlignmentSidecarAssembler.swift \
-  EchoCore/Services/WordTimingMaterializer.swift \
-  EchoCore/Services/EstimatedAlignmentSidecar.swift \
-  'Echo macOS/Services/MacAlignmentService.swift' \
-  'Echo macOS/Services/MacBatchProcessingService.swift' \
-  'Echo macOS/Services/FolderAudioScanner.swift' \
-  EchoTests/AlignmentSidecarTests.swift \
-  EchoTests/AlignmentSidecarAssemblerTests.swift \
-  EchoTests/DocumentImportFinalizerTests.swift \
-  EchoTests/EstimatedAlignmentSidecarTests.swift \
-  EchoTests/MacAlignmentSidecarWiringTests.swift
 ```
 
-Expected: both builds exit 0; `git diff --check` is silent; formatter lint reports no actionable errors in changed files.
+Expected: selected tests pass; both builds exit 0; diff check is silent.
 
-- [ ] **Step 8: Commit documentation and safety policy.**
+- [ ] **Step 8: Commit documentation and policy.**
 
 ```bash
-git add 'Echo macOS/Services/FolderAudioScanner.swift' \
-  'Echo macOS/Services/MacBatchProcessingService.swift' \
+git add EchoCore/Services/AlignmentSidecarTimebasePolicy.swift \
+  'Echo macOS/Services/FolderAudioScanner.swift' \
+  EchoTests/AlignmentSidecarTimebasePolicyTests.swift \
   EchoTests/MacAlignmentSidecarWiringTests.swift \
   ARCHITECTURE.md CHANGELOG.md
-git commit -m "docs(alignment): define Mac sidecar timebase safety"
+git commit -m "fix(mac): reject unsafe multi-file alignment"
 ```
 
 - [ ] **Step 9: Publish and close the loop.**
 
-```bash
-git fetch origin nightly
-git rebase origin/nightly
-git push -u origin codex/mac-word-timing-sidecars
-gh pr create --base nightly --head codex/mac-word-timing-sidecars \
-  --title "feat(alignment): export Mac word timing sidecars" \
-  --body-file /tmp/echo-issue-421-pr.md
-```
-
-The PR body must say `Fixes #421`, list the single-container support boundary, and include focused test/build counts. Watch hosted checks with `gh pr checks`; if `Build gate + tests` fails, inspect the failing job logs before changing code. After the PR merges, re-read #421, add a closure explanation that names the confidence contract and multi-file safety behavior, close it as completed, and verify `gh issue list --state open` no longer contains #421.
+Fetch and rebase onto current `origin/nightly`, push the implementation branch, and open a ready PR to `nightly` whose body says `Fixes #421`. Include focused test counts, macOS/CLI build results, the `nil` DTW-anchor-confidence rule, and the multi-file fail-fast behavior. Watch `Build gate + tests`; inspect failing job logs before changing code. Close #421 only after merge, then verify `gh issue list --state open` no longer contains it.
 
 ## Self-Review
 
-- **Spec coverage:** Tasks 1–4 cover word export, quality preservation, honest anchor confidence, both Mac producers, importer compatibility, and verifier behavior. Task 5 resolves the multi-file ambiguity safely without inventing a track-aware sidecar contract.
-- **Placeholder scan:** The plan contains concrete file paths, signatures, code, commands, expected outcomes, and commit boundaries; no implementation step is left undefined.
-- **Type consistency:** Both producers consume the single assembler signature defined in Task 2. `Word.confidence` stays optional end-to-end. `exportPortableSidecar` is introduced in Task 3 and consumed by Task 5.
+- **Spec coverage:** Tasks 1 and 3 cover the sidecar contract and confidence semantics. Tasks 2 and 4 correct the stale assumption that Mac DTW already produces refined words and ensure expensive work is normalized, cancellable, and off Main Actor. Task 5 covers Mac narration offsets. Task 6 prevents both portable and Mac-local multi-track corruption before mutation.
+- **Placeholder scan:** Every implementation step names exact files, signatures, code, commands, expected outcomes, and commit boundaries.
+- **Type consistency:** `WordTimingRecord` explicitly becomes `Sendable`; the assembler accepts only Sendable value records and explicit anchor confidence; `AutoAlignmentWorker.Output` feeds the persistence helper unchanged; both Mac producers consume the same assembler.
