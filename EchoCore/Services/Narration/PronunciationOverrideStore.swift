@@ -20,6 +20,17 @@
         }
     }
 
+    /// The pair of pronunciation-override closures a batch/render path injects into
+    /// `NarrationService`. Bundling BOTH behind one value keeps the iOS player and
+    /// the macOS batch path wired identically: a regression that supplies the
+    /// dictionary but stubs the per-occurrence corrections to `.empty` on one
+    /// platform — the "settings that lie" divergence — becomes a single-source
+    /// change that `narrationOverrideClosures(forBookID:)`'s test guards.
+    struct NarrationOverrideClosures {
+        let overrides: () -> PronunciationOverrides
+        let occurrenceOverrides: () -> PronunciationOccurrenceOverrides
+    }
+
     /// Owns the user's pronunciation-override dictionary and persists it to
     /// Application Support as JSON. Per-book overrides live in
     /// `<directory>/books/<sha256(bookID)>.json` and are merged book-wins over
@@ -176,6 +187,18 @@
         /// dictionary overrides so one accepted occurrence can beat a broader rule.
         func occurrenceOverrides(forBookID bookID: String) -> PronunciationOccurrenceOverrides {
             PronunciationOccurrenceOverrides(entries: loadedOccurrenceEntries(bookID))
+        }
+
+        /// Builds the pronunciation-override closures for `bookID` that a batch or
+        /// render path injects into `NarrationService`. Both the global/book
+        /// dictionary AND the per-occurrence corrections are wired from this store,
+        /// so no caller can silently ship one without the other (see the type doc).
+        /// The closures read the live store at call time — like the inline closures
+        /// they replace — so later edits take effect on the next chapter render.
+        func narrationOverrideClosures(forBookID bookID: String) -> NarrationOverrideClosures {
+            NarrationOverrideClosures(
+                overrides: { self.overrides(forBookID: bookID) },
+                occurrenceOverrides: { self.occurrenceOverrides(forBookID: bookID) })
         }
 
         // MARK: - Private

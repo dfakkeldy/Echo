@@ -275,18 +275,20 @@ final class MacBatchProcessingService {
                 // Engine) can leave wedged. The closure also injects the user's
                 // pronunciation overrides so each (re-)created service honors them.
                 @MainActor func makeService() -> NarrationService {
-                    NarrationService(
+                    // Wire BOTH the global/book dictionary and the per-occurrence
+                    // corrections via the shared factory, so this macOS batch path
+                    // injects exactly what the iOS player does. Guarded by
+                    // PronunciationOverrideStoreTests
+                    // .narrationOverrideClosuresWireBothDictionaryAndOccurrencesFromStore.
+                    let overrideClosures = PronunciationOverrideStore.shared
+                        .narrationOverrideClosures(forBookID: audiobookID)
+                    return NarrationService(
                         db: dbService.writer, audiobookID: audiobookID,
                         tts: NarrationEngineFactory.make(),
                         audioWriter: AVFoundationAudioWriter(),
                         cacheDirectory: NarrationCache.directory(), state: NarrationState(),
-                        pronunciationOverrides: {
-                            PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
-                        },
-                        pronunciationOccurrenceOverrides: {
-                            PronunciationOverrideStore.shared.occurrenceOverrides(
-                                forBookID: audiobookID)
-                        })
+                        pronunciationOverrides: overrideClosures.overrides,
+                        pronunciationOccurrenceOverrides: overrideClosures.occurrenceOverrides)
                 }
                 var service = makeService()
                 // One-time engine prepare (download + compile the CoreML model set) BEFORE the

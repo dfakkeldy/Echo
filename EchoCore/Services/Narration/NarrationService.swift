@@ -40,7 +40,19 @@ enum NarrationError: Error, Equatable {
 @MainActor @Observable
 final class NarrationService {
     private let logger = Logger(category: "Narration")
-    private static let maximumQualityRetryDepth = 3
+    /// Bounded recursion depth for the low-quality synthesis retry. Exposed
+    /// (non-`private`) only so a test can assert the recursion stops at exactly
+    /// this cap; nothing outside this type mutates it.
+    static let maximumQualityRetryDepth = 3
+    #if DEBUG
+        /// Test-only instrumentation: how many times the bounded-retry-depth guard
+        /// fired. Under the current phoneme-split budget the split-count guard stops
+        /// the recursion at the SAME depth as this cap, so the black-box output is
+        /// identical whether the cap or the split-count guard terminates. This
+        /// counter is the only signal that distinguishes them, letting a test pin
+        /// the depth-cap branch independently. Not compiled into release builds.
+        private(set) var debugRetryDepthCapHits = 0
+    #endif
     /// Trailing silence appended to every rendered chapter so the final word
     /// isn't clipped when the player advances to the next chapter. Kokoro ends a
     /// chunk right on the last phoneme (no ring-out) and the gapless engine
@@ -841,6 +853,9 @@ final class NarrationService {
         context: QualityRetryContext
     ) async throws -> QualityRetryResult {
         guard retryDepth < Self.maximumQualityRetryDepth else {
+            #if DEBUG
+                debugRetryDepthCapHits += 1
+            #endif
             logger.error(
                 "Low-quality narration retry reached the bounded retry depth; keeping the original chunk: \(String(describing: reason), privacy: .public)"
             )
