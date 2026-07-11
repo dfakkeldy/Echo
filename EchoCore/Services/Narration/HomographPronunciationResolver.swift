@@ -10,6 +10,11 @@ nonisolated enum HomographPronunciationResolver {
         let range: Range<String.Index>
         let nsRange: NSRange
         let isAuthoredLinkDisplay: Bool
+        /// True when this token opens a new sentence (nothing but a sentence
+        /// terminator or the start of the text precedes it). Lets the contextual
+        /// rules avoid reading across sentence boundaries that the word tokenizer
+        /// otherwise ignores.
+        let startsSentence: Bool
     }
 
     private enum IPA {
@@ -29,6 +34,9 @@ nonisolated enum HomographPronunciationResolver {
 
     private static let wordRegex = try! NSRegularExpression(pattern: #"\b[\p{L}]+\b"#)
     private static let hyphens: Set<Character> = ["-", "‑"]
+    private static let sentenceTerminators: Set<Character> = [
+        ".", "!", "?", "…", ";", "\n", "\r",
+    ]
 
     private static let pastReadPreceders: Set<String> = [
         "am", "are", "be", "been", "being", "get", "gets", "got", "gotten",
@@ -91,6 +99,15 @@ nonisolated enum HomographPronunciationResolver {
     ]
     private static let contentSatisfiedFollowers: Set<String> = [
         "to", "with",
+    ]
+    /// Copula / linking verbs that make a following `content` the "satisfied"
+    /// adjective ("I am content with…", "she felt content"). Without one of
+    /// these a bare "content to"/"content with" is the noun, not the adjective.
+    private static let contentAdjectivePreceders: Set<String> = [
+        "am", "appear", "appeared", "appears", "are", "be", "became", "become",
+        "becomes", "been", "being", "feel", "feeling", "feels", "felt", "is",
+        "look", "looked", "looks", "m", "remain", "remained", "remains", "seem",
+        "seemed", "seems", "stay", "stayed", "stays", "was", "were",
     ]
     private static let resumeDocumentPreceders: Set<String> = [
         "all", "applicant", "applicants", "candidate", "candidates", "her", "his",
@@ -169,14 +186,22 @@ nonisolated enum HomographPronunciationResolver {
     }
 
     private static func contentIPA(at index: Int, tokens: [Token]) -> String? {
+        let previous = previousLowercased(tokens, index)
         let next = nextLowercased(tokens, index, limit: 1)
 
-        if next.contains(where: contentSatisfiedFollowers.contains) {
-            return IPA.contentSatisfied
+        // A noun preceder ("the content", "audio content") wins outright, even
+        // when a "to"/"with" follows: "Add content to the page." is the noun.
+        if previous.map(contentNounPreceders.contains) == true {
+            return IPA.contentNoun
         }
 
-        if previousLowercased(tokens, index).map(contentNounPreceders.contains) == true {
-            return IPA.contentNoun
+        // The "satisfied" adjective ("I am content with this narration") only
+        // applies when a copula/linking verb precedes *and* a "to"/"with"
+        // follows. A following "to"/"with" alone no longer flips the noun.
+        if previous.map(contentAdjectivePreceders.contains) == true,
+            next.contains(where: contentSatisfiedFollowers.contains)
+        {
+            return IPA.contentSatisfied
         }
 
         if next.contains(where: contentNounFollowers.contains) {
@@ -269,16 +294,44 @@ nonisolated enum HomographPronunciationResolver {
     }
 
     private static func recordIPA(at index: Int, tokens: [Token]) -> String? {
-        let next = nextLowercased(tokens, index, limit: 1)
-        if next.contains(where: recordNounCompoundFollowers.contains) {
+        let previous = previousLowercased(tokens, index)
+
+        // The attributive compound-noun guard ("record sales", "record labels")
+        // only applies to a follower in the *same* sentence. Word tokenization
+        // ignores punctuation, so without this a period between clauses
+        // ("Please record. Players arrived.") would pull the next sentence's
+        // noun into the guard and mis-read the verb as the noun.
+        let followerIsSameSentenceCompoundNoun: Bool = {
+            let followerIndex = tokens.index(after: index)
+            guard followerIndex < tokens.endIndex else { return false }
+            let follower = tokens[followerIndex]
+            guard !follower.startsSentence else { return false }
+            return recordNounCompoundFollowers.contains(follower.lowercased)
+        }()
+
+        // A strong verb signal immediately before `record` overrides that guard:
+        // infinitival "to" ("designed to record sales") or a modal that is not
+        // fronting a question ("We will record sales"). A sentence-initial modal
+        // is question inversion where "record labels" is the subject, so it keeps
+        // the attributive noun ("Should record labels pay artists?"). Requiring
+        // `record` itself to be mid-sentence stops a modal in the previous
+        // sentence from leaking across a boundary.
+        let precederIsVerbSignal: Bool = {
+            guard index > tokens.startIndex, !tokens[index].startsSentence else { return false }
+            let preceder = tokens[tokens.index(before: index)]
+            if preceder.lowercased == "to" { return true }
+            return recordVerbPreceders.contains(preceder.lowercased) && !preceder.startsSentence
+        }()
+
+        if followerIsSameSentenceCompoundNoun, !precederIsVerbSignal {
             return IPA.recordNoun
         }
 
-        if previousLowercased(tokens, index).map(recordNounPreceders.contains) == true {
+        if previous.map(recordNounPreceders.contains) == true {
             return IPA.recordNoun
         }
 
-        if previousLowercased(tokens, index).map(recordVerbPreceders.contains) == true {
+        if previous.map(recordVerbPreceders.contains) == true {
             return IPA.recordVerb
         }
 
@@ -335,8 +388,22 @@ nonisolated enum HomographPronunciationResolver {
                     lowercased: value.lowercased(),
                     range: range,
                     nsRange: match.range,
-                    isAuthoredLinkDisplay: isAuthoredLinkDisplay)
+                    isAuthoredLinkDisplay: isAuthoredLinkDisplay,
+                    startsSentence: startsSentence(before: range, in: text))
             })
+    }
+
+    /// Whether `range` begins a new sentence: scanning left from it we reach a
+    /// sentence terminator (or the start of the text) before any letter/number.
+    private static func startsSentence(before range: Range<String.Index>, in text: String) -> Bool {
+        var index = range.lowerBound
+        while index > text.startIndex {
+            index = text.index(before: index)
+            let character = text[index]
+            if sentenceTerminators.contains(character) { return true }
+            if character.isLetter || character.isNumber { return false }
+        }
+        return true
     }
 
     private static func previousLowercased(_ tokens: [Token], _ index: Int) -> String? {
