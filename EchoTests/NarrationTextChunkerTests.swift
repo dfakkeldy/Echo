@@ -157,7 +157,7 @@ import Testing
 
     @Test func phonemeBudgetAllowsLongerLowRiskChunks() {
         let text = Array(repeating: "we go", count: 60).joined(separator: ". ") + "."
-        let pieces = NarrationTextChunker.splitByEstimatedPhonemes(
+        let pieces = NarrationTextChunker.splitResolved(
             text,
             maxPhonemes: 420,
             phonemeCount: { $0.count / 2 })
@@ -172,7 +172,7 @@ import Testing
             + " [Kubernetes](/kuːbərˈnɛtɪs/) "
             + Array(repeating: "padding", count: 40).joined(separator: " ")
 
-        let pieces = NarrationTextChunker.splitByEstimatedPhonemes(
+        let pieces = NarrationTextChunker.splitResolved(
             text,
             maxPhonemes: 120,
             phonemeCount: { $0.count })

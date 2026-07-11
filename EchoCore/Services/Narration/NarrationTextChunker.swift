@@ -72,34 +72,6 @@ enum NarrationTextChunker {
         return pieces
     }
 
-    static func splitByEstimatedPhonemes(
-        _ text: String,
-        maxPhonemes: Int = 420,
-        phonemeCount: (String) -> Int
-    ) -> [String] {
-        guard maxPhonemes > 0 else { return [] }
-        let normalized = text.split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-        guard !normalized.isEmpty else { return [] }
-
-        let units = splitUnits(normalized, isBoundary: isSentenceBoundary)
-        let pieces = mergeByPhonemeBudget(
-            units,
-            maxPhonemes: maxPhonemes,
-            phonemeCount: phonemeCount
-        ).flatMap { unit -> [String] in
-            if phonemeCount(unit) <= maxPhonemes { return [unit] }
-            return wrapByWords(
-                unit,
-                maxPhonemes: maxPhonemes,
-                phonemeCount: phonemeCount)
-        }
-        return pieces.filter { chunk in
-            let speakable = chunk.filter { $0.isLetter || $0.isNumber }
-            return !speakable.isEmpty
-        }
-    }
-
     /// Splits text whose pronunciation links have already been resolved. Valid
     /// Misaki links remain byte-for-byte intact and count as one word even when
     /// their IPA contains spaces.
@@ -341,33 +313,6 @@ enum NarrationTextChunker {
                 current = w
             } else if current.count + 1 + w.count <= maxChars {
                 current += " " + w
-            } else {
-                pieces.append(current)
-                current = w
-            }
-        }
-        if !current.isEmpty { pieces.append(current) }
-        return pieces
-    }
-
-    private static func wrapByWords(
-        _ text: String,
-        maxPhonemes: Int,
-        phonemeCount: (String) -> Int
-    ) -> [String] {
-        var pieces: [String] = []
-        var current = ""
-
-        for word in text.split(separator: " ") {
-            let w = String(word)
-            if current.isEmpty {
-                current = w
-                continue
-            }
-
-            let candidate = current + " " + w
-            if phonemeCount(candidate) <= maxPhonemes {
-                current = candidate
             } else {
                 pieces.append(current)
                 current = w
