@@ -165,6 +165,15 @@ import Testing
         #expect(HomographPronunciationResolver.apply(to: text) == text)
     }
 
+    @Test func authoredLinkDisplayContributesContextWithoutLeakingIPA() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "[Please](/plˈiz/) record the result.")
+                == "[Please](/plˈiz/) [record](/ɹəkˈɔɹd/) the result.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "[The](/ðə/) record changed.")
+                == "[The](/ðə/) [record](/ɹˈɛkəɹd/) changed.")
+    }
+
     @Test func resolvedLinksReachG2PAsExactPhonemes() {
         let text = HomographPronunciationResolver.apply(to: "I read the book yesterday.")
         let phonemes = KokoroG2P().phonemes(for: text)

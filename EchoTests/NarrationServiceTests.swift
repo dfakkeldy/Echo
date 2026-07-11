@@ -8,6 +8,20 @@ import Testing
 @MainActor
 @Suite struct NarrationServiceTests {
 
+    enum SkippableRetryChildError: CaseIterable, Sendable {
+        case lengthCap
+        case invalidExpand
+
+        func configure(_ engine: MockTTSEngine, on text: String) {
+            switch self {
+            case .lengthCap:
+                engine.lengthCapOnText = text
+            case .invalidExpand:
+                engine.invalidExpandShapeOnText = text
+            }
+        }
+    }
+
     private func blocks(_ audiobookID: String, _ texts: [String?]) -> [EPubBlockRecord] {
         texts.enumerated().map { i, t in
             block(audiobookID, id: "blk\(i)", seq: i, text: t)
@@ -932,6 +946,75 @@ import Testing
         #expect(
             rendered.pronunciationFallbackHits.map(\.fallback)
                 == parentPlan.pronunciationFallbackHits)
+    }
+
+    @Test(arguments: SkippableRetryChildError.allCases)
+    func laterSkippableRetryChildKeepsOriginalParentAtomically(
+        _ childError: SkippableRetryChildError
+    ) async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "Jacqui discusses alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu. startable"
+        let blocks = try seed(db, [text])
+        let parentPlan = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: [:])
+            ).blocks.first?.synthesisChunks.first)
+        let g2p = KokoroG2P()
+        let retryMaxPhonemes = max(20, min(80, parentPlan.phonemes.count / 2))
+        let retryFragments = NarrationTextChunker.splitResolved(
+            parentPlan.g2pInputText,
+            maxPhonemes: retryMaxPhonemes,
+            phonemeCount: g2p.phonemeCount(for:))
+        try #require(retryFragments.count > 1)
+        let laterPlan = try PronunciationPlanner().planResolved(try #require(retryFragments.last))
+        try #require(parentPlan.pronunciationFallbackHits.isEmpty == false)
+
+        let secondsPerChar = 0.1
+        let engine = MockTTSEngine(secondsPerChar: secondsPerChar)
+        engine.silentOnText = parentPlan.g2pInputText
+        childError.configure(engine, on: laterPlan.g2pInputText)
+        let writer = MockAudioWriter()
+        let service = makeService(db, tts: engine, writer: writer)
+
+        let rendered = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        let expectedDuration = Double(parentPlan.g2pInputText.count) * secondsPerChar
+        let childTexts = engine.plannedCalls.dropFirst().map(\.chunk.g2pInputText)
+        let failedChildIndex = try #require(childTexts.firstIndex(of: laterPlan.g2pInputText))
+        #expect(failedChildIndex > 0)
+        #expect(writer.chunkCounts == [1])
+        #expect(abs(rendered.duration - expectedDuration) < 0.0001)
+        #expect(rendered.anchors.count == 1)
+        let anchor = try #require(rendered.anchors.first)
+        #expect(abs(anchor.audioTime) < 0.0001)
+        #expect(abs((anchor.audioEndTime ?? -1) - expectedDuration) < 0.0001)
+
+        let speechRanges = try #require(rendered.speechRangesByBlock["blk0"])
+        #expect(
+            speechRanges
+                == [
+                    NarrationSpeechRange(
+                        blockID: "blk0",
+                        text: parentPlan.displayText,
+                        start: 0,
+                        end: expectedDuration)
+                ])
+        #expect(rendered.synthesisWordTimingsByBlock.isEmpty)
+        #expect(
+            rendered.pronunciationFallbackHits.map(\.fallback)
+                == parentPlan.pronunciationFallbackHits)
+        #expect(
+            rendered.pronunciationFallbackHits.allSatisfy {
+                $0.blockID == "blk0" && abs($0.audioStartTime) < 0.0001
+                    && abs($0.audioEndTime - expectedDuration) < 0.0001
+            })
     }
 
     @Test func exhaustedLowQualityRetryFallsBackToOriginalChunk() async throws {

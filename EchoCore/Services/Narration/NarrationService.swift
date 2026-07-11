@@ -871,7 +871,15 @@ final class NarrationService {
         for retryFragment in retryFragments {
             try Task.checkCancellation()
             let retryPlan = try context.planner.planResolved(retryFragment)
-            let retry = try await synthesize(retryPlan, voice: voice)
+            let retry: PlannedSynthesisOutput
+            do {
+                retry = try await synthesize(retryPlan, voice: voice)
+            } catch let error where Self.isLengthCapError(error) {
+                logger.error(
+                    "Low-quality narration retry piece exceeded the synthesis length cap; keeping original chunk to avoid dropping source text: \(error.localizedDescription)"
+                )
+                return QualityRetryResult(chunks: [rejected], allAccepted: false)
+            }
             switch NarrationChunkQuality.evaluate(retry.audio, text: retryPlan.displayText) {
             case .acceptable:
                 retryChunks.append(retry)

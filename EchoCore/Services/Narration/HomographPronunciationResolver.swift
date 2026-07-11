@@ -9,6 +9,7 @@ nonisolated enum HomographPronunciationResolver {
         let lowercased: String
         let range: Range<String.Index>
         let nsRange: NSRange
+        let isAuthoredLinkDisplay: Bool
     }
 
     private enum IPA {
@@ -118,7 +119,7 @@ nonisolated enum HomographPronunciationResolver {
         var result = text
         for index in tokens.indices.reversed() {
             let token = tokens[index]
-            guard !isInsideMisakiLinkDisplay(token.range, in: text) else { continue }
+            guard !token.isAuthoredLinkDisplay else { continue }
             guard !isHyphenated(token.range, in: text) else { continue }
             guard let ipa = ipa(for: token, at: index, tokens: tokens) else { continue }
             guard let range = Range(token.nsRange, in: result) else { continue }
@@ -285,13 +286,57 @@ nonisolated enum HomographPronunciationResolver {
     }
 
     private static func tokens(in text: String) -> [Token] {
-        let fullRange = NSRange(location: 0, length: (text as NSString).length)
-        return wordRegex.matches(in: text, range: fullRange).compactMap { match in
-            guard let range = Range(match.range, in: text) else { return nil }
-            let value = String(text[range])
-            return Token(
-                text: value, lowercased: value.lowercased(), range: range, nsRange: match.range)
+        var result: [Token] = []
+        var plainTextStart = text.startIndex
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            guard let link = MisakiPronunciationMarkup.link(in: text, startingAt: index) else {
+                index = text.index(after: index)
+                continue
+            }
+
+            appendTokens(
+                in: plainTextStart..<link.range.lowerBound,
+                of: text,
+                isAuthoredLinkDisplay: false,
+                to: &result)
+            appendTokens(
+                in: link.displayText.startIndex..<link.displayText.endIndex,
+                of: text,
+                isAuthoredLinkDisplay: true,
+                to: &result)
+            index = link.range.upperBound
+            plainTextStart = index
         }
+
+        appendTokens(
+            in: plainTextStart..<text.endIndex,
+            of: text,
+            isAuthoredLinkDisplay: false,
+            to: &result)
+        return result
+    }
+
+    private static func appendTokens(
+        in searchRange: Range<String.Index>,
+        of text: String,
+        isAuthoredLinkDisplay: Bool,
+        to tokens: inout [Token]
+    ) {
+        let nsSearchRange = NSRange(searchRange, in: text)
+        tokens.append(
+            contentsOf: wordRegex.matches(in: text, range: nsSearchRange).compactMap {
+                match in
+                guard let range = Range(match.range, in: text) else { return nil }
+                let value = String(text[range])
+                return Token(
+                    text: value,
+                    lowercased: value.lowercased(),
+                    range: range,
+                    nsRange: match.range,
+                    isAuthoredLinkDisplay: isAuthoredLinkDisplay)
+            })
     }
 
     private static func previousLowercased(_ tokens: [Token], _ index: Int) -> String? {
@@ -321,15 +366,4 @@ nonisolated enum HomographPronunciationResolver {
         return false
     }
 
-    private static func isInsideMisakiLinkDisplay(_ range: Range<String.Index>, in text: String)
-        -> Bool
-    {
-        var index = range.lowerBound
-        while index > text.startIndex {
-            index = text.index(before: index)
-            if text[index] == "]" { return false }
-            if text[index] == "[" { return true }
-        }
-        return false
-    }
 }
