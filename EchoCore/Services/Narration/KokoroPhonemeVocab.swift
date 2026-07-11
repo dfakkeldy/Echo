@@ -21,6 +21,15 @@ nonisolated struct KokoroPhonemeVocab {
     /// BOS / EOS token id (the Kokoro vocab's pad/boundary token).
     static let boundaryTokenId: Int32 = 0
 
+    /// MisakiSwift's out-of-vocabulary marker (`EnglishG2P(unk:)`, default `❓`).
+    /// The lexicon-only G2P emits it for a truly-unphonemizable, letter-less token
+    /// (a lone symbol/emoji the never-voiceless guarantee doesn't cover). The
+    /// Kokoro vocab has no id for it, so it is the one phoneme character ordinary
+    /// text can legitimately produce that planned synthesis drops (matching the
+    /// historical lenient `ids()` behavior) rather than treating as a fatal
+    /// authoring error. See `PronunciationPlanner.plan`.
+    static let oovMarker: Character = "❓"
+
     private let charToId: [Character: Int32]
     private let idSpaceSize: Int
 
@@ -74,6 +83,19 @@ nonisolated struct KokoroPhonemeVocab {
         return [Self.boundaryTokenId]
             + phonemes.compactMap { charToId[$0] }
             + [Self.boundaryTokenId]
+    }
+
+    /// The distinct characters in `phonemes` that have no Kokoro vocab id (empty
+    /// ⇒ every character is representable). Used to validate user-entered override
+    /// IPA at entry time so a typo (e.g. ASCII `g` U+0067 for IPA `ɡ` U+0261)
+    /// can't silently reach the render path and abort a chapter via `validatedIDs`.
+    func unsupportedCharacters(in phonemes: String) -> [Character] {
+        var seen: Set<Character> = []
+        var result: [Character] = []
+        for character in phonemes where charToId[character] == nil {
+            if seen.insert(character).inserted { result.append(character) }
+        }
+        return result
     }
 
     private struct VocabFile: Decodable {

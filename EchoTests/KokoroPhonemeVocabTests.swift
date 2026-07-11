@@ -47,4 +47,27 @@ import Testing
         let ids = try KokoroPhonemeVocab().ids(forPhonemes: phonemes)
         #expect(ids.contains { $0 != 0 && $0 != 16 })
     }
+
+    @Test func reportsDistinctUnsupportedCharactersForEntryValidation() throws {
+        let vocab = try KokoroPhonemeVocab()
+        // Valid Kokoro IPA → nothing to flag.
+        #expect(vocab.unsupportedCharacters(in: "kuːbərˈnɛtɪs").isEmpty)
+        // The classic footgun: ASCII "g" (U+0067) is NOT in the vocab; IPA "ɡ"
+        // (U+0261) is. Reported once, de-duplicated, in first-seen order — so the
+        // Settings UI can reject the entry before it can abort a render.
+        #expect(vocab.unsupportedCharacters(in: "ɡəˈɡ g g") == ["g"])
+    }
+
+    @Test func oovMarkerIsUnsupportedAndRejectedByValidatedIDs() throws {
+        // Misaki's ❓ OOV marker has no Kokoro id, so `validatedIDs` stays strict
+        // and rejects it — planned synthesis strips it up front instead (see
+        // PronunciationPlannerTests.planDropsOOVMarkerInsteadOfAbortingTheRender).
+        let vocab = try KokoroPhonemeVocab()
+        #expect(
+            vocab.unsupportedCharacters(in: String(KokoroPhonemeVocab.oovMarker))
+                == [KokoroPhonemeVocab.oovMarker])
+        #expect(throws: KokoroPhonemeVocab.EncodingError.self) {
+            try vocab.validatedIDs(forPhonemes: "hɛ\(KokoroPhonemeVocab.oovMarker)loʊ")
+        }
+    }
 }

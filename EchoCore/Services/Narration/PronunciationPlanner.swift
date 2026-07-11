@@ -11,11 +11,22 @@ nonisolated final class PronunciationPlanner {
 
     func plan(displayText: String, g2pInputText: String) throws -> PlannedSynthesisChunk {
         let result = g2p.result(for: g2pInputText)
-        let phonemeIDs = try vocab.validatedIDs(forPhonemes: result.phonemes)
+        // Defense-in-depth: drop MisakiSwift's out-of-vocabulary marker before
+        // validation so a stray unencodable glyph can never abort the whole chapter
+        // render via `validatedIDs`. In today's MisakiSwift the fallback network
+        // already maps unphonemizable tokens to a schwa or "" (never `❓`), so this
+        // is future-proofing against `unk` leakage rather than a currently-reachable
+        // path — the real protection against a bricked render is entry-time IPA
+        // validation in `PronunciationOverrideStore`, which keeps unsupported
+        // characters out of overrides. `validatedIDs` stays strict for everything
+        // else, so a genuine authoring bug (e.g. a bad built-in default) still fails
+        // loudly. Dropping the marker matches the historical lenient `ids()` behavior.
+        let phonemes = result.phonemes.filter { $0 != KokoroPhonemeVocab.oovMarker }
+        let phonemeIDs = try vocab.validatedIDs(forPhonemes: phonemes)
         return PlannedSynthesisChunk(
             displayText: displayText,
             g2pInputText: g2pInputText,
-            phonemes: result.phonemes,
+            phonemes: phonemes,
             phonemeIDs: phonemeIDs,
             wordCount: WordTokenizer.words(in: displayText).count,
             pronunciationFallbackHits: result.fallbackHits)
