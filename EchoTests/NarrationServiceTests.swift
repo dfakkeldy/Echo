@@ -1042,6 +1042,96 @@ import Testing
         #expect((2...4).contains(mock.plannedCalls.count))
     }
 
+    /// Companion to `exhaustedLowQualityRetryFallsBackToOriginalChunk`, which
+    /// terminates at a shallow depth via the split-count guard. This drives the
+    /// recursion all the way to the bounded depth cap (`maximumQualityRetryDepth`) —
+    /// a branch that test never reaches — and asserts the ORIGINAL chunk is
+    /// preserved (no source text dropped).
+    ///
+    /// The input is engineered so every fragment on the first retry path splits
+    /// into ≥2 units at depths 0…2, so the recursion is guaranteed to descend to
+    /// the depth where the cap fires. Under the current phoneme-split budget the
+    /// split-count guard happens to bottom out at that SAME depth, so the black-box
+    /// output (planned calls, anchors, writer) is identical whichever guard returns
+    /// first. The DEBUG `debugRetryDepthCapHits` counter is what proves the
+    /// depth-cap branch is the one that fired — independent of the split-count
+    /// backstop, which is the whole point of this test.
+    @Test(.timeLimit(.minutes(1)))
+    func qualityRetryStopsAtRecursionDepthCapPreservingOriginalChunk() async throws {
+        let db = try DatabaseService(inMemory: ())
+        // One top-level synthesis chunk (short enough to stay a single chunk) whose
+        // phoneme budget is large enough to keep splitting into ≥2 pieces through
+        // the full depth cap.
+        let text =
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu "
+            + "nu xi omicron pi rho sigma tau upsilon phi chi psi omega and eleven "
+            + "zebras gallop swiftly."
+        let blocks = try seed(db, [text])
+
+        // Reconstruct the deterministic retry-split tree the service walks, so we
+        // can prove the first path splits at depths 0…2 (guaranteeing it descends
+        // to the depth cap) and predict the exact synthesized fragments.
+        let g2p = KokoroG2P()
+        let planner = try PronunciationPlanner()
+        let topChunks = try NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:])
+        ).blocks[0].synthesisChunks
+        try #require(topChunks.count == 1)  // one quality-retry recursion, not many
+        let level0 = topChunks[0]
+
+        func firstSplitPlan(_ plan: PlannedSynthesisChunk) throws -> PlannedSynthesisChunk? {
+            let fragments = NarrationTextChunker.splitResolved(
+                plan.g2pInputText,
+                maxPhonemes: max(20, min(80, plan.phonemes.count / 2)),
+                phonemeCount: g2p.phonemeCount(for:))
+            // >1 proves this level splits, so the split-count guard does NOT fire
+            // here — the recursion must descend to the next depth.
+            try #require(fragments.count > 1)
+            return try planner.planResolved(try #require(fragments.first))
+        }
+        let level1 = try #require(try firstSplitPlan(level0))
+        let level2 = try #require(try firstSplitPlan(level1))
+        let level3 = try #require(try firstSplitPlan(level2))
+
+        let mock = MockTTSEngine(secondsPerChar: 0.1)
+        mock.returnsSilenceForAllText = true  // every chunk is rejected → always retries
+        let writer = MockAudioWriter()
+        let svc = makeService(db, tts: mock, writer: writer)
+
+        try await svc.renderChapter(chapterIndex: 0, blocks: blocks, voice: VoiceID("af_heart"))
+
+        // Each recovery level short-circuits on its first still-rejected child, so
+        // the recursion synthesizes exactly the original plus one first-fragment per
+        // level until `retryDepth` hits the cap — i.e. cap + 1 planned synth calls.
+        #expect(
+            mock.plannedCalls.map(\.chunk.g2pInputText) == [
+                level0.g2pInputText,
+                level1.g2pInputText,
+                level2.g2pInputText,
+                level3.g2pInputText,
+            ])
+        #expect(mock.plannedCalls.count == NarrationService.maximumQualityRetryDepth + 1)
+
+        // The distinguishing assertion: the depth-cap guard branch actually fired.
+        // Black-box output above is identical whether the cap or the split-count
+        // guard returns first (they bottom out at the same depth), so a 0 here would
+        // mean the recursion terminated on the split-count backstop instead — i.e.
+        // the cap is dead. This is what pins the depth-cap branch independently.
+        #expect(svc.debugRetryDepthCapHits >= 1)
+
+        // Original chunk preserved: one anchor spanning the WHOLE original
+        // duration, and the writer received the kept original chunk + lead-out
+        // silence (never a truncated fragment).
+        let anchors = try db.read { db in
+            try AlignmentAnchorRecord.filter(Column("audiobook_id") == "b1").fetchAll(db)
+        }
+        #expect(anchors.count == 1)
+        let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
+        #expect(abs(span - Double(level0.g2pInputText.count) * 0.1) < 0.0001)
+        #expect(writer.chunkCounts == [2])
+    }
+
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["abcd", "ef"])

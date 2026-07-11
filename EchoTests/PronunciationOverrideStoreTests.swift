@@ -214,4 +214,46 @@ import Testing
             store.occurrenceOverrides(forBookID: bookID).apply(to: "her book", blockID: "b")
                 == "her book")
     }
+
+    // MARK: - NarrationService override-closure factory (iOS ↔ macOS batch parity)
+
+    /// The macOS batch path (`MacBatchProcessingService`) and the iOS player both
+    /// inject their pronunciation-override closures into `NarrationService`. Those
+    /// closures are now built by one shared factory so neither platform can quietly
+    /// ship the global dictionary WITHOUT the per-occurrence corrections — the
+    /// "settings that lie" divergence (spec §7 item 6 / §10 def-of-done item 1).
+    ///
+    /// This pins the factory the macOS batch path routes through: it must wire BOTH
+    /// closures from the store. Stubbing the occurrence closure to `{ .empty }`
+    /// (the exact regression this guards) empties `entries` and fails here.
+    @MainActor
+    @Test func narrationOverrideClosuresWireBothDictionaryAndOccurrencesFromStore() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let bookID = "file:///Books/Parity/"
+        let store = PronunciationOverrideStore(directory: tmp)
+        try store.set(word: "Kubernetes", ipa: "kuːbərˈnɛtɪs", forBookID: bookID)
+        try store.setOccurrence(
+            word: "content", ipa: "kˈɑntɛnt",
+            forBookID: bookID, blockID: "blk1", wordStart: 1, wordEnd: 1)
+
+        let closures = store.narrationOverrideClosures(forBookID: bookID)
+
+        // The dictionary closure reads the book/global map…
+        #expect(closures.overrides().entries["Kubernetes"] == "kuːbərˈnɛtɪs")
+        // …and the occurrence closure reads the per-occurrence corrections — it is
+        // NOT a `.empty` stub. An `{ .empty }` regression empties this and fails.
+        let occurrences = closures.occurrenceOverrides()
+        #expect(!occurrences.entries.isEmpty)
+        #expect(
+            occurrences.entries.contains {
+                $0.blockID == "blk1" && $0.word == "content" && $0.ipa == "kˈɑntɛnt"
+            })
+        // Belt-and-suspenders: the closure yields the same value as reading the
+        // store directly, proving it isn't decoupled from the live store.
+        #expect(occurrences == store.occurrenceOverrides(forBookID: bookID))
+    }
 }
