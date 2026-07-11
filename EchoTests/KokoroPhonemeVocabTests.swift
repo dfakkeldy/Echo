@@ -13,13 +13,16 @@ import Testing
         #expect(v.tokenCount == 178)
     }
 
-    @Test func mapsKnownPhonemesWithBosEosAndDropsUnknown() throws {
-        let v = try KokoroPhonemeVocab()
-        // " " → 16, "." → 4, NUL → not in vocab (dropped, not crashed).
-        let ids = v.ids(forPhonemes: " .\u{0000}")
-        #expect(ids.first == 0)  // BOS
-        #expect(ids.last == 0)  // EOS
-        #expect(ids == [0, 16, 4, 0])  // NUL dropped
+    @Test func legacyMappingCanStillDropUnknownCharacters() throws {
+        let vocab = try KokoroPhonemeVocab()
+        #expect(vocab.ids(forPhonemes: " .\u{0000}") == [0, 16, 4, 0])
+    }
+
+    @Test func plannedMappingRejectsUnknownCharacters() throws {
+        let vocab = try KokoroPhonemeVocab()
+        #expect(throws: KokoroPhonemeVocab.EncodingError.unsupportedCharacters("\u{0000}")) {
+            try vocab.validatedIDs(forPhonemes: "hɛ\u{0000}loʊ")
+        }
     }
 
     @Test func wrapsEmptyStringInBosEosOnly() throws {
