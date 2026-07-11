@@ -110,9 +110,36 @@ there. Uses the existing `LibraryViewModel.siblingEditions(of:)` /
 
 ## Out of scope / follow-ups
 
-- Explicit "merge into read-along" action (approach B as a user-triggered flow).
 - ABS-side dedup beyond what title/author matching already provides.
 - No schema migration: V35 columns suffice.
+
+## Amendment A1 (approved 2026-07-10): "Use as Read-Along Text"
+
+User-triggered merge action on a grouped card: import the sibling epub's text
+under the AUDIO book's id so read-along works for the pair.
+
+- **Mechanics:** resolve the text edition's `.epub` (same id-shape handling as
+  `EpubMetadataResolver.metadata(forAudiobookID:)`: id is an epub file, a folder
+  containing one, or an expanded dir), then run
+  `EPUBImportCoordinator.importEPUB(from:to:databaseService:chapters:duration:)`
+  targeting the audio book's folder URL. Chapters come from the persisted
+  `chapter` rows, duration from the audio row — the book need not be open.
+  `DocumentImportFinalizer` then seeds anchors (sidecar → CloudKit → first/last),
+  so read-along interpolation works immediately.
+- **The standalone epub row is NOT deleted.** `flashcard`/`study_plan`/`note`/
+  `playback_state` all cascade on `audiobook.id` delete, so removing the row
+  could destroy user data. The row stays collapsed behind the card (existing
+  grouping); its own progress and cards remain valid.
+- **Visibility guard:** menu item shows only when the displayed card has audio,
+  the sibling has none, and the audio book has NO existing `epub_block` rows —
+  avoiding the coordinator's `force: true` block wipe and its companion-document
+  cleanup (which deletes other epub/pdf files in the target folder).
+- **Security scope:** root-backed books start the root bookmark's scope for both
+  source and target; direct-open sources that cannot be re-accessed surface a
+  user-facing error (no silent failure).
+- **New unit:** `ReadAlongMergeService` (concrete struct, injected
+  `DatabaseService`), exposed through `LibraryViewModel`; context-menu entries in
+  `LibraryCoverCell` (iOS) and `MacLibraryBookRow` (macOS).
 
 ## Docs impact
 

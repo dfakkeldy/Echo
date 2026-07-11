@@ -40,7 +40,12 @@ struct MacLibraryView: View {
                                             processing: libraryVM.statusMap[book.id]?.processing
                                                 ?? [],
                                             siblingEditions: libraryVM.siblingEditions(of: book),
+                                            readAlongCandidates: libraryVM.readAlongCandidates(
+                                                of: book),
                                             onSelectEdition: { libraryVM.open($0) },
+                                            onUseAsReadAlong: {
+                                                libraryVM.useAsReadAlongText($0, for: book)
+                                            },
                                             onSeparateEdition: { libraryVM.separateEdition(book) })
                                     }
                                     .buttonStyle(.plain)
@@ -199,7 +204,9 @@ private struct MacLibraryBookRow: View {
     let book: AudiobookRecord
     let processing: ProcessingStatus
     let siblingEditions: [AudiobookRecord]
+    let readAlongCandidates: [AudiobookRecord]
     let onSelectEdition: (AudiobookRecord) -> Void
+    let onUseAsReadAlong: (AudiobookRecord) -> Void
     let onSeparateEdition: () -> Void
 
     var body: some View {
@@ -237,6 +244,17 @@ private struct MacLibraryBookRow: View {
                     onSelectEdition(edition)
                 } label: {
                     Label("Open \(edition.title)", systemImage: editionIcon(for: edition))
+                }
+            }
+            if !readAlongCandidates.isEmpty {
+                Divider()
+                ForEach(readAlongCandidates, id: \.id) { edition in
+                    Button(
+                        "Use \(edition.title) as Read-Along Text",
+                        systemImage: "text.book.closed"
+                    ) {
+                        onUseAsReadAlong(edition)
+                    }
                 }
             }
             if book.editionGroupID?.isEmpty == false {

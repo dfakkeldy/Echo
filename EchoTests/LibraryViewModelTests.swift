@@ -163,6 +163,100 @@ struct LibraryViewModelTests {
         #expect(vm.sections.flatMap(\.books).map(\.id).sorted() == ["audio", "text"])
     }
 
+    @Test func readAlongCandidatesReturnTextSiblingForAudioCard() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "audio", title: "Dune", author: "Frank Herbert", duration: 100,
+                fileCount: 1, addedAt: "2026-07-05T00:00:00Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        try dao.save(
+            AudiobookRecord(
+                id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        let vm = LibraryViewModel(db: db, openBook: { _ in })
+
+        vm.reload()
+        let visible = try #require(vm.sections.first?.books.first)
+
+        #expect(visible.id == "audio")
+        #expect(vm.readAlongCandidates(of: visible).map(\.id) == ["text"])
+    }
+
+    @Test func readAlongCandidatesEmptyWhenAudioBookAlreadyHasText() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "audio", title: "Dune", author: "Frank Herbert", duration: 100,
+                fileCount: 1, addedAt: "2026-07-05T00:00:00Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        try dao.save(
+            AudiobookRecord(
+                id: "text", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        // The audio book already has an imported text block: offering the merge
+        // would wipe it (force: true), so the candidate list must be empty.
+        try EPubBlockDAO(db: db.writer).insert(
+            EPubBlockRecord(
+                id: "existing-block",
+                audiobookID: "audio",
+                spineHref: "chap01.xhtml",
+                spineIndex: 0,
+                blockIndex: 0,
+                sequenceIndex: 0,
+                blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+                text: "Existing text",
+                htmlContent: nil,
+                cardColor: nil,
+                chapterThemeColor: nil,
+                imagePath: nil,
+                chapterIndex: 0,
+                isHidden: false,
+                hiddenReason: nil,
+                isFrontMatter: false,
+                wordCount: 2,
+                markers: nil,
+                textFormats: nil,
+                createdAt: nil,
+                modifiedAt: nil
+            )
+        )
+        let vm = LibraryViewModel(db: db, openBook: { _ in })
+
+        vm.reload()
+        let visible = try #require(vm.sections.first?.books.first)
+
+        #expect(visible.id == "audio")
+        #expect(vm.readAlongCandidates(of: visible).isEmpty)
+    }
+
+    @Test func readAlongCandidatesEmptyForTextOnlyCard() throws {
+        let db = try DatabaseService(inMemory: ())
+        let dao = AudiobookDAO(db: db.writer)
+        try dao.save(
+            AudiobookRecord(
+                id: "text1", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: 0, addedAt: "2026-07-05T00:00:00Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        try dao.save(
+            AudiobookRecord(
+                id: "text2", title: "Dune", author: "Frank Herbert", duration: 0,
+                fileCount: 0, addedAt: "2026-07-05T00:00:01Z", isAvailable: true,
+                editionGroupID: "edition-dune"))
+        let vm = LibraryViewModel(db: db, openBook: { _ in })
+
+        vm.reload()
+        let visible = try #require(vm.sections.first?.books.first)
+
+        // The displayed card has no audio, so there is nothing to read along to.
+        #expect(!vm.siblingEditions(of: visible).isEmpty)
+        #expect(vm.readAlongCandidates(of: visible).isEmpty)
+    }
+
     @Test func openUnavailableBookStartsRecoveryInsteadOfOpening() throws {
         let db = try DatabaseService(inMemory: ())
         let book = AudiobookRecord(
