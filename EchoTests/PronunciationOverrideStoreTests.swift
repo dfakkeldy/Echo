@@ -60,13 +60,31 @@ import Testing
 
         let store = PronunciationOverrideStore(directory: tmp)
         try store.set(word: "Gandalf", ipa: "ɡˈændɑːlf")  // global
-        try store.set(word: "Gandalf", ipa: "ɡˈændælf", forBookID: "file:///Books/LOTR/")  // per-book wins
+        // Per-book wins.
+        try store.set(word: "Gandalf", ipa: "ɡˈændælf", forBookID: "file:///Books/LOTR/")
 
         let merged = store.overrides(forBookID: "file:///Books/LOTR/")
         #expect(merged.entries["Gandalf"] == "ɡˈændælf")
         // A different book sees only the global value.
         let other = store.overrides(forBookID: "file:///Books/Other/")
         #expect(other.entries["Gandalf"] == "ɡˈændɑːlf")
+    }
+
+    @MainActor
+    @Test func perBookEntryCaseInsensitivelyWinsOverBuiltInDefault() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let store = PronunciationOverrideStore(directory: tmp)
+        let bookID = "file:///Books/Startable/"
+        try store.set(word: "STARTABLE", ipa: "stˈɑɹtəbəl", forBookID: bookID)
+
+        let merged = store.overrides(forBookID: bookID)
+        let matchingKeys = merged.entries.keys.filter { $0.lowercased() == "startable" }
+        #expect(matchingKeys.count == 1)
+        #expect(merged.apply(to: "startable") == "[startable](/stˈɑɹtəbəl/)")
     }
 
     @MainActor

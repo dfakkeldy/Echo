@@ -55,6 +55,9 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: "Their lives changed.")
                 == "Their [lives](/lˈIvz/) changed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Their lives in Halifax changed.")
+                == "Their [lives](/lˈIvz/) in Halifax changed.")
     }
 
     @Test func resolvesRecordVerbNounAndCompoundNounContexts() {
@@ -85,6 +88,12 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: "Could record stores survive?")
                 == "Could [record](/ɹˈɛkəɹd/) stores survive?")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Record players became popular.")
+                == "[Record](/ɹˈɛkəɹd/) players became popular.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "They discussed record yesterday.")
+                == "They discussed record yesterday.")
         #expect(
             HomographPronunciationResolver.apply(to: "This recording is clear.")
                 == "This recording is clear.")

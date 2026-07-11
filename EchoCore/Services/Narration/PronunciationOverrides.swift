@@ -70,10 +70,16 @@ struct PronunciationOverrides {
         return false
     }
 
-    /// Merge two maps; `book` wins on key conflict.
+    /// Merge two maps case-insensitively; `book` wins on conflict.
     static func merging(global: [String: String], book: [String: String]) -> PronunciationOverrides
     {
-        PronunciationOverrides(entries: global.merging(book) { _, b in b })
+        var merged = global
+        for (word, ipa) in book.sorted(by: { $0.key < $1.key }) {
+            let foldedWord = word.lowercased()
+            merged = merged.filter { $0.key.lowercased() != foldedWord }
+            merged[word] = ipa
+        }
+        return PronunciationOverrides(entries: merged)
     }
 
     /// Pronunciations Echo always knows, independent of the user's dictionary.

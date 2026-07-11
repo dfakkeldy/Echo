@@ -68,7 +68,7 @@ nonisolated enum HomographPronunciationResolver {
         "that", "the", "their", "these", "this", "those", "your",
     ]
     private static let recordNounCompoundFollowers: Set<String> = [
-        "label", "labels", "player", "sales", "store", "stores",
+        "label", "labels", "player", "players", "sales", "store", "stores",
     ]
     private static let recordVerbPreceders: Set<String> = [
         "can", "could", "may", "might", "must", "please", "shall", "should", "to", "will",
