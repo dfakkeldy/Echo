@@ -752,7 +752,125 @@ import Testing
         #expect(retryCalls.allSatisfy { $0.text.count < text.count })
     }
 
-    @Test func partialLowQualityRetryFallsBackToOriginalChunk() async throws {
+    @Test func renderChapterDispatchesApprovedPlanThroughTTSEngine() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The filesystem stores the verified result."])
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": "fˈIl sˌɪstəm"]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        let call = try #require(engine.plannedCalls.first)
+        #expect(call.chunk.g2pInputText.contains("[filesystem](/fˈIl sˌɪstəm/)"))
+        #expect(call.chunk.phonemes.contains("fˈIl sˌɪstəm"))
+        #expect(call.chunk.displayText == "The filesystem stores the verified result.")
+    }
+
+    @Test func plannedQualityEvaluationUsesDisplayTextInsteadOfPronunciationMarkup() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["filesystem"])
+        let spacedIPA = "f ˈI l s ˌɪ s t ə m"
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": spacedIPA]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        #expect(engine.plannedCalls.count == 1)
+        #expect(engine.plannedCalls.first?.chunk.displayText == "filesystem")
+    }
+
+    @Test func qualityRetrySplitsOnlyTheResolvedPronunciationFragment() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "The filesystem stores alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let planned = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: ["filesystem": "fˈIl sˌɪstəm"])
+            ).blocks.first?.synthesisChunks.first)
+        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        engine.silentOnText = planned.g2pInputText
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": "fˈIl sˌɪstəm"]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        let retryCalls = engine.plannedCalls.dropFirst()
+        let link = "[filesystem](/fˈIl sˌɪstəm/)"
+        #expect(retryCalls.count > 1)
+        #expect(
+            retryCalls.reduce(0) {
+                $0 + $1.chunk.g2pInputText.components(separatedBy: link).count - 1
+            } == 1)
+        #expect(
+            retryCalls.allSatisfy {
+                $0.chunk.g2pInputText.contains("[filesystem]") == false
+                    || $0.chunk.g2pInputText.contains(link)
+            })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func qualityRetryTerminatesWhenOneAtomicLinkExceedsTheRetryBudget() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["filesystem"])
+        let longIPA = Array(repeating: "f", count: 40).joined(separator: " ")
+        let planned = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: ["filesystem": longIPA])
+            ).blocks.first?.synthesisChunks.first)
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        engine.silentOnText = planned.g2pInputText
+        let service = makeService(
+            db, tts: engine, writer: MockAudioWriter(),
+            overrides: { PronunciationOverrides(entries: ["filesystem": longIPA]) }
+        )
+
+        try await service.renderChapter(
+            chapterIndex: 0, blocks: blocks, voice: VoiceID("am_michael"))
+
+        #expect(engine.plannedCalls.count == 1)
+    }
+
+    @Test func retryAggregatesOnlyAcceptedPlannedFallbackEvidenceOnce() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text = "Jacqui met alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let planned = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: [:])
+            ).blocks.first?.synthesisChunks.first)
+        let fallback = try #require(
+            planned.pronunciationFallbackHits.first { $0.word.lowercased() == "jacqui" })
+        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        engine.silentOnText = planned.g2pInputText
+        let service = makeService(db, tts: engine, writer: MockAudioWriter())
+
+        let rendered = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        #expect(engine.plannedCalls.count > 1)
+        #expect(rendered.pronunciationFallbackHits.map(\.fallback) == [fallback])
+    }
+
+    @Test func exhaustedLowQualityRetryFallsBackToOriginalChunk() async throws {
         let db = try DatabaseService(inMemory: ())
         let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
         let blocks = try seed(db, [text])
@@ -760,13 +878,9 @@ import Testing
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:])
         ).blocks[0].synthesisChunks[0].g2pInputText
-        let retryTexts = NarrationTextChunker.split(
-            firstSegment,
-            maxChars: max(20, min(80, firstSegment.count / 2)))
-        #expect(retryTexts.count > 1)
 
         let mock = MockTTSEngine(secondsPerChar: 0.1)
-        mock.silentTexts = [firstSegment, retryTexts[0]]
+        mock.returnsSilenceForAllText = true
         let writer = MockAudioWriter()
         let svc = makeService(db, tts: mock, writer: writer)
 
@@ -778,6 +892,7 @@ import Testing
         let span = (anchors[0].audioEndTime ?? 0) - anchors[0].audioTime
         #expect(abs(span - Double(firstSegment.count) * 0.1) < 0.0001)
         #expect(writer.chunkCounts == [2])
+        #expect((2...4).contains(mock.plannedCalls.count))
     }
 
     @Test func rerenderingAChapterIsIdempotentAndUpdatesVoice() async throws {
