@@ -737,11 +737,9 @@ final class NarrationService {
             blocks,
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
-        let g2p = KokoroG2P()
         return try NarrationRenderPlanner.make(
             blocks: preparedBlocks,
-            overrides: overrides,
-            phonemeCount: g2p.phonemeCount(for:))
+            overrides: overrides)
     }
 
     private func prepareBlocksForRenderPlan(
@@ -796,11 +794,9 @@ final class NarrationService {
 
     private struct QualityRetryContext {
         let planner: PronunciationPlanner
-        let g2p: KokoroG2P
 
         init() throws {
             planner = try PronunciationPlanner()
-            g2p = KokoroG2P()
         }
     }
 
@@ -855,7 +851,7 @@ final class NarrationService {
         let retryFragments = NarrationTextChunker.splitResolved(
             rejected.plan.g2pInputText,
             maxPhonemes: retryMaxPhonemes,
-            phonemeCount: context.g2p.phonemeCount(for:))
+            phonemeCount: context.planner.phonemeCount(for:))
         guard retryFragments.count > 1 else {
             logger.error(
                 "Low-quality narration chunk could not be split for retry: \(String(describing: reason), privacy: .public)"

@@ -618,11 +618,9 @@ import Testing
     }
 
     private func plannedSpeechSegments(for blocks: [EPubBlockRecord]) throws -> [String] {
-        let g2p = KokoroG2P()
-        return try NarrationRenderPlanner.make(
+        try NarrationRenderPlanner.make(
             blocks: blocks,
-            overrides: PronunciationOverrides(entries: [:]),
-            phonemeCount: g2p.phonemeCount(for:)
+            overrides: PronunciationOverrides(entries: [:])
         ).blocks.flatMap { block in
             block.synthesisChunks.map(\.g2pInputText)
         }
