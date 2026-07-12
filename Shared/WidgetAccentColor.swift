@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-/// Platform-neutral RGB components used by the Watch app's SwiftUI color bridge.
+/// Platform-neutral RGB components used by the Watch app and widget colour bridges.
 nonisolated struct HexRGB: Equatable, Sendable {
     let red: Double
     let green: Double
@@ -14,5 +14,25 @@ nonisolated struct HexRGB: Equatable, Sendable {
         red = Double((value >> 16) & 0xFF) / 255
         green = Double((value >> 8) & 0xFF) / 255
         blue = Double(value & 0xFF) / 255
+    }
+}
+
+nonisolated enum WidgetProgressAccentStyle: Equatable, Sendable {
+    case systemTint
+    case cover(HexRGB)
+}
+
+nonisolated enum WidgetProgressAccentPolicy {
+    static func style(
+        accentHex: String?,
+        preservesExactCoverColor: Bool
+    ) -> WidgetProgressAccentStyle {
+        guard preservesExactCoverColor,
+            let accentHex,
+            let rgb = HexRGB(hex: accentHex)
+        else {
+            return .systemTint
+        }
+        return .cover(rgb)
     }
 }

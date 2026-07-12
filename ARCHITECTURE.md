@@ -1489,13 +1489,9 @@ near-white in real luminance while blue at the same L is dark. OKLab
 lightness is uniform across hues, which is what makes fixed tone recipes
 safe for every cover.
 
-**Integration:** `PlayerModel.coverTheme` (cached per artwork version +
-`uiColorScheme`); `PlayerModel.artworkAccentColor` remains the compatibility
-facade (nil for neutral covers so `?? .accentColor` fallbacks engage);
-`artworkAccentColorHex` sends the **dark-recipe** accent to the Watch app, which
-uses it directly. WidgetKit's `.accessoryCircular` family supports only accented
-and vibrant rendering, so the complication joins the system accent group and
-uses the palette selected by the watch face.
+**Integration:** `PlayerModel.coverTheme` (cached per artwork version + `uiColorScheme`); `PlayerModel.artworkAccentColor` remains the compatibility facade (nil for neutral covers so `?? .accentColor` fallbacks engage). `artworkAccentColorHex` sends the **dark-recipe** accent to the Watch app, which persists the explicit value or clear state in the App Group. The widget provider copies that value into `SimpleEntry`. `WidgetProgressAccentPolicy` permits the rectangular gauge to resolve exact RGB only when `widgetRenderingMode == .fullColor`; missing, cleared, malformed, accented, and vibrant cases use semantic system tint. The `.accessoryCircular` family always joins WidgetKit's system accent group because its shipping appearances do not preserve Echo's exact RGB.
+
+**Pomodoro presentation:** `PomodoroTimePresentation` is a platform-independent Watch value that turns the authoritative remaining interval into exactly two digits plus localized VoiceOver state. It shows upward-rounded hours above 60 minutes, minutes above 60 seconds, seconds through completion, and defensively saturates finite values above 99 hours. The Watch view renders those digits with a rounded semantic `ViewThatFits` hierarchy from `.title2` through `.caption`, preserving a large default presentation while adapting to control size and Dynamic Type without a fixed point size. `WatchProgressRingMetrics` owns the approved 5 pt side/top and 6 pt centre ring widths. Neither type changes Pomodoro timing, persistence, haptics, picker limits, or interaction handling.
 
 **History:** this replaced the `AccentSafetyNet` two-gate rescue ladder. Its
 ΔE76 chroma gate passed high-chroma/equal-luminance accents (bright gold on
