@@ -1,33 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import WidgetKit
-import SwiftUI
 import AppIntents
 import ImageIO
+import SwiftUI
+import WidgetKit
 
 struct Provider: TimelineProvider {
     private static let refreshInterval: TimeInterval = 60
 
     func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(date: Date(), title: "Book Title", isPlaying: false, progressFraction: 0.3, thumbnailData: nil)
+        SimpleEntry(
+            date: Date(), title: "Book Title", isPlaying: false, progressFraction: 0.3,
+            thumbnailData: nil)
     }
 
     // Helper to ensure image data isn't too large for the widget
     private func safelyDownsampledData(_ data: Data?) -> Data? {
         guard let data = data, let image = UIImage(data: data) else { return nil }
-        
+
         let maxSize: CGFloat = 60
         if image.size.width > maxSize || image.size.height > maxSize {
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxSize * 2.0 // retina scale
+                kCGImageSourceThumbnailMaxPixelSize: maxSize * 2.0,  // retina scale
             ]
             if let source = CGImageSourceCreateWithData(data as CFData, nil),
-               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                let cgImage = CGImageSourceCreateThumbnailAtIndex(
+                    source, 0, options as CFDictionary)
+            {
                 return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.75)
             }
         }
-        
+
         return data
     }
 
@@ -38,14 +42,16 @@ struct Provider: TimelineProvider {
         let progressFraction = defaults.double(forKey: "totalProgressFraction")
         let thumbnailData = safelyDownsampledData(defaults.data(forKey: "thumbnailData"))
 
-        return SimpleEntry(date: Date(), title: title, isPlaying: isPlaying, progressFraction: progressFraction, thumbnailData: thumbnailData)
+        return SimpleEntry(
+            date: Date(), title: title, isPlaying: isPlaying, progressFraction: progressFraction,
+            thumbnailData: thumbnailData)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
+    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> Void) {
         completion(currentEntry())
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> ()) {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> Void) {
         let entry = currentEntry()
         let nextUpdate = Date().addingTimeInterval(Self.refreshInterval)
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
@@ -64,17 +70,18 @@ struct SimpleEntry: TimelineEntry {
     }
 }
 
-struct Echo_WidgetEntryView : View {
-    @Environment(\.widgetFamily) var family
+struct Echo_WidgetEntryView: View {
     var entry: Provider.Entry
 
     var body: some View {
+        let progress = min(1, max(0, entry.progressFraction))
+
         ZStack {
             if let data = entry.thumbnailData, let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
-                    .clipShape(Circle())
+                    .clipShape(.circle)
                     .padding(4)
             } else {
                 Image(systemName: "music.note")
@@ -84,13 +91,14 @@ struct Echo_WidgetEntryView : View {
                 .stroke(.secondary.opacity(0.3), lineWidth: 4)
 
             Circle()
-                .trim(from: 0, to: entry.progressFraction)
+                .trim(from: 0, to: progress)
                 .stroke(.tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+                .widgetAccentable()
 
             GeometryReader { geo in
                 let radius = geo.size.width / 2
-                let angle = entry.progressFraction * 2 * .pi - .pi / 2
+                let angle = progress * 2 * .pi - .pi / 2
                 Circle()
                     .fill(.tint)
                     .frame(width: 6, height: 6)
@@ -98,10 +106,16 @@ struct Echo_WidgetEntryView : View {
                         x: radius + radius * CGFloat(cos(angle)),
                         y: radius + radius * CGFloat(sin(angle))
                     )
+                    .widgetAccentable()
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
         .widgetURL(URL(string: "echoaudio://play"))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(entry.title)
+        .accessibilityValue(
+            "\(entry.isPlaying ? String(localized: "Playing") : String(localized: "Paused")), "
+                + progress.formatted(.percent.precision(.fractionLength(0))))
     }
 }
 

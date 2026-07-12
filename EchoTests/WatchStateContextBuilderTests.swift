@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import Testing
+
 @testable import Echo
 
 @MainActor
@@ -26,6 +27,39 @@ struct WatchStateContextBuilderTests {
         #expect(ctx["trackId"] as? String == "track-1")
         #expect(ctx["folderKey"] as? String == "/books/dune")
         #expect(ctx["bookmarkStorageKey"] as? String == "/books/dune")
+    }
+
+    @Test("context carries the recency stamp the watch uses to drop stale snapshots")
+    func contextCarriesStateSeq() {
+        var older = WatchStateSnapshot()
+        older.contextSeq = 12_345.678
+        older.artworkSeq = 12_345.0
+        let olderCtx = WatchStateContextBuilder.build(from: older)
+        #expect(olderCtx["stateSeq"] as? Double == 12_345.678)
+        #expect(olderCtx["artworkSeq"] as? Double == 12_345.0)
+
+        var newer = WatchStateSnapshot()
+        newer.contextSeq = 12_346.0
+        let newerCtx = WatchStateContextBuilder.build(from: newer)
+        #expect((newerCtx["stateSeq"] as? Double ?? 0) > (olderCtx["stateSeq"] as? Double ?? 0))
+    }
+
+    @Test("recency sequence survives relaunch and a backward clock adjustment")
+    func stateSequenceIsPersistentlyMonotonic() throws {
+        let suiteName = "WatchStateSequenceGeneratorTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var generator = WatchStateSequenceGenerator(defaults: defaults)
+        let first = generator.next(now: Date(timeIntervalSinceReferenceDate: 500))
+        let afterClockRollback = generator.next(now: Date(timeIntervalSinceReferenceDate: 100))
+
+        var relaunchedGenerator = WatchStateSequenceGenerator(defaults: defaults)
+        let afterRelaunch = relaunchedGenerator.next(
+            now: Date(timeIntervalSinceReferenceDate: 99))
+
+        #expect(afterClockRollback > first)
+        #expect(afterRelaunch > afterClockRollback)
     }
 
     @Test("missing track ID is omitted from context")
@@ -178,6 +212,19 @@ struct WatchStateContextBuilderTests {
         #expect(WatchStateContextBuilder.build(from: snap)["hasThumbnail"] as? Bool == true)
     }
 
+    @Test("artwork accent is always present so neutral artwork clears stale color")
+    func artworkAccentIncludesExplicitClearValue() {
+        var snap = WatchStateSnapshot()
+        snap.artworkAccentColorHex = "#A1B2C3"
+        #expect(
+            WatchStateContextBuilder.build(from: snap)["artworkAccentColorHex"] as? String
+                == "#A1B2C3")
+
+        snap.artworkAccentColorHex = nil
+        #expect(
+            WatchStateContextBuilder.build(from: snap)["artworkAccentColorHex"] as? String == "")
+    }
+
     // MARK: - Sleep timer
 
     @Test("sleep timer off state is serialized correctly")
@@ -263,7 +310,8 @@ struct WatchStateContextBuilderTests {
         // Items beyond the first 10 should be excluded.
         #expect(!json!.contains("word11"))
         if let data = json!.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([WordFrequency].self, from: data) {
+            let decoded = try? JSONDecoder().decode([WordFrequency].self, from: data)
+        {
             #expect(decoded.count == 10)
         }
     }
@@ -275,7 +323,8 @@ struct WatchStateContextBuilderTests {
         var snap = WatchStateSnapshot()
         snap.dueFlashcards = [
             WatchFlashcard(id: "card-1", frontText: "What is the spice?", backText: "Melange"),
-            WatchFlashcard(id: "card-2", frontText: "Who are the Fremen?", backText: "Desert people"),
+            WatchFlashcard(
+                id: "card-2", frontText: "Who are the Fremen?", backText: "Desert people"),
         ]
 
         let ctx = WatchStateContextBuilder.build(from: snap)

@@ -51,6 +51,40 @@ struct WatchDurableContextPolicy {
     }
 }
 
+/// Deduplicates the large thumbnail transfer independently from complete state.
+/// Comparing the stable artwork sequence, data, and logical key lets regenerated
+/// base art replace an older image without requiring a track change. Explicit
+/// absence resets the remembered transfer so the same image can be sent again.
+struct WatchThumbnailTransferPolicy {
+    private var lastTransfer: (artworkKey: String, data: Data, artworkSequence: Double)?
+
+    mutating func payload(
+        artworkKey: String?, data: Data?, artworkSequence: Double?
+    ) -> [String: Any]? {
+        guard let artworkKey, let data, let artworkSequence,
+            artworkSequence.isFinite, artworkSequence > 0
+        else {
+            lastTransfer = nil
+            return nil
+        }
+
+        if let lastTransfer,
+            lastTransfer.artworkKey == artworkKey,
+            lastTransfer.data == data,
+            lastTransfer.artworkSequence == artworkSequence
+        {
+            return nil
+        }
+
+        lastTransfer = (artworkKey, data, artworkSequence)
+        return [
+            "artworkSeq": artworkSequence,
+            "artworkKey": artworkKey,
+            "thumbnailData": data,
+        ]
+    }
+}
+
 /// Manages bidirectional WatchConnectivity communication with the Apple Watch companion.
 ///
 /// Uses closure-based callbacks rather than a delegate protocol so PlayerModel can wire
@@ -87,7 +121,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
 
     // MARK: - Private State
 
-    private var lastSyncedArtworkKey: String?
+    private var thumbnailTransferPolicy = WatchThumbnailTransferPolicy()
     private var durableContextPolicy = WatchDurableContextPolicy()
 
     // MARK: - Init
@@ -169,22 +203,18 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
                 })
         }
 
-        sendThumbnailIfNeeded()
+        let artworkSequence = (context["artworkSeq"] as? NSNumber)?.doubleValue
+        sendThumbnailIfNeeded(artworkSequence: artworkSequence)
     }
 
-    private func sendThumbnailIfNeeded() {
+    private func sendThumbnailIfNeeded(artworkSequence: Double?) {
         let session = WCSession.default
         guard session.activationState == .activated,
             let (artworkKey, data) = thumbnailProvider?(),
-            let artworkKey, let data,
-            artworkKey != lastSyncedArtworkKey
+            let payload = thumbnailTransferPolicy.payload(
+                artworkKey: artworkKey, data: data, artworkSequence: artworkSequence)
         else { return }
 
-        lastSyncedArtworkKey = artworkKey
-        let payload: [String: Any] = [
-            "artworkKey": artworkKey,
-            "thumbnailData": data,
-        ]
         // Since thumbnail is large, transferUserInfo is still appropriate here
         // as updateApplicationContext overwrites and we don't want to lose the
         // main state payload. But we can merge it into a single context if we want.
@@ -264,14 +294,15 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         /// the watch. If a key is missing, the assertion fires so developers catch
         /// context drift at the source instead of debugging stale watch UIs.
         private let expectedContextKeys: Set<String> = [
-            "isPlaying", "progressFraction", "currentTime", "bookmarkStorageKey",
+            "isPlaying", "stateSeq", "artworkSeq", "progressFraction", "currentTime",
+            "bookmarkStorageKey",
             "folderKey", "title", "crownAction", "isHapticFeedbackEnabled",
             "watchQuickBookmarkTimeoutSeconds", "loopMode", "playbackSpeed",
             "seekBackwardDuration", "seekForwardDuration",
             "watchPage1", "watchPage2", "watchPage3", "watchPage4", "watchPage5",
             "linearBarMode", "linearBarHidden", "circularRingMode",
             "circularRingHidden", "watchArtworkLayout", "watchBackgroundStyle",
-            "watchTitleScrollEnabled",
+            "watchTitleScrollEnabled", "artworkAccentColorHex",
         ]
 
         private func assertExpectedKeys(in context: [String: Any]) {

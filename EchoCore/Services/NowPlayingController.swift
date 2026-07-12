@@ -152,11 +152,14 @@ final class NowPlayingController {
             info[MPMediaItemPropertyArtwork] = Self.artwork(from: image)
         }
 
-        info[MPNowPlayingInfoPropertyPlaybackRate] = params.isPaused ? 0.0 : params.playbackRate
-        // The system uses DefaultPlaybackRate to know what "1×" means for this item.
-        // Without it, Lock Screen / Control Center may show the wrong transport button
-        // after a playback-rate change (e.g. speed 2× → pause → Lock Screen still shows ⏸).
-        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+        let selectedPlaybackRate = Double(params.playbackRate)
+        info[MPNowPlayingInfoPropertyPlaybackRate] =
+            params.isPaused ? 0.0 : selectedPlaybackRate
+        // For spoken audio, the listener's selected speed is the item's normal rate.
+        // Advertising 1× here while playback was configured for 2× made iOS treat
+        // the rate transition as transport rather than pause, leaving the Lock Screen
+        // button stale after 2× → pause.
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = selectedPlaybackRate
 
         if let chapterIdx = params.chapterIndex {
             info[MPNowPlayingInfoPropertyChapterNumber] = chapterIdx + 1
@@ -172,7 +175,14 @@ final class NowPlayingController {
                 ? min(1, max(0, params.elapsed / params.duration)) : 0
         }
 
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        let center = MPNowPlayingInfoCenter.default()
+        center.nowPlayingInfo = info
+
+        #if os(macOS)
+            // Apple documents this explicit state property as macOS-only. iOS
+            // derives transport state from the playback-rate metadata above.
+            center.playbackState = params.isPaused ? .paused : .playing
+        #endif
     }
 
     /// MediaPlayer invokes the artwork request handler on its own queue. Build the

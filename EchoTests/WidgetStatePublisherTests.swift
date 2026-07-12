@@ -104,6 +104,19 @@
             #expect(defaults.data(forKey: "thumbnailData") == Data([0x01]))
         }
 
+        @Test("explicit thumbnail absence clears previously published artwork")
+        func explicitThumbnailAbsenceClearsExisting() {
+            let defaults = makeDefaults()
+            defaults.set(Data([0x01]), forKey: "thumbnailData")
+            let publisher = WidgetStatePublisher(defaults: defaults) {}
+
+            publisher.publish(
+                context: ["isPlaying": false, "hasThumbnail": false],
+                thumbnailData: nil)
+
+            #expect(defaults.object(forKey: "thumbnailData") == nil)
+        }
+
         // MARK: - Per-track bookmark position
 
         @Test("publishing a position writes the per-track key without reloading widgets")

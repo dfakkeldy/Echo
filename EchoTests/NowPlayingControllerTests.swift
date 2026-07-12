@@ -6,10 +6,13 @@ import UIKit
 @testable import Echo
 
 @MainActor
-@Suite struct NowPlayingControllerTests {
+@Suite(.serialized) struct NowPlayingControllerTests {
 
     @Test func artworkProviderCanBeRequestedOffMainActor() async throws {
         let controller = NowPlayingController()
+        let center = MPNowPlayingInfoCenter.default()
+        let previousInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = previousInfo }
 
         var params = NowPlayingController.NowPlayingParams()
         params.title = "Artwork isolation test"
@@ -32,7 +35,9 @@ import UIKit
 
     @Test func chapterNumberClearsWhenNextUpdateHasNoChapter() throws {
         let controller = NowPlayingController()
-        defer { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
+        let center = MPNowPlayingInfoCenter.default()
+        let previousInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = previousInfo }
 
         var chapteredParams = NowPlayingController.NowPlayingParams()
         chapteredParams.title = "Chaptered Book"
@@ -55,6 +60,43 @@ import UIKit
 
         let plainInfo = try #require(MPNowPlayingInfoCenter.default().nowPlayingInfo)
         #expect(plainInfo[MPNowPlayingInfoPropertyChapterNumber] == nil)
+    }
+
+    /// Regression guard for "Lock Screen shows the ⏸ (pause) button while playback
+    /// is already paused" after listening above 1×. On iOS the system infers state
+    /// from the current rate, while `DefaultPlaybackRate` identifies the user's
+    /// normal listening rate (rather than fast-forwarding).
+    @Test func playbackRatesFollowPauseFlagAtConfiguredSpeed() throws {
+        let controller = NowPlayingController()
+        let center = MPNowPlayingInfoCenter.default()
+        let previousInfo = center.nowPlayingInfo
+        defer { center.nowPlayingInfo = previousInfo }
+
+        var playing = NowPlayingController.NowPlayingParams()
+        playing.title = "Playing Book"
+        playing.duration = 100
+        playing.isPaused = false
+        playing.playbackRate = 2.0
+        controller.updateNowPlayingInfo(playing)
+        let playingInfo = try #require(MPNowPlayingInfoCenter.default().nowPlayingInfo)
+        #expect(
+            (playingInfo[MPNowPlayingInfoPropertyPlaybackRate] as? NSNumber)?.doubleValue == 2.0)
+        #expect(
+            (playingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] as? NSNumber)?.doubleValue
+                == 2.0)
+
+        var paused = NowPlayingController.NowPlayingParams()
+        paused.title = "Paused Book"
+        paused.duration = 100
+        paused.isPaused = true
+        paused.playbackRate = 2.0
+        controller.updateNowPlayingInfo(paused)
+        let pausedInfo = try #require(MPNowPlayingInfoCenter.default().nowPlayingInfo)
+        #expect(
+            (pausedInfo[MPNowPlayingInfoPropertyPlaybackRate] as? NSNumber)?.doubleValue == 0.0)
+        #expect(
+            (pausedInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] as? NSNumber)?.doubleValue
+                == 2.0)
     }
 }
 

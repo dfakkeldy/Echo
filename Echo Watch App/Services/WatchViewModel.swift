@@ -122,8 +122,9 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var currentSpeedIndex: Int = 0
     var playbackSpeed: Double { availableSpeeds[currentSpeedIndex] }
 
-    @ObservationIgnored private let defaults = AppGroupDefaults.shared
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var wakeRefreshPolicy = WatchWakeRefreshPolicy()
+    @ObservationIgnored private var stateRecencyPolicy: WatchStateRecencyPolicy
 
     /// Debounce widget timeline reloads to at most once per 30 seconds,
     /// instead of firing on every `applyState` call (which can happen
@@ -258,9 +259,31 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-    override init() {
+    override convenience init() {
+        self.init(defaults: AppGroupDefaults.shared, migrateStandardDefaults: true)
+    }
+
+    init(defaults: UserDefaults, migrateStandardDefaults: Bool = false) {
+        self.defaults = defaults
+        let persistedSequence =
+            (defaults.object(forKey: WatchStateRecencyPolicy.persistedSequenceKey) as? NSNumber)?
+            .doubleValue
+        let persistedArtworkSequence =
+            (defaults.object(forKey: WatchStateRecencyPolicy.persistedArtworkSequenceKey)
+            as? NSNumber)?
+            .doubleValue
+        let persistedThumbnailSequence =
+            (defaults.object(forKey: WatchStateRecencyPolicy.persistedThumbnailSequenceKey)
+            as? NSNumber)?
+            .doubleValue
+        stateRecencyPolicy = WatchStateRecencyPolicy(
+            lastAppliedSequence: persistedSequence,
+            latestArtworkSequence: persistedArtworkSequence,
+            lastAppliedThumbnailSequence: persistedThumbnailSequence)
         super.init()
-        AppGroupDefaults.migrateStandardDefaultsIfNeeded()
+        if migrateStandardDefaults {
+            AppGroupDefaults.migrateStandardDefaultsIfNeeded()
+        }
         loadPersistedState()
         if WCSession.isSupported(),
             ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
@@ -397,7 +420,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         guard session.activationState == .activated else { return }
         let payload = WatchConnectivityDictionary(value: message)
         Task { @MainActor [weak self, payload] in
-            self?.applyState(payload.value)
+            self?.applyState(payload.value, source: .liveMessage)
         }
     }
 
@@ -412,17 +435,16 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         let payload = WatchConnectivityDictionary(value: message)
         let reply = WatchConnectivityReplyHandler(value: replyHandler)
         Task { @MainActor [weak self, payload, reply] in
-            self?.applyState(payload.value)
+            self?.applyState(payload.value, source: .liveMessage)
             reply(["handled": true])
         }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any])
-    {
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         guard session.activationState == .activated else { return }
         let payload = WatchConnectivityDictionary(value: userInfo)
         Task { @MainActor [weak self, payload] in
-            self?.applyState(payload.value)
+            self?.applyReceivedUserInfo(payload.value)
             // userInfo deliveries can be minutes stale (queued while unreachable).
             // Request the phone's current state so the watch converges to the
             // authoritative position instead of displaying an outdated snapshot.
@@ -430,9 +452,31 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
     }
 
-    private func applyState(_ state: [String: Any]) {
-        guard !state.isEmpty else { return }
-        Task { @MainActor in
+    @discardableResult
+    private func applyState(
+        _ state: [String: Any], source: WatchStateDeliverySource
+    ) -> Bool {
+        guard !state.isEmpty else { return false }
+        guard stateRecencyPolicy.shouldApply(state, source: source) else { return false }
+        if let sequence = stateRecencyPolicy.lastAppliedSequence {
+            defaults.set(sequence, forKey: WatchStateRecencyPolicy.persistedSequenceKey)
+        }
+        if let sequence = stateRecencyPolicy.latestArtworkSequence {
+            defaults.set(sequence, forKey: WatchStateRecencyPolicy.persistedArtworkSequenceKey)
+        }
+        if let sequence = stateRecencyPolicy.lastAppliedThumbnailSequence {
+            defaults.set(sequence, forKey: WatchStateRecencyPolicy.persistedThumbnailSequenceKey)
+        }
+
+        let shouldReloadWidgetImmediately = WatchWidgetReloadPolicy.shouldReload(
+            state: state,
+            currentIsPlaying: isPlaying,
+            currentTrackId: trackId,
+            currentAccentHex: artworkAccentColorHex,
+            hasCachedThumbnail: thumbnailImage != nil
+                || defaults.data(forKey: "thumbnailData") != nil)
+
+        do {
             let previousTrackId = self.trackId
 
             if let crownAction = state["crownAction"] as? String {
@@ -617,16 +661,22 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 if let image = UIImage(data: thumbnailData) {
                     self.thumbnailImage = image
                 }
-            } else if state["trackId"] != nil, self.trackId != previousTrackId {
-                // Track changed — the old thumbnail is stale. Clear it so the
-                // placeholder shows until the iPhone sends a fresh thumbnail
-                // payload for the new track.
+            } else if state["hasThumbnail"] as? Bool == false
+                || (state["trackId"] != nil && self.trackId != previousTrackId)
+            {
+                // An explicit absence or track change makes the cached image
+                // stale. Show the placeholder until a fresh transfer arrives.
                 self.defaults.removeObject(forKey: "thumbnailData")
                 self.thumbnailImage = nil
             }
             if let accentHex = state["artworkAccentColorHex"] as? String {
-                self.artworkAccentColorHex = accentHex
-                self.defaults.set(accentHex, forKey: "artworkAccentColorHex")
+                if accentHex.isEmpty {
+                    self.artworkAccentColorHex = nil
+                    self.defaults.removeObject(forKey: "artworkAccentColorHex")
+                } else {
+                    self.artworkAccentColorHex = accentHex
+                    self.defaults.set(accentHex, forKey: "artworkAccentColorHex")
+                }
             } else if state["trackId"] != nil, self.trackId != previousTrackId {
                 self.artworkAccentColorHex = nil
                 self.defaults.removeObject(forKey: "artworkAccentColorHex")
@@ -649,11 +699,14 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.playHaptic(.success)
             }
             let now = Date()
-            if now.timeIntervalSince(self.lastWidgetReload) >= 30 {
+            if shouldReloadWidgetImmediately
+                || now.timeIntervalSince(self.lastWidgetReload) >= 30
+            {
                 self.lastWidgetReload = now
                 WidgetCenter.shared.reloadTimelines(ofKind: "Echo_Widget")
             }
             self.updatePlaybackTimer()
+            return true
         }
     }
 
@@ -680,8 +733,13 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     @discardableResult
     func applyReceivedApplicationContext(_ applicationContext: [String: Any]) -> Bool {
         guard !applicationContext.isEmpty else { return false }
-        applyState(applicationContext)
-        return true
+        return applyState(applicationContext, source: .applicationContext)
+    }
+
+    @discardableResult
+    func applyReceivedUserInfo(_ userInfo: [String: Any]) -> Bool {
+        guard !userInfo.isEmpty else { return false }
+        return applyState(userInfo, source: .queuedUserInfo)
     }
 
     @discardableResult
@@ -706,7 +764,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             replyHandler: { @Sendable reply in
                 let payload = WatchConnectivityDictionary(value: reply)
                 Task { @MainActor [weak self, payload] in
-                    self?.applyState(payload.value)
+                    self?.applyState(payload.value, source: .liveMessage)
                 }
             },
             errorHandler: { @Sendable error in
@@ -764,7 +822,7 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 let payload = WatchConnectivityDictionary(value: reply)
                 Task { @MainActor [weak self, payload] in
                     self?.clearPendingRollback()
-                    self?.applyState(payload.value)
+                    self?.applyState(payload.value, source: .liveMessage)
                     if Self.isDirectionalCommand(command),
                         self?.loopMode == "bookmark",
                         payload.value["commandResult"] as? String != "bookmarkJump"
@@ -1130,20 +1188,7 @@ enum WatchBookmarkError: LocalizedError {
 
 extension Color {
     init?(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        guard Scanner(string: hex).scanHexInt64(&int) else { return nil }
-        let r: Double
-        let g: Double
-        let b: Double
-        switch hex.count {
-        case 6:
-            r = Double((int >> 16) & 0xFF) / 255
-            g = Double((int >> 8) & 0xFF) / 255
-            b = Double(int & 0xFF) / 255
-        default:
-            return nil
-        }
-        self.init(red: r, green: g, blue: b)
+        guard let rgb = HexRGB(hex: hex) else { return nil }
+        self.init(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 }

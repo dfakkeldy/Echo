@@ -8,8 +8,11 @@
 
 import Foundation
 import Testing
+import UIKit
+
 @testable import Echo_Watch_App
 
+@Suite(.serialized)
 struct Echo_Watch_AppTests {
 
     @Test func watchActionCommandsMatchPhoneCommandNames() {
@@ -38,7 +41,9 @@ struct Echo_Watch_AppTests {
         let oldString = "skipBackward,nope,playPause"
 
         // Simulate the migration path: parse old comma-separated string
-        let parsed = oldString.split(separator: ",").compactMap { WatchAction(rawValue: String($0)) }
+        let parsed = oldString.split(separator: ",").compactMap {
+            WatchAction(rawValue: String($0))
+        }
         var padded = Array(parsed.prefix(5))
         while padded.count < 5 { padded.append(.empty) }
 
@@ -77,22 +82,263 @@ struct Echo_Watch_AppTests {
     }
 
     @MainActor
-    @Test func receivedApplicationContextUpdatesWatchState() async {
-        let viewModel = WatchViewModel()
+    @Test func receivedApplicationContextUpdatesWatchState() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = WatchViewModel(defaults: defaults)
         let applied = viewModel.applyReceivedApplicationContext([
+            "stateSeq": 1.0,
             "title": "Updated on iPhone",
             "currentTime": 42.0,
             "totalProgressFraction": 0.25,
-            "progressFraction": 0.5
+            "progressFraction": 0.5,
         ])
-
-        await Task.yield()
 
         #expect(applied)
         #expect(viewModel.title == "Updated on iPhone")
         #expect(viewModel.currentTime == 42.0)
         #expect(viewModel.totalProgressFraction == 0.25)
         #expect(viewModel.progressFraction == 0.5)
+    }
+
+    @Test func snapshotRecencyRejectsOlderEqualAndLegacyFullState() {
+        var policy = WatchStateRecencyPolicy()
+
+        let acceptedFirst = policy.shouldApply(
+            ["stateSeq": 10.0, "artworkSeq": 9.0, "isPlaying": false],
+            source: .applicationContext)
+        let acceptedDuplicate = policy.shouldApply(
+            ["stateSeq": 10.0, "isPlaying": true], source: .liveMessage)
+        let acceptedOlder = policy.shouldApply(
+            ["stateSeq": 9.0, "isPlaying": true], source: .applicationContext)
+        let acceptedLegacyState = policy.shouldApply(
+            [
+                "isPlaying": true, "title": "Queued old state",
+            ], source: .queuedUserInfo)
+        let acceptedThumbnail = policy.shouldApply(
+            [
+                "artworkSeq": 9.0,
+                "artworkKey": "cover",
+                "thumbnailData": Data([0x01]),
+            ], source: .queuedUserInfo)
+        let acceptedNewer = policy.shouldApply(
+            ["stateSeq": 11.0, "isPlaying": true], source: .liveMessage)
+
+        #expect(acceptedFirst)
+        #expect(!acceptedDuplicate)
+        #expect(!acceptedOlder)
+        #expect(!acceptedLegacyState)
+        #expect(acceptedThumbnail)
+        #expect(acceptedNewer)
+    }
+
+    @Test func staleQueuedThumbnailCannotRestoreArtworkAfterNewerClear() {
+        var policy = WatchStateRecencyPolicy()
+
+        let acceptedInitialState = policy.shouldApply(
+            ["stateSeq": 20.0, "artworkSeq": 19.0, "hasThumbnail": true],
+            source: .applicationContext)
+        let acceptedInitialThumbnail = policy.shouldApply(
+            [
+                "artworkSeq": 19.0,
+                "artworkKey": "track#base",
+                "thumbnailData": Data([0x01]),
+            ], source: .queuedUserInfo)
+        let acceptedClear = policy.shouldApply(
+            ["stateSeq": 22.0, "artworkSeq": 21.0, "hasThumbnail": false],
+            source: .applicationContext)
+        let acceptedStaleThumbnail = policy.shouldApply(
+            [
+                "artworkSeq": 19.0,
+                "artworkKey": "track#base",
+                "thumbnailData": Data([0x01]),
+            ], source: .queuedUserInfo)
+
+        #expect(acceptedInitialState)
+        #expect(acceptedInitialThumbnail)
+        #expect(acceptedClear)
+        #expect(!acceptedStaleThumbnail)
+    }
+
+    @Test func thumbnailAndCompleteSnapshotsShareOneOrderingBoundary() {
+        var policy = WatchStateRecencyPolicy(lastAppliedSequence: 30.0)
+
+        let acceptedThumbnail = policy.shouldApply(
+            [
+                "artworkSeq": 32.0,
+                "artworkKey": "track#base",
+                "thumbnailData": Data([0x02]),
+            ], source: .queuedUserInfo)
+        let acceptedOlderFullState = policy.shouldApply(
+            ["stateSeq": 31.0, "isPlaying": true], source: .liveMessage)
+        let acceptedMatchingFullState = policy.shouldApply(
+            ["stateSeq": 33.0, "artworkSeq": 32.0, "isPlaying": false],
+            source: .applicationContext)
+
+        #expect(acceptedThumbnail)
+        #expect(!acceptedOlderFullState)
+        #expect(acceptedMatchingFullState)
+    }
+
+    @Test func explicitThumbnailClearRequestsImmediateWidgetReload() {
+        #expect(
+            WatchWidgetReloadPolicy.shouldReload(
+                state: ["hasThumbnail": false],
+                currentIsPlaying: false,
+                currentTrackId: "same-track",
+                currentAccentHex: nil,
+                hasCachedThumbnail: true))
+        #expect(
+            !WatchWidgetReloadPolicy.shouldReload(
+                state: ["hasThumbnail": false],
+                currentIsPlaying: false,
+                currentTrackId: "same-track",
+                currentAccentHex: nil,
+                hasCachedThumbnail: false))
+    }
+
+    @Test func queuedLegacyFullStateIsRejectedBeforeAnyStampedSnapshot() {
+        var policy = WatchStateRecencyPolicy()
+
+        let acceptedQueuedState = policy.shouldApply(
+            [
+                "isPlaying": true,
+                "title": "Old queued state",
+            ], source: .queuedUserInfo)
+        let acceptedLegacyContext = policy.shouldApply(
+            [
+                "isPlaying": false,
+                "title": "Current legacy state",
+            ], source: .applicationContext)
+
+        #expect(!acceptedQueuedState)
+        #expect(acceptedLegacyContext)
+    }
+
+    @MainActor
+    @Test func queuedUserInfoCannotRestickPlayingStateBeforeFirstSnapshot() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = WatchViewModel(defaults: defaults)
+
+        #expect(
+            !viewModel.applyReceivedUserInfo([
+                "isPlaying": true,
+                "title": "Old queued state",
+            ]))
+
+        #expect(!viewModel.isPlaying)
+        #expect(viewModel.title != "Old queued state")
+    }
+
+    @MainActor
+    @Test func olderSnapshotCannotRestickPlayingState() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = WatchViewModel(defaults: defaults)
+
+        #expect(
+            viewModel.applyReceivedApplicationContext([
+                "stateSeq": 20.0, "isPlaying": false, "title": "Paused",
+            ]))
+        #expect(
+            !viewModel.applyReceivedApplicationContext([
+                "stateSeq": 19.0, "isPlaying": true, "title": "Stale playing",
+            ]))
+
+        #expect(!viewModel.isPlaying)
+        #expect(viewModel.title == "Paused")
+    }
+
+    @MainActor
+    @Test func sameTrackNeutralArtworkClearsPersistedAccent() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = WatchViewModel(defaults: defaults)
+
+        #expect(
+            viewModel.applyReceivedApplicationContext([
+                "stateSeq": 30.0,
+                "trackId": "same-track",
+                "artworkAccentColorHex": "#A1B2C3",
+            ]))
+        #expect(viewModel.artworkAccentColorHex == "#A1B2C3")
+
+        #expect(
+            viewModel.applyReceivedApplicationContext([
+                "stateSeq": 31.0,
+                "trackId": "same-track",
+                "artworkAccentColorHex": "",
+            ]))
+        #expect(viewModel.artworkAccentColorHex == nil)
+        #expect(defaults.object(forKey: "artworkAccentColorHex") == nil)
+    }
+
+    @MainActor
+    @Test func explicitThumbnailAbsenceClearsSameTrackArtwork() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = WatchViewModel(defaults: defaults)
+        let thumbnailData = try #require(UIImage(systemName: "book")?.pngData())
+
+        #expect(
+            viewModel.applyReceivedApplicationContext([
+                "stateSeq": 39.0,
+                "artworkSeq": 38.0,
+                "trackId": "same-track",
+                "hasThumbnail": true,
+            ]))
+        #expect(
+            viewModel.applyReceivedUserInfo([
+                "artworkSeq": 38.0,
+                "artworkKey": "same-track#base",
+                "thumbnailData": thumbnailData,
+            ]))
+        #expect(viewModel.thumbnailImage != nil)
+
+        #expect(
+            viewModel.applyReceivedApplicationContext([
+                "stateSeq": 41.0,
+                "artworkSeq": 40.0,
+                "trackId": "same-track",
+                "hasThumbnail": false,
+            ]))
+
+        #expect(viewModel.thumbnailImage == nil)
+        #expect(defaults.object(forKey: "thumbnailData") == nil)
+
+        #expect(
+            !viewModel.applyReceivedUserInfo([
+                "artworkSeq": 38.0,
+                "artworkKey": "same-track#base",
+                "thumbnailData": thumbnailData,
+            ]))
+        #expect(viewModel.thumbnailImage == nil)
+        #expect(defaults.object(forKey: "thumbnailData") == nil)
+    }
+
+    @MainActor
+    @Test func artworkOrderingPersistsAcrossWatchRelaunch() throws {
+        let (defaults, suiteName) = try Self.testDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let firstViewModel = WatchViewModel(defaults: defaults)
+        #expect(
+            firstViewModel.applyReceivedApplicationContext([
+                "stateSeq": 51.0,
+                "artworkSeq": 50.0,
+                "hasThumbnail": false,
+            ]))
+        #expect(
+            defaults.double(forKey: WatchStateRecencyPolicy.persistedArtworkSequenceKey) == 50)
+
+        let relaunchedViewModel = WatchViewModel(defaults: defaults)
+        #expect(
+            !relaunchedViewModel.applyReceivedUserInfo([
+                "artworkSeq": 49.0,
+                "artworkKey": "stale#base",
+                "thumbnailData": Data([0x01]),
+            ]))
     }
 
     @Test func newBookmarkVoiceMemoButtonIsDoubleTapPrimaryAction() throws {
@@ -103,7 +349,9 @@ struct Echo_Watch_AppTests {
             until: "struct MarqueeText: View"
         )
 
-        #expect(newBookmarkView.contains("recorder.isRecording ? saveVoiceMemo() : startVoiceBookmark()"))
+        #expect(
+            newBookmarkView.contains(
+                "recorder.isRecording ? saveVoiceMemo() : startVoiceBookmark()"))
         #expect(newBookmarkView.contains(".handGestureShortcut(.primaryAction)"))
     }
 
@@ -111,14 +359,24 @@ struct Echo_Watch_AppTests {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let candidate = root
+        let candidate =
+            root
             .appendingPathComponent("Echo Watch App")
             .appendingPathComponent("Views")
             .appendingPathComponent(fileName)
         return try String(contentsOf: candidate, encoding: .utf8)
     }
 
-    private static func slice(of source: String, after start: String, until end: String) throws -> String {
+    private static func testDefaults() throws -> (UserDefaults, String) {
+        let suiteName = "EchoWatchAppTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
+    }
+
+    private static func slice(of source: String, after start: String, until end: String) throws
+        -> String
+    {
         let startRange = try #require(source.range(of: start))
         let endRange = try #require(source[startRange.upperBound...].range(of: end))
         return String(source[startRange.upperBound..<endRange.lowerBound])

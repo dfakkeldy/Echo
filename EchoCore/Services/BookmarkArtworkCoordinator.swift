@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import UIKit
 import Observation
+import UIKit
 import os.log
 
 // MARK: - BookmarkArtworkCoordinator
@@ -54,13 +54,7 @@ final class BookmarkArtworkCoordinator {
 
         guard let sourceImage else {
             await MainActor.run {
-                state?.thumbnailImage = nil
-                state?.currentDisplayArtwork = nil
-                state?.watchThumbnailData = nil
-                baseWatchThumbnailData = nil
-                currentDisplayArtworkKey = nil
-                onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
-                onSyncToWatch?()
+                clearUnavailableArtwork()
             }
             return
         }
@@ -90,18 +84,21 @@ final class BookmarkArtworkCoordinator {
         let trackId = trackIDProvider?()
         let folderURL = folderURLProvider?()
 
-        let activeBookmark = BookmarkStore.activeArtworkBookmark(from: bookmarks, at: currentTime, trackId: trackId)
-        let nextKey = activeBookmark.flatMap { bookmark -> String? in
-            guard let fileName = bookmark.bookmarkImageFileName else { return nil }
-            return "bookmark:\(bookmark.id.uuidString):\(fileName)"
-        } ?? "base"
+        let activeBookmark = BookmarkStore.activeArtworkBookmark(
+            from: bookmarks, at: currentTime, trackId: trackId)
+        let nextKey =
+            activeBookmark.flatMap { bookmark -> String? in
+                guard let fileName = bookmark.bookmarkImageFileName else { return nil }
+                return "bookmark:\(bookmark.id.uuidString):\(fileName)"
+            } ?? "base"
 
         guard force || nextKey != currentDisplayArtworkKey else { return }
         currentDisplayArtworkKey = nextKey
 
         if let activeBookmark,
-           let fileName = activeBookmark.bookmarkImageFileName,
-           let imageURL = activeBookmark.bookmarkImageURL(in: folderURL) {
+            let fileName = activeBookmark.bookmarkImageFileName,
+            let imageURL = activeBookmark.bookmarkImageURL(in: folderURL)
+        {
             let cacheKey = imageURL.path
             if let cached = bookmarkArtworkCache[cacheKey] {
                 state?.currentDisplayArtwork = cached.image
@@ -121,9 +118,9 @@ final class BookmarkArtworkCoordinator {
             state?.watchThumbnailData = baseWatchThumbnailData
         }
 
+        state?.currentDisplayArtworkVersion += 1
         onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
         onSyncToWatch?()
-        state?.currentDisplayArtworkVersion += 1
     }
 
     // MARK: - Helpers
@@ -135,8 +132,24 @@ final class BookmarkArtworkCoordinator {
     func invalidateCache() {
         bookmarkArtworkCache.removeAll()
         baseWatchThumbnailData = nil
+        clearDisplayArtwork()
+    }
+
+    /// Publishes the absence of artwork after all source fallbacks fail.
+    /// Internal so tests can pin callback ordering without depending on app-icon
+    /// resources in the unit-test host.
+    func clearUnavailableArtwork() {
+        state?.thumbnailImage = nil
+        baseWatchThumbnailData = nil
+        clearDisplayArtwork()
+        onUpdateNowPlaying?(!(isPlayingProvider?() ?? false))
+        onSyncToWatch?()
+    }
+
+    private func clearDisplayArtwork() {
         currentDisplayArtworkKey = nil
         state?.currentDisplayArtwork = nil
         state?.watchThumbnailData = nil
+        state?.currentDisplayArtworkVersion += 1
     }
 }

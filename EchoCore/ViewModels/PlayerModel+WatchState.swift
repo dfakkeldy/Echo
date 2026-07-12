@@ -23,6 +23,15 @@ extension PlayerModel {
 
         // Playback state
         s.isPlaying = isPlaying
+        if lastWatchArtworkVersion != state.currentDisplayArtworkVersion {
+            lastWatchArtworkVersion = state.currentDisplayArtworkVersion
+            watchArtworkSequence = watchStateSequenceGenerator.next()
+        }
+        s.artworkSeq = watchArtworkSequence
+        // Every context — significant, progress, and command reply — gets a
+        // persisted, strictly increasing token after the transport state has
+        // changed, so the watch can reject cross-channel reordering safely.
+        s.contextSeq = watchStateSequenceGenerator.next()
         s.progressFraction = progressFraction
         s.currentPlaybackTime = cumulativePlaybackTime
         s.currentIndex = currentIndex
