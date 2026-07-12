@@ -34,13 +34,18 @@ struct PomodoroButton: View {
             viewModel.togglePomodoro()
         } label: {
             ZStack {
+                WatchControlBackground(shape: Circle())
+                    .frame(width: controlSize, height: controlSize)
+
                 // Background track
                 Circle()
+                    .inset(by: strokeWidth / 2)
                     .stroke(Color.white.opacity(0.2), lineWidth: strokeWidth)
                     .frame(width: activeRingSize, height: activeRingSize)
 
                 // Active progress track
                 Circle()
+                    .inset(by: strokeWidth / 2)
                     .trim(from: 0, to: ringProgress)
                     .stroke(
                         viewModel.pomodoroActive
@@ -59,10 +64,6 @@ struct PomodoroButton: View {
                 }
                 .foregroundStyle(.white)
                 .frame(width: controlSize, height: controlSize)
-                .background {
-                    WatchControlBackground(shape: Circle())
-                }
-                .clipShape(.circle)
             }
             .contentShape(.circle)
         }

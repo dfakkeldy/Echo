@@ -13,6 +13,14 @@ struct WatchPomodoroAccessibilitySourceTests {
         #expect(source.contains("textStyle: .caption"))
         #expect(source.contains(".system(textStyle"))
         #expect(!source.contains(".system(size:"))
+        #expect(
+            source.components(separatedBy: ".inset(by: strokeWidth / 2)").count == 3
+        )
+        let background = try #require(
+            source.range(of: "WatchControlBackground(shape: Circle())")
+        )
+        let track = try #require(source.range(of: "// Background track"))
+        #expect(background.lowerBound < track.lowerBound)
         #expect(source.contains(".accessibilityLabel(\"Pomodoro timer\")"))
         #expect(source.contains(".accessibilityValue("))
         #expect(source.contains("presentation.accessibilityHint"))
