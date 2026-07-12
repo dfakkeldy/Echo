@@ -73,55 +73,6 @@ struct SimpleEntry: TimelineEntry {
     }
 }
 
-struct Echo_WidgetEntryView: View {
-    var entry: Provider.Entry
-
-    var body: some View {
-        let progress = min(1, max(0, entry.progressFraction))
-
-        ZStack {
-            if let data = entry.thumbnailData, let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .clipShape(.circle)
-                    .padding(4)
-            } else {
-                Image(systemName: "music.note")
-            }
-
-            Circle()
-                .stroke(.secondary.opacity(0.3), lineWidth: 4)
-
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(.tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .widgetAccentable()
-
-            GeometryReader { geo in
-                let radius = geo.size.width / 2
-                let angle = progress * 2 * .pi - .pi / 2
-                Circle()
-                    .fill(.tint)
-                    .frame(width: 6, height: 6)
-                    .position(
-                        x: radius + radius * CGFloat(cos(angle)),
-                        y: radius + radius * CGFloat(sin(angle))
-                    )
-                    .widgetAccentable()
-            }
-        }
-        .containerBackground(.fill.tertiary, for: .widget)
-        .widgetURL(URL(string: "echoaudio://play"))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.title)
-        .accessibilityValue(
-            "\(entry.isPlaying ? String(localized: "Playing") : String(localized: "Paused")), "
-                + progress.formatted(.percent.precision(.fractionLength(0))))
-    }
-}
-
 struct Echo_Widget: Widget {
     let kind: String = "Echo_Widget"
 
@@ -130,7 +81,7 @@ struct Echo_Widget: Widget {
             Echo_WidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Echo")
-        .description("Quick access to your current audiobook.")
-        .supportedFamilies([.accessoryCircular])
+        .description("Current audiobook and progress at a glance.")
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
