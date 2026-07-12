@@ -10,7 +10,7 @@ struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> SimpleEntry {
         SimpleEntry(
             date: Date(), title: "Book Title", isPlaying: false, progressFraction: 0.3,
-            thumbnailData: nil)
+            thumbnailData: nil, artworkAccentColorHex: "#FF8000")
     }
 
     // Helper to ensure image data isn't too large for the widget
@@ -41,10 +41,11 @@ struct Provider: TimelineProvider {
         let isPlaying = defaults.bool(forKey: "isPlaying")
         let progressFraction = defaults.double(forKey: "totalProgressFraction")
         let thumbnailData = safelyDownsampledData(defaults.data(forKey: "thumbnailData"))
+        let artworkAccentColorHex = defaults.string(forKey: "artworkAccentColorHex")
 
         return SimpleEntry(
             date: Date(), title: title, isPlaying: isPlaying, progressFraction: progressFraction,
-            thumbnailData: thumbnailData)
+            thumbnailData: thumbnailData, artworkAccentColorHex: artworkAccentColorHex)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> Void) {
@@ -65,6 +66,8 @@ struct SimpleEntry: TimelineEntry {
     let isPlaying: Bool
     let progressFraction: Double
     let thumbnailData: Data?
+    let artworkAccentColorHex: String?
+
     var relevance: TimelineEntryRelevance? {
         TimelineEntryRelevance(score: isPlaying ? 100.0 : 0.0)
     }
