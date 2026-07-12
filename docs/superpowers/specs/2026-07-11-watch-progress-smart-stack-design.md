@@ -108,9 +108,13 @@ and ring animation remain unchanged.
 ## Adaptive Two-Digit Pomodoro Display
 
 Replace the current `HH:MM`/`MM:SS` text with exactly two monospaced digits and
-increase the font from 23 percent to 38 percent of the control diameter. The
-visual display has no unit suffix; VoiceOver supplies the complete value, unit,
-and timer state.
+make those digits materially larger with a rounded semantic font. A
+`ViewThatFits` hierarchy prefers `.title2`, then steps through `.headline`,
+`.subheadline`, and `.caption` only when the available Watch control or the
+user's Dynamic Type setting requires it. This preserves the largest legible
+two-digit treatment at default sizes without pinning the control to a fixed
+point size or clipping at accessibility sizes. The visual display has no unit
+suffix; VoiceOver supplies the complete value, unit, and timer state.
 
 Use the following unit and rounding policy:
 
@@ -171,12 +175,14 @@ Follow failing-first test development.
   progress states and rendering appearances.
 - Add active Pomodoro previews for the actual control/ring pairs: side `38/38`,
   top `40/40` and `42/42`, and centre `40/48` and `42/52`. Include hour,
-  minute, and second display phases.
+  minute, and second display phases, plus an accessibility Dynamic Type preview
+  that proves the semantic fallback hierarchy in the smallest control.
 - Build and run the dedicated Watch app tests plus the relevant shared iOS test
   target through the repository's memory-pressure gate.
 - Perform final physical-device checks for smallest/largest Watch layouts,
-  Always On legibility, actual watch-face tinting, full-colour Smart Stack
-  rendering, and VoiceOver output.
+  default and largest practical Dynamic Type settings, Always On legibility,
+  actual watch-face tinting, full-colour Smart Stack rendering, and VoiceOver
+  output.
 
 ## Failure and Fallback Behaviour
 

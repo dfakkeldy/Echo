@@ -21,6 +21,7 @@
 - Filesystem-synchronized groups automatically include new files under `Shared/`, `Echo Watch App/`, `Echo Watch AppTests/`, `Echo Widget/`, and `EchoTests/`; do not edit `project.pbxproj` for membership.
 - The circular complication must remain semantically tinted. Only the rectangular full-colour appearance may use the exact cover-derived RGB.
 - Keep visible Pomodoro text to exactly two digits. The approved hour display rounds upward and is deliberately coarse.
+- Render those digits with rounded semantic text styles inside `ViewThatFits`: prefer `.title2`, then `.headline`, `.subheadline`, and `.caption` as the control size or Dynamic Type setting requires. Do not replace this hierarchy with a fixed point size or control-diameter font multiplier.
 - Keep all existing Pomodoro timing, persistence, haptics, picker limits, tap behaviour, and physical long-press behaviour.
 - Add comments only where a platform constraint or boundary is not obvious from the code.
 - Use Conventional Commits at each task boundary and preserve the already-committed design/specification history.
@@ -579,7 +580,11 @@ struct WatchPomodoroAccessibilitySourceTests {
         let source = try Self.source()
 
         #expect(source.contains("PomodoroTimePresentation.make"))
-        #expect(source.contains("controlSize * 0.38"))
+        #expect(source.contains("ViewThatFits"))
+        #expect(source.contains("textStyle: .title2"))
+        #expect(source.contains("textStyle: .caption"))
+        #expect(source.contains(".system(textStyle"))
+        #expect(!source.contains(".system(size:"))
         #expect(source.contains(".accessibilityLabel(\"Pomodoro timer\")"))
         #expect(source.contains(".accessibilityValue("))
         #expect(source.contains("presentation.accessibilityHint"))
@@ -616,7 +621,7 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-Expected: the assertions for the presentation model, 0.38 font multiplier, and accessibility modifiers fail against the old button.
+Expected: the assertions for the presentation model, semantic fitting hierarchy, and accessibility modifiers fail against the old button.
 
 - [ ] **Step 3: Replace the old clock formatter with the pure presentation**
 
@@ -644,21 +649,51 @@ In `PomodoroButton`, replace `strokeWidth` and `timeString` with:
 
 Delete the `String(format:)`-based `timeString` property.
 
-- [ ] **Step 4: Make the visible text larger and add exact accessibility semantics**
+- [ ] **Step 4: Make the visible text larger with semantic fitting and add exact accessibility semantics**
 
 Replace the text block with:
 
 ```swift
-                Text(presentation.digits)
-                    .font(.system(size: controlSize * 0.38, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .frame(width: controlSize, height: controlSize)
-                    .background {
-                        WatchControlBackground(shape: Circle())
-                    }
-                    .clipShape(.circle)
+                ViewThatFits {
+                    PomodoroDigits(presentation.digits, textStyle: .title2)
+                    PomodoroDigits(presentation.digits, textStyle: .headline)
+                    PomodoroDigits(presentation.digits, textStyle: .subheadline)
+                    PomodoroDigits(presentation.digits, textStyle: .caption)
+                }
+                .foregroundStyle(.white)
+                .frame(width: controlSize, height: controlSize)
+                .background {
+                    WatchControlBackground(shape: Circle())
+                }
+                .clipShape(.circle)
 ```
+
+Add a focused private helper next to `PomodoroButton` so every fitting
+candidate has identical two-digit typography without duplicating modifiers:
+
+```swift
+private struct PomodoroDigits: View {
+    let value: String
+    let textStyle: Font.TextStyle
+
+    init(_ value: String, textStyle: Font.TextStyle) {
+        self.value = value
+        self.textStyle = textStyle
+    }
+
+    var body: some View {
+        Text(value)
+            .font(.system(textStyle, design: .rounded, weight: .bold))
+            .monospacedDigit()
+            .lineLimit(1)
+    }
+}
+```
+
+This uses the watchOS 11-compatible semantic `Font.system(_:design:weight:)`
+API. At default settings `.title2` is the preferred, materially larger
+treatment; the later candidates exist for smaller controls and accessibility
+Dynamic Type rather than forcing a clipped fixed-size label.
 
 Add these modifiers to the `Button`, after `.buttonStyle(.plain)` and before the existing simultaneous long press:
 
@@ -749,6 +784,16 @@ Replace the single existing preview with:
                 )
             }
         }
+    }
+
+    #Preview("Pomodoro accessibility text") {
+        PomodoroButtonPreview(
+            controlSize: 38,
+            ringSize: nil,
+            duration: 25 * 60,
+            remaining: 25 * 60
+        )
+        .environment(\.dynamicTypeSize, .accessibility3)
     }
 #endif
 ```
@@ -1581,7 +1626,7 @@ Replace the existing circular-complication accessibility bullet and add the Pomo
 
 ```markdown
 - Both Watch complication families combine title, playback state, and percentage into one VoiceOver element so colour is never the only signal. The circular ring always joins WidgetKit's system accent group; the rectangular gauge uses the cover-derived accent only in full-colour rendering and otherwise follows the system palette.
-- The Watch Pomodoro shows exactly two large digits, changing from upward-rounded hours to minutes at 60 minutes and from minutes to seconds at 60 seconds. VoiceOver announces running/stopped/complete state plus the full unit and exposes a named **Set duration** action alongside the unchanged physical long press.
+- The Watch Pomodoro shows exactly two large digits in a rounded semantic font that adapts to Dynamic Type, changing from upward-rounded hours to minutes at 60 minutes and from minutes to seconds at 60 seconds. VoiceOver announces running/stopped/complete state plus the full unit and exposes a named **Set duration** action alongside the unchanged physical long press.
 ```
 
 In `ARCHITECTURE.md`, replace the `**Integration:**` paragraph at the end of Cover-Derived Theming with:
@@ -1589,7 +1634,7 @@ In `ARCHITECTURE.md`, replace the `**Integration:**` paragraph at the end of Cov
 ```markdown
 **Integration:** `PlayerModel.coverTheme` (cached per artwork version + `uiColorScheme`); `PlayerModel.artworkAccentColor` remains the compatibility facade (nil for neutral covers so `?? .accentColor` fallbacks engage). `artworkAccentColorHex` sends the **dark-recipe** accent to the Watch app, which persists the explicit value or clear state in the App Group. The widget provider copies that value into `SimpleEntry`. `WidgetProgressAccentPolicy` permits the rectangular gauge to resolve exact RGB only when `widgetRenderingMode == .fullColor`; missing, cleared, malformed, accented, and vibrant cases use semantic system tint. The `.accessoryCircular` family always joins WidgetKit's system accent group because its shipping appearances do not preserve Echo's exact RGB.
 
-**Pomodoro presentation:** `PomodoroTimePresentation` is a platform-independent Watch value that turns the authoritative remaining interval into exactly two digits plus localized VoiceOver state. It shows upward-rounded hours above 60 minutes, minutes above 60 seconds, seconds through completion, and defensively saturates finite values above 99 hours. `WatchProgressRingMetrics` owns the approved 5 pt side/top and 6 pt centre ring widths. Neither type changes Pomodoro timing, persistence, haptics, picker limits, or interaction handling.
+**Pomodoro presentation:** `PomodoroTimePresentation` is a platform-independent Watch value that turns the authoritative remaining interval into exactly two digits plus localized VoiceOver state. It shows upward-rounded hours above 60 minutes, minutes above 60 seconds, seconds through completion, and defensively saturates finite values above 99 hours. The Watch view renders those digits with a rounded semantic `ViewThatFits` hierarchy from `.title2` through `.caption`, preserving a large default presentation while adapting to control size and Dynamic Type without a fixed point size. `WatchProgressRingMetrics` owns the approved 5 pt side/top and 6 pt centre ring widths. Neither type changes Pomodoro timing, persistence, haptics, picker limits, or interaction handling.
 ```
 
 - [ ] **Step 2: Commit the release and architecture documentation**
@@ -1717,6 +1762,7 @@ Verify on the smallest and largest available Watch layouts:
 
 - side `38/38`, top `40/40` and `42/42`, centre `40/48` and `42/52` Pomodoro combinations;
 - 2-hour, 60-minute, 25-minute, 60-second, 59-second, stopped, and complete timer states;
+- the two-digit Pomodoro at the default and largest practical Dynamic Type settings, confirming the semantic hierarchy chooses the largest candidate that fits without clipping;
 - VoiceOver label/value/hint and the named `Set duration` action;
 - circular ring/marker clipping and artwork clearance;
 - rectangular full-colour, accented, and vibrant appearances;
@@ -1730,6 +1776,7 @@ If physical hardware is unavailable, report these items as pending rather than t
 Record `git rev-parse HEAD`, then dispatch a fresh read-only reviewer against that exact SHA. Require findings grouped as Critical, Important, and Minor. The reviewer must verify:
 
 - the adaptive boundary/rounding table and overflow semantics;
+- the semantic `ViewThatFits` type hierarchy remains Dynamic Type-aware, has no fixed font size, and does not clip the smallest supported Pomodoro control;
 - visible and VoiceOver state consistency;
 - physical long press and tap behaviour remain unchanged;
 - merged PR #436's iPhone Lock Screen/Now Playing publishing paths remain unchanged and its regression tests still pass;
