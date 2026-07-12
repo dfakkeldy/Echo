@@ -8,7 +8,7 @@ struct WatchConnectivityIsolationTests {
         let syncToWatch = try Self.slice(
             of: source,
             after: "func syncToWatch(reason:",
-            until: "private func sendThumbnailIfNeeded()"
+            until: "private func sendThumbnailIfNeeded("
         )
 
         #expect(

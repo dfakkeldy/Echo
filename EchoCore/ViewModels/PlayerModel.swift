@@ -23,6 +23,11 @@ final class PlayerModel {
 
     let playbackController = PlaybackController()
     let watchSyncManager = WatchSyncManager()
+    #if os(iOS)
+        @ObservationIgnored var watchStateSequenceGenerator = WatchStateSequenceGenerator()
+        @ObservationIgnored var lastWatchArtworkVersion: Int?
+        @ObservationIgnored var watchArtworkSequence: Double = 0
+    #endif
     /// Mirrors the playback snapshot into the shared App Group so the iOS
     /// home-screen widget + Control Center toggle reflect real play/pause state.
     /// The watch syncs over WatchConnectivity; the widgets had no such writer.

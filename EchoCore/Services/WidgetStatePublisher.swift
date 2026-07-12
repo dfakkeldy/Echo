@@ -56,11 +56,13 @@ final class WidgetStatePublisher {
         if let progress = context["totalProgressFraction"] as? Double {
             defaults.set(progress, forKey: "totalProgressFraction")
         }
-        // Only overwrite the thumbnail when we have fresh data — the watch sends
-        // artwork on a separate, throttled channel, so a nil here means "no
-        // change", not "clear the image".
+        // A nil thumbnail normally means "no change" because artwork rides a
+        // separate, throttled channel. `hasThumbnail == false` is the explicit
+        // clear signal published after artwork becomes unavailable.
         if let thumbnailData {
             defaults.set(thumbnailData, forKey: "thumbnailData")
+        } else if context["hasThumbnail"] as? Bool == false {
+            defaults.removeObject(forKey: "thumbnailData")
         }
         reload()
     }

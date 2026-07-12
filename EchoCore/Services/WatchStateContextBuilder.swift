@@ -1,6 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+#if os(iOS)
+    /// Produces strictly increasing recency tokens for phone-to-watch snapshots.
+    /// The last token is persisted, and wall time is only a lower bound, so a
+    /// clock correction or phone-app relaunch cannot make new snapshots look old.
+    struct WatchStateSequenceGenerator {
+        private static let storageKey = "watchStateSequence"
+
+        private let defaults: UserDefaults
+        private var lastValue: Double
+
+        init(defaults: UserDefaults = AppGroupDefaults.shared) {
+            self.defaults = defaults
+            let stored = (defaults.object(forKey: Self.storageKey) as? NSNumber)?.doubleValue ?? 0
+            lastValue = stored.isFinite && stored > 0 ? stored : 0
+        }
+
+        mutating func next(now: Date = .now) -> Double {
+            let wallTime = now.timeIntervalSinceReferenceDate
+            let nextValue = max(lastValue.nextUp, wallTime.isFinite ? wallTime : 0)
+            lastValue = nextValue
+            defaults.set(nextValue, forKey: Self.storageKey)
+            return nextValue
+        }
+    }
+#endif
+
 // MARK: - Watch State Snapshot
 
 /// A value-type snapshot of all state needed to build the watch context dictionary.
@@ -8,6 +34,15 @@ import Foundation
 struct WatchStateSnapshot {
     // MARK: Playback state
     var isPlaying: Bool = false
+    /// Persisted, strictly increasing recency token. WatchConnectivity gives no
+    /// ordering between live messages, durable application context, and replies;
+    /// the watch uses this token to reject stale or duplicate snapshots wholesale.
+    var contextSeq: Double = 0
+    /// Stable while the displayed artwork is unchanged. Generated from the same
+    /// persisted monotonic clock as `contextSeq`, but only advances when artwork
+    /// changes or clears so delayed thumbnail transfers remain valid across
+    /// unrelated playback-state updates.
+    var artworkSeq: Double = 0
     var progressFraction: Double = 0
     var currentPlaybackTime: TimeInterval = 0
     var currentIndex: Int = 0
@@ -75,6 +110,8 @@ enum WatchStateContextBuilder {
 
         // Playback state
         context["isPlaying"] = s.isPlaying
+        context["stateSeq"] = s.contextSeq
+        context["artworkSeq"] = s.artworkSeq
         context["progressFraction"] = s.progressFraction
         context["currentTime"] = s.currentPlaybackTime
         context["bookmarkStorageKey"] = s.bookmarkStorageKey ?? ""
@@ -132,9 +169,9 @@ enum WatchStateContextBuilder {
         context["watchDateEnabled"] = s.watchDateEnabled
         context["watchDateFormat"] = s.watchDateFormat
         context["hasThumbnail"] = s.hasThumbnail
-        if let hex = s.artworkAccentColorHex {
-            context["artworkAccentColorHex"] = hex
-        }
+        // An empty value is an explicit clear. Omitting this key would leave a
+        // same-track bookmark's old color cached when the new artwork is neutral.
+        context["artworkAccentColorHex"] = s.artworkAccentColorHex ?? ""
 
         // Sleep timer
         switch s.sleepTimerMode {
