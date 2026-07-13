@@ -237,6 +237,92 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
 nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendable {
     case complete
     case incompleteLegacyCapture
+    case incompleteEvidence
+}
+
+/// Schema-versioned local receipt for every pronunciation choice used by one
+/// completed narration render. File references deliberately contain names only:
+/// the manifest can move with its sibling audiobook without leaking a local path.
+nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
+    static let currentSchemaVersion = 1
+
+    let schemaVersion: Int
+    let renderVersion: Int
+    let voice: String
+    let coverage: PronunciationAuditCoverage
+    let legacyChapterIndexes: [Int]
+    let audiobookFileName: String
+    let listeningReelFileName: String?
+    let watchCounts: [String: Int]
+    let decisions: [PronunciationAuditDecision]
+    let diagnostics: [PronunciationAuditDiagnostic]
+
+    static func make(
+        renderVersion: Int,
+        voice: VoiceID,
+        captureCoverage: PronunciationAuditCoverage,
+        legacyChapterIndexes: [Int],
+        audiobookURL: URL,
+        reelURL: URL?,
+        watchWords: [String],
+        decisions: [PronunciationAuditDecision],
+        diagnostics: [PronunciationAuditDiagnostic]
+    ) -> PronunciationAuditManifest {
+        let normalizedWatchWords = Set(
+            watchWords.map(PronunciationAuditContext.normalizedWord).filter { !$0.isEmpty })
+        var watchCounts = Dictionary(
+            uniqueKeysWithValues: normalizedWatchWords.map { ($0, 0) })
+        for decision in decisions where normalizedWatchWords.contains(decision.normalizedWord) {
+            watchCounts[decision.normalizedWord, default: 0] += 1
+        }
+
+        let normalizedLegacyChapterIndexes = Array(Set(legacyChapterIndexes)).sorted()
+        let effectiveCoverage: PronunciationAuditCoverage
+        if !normalizedLegacyChapterIndexes.isEmpty
+            || captureCoverage == .incompleteLegacyCapture
+        {
+            effectiveCoverage = .incompleteLegacyCapture
+        } else if !diagnostics.isEmpty || captureCoverage == .incompleteEvidence {
+            effectiveCoverage = .incompleteEvidence
+        } else {
+            effectiveCoverage = .complete
+        }
+
+        return PronunciationAuditManifest(
+            schemaVersion: currentSchemaVersion,
+            renderVersion: renderVersion,
+            voice: voice.rawValue,
+            coverage: effectiveCoverage,
+            legacyChapterIndexes: normalizedLegacyChapterIndexes,
+            audiobookFileName: audiobookURL.lastPathComponent,
+            listeningReelFileName: reelURL?.lastPathComponent,
+            watchCounts: watchCounts,
+            decisions: decisions,
+            diagnostics: diagnostics)
+    }
+
+    func encoded() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(self)
+    }
+
+    /// Writes through a unique sibling, then atomically promotes it over the
+    /// prior receipt so readers never observe a partially encoded manifest.
+    func write(to destinationURL: URL, fileManager: FileManager = .default) throws {
+        let parent = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        let temporaryURL = parent.appendingPathComponent(
+            ".\(destinationURL.lastPathComponent).\(UUID().uuidString).tmp")
+        defer { try? fileManager.removeItem(at: temporaryURL) }
+
+        try encoded().write(to: temporaryURL)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+        } else {
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        }
+    }
 }
 
 /// Rewrite-stage evidence. The render planner adds Kokoro IDs through its existing

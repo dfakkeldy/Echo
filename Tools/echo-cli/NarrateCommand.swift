@@ -41,6 +41,10 @@ struct NarrateCommand: AsyncParsableCommand {
         name: .customLong("no-word-timings"),
         help: "Write block-level anchors only (omit per-word timings from the sidecar).")
     var noWordTimings = false
+    @Flag(
+        name: .customLong("no-pronunciation-review"),
+        help: "Do not write the pronunciation audit JSON or listening reel.")
+    var noPronunciationReview = false
 
     @MainActor func run() async throws {
         EchoCLI.configureResources()
@@ -85,7 +89,8 @@ struct NarrateCommand: AsyncParsableCommand {
             databaseURL: db.map { URL(fileURLWithPath: $0) },
             includeWordTimings: !noWordTimings,
             jobs: max(1, jobs),
-            intraOpThreads: threads.map(Int32.init))
+            intraOpThreads: threads.map(Int32.init),
+            generatePronunciationReview: !noPronunciationReview)
 
         // Overnight renders must survive the Mac idling: without this, the
         // system can sleep mid-book and the wall clock silently balloons.
@@ -117,6 +122,17 @@ struct NarrateCommand: AsyncParsableCommand {
                 audioSeconds: result.durationSeconds, wallSeconds: wall)
             print(
                 "DONE \(result.outM4BURL.path) — \(result.chapters) chapters, \(summary)")
+            switch result.pronunciationReview {
+            case .generated(let auditURL, let reelURL):
+                print(
+                    "Pronunciation review: \(auditURL.path) and \(reelURL.path)")
+            case .auditOnly(let auditURL):
+                print("Pronunciation review: \(auditURL.path); no reel was needed.")
+            case .disabled:
+                print("Pronunciation review generation was disabled by --no-pronunciation-review.")
+            case .pending:
+                break
+            }
         } else {
             print(
                 "PARTIAL - \(result.capturedThisRun) captured this run out of \(result.chapters) total chapters in \(Int(wall.rounded()))s; re-run with --resume to continue"

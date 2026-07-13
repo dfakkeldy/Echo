@@ -44,6 +44,9 @@ struct NarrationRunConfig {
     /// ONNX intra-op threads per engine; `nil` resolves the platform default
     /// for this machine and `jobs` via `NarrationEngineFactory`.
     var intraOpThreads: Int32? = nil
+    /// Completed runs generate the local pronunciation audit and bounded
+    /// listening reel by default. Partial runs wait for the final audiobook.
+    var generatePronunciationReview: Bool = true
 }
 
 // MARK: - Progress
@@ -79,6 +82,9 @@ struct NarrationRunResult {
     var capturedThisRun: Int
     /// `true` when all chapters are captured and the .m4b has been written.
     var complete: Bool
+    /// Pronunciation acceptance artifacts generated from the exact render
+    /// captures. Defaults to pending for source compatibility and partial runs.
+    var pronunciationReview: PronunciationReviewOutcome = .pending
 }
 
 // MARK: - Runner
@@ -452,12 +458,18 @@ struct NarrationRunResult {
     ///     When `config.jobs > 1` this single instance is shared by every
     ///     worker — pass `ttsFactory` instead for per-worker engines.
     ///   - ttsFactory: Builds one engine per parallel worker; wins over `tts`.
+    ///   - reviewGenerator: Post-export artifact seam; defaults to the real
+    ///     manifest/listening-reel generator.
     ///   - progress: Callback invoked on `@MainActor` as phases complete.
     /// - Returns: A `NarrationRunResult` describing what happened.
     func run(
         _ config: NarrationRunConfig,
         tts: TTSEngine? = nil,
         ttsFactory: (@MainActor () -> TTSEngine)? = nil,
+        reviewGenerator: @escaping @MainActor (PronunciationReviewRequest) async throws ->
+            PronunciationReviewOutcome = { request in
+                try await PronunciationReviewArtifactGenerator.generate(request)
+            },
         progress: @escaping @MainActor (NarrationRunProgress) -> Void = { _ in }
     ) async throws -> NarrationRunResult {
         let fm = FileManager.default
@@ -722,7 +734,7 @@ struct NarrationRunResult {
                 capture: try JSONDecoder().decode(
                     ChapterCapture.self,
                     from: Data(contentsOf: captureURL(idx, in: config.workDir))))
-        }
+        }.sorted { $0.chapterIndex < $1.chapterIndex }
         let captures = indexedCaptures.map(\.capture)
         let pronunciationEvidence = Self.assemblePronunciationEvidence(
             indexedCaptures: indexedCaptures)
@@ -741,12 +753,40 @@ struct NarrationRunResult {
                     anchorsWithWords: assembled.anchorsWithWords))
         }
 
+        // 8. Generate the local acceptance artifacts only after both the final
+        // audiobook and the caller-requested sidecar have succeeded. Review
+        // clips therefore address the exact exported audiobook timebase.
+        let outputStem = config.outM4BURL.deletingPathExtension()
+        let auditURL = outputStem.appendingPathExtension("pronunciation-audit.json")
+        let reelURL = outputStem.appendingPathExtension("pronunciation-reel.m4b")
+        let pronunciationReview: PronunciationReviewOutcome
+        if config.generatePronunciationReview {
+            let watchWords = PronunciationWatchVocabulary.words.sorted()
+            pronunciationReview = try await reviewGenerator(
+                PronunciationReviewRequest(
+                    audiobookURL: config.outM4BURL,
+                    auditURL: auditURL,
+                    reelURL: reelURL,
+                    renderVersion: NarrationFileNaming.renderVersion,
+                    voice: config.voice,
+                    captureCoverage: pronunciationEvidence.coverage,
+                    legacyChapterIndexes: pronunciationEvidence.legacyChapterIndexes,
+                    decisions: pronunciationEvidence.decisions,
+                    diagnostics: pronunciationEvidence.diagnostics,
+                    watchWords: watchWords))
+        } else {
+            try PronunciationReviewArtifactGenerator.removeIfPresent(auditURL)
+            try PronunciationReviewArtifactGenerator.removeIfPresent(reelURL)
+            pronunciationReview = .disabled
+        }
+
         return NarrationRunResult(
             outM4BURL: config.outM4BURL,
             chapters: totalCount,
             durationSeconds: totalDuration,
             capturedThisRun: batch.count,
-            complete: true)
+            complete: true,
+            pronunciationReview: pronunciationReview)
     }
 
     private func importBlocks(

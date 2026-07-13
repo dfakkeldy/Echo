@@ -86,6 +86,138 @@ import ZIPFoundation
             maxNewChaptersPerRun: nil)
 
         #expect(cfg.enableFMNormalization == false)
+        #expect(cfg.generatePronunciationReview)
+    }
+
+    @Test func partialRunLeavesPronunciationReviewPendingWithoutInvokingGenerator() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("partial.m4b"),
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("partial-work"),
+            voice: VoiceID("af_heart"),
+            title: "Partial",
+            author: "Tester",
+            maxNewChaptersPerRun: 1)
+        var invoked = false
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            tts: StubEngine(),
+            reviewGenerator: { request in
+                invoked = true
+                return .auditOnly(auditURL: request.auditURL)
+            })
+
+        #expect(!result.complete)
+        #expect(result.pronunciationReview == .pending)
+        #expect(!invoked)
+    }
+
+    @Test func completedOptOutRemovesStaleReviewArtifactsAndSkipsGenerator() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let out = tmp.appendingPathComponent("disabled.m4b")
+        let audit = tmp.appendingPathComponent("disabled.pronunciation-audit.json")
+        let reel = tmp.appendingPathComponent("disabled.pronunciation-reel.m4b")
+        try Data("stale audit".utf8).write(to: audit)
+        try Data("stale reel".utf8).write(to: reel)
+        var config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: out,
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("disabled-work"),
+            voice: VoiceID("af_heart"),
+            title: "Disabled",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+        config.generatePronunciationReview = false
+        var invoked = false
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            tts: StubEngine(),
+            reviewGenerator: { request in
+                invoked = true
+                return .auditOnly(auditURL: request.auditURL)
+            })
+
+        #expect(result.complete)
+        #expect(result.pronunciationReview == .disabled)
+        #expect(!invoked)
+        #expect(!FileManager.default.fileExists(atPath: audit.path))
+        #expect(!FileManager.default.fileExists(atPath: reel.path))
+    }
+
+    @Test func completedRunReportsInjectedAuditOnlyOutcomeAndSnapshotsWatchWords() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let out = tmp.appendingPathComponent("audit-only.m4b")
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: out,
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("audit-only-work"),
+            voice: VoiceID("af_heart"),
+            title: "Audit Only",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+        var capturedRequest: PronunciationReviewRequest?
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            tts: StubEngine(),
+            reviewGenerator: { request in
+                capturedRequest = request
+                return .auditOnly(auditURL: request.auditURL)
+            })
+
+        let request = try #require(capturedRequest)
+        #expect(result.pronunciationReview == .auditOnly(auditURL: request.auditURL))
+        #expect(request.audiobookURL == out)
+        #expect(request.auditURL.lastPathComponent == "audit-only.pronunciation-audit.json")
+        #expect(request.reelURL.lastPathComponent == "audit-only.pronunciation-reel.m4b")
+        #expect(request.watchWords == request.watchWords.sorted())
+        #expect(Set(request.watchWords) == PronunciationWatchVocabulary.words)
+    }
+
+    private enum ReviewFixtureError: Error {
+        case failed
+    }
+
+    @Test func completedRunPropagatesReviewArtifactFailure() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("failure.m4b"),
+            sidecarURL: nil,
+            workDir: tmp.appendingPathComponent("failure-work"),
+            voice: VoiceID("af_heart"),
+            title: "Failure",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+
+        await #expect(throws: ReviewFixtureError.failed) {
+            _ = try await HeadlessNarrationRunner().run(
+                config,
+                tts: StubEngine(),
+                reviewGenerator: { _ in throw ReviewFixtureError.failed })
+        }
     }
 
     @Test func producesM4BAndSidecarAndResumes() async throws {
