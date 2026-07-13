@@ -124,6 +124,24 @@ import Testing
                 == "The [live](/lˈIv/) argument continued.")
     }
 
+    @Test func previousTokenCuesDoNotCrossSentenceBoundaries() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Many. Lives here.")
+                == "Many. [Lives](/lˈɪvz/) here.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "They. Live show.")
+                == "They. [Live](/lˈIv/) show.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Please. Record labels survived.")
+                == "Please. [Record](/ɹˈɛkəɹd/) labels survived.")
+    }
+
+    @Test func genericFollowerCuesDoNotCrossSentenceBoundaries() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "I read. Yesterday was quiet.")
+                == "I read. Yesterday was quiet.")
+    }
+
     @Test func livesWhereCueDoesNotCrossSentenceBoundary() {
         #expect(
             HomographPronunciationResolver.apply(to: "Where should we meet? Lives changed.")

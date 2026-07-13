@@ -565,16 +565,21 @@ nonisolated enum HomographPronunciationResolver {
     }
 
     private static func previousLowercased(_ tokens: [Token], _ index: Int) -> String? {
-        guard index > tokens.startIndex else { return nil }
+        guard index > tokens.startIndex, !tokens[index].startsSentence else { return nil }
         return tokens[tokens.index(before: index)].lowercased
     }
 
     private static func nextLowercased(_ tokens: [Token], _ index: Int, limit: Int) -> [String] {
         guard limit > 0 else { return [] }
-        let start = tokens.index(after: index)
-        guard start < tokens.endIndex else { return [] }
-        let end = min(tokens.endIndex, start + limit)
-        return tokens[start..<end].map(\.lowercased)
+        var result: [String] = []
+        var candidateIndex = tokens.index(after: index)
+        while candidateIndex < tokens.endIndex, result.count < limit {
+            let candidate = tokens[candidateIndex]
+            guard !candidate.startsSentence else { break }
+            result.append(candidate.lowercased)
+            candidateIndex = tokens.index(after: candidateIndex)
+        }
+        return result
     }
 
     private static func nextSameSentenceLowercased(_ tokens: [Token], _ index: Int) -> String? {

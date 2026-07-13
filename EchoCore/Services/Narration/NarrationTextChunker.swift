@@ -412,6 +412,11 @@ enum NarrationTextChunker {
                 index = link.range.upperBound
                 continue
             }
+            if let linkRange = markdownInlineLinkRange(in: text, startingAt: index) {
+                current.append(contentsOf: text[linkRange])
+                index = linkRange.upperBound
+                continue
+            }
 
             let character = text[index]
             if character.isWhitespace {
