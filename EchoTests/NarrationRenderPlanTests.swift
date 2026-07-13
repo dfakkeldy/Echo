@@ -104,4 +104,30 @@ import Testing
         #expect(chunk.g2pInputText.contains("[filesystem](/fˈIl sˌɪstəm/)"))
         #expect(chunk.phonemeIDs.count > 2)
     }
+
+    @Test func naturalContextHomographsReachPlannedTTS() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [
+                block(
+                    id: "lives",
+                    text: "That gap is where this entire subject lives.",
+                    index: 0),
+                block(
+                    id: "record",
+                    text: "Listen and record whatever it says.",
+                    index: 1),
+            ],
+            overrides: PronunciationOverrides(entries: [:]),
+            maxPhonemes: 420
+        )
+
+        let chunks = plan.blocks.flatMap(\.synthesisChunks)
+        let g2pInputText = chunks.map(\.g2pInputText).joined(separator: " ")
+        let phonemes = chunks.map(\.phonemes).joined(separator: " ")
+
+        #expect(g2pInputText.contains("[lives](/lˈɪvz/)"))
+        #expect(g2pInputText.contains("[record](/ɹəkˈɔɹd/)"))
+        #expect(phonemes.contains("lˈɪvz"))
+        #expect(phonemes.contains("ɹəkˈɔɹd"))
+    }
 }

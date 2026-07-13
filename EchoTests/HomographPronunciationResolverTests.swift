@@ -60,6 +60,32 @@ import Testing
                 == "Their [lives](/lˈIvz/) in Halifax changed.")
     }
 
+    @Test func resolvesLivesVerbInNaturalWhereAndAsContexts() {
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "That gap is where this entire subject lives.")
+                == "That gap is where this entire subject [lives](/lˈɪvz/).")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "Every token lives as a point in semantic space.")
+                == "Every token [lives](/lˈɪvz/) as a point in semantic space.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "This is where hype lives.")
+                == "This is where hype [lives](/lˈɪvz/).")
+    }
+
+    @Test func naturalLivesCuesPreserveNounAndAdjectiveReadings() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Their lives changed.")
+                == "Their [lives](/lˈIvz/) changed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Their lives as immigrants changed.")
+                == "Their [lives](/lˈIvz/) as immigrants changed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The live argument continued.")
+                == "The [live](/lˈIv/) argument continued.")
+    }
+
     @Test func resolvesRecordVerbNounAndCompoundNounContexts() {
         #expect(
             HomographPronunciationResolver.apply(to: "Please record the result.")
@@ -97,6 +123,28 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: "This recording is clear.")
                 == "This recording is clear.")
+    }
+
+    @Test func resolvesRecordVerbBeforeImmediateWhObjects() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Listen and record whatever it says.")
+                == "Listen and [record](/ɹəkˈɔɹd/) whatever it says.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Record what the caller says.")
+                == "[Record](/ɹəkˈɔɹd/) what the caller says.")
+    }
+
+    @Test func recordWhObjectCuePreservesNounsAndSentenceBoundaries() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "The record labels agreed.")
+                == "The [record](/ɹˈɛkəɹd/) labels agreed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Vinyl and record stores survived.")
+                == "Vinyl and [record](/ɹˈɛkəɹd/) stores survived.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "Keep a record. Whatever happens matters.")
+                == "Keep a [record](/ɹˈɛkəɹd/). Whatever happens matters.")
     }
 
     @Test func recordVerbBeatsCompoundNounGuardAfterVerbSignals() {

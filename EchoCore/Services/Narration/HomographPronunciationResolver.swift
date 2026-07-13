@@ -56,11 +56,11 @@ nonisolated enum HomographPronunciationResolver {
         "well", "with",
     ]
     private static let liveAdjectiveFollowers: Set<String> = [
-        "asset", "assets", "audience", "broadcast", "broadcasts", "content", "coverage",
-        "demo", "demos", "event", "events", "feed", "feeds", "lesson", "lessons",
-        "lecture", "lectures", "music", "performance", "performances", "recording",
-        "recordings", "session", "sessions", "show", "shows", "stream", "streams",
-        "update", "updates", "wire", "wires",
+        "argument", "asset", "assets", "audience", "broadcast", "broadcasts", "content",
+        "coverage", "demo", "demos", "event", "events", "feed", "feeds", "lesson",
+        "lessons", "lecture", "lectures", "music", "performance", "performances",
+        "recording", "recordings", "session", "sessions", "show", "shows", "stream",
+        "streams", "update", "updates", "wire", "wires",
     ]
 
     private static let livesNounPreceders: Set<String> = [
@@ -82,6 +82,10 @@ nonisolated enum HomographPronunciationResolver {
     private static let recordVerbPreceders: Set<String> = [
         "can", "could", "may", "might", "must", "please", "shall", "should", "to", "will",
         "would",
+    ]
+    private static let recordVerbWhObjectFollowers: Set<String> = [
+        "what", "whatever", "which", "whichever", "who", "whoever", "whom", "whomever",
+        "whose",
     ]
 
     private static let contentNounPreceders: Set<String> = [
@@ -290,6 +294,14 @@ nonisolated enum HomographPronunciationResolver {
             return IPA.livesVerb
         }
 
+        if nextSameSentenceLowercased(tokens, index) == "as" {
+            return IPA.livesVerb
+        }
+
+        if precedingSameSentenceLowercased(tokens, index).contains("where") {
+            return IPA.livesVerb
+        }
+
         return nil
     }
 
@@ -332,6 +344,12 @@ nonisolated enum HomographPronunciationResolver {
         }
 
         if previous.map(recordVerbPreceders.contains) == true {
+            return IPA.recordVerb
+        }
+
+        if nextSameSentenceLowercased(tokens, index).map(recordVerbWhObjectFollowers.contains)
+            == true
+        {
             return IPA.recordVerb
         }
 
@@ -417,6 +435,32 @@ nonisolated enum HomographPronunciationResolver {
         guard start < tokens.endIndex else { return [] }
         let end = min(tokens.endIndex, start + limit)
         return tokens[start..<end].map(\.lowercased)
+    }
+
+    private static func nextSameSentenceLowercased(_ tokens: [Token], _ index: Int) -> String? {
+        let followerIndex = tokens.index(after: index)
+        guard followerIndex < tokens.endIndex else { return nil }
+        let follower = tokens[followerIndex]
+        guard !follower.startsSentence else { return nil }
+        return follower.lowercased
+    }
+
+    private static func precedingSameSentenceLowercased(
+        _ tokens: [Token],
+        _ index: Int
+    ) -> Set<String> {
+        guard index > tokens.startIndex else { return [] }
+        var result: Set<String> = []
+        var candidateIndex = tokens.index(before: index)
+
+        while true {
+            let candidate = tokens[candidateIndex]
+            result.insert(candidate.lowercased)
+            if candidate.startsSentence || candidateIndex == tokens.startIndex {
+                return result
+            }
+            candidateIndex = tokens.index(before: candidateIndex)
+        }
     }
 
     private static func isHyphenated(_ range: Range<String.Index>, in text: String) -> Bool {
