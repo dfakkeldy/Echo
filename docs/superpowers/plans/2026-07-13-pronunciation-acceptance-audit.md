@@ -298,17 +298,14 @@ git commit -m "feat(narration): audit watched lexicon decisions"
 
 ---
 
-## Task 4: Persist Actual-Render Decisions and Resume-Safe Audio Timing
+## Task 4: Enrich the Actual Render Receipt with Honest Audio Timing
 
 **Files:**
 
 - Modify: `EchoCore/Services/Narration/PronunciationAudit.swift`
 - Modify: `EchoCore/Services/Narration/NarrationService.swift`
-- Modify: `EchoCore/Services/Narration/HeadlessNarrationRunner.swift`
 - Modify: `EchoTests/NarrationServiceTests.swift`
 - Modify: `EchoTests/NarrationServiceSynthesisTimingTests.swift`
-- Modify: `EchoTests/HeadlessNarrationRunnerTests.swift`
-- Modify: `EchoTests/HeadlessNarrationQAInputTests.swift`
 
 ### Step 1: Add failing actual-render receipt tests
 
@@ -318,24 +315,11 @@ Require `NarrationService.renderChapter` to return an `@discardableResult` recei
 - an exact synthesis-word match receives a positive chapter-relative range and `exactSynthesisWord` precision;
 - a decision that cannot map one display word to one timing token receives the persisted block range and `blockAnchorFallback` precision;
 - ranges are not inferred by re-running resolution after render;
-- no decision disappears when the service retries/slices an already-resolved planned chunk.
-- range-free evidence-validation diagnostics from the plan survive into the receipt without being converted into fabricated decisions.
+- no decision disappears when the service retries/slices an already-resolved planned chunk;
+- range-free evidence-validation diagnostics from the plan survive into the receipt without being converted into fabricated decisions;
 - a planned chunk skipped by the length-cap path leaves its decisions range-free and emits an incomplete-render diagnostic rather than borrowing another part of the block's anchor.
 
-### Step 2: Add failing resume-capture and absolute-time tests
-
-Extend runner tests to require optional captured pronunciation decisions. Cover:
-
-- encode/decode round-trip for a new capture;
-- decoding a legacy capture with no decision field;
-- new captures round-trip both decisions and evidence-validation diagnostics;
-- complete coverage when every chapter has new evidence;
-- `incompleteLegacyCapture` plus the exact affected chapter numbers for mixed old/new resumed captures;
-- evidence-validation mismatches remain explicit incomplete-coverage diagnostics after resume and book assembly;
-- chapter-relative ranges shifted to final book-relative ranges using the same chapter offsets as sidecar anchors.
-- a new capture with zero decisions/diagnostics still writes a non-nil evidence envelope, distinguishing it from a legacy missing key.
-
-### Step 3: Run and capture RED
+### Step 2: Run and capture RED
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
@@ -344,14 +328,12 @@ xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -derivedDataPath /tmp/EchoPronunciationAcceptanceTask4 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/NarrationServiceTests \
-  -only-testing:EchoTests/NarrationServiceSynthesisTimingTests \
-  -only-testing:EchoTests/HeadlessNarrationRunnerTests \
-  -only-testing:EchoTests/HeadlessNarrationQAInputTests
+  -only-testing:EchoTests/NarrationServiceSynthesisTimingTests
 ```
 
-Expected: compile/test failures because render receipts and captured decisions do not exist.
+Expected: compile/test failures because the public render receipt does not yet expose timed decisions and diagnostics.
 
-### Step 4: Implement receipt enrichment and optional persistence
+### Step 3: Implement receipt enrichment
 
 Make `renderChapter` return its existing `RenderedNarrationFile` as an `@discardableResult` and enrich that exact receipt with decisions and diagnostics before returning. Existing callers may ignore it. Add defaulted receipt fields only where needed for source compatibility.
 
@@ -359,30 +341,82 @@ Track exact timing against each original planned chunk, not only the existing bl
 
 Track which original planned word spans actually produced audio. The length-cap skip path must leave affected decisions range-free and emit a deterministic incomplete-render diagnostic.
 
-Capture the receipt returned at the runner's parallel chapter call site; database rows cannot reconstruct plan provenance. Persist chapter-relative evidence and range-free diagnostics in one optional `ChapterCapture.PronunciationEvidence` envelope. New captures always write the envelope, even empty; a missing envelope means legacy capture. Write capture JSON atomically.
-
-During completed-book assembly, create absolute ranges by adding the same running `capture.duration` offset used for sidecar anchors. Preserve both relative and absolute values in the audit model. Keep diagnostics range-free and chapter-associated. Do not alter sidecar serialization.
-
 For exact matching, use stable plan/block/span identity rather than a global string search. If exact matching is unavailable or ambiguous, use the persisted block anchor honestly.
 
-### Step 5: Run GREEN and commit
+### Step 4: Run GREEN and commit
 
-Re-run the exact Step 3 command using the same task-specific DerivedData path, then commit:
+Re-run the exact Step 2 command using the same task-specific DerivedData path, then commit:
 
 ```bash
 git add EchoCore/Services/Narration/PronunciationAudit.swift \
   EchoCore/Services/Narration/NarrationService.swift \
-  EchoCore/Services/Narration/HeadlessNarrationRunner.swift \
   EchoTests/NarrationServiceTests.swift \
-  EchoTests/NarrationServiceSynthesisTimingTests.swift \
-  EchoTests/HeadlessNarrationRunnerTests.swift \
-  EchoTests/HeadlessNarrationQAInputTests.swift
-git commit -m "feat(narration): persist pronunciation render receipts"
+  EchoTests/NarrationServiceSynthesisTimingTests.swift
+git commit -m "feat(narration): time pronunciation render receipts"
 ```
 
 ---
 
-## Task 5: Generate the Automatic JSON Audit and Chaptered Listening Reel
+## Task 5: Persist Resume-Safe Pronunciation Evidence and Absolute Timing
+
+**Files:**
+
+- Modify: `EchoCore/Services/Narration/PronunciationAudit.swift`
+- Modify: `EchoCore/Services/Narration/HeadlessNarrationRunner.swift`
+- Modify: `EchoTests/HeadlessNarrationRunnerTests.swift`
+- Modify: `EchoTests/HeadlessNarrationQAInputTests.swift`
+
+### Step 1: Add failing capture and assembly tests
+
+Extend runner tests to require:
+
+- encode/decode round-trip for a new capture;
+- decoding a legacy capture with no pronunciation-evidence key;
+- new captures round-trip both decisions and evidence-validation/render diagnostics;
+- complete coverage when every chapter has a new evidence envelope;
+- `incompleteLegacyCapture` plus exact affected chapter numbers for mixed old/new resumed captures;
+- evidence-validation and incomplete-render diagnostics remain explicit after resume and book assembly;
+- chapter-relative range endpoints shift to final book-relative ranges with the same chapter offsets as sidecar anchors;
+- a new capture with zero decisions/diagnostics still writes a non-nil evidence envelope;
+- the QA capture decoder remains tolerant of the new envelope.
+
+### Step 2: Run and capture RED
+
+```bash
+"$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
+xcodebuild test -project Echo.xcodeproj -scheme Echo \
+  -destination 'platform=iOS Simulator,id=4774318C-1444-4660-BF3E-EA00025AEAFA' \
+  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask5 \
+  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
+  -only-testing:EchoTests/HeadlessNarrationRunnerTests \
+  -only-testing:EchoTests/HeadlessNarrationQAInputTests
+```
+
+Expected: compile/test failures because captures do not carry the service receipt and no pronunciation-evidence assembly exists.
+
+### Step 3: Implement the optional capture envelope
+
+Capture the `RenderedNarrationFile` returned at the runner's parallel chapter call site; database rows cannot reconstruct plan provenance. Persist chapter-relative evidence and range-free diagnostics in one optional `ChapterCapture.PronunciationEvidence` envelope. New captures always write the envelope, even empty; a missing envelope means legacy capture. Write every capture JSON file atomically.
+
+During completed-book assembly, create absolute ranges by adding the same running `capture.duration` offset used for sidecar anchors. Preserve both relative and absolute values in the audit model. Keep diagnostics range-free and chapter-associated. Do not alter `AlignmentSidecar` serialization, `includeWordTimings`, or parallel chapter-claim semantics.
+
+Expose one pure assembly result containing ordered decisions, diagnostics, legacy chapter indexes, and total duration so the next task can build artifacts without reopening provenance from the database.
+
+### Step 4: Run GREEN and commit
+
+Re-run the exact Step 2 command using the same task-specific DerivedData path, then commit:
+
+```bash
+git add EchoCore/Services/Narration/PronunciationAudit.swift \
+  EchoCore/Services/Narration/HeadlessNarrationRunner.swift \
+  EchoTests/HeadlessNarrationRunnerTests.swift \
+  EchoTests/HeadlessNarrationQAInputTests.swift
+git commit -m "feat(narration): persist pronunciation evidence captures"
+```
+
+---
+
+## Task 6: Generate the Automatic JSON Audit and Chaptered Listening Reel
 
 **Files:**
 
@@ -438,7 +472,7 @@ The executable parser itself is not part of the `EchoTests` target. Verify its e
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
 xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -destination 'platform=iOS Simulator,id=4774318C-1444-4660-BF3E-EA00025AEAFA' \
-  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask5 \
+  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask6 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/PronunciationAuditTests \
   -only-testing:EchoTests/PronunciationListeningReelTests \
@@ -478,17 +512,17 @@ git commit -m "feat(cli): generate pronunciation review artifacts"
 
 ---
 
-## Task 6: Verify the Production Path with Fresh Release Audio
+## Task 7: Verify the Production Path with Fresh Release Audio
 
 **Files:**
 
 - Create: `docs/qa/2026-07-13-pronunciation-acceptance-audit.md`
-- Modify only if needed by discovered defects: files covered by Tasks 1–5 and their focused tests
+- Modify only if needed by discovered defects: files covered by Tasks 1–6 and their focused tests
 - Local-only outputs outside Git: `/Users/dfakkeldy/Developer/echo-overnight/pronunciation-acceptance-20260713/`
 
 ### Step 1: Run focused and full automated verification
 
-Run the focused suites from Tasks 1–5 on the final branch, then:
+Run the focused suites from Tasks 1–6 on the final branch, then:
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
