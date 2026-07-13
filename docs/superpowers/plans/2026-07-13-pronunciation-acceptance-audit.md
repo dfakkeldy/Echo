@@ -220,13 +220,15 @@ git commit -m "feat(narration): preserve pronunciation decision provenance"
 - Modify: `EchoCore/Services/Narration/PronunciationPlanner.swift`
 - Modify: `EchoCore/Services/Narration/NarrationRenderPlan.swift`
 - Modify: `EchoCore/Services/Narration/PronunciationAudit.swift`
+- Modify: `ThirdParty/MisakiSwift/Sources/MisakiSwift/English/EnglishG2P.swift`
 - Modify: `EchoTests/KokoroG2PTests.swift`
+- Modify: `EchoTests/LexiconOnlyG2PTests.swift`
 - Modify: `EchoTests/PronunciationPlannerTests.swift`
 - Modify: `EchoTests/NarrationRenderPlanTests.swift`
 
 ### Step 1: Add failing token-evidence and watch-matrix tests
 
-Extend the G2P wrapper and planner tests to require per-token evidence from the same full-context Misaki result used to produce final phonemes. At minimum expose token text, selected phonemes, lexical tag/rating when available, source range, and whether the token used fallback behavior.
+Extend the G2P wrapper and planner tests to require per-token evidence from the same final per-chunk Misaki result used to produce final phonemes. At minimum expose token text, selected phonemes, lexical tag/rating when available, a half-open character range in chunk `displayText`, and whether the token used fallback behavior. Chunk sizing may legitimately call G2P earlier; “same pass” means no second audit-only call after `PronunciationPlanner.plan` receives the final result.
 
 Add a render-plan test containing all six acceptance words:
 
@@ -241,7 +243,7 @@ Assert that:
 
 - explicit built-ins/homographs retain their structured source/rule provenance;
 - `verified` appears as `monitoredLexicon`, with the exact IPA and selected IDs from the same G2P pass;
-- a deliberately unsupported synthetic token produces `fallback` evidence without silently relabeling it as a lexicon decision;
+- the existing invented-OOV fixture `Xyzqwf` produces `fallback` evidence without silently relabeling it as a lexicon decision;
 - the watch vocabulary contains all six terms even if a separate block omits some of them.
 
 ### Step 2: Run and capture RED
@@ -253,6 +255,7 @@ xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -derivedDataPath /tmp/EchoPronunciationAcceptanceTask3 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/KokoroG2PTests \
+  -only-testing:EchoTests/LexiconOnlyG2PTests \
   -only-testing:EchoTests/PronunciationPlannerTests \
   -only-testing:EchoTests/NarrationRenderPlanTests
 ```
@@ -261,7 +264,11 @@ Expected: compile/test failures because the current wrapper exposes only the agg
 
 ### Step 3: Preserve token evidence from the actual G2P pass
 
-Map Misaki's existing token result into a small Echo-owned Codable/Equatable value. Do not invoke a second G2P pass for auditing. Keep `PlannedSynthesisChunk` immutable and attach only the evidence needed to identify watched lexicon/fallback decisions.
+Copy Misaki's mutable final tokens immediately into a small Echo-owned Codable/Equatable/Sendable value. Keep `PlannedSynthesisChunk` immutable and attach only the evidence needed to identify watched lexicon/fallback decisions. Do not invoke a second G2P pass for auditing.
+
+Do not expose or apply `MToken.tokenRange` directly to raw `g2pInputText`: Misaki trims and strips markup before tokenization, so those indices address a preprocessed spoken surface. Reconstruct that surface in source order from token text and whitespace, validate it against chunk `displayText`, and store half-open character offsets in the display text. Convert to chunk-local `WordTokenizer` spans by range overlap, then add a cumulative block `wordBase` as planned chunks are assembled.
+
+Treat rating 1 as deterministic fallback evidence. In Misaki's final never-voiceless rescue branch, set the rescued token rating to 1 when appending the fallback hit so every fallback path has position-bearing token evidence. Keep existing aggregate fallback hits for compatibility.
 
 The watch-vocabulary declaration must have one deterministic source of truth and include:
 
@@ -269,7 +276,7 @@ The watch-vocabulary declaration must have one deterministic source of truth and
 - all contextual homograph target words;
 - `verified` as the initial explicitly monitored ordinary-lexicon regression.
 
-When converting token evidence to decisions, avoid duplicating a word/span already covered by a winning explicit or contextual decision.
+When converting token evidence to decisions, de-duplicate against Task 2 decisions by `(blockID, wordStart, wordEnd)`. Add `fallback` for fallback evidence and `monitoredLexicon` only for watched non-fallback evidence not already covered.
 
 ### Step 4: Run GREEN and commit
 
@@ -281,7 +288,9 @@ git add EchoCore/Services/Narration/KokoroG2P.swift \
   EchoCore/Services/Narration/PronunciationPlanner.swift \
   EchoCore/Services/Narration/NarrationRenderPlan.swift \
   EchoCore/Services/Narration/PronunciationAudit.swift \
+  ThirdParty/MisakiSwift/Sources/MisakiSwift/English/EnglishG2P.swift \
   EchoTests/KokoroG2PTests.swift \
+  EchoTests/LexiconOnlyG2PTests.swift \
   EchoTests/PronunciationPlannerTests.swift \
   EchoTests/NarrationRenderPlanTests.swift
 git commit -m "feat(narration): audit watched lexicon decisions"
