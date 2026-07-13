@@ -195,6 +195,15 @@ import Testing
         )
     }
 
+    @Test func resolvedSplitDoesNotInsertWhitespaceIntoMarkdownURL() {
+        let source = "verified [site](https://example.com)"
+        let pieces = NarrationTextChunker.splitResolved(source, maxPhonemes: 420) {
+            $0.count
+        }
+
+        #expect(pieces == [source])
+    }
+
     @Test func editorialSquareBracketsDoNotDisableSentenceSplitting() {
         // `[sic]`/footnote brackets are not pronunciation links: sentence
         // terminators after them must still split.

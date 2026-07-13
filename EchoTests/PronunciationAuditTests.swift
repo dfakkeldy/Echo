@@ -54,17 +54,21 @@ import Testing
             legacyChapterIndexes: [],
             audiobookURL: URL(fileURLWithPath: "/private/books/question-machine.m4b"),
             reelURL: URL(fileURLWithPath: "/private/books/question-machine.pronunciation-reel.m4b"),
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: String(repeating: "b", count: 64),
             watchWords: ["verified", "startable", "filesystem"],
             decisions: [first, second],
             diagnostics: [])
 
-        #expect(manifest.schemaVersion == 1)
+        #expect(manifest.schemaVersion == 2)
         #expect(manifest.renderVersion == 11)
         #expect(manifest.voice == "af_heart")
         #expect(manifest.coverage == .complete)
         #expect(manifest.legacyChapterIndexes.isEmpty)
         #expect(manifest.audiobookFileName == "question-machine.m4b")
+        #expect(manifest.audiobookSHA256 == String(repeating: "a", count: 64))
         #expect(manifest.listeningReelFileName == "question-machine.pronunciation-reel.m4b")
+        #expect(manifest.listeningReelSHA256 == String(repeating: "b", count: 64))
         #expect(manifest.watchCounts == ["filesystem": 1, "startable": 0, "verified": 1])
         #expect(manifest.decisions == [first, second])
         #expect(manifest.decisions[0].chapterRelativeAudioRange == .init(start: 1, end: 1.4))
@@ -82,6 +86,8 @@ import Testing
             legacyChapterIndexes: [],
             audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
             reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
             watchWords: ["verified"],
             decisions: [],
             diagnostics: [evidenceDiagnostic])
@@ -92,6 +98,8 @@ import Testing
             legacyChapterIndexes: [1, 7],
             audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
             reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
             watchWords: ["verified"],
             decisions: [],
             diagnostics: [evidenceDiagnostic])
@@ -110,6 +118,8 @@ import Testing
             legacyChapterIndexes: [9, 2, 9],
             audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
             reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
             watchWords: ["verified"],
             decisions: [],
             diagnostics: [diagnostic()])
@@ -126,6 +136,8 @@ import Testing
             legacyChapterIndexes: [],
             audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
             reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
             watchWords: ["verified", "filesystem", "verified"],
             decisions: [],
             diagnostics: [])
@@ -150,6 +162,8 @@ import Testing
             legacyChapterIndexes: [],
             audiobookURL: tmp.appendingPathComponent("book.m4b"),
             reelURL: nil,
+            audiobookSHA256: String(repeating: "c", count: 64),
+            listeningReelSHA256: nil,
             watchWords: ["verified"],
             decisions: [decision(word: "verified", ruleID: "old", chapterIndex: 0)],
             diagnostics: [])
@@ -160,6 +174,8 @@ import Testing
             legacyChapterIndexes: [],
             audiobookURL: tmp.appendingPathComponent("book.m4b"),
             reelURL: nil,
+            audiobookSHA256: String(repeating: "d", count: 64),
+            listeningReelSHA256: nil,
             watchWords: ["verified", "filesystem"],
             decisions: [],
             diagnostics: [])
@@ -182,5 +198,35 @@ import Testing
         #expect(decoded == newManifest)
         #expect(siblings.map(\.lastPathComponent) == [destination.lastPathComponent])
         #expect(!text.contains(tmp.path))
+    }
+
+    @Test func manifestEncodingRejectsMalformedOrUnpairedArtifactHashes() {
+        let malformed = PronunciationAuditManifest.make(
+            renderVersion: NarrationFileNaming.renderVersion,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: nil,
+            audiobookSHA256: "NOT-A-SHA256",
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [],
+            diagnostics: [])
+        let unpaired = PronunciationAuditManifest.make(
+            renderVersion: NarrationFileNaming.renderVersion,
+            voice: VoiceID("af_heart"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: URL(fileURLWithPath: "/tmp/book.pronunciation-reel.m4b"),
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: [],
+            decisions: [],
+            diagnostics: [])
+
+        #expect(throws: Error.self) { _ = try malformed.encoded() }
+        #expect(throws: Error.self) { _ = try unpaired.encoded() }
     }
 }

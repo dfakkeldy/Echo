@@ -181,7 +181,7 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
     }
 
     func segmentCacheURL(
@@ -197,7 +197,7 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
     }
 
     private func chapterCacheURL(
@@ -208,7 +208,7 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String
     ) -> URL {
-        let signature = contentSignature(
+        let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: true,
             overrides: overrides,
@@ -231,7 +231,7 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String
     ) -> URL {
-        let signature = contentSignature(
+        let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: false,
             overrides: overrides,
@@ -246,7 +246,7 @@ final class NarrationService {
                 contentSignature: signature))
     }
 
-    private func contentSignature(
+    static func contentSignature(
         for blocks: [EPubBlockRecord],
         includeLeadOutPad: Bool,
         overrides: PronunciationOverrides,
@@ -282,7 +282,7 @@ final class NarrationService {
         return HomographPronunciationResolver.apply(to: overrides.apply(to: occurrenceSpecific))
     }
 
-    private func normalizationMode(fmEnabled: Bool) -> String {
+    static func normalizationMode(fmEnabled: Bool) -> String {
         fmEnabled ? "fm-auto-v\(FMNormalizer.signatureVersion)" : "deterministic"
     }
 
@@ -325,7 +325,7 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
         let rendered = try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: displayNumber,
@@ -434,7 +434,7 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
         return try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: chapterDisplayNumber,
@@ -1088,14 +1088,6 @@ final class NarrationService {
         let allAccepted: Bool
     }
 
-    private struct QualityRetryContext {
-        let planner: PronunciationPlanner
-
-        init() throws {
-            planner = try PronunciationPlanner()
-        }
-    }
-
     private func synthesizeWithQualityRetry(
         _ plan: PlannedSynthesisChunk,
         voice: VoiceID
@@ -1109,13 +1101,11 @@ final class NarrationService {
             return QualityRetryResult(chunks: [first], allAccepted: true)
         }
 
-        let context = try QualityRetryContext()
         return try await recoverRejectedSynthesis(
             first,
             reason: reason,
             voice: voice,
-            retryDepth: 0,
-            context: context)
+            retryDepth: 0)
     }
 
     private func synthesize(
@@ -1132,8 +1122,7 @@ final class NarrationService {
         _ rejected: PlannedSynthesisOutput,
         reason: NarrationChunkQuality.RejectionReason,
         voice: VoiceID,
-        retryDepth: Int,
-        context: QualityRetryContext
+        retryDepth: Int
     ) async throws -> QualityRetryResult {
         guard retryDepth < Self.maximumQualityRetryDepth else {
             #if DEBUG
@@ -1146,11 +1135,8 @@ final class NarrationService {
         }
 
         let retryMaxPhonemes = max(20, min(80, rejected.plan.phonemes.count / 2))
-        let retryFragments = NarrationTextChunker.splitResolved(
-            rejected.plan.g2pInputText,
-            maxPhonemes: retryMaxPhonemes,
-            phonemeCount: context.planner.phonemeCount(for:))
-        guard retryFragments.count > 1 else {
+        let retryPlans = rejected.plan.frozenRetrySlices(maxPhonemes: retryMaxPhonemes)
+        guard retryPlans.count > 1 else {
             logger.error(
                 "Low-quality narration chunk could not be split for retry: \(String(describing: reason), privacy: .public)"
             )
@@ -1158,13 +1144,12 @@ final class NarrationService {
         }
 
         logger.warning(
-            "Retrying low-quality narration chunk as \(retryFragments.count, privacy: .public) smaller piece(s): \(String(describing: reason), privacy: .public)"
+            "Retrying low-quality narration chunk as \(retryPlans.count, privacy: .public) frozen piece(s): \(String(describing: reason), privacy: .public)"
         )
         var retryChunks: [PlannedSynthesisOutput] = []
-        retryChunks.reserveCapacity(retryFragments.count)
-        for retryFragment in retryFragments {
+        retryChunks.reserveCapacity(retryPlans.count)
+        for retryPlan in retryPlans {
             try Task.checkCancellation()
-            let retryPlan = try context.planner.planResolved(retryFragment)
             let retry: PlannedSynthesisOutput
             do {
                 retry = try await synthesize(retryPlan, voice: voice)
@@ -1182,8 +1167,7 @@ final class NarrationService {
                     retry,
                     reason: retryReason,
                     voice: voice,
-                    retryDepth: retryDepth + 1,
-                    context: context)
+                    retryDepth: retryDepth + 1)
                 guard recovered.allAccepted else {
                     logger.error(
                         "Low-quality narration retry piece rejected; keeping original chunk to avoid dropping source text: \(String(describing: retryReason), privacy: .public)"

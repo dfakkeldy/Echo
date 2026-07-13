@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CryptoKit
+import Darwin
 import Foundation
 import GRDB
 
@@ -47,6 +49,9 @@ struct NarrationRunConfig {
     /// Completed runs generate the local pronunciation audit and bounded
     /// listening reel by default. Partial runs wait for the final audiobook.
     var generatePronunciationReview: Bool = true
+    /// Direct CLI fresh runs clear prior chapter markers/audio after acquiring
+    /// the runner-owned cross-process lease. Library callers resume by default.
+    var clearExistingCapturesBeforeRun: Bool = false
 }
 
 // MARK: - Progress
@@ -132,6 +137,8 @@ struct NarrationRunResult {
         case missingSource(URL)
         case noSourceImported(String)
         case noBlocksImported(String)
+        case captureIdentity(String)
+        case runLease(String)
 
         var errorDescription: String? {
             switch self {
@@ -143,11 +150,51 @@ struct NarrationRunResult {
                 return "No blocks were imported for \(name)."
             case .noBlocksImported(let name):
                 return "No readable text blocks were produced for \(name)."
+            case .captureIdentity(let detail):
+                return "Narration capture identity mismatch: \(detail)"
+            case .runLease(let detail):
+                return "Narration run lease unavailable: \(detail)"
             }
         }
     }
 
     // MARK: Capture & sidecar assembly
+
+    static let chapterCaptureSchemaVersion = 1
+
+    struct ExpectedChapterCaptureIdentity: Equatable, Sendable {
+        let schemaVersion: Int
+        let captureSetID: String
+        let sourceFingerprint: String
+        let voice: VoiceID
+        let renderVersion: Int
+        let rendererIdentity: String
+        let normalizationMode: String
+        let chapterIndex: Int
+        let chapterContentSignature: String
+        let audioFileName: String
+
+        func materialized(
+            audioFileByteCount: Int64,
+            audioSHA256: String,
+            payloadSHA256: String
+        ) -> ChapterCapture.Identity {
+            ChapterCapture.Identity(
+                schemaVersion: schemaVersion,
+                captureSetID: captureSetID,
+                sourceFingerprint: sourceFingerprint,
+                voice: voice,
+                renderVersion: renderVersion,
+                rendererIdentity: rendererIdentity,
+                normalizationMode: normalizationMode,
+                chapterIndex: chapterIndex,
+                chapterContentSignature: chapterContentSignature,
+                audioFileName: audioFileName,
+                audioFileByteCount: audioFileByteCount,
+                audioSHA256: audioSHA256,
+                payloadSHA256: payloadSHA256)
+        }
+    }
 
     /// Per-chapter render capture persisted as `.anchors-ch<N>.json` in the work
     /// dir. All times are chapter-file-relative (each chapter is its own 0-based
@@ -156,6 +203,10 @@ struct NarrationRunResult {
     struct ChapterCapture: Codable, Sendable {
         let duration: TimeInterval
         let anchors: [Entry]
+        /// Immutable identity of the exact source, renderer, pronunciation
+        /// inputs, and audio file represented by this marker. `nil` decodes
+        /// pre-schema captures through the narrow legacy resume lane.
+        let identity: Identity?
         /// Exact pronunciation evidence returned by `NarrationService` for this
         /// rendered chapter. `nil` identifies a resumable legacy capture whose
         /// audio is valid but whose pronunciation provenance is unavailable.
@@ -164,11 +215,75 @@ struct NarrationRunResult {
         init(
             duration: TimeInterval,
             anchors: [Entry],
+            identity: Identity? = nil,
             pronunciationEvidence: PronunciationEvidence? = nil
         ) {
             self.duration = duration
             self.anchors = anchors
+            self.identity = identity
             self.pronunciationEvidence = pronunciationEvidence
+        }
+
+        struct Identity: Codable, Equatable, Sendable {
+            let schemaVersion: Int
+            let captureSetID: String
+            let sourceFingerprint: String
+            let voice: VoiceID
+            let renderVersion: Int
+            let rendererIdentity: String
+            let normalizationMode: String
+            let chapterIndex: Int
+            let chapterContentSignature: String
+            let audioFileName: String
+            let audioFileByteCount: Int64
+            /// SHA-256 of the exact raw chapter-audio bytes.
+            let audioSHA256: String
+            /// SHA-256 of the deterministic canonical capture payload excluding identity.
+            let payloadSHA256: String
+
+            init(
+                schemaVersion: Int,
+                captureSetID: String,
+                sourceFingerprint: String,
+                voice: VoiceID,
+                renderVersion: Int,
+                rendererIdentity: String,
+                normalizationMode: String,
+                chapterIndex: Int,
+                chapterContentSignature: String,
+                audioFileName: String,
+                audioFileByteCount: Int64,
+                audioSHA256: String = "",
+                payloadSHA256: String = ""
+            ) {
+                self.schemaVersion = schemaVersion
+                self.captureSetID = captureSetID
+                self.sourceFingerprint = sourceFingerprint
+                self.voice = voice
+                self.renderVersion = renderVersion
+                self.rendererIdentity = rendererIdentity
+                self.normalizationMode = normalizationMode
+                self.chapterIndex = chapterIndex
+                self.chapterContentSignature = chapterContentSignature
+                self.audioFileName = audioFileName
+                self.audioFileByteCount = audioFileByteCount
+                self.audioSHA256 = audioSHA256
+                self.payloadSHA256 = payloadSHA256
+            }
+
+            var expected: ExpectedChapterCaptureIdentity {
+                ExpectedChapterCaptureIdentity(
+                    schemaVersion: schemaVersion,
+                    captureSetID: captureSetID,
+                    sourceFingerprint: sourceFingerprint,
+                    voice: voice,
+                    renderVersion: renderVersion,
+                    rendererIdentity: rendererIdentity,
+                    normalizationMode: normalizationMode,
+                    chapterIndex: chapterIndex,
+                    chapterContentSignature: chapterContentSignature,
+                    audioFileName: audioFileName)
+            }
         }
 
         struct PronunciationEvidence: Codable, Equatable, Sendable {
@@ -196,11 +311,30 @@ struct NarrationRunResult {
                 self.words = words
             }
         }
+
+        func attachingIdentity(_ identity: Identity) -> ChapterCapture {
+            ChapterCapture(
+                duration: duration,
+                anchors: anchors,
+                identity: identity,
+                pronunciationEvidence: pronunciationEvidence)
+        }
+    }
+
+    private struct CapturePayloadEnvelope: Encodable {
+        let duration: TimeInterval
+        let anchors: [ChapterCapture.Entry]
+        let pronunciationEvidence: ChapterCapture.PronunciationEvidence?
     }
 
     struct IndexedChapterCapture: Sendable {
         let chapterIndex: Int
         let capture: ChapterCapture
+    }
+
+    private struct ValidatedChapterCapture: Sendable {
+        let capture: ChapterCapture
+        let audioURL: URL
     }
 
     struct PronunciationEvidenceAssembly: Equatable, Sendable {
@@ -229,7 +363,7 @@ struct NarrationRunResult {
         for indexedCapture in ordered {
             let chapterIndex = indexedCapture.chapterIndex
             let capture = indexedCapture.capture
-            if let evidence = capture.pronunciationEvidence {
+            if capture.identity != nil, let evidence = capture.pronunciationEvidence {
                 decisions.append(contentsOf: evidence.decisions.map {
                     $0.attachingBookTiming(
                         chapterIndex: chapterIndex,
@@ -250,6 +384,315 @@ struct NarrationRunResult {
             diagnostics: diagnostics,
             legacyChapterIndexes: legacyChapterIndexes,
             totalDuration: offset)
+    }
+
+    static func captureSetID(
+        sourceFingerprint: String,
+        voice: VoiceID,
+        renderVersion: Int,
+        rendererIdentity: String,
+        normalizationMode: String,
+        orderedChapterSignatures: [String]
+    ) -> String {
+        sha256Hex(
+            framed: [
+                "capture-schema=\(chapterCaptureSchemaVersion)",
+                "source=\(sourceFingerprint)",
+                "voice=\(voice.rawValue)",
+                "render-version=\(renderVersion)",
+                "renderer=\(rendererIdentity)",
+                "normalization=\(normalizationMode)",
+                "chapter-count=\(orderedChapterSignatures.count)",
+            ] + orderedChapterSignatures)
+    }
+
+    /// Validates a capture before it can affect cleanup, resume, export, or
+    /// pronunciation receipts. A legacy marker is accepted only when the exact
+    /// currently expected cache filename exists; it never gains trusted audit
+    /// coverage merely by decoding successfully.
+    static func validateCapture(
+        _ capture: ChapterCapture,
+        chapterIndex: Int,
+        expected: ExpectedChapterCaptureIdentity,
+        workDir: URL
+    ) throws -> URL {
+        guard expected.chapterIndex == chapterIndex else {
+            throw NarrationRunError.captureIdentity(
+                "expected chapter \(expected.chapterIndex), marker chapter \(chapterIndex)")
+        }
+        guard expected.audioFileName == URL(fileURLWithPath: expected.audioFileName).lastPathComponent,
+            !expected.audioFileName.isEmpty
+        else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(chapterIndex) expected an unsafe audio filename")
+        }
+
+        let audioURL = workDir.appendingPathComponent(expected.audioFileName)
+        guard audioURL.deletingLastPathComponent().standardizedFileURL
+            == workDir.standardizedFileURL
+        else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(chapterIndex) audio escaped the work directory")
+        }
+        guard let byteCount = try regularFileByteCount(at: audioURL) else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(chapterIndex) is missing exact audio \(expected.audioFileName)")
+        }
+
+        try validateCapturePayload(capture, chapterIndex: chapterIndex)
+
+        guard let identity = capture.identity else {
+            return audioURL
+        }
+        guard identity.expected == expected else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(chapterIndex) source, voice, renderer, or content no longer matches")
+        }
+        guard identity.audioFileByteCount == byteCount else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(chapterIndex) audio byte count changed")
+        }
+        guard identity.audioSHA256 == (try fileSHA256(at: audioURL)) else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(chapterIndex) audio SHA-256 changed")
+        }
+        guard identity.payloadSHA256 == (try capturePayloadSHA256(capture)) else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(chapterIndex) marker payload changed")
+        }
+        return audioURL
+    }
+
+    static func sealedCapture(
+        _ payload: ChapterCapture,
+        audioURL: URL,
+        expected: ExpectedChapterCaptureIdentity,
+        workDir: URL
+    ) throws -> ChapterCapture {
+        guard payload.identity == nil else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(expected.chapterIndex) payload was already sealed")
+        }
+        try validateCapturePayload(payload, chapterIndex: expected.chapterIndex)
+        guard audioURL.deletingLastPathComponent().standardizedFileURL
+            == workDir.standardizedFileURL,
+            audioURL.lastPathComponent == expected.audioFileName,
+            let byteCount = try regularFileByteCount(at: audioURL)
+        else {
+            throw NarrationRunError.captureIdentity(
+                "chapter \(expected.chapterIndex) renderer returned unexpected audio")
+        }
+        let identity = expected.materialized(
+            audioFileByteCount: byteCount,
+            audioSHA256: try fileSHA256(at: audioURL),
+            payloadSHA256: try capturePayloadSHA256(payload))
+        return payload.attachingIdentity(identity)
+    }
+
+    private static func validatedCaptures(
+        in workDir: URL,
+        expectedByChapterIndex: [Int: ExpectedChapterCaptureIdentity]
+    ) throws -> [Int: ValidatedChapterCapture] {
+        let files = try FileManager.default.contentsOfDirectory(
+            at: workDir,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [])
+        var result: [Int: ValidatedChapterCapture] = [:]
+        for marker in files where marker.lastPathComponent.hasPrefix(".anchors-ch") {
+            guard marker.pathExtension == "json",
+                let chapterIndex = captureChapterIndex(from: marker.lastPathComponent),
+                let expected = expectedByChapterIndex[chapterIndex]
+            else {
+                throw NarrationRunError.captureIdentity(
+                    "unexpected or malformed marker \(marker.lastPathComponent)")
+            }
+            guard result[chapterIndex] == nil else {
+                throw NarrationRunError.captureIdentity(
+                    "duplicate marker for chapter \(chapterIndex)")
+            }
+            let capture: ChapterCapture
+            do {
+                capture = try JSONDecoder().decode(
+                    ChapterCapture.self,
+                    from: Data(contentsOf: marker))
+            } catch {
+                throw NarrationRunError.captureIdentity(
+                    "chapter \(chapterIndex) marker could not be decoded")
+            }
+            result[chapterIndex] = ValidatedChapterCapture(
+                capture: capture,
+                audioURL: try validateCapture(
+                    capture,
+                    chapterIndex: chapterIndex,
+                    expected: expected,
+                    workDir: workDir))
+        }
+        return result
+    }
+
+    private static func captureChapterIndex(from filename: String) -> Int? {
+        let prefix = ".anchors-ch"
+        let suffix = ".json"
+        guard filename.hasPrefix(prefix), filename.hasSuffix(suffix) else { return nil }
+        let digits = filename.dropFirst(prefix.count).dropLast(suffix.count)
+        guard !digits.isEmpty, digits.allSatisfy(\.isNumber) else { return nil }
+        return Int(digits)
+    }
+
+    private static func regularFileByteCount(at url: URL) throws -> Int64? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        } catch let error as CocoaError {
+            if error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
+                return nil
+            }
+            throw error
+        }
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+            let size = attributes[.size] as? NSNumber
+        else {
+            return nil
+        }
+        return size.int64Value
+    }
+
+    /// Stable digest of every semantic capture field outside `identity`.
+    /// Sorted-key JSON is used only after finite/range validation, making the
+    /// byte representation deterministic while avoiding a digest cycle.
+    static func capturePayloadSHA256(_ capture: ChapterCapture) throws -> String {
+        try validateCapturePayload(capture, chapterIndex: capture.identity?.chapterIndex)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(
+            CapturePayloadEnvelope(
+                duration: capture.duration,
+                anchors: capture.anchors,
+                pronunciationEvidence: capture.pronunciationEvidence))
+        return sha256Hex(data: data)
+    }
+
+    private static func validateCapturePayload(
+        _ capture: ChapterCapture,
+        chapterIndex: Int?
+    ) throws {
+        guard capture.duration.isFinite, capture.duration >= 0 else {
+            throw NarrationRunError.captureIdentity("capture duration is not finite and nonnegative")
+        }
+        if capture.identity != nil, capture.pronunciationEvidence == nil {
+            throw NarrationRunError.captureIdentity(
+                "current-schema capture is missing pronunciation evidence")
+        }
+
+        var previousAnchorTime: TimeInterval = 0
+        var previousWordStart: TimeInterval = 0
+        for (anchorIndex, anchor) in capture.anchors.enumerated() {
+            guard !anchor.suffix.isEmpty,
+                anchor.time.isFinite,
+                anchor.time >= 0,
+                anchor.time <= capture.duration,
+                (anchorIndex == 0 || anchor.time >= previousAnchorTime)
+            else {
+                throw NarrationRunError.captureIdentity(
+                    "capture anchors are invalid or out of order")
+            }
+            previousAnchorTime = anchor.time
+
+            for word in anchor.words ?? [] {
+                guard !word.word.isEmpty,
+                    word.start.isFinite,
+                    word.end.isFinite,
+                    word.start >= 0,
+                    word.start <= word.end,
+                    word.end <= capture.duration,
+                    word.start >= previousWordStart
+                else {
+                    throw NarrationRunError.captureIdentity(
+                        "capture word timings are invalid or out of order")
+                }
+                previousWordStart = word.start
+            }
+        }
+
+        var previousDecisionStart: TimeInterval = 0
+        for decision in capture.pronunciationEvidence?.decisions ?? [] {
+            guard decision.wordStart >= 0,
+                decision.wordEnd >= decision.wordStart,
+                !decision.normalizedWord.isEmpty,
+                !decision.selectedIPA.isEmpty,
+                !decision.kokoroTokenIDs.isEmpty,
+                decision.bookRelativeAudioRange == nil,
+                (decision.chapterRelativeAudioRange == nil) == (decision.timingPrecision == nil)
+            else {
+                throw NarrationRunError.captureIdentity(
+                    "capture pronunciation decision is semantically invalid")
+            }
+            if let chapterIndex, decision.chapterIndex != chapterIndex {
+                throw NarrationRunError.captureIdentity(
+                    "capture pronunciation decision belongs to another chapter")
+            }
+            if let range = decision.chapterRelativeAudioRange {
+                guard range.start.isFinite,
+                    range.end.isFinite,
+                    range.start >= 0,
+                    range.start <= range.end,
+                    range.end <= capture.duration,
+                    range.start >= previousDecisionStart
+                else {
+                    throw NarrationRunError.captureIdentity(
+                        "capture pronunciation timing is invalid or out of order")
+                }
+                previousDecisionStart = range.start
+            }
+        }
+        if let chapterIndex {
+            for diagnostic in capture.pronunciationEvidence?.diagnostics ?? [] {
+                guard diagnostic.chapterIndex == chapterIndex else {
+                    throw NarrationRunError.captureIdentity(
+                        "capture pronunciation diagnostic belongs to another chapter")
+                }
+            }
+        }
+    }
+
+    static func fileSHA256(at url: URL) throws -> String {
+        guard try regularFileByteCount(at: url) != nil else {
+            throw NarrationRunError.captureIdentity(
+                "cannot hash missing or non-regular file \(url.lastPathComponent)")
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+            hasher.update(data: data)
+        }
+        return hex(hasher.finalize())
+    }
+
+    private static func sha256Hex(data: Data) -> String {
+        hex(SHA256.hash(data: data))
+    }
+
+    private static func sha256Hex(framed components: [String]) -> String {
+        var hasher = SHA256()
+        for component in components {
+            let data = Data(component.utf8)
+            hasher.update(data: Data("\(data.count):".utf8))
+            hasher.update(data: data)
+        }
+        return hex(hasher.finalize())
+    }
+
+    private static func hex<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
+        let digits = Array("0123456789abcdef".utf8)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(64)
+        for byte in digest {
+            bytes.append(digits[Int(byte >> 4)])
+            bytes.append(digits[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// Pure step-7 assembly: chapter captures (in chapter order) → portable
@@ -332,6 +775,90 @@ struct NarrationRunResult {
         var inflight: [Int: Double] = [:]
     }
 
+    /// Kernel-owned advisory lease for every mutable run resource. Lock-file
+    /// contents are informational only: a crashed process releases `flock`
+    /// automatically, and the next owner overwrites any stale/malformed text.
+    final class NarrationRunLease {
+        fileprivate let descriptors: [Int32]
+
+        fileprivate init(descriptors: [Int32]) {
+            self.descriptors = descriptors
+        }
+
+        deinit {
+            for descriptor in descriptors {
+                _ = flock(descriptor, LOCK_UN)
+                _ = Darwin.close(descriptor)
+            }
+        }
+    }
+
+    private static func runLeaseResources(for config: NarrationRunConfig) -> [String] {
+        var urls = [config.workDir, config.outM4BURL]
+        if let databaseURL = config.databaseURL { urls.append(databaseURL) }
+        if let sidecarURL = config.sidecarURL { urls.append(sidecarURL) }
+        return Array(
+            Set(urls.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+        ).sorted()
+    }
+
+    static func runLeaseLockURLs(for config: NarrationRunConfig) -> [URL] {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "EchoNarrationLocks",
+            isDirectory: true)
+        return runLeaseResources(for: config).map { resource in
+            root.appendingPathComponent(sha256Hex(framed: [resource]) + ".lock")
+        }
+    }
+
+    static func acquireRunLease(for config: NarrationRunConfig) throws -> NarrationRunLease {
+        let resources = runLeaseResources(for: config)
+        let lockURLs = runLeaseLockURLs(for: config)
+        guard let root = lockURLs.first?.deletingLastPathComponent() else {
+            throw NarrationRunError.runLease("run has no lockable resources")
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true)
+
+        var descriptors: [Int32] = []
+        do {
+            for (resource, lockURL) in zip(resources, lockURLs) {
+                let descriptor = Darwin.open(
+                    lockURL.path,
+                    O_CREAT | O_RDWR | O_NOFOLLOW,
+                    mode_t(S_IRUSR | S_IWUSR))
+                guard descriptor >= 0 else {
+                    throw NarrationRunError.runLease(
+                        "could not open lease for \(resource): errno \(errno)")
+                }
+                guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+                    let lockError = errno
+                    _ = Darwin.close(descriptor)
+                    throw NarrationRunError.runLease(
+                        "resource is already in use: \(resource) (errno \(lockError))")
+                }
+                descriptors.append(descriptor)
+
+                _ = ftruncate(descriptor, 0)
+                _ = lseek(descriptor, 0, SEEK_SET)
+                let metadata = Data("pid=\(getpid())\nresource=\(resource)\n".utf8)
+                metadata.withUnsafeBytes { bytes in
+                    if let baseAddress = bytes.baseAddress {
+                        _ = Darwin.write(descriptor, baseAddress, bytes.count)
+                    }
+                }
+            }
+            return NarrationRunLease(descriptors: descriptors)
+        } catch {
+            for descriptor in descriptors {
+                _ = flock(descriptor, LOCK_UN)
+                _ = Darwin.close(descriptor)
+            }
+            throw error
+        }
+    }
+
     /// Collapses engine prepare steps into one 0…1 fraction for
     /// `NarrationRunProgress.preparing`: model download fills 0…0.9, session
     /// load 0.9…1.0. Pure — unit-tested without an engine.
@@ -382,10 +909,6 @@ struct NarrationRunResult {
             pronunciationEvidence: ChapterCapture.PronunciationEvidence(
                 decisions: rendered.pronunciationDecisions,
                 diagnostics: rendered.pronunciationAuditDiagnostics))
-    }
-
-    private func isCaptured(_ idx: Int, in workDir: URL) -> Bool {
-        FileManager.default.fileExists(atPath: captureURL(idx, in: workDir).path)
     }
 
     private func chapterIndex(of url: URL) -> Int? {
@@ -472,13 +995,34 @@ struct NarrationRunResult {
             },
         progress: @escaping @MainActor (NarrationRunProgress) -> Void = { _ in }
     ) async throws -> NarrationRunResult {
+        let runLease = try Self.acquireRunLease(for: config)
+        defer { withExtendedLifetime(runLease) {} }
         let fm = FileManager.default
 
         let source = try resolveNarrationSource(at: config.epubURL)
         let sourceURL = source.sourceURL
+        let sourceFingerprintBeforeImport = try sourceFingerprint(for: source)
 
         // Ensure work directory exists.
         try fm.createDirectory(at: config.workDir, withIntermediateDirectories: true)
+        if config.clearExistingCapturesBeforeRun {
+            for url in try fm.contentsOfDirectory(
+                at: config.workDir,
+                includingPropertiesForKeys: nil)
+            where url.lastPathComponent.hasPrefix(".anchors-ch") || url.pathExtension == "m4a" {
+                try fm.removeItem(at: url)
+            }
+            let outputStem = config.outM4BURL.deletingPathExtension()
+            let priorFinalArtifacts = [
+                config.outM4BURL,
+                config.sidecarURL,
+                outputStem.appendingPathExtension("pronunciation-audit.json"),
+                outputStem.appendingPathExtension("pronunciation-reel.m4b"),
+            ].compactMap { $0 }
+            for url in priorFinalArtifacts {
+                try PronunciationReviewArtifactGenerator.removeIfPresent(url)
+            }
+        }
 
         // 1. Import source (EPUB/PDF) → blocks with chapter indices.
         progress(.importing)
@@ -498,6 +1042,11 @@ struct NarrationRunResult {
         guard !blocks.isEmpty else {
             throw NarrationRunError.noBlocksImported(sourceURL.lastPathComponent)
         }
+        let sourceFingerprintAfterImport = try sourceFingerprint(for: source)
+        guard sourceFingerprintAfterImport == sourceFingerprintBeforeImport else {
+            throw NarrationRunError.captureIdentity(
+                "source changed while it was being imported")
+        }
 
         let byChapter = Dictionary(
             grouping: blocks.filter { $0.chapterIndex != nil },
@@ -507,18 +1056,79 @@ struct NarrationRunResult {
             uniqueKeysWithValues: plannedChapters.map { ($0.index, $0) })
         let chapterIndices = byChapter.keys.sorted()
 
+        // Freeze every input that controls pronunciation and cache naming once.
+        // Expected capture identities and all workers then consume the same
+        // immutable snapshot, even if settings change while a batch is running.
+        let overrides = PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
+        let occurrenceOverrides =
+            PronunciationOverrideStore.shared.occurrenceOverrides(forBookID: audiobookID)
+        let normalizationMode = NarrationService.normalizationMode(
+            fmEnabled: config.enableFMNormalization)
+        let sourceFingerprint = sourceFingerprintBeforeImport
+        let chapterContentSignatures = Dictionary(
+            uniqueKeysWithValues: chapterIndices.map { chapterIndex in
+                let chapterBlocks = byChapter[chapterIndex]!.sorted {
+                    $0.sequenceIndex < $1.sequenceIndex
+                }
+                return (
+                    chapterIndex,
+                    NarrationService.contentSignature(
+                        for: chapterBlocks,
+                        includeLeadOutPad: true,
+                        overrides: overrides,
+                        occurrenceOverrides: occurrenceOverrides,
+                        normalizationMode: normalizationMode))
+            })
+        let captureSetID = Self.captureSetID(
+            sourceFingerprint: sourceFingerprint,
+            voice: config.voice,
+            renderVersion: NarrationFileNaming.renderVersion,
+            rendererIdentity: NarrationFileNaming.rendererIdentity,
+            normalizationMode: normalizationMode,
+            orderedChapterSignatures: chapterIndices.map {
+                "\($0):\(chapterContentSignatures[$0]!)"
+            })
+        let expectedCaptureByChapterIndex = Dictionary(
+            uniqueKeysWithValues: chapterIndices.map { chapterIndex in
+                let signature = chapterContentSignatures[chapterIndex]!
+                let audioFileName = NarrationFileNaming.chapterFileName(
+                    audiobookID: audiobookID,
+                    chapterIndex: chapterIndex,
+                    voice: config.voice,
+                    contentSignature: signature)
+                return (
+                    chapterIndex,
+                    ExpectedChapterCaptureIdentity(
+                        schemaVersion: Self.chapterCaptureSchemaVersion,
+                        captureSetID: captureSetID,
+                        sourceFingerprint: sourceFingerprint,
+                        voice: config.voice,
+                        renderVersion: NarrationFileNaming.renderVersion,
+                        rendererIdentity: NarrationFileNaming.rendererIdentity,
+                        normalizationMode: normalizationMode,
+                        chapterIndex: chapterIndex,
+                        chapterContentSignature: signature,
+                        audioFileName: audioFileName))
+            })
+
+        // Every marker is validated before crash cleanup or pending selection.
+        // A mismatch fails closed and leaves the work directory untouched.
+        var validatedCaptures = try Self.validatedCaptures(
+            in: config.workDir,
+            expectedByChapterIndex: expectedCaptureByChapterIndex)
+
         // 2. Drop crash partials: .m4a files whose chapter has no capture file.
         for url
             in (try? fm.contentsOfDirectory(at: config.workDir, includingPropertiesForKeys: nil))
             ?? []
         where url.pathExtension == "m4a" {
-            if let idx = chapterIndex(of: url), !isCaptured(idx, in: config.workDir) {
+            if let idx = chapterIndex(of: url), validatedCaptures[idx] == nil {
                 try? fm.removeItem(at: url)
             }
         }
 
         // 3. Determine which chapters to render this batch.
-        let pending = chapterIndices.filter { !isCaptured($0, in: config.workDir) }
+        let pending = chapterIndices.filter { validatedCaptures[$0] == nil }
         let maxNew = config.maxNewChaptersPerRun ?? Int.max
         let batch = Array(pending.prefix(maxNew))
 
@@ -585,6 +1195,10 @@ struct NarrationRunResult {
                     ?? ((chapterIndices.firstIndex(of: idx) ?? 0) + 1)
                 let chapterBlocks = byChapter[idx]!.sorted { $0.sequenceIndex < $1.sequenceIndex }
                 let chapterTitle = plannedByChapterIndex[idx]?.title
+                guard let expectedCapture = expectedCaptureByChapterIndex[idx] else {
+                    throw NarrationRunError.captureIdentity(
+                        "chapter \(idx) has no expected capture identity")
+                }
 
                 let rendered = try await svc.renderChapter(
                     chapterIndex: idx, chapterNumber: displayNumber,
@@ -593,27 +1207,36 @@ struct NarrationRunResult {
                     cursor.inflight[worker] = blockFraction
                     emitChapterProgress()
                 }
-
                 // Capture anchors + track duration for this chapter.
                 let blockIDs = chapterBlocks.map(\.id)
                 guard !blockIDs.isEmpty else {
                     // Chapter has no text blocks — SQLite `IN ()` would crash; skip the DB read.
-                    let cap = ChapterCapture(
+                    let payload = ChapterCapture(
                         duration: rendered.duration,
                         anchors: [],
                         pronunciationEvidence: ChapterCapture.PronunciationEvidence(
                             decisions: rendered.pronunciationDecisions,
                             diagnostics: rendered.pronunciationAuditDiagnostics))
+                    let cap = try Self.sealedCapture(
+                        payload,
+                        audioURL: rendered.fileURL,
+                        expected: expectedCapture,
+                        workDir: config.workDir)
                     try JSONEncoder().encode(cap).write(
                         to: captureURL(idx, in: config.workDir),
                         options: .atomic)
                     return
                 }
-                let cap = try capturedChapter(
+                let payload = try capturedChapter(
                     dbWriter: dbWriter, audiobookID: audiobookID,
                     rendered: rendered,
                     blocks: chapterBlocks,
                     includeWordTimings: config.includeWordTimings)
+                let cap = try Self.sealedCapture(
+                    payload,
+                    audioURL: rendered.fileURL,
+                    expected: expectedCapture,
+                    workDir: config.workDir)
                 try JSONEncoder().encode(cap).write(
                     to: captureURL(idx, in: config.workDir),
                     options: .atomic)
@@ -635,13 +1258,8 @@ struct NarrationRunResult {
                         db: dbWriter, audiobookID: audiobookID, tts: engine,
                         audioWriter: AVFoundationAudioWriter(),
                         cacheDirectory: config.workDir, state: NarrationState(),
-                        pronunciationOverrides: {
-                            PronunciationOverrideStore.shared.overrides(forBookID: audiobookID)
-                        },
-                        pronunciationOccurrenceOverrides: {
-                            PronunciationOverrideStore.shared.occurrenceOverrides(
-                                forBookID: audiobookID)
-                        },
+                        pronunciationOverrides: { overrides },
+                        pronunciationOccurrenceOverrides: { occurrenceOverrides },
                         fmEnabled: { config.enableFMNormalization })
                     while cursor.next < batch.count {
                         let pos = cursor.next
@@ -675,7 +1293,10 @@ struct NarrationRunResult {
         if let firstWorkerError { throw firstWorkerError }
 
         // 5. Check if all chapters are now captured.
-        let stillPending = chapterIndices.filter { !isCaptured($0, in: config.workDir) }
+        validatedCaptures = try Self.validatedCaptures(
+            in: config.workDir,
+            expectedByChapterIndex: expectedCaptureByChapterIndex)
+        let stillPending = chapterIndices.filter { validatedCaptures[$0] == nil }
         guard stillPending.isEmpty else {
             // Partial batch complete; caller should re-run.
             return NarrationRunResult(
@@ -687,28 +1308,34 @@ struct NarrationRunResult {
         }
 
         // 6. Export the chaptered .m4b.
+        let outputStem = config.outM4BURL.deletingPathExtension()
+        let auditURL = outputStem.appendingPathExtension("pronunciation-audit.json")
+        let reelURL = outputStem.appendingPathExtension("pronunciation-reel.m4b")
+        // Once a new audiobook export begins, no prior acceptance sibling may
+        // remain visible as if it described the replacement artifact.
+        try PronunciationReviewArtifactGenerator.removeIfPresent(auditURL)
+        try PronunciationReviewArtifactGenerator.removeIfPresent(reelURL)
+        if let sidecarURL = config.sidecarURL {
+            try PronunciationReviewArtifactGenerator.removeIfPresent(sidecarURL)
+        }
         progress(.exporting)
         try fm.createDirectory(
             at: config.outM4BURL.deletingLastPathComponent(),
             withIntermediateDirectories: true)
-
-        let m4aFiles =
-            ((try? fm.contentsOfDirectory(at: config.workDir, includingPropertiesForKeys: nil))
-            ?? [])
-            .filter { $0.pathExtension == "m4a" }
-        let ordered = m4aFiles.compactMap { url -> (Int, URL)? in
-            chapterIndex(of: url).map { ($0, url) }
-        }.sorted { $0.0 < $1.0 }
 
         // Title each chapter from its EPUB heading (keyed by chapter index, never
         // file position) so the exported .m4b carries real chapter names — not
         // "Chapter N". Falls back to "Chapter <index+1>" when a chapter has no heading.
         let titles = Self.titlesByChapterIndex(
             NarrationOutlineBuilder.build(allBlocks: blocks, isRendered: { _ in true }))
-        let items = ordered.map { chapterIndex, url in
-            ExportItem(
+        let items = try chapterIndices.map { chapterIndex in
+            guard let validated = validatedCaptures[chapterIndex] else {
+                throw NarrationRunError.captureIdentity(
+                    "chapter \(chapterIndex) was not validated for export")
+            }
+            return ExportItem(
                 title: titles[chapterIndex] ?? "Chapter \(chapterIndex + 1)",
-                url: url, timeRange: nil)
+                url: validated.audioURL, timeRange: nil)
         }
 
         // Cover art: prefer the OPF-declared cover for ANY EPUB source — zipped
@@ -720,20 +1347,41 @@ struct NarrationRunResult {
             expandedEPUBDir: source.expandedEPUBDir,
             blocks: blocks)
 
+        // Close both source and chapter-audio TOCTOU windows immediately before
+        // the exporter opens its inputs.
+        guard try self.sourceFingerprint(for: source) == sourceFingerprint else {
+            throw NarrationRunError.captureIdentity("source changed before final export")
+        }
+        validatedCaptures = try Self.validatedCaptures(
+            in: config.workDir,
+            expectedByChapterIndex: expectedCaptureByChapterIndex)
+
         try await AudioExportService().exportM4B(
             items: items, outputURL: config.outM4BURL,
             metadata: ExportMetadata(
                 title: config.title, author: config.author, coverArt: coverData,
                 comment: Self.narrationVersionStamp()))
 
+        // Revalidate again before any marker payload can influence sidecar or
+        // audit assembly. Export must not turn a concurrent mutation into a
+        // trusted receipt.
+        guard try self.sourceFingerprint(for: source) == sourceFingerprint else {
+            throw NarrationRunError.captureIdentity("source changed during final export")
+        }
+        validatedCaptures = try Self.validatedCaptures(
+            in: config.workDir,
+            expectedByChapterIndex: expectedCaptureByChapterIndex)
+
         // 7. Assemble the portable alignment sidecar (per-chapter relative → absolute,
         // for anchor timestamps AND their word times alike).
         let indexedCaptures = try chapterIndices.map { idx in
-            IndexedChapterCapture(
+            guard let validated = validatedCaptures[idx] else {
+                throw NarrationRunError.captureIdentity(
+                    "chapter \(idx) was not validated for sidecar assembly")
+            }
+            return IndexedChapterCapture(
                 chapterIndex: idx,
-                capture: try JSONDecoder().decode(
-                    ChapterCapture.self,
-                    from: Data(contentsOf: captureURL(idx, in: config.workDir))))
+                capture: validated.capture)
         }.sorted { $0.chapterIndex < $1.chapterIndex }
         let captures = indexedCaptures.map(\.capture)
         let pronunciationEvidence = Self.assemblePronunciationEvidence(
@@ -756,27 +1404,28 @@ struct NarrationRunResult {
         // 8. Generate the local acceptance artifacts only after both the final
         // audiobook and the caller-requested sidecar have succeeded. Review
         // clips therefore address the exact exported audiobook timebase.
-        let outputStem = config.outM4BURL.deletingPathExtension()
-        let auditURL = outputStem.appendingPathExtension("pronunciation-audit.json")
-        let reelURL = outputStem.appendingPathExtension("pronunciation-reel.m4b")
         let pronunciationReview: PronunciationReviewOutcome
         if config.generatePronunciationReview {
             let watchWords = PronunciationWatchVocabulary.words.sorted()
-            pronunciationReview = try await reviewGenerator(
-                PronunciationReviewRequest(
-                    audiobookURL: config.outM4BURL,
-                    auditURL: auditURL,
-                    reelURL: reelURL,
-                    renderVersion: NarrationFileNaming.renderVersion,
-                    voice: config.voice,
-                    captureCoverage: pronunciationEvidence.coverage,
-                    legacyChapterIndexes: pronunciationEvidence.legacyChapterIndexes,
-                    decisions: pronunciationEvidence.decisions,
-                    diagnostics: pronunciationEvidence.diagnostics,
-                    watchWords: watchWords))
+            do {
+                pronunciationReview = try await reviewGenerator(
+                    PronunciationReviewRequest(
+                        audiobookURL: config.outM4BURL,
+                        auditURL: auditURL,
+                        reelURL: reelURL,
+                        renderVersion: NarrationFileNaming.renderVersion,
+                        voice: config.voice,
+                        captureCoverage: pronunciationEvidence.coverage,
+                        legacyChapterIndexes: pronunciationEvidence.legacyChapterIndexes,
+                        decisions: pronunciationEvidence.decisions,
+                        diagnostics: pronunciationEvidence.diagnostics,
+                        watchWords: watchWords))
+            } catch {
+                try? PronunciationReviewArtifactGenerator.removeIfPresent(auditURL)
+                try? PronunciationReviewArtifactGenerator.removeIfPresent(reelURL)
+                throw error
+            }
         } else {
-            try PronunciationReviewArtifactGenerator.removeIfPresent(auditURL)
-            try PronunciationReviewArtifactGenerator.removeIfPresent(reelURL)
             pronunciationReview = .disabled
         }
 
@@ -883,6 +1532,75 @@ struct NarrationRunResult {
             return .pdf(sourceURL)
         default:
             throw NarrationRunError.unsupportedInput(sourceURL)
+        }
+    }
+
+    private func sourceFingerprint(for source: SourceKind) throws -> String {
+        var hasher = SHA256()
+        switch source {
+        case .epubFile(let url):
+            Self.update(&hasher, framed: "source-kind=epub")
+            try Self.update(&hasher, withFileAt: url)
+        case .pdf(let url):
+            Self.update(&hasher, framed: "source-kind=pdf")
+            try Self.update(&hasher, withFileAt: url)
+        case .expandedEPUB(let root):
+            Self.update(&hasher, framed: "source-kind=expanded-epub")
+            let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
+            var traversalError: Error?
+            guard let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: Array(resourceKeys),
+                options: [.skipsPackageDescendants],
+                errorHandler: { _, error in
+                    traversalError = error
+                    return false
+                })
+            else {
+                throw NarrationRunError.captureIdentity(
+                    "could not enumerate expanded EPUB source")
+            }
+            let rootPath = root.standardizedFileURL.path
+            let files = enumerator.compactMap { $0 as? URL }.filter { url in
+                (try? url.resourceValues(forKeys: resourceKeys).isRegularFile) == true
+            }.sorted { lhs, rhs in
+                lhs.standardizedFileURL.path < rhs.standardizedFileURL.path
+            }
+            if traversalError != nil {
+                throw NarrationRunError.captureIdentity(
+                    "could not read every expanded EPUB source file")
+            }
+            Self.update(&hasher, framed: "file-count=\(files.count)")
+            for file in files {
+                let path = file.standardizedFileURL.path
+                var relativePath = path.hasPrefix(rootPath)
+                    ? String(path.dropFirst(rootPath.count))
+                    : file.lastPathComponent
+                if relativePath.hasPrefix("/") { relativePath.removeFirst() }
+                Self.update(&hasher, framed: relativePath)
+                try Self.update(&hasher, withFileAt: file)
+            }
+        }
+        return Self.hex(hasher.finalize())
+    }
+
+    private static func update(_ hasher: inout SHA256, framed value: String) {
+        let data = Data(value.utf8)
+        hasher.update(data: Data("\(data.count):".utf8))
+        hasher.update(data: data)
+    }
+
+    private static func update(_ hasher: inout SHA256, withFileAt url: URL) throws {
+        let byteCount = try regularFileByteCount(at: url)
+        guard let byteCount else {
+            throw NarrationRunError.captureIdentity(
+                "source file is missing or not regular: \(url.lastPathComponent)")
+        }
+        update(&hasher, framed: "bytes=\(byteCount)")
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+            hasher.update(data: data)
         }
     }
 

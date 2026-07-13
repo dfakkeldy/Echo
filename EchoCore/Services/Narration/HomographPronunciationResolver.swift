@@ -74,8 +74,8 @@ nonisolated enum HomographPronunciationResolver {
         "those", "whose", "your",
     ]
     private static let livesVerbPreceders: Set<String> = [
-        "everyone", "he", "it", "nobody", "one", "she", "somebody", "someone",
-        "that", "who", "receipt",
+        "everyone", "he", "hype", "it", "nobody", "one", "receipt", "she",
+        "somebody", "someone", "subject", "that", "who",
     ]
 
     private static let recordNounPreceders: Set<String> = [
@@ -427,15 +427,6 @@ nonisolated enum HomographPronunciationResolver {
                 ipa: IPA.livesVerb,
                 ruleID: "homograph.lives.verb.as-clause",
                 rationale: "Verb pronunciation selected before same-clause cue “as”.")
-        }
-
-        if nextSameSentenceLowercased(tokens, index) == nil,
-            precedingSameSentenceLowercased(tokens, index).contains("where")
-        {
-            return Resolution(
-                ipa: IPA.livesVerb,
-                ruleID: "homograph.lives.verb.where-clause",
-                rationale: "Verb pronunciation selected because “where” occurs in the same clause.")
         }
 
         return nil

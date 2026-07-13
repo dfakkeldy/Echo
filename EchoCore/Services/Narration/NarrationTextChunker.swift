@@ -189,6 +189,13 @@ enum NarrationTextChunker {
                 index = link.range.upperBound
                 continue
             }
+            if let linkRange = markdownInlineLinkRange(in: text, startingAt: index) {
+                if needsSpace, !normalized.isEmpty { normalized.append(" ") }
+                normalized.append(contentsOf: text[linkRange])
+                needsSpace = false
+                index = linkRange.upperBound
+                continue
+            }
 
             let character = text[index]
             if character.isWhitespace {
@@ -227,6 +234,12 @@ enum NarrationTextChunker {
                 textIndex = link.range.upperBound
                 continue
             }
+            if let linkRange = markdownInlineLinkRange(in: text, startingAt: textIndex) {
+                current.append(contentsOf: text[linkRange])
+                characterIndex += text[linkRange].count
+                textIndex = linkRange.upperBound
+                continue
+            }
 
             let character = text[textIndex]
             current.append(character)
@@ -239,6 +252,41 @@ enum NarrationTextChunker {
         flush()
 
         return units
+    }
+
+    /// Returns one complete inline Markdown link, including balanced
+    /// parentheses in the destination. Generic links are not pronunciation
+    /// overrides, but they must still remain byte-for-byte atomic while the
+    /// resolved chunker scans URL punctuation for sentence boundaries.
+    private static func markdownInlineLinkRange(
+        in source: String,
+        startingAt start: String.Index
+    ) -> Range<String.Index>? {
+        guard source[start] == "[" else { return nil }
+        let labelStart = source.index(after: start)
+        guard let labelEnd = source[labelStart...].firstIndex(of: "]") else { return nil }
+        let openParenthesis = source.index(after: labelEnd)
+        guard openParenthesis < source.endIndex, source[openParenthesis] == "(" else {
+            return nil
+        }
+
+        var depth = 1
+        var index = source.index(after: openParenthesis)
+        while index < source.endIndex {
+            switch source[index] {
+            case "(":
+                depth += 1
+            case ")":
+                depth -= 1
+                if depth == 0 {
+                    return start..<source.index(after: index)
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     private static func mergeByPhonemeBudget(

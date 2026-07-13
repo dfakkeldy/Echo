@@ -54,7 +54,12 @@ nonisolated enum HeadlessNarrationQAManifest {
         let chapters = try captures
             .sorted { $0.0 < $1.0 }
             .map { chapterIndex, capture -> HeadlessNarrationQAChapter in
-                guard let audioURL = audioByChapter[chapterIndex] else {
+                let audioURL = capture.identity.map {
+                    workDir.appendingPathComponent($0.audioFileName)
+                } ?? audioByChapter[chapterIndex]
+                guard let audioURL,
+                    fm.fileExists(atPath: audioURL.path)
+                else {
                     throw HeadlessNarrationQAManifestError.missingAudioForChapter(chapterIndex)
                 }
                 let blockIDs = Self.stableUnique(capture.anchors.map(\.suffix)).map {
@@ -107,6 +112,11 @@ nonisolated enum HeadlessNarrationQAManifest {
 private nonisolated struct ChapterCapture: Decodable, Sendable {
     let duration: TimeInterval
     let anchors: [Anchor]
+    let identity: Identity?
+
+    nonisolated struct Identity: Decodable, Sendable {
+        let audioFileName: String
+    }
 
     nonisolated struct Anchor: Decodable, Sendable {
         let suffix: String

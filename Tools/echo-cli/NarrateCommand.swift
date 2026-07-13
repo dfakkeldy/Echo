@@ -66,14 +66,19 @@ struct NarrateCommand: AsyncParsableCommand {
                 .filter {
                     $0.lastPathComponent.hasPrefix(".anchors-ch") || $0.pathExtension == "m4a"
                 }
+                + [
+                    outURL,
+                    sidecar.map { URL(fileURLWithPath: $0) },
+                    outURL.deletingPathExtension().appendingPathExtension(
+                        "pronunciation-audit.json"),
+                    outURL.deletingPathExtension().appendingPathExtension(
+                        "pronunciation-reel.m4b"),
+                ].compactMap { $0 }.filter { fm.fileExists(atPath: $0.path) }
             if !stale.isEmpty {
                 FileHandle.standardError.write(
                     Data(
-                        "warning: clearing \(stale.count) prior chapter artifact(s) for a fresh render — pass --resume to continue the previous run instead\n"
+                        "warning: clearing \(stale.count) prior narration artifact(s) for a fresh render — pass --resume to continue the previous run instead\n"
                             .utf8))
-            }
-            for url in stale {
-                try? fm.removeItem(at: url)
             }
         }
 
@@ -90,7 +95,8 @@ struct NarrateCommand: AsyncParsableCommand {
             includeWordTimings: !noWordTimings,
             jobs: max(1, jobs),
             intraOpThreads: threads.map(Int32.init),
-            generatePronunciationReview: !noPronunciationReview)
+            generatePronunciationReview: !noPronunciationReview,
+            clearExistingCapturesBeforeRun: !resume)
 
         // Overnight renders must survive the Mac idling: without this, the
         // system can sleep mid-book and the wall clock silently balloons.

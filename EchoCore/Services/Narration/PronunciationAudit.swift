@@ -9,7 +9,29 @@ nonisolated struct PronunciationTokenEvidence: Codable, Equatable, Sendable {
     let lexicalTag: String?
     let rating: Int?
     let displayCharacterRange: Range<Int>
+    /// Half-open character range in the exact filtered phoneme string sent to
+    /// Kokoro. Optional keeps captures written before frozen retry slicing
+    /// decodable; a missing range means the evidence cannot be safely sliced.
+    let phonemeCharacterRange: Range<Int>?
     let usedFallback: Bool
+
+    init(
+        text: String,
+        selectedPhonemes: String,
+        lexicalTag: String?,
+        rating: Int?,
+        displayCharacterRange: Range<Int>,
+        phonemeCharacterRange: Range<Int>? = nil,
+        usedFallback: Bool
+    ) {
+        self.text = text
+        self.selectedPhonemes = selectedPhonemes
+        self.lexicalTag = lexicalTag
+        self.rating = rating
+        self.displayCharacterRange = displayCharacterRange
+        self.phonemeCharacterRange = phonemeCharacterRange
+        self.usedFallback = usedFallback
+    }
 }
 
 /// Whether Misaki's final token surface safely addresses the chunk display text.
@@ -20,6 +42,9 @@ nonisolated enum PronunciationEvidenceValidation: Codable, Equatable, Sendable {
     case mismatch(
         expectedDisplayText: String,
         reconstructedSpokenSurface: String)
+    case phonemeSequenceMismatch(
+        finalPhonemes: String,
+        reconstructedTokenPhonemes: String)
 }
 
 /// Range-free evidence that a planned chunk could not produce safe token ranges.
@@ -28,6 +53,8 @@ nonisolated enum PronunciationEvidenceValidation: Codable, Equatable, Sendable {
 nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
     enum Reason: String, Codable, Equatable, Sendable {
         case spokenSurfaceMismatch
+        case phonemeSequenceMismatch
+        case decisionEvidenceMismatch
         case incompleteRender
         case qualityRejected
     }
@@ -39,6 +66,8 @@ nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
     let expectedDisplayText: String
     let reconstructedSpokenSurface: String
     let fallbackHits: [PronunciationFallbackHit]
+    let finalPhonemes: String?
+    let reconstructedTokenPhonemes: String?
 
     init(
         reason: Reason,
@@ -47,7 +76,9 @@ nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
         chapterIndex: Int? = nil,
         expectedDisplayText: String,
         reconstructedSpokenSurface: String,
-        fallbackHits: [PronunciationFallbackHit]
+        fallbackHits: [PronunciationFallbackHit],
+        finalPhonemes: String? = nil,
+        reconstructedTokenPhonemes: String? = nil
     ) {
         self.reason = reason
         self.blockID = blockID
@@ -56,6 +87,8 @@ nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
         self.expectedDisplayText = expectedDisplayText
         self.reconstructedSpokenSurface = reconstructedSpokenSurface
         self.fallbackHits = fallbackHits
+        self.finalPhonemes = finalPhonemes
+        self.reconstructedTokenPhonemes = reconstructedTokenPhonemes
     }
 
     func attachingChapter(_ chapterIndex: Int) -> PronunciationAuditDiagnostic {
@@ -66,7 +99,9 @@ nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
             chapterIndex: chapterIndex,
             expectedDisplayText: expectedDisplayText,
             reconstructedSpokenSurface: reconstructedSpokenSurface,
-            fallbackHits: fallbackHits)
+            fallbackHits: fallbackHits,
+            finalPhonemes: finalPhonemes,
+            reconstructedTokenPhonemes: reconstructedTokenPhonemes)
     }
 
     static func incompleteRender(
@@ -244,7 +279,7 @@ nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendabl
 /// completed narration render. File references deliberately contain names only:
 /// the manifest can move with its sibling audiobook without leaking a local path.
 nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
     let renderVersion: Int
@@ -252,7 +287,11 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     let coverage: PronunciationAuditCoverage
     let legacyChapterIndexes: [Int]
     let audiobookFileName: String
+    /// Lowercase SHA-256 of the exact raw final-audiobook bytes.
+    let audiobookSHA256: String
     let listeningReelFileName: String?
+    /// Present exactly when `listeningReelFileName` is present.
+    let listeningReelSHA256: String?
     let watchCounts: [String: Int]
     let decisions: [PronunciationAuditDecision]
     let diagnostics: [PronunciationAuditDiagnostic]
@@ -264,6 +303,8 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
         legacyChapterIndexes: [Int],
         audiobookURL: URL,
         reelURL: URL?,
+        audiobookSHA256: String,
+        listeningReelSHA256: String?,
         watchWords: [String],
         decisions: [PronunciationAuditDecision],
         diagnostics: [PronunciationAuditDiagnostic]
@@ -295,16 +336,73 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
             coverage: effectiveCoverage,
             legacyChapterIndexes: normalizedLegacyChapterIndexes,
             audiobookFileName: audiobookURL.lastPathComponent,
+            audiobookSHA256: audiobookSHA256,
             listeningReelFileName: reelURL?.lastPathComponent,
+            listeningReelSHA256: listeningReelSHA256,
             watchCounts: watchCounts,
             decisions: decisions,
             diagnostics: diagnostics)
     }
 
     func encoded() throws -> Data {
+        try validateFields()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(self)
+    }
+
+    /// Verifies both manifest schema and the exact raw sibling bytes. Callers
+    /// pass explicit URLs so the portable manifest never persists local paths.
+    func validateArtifacts(audiobookURL: URL, reelURL: URL?) throws {
+        try validateFields()
+        guard audiobookFileName == audiobookURL.lastPathComponent else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "audiobook filename does not match the manifest")
+        }
+        guard try PronunciationArtifactIntegrity.sha256Hex(of: audiobookURL)
+            == audiobookSHA256
+        else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "audiobook SHA-256 does not match the manifest")
+        }
+
+        switch (listeningReelFileName, listeningReelSHA256, reelURL) {
+        case (nil, nil, nil):
+            break
+        case (.some(let fileName), .some(let expectedSHA256), .some(let reelURL)):
+            guard fileName == reelURL.lastPathComponent else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "listening-reel filename does not match the manifest")
+            }
+            guard try PronunciationArtifactIntegrity.sha256Hex(of: reelURL) == expectedSHA256 else {
+                throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                    "listening-reel SHA-256 does not match the manifest")
+            }
+        default:
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "listening-reel filename, SHA-256, and file must be paired")
+        }
+    }
+
+    private func validateFields() throws {
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "unsupported pronunciation-audit schema \(schemaVersion)")
+        }
+        guard PronunciationArtifactIntegrity.isLowercaseSHA256(audiobookSHA256) else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "audiobook SHA-256 is not 64 lowercase hexadecimal characters")
+        }
+        guard (listeningReelFileName == nil) == (listeningReelSHA256 == nil) else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "listening-reel filename and SHA-256 must be paired")
+        }
+        if let listeningReelSHA256,
+            !PronunciationArtifactIntegrity.isLowercaseSHA256(listeningReelSHA256)
+        {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "listening-reel SHA-256 is not 64 lowercase hexadecimal characters")
+        }
     }
 
     /// Writes through a unique sibling, then atomically promotes it over the
@@ -325,8 +423,8 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     }
 }
 
-/// Rewrite-stage evidence. The render planner adds Kokoro IDs through its existing
-/// vocabulary owner before exposing a portable `PronunciationAuditDecision`.
+/// Rewrite-stage provenance. The render planner binds this metadata to an exact
+/// final chunk phoneme and Kokoro-ID slice before exposing a portable decision.
 nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
     let blockID: String
     let wordStart: Int
@@ -339,7 +437,10 @@ nonisolated struct PronunciationDecisionSeed: Equatable, Sendable {
     let ruleID: String
     let rationale: String
 
-    func materialized(kokoroTokenIDs: [Int32]) -> PronunciationAuditDecision {
+    func materialized(
+        selectedIPA: String,
+        kokoroTokenIDs: [Int32]
+    ) -> PronunciationAuditDecision {
         PronunciationAuditDecision(
             blockID: blockID,
             wordStart: wordStart,

@@ -132,6 +132,7 @@ import Testing
         let audiobookURL = tmp.appendingPathComponent("book.m4b")
         let auditURL = tmp.appendingPathComponent("book.pronunciation-audit.json")
         let reelURL = tmp.appendingPathComponent("book.pronunciation-reel.m4b")
+        try Data("exact audiobook".utf8).write(to: audiobookURL)
         try Data("stale reel".utf8).write(to: reelURL)
 
         let outcome = try await PronunciationReviewArtifactGenerator.generate(
@@ -154,6 +155,8 @@ import Testing
             PronunciationAuditManifest.self, from: Data(contentsOf: auditURL))
         #expect(manifest.decisions.isEmpty)
         #expect(manifest.listeningReelFileName == nil)
+        #expect(manifest.listeningReelSHA256 == nil)
+        try manifest.validateArtifacts(audiobookURL: audiobookURL, reelURL: nil)
     }
 
     @MainActor
@@ -201,7 +204,27 @@ import Testing
         let manifest = try JSONDecoder().decode(
             PronunciationAuditManifest.self, from: Data(contentsOf: auditURL))
         #expect(manifest.listeningReelFileName == reelURL.lastPathComponent)
+        #expect(manifest.listeningReelSHA256 != nil)
         #expect(manifest.decisions == [verified])
+        try manifest.validateArtifacts(audiobookURL: audiobookURL, reelURL: reelURL)
+
+        let audiobookData = try Data(contentsOf: audiobookURL)
+        var mutatedAudiobook = audiobookData
+        mutatedAudiobook[mutatedAudiobook.startIndex] ^= 0xff
+        try mutatedAudiobook.write(to: audiobookURL)
+        #expect(throws: Error.self) {
+            try manifest.validateArtifacts(audiobookURL: audiobookURL, reelURL: reelURL)
+        }
+        try audiobookData.write(to: audiobookURL)
+
+        let originalReelData = try Data(contentsOf: reelURL)
+        var mutatedReel = originalReelData
+        mutatedReel[mutatedReel.startIndex] ^= 0xff
+        try mutatedReel.write(to: reelURL)
+        #expect(throws: Error.self) {
+            try manifest.validateArtifacts(audiobookURL: audiobookURL, reelURL: reelURL)
+        }
+        try originalReelData.write(to: reelURL)
 
         let reelAsset = AVURLAsset(url: reelURL)
         let duration = try await reelAsset.load(.duration)

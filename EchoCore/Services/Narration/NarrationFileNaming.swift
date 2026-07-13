@@ -32,7 +32,13 @@ nonisolated enum NarrationFileNaming {
     /// fallback preflight reporting, and reviewed homograph/stress repairs.
     /// v11 = pronunciation planning moves before TTS so waveform, duration,
     /// quality retry, and silence recovery consume the same exact phoneme IDs.
-    static let renderVersion = 11
+    /// v12 = quality retries reuse frozen approved phoneme/ID slices instead of
+    /// rerunning G2P, changing byte behavior for previously cached chapters.
+    static let renderVersion = 12
+    /// Stable renderer-family identity persisted beside headless captures. The
+    /// cache render version tracks byte-affecting revisions within this family;
+    /// this value prevents a different engine/G2P stack from inheriting them.
+    static let rendererIdentity = "echo.kokoro-82m.onnx.misaki-us.v1"
 
     /// A filesystem-safe token for an audiobook id (which may be a folder-URL string).
     static func safeToken(_ audiobookID: String) -> String {

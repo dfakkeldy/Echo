@@ -1,6 +1,55 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
+import CryptoKit
 import Foundation
+
+nonisolated enum PronunciationArtifactIntegrity {
+    enum IntegrityError: LocalizedError, Sendable {
+        case missingOrNonRegular(URL)
+        case mismatch(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingOrNonRegular(let url):
+                return "Pronunciation artifact is missing or not a regular file: \(url.path)"
+            case .mismatch(let detail):
+                return "Pronunciation artifact integrity mismatch: \(detail)"
+            }
+        }
+    }
+
+    static func sha256Hex(of url: URL) throws -> String {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw IntegrityError.missingOrNonRegular(url)
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+            hasher.update(data: data)
+        }
+        return hex(hasher.finalize())
+    }
+
+    static func isLowercaseSHA256(_ value: String) -> Bool {
+        value.count == 64
+            && value.allSatisfy {
+                ("0"..."9").contains($0) || ("a"..."f").contains($0)
+            }
+    }
+
+    private static func hex<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
+        let digits = Array("0123456789abcdef".utf8)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(64)
+        for byte in digest {
+            bytes.append(digits[Int(byte >> 4)])
+            bytes.append(digits[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+}
 
 /// Result of the pronunciation-review phase of a headless narration run.
 nonisolated enum PronunciationReviewOutcome: Equatable, Sendable {
@@ -124,6 +173,22 @@ nonisolated enum PronunciationListeningReel {
         _ request: PronunciationReviewRequest,
         fileManager: FileManager = .default
     ) async throws -> PronunciationReviewOutcome {
+        try removeIfPresent(request.auditURL, fileManager: fileManager)
+        try removeIfPresent(request.reelURL, fileManager: fileManager)
+        do {
+            return try await generateClean(request, fileManager: fileManager)
+        } catch {
+            try? removeIfPresent(request.auditURL, fileManager: fileManager)
+            try? removeIfPresent(request.reelURL, fileManager: fileManager)
+            throw error
+        }
+    }
+
+    private static func generateClean(
+        _ request: PronunciationReviewRequest,
+        fileManager: FileManager
+    ) async throws -> PronunciationReviewOutcome {
+        let audiobookSHA256 = try PronunciationArtifactIntegrity.sha256Hex(of: request.audiobookURL)
         let items: [ExportItem]
         if request.decisions.isEmpty {
             items = []
@@ -136,9 +201,15 @@ nonisolated enum PronunciationListeningReel {
         }
 
         if items.isEmpty {
-            try removeIfPresent(request.reelURL, fileManager: fileManager)
-            let manifest = makeManifest(request: request, reelURL: nil)
+            let manifest = makeManifest(
+                request: request,
+                audiobookSHA256: audiobookSHA256,
+                reelURL: nil,
+                listeningReelSHA256: nil)
             try manifest.write(to: request.auditURL, fileManager: fileManager)
+            try manifest.validateArtifacts(
+                audiobookURL: request.audiobookURL,
+                reelURL: nil)
             return .auditOnly(auditURL: request.auditURL)
         }
 
@@ -160,14 +231,30 @@ nonisolated enum PronunciationListeningReel {
             to: request.reelURL,
             fileManager: fileManager)
 
-        let manifest = makeManifest(request: request, reelURL: request.reelURL)
+        let finalAudiobookSHA256 = try PronunciationArtifactIntegrity.sha256Hex(
+            of: request.audiobookURL)
+        guard finalAudiobookSHA256 == audiobookSHA256 else {
+            throw PronunciationArtifactIntegrity.IntegrityError.mismatch(
+                "audiobook changed while generating its listening reel")
+        }
+        let listeningReelSHA256 = try PronunciationArtifactIntegrity.sha256Hex(of: request.reelURL)
+        let manifest = makeManifest(
+            request: request,
+            audiobookSHA256: finalAudiobookSHA256,
+            reelURL: request.reelURL,
+            listeningReelSHA256: listeningReelSHA256)
         try manifest.write(to: request.auditURL, fileManager: fileManager)
+        try manifest.validateArtifacts(
+            audiobookURL: request.audiobookURL,
+            reelURL: request.reelURL)
         return .generated(auditURL: request.auditURL, reelURL: request.reelURL)
     }
 
     private static func makeManifest(
         request: PronunciationReviewRequest,
-        reelURL: URL?
+        audiobookSHA256: String,
+        reelURL: URL?,
+        listeningReelSHA256: String?
     ) -> PronunciationAuditManifest {
         PronunciationAuditManifest.make(
             renderVersion: request.renderVersion,
@@ -176,6 +263,8 @@ nonisolated enum PronunciationListeningReel {
             legacyChapterIndexes: request.legacyChapterIndexes,
             audiobookURL: request.audiobookURL,
             reelURL: reelURL,
+            audiobookSHA256: audiobookSHA256,
+            listeningReelSHA256: listeningReelSHA256,
             watchWords: request.watchWords,
             decisions: request.decisions,
             diagnostics: request.diagnostics)

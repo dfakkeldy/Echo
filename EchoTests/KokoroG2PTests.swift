@@ -33,6 +33,18 @@ import Testing
         #expect(!result.fallbackHits.contains { $0.word.lowercased().contains("hello") })
     }
 
+    @Test func resultCanonicalizesReversedAggregateFallbacksIntoEvidenceOrder() {
+        // Misaki currently reports this pair in reverse aggregate order even
+        // though its exact token evidence is in authored reading order.
+        let result = KokoroG2P().result(for: "Jacqui checked the filesystem.")
+        let evidenceOrder = result.tokenEvidence.filter(\.usedFallback).map {
+            PronunciationFallbackHit(word: $0.text, ipa: $0.selectedPhonemes)
+        }
+
+        #expect(evidenceOrder.map { $0.word.lowercased() } == ["jacqui", "filesystem"])
+        #expect(result.fallbackHits == evidenceOrder)
+    }
+
     @Test func resultPreservesFinalTokenEvidenceInDisplayCharacterRanges() throws {
         let displayText = "The result was verified."
         let result = KokoroG2P().result(
@@ -141,5 +153,26 @@ import Testing
                     reconstructedSpokenSurface: "verified"))
         #expect(result.tokenEvidence.isEmpty)
         #expect(!result.phonemes.isEmpty)
+    }
+
+    @Test func validatorRejectsTokenEvidenceThatDoesNotMatchFinalAggregatePhonemes() {
+        let result = PronunciationEvidenceValidator.validate(
+            snapshots: [
+                PronunciationEvidenceValidator.Snapshot(
+                    text: "startable",
+                    whitespace: "",
+                    selectedPhonemes: "stˈɑɹɾəbᵊl",
+                    lexicalTag: "Noun",
+                    rating: 5)
+            ],
+            displayText: "startable",
+            finalPhonemes: "stˈɑɹTəbᵊl")
+
+        #expect(result.evidence.isEmpty)
+        #expect(
+            result.validation
+                == .phonemeSequenceMismatch(
+                    finalPhonemes: "stˈɑɹTəbᵊl",
+                    reconstructedTokenPhonemes: "stˈɑɹɾəbᵊl"))
     }
 }

@@ -19,10 +19,10 @@ import Testing
         #expect(decision.sourceContext == "can't be where this subject lives.")
         #expect(decision.selectedIPA == "lˈɪvz")
         #expect(decision.source == .contextualHomograph)
-        #expect(decision.ruleID == "homograph.lives.verb.where-clause")
+        #expect(decision.ruleID == "homograph.lives.verb.subject")
         #expect(
             decision.rationale
-                == "Verb pronunciation selected because “where” occurs in the same clause.")
+                == "Verb pronunciation selected after subject cue “subject”.")
     }
 
     @Test func structuredResolutionNamesCompoundNounCue() throws {
@@ -101,6 +101,10 @@ import Testing
                 == "That gap is where this entire subject [lives](/lˈɪvz/).")
         #expect(
             HomographPronunciationResolver.apply(
+                to: "That gap is where this entire subject lives today.")
+                == "That gap is where this entire subject [lives](/lˈɪvz/) today.")
+        #expect(
+            HomographPronunciationResolver.apply(
                 to: "Every token lives as a point in semantic space.")
                 == "Every token [lives](/lˈɪvz/) as a point in semantic space.")
         #expect(
@@ -134,6 +138,26 @@ import Testing
             HomographPronunciationResolver.apply(
                 to: "They remember where innocent lives were lost.")
                 == "They remember where innocent lives were lost.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "That gap is where this subject matters. Innocent lives were lost.")
+                == "That gap is where this subject matters. Innocent lives were lost.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They report where civilian lives remain in danger.")
+                == "They report where civilian lives remain in danger.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They ask where innocent lives still matter.")
+                == "They ask where innocent lives still matter.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "The study shows where lives can be saved.")
+                == "The study shows where lives can be saved.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They ask where innocent lives today matter.")
+                == "They ask where innocent lives today matter.")
     }
 
     @Test func resolvesRecordVerbNounAndCompoundNounContexts() {
