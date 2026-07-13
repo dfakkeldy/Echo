@@ -199,6 +199,44 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
             bookRelativeAudioRange: bookRelativeAudioRange,
             timingPrecision: timingPrecision)
     }
+
+    /// Preserves the chapter-relative receipt while projecting it into the
+    /// completed audiobook's timebase. The capture filename's chapter index is
+    /// canonical during resume assembly, so it replaces any stale embedded index.
+    func attachingBookTiming(
+        chapterIndex: Int,
+        chapterOffset: TimeInterval
+    ) -> PronunciationAuditDecision {
+        let bookRelativeAudioRange = chapterRelativeAudioRange.map {
+            AudioRange(
+                start: chapterOffset + $0.start,
+                end: chapterOffset + $0.end)
+        }
+        return PronunciationAuditDecision(
+            blockID: blockID,
+            wordStart: wordStart,
+            wordEnd: wordEnd,
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            sourceContext: sourceContext,
+            selectedIPA: selectedIPA,
+            kokoroTokenIDs: kokoroTokenIDs,
+            source: source,
+            ruleID: ruleID,
+            rationale: rationale,
+            chapterIndex: chapterIndex,
+            chapterRelativeAudioRange: chapterRelativeAudioRange,
+            bookRelativeAudioRange: bookRelativeAudioRange,
+            timingPrecision: timingPrecision)
+    }
+}
+
+/// Whether every completed chapter capture contains the exact render receipt.
+/// Legacy captures remain usable for audio/sidecar resume, but cannot prove
+/// pronunciation coverage retroactively.
+nonisolated enum PronunciationAuditCoverage: String, Codable, Equatable, Sendable {
+    case complete
+    case incompleteLegacyCapture
 }
 
 /// Rewrite-stage evidence. The render planner adds Kokoro IDs through its existing

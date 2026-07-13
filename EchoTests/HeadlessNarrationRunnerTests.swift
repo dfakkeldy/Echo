@@ -8,6 +8,41 @@ import ZIPFoundation
 
 @MainActor
 @Suite struct HeadlessNarrationRunnerTests {
+    private func auditDecision(
+        chapterIndex: Int,
+        chapterRange: PronunciationAuditDecision.AudioRange?
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: "blk-\(chapterIndex)",
+            wordStart: 2,
+            wordEnd: 2,
+            normalizedWord: "verified",
+            sourceWord: "verified",
+            sourceContext: "The result was verified here",
+            selectedIPA: "vˈɛɹɪfˌaɪd",
+            kokoroTokenIDs: [60, 31, 57],
+            source: .monitoredLexicon,
+            ruleID: "g2p.lexicon.verified",
+            rationale: "Watched ordinary-lexicon pronunciation selected for “verified”.",
+            chapterIndex: chapterIndex,
+            chapterRelativeAudioRange: chapterRange,
+            timingPrecision: chapterRange == nil ? nil : .exactSynthesisWord)
+    }
+
+    private func auditDiagnostic(
+        reason: PronunciationAuditDiagnostic.Reason,
+        chapterIndex: Int
+    ) -> PronunciationAuditDiagnostic {
+        PronunciationAuditDiagnostic(
+            reason: reason,
+            blockID: "blk-\(chapterIndex)",
+            chunkIndex: 1,
+            chapterIndex: chapterIndex,
+            expectedDisplayText: "verified [site](https://example.com)",
+            reconstructedSpokenSurface: reason == .spokenSurfaceMismatch ? "verified site" : "",
+            fallbackHits: [])
+    }
+
     /// Stub TTS: returns 0.2s of quiet-but-nonzero PCM per call (no 163 MB model).
     private final class StubEngine: TTSEngine {
         func prepare() async throws {}
@@ -155,6 +190,184 @@ import ZIPFoundation
         #expect(capture.duration == 4.5)
         #expect(capture.anchors.first?.suffix == "s0-b0")
         #expect(capture.anchors.first?.words == nil)
+    }
+
+    @Test func newChapterCaptureRoundTripsPronunciationEvidence() throws {
+        let decision = auditDecision(
+            chapterIndex: 4,
+            chapterRange: .init(start: 1.25, end: 1.75))
+        let diagnostics = [
+            auditDiagnostic(reason: .spokenSurfaceMismatch, chapterIndex: 4),
+            auditDiagnostic(reason: .incompleteRender, chapterIndex: 4),
+        ]
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 3,
+            anchors: [
+                .init(suffix: "s4-b0", time: 0.5)
+            ],
+            pronunciationEvidence: .init(
+                decisions: [decision],
+                diagnostics: diagnostics))
+
+        let data = try JSONEncoder().encode(capture)
+        let decoded = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: data)
+
+        let evidence = try #require(decoded.pronunciationEvidence)
+        #expect(evidence.decisions == [decision])
+        #expect(evidence.diagnostics == diagnostics)
+    }
+
+    @Test func legacyChapterCaptureWithoutPronunciationEvidenceStillDecodes() throws {
+        let legacy = Data(
+            """
+            {"duration": 4.5, "anchors": [{"suffix": "s0-b0", "time": 1.5}]}
+            """.utf8)
+
+        let capture = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: legacy)
+
+        #expect(capture.pronunciationEvidence == nil)
+    }
+
+    @Test func newEmptyChapterCaptureEncodesNonNilPronunciationEvidenceEnvelope() throws {
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 0,
+            anchors: [],
+            pronunciationEvidence: .init(decisions: [], diagnostics: []))
+
+        let data = try JSONEncoder().encode(capture)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let decoded = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: data)
+
+        #expect(object.keys.contains("pronunciationEvidence"))
+        #expect(decoded.pronunciationEvidence?.decisions.isEmpty == true)
+        #expect(decoded.pronunciationEvidence?.diagnostics.isEmpty == true)
+    }
+
+    @Test func pronunciationEvidenceAssemblyMakesRangesBookRelativeAndKeepsDiagnosticsExplicit()
+        throws
+    {
+        let firstDecision = auditDecision(
+            chapterIndex: 2,
+            chapterRange: .init(start: 1, end: 1.5))
+        let secondDecision = auditDecision(
+            chapterIndex: 5,
+            chapterRange: .init(start: 0.25, end: 0.75))
+        let firstDiagnostic = auditDiagnostic(reason: .incompleteRender, chapterIndex: 2)
+        let secondDiagnostic = auditDiagnostic(reason: .spokenSurfaceMismatch, chapterIndex: 5)
+        let first = HeadlessNarrationRunner.ChapterCapture(
+            duration: 4,
+            anchors: [.init(suffix: "s2-b0", time: 1)],
+            pronunciationEvidence: .init(
+                decisions: [firstDecision],
+                diagnostics: [firstDiagnostic]))
+        let second = HeadlessNarrationRunner.ChapterCapture(
+            duration: 6,
+            anchors: [.init(suffix: "s5-b0", time: 0.25)],
+            pronunciationEvidence: .init(
+                decisions: [secondDecision],
+                diagnostics: [secondDiagnostic]))
+
+        // Deliberately supply reverse order: the pure assembly owns stable
+        // chapter reading order rather than trusting task completion order.
+        let assembled = HeadlessNarrationRunner.assemblePronunciationEvidence(
+            indexedCaptures: [
+                .init(chapterIndex: 5, capture: second),
+                .init(chapterIndex: 2, capture: first),
+            ])
+        let sidecar = HeadlessNarrationRunner.assembleSidecarAnchors(
+            captures: [first, second],
+            includeWordTimings: true)
+
+        #expect(assembled.coverage == .complete)
+        #expect(assembled.legacyChapterIndexes.isEmpty)
+        #expect(assembled.totalDuration == 10)
+        #expect(assembled.decisions.map(\.chapterIndex) == [2, 5])
+        #expect(assembled.decisions[0].chapterRelativeAudioRange == .init(start: 1, end: 1.5))
+        #expect(assembled.decisions[0].bookRelativeAudioRange == .init(start: 1, end: 1.5))
+        #expect(
+            assembled.decisions[1].chapterRelativeAudioRange == .init(start: 0.25, end: 0.75))
+        #expect(assembled.decisions[1].bookRelativeAudioRange == .init(start: 4.25, end: 4.75))
+        #expect(assembled.decisions[1].bookRelativeAudioRange?.start == sidecar.anchors[1].timestamp)
+        #expect(assembled.diagnostics == [firstDiagnostic, secondDiagnostic])
+        #expect(assembled.diagnostics.allSatisfy { $0.chapterIndex != nil })
+    }
+
+    @Test func pronunciationEvidenceAssemblyReportsExactLegacyResumeChapters() {
+        let legacyFirst = HeadlessNarrationRunner.ChapterCapture(duration: 2, anchors: [])
+        let current = HeadlessNarrationRunner.ChapterCapture(
+            duration: 3,
+            anchors: [],
+            pronunciationEvidence: .init(decisions: [], diagnostics: []))
+        let legacyLast = HeadlessNarrationRunner.ChapterCapture(duration: 5, anchors: [])
+
+        let assembled = HeadlessNarrationRunner.assemblePronunciationEvidence(
+            indexedCaptures: [
+                .init(chapterIndex: 7, capture: legacyLast),
+                .init(chapterIndex: 1, capture: legacyFirst),
+                .init(chapterIndex: 3, capture: current),
+            ])
+
+        #expect(assembled.coverage == .incompleteLegacyCapture)
+        #expect(assembled.legacyChapterIndexes == [1, 7])
+        #expect(assembled.decisions.isEmpty)
+        #expect(assembled.diagnostics.isEmpty)
+        #expect(assembled.totalDuration == 10)
+    }
+
+    @Test func completedRunPersistsEvidenceFromExactRenderReceipt() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let epub = try TestEPUBFixture.twoChapters(in: tmp)
+        let chapterURL = epub.appending(path: "OEBPS/chap01.xhtml")
+        let original = try String(contentsOf: chapterURL, encoding: .utf8)
+        try original.replacing(
+            "It contains enough words",
+            with: "It contains the verified result and enough words"
+        ).write(to: chapterURL, atomically: true, encoding: .utf8)
+        let workDir = tmp.appendingPathComponent("receipt-work", isDirectory: true)
+        let config = NarrationRunConfig(
+            epubURL: epub,
+            outM4BURL: tmp.appendingPathComponent("receipt.m4b"),
+            sidecarURL: nil,
+            workDir: workDir,
+            voice: VoiceID("af_heart"),
+            title: "Receipt Fixture",
+            author: "Tester",
+            maxNewChaptersPerRun: nil)
+
+        let result = try await HeadlessNarrationRunner().run(
+            config,
+            tts: WordTimedStubEngine())
+        let capture = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: Data(contentsOf: workDir.appendingPathComponent(".anchors-ch0.json")))
+        let evidence = try #require(capture.pronunciationEvidence)
+        let secondCapture = try JSONDecoder().decode(
+            HeadlessNarrationRunner.ChapterCapture.self,
+            from: Data(contentsOf: workDir.appendingPathComponent(".anchors-ch1.json")))
+        let secondEvidence = try #require(secondCapture.pronunciationEvidence)
+        let verified = try #require(
+            evidence.decisions.first { $0.normalizedWord == "verified" })
+        let resume = try #require(
+            secondEvidence.decisions.first { $0.normalizedWord == "resume" })
+
+        #expect(result.complete)
+        #expect(verified.chapterIndex == 0)
+        #expect(verified.chapterRelativeAudioRange != nil)
+        #expect(verified.bookRelativeAudioRange == nil)
+        #expect(resume.chapterIndex == 1)
+        #expect(resume.chapterRelativeAudioRange != nil)
+        #expect(resume.bookRelativeAudioRange == nil)
     }
 
     /// End-to-end: an engine with a duration head produces a sidecar whose
