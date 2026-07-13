@@ -130,4 +130,28 @@ import Testing
         #expect(phonemes.contains("lˈɪvz"))
         #expect(phonemes.contains("ɹəkˈɔɹd"))
     }
+
+    @Test func naturalContextFalsePositivesStayOutOfPlannedTTS() throws {
+        let sourceText = [
+            "Where should we meet? Lives changed.",
+            "They remember where lives were lost.",
+            "They remember where innocent lives were lost.",
+            "They cited the world record, which still stands.",
+        ]
+        let plan = try NarrationRenderPlanner.make(
+            blocks: sourceText.enumerated().map { index, text in
+                block(id: "negative-\(index)", text: text, index: index)
+            },
+            overrides: PronunciationOverrides(entries: [:]),
+            maxPhonemes: 420
+        )
+
+        let g2pInputText = plan.blocks
+            .flatMap(\.synthesisChunks)
+            .map(\.g2pInputText)
+
+        #expect(g2pInputText == sourceText)
+        #expect(!g2pInputText.contains { $0.contains("[lives](/lˈɪvz/)") })
+        #expect(!g2pInputText.contains { $0.contains("[record](/ɹəkˈɔɹd/)") })
+    }
 }

@@ -86,6 +86,22 @@ import Testing
                 == "The [live](/lˈIv/) argument continued.")
     }
 
+    @Test func livesWhereCueDoesNotCrossSentenceBoundary() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Where should we meet? Lives changed.")
+                == "Where should we meet? Lives changed.")
+    }
+
+    @Test func livesWhereCuePreservesPluralNouns() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "They remember where lives were lost.")
+                == "They remember where lives were lost.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They remember where innocent lives were lost.")
+                == "They remember where innocent lives were lost.")
+    }
+
     @Test func resolvesRecordVerbNounAndCompoundNounContexts() {
         #expect(
             HomographPronunciationResolver.apply(to: "Please record the result.")
@@ -145,6 +161,13 @@ import Testing
             HomographPronunciationResolver.apply(
                 to: "Keep a record. Whatever happens matters.")
                 == "Keep a [record](/ɹˈɛkəɹd/). Whatever happens matters.")
+    }
+
+    @Test func recordWhObjectCueDoesNotConsumeRelativeClauses() {
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They cited the world record, which still stands.")
+                == "They cited the world record, which still stands.")
     }
 
     @Test func recordVerbBeatsCompoundNounGuardAfterVerbSignals() {

@@ -84,8 +84,7 @@ nonisolated enum HomographPronunciationResolver {
         "would",
     ]
     private static let recordVerbWhObjectFollowers: Set<String> = [
-        "what", "whatever", "which", "whichever", "who", "whoever", "whom", "whomever",
-        "whose",
+        "what", "whatever",
     ]
 
     private static let contentNounPreceders: Set<String> = [
@@ -298,7 +297,9 @@ nonisolated enum HomographPronunciationResolver {
             return IPA.livesVerb
         }
 
-        if precedingSameSentenceLowercased(tokens, index).contains("where") {
+        if nextSameSentenceLowercased(tokens, index) == nil,
+            precedingSameSentenceLowercased(tokens, index).contains("where")
+        {
             return IPA.livesVerb
         }
 
@@ -449,7 +450,7 @@ nonisolated enum HomographPronunciationResolver {
         _ tokens: [Token],
         _ index: Int
     ) -> Set<String> {
-        guard index > tokens.startIndex else { return [] }
+        guard index > tokens.startIndex, !tokens[index].startsSentence else { return [] }
         var result: Set<String> = []
         var candidateIndex = tokens.index(before: index)
 
