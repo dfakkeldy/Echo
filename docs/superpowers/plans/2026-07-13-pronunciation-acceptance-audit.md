@@ -111,12 +111,15 @@ git commit -m "fix(narration): resolve natural homograph contexts"
 - Modify: `EchoCore/Services/Narration/PronunciationOverrides.swift`
 - Modify: `EchoCore/Services/Narration/PronunciationOverrideStore.swift`
 - Modify: `EchoCore/Services/Narration/HomographPronunciationResolver.swift`
+- Modify: `EchoCore/Services/Narration/PronunciationPlanner.swift`
 - Modify: `EchoCore/Services/Narration/NarrationRenderPlan.swift`
+- Modify: `EchoCore/Services/Narration/NarrationService.swift`
 - Modify: `EchoTests/PronunciationOccurrenceOverridesTests.swift`
 - Modify: `EchoTests/PronunciationOverridesTests.swift`
 - Modify: `EchoTests/PronunciationOverrideStoreTests.swift`
 - Modify: `EchoTests/HomographPronunciationResolverTests.swift`
 - Modify: `EchoTests/NarrationRenderPlanTests.swift`
+- Modify: `EchoTests/NarrationServiceTests.swift`
 
 ### Step 1: Define the portable planning evidence with failing tests
 
@@ -147,13 +150,14 @@ Tests must cover precedence and provenance separately: occurrence over book, boo
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
 xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -destination 'platform=iOS Simulator,id=4774318C-1444-4660-BF3E-EA00025AEAFA' \
-  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask2Red \
+  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask2 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/PronunciationOccurrenceOverridesTests \
   -only-testing:EchoTests/PronunciationOverridesTests \
   -only-testing:EchoTests/PronunciationOverrideStoreTests \
   -only-testing:EchoTests/HomographPronunciationResolverTests \
-  -only-testing:EchoTests/NarrationRenderPlanTests
+  -only-testing:EchoTests/NarrationRenderPlanTests \
+  -only-testing:EchoTests/NarrationServiceTests
 ```
 
 Expected: compile/test failures because structured rewrite results and render-plan decisions do not exist.
@@ -169,18 +173,23 @@ Requirements:
 - Existing noun/compound guards may also produce explicit contextual decisions when the word is watched.
 - Source context is bounded and normalized for deterministic JSON but preserves enough surrounding words for a listener to recognize the sentence.
 - Decision word spans use the same `WordTokenizer` semantics as occurrence overrides.
+- Resolver regex-token positions must be mapped back onto `WordTokenizer` spans; never record a homograph loop index as though it were a canonical whitespace-word index.
 - Preserve scope metadata in `PronunciationOverrideStore`; do not flatten it away before auditing.
-- Derive selected IPA IDs through `KokoroPhonemeVocab.validatedIDs`, then remove its leading/trailing boundary tokens.
+- Add one IPA-only ID helper to the existing `PronunciationPlanner`/vocabulary owner, deriving IDs through `KokoroPhonemeVocab.validatedIDs` and removing its leading/trailing boundary tokens. Do not load a second vocabulary solely for auditing.
 
 ### Step 4: Carry decisions through `NarrationRenderPlan`
 
-Each `NarrationPlannedBlock` must expose the decisions produced from the exact full normalized block before chunking. Splitting may attach a decision to the one planned chunk containing its canonical word span, or keep decisions at block level, but the public plan must not duplicate a decision and must preserve the original portable block/span identity.
+Occurrence overrides are currently applied inside `NarrationService.prepareBlocksForRenderPlan`, before the planner can observe them. Preserve that FM-normalization ordering with a small prepared-block carrier containing the rewritten `EPubBlockRecord` plus occurrence decision seeds. Add a `NarrationRenderPlanner.make(preparedBlocks:overrides:...)` entry point and keep the existing `make(blocks:overrides:...)` as a compatibility wrapper that supplies empty seeds.
+
+Each `NarrationPlannedBlock` must expose the decisions produced from the exact full normalized block before chunking. Combine prepared occurrence seeds with scoped dictionary and homograph seeds inside the planner. Splitting may attach a decision to the one planned chunk containing its canonical word span, or keep decisions at block level, but the public plan must not duplicate a decision and must preserve the original portable block/span identity.
+
+Leave `contentSignature`/`renderedText` behavior unchanged and make legacy `apply` wrappers return the text from their structured rewrite result. This preserves current cache hashes and FM-mode signatures.
 
 Do not change the text or phoneme output of existing resolved cases except for Task 1's approved contextual fixes.
 
 ### Step 5: Run GREEN and commit
 
-Re-run Step 2 with `/tmp/EchoPronunciationAcceptanceTask2Green`; then run the existing `PronunciationPlannerTests` as an additional focused guard. Commit:
+Re-run the exact Step 2 command using the same task-specific DerivedData path so GREEN reuses the compiled dependencies; then run the existing `PronunciationPlannerTests` as an additional focused guard. Commit:
 
 ```bash
 git add EchoCore/Services/Narration/PronunciationAudit.swift \
@@ -188,12 +197,15 @@ git add EchoCore/Services/Narration/PronunciationAudit.swift \
   EchoCore/Services/Narration/PronunciationOverrides.swift \
   EchoCore/Services/Narration/PronunciationOverrideStore.swift \
   EchoCore/Services/Narration/HomographPronunciationResolver.swift \
+  EchoCore/Services/Narration/PronunciationPlanner.swift \
   EchoCore/Services/Narration/NarrationRenderPlan.swift \
+  EchoCore/Services/Narration/NarrationService.swift \
   EchoTests/PronunciationOccurrenceOverridesTests.swift \
   EchoTests/PronunciationOverridesTests.swift \
   EchoTests/PronunciationOverrideStoreTests.swift \
   EchoTests/HomographPronunciationResolverTests.swift \
-  EchoTests/NarrationRenderPlanTests.swift
+  EchoTests/NarrationRenderPlanTests.swift \
+  EchoTests/NarrationServiceTests.swift
 git commit -m "feat(narration): preserve pronunciation decision provenance"
 ```
 
@@ -238,7 +250,7 @@ Assert that:
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
 xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -destination 'platform=iOS Simulator,id=4774318C-1444-4660-BF3E-EA00025AEAFA' \
-  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask3Red \
+  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask3 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/KokoroG2PTests \
   -only-testing:EchoTests/PronunciationPlannerTests \
@@ -261,7 +273,7 @@ When converting token evidence to decisions, avoid duplicating a word/span alrea
 
 ### Step 4: Run GREEN and commit
 
-Re-run Step 2 with `/tmp/EchoPronunciationAcceptanceTask3Green`, then commit:
+Re-run the exact Step 2 command using the same task-specific DerivedData path, then commit:
 
 ```bash
 git add EchoCore/Services/Narration/KokoroG2P.swift \
@@ -314,7 +326,7 @@ Extend runner tests to require optional captured pronunciation decisions. Cover:
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
 xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -destination 'platform=iOS Simulator,id=4774318C-1444-4660-BF3E-EA00025AEAFA' \
-  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask4Red \
+  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask4 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/NarrationServiceTests \
   -only-testing:EchoTests/HeadlessNarrationRunnerTests \
@@ -333,7 +345,7 @@ For exact matching, use stable plan/block/span identity rather than a global str
 
 ### Step 5: Run GREEN and commit
 
-Re-run Step 3 with `/tmp/EchoPronunciationAcceptanceTask4Green`, then commit:
+Re-run the exact Step 3 command using the same task-specific DerivedData path, then commit:
 
 ```bash
 git add EchoCore/Services/Narration/PronunciationAudit.swift \
@@ -403,7 +415,7 @@ The executable parser itself is not part of the `EchoTests` target. Verify its e
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && \
 xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -destination 'platform=iOS Simulator,id=4774318C-1444-4660-BF3E-EA00025AEAFA' \
-  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask5Red \
+  -derivedDataPath /tmp/EchoPronunciationAcceptanceTask5 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/PronunciationAuditTests \
   -only-testing:EchoTests/PronunciationListeningReelTests \
@@ -426,7 +438,7 @@ Add `*.pronunciation-audit.json` to `.gitignore`. Do not add private source/audi
 
 ### Step 6: Run GREEN and commit
 
-Re-run Step 4 with `/tmp/EchoPronunciationAcceptanceTask5Green`, then commit:
+Re-run the exact Step 4 command using the same task-specific DerivedData path, then commit:
 
 ```bash
 git add .gitignore \
