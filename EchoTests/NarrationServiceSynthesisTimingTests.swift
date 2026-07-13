@@ -7,6 +7,11 @@ import Testing
 
 @MainActor
 @Suite struct NarrationServiceSynthesisTimingTests {
+    enum InvalidRetryTiming: CaseIterable, Sendable {
+        case noncontiguousIndexes
+        case outOfBoundsRange
+    }
+
     /// Engine that emits one ChunkWordTiming per whitespace word when `emit` is on.
     private final class WordTimedEngine: TTSEngine {
         let emit: Bool
@@ -25,6 +30,99 @@ import Testing
             return TTSChunk(
                 samples: samples, sampleRate: 24_000,
                 duration: Double(samples.count) / 24_000, wordTimings: timings)
+        }
+    }
+
+    /// Rejects the original planned chunk with silence, then accepts its retry
+    /// children with deterministic timings so receipt identity can be exercised.
+    private final class RetryWordTimedEngine: TTSEngine, @unchecked Sendable {
+        private(set) var plannedCalls: [PlannedSynthesisChunk] = []
+        let invalidTiming: InvalidRetryTiming?
+
+        init(invalidTiming: InvalidRetryTiming? = nil) {
+            self.invalidTiming = invalidTiming
+        }
+
+        func prepare() async throws {}
+
+        func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
+            timedChunk(wordCount: WordTokenizer.words(in: text).count, silent: false)
+        }
+
+        func synthesize(_ chunk: PlannedSynthesisChunk, voice: VoiceID) async throws -> TTSChunk {
+            plannedCalls.append(chunk)
+            let isOriginalParent = plannedCalls.count == 1
+            return timedChunk(wordCount: chunk.wordCount, silent: isOriginalParent)
+        }
+
+        private func timedChunk(wordCount: Int, silent: Bool) -> TTSChunk {
+            let duration = Double(max(wordCount, 1)) * 0.3
+            let sampleCount = max(2, Int(duration * 24_000))
+            let samples = (0..<sampleCount).map { index in
+                silent ? Float.zero : (index.isMultiple(of: 2) ? Float(0.05) : Float(-0.05))
+            }
+            var timings = (0..<wordCount).map { index in
+                ChunkWordTiming(
+                    wordIndex: index,
+                    start: Double(index) * 0.3,
+                    end: Double(index + 1) * 0.3)
+            }
+            if !silent, !timings.isEmpty {
+                switch invalidTiming {
+                case .noncontiguousIndexes:
+                    timings[0] = ChunkWordTiming(
+                        wordIndex: 1,
+                        start: timings[0].start,
+                        end: timings[0].end)
+                case .outOfBoundsRange:
+                    let last = timings.index(before: timings.endIndex)
+                    timings[last] = ChunkWordTiming(
+                        wordIndex: timings[last].wordIndex,
+                        start: timings[last].start,
+                        end: duration + 0.1)
+                case nil:
+                    break
+                }
+            }
+            return TTSChunk(
+                samples: samples,
+                sampleRate: 24_000,
+                duration: duration,
+                wordTimings: timings)
+        }
+    }
+
+    private final class FinalDurationWriter: AudioFileWriting, @unchecked Sendable {
+        let finalDuration: TimeInterval
+
+        init(finalDuration: TimeInterval) {
+            self.finalDuration = finalDuration
+        }
+
+        func write(_ chunks: [TTSChunk], to url: URL) async throws -> TimeInterval {
+            let stream = try makeStream(to: url, sampleRate: chunks.first?.sampleRate ?? 24_000)
+            for chunk in chunks {
+                try await stream.append(chunk)
+            }
+            return try await stream.finalize()
+        }
+
+        func makeStream(to url: URL, sampleRate: Double) throws -> any AudioFileStream {
+            FinalDurationStream(finalDuration: finalDuration)
+        }
+    }
+
+    private final class FinalDurationStream: AudioFileStream, @unchecked Sendable {
+        let finalDuration: TimeInterval
+
+        init(finalDuration: TimeInterval) {
+            self.finalDuration = finalDuration
+        }
+
+        func append(_ chunk: TTSChunk) async throws {}
+
+        func finalize() async throws -> TimeInterval {
+            finalDuration
         }
     }
 
@@ -73,5 +171,283 @@ import Testing
         let rows = try WordTimingDAO(db: db.writer).words(forAudiobook: "b1", blockID: "blk0")
         #expect(rows.count == 2)
         #expect(rows.allSatisfy { $0.source == "synthesized" })
+    }
+
+    @Test func exactSynthesisWordReceiptUsesValidatedChapterRelativeTiming() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = [block("blk0", "verified")]
+        try seed(db, blocks)
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: WordTimedEngine(emit: true),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 5,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        let range = try #require(decision.chapterRelativeAudioRange)
+        #expect(rendered.pronunciationDecisions.count == 1)
+        #expect(decision.normalizedWord == "verified")
+        #expect(decision.chapterIndex == 5)
+        #expect(decision.timingPrecision == .exactSynthesisWord)
+        #expect(abs(range.start) < 0.0001)
+        #expect(abs(range.end - 0.2) < 0.0001)
+        #expect(range.end > range.start)
+    }
+
+    @Test func receiptRangeNeverExceedsFinalizedRenderedFileDuration() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = [block("blk0", "verified")]
+        try seed(db, blocks)
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: WordTimedEngine(emit: true),
+            audioWriter: FinalDurationWriter(finalDuration: 0.1),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        #expect(abs(rendered.duration - 0.1) < 0.0001)
+        #expect(decision.chapterRelativeAudioRange == nil)
+        #expect(decision.timingPrecision == nil)
+    }
+
+    @Test func tinyFinalizationRoundingDeltaClampsReceiptToRenderedDuration() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = [block("blk0", "verified")]
+        try seed(db, blocks)
+        let finalDuration = 0.2 - 1e-12
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: WordTimedEngine(emit: true),
+            audioWriter: FinalDurationWriter(finalDuration: finalDuration),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        let range = try #require(decision.chapterRelativeAudioRange)
+        #expect(decision.timingPrecision == .exactSynthesisWord)
+        #expect(range.end == rendered.duration)
+        #expect(range.end <= rendered.duration)
+    }
+
+    @Test func rejectedRetainedAudioLeavesWatchedDecisionRangeFree() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = [block("blk0", "verified")]
+        try seed(db, blocks)
+        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        engine.returnsSilenceForAllText = true
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: engine,
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 7,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        let diagnostic = try #require(
+            rendered.pronunciationAuditDiagnostics.first {
+                $0.reason == .qualityRejected && $0.blockID == "blk0"
+            })
+        #expect(rendered.anchors.first?.audioEndTime ?? 0 > 0)
+        #expect(decision.normalizedWord == "verified")
+        #expect(decision.chapterIndex == 7)
+        #expect(decision.chapterRelativeAudioRange == nil)
+        #expect(decision.timingPrecision == nil)
+        #expect(diagnostic.chapterIndex == 7)
+        #expect(diagnostic.chunkIndex == 0)
+        #expect(diagnostic.expectedDisplayText == "verified")
+    }
+
+    @Test func laterOriginalChunkUsesCumulativePlannedWordBaseForExactReceipt() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let sentence =
+            "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let text = Array(repeating: sentence, count: 8).joined(separator: " ") + " verified."
+        let blocks = [block("blk0", text)]
+        try seed(db, blocks)
+        let plan = try NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:]))
+        let chunks = try #require(plan.blocks.first?.synthesisChunks)
+        let watchedChunkIndex = try #require(
+            chunks.firstIndex { chunk in
+                WordTokenizer.words(in: chunk.displayText).contains {
+                    PronunciationAuditContext.normalizedWord(String($0)) == "verified"
+                }
+            })
+        try #require(watchedChunkIndex > 0)
+        let watchedWords = WordTokenizer.words(in: chunks[watchedChunkIndex].displayText)
+        let localWordIndex = try #require(
+            watchedWords.firstIndex {
+                PronunciationAuditContext.normalizedWord(String($0)) == "verified"
+            })
+        let originalWordBase = chunks[..<watchedChunkIndex].reduce(0) {
+            $0 + $1.wordCount
+        }
+        let expectedStart = Double(originalWordBase + localWordIndex) * 0.2
+
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: WordTimedEngine(emit: true),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        let decision = try #require(
+            rendered.pronunciationDecisions.first { $0.normalizedWord == "verified" })
+        let range = try #require(decision.chapterRelativeAudioRange)
+        #expect(decision.wordStart == originalWordBase + localWordIndex)
+        #expect(decision.timingPrecision == .exactSynthesisWord)
+        #expect(abs(range.start - expectedStart) < 0.0001)
+        #expect(abs(range.end - (expectedStart + 0.2)) < 0.0001)
+    }
+
+    @Test func multiwordDecisionUsesPositivePersistedBlockAnchorFallback() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = [block("blk0", "New York welcomes visitors.")]
+        try seed(db, blocks)
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: WordTimedEngine(emit: true),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            pronunciationOccurrenceOverrides: {
+                PronunciationOccurrenceOverrides(entries: [
+                    PronunciationOccurrenceOverride(
+                        blockID: "blk0",
+                        wordStart: 0,
+                        wordEnd: 1,
+                        word: "New York",
+                        ipa: "nˈu jˈɔɹk")
+                ])
+            },
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        let range = try #require(decision.chapterRelativeAudioRange)
+        let anchor = try #require(rendered.anchors.first)
+        #expect(decision.wordStart == 0)
+        #expect(decision.wordEnd == 1)
+        #expect(decision.timingPrecision == .blockAnchorFallback)
+        #expect(abs(range.start - anchor.audioTime) < 0.0001)
+        #expect(abs(range.end - (anchor.audioEndTime ?? -1)) < 0.0001)
+        #expect(range.end > range.start)
+    }
+
+    @Test func acceptedRetryChildrenKeepOriginalDecisionIdentityAndExactTiming() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu verified."
+        let blocks = [block("blk0", text)]
+        try seed(db, blocks)
+        let engine = RetryWordTimedEngine()
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: engine,
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        try #require(engine.plannedCalls.count > 1)
+        let parentWords = WordTokenizer.words(in: engine.plannedCalls[0].displayText).map(String.init)
+        let childWords = engine.plannedCalls.dropFirst().flatMap {
+            WordTokenizer.words(in: $0.displayText).map(String.init)
+        }
+        #expect(childWords == parentWords)
+        let decisions = rendered.pronunciationDecisions.filter {
+            $0.normalizedWord == "verified"
+        }
+        let decision = try #require(decisions.first)
+        let range = try #require(decision.chapterRelativeAudioRange)
+        #expect(decisions.count == 1)
+        #expect(decision.timingPrecision == .exactSynthesisWord)
+        #expect(range.end > range.start)
+    }
+
+    @Test(arguments: InvalidRetryTiming.allCases)
+    func invalidRetryChildTimingFallsBackWithoutLosingOriginalDecision(
+        _ invalidTiming: InvalidRetryTiming
+    ) async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu verified."
+        let blocks = [block("blk0", text)]
+        try seed(db, blocks)
+        let engine = RetryWordTimedEngine(invalidTiming: invalidTiming)
+        let service = NarrationService(
+            db: db.writer,
+            audiobookID: "b1",
+            tts: engine,
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: FileManager.default.temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        try #require(engine.plannedCalls.count > 1)
+        let decisions = rendered.pronunciationDecisions.filter {
+            $0.normalizedWord == "verified"
+        }
+        let decision = try #require(decisions.first)
+        let range = try #require(decision.chapterRelativeAudioRange)
+        let anchor = try #require(rendered.anchors.first)
+        #expect(decisions.count == 1)
+        #expect(decision.timingPrecision == .blockAnchorFallback)
+        #expect(abs(range.start - anchor.audioTime) < 0.0001)
+        #expect(abs(range.end - (anchor.audioEndTime ?? -1)) < 0.0001)
     }
 }

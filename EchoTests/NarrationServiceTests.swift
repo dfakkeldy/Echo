@@ -782,6 +782,112 @@ import Testing
         #expect(call.chunk.displayText == "The filesystem stores the verified result.")
     }
 
+    @Test func renderChapterReturnsFrozenDecisionWithBlockAnchorFallback() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The filesystem stores the result."])
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        var overrideReads = 0
+        let service = makeService(
+            db,
+            tts: engine,
+            writer: MockAudioWriter(),
+            overrides: {
+                overrideReads += 1
+                let ipa = overrideReads == 1 ? "fˈIl sˌɪstəm" : "fˈaɪl sˌɪstəm"
+                return PronunciationOverrides(entries: ["filesystem": ipa])
+            })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 3,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        #expect(overrideReads == 1)
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        let anchor = try #require(rendered.anchors.first)
+        let range = try #require(decision.chapterRelativeAudioRange)
+        #expect(rendered.pronunciationDecisions.count == 1)
+        #expect(decision.chapterIndex == 3)
+        #expect(decision.selectedIPA == "fˈIl sˌɪstəm")
+        #expect(decision.timingPrecision == .blockAnchorFallback)
+        #expect(abs(range.start - anchor.audioTime) < 0.0001)
+        #expect(abs(range.end - (anchor.audioEndTime ?? -1)) < 0.0001)
+        #expect(range.end > range.start)
+        #expect(decision.bookRelativeAudioRange == nil)
+        #expect(engine.plannedCalls.first?.chunk.g2pInputText.contains("fˈIl sˌɪstəm") == true)
+    }
+
+    @Test func renderChapterPreservesPlanEvidenceDiagnosticWithoutFabricatingDecision()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["verified [site](https://example.com)"])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(secondsPerChar: 0.01),
+            writer: MockAudioWriter())
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 4,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        #expect(rendered.pronunciationDecisions.isEmpty)
+        let diagnostic = try #require(rendered.pronunciationAuditDiagnostics.first)
+        #expect(rendered.pronunciationAuditDiagnostics.count == 1)
+        #expect(diagnostic.reason == .spokenSurfaceMismatch)
+        #expect(diagnostic.blockID == "blk0")
+        #expect(diagnostic.chunkIndex == 0)
+        #expect(diagnostic.chapterIndex == 4)
+        #expect(diagnostic.expectedDisplayText == "verified [site](https://example.com)")
+        #expect(diagnostic.reconstructedSpokenSurface == "verified site")
+    }
+
+    @Test func skippedPlannedChunkLeavesItsDecisionRangeFreeAndDiagnosesIncompleteRender()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let text = "Verified. \(longDistinctBlockText())"
+        let blocks = try seed(db, [text])
+        let plan = try NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:]))
+        let plannedBlock = try #require(plan.blocks.first)
+        let skippedChunkIndex = try #require(
+            plannedBlock.synthesisChunks.firstIndex {
+                WordTokenizer.words(in: $0.displayText).contains {
+                    PronunciationAuditContext.normalizedWord(String($0)) == "verified"
+                }
+            })
+        try #require(plannedBlock.synthesisChunks.count > 1)
+        let skippedChunk = plannedBlock.synthesisChunks[skippedChunkIndex]
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        engine.lengthCapOnText = skippedChunk.g2pInputText
+        let service = makeService(db, tts: engine, writer: MockAudioWriter())
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 2,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        let decision = try #require(
+            rendered.pronunciationDecisions.first { $0.normalizedWord == "verified" })
+        #expect(decision.chapterIndex == 2)
+        #expect(decision.chapterRelativeAudioRange == nil)
+        #expect(decision.bookRelativeAudioRange == nil)
+        #expect(decision.timingPrecision == nil)
+        let anchor = try #require(rendered.anchors.first)
+        #expect((anchor.audioEndTime ?? 0) > anchor.audioTime)
+
+        let diagnostic = try #require(
+            rendered.pronunciationAuditDiagnostics.first { $0.reason == .incompleteRender })
+        #expect(diagnostic.blockID == "blk0")
+        #expect(diagnostic.chunkIndex == skippedChunkIndex)
+        #expect(diagnostic.chapterIndex == 2)
+        #expect(diagnostic.expectedDisplayText == skippedChunk.displayText)
+        #expect(diagnostic.reconstructedSpokenSurface.isEmpty)
+    }
+
     @Test func servicePreparedBlocksCarryOccurrenceDecisionIntoRenderPlan() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["The content stays here."])

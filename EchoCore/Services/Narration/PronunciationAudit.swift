@@ -28,14 +28,80 @@ nonisolated enum PronunciationEvidenceValidation: Codable, Equatable, Sendable {
 nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
     enum Reason: String, Codable, Equatable, Sendable {
         case spokenSurfaceMismatch
+        case incompleteRender
+        case qualityRejected
     }
 
     let reason: Reason
     let blockID: String
     let chunkIndex: Int
+    let chapterIndex: Int?
     let expectedDisplayText: String
     let reconstructedSpokenSurface: String
     let fallbackHits: [PronunciationFallbackHit]
+
+    init(
+        reason: Reason,
+        blockID: String,
+        chunkIndex: Int,
+        chapterIndex: Int? = nil,
+        expectedDisplayText: String,
+        reconstructedSpokenSurface: String,
+        fallbackHits: [PronunciationFallbackHit]
+    ) {
+        self.reason = reason
+        self.blockID = blockID
+        self.chunkIndex = chunkIndex
+        self.chapterIndex = chapterIndex
+        self.expectedDisplayText = expectedDisplayText
+        self.reconstructedSpokenSurface = reconstructedSpokenSurface
+        self.fallbackHits = fallbackHits
+    }
+
+    func attachingChapter(_ chapterIndex: Int) -> PronunciationAuditDiagnostic {
+        PronunciationAuditDiagnostic(
+            reason: reason,
+            blockID: blockID,
+            chunkIndex: chunkIndex,
+            chapterIndex: chapterIndex,
+            expectedDisplayText: expectedDisplayText,
+            reconstructedSpokenSurface: reconstructedSpokenSurface,
+            fallbackHits: fallbackHits)
+    }
+
+    static func incompleteRender(
+        blockID: String,
+        chunkIndex: Int,
+        chapterIndex: Int,
+        expectedDisplayText: String,
+        fallbackHits: [PronunciationFallbackHit]
+    ) -> PronunciationAuditDiagnostic {
+        PronunciationAuditDiagnostic(
+            reason: .incompleteRender,
+            blockID: blockID,
+            chunkIndex: chunkIndex,
+            chapterIndex: chapterIndex,
+            expectedDisplayText: expectedDisplayText,
+            reconstructedSpokenSurface: "",
+            fallbackHits: fallbackHits)
+    }
+
+    static func qualityRejected(
+        blockID: String,
+        chunkIndex: Int,
+        chapterIndex: Int,
+        expectedDisplayText: String,
+        fallbackHits: [PronunciationFallbackHit]
+    ) -> PronunciationAuditDiagnostic {
+        PronunciationAuditDiagnostic(
+            reason: .qualityRejected,
+            blockID: blockID,
+            chunkIndex: chunkIndex,
+            chapterIndex: chapterIndex,
+            expectedDisplayText: expectedDisplayText,
+            reconstructedSpokenSurface: "",
+            fallbackHits: fallbackHits)
+    }
 }
 
 /// Portable evidence for one pronunciation choice made before synthesis.
@@ -109,6 +175,29 @@ nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
         self.chapterRelativeAudioRange = chapterRelativeAudioRange
         self.bookRelativeAudioRange = bookRelativeAudioRange
         self.timingPrecision = timingPrecision
+    }
+
+    func attachingRenderTiming(
+        chapterIndex: Int,
+        chapterRelativeAudioRange: AudioRange?,
+        timingPrecision: TimingPrecision?
+    ) -> PronunciationAuditDecision {
+        PronunciationAuditDecision(
+            blockID: blockID,
+            wordStart: wordStart,
+            wordEnd: wordEnd,
+            normalizedWord: normalizedWord,
+            sourceWord: sourceWord,
+            sourceContext: sourceContext,
+            selectedIPA: selectedIPA,
+            kokoroTokenIDs: kokoroTokenIDs,
+            source: source,
+            ruleID: ruleID,
+            rationale: rationale,
+            chapterIndex: chapterIndex,
+            chapterRelativeAudioRange: chapterRelativeAudioRange,
+            bookRelativeAudioRange: bookRelativeAudioRange,
+            timingPrecision: timingPrecision)
     }
 }
 
