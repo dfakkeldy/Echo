@@ -318,6 +318,7 @@ Require `NarrationService.renderChapter` to return an `@discardableResult` recei
 - a decision that cannot map one display word to one timing token receives the persisted block range and `blockAnchorFallback` precision;
 - ranges are not inferred by re-running resolution after render;
 - no decision disappears when the service retries/slices an already-resolved planned chunk.
+- range-free evidence-validation diagnostics from the plan survive into the receipt without being converted into fabricated decisions.
 
 ### Step 2: Add failing resume-capture and absolute-time tests
 
@@ -325,8 +326,10 @@ Extend runner tests to require optional captured pronunciation decisions. Cover:
 
 - encode/decode round-trip for a new capture;
 - decoding a legacy capture with no decision field;
+- new captures round-trip both decisions and evidence-validation diagnostics;
 - complete coverage when every chapter has new evidence;
 - `incompleteLegacyCapture` plus the exact affected chapter numbers for mixed old/new resumed captures;
+- evidence-validation mismatches remain explicit incomplete-coverage diagnostics after resume and book assembly;
 - chapter-relative ranges shifted to final book-relative ranges using the same chapter offsets as sidecar anchors.
 
 ### Step 3: Run and capture RED
@@ -348,7 +351,7 @@ Expected: compile/test failures because render receipts and captured decisions d
 
 Use the existing anchors and synthesis word timings created during the render. Add the smallest return value needed to `renderChapter`; existing callers may ignore it because it is discardable.
 
-Persist chapter-relative evidence in `ChapterCapture`. During completed-book assembly, create absolute ranges by adding the actual chapter offsets. Preserve both relative and absolute values in the audit model. Do not alter sidecar serialization.
+Persist chapter-relative evidence and range-free diagnostics in `ChapterCapture`. During completed-book assembly, create absolute ranges by adding the actual chapter offsets. Preserve both relative and absolute values in the audit model. Keep diagnostics range-free and chapter-associated. Do not alter sidecar serialization.
 
 For exact matching, use stable plan/block/span identity rather than a global string search. If exact matching is unavailable or ambiguous, use the persisted block anchor honestly.
 

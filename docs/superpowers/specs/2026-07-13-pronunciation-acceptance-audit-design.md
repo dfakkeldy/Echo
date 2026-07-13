@@ -90,12 +90,21 @@ terms, and explicitly listed historical lexicon regressions. This makes the
 six-word acceptance matrix visible even when a term intentionally has no
 override.
 
+If Misaki's final token surface cannot be mapped exactly back to the planned
+display text, synthesis continues but Echo records a deterministic, range-free
+audit diagnostic. It never invents a word span or silently treats missing token
+evidence as complete coverage. The diagnostic preserves aggregate fallback
+context so a fallback-bearing mismatch cannot look audit-clean.
+
 ### Resume-safe persistence
 
-Each `.anchors-chN.json` capture gains optional pronunciation decisions. Old
-capture files continue to decode. A resumed render containing old captures is
-reported as incomplete audit coverage; Echo never silently reconstructs a plan
-after the fact and claims it was the plan synthesized.
+Each `.anchors-chN.json` capture gains optional pronunciation decisions and
+audit diagnostics. Old capture files continue to decode. A resumed render
+containing old captures is reported as incomplete audit coverage; Echo never
+silently reconstructs a plan after the fact and claims it was the plan
+synthesized. Evidence-validation diagnostics also make coverage explicitly
+incomplete until the affected source is rendered with exact positional
+evidence.
 
 The portable alignment sidecar is unchanged. Pronunciation evidence is a local
 render artifact, not part of the reader's stable alignment contract.
@@ -146,6 +155,8 @@ only for a local Release acceptance render.
   reel.
 - Legacy resume captures produce `coverage: incompleteLegacyCapture` and list
   the affected chapters.
+- Token-surface mismatches remain range-free diagnostics, produce incomplete
+  evidence coverage, and are never sampled into the listening reel.
 - Audio ranges are clamped to the exported asset duration and must be positive.
 
 ## Verification
