@@ -306,6 +306,7 @@ git commit -m "feat(narration): audit watched lexicon decisions"
 - Modify: `EchoCore/Services/Narration/NarrationService.swift`
 - Modify: `EchoCore/Services/Narration/HeadlessNarrationRunner.swift`
 - Modify: `EchoTests/NarrationServiceTests.swift`
+- Modify: `EchoTests/NarrationServiceSynthesisTimingTests.swift`
 - Modify: `EchoTests/HeadlessNarrationRunnerTests.swift`
 - Modify: `EchoTests/HeadlessNarrationQAInputTests.swift`
 
@@ -319,6 +320,7 @@ Require `NarrationService.renderChapter` to return an `@discardableResult` recei
 - ranges are not inferred by re-running resolution after render;
 - no decision disappears when the service retries/slices an already-resolved planned chunk.
 - range-free evidence-validation diagnostics from the plan survive into the receipt without being converted into fabricated decisions.
+- a planned chunk skipped by the length-cap path leaves its decisions range-free and emits an incomplete-render diagnostic rather than borrowing another part of the block's anchor.
 
 ### Step 2: Add failing resume-capture and absolute-time tests
 
@@ -331,6 +333,7 @@ Extend runner tests to require optional captured pronunciation decisions. Cover:
 - `incompleteLegacyCapture` plus the exact affected chapter numbers for mixed old/new resumed captures;
 - evidence-validation mismatches remain explicit incomplete-coverage diagnostics after resume and book assembly;
 - chapter-relative ranges shifted to final book-relative ranges using the same chapter offsets as sidecar anchors.
+- a new capture with zero decisions/diagnostics still writes a non-nil evidence envelope, distinguishing it from a legacy missing key.
 
 ### Step 3: Run and capture RED
 
@@ -341,6 +344,7 @@ xcodebuild test -project Echo.xcodeproj -scheme Echo \
   -derivedDataPath /tmp/EchoPronunciationAcceptanceTask4 \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
   -only-testing:EchoTests/NarrationServiceTests \
+  -only-testing:EchoTests/NarrationServiceSynthesisTimingTests \
   -only-testing:EchoTests/HeadlessNarrationRunnerTests \
   -only-testing:EchoTests/HeadlessNarrationQAInputTests
 ```
@@ -349,9 +353,15 @@ Expected: compile/test failures because render receipts and captured decisions d
 
 ### Step 4: Implement receipt enrichment and optional persistence
 
-Use the existing anchors and synthesis word timings created during the render. Add the smallest return value needed to `renderChapter`; existing callers may ignore it because it is discardable.
+Make `renderChapter` return its existing `RenderedNarrationFile` as an `@discardableResult` and enrich that exact receipt with decisions and diagnostics before returning. Existing callers may ignore it. Add defaulted receipt fields only where needed for source compatibility.
 
-Persist chapter-relative evidence and range-free diagnostics in `ChapterCapture`. During completed-book assembly, create absolute ranges by adding the actual chapter offsets. Preserve both relative and absolute values in the audit model. Keep diagnostics range-free and chapter-associated. Do not alter sidecar serialization.
+Track exact timing against each original planned chunk, not only the existing block assembler: quality-retry children must reproduce the parent's display words, carry contiguous timing indexes, and provide finite positive ranges within rendered audio. Preserve original block-word identity through retry slicing. Use `exactSynthesisWord` only for a rendered single-word decision with one validated timing; otherwise use a positive block anchor as `blockAnchorFallback`.
+
+Track which original planned word spans actually produced audio. The length-cap skip path must leave affected decisions range-free and emit a deterministic incomplete-render diagnostic.
+
+Capture the receipt returned at the runner's parallel chapter call site; database rows cannot reconstruct plan provenance. Persist chapter-relative evidence and range-free diagnostics in one optional `ChapterCapture.PronunciationEvidence` envelope. New captures always write the envelope, even empty; a missing envelope means legacy capture. Write capture JSON atomically.
+
+During completed-book assembly, create absolute ranges by adding the same running `capture.duration` offset used for sidecar anchors. Preserve both relative and absolute values in the audit model. Keep diagnostics range-free and chapter-associated. Do not alter sidecar serialization.
 
 For exact matching, use stable plan/block/span identity rather than a global string search. If exact matching is unavailable or ambiguous, use the persisted block anchor honestly.
 
@@ -364,6 +374,7 @@ git add EchoCore/Services/Narration/PronunciationAudit.swift \
   EchoCore/Services/Narration/NarrationService.swift \
   EchoCore/Services/Narration/HeadlessNarrationRunner.swift \
   EchoTests/NarrationServiceTests.swift \
+  EchoTests/NarrationServiceSynthesisTimingTests.swift \
   EchoTests/HeadlessNarrationRunnerTests.swift \
   EchoTests/HeadlessNarrationQAInputTests.swift
 git commit -m "feat(narration): persist pronunciation render receipts"

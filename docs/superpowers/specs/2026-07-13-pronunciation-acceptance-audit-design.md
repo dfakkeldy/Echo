@@ -96,10 +96,16 @@ audit diagnostic. It never invents a word span or silently treats missing token
 evidence as complete coverage. The diagnostic preserves aggregate fallback
 context so a fallback-bearing mismatch cannot look audit-clean.
 
+The same honesty applies when a planned synthesis chunk does not produce audio:
+its affected decisions remain range-free and a render diagnostic marks coverage
+incomplete. Echo never assigns the rest of a block's anchor to text that the
+length-cap path skipped.
+
 ### Resume-safe persistence
 
-Each `.anchors-chN.json` capture gains optional pronunciation decisions and
-audit diagnostics. Old capture files continue to decode. A resumed render
+Each `.anchors-chN.json` capture gains one optional pronunciation-evidence
+envelope containing decisions and audit diagnostics. New captures always write
+the envelope, even when both arrays are empty. Old capture files continue to decode. A resumed render
 containing old captures is reported as incomplete audit coverage; Echo never
 silently reconstructs a plan after the fact and claims it was the plan
 synthesized. Evidence-validation diagnostics also make coverage explicitly
@@ -157,6 +163,8 @@ only for a local Release acceptance render.
   the affected chapters.
 - Token-surface mismatches remain range-free diagnostics, produce incomplete
   evidence coverage, and are never sampled into the listening reel.
+- A planned chunk that produced no audio remains range-free, produces an
+  incomplete-render diagnostic, and is never sampled into the listening reel.
 - Audio ranges are clamped to the exported asset duration and must be positive.
 
 ## Verification
