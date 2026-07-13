@@ -21,6 +21,135 @@ import Testing
             textFormats: nil, createdAt: nil, modifiedAt: nil)
     }
 
+    @Test func plannedDecisionIsPortableCodableAndContainsIPAOnlyIDs() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "b0", text: "The process is startable.", index: 0)],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]))
+        let decision = try #require(plan.blocks.first?.pronunciationDecisions.first)
+        let expectedIDs = try PronunciationPlanner().phonemeIDs(forIPA: decision.selectedIPA)
+
+        #expect(decision.blockID == "b0")
+        #expect(decision.wordStart == 3)
+        #expect(decision.wordEnd == 3)
+        #expect(decision.normalizedWord == "startable")
+        #expect(decision.sourceWord == "startable")
+        #expect(decision.sourceContext == "The process is startable.")
+        #expect(decision.selectedIPA == "stˈɑɹɾəbᵊl")
+        #expect(decision.kokoroTokenIDs == expectedIDs)
+        #expect(!decision.kokoroTokenIDs.isEmpty)
+        #expect(decision.kokoroTokenIDs.allSatisfy { $0 != KokoroPhonemeVocab.boundaryTokenId })
+        #expect(decision.source == .builtInOverride)
+        #expect(decision.ruleID == "override.built-in.startable")
+        #expect(decision.rationale == "Built-in override matched “startable”.")
+        #expect(decision.chapterIndex == nil)
+        #expect(decision.chapterRelativeAudioRange == nil)
+        #expect(decision.bookRelativeAudioRange == nil)
+        #expect(decision.timingPrecision == nil)
+
+        let encoded = try JSONEncoder().encode(decision)
+        #expect(
+            try JSONDecoder().decode(PronunciationAuditDecision.self, from: encoded) == decision)
+        #expect(String(decoding: encoded, as: UTF8.self).contains("\"source\":\"builtInOverride\""))
+    }
+
+    @Test func decisionSourceRawValuesAreStableSchemaValues() {
+        let sources: [PronunciationAuditDecision.Source] = [
+            .occurrenceOverride,
+            .bookOverride,
+            .globalOverride,
+            .builtInOverride,
+            .contextualHomograph,
+            .monitoredLexicon,
+            .fallback,
+        ]
+
+        #expect(
+            sources.map(\.rawValue) == [
+                "occurrenceOverride",
+                "bookOverride",
+                "globalOverride",
+                "builtInOverride",
+                "contextualHomograph",
+                "monitoredLexicon",
+                "fallback",
+            ])
+    }
+
+    @Test func preparedOccurrenceDecisionWinsOverBookOverride() throws {
+        let sourceBlock = block(id: "b0", text: "The content stays here.", index: 0)
+        let occurrence = PronunciationOccurrenceOverrides(entries: [
+            PronunciationOccurrenceOverride(
+                blockID: "b0",
+                wordStart: 1,
+                wordEnd: 1,
+                word: "content",
+                ipa: "kˈɑntɛnt")
+        ]).rewrite(to: sourceBlock.text ?? "", blockID: "b0")
+        var rewrittenBlock = sourceBlock
+        rewrittenBlock.text = occurrence.text
+        let prepared = NarrationPreparedBlock(
+            block: rewrittenBlock,
+            pronunciationDecisionSeeds: occurrence.decisionSeeds)
+
+        let plan = try NarrationRenderPlanner.make(
+            preparedBlocks: [prepared],
+            overrides: PronunciationOverrides(
+                entries: ["content": "kəntˈɛnt"],
+                source: .bookOverride))
+
+        let decision = try #require(plan.blocks.first?.pronunciationDecisions.first)
+        #expect(plan.blocks.first?.pronunciationDecisions.count == 1)
+        #expect(decision.source == .occurrenceOverride)
+        #expect(decision.selectedIPA == "kˈɑntɛnt")
+        #expect(
+            plan.blocks.first?.synthesisChunks.first?.g2pInputText.contains("[content](/kˈɑntɛnt/)")
+                == true)
+    }
+
+    @Test func bookOverrideWinsOverGlobalOverrideWithBookProvenance() throws {
+        let overrides = PronunciationOverrides.merging(
+            global: PronunciationOverrides(entries: ["record": "ɹˈɛkəɹd"]),
+            book: ["record": "ɹəkˈɔɹd"])
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "b0", text: "Please record the result.", index: 0)],
+            overrides: overrides)
+
+        let decision = try #require(plan.blocks.first?.pronunciationDecisions.first)
+        #expect(plan.blocks.first?.pronunciationDecisions.count == 1)
+        #expect(decision.source == .bookOverride)
+        #expect(decision.ruleID == "override.book.record")
+        #expect(decision.selectedIPA == "ɹəkˈɔɹd")
+    }
+
+    @Test func globalOverrideWinsOverBuiltInWithGlobalProvenance() throws {
+        let overrides = PronunciationOverrides.withBuiltInDefaults([
+            "STARTABLE": "stˈɑɹtəbəl"
+        ])
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "b0", text: "The process is startable.", index: 0)],
+            overrides: overrides)
+
+        let decision = try #require(plan.blocks.first?.pronunciationDecisions.first)
+        #expect(plan.blocks.first?.pronunciationDecisions.count == 1)
+        #expect(decision.source == .globalOverride)
+        #expect(decision.ruleID == "override.global.startable")
+        #expect(decision.selectedIPA == "stˈɑɹtəbəl")
+    }
+
+    @Test func builtInScopedOverrideWinsOverContextualResolution() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "b0", text: "Please record the result.", index: 0)],
+            overrides: PronunciationOverrides(
+                entries: ["record": "ɹˈɛkəɹd"],
+                source: .builtInOverride))
+
+        let decision = try #require(plan.blocks.first?.pronunciationDecisions.first)
+        #expect(plan.blocks.first?.pronunciationDecisions.count == 1)
+        #expect(decision.source == .builtInOverride)
+        #expect(decision.ruleID == "override.built-in.record")
+        #expect(decision.selectedIPA == "ɹˈɛkəɹd")
+    }
+
     @Test func plansSpeechBlocksWithNormalizedOverrideText() throws {
         let blocks = [
             block(id: "b0", text: "Deploy Kubernetes — now.", index: 0)

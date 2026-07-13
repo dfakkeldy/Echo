@@ -48,4 +48,10 @@ nonisolated final class PronunciationPlanner {
     func phonemeCount(for text: String) -> Int {
         g2p.phonemeCount(for: text)
     }
+
+    /// Kokoro vocabulary IDs for an already-selected IPA value, excluding the
+    /// synthetic boundary tokens required around a complete synthesis request.
+    func phonemeIDs(forIPA ipa: String) throws -> [Int32] {
+        Array(try vocab.validatedIDs(forPhonemes: ipa).dropFirst().dropLast())
+    }
 }

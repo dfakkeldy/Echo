@@ -5,10 +5,16 @@ struct NarrationRenderPlan: Equatable, Sendable {
     let blocks: [NarrationPlannedBlock]
 }
 
+struct NarrationPreparedBlock: Equatable, Sendable {
+    let block: EPubBlockRecord
+    let pronunciationDecisionSeeds: [PronunciationDecisionSeed]
+}
+
 struct NarrationPlannedBlock: Equatable, Sendable {
     let blockID: String
     let originalBlock: EPubBlockRecord
     let synthesisChunks: [PlannedSynthesisChunk]
+    let pronunciationDecisions: [PronunciationAuditDecision]
     let trailingSilence: NarrationPlannedSilence?
 
     var isSpeakable: Bool { !synthesisChunks.isEmpty }
@@ -38,17 +44,34 @@ enum NarrationRenderPlanner {
         maxChars: Int = 350,
         maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
+        try make(
+            preparedBlocks: blocks.map {
+                NarrationPreparedBlock(block: $0, pronunciationDecisionSeeds: [])
+            },
+            overrides: overrides,
+            maxChars: maxChars,
+            maxPhonemes: maxPhonemes)
+    }
+
+    static func make(
+        preparedBlocks: [NarrationPreparedBlock],
+        overrides: PronunciationOverrides,
+        maxChars: Int = 350,
+        maxPhonemes: Int = 420
+    ) throws -> NarrationRenderPlan {
         // One planner owns the single `KokoroG2P` (and its ~12 MB lexicon) for
         // this render unit; the chunker sizes splits via its phoneme count.
         let pronunciationPlanner = try PronunciationPlanner()
         let resolvedPhonemeCount = pronunciationPlanner.phonemeCount(for:)
-        let candidates = blocks.filter { block in
+        let candidates = preparedBlocks.filter { preparedBlock in
+            let block = preparedBlock.block
             guard block.text?.isEmpty == false else { return false }
             return !block.isHidden
         }
 
         var planned: [NarrationPlannedBlock] = []
-        for block in candidates {
+        for preparedBlock in candidates {
+            let block = preparedBlock.block
             let normalized = TextNormalizer.normalize(block.text ?? "")
             if isDecorativeSeparator(normalized) {
                 planned.append(
@@ -56,12 +79,25 @@ enum NarrationRenderPlanner {
                         blockID: block.id,
                         originalBlock: block,
                         synthesisChunks: [],
+                        pronunciationDecisions: [],
                         trailingSilence: .sectionBreak))
                 continue
             }
 
-            let resolved = HomographPronunciationResolver.apply(
-                to: overrides.apply(to: normalized))
+            let overrideResult = overrides.rewrite(to: normalized, blockID: block.id)
+            let homographResult = HomographPronunciationResolver.rewrite(
+                to: overrideResult.text,
+                blockID: block.id)
+            let decisionSeeds = uniqueDecisionSeeds(
+                preparedBlock.pronunciationDecisionSeeds
+                    + overrideResult.decisionSeeds
+                    + homographResult.decisionSeeds)
+            let pronunciationDecisions = try decisionSeeds.map { seed in
+                seed.materialized(
+                    kokoroTokenIDs: try pronunciationPlanner.phonemeIDs(
+                        forIPA: seed.selectedIPA))
+            }
+            let resolved = homographResult.text
             let fragments = NarrationTextChunker.splitResolved(
                 resolved,
                 maxPhonemes: maxPhonemes,
@@ -74,6 +110,7 @@ enum NarrationRenderPlanner {
                     blockID: block.id,
                     originalBlock: block,
                     synthesisChunks: synthesisChunks,
+                    pronunciationDecisions: pronunciationDecisions,
                     trailingSilence: nil))
         }
 
@@ -98,7 +135,31 @@ enum NarrationRenderPlanner {
                 blockID: block.blockID,
                 originalBlock: block.originalBlock,
                 synthesisChunks: block.synthesisChunks,
+                pronunciationDecisions: block.pronunciationDecisions,
                 trailingSilence: silence)
+        }
+    }
+
+    private static func uniqueDecisionSeeds(
+        _ seeds: [PronunciationDecisionSeed]
+    ) -> [PronunciationDecisionSeed] {
+        struct Span: Hashable {
+            let blockID: String
+            let wordStart: Int
+            let wordEnd: Int
+        }
+
+        var seen: Set<Span> = []
+        return seeds.filter { seed in
+            seen.insert(
+                Span(
+                    blockID: seed.blockID,
+                    wordStart: seed.wordStart,
+                    wordEnd: seed.wordEnd)
+            ).inserted
+        }.sorted { lhs, rhs in
+            if lhs.wordStart != rhs.wordStart { return lhs.wordStart < rhs.wordStart }
+            return lhs.wordEnd < rhs.wordEnd
         }
     }
 

@@ -20,14 +20,28 @@ struct PronunciationOccurrenceOverrides: Equatable, Sendable {
     static let empty = PronunciationOccurrenceOverrides(entries: [])
 
     func apply(to text: String, blockID: String) -> String {
+        rewrite(to: text, blockID: blockID).text
+    }
+
+    func rewrite(to text: String, blockID: String) -> PronunciationRewriteResult {
         let blockEntries = entries.filter { $0.blockID == blockID && !$0.ipa.isEmpty }
-        guard !blockEntries.isEmpty else { return text }
+        guard !blockEntries.isEmpty else {
+            return PronunciationRewriteResult(text: text, decisionSeeds: [])
+        }
 
         let wordRanges = WordTokenizer.wordRanges(in: text)
-        guard !wordRanges.isEmpty else { return text }
+        guard !wordRanges.isEmpty else {
+            return PronunciationRewriteResult(text: text, decisionSeeds: [])
+        }
 
         var claimedWordIndexes = Set<Int>()
-        var replacements: [(range: NSRange, displayText: String, ipa: String)] = []
+        var replacements:
+            [(
+                range: NSRange,
+                displayText: String,
+                ipa: String,
+                decisionSeed: PronunciationDecisionSeed
+            )] = []
         for entry in blockEntries.sorted(by: sortSpecificEntriesFirst) {
             guard entry.wordStart >= 0,
                 entry.wordEnd >= entry.wordStart,
@@ -38,7 +52,8 @@ struct PronunciationOccurrenceOverrides: Equatable, Sendable {
 
             let wordIndexes = entry.wordStart...entry.wordEnd
             guard !wordIndexes.contains(where: claimedWordIndexes.contains) else { continue }
-            let range = wordRanges[entry.wordStart].lowerBound..<wordRanges[entry.wordEnd].upperBound
+            let range =
+                wordRanges[entry.wordStart].lowerBound..<wordRanges[entry.wordEnd].upperBound
             guard let linkRange = linkableRange(within: range, in: text),
                 !isInsideMisakiLinkDisplay(linkRange, in: text)
             else {
@@ -49,22 +64,42 @@ struct PronunciationOccurrenceOverrides: Equatable, Sendable {
             guard canonical(originalText) == canonical(entry.word) else { continue }
 
             claimedWordIndexes.formUnion(wordIndexes)
+            let displayText = String(text[linkRange])
             replacements.append(
                 (
                     range: NSRange(linkRange, in: text),
-                    displayText: String(text[linkRange]),
-                    ipa: entry.ipa
+                    displayText: displayText,
+                    ipa: entry.ipa,
+                    decisionSeed: PronunciationDecisionSeed(
+                        blockID: blockID,
+                        wordStart: entry.wordStart,
+                        wordEnd: entry.wordEnd,
+                        normalizedWord: PronunciationAuditContext.normalizedWord(displayText),
+                        sourceWord: displayText,
+                        sourceContext: PronunciationAuditContext.sourceContext(
+                            in: text,
+                            wordStart: entry.wordStart,
+                            wordEnd: entry.wordEnd),
+                        selectedIPA: entry.ipa,
+                        source: .occurrenceOverride,
+                        ruleID: "override.occurrence",
+                        rationale: "Accepted override for this source occurrence.")
                 ))
         }
 
-        guard !replacements.isEmpty else { return text }
+        guard !replacements.isEmpty else {
+            return PronunciationRewriteResult(text: text, decisionSeeds: [])
+        }
 
         var result = text
         for replacement in replacements.sorted(by: { $0.range.location > $1.range.location }) {
             guard let range = Range(replacement.range, in: result) else { continue }
-            result.replaceSubrange(range, with: "[\(replacement.displayText)](/\(replacement.ipa)/)")
+            result.replaceSubrange(
+                range, with: "[\(replacement.displayText)](/\(replacement.ipa)/)")
         }
-        return result
+        return PronunciationRewriteResult(
+            text: result,
+            decisionSeeds: replacements.map(\.decisionSeed))
     }
 
     private func sortSpecificEntriesFirst(

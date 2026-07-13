@@ -4,6 +4,40 @@ import Testing
 @testable import Echo
 
 @Suite struct HomographPronunciationResolverTests {
+    @Test func structuredResolutionMapsRegexTokensToCanonicalWhitespaceSpan() throws {
+        let source = "That can't be where this subject lives."
+
+        let result = HomographPronunciationResolver.rewrite(to: source, blockID: "b-natural")
+        let decision = try #require(result.decisionSeeds.first)
+
+        #expect(result.text == HomographPronunciationResolver.apply(to: source))
+        #expect(decision.blockID == "b-natural")
+        #expect(decision.wordStart == 6)
+        #expect(decision.wordEnd == 6)
+        #expect(decision.normalizedWord == "lives")
+        #expect(decision.sourceWord == "lives")
+        #expect(decision.sourceContext == "can't be where this subject lives.")
+        #expect(decision.selectedIPA == "lˈɪvz")
+        #expect(decision.source == .contextualHomograph)
+        #expect(decision.ruleID == "homograph.lives.verb.where-clause")
+        #expect(
+            decision.rationale
+                == "Verb pronunciation selected because “where” occurs in the same clause.")
+    }
+
+    @Test func structuredResolutionNamesCompoundNounCue() throws {
+        let result = HomographPronunciationResolver.rewrite(
+            to: "Should record labels pay artists?",
+            blockID: "b-record")
+        let decision = try #require(result.decisionSeeds.first)
+
+        #expect(decision.wordStart == 1)
+        #expect(decision.selectedIPA == "ɹˈɛkəɹd")
+        #expect(decision.ruleID == "homograph.record.noun.compound")
+        #expect(
+            decision.rationale == "Noun pronunciation selected before compound follower “labels”.")
+    }
+
     @Test func resolvesPastTenseReadFromTemporalContext() {
         let out = HomographPronunciationResolver.apply(to: "I read the book yesterday.")
 
@@ -304,6 +338,18 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: overridden)
                 == "I [read](/ɹˈid/) the book yesterday.")
+    }
+
+    @Test func existingPronunciationOverrideProducesNoContextualDecision() {
+        let overridden = PronunciationOverrides(entries: ["read": "ɹˈid"])
+            .apply(to: "I read the book yesterday.")
+
+        let result = HomographPronunciationResolver.rewrite(
+            to: overridden,
+            blockID: "b-read")
+
+        #expect(result.text == overridden)
+        #expect(result.decisionSeeds.isEmpty)
     }
 
     @Test func authoredRecordLinkWinsOverContextualRules() {

@@ -782,6 +782,81 @@ import Testing
         #expect(call.chunk.displayText == "The filesystem stores the verified result.")
     }
 
+    @Test func servicePreparedBlocksCarryOccurrenceDecisionIntoRenderPlan() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The content stays here."])
+        let service = makeService(db, tts: MockTTSEngine(), writer: MockAudioWriter())
+        let occurrenceOverrides = PronunciationOccurrenceOverrides(entries: [
+            PronunciationOccurrenceOverride(
+                blockID: "blk0",
+                wordStart: 1,
+                wordEnd: 1,
+                word: "content",
+                ipa: "kˈɑntɛnt")
+        ])
+
+        let plan = try await service.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(
+                entries: ["content": "kəntˈɛnt"],
+                source: .bookOverride),
+            occurrenceOverrides: occurrenceOverrides,
+            fmEnabled: false)
+        let plannedBlock = try #require(plan.blocks.first)
+        let decision = try #require(plannedBlock.pronunciationDecisions.first)
+
+        #expect(plannedBlock.pronunciationDecisions.count == 1)
+        #expect(decision.blockID == "blk0")
+        #expect(decision.wordStart == 1)
+        #expect(decision.source == .occurrenceOverride)
+        #expect(decision.selectedIPA == "kˈɑntɛnt")
+        #expect(
+            plannedBlock.synthesisChunks.map(\.g2pInputText)
+                == ["The [content](/kˈɑntɛnt/) stays here."])
+    }
+
+    @Test func structuredPlanningLeavesLegacyContentSignatureUnchanged() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The content lives here."])
+        let overrides = PronunciationOverrides(entries: ["content": "kˈɑntɛnt"])
+        let occurrences = PronunciationOccurrenceOverrides(entries: [
+            PronunciationOccurrenceOverride(
+                blockID: "blk0",
+                wordStart: 2,
+                wordEnd: 2,
+                word: "lives",
+                ipa: "lˈIvz")
+        ])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(),
+            writer: MockAudioWriter(),
+            overrides: { overrides },
+            occurrenceOverrides: { occurrences })
+
+        let normalized = TextNormalizer.normalize(blocks[0].text ?? "")
+        let occurrenceText = occurrences.apply(to: normalized, blockID: "blk0")
+        let renderedText = HomographPronunciationResolver.apply(
+            to: overrides.apply(to: occurrenceText))
+        let signature = NarrationFileNaming.contentSignature(
+            spokenBlocks: blocks,
+            renderedTexts: [renderedText],
+            includeLeadOutPad: true,
+            normalizationMode: "deterministic")
+        let expectedName = NarrationFileNaming.chapterFileName(
+            audiobookID: "b1",
+            chapterIndex: 0,
+            voice: VoiceID("af_heart"),
+            contentSignature: signature)
+
+        let actual = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        #expect(actual.lastPathComponent == expectedName)
+    }
+
     @Test func plannedQualityEvaluationUsesDisplayTextInsteadOfPronunciationMarkup() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["filesystem"])

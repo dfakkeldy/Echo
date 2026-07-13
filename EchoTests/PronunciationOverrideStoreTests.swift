@@ -71,6 +71,39 @@ import Testing
     }
 
     @MainActor
+    @Test func mergedOverridesRetainBookGlobalAndBuiltInProvenance() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let bookID = "file:///Books/Provenance/"
+        let store = PronunciationOverrideStore(directory: tmp)
+        try store.set(word: "startable", ipa: "stˈɑɹtəbəl")
+        try store.set(word: "startable", ipa: "stˈɑɹɾəbᵊl", forBookID: bookID)
+        try store.set(word: "filesystem", ipa: "fˈaɪl sˌɪstəm")
+
+        let bookDecisions = store.overrides(forBookID: bookID).rewrite(
+            to: "startable filesystem README",
+            blockID: "block"
+        ).decisionSeeds
+        let otherDecisions = store.overrides(forBookID: "other").rewrite(
+            to: "startable filesystem README",
+            blockID: "block"
+        ).decisionSeeds
+
+        #expect(bookDecisions.map(\.source) == [.bookOverride, .globalOverride, .builtInOverride])
+        #expect(
+            bookDecisions.map(\.ruleID) == [
+                "override.book.startable",
+                "override.global.filesystem",
+                "override.built-in.readme",
+            ])
+        #expect(
+            otherDecisions.map(\.source) == [.globalOverride, .globalOverride, .builtInOverride])
+    }
+
+    @MainActor
     @Test func perBookEntryCaseInsensitivelyWinsOverBuiltInDefault() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

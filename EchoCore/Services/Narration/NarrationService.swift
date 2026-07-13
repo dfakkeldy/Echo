@@ -739,7 +739,7 @@ final class NarrationService {
             pronunciationFallbackHits: pronunciationFallbackHits)
     }
 
-    private func renderPlan(
+    func renderPlan(
         for blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
@@ -750,7 +750,7 @@ final class NarrationService {
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
         return try NarrationRenderPlanner.make(
-            blocks: preparedBlocks,
+            preparedBlocks: preparedBlocks,
             overrides: overrides)
     }
 
@@ -758,13 +758,14 @@ final class NarrationService {
         _ blocks: [EPubBlockRecord],
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
-    ) async -> [EPubBlockRecord] {
-        var prepared: [EPubBlockRecord] = []
+    ) async -> [NarrationPreparedBlock] {
+        var prepared: [NarrationPreparedBlock] = []
         prepared.reserveCapacity(blocks.count)
 
         for block in blocks {
             guard block.text?.isEmpty == false, !block.isHidden else {
-                prepared.append(block)
+                prepared.append(
+                    NarrationPreparedBlock(block: block, pronunciationDecisionSeeds: []))
                 continue
             }
 
@@ -785,10 +786,16 @@ final class NarrationService {
                 }
             }
 
+            let occurrenceResult = occurrenceOverrides.rewrite(
+                to: refined,
+                blockID: block.id)
             var preparedBlock = block
-            preparedBlock.text = occurrenceOverrides.apply(to: refined, blockID: block.id)
+            preparedBlock.text = occurrenceResult.text
             preparedBlock.narrationText = refined == normalized ? block.narrationText : refined
-            prepared.append(preparedBlock)
+            prepared.append(
+                NarrationPreparedBlock(
+                    block: preparedBlock,
+                    pronunciationDecisionSeeds: occurrenceResult.decisionSeeds))
         }
 
         return prepared

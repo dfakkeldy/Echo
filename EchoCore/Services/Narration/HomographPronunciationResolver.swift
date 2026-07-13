@@ -4,6 +4,12 @@ import Foundation
 /// Applies narrow, deterministic pronunciation hints for English homographs that
 /// the lexicon cannot reliably disambiguate from local part-of-speech tags alone.
 nonisolated enum HomographPronunciationResolver {
+    private struct Resolution {
+        let ipa: String
+        let ruleID: String
+        let rationale: String
+    }
+
     private struct Token {
         let text: String
         let lowercased: String
@@ -133,180 +139,309 @@ nonisolated enum HomographPronunciationResolver {
     ]
 
     static func apply(to text: String) -> String {
-        let tokens = tokens(in: text)
-        guard !tokens.isEmpty else { return text }
+        rewrite(to: text, blockID: "").text
+    }
 
-        var result = text
-        for index in tokens.indices.reversed() {
+    static func rewrite(to text: String, blockID: String) -> PronunciationRewriteResult {
+        let tokens = tokens(in: text)
+        guard !tokens.isEmpty else {
+            return PronunciationRewriteResult(text: text, decisionSeeds: [])
+        }
+
+        var replacements:
+            [(
+                range: NSRange,
+                token: Token,
+                resolution: Resolution,
+                decisionSeed: PronunciationDecisionSeed
+            )] = []
+        for index in tokens.indices {
             let token = tokens[index]
             guard !token.isAuthoredLinkDisplay else { continue }
             guard !isHyphenated(token.range, in: text) else { continue }
-            guard let ipa = ipa(for: token, at: index, tokens: tokens) else { continue }
-            guard let range = Range(token.nsRange, in: result) else { continue }
+            guard let resolution = resolution(for: token, at: index, tokens: tokens)
+            else { continue }
+            guard
+                let wordSpan = PronunciationAuditContext.wordSpan(
+                    containing: token.range,
+                    in: text)
+            else {
+                continue
+            }
 
-            result.replaceSubrange(range, with: "[\(token.text)](/\(ipa)/)")
+            replacements.append(
+                (
+                    range: token.nsRange,
+                    token: token,
+                    resolution: resolution,
+                    decisionSeed: PronunciationDecisionSeed(
+                        blockID: blockID,
+                        wordStart: wordSpan.lowerBound,
+                        wordEnd: wordSpan.upperBound,
+                        normalizedWord: token.lowercased,
+                        sourceWord: token.text,
+                        sourceContext: PronunciationAuditContext.sourceContext(
+                            in: text,
+                            wordStart: wordSpan.lowerBound,
+                            wordEnd: wordSpan.upperBound),
+                        selectedIPA: resolution.ipa,
+                        source: .contextualHomograph,
+                        ruleID: resolution.ruleID,
+                        rationale: resolution.rationale)
+                ))
         }
-        return result
+
+        var result = text
+        for replacement in replacements.reversed() {
+            guard let range = Range(replacement.range, in: result) else { continue }
+            result.replaceSubrange(
+                range,
+                with: "[\(replacement.token.text)](/\(replacement.resolution.ipa)/)")
+        }
+        return PronunciationRewriteResult(
+            text: result,
+            decisionSeeds: replacements.map { $0.decisionSeed })
     }
 
-    private static func ipa(for token: Token, at index: Int, tokens: [Token]) -> String? {
+    private static func resolution(
+        for token: Token,
+        at index: Int,
+        tokens: [Token]
+    ) -> Resolution? {
         switch token.lowercased {
         case "read":
-            return readIPA(at: index, tokens: tokens)
+            return readResolution(at: index, tokens: tokens)
         case "live":
-            return liveIPA(at: index, tokens: tokens)
+            return liveResolution(at: index, tokens: tokens)
         case "lives":
-            return livesIPA(at: index, tokens: tokens)
+            return livesResolution(at: index, tokens: tokens)
         case "record":
-            return recordIPA(at: index, tokens: tokens)
+            return recordResolution(at: index, tokens: tokens)
         case "content":
-            return contentIPA(at: index, tokens: tokens)
+            return contentResolution(at: index, tokens: tokens)
         case "resume":
-            return resumeIPA(at: index, tokens: tokens)
+            return resumeResolution(at: index, tokens: tokens)
         case "resumes":
-            return resumesIPA(at: index, tokens: tokens)
+            return resumesResolution(at: index, tokens: tokens)
         case "résumé":
-            return IPA.resumeDocument
+            return Resolution(
+                ipa: IPA.resumeDocument,
+                ruleID: "homograph.resume.noun.accented-spelling",
+                rationale: "Document pronunciation selected from the accented spelling “résumé”.")
         case "résumés":
-            return IPA.resumesDocuments
+            return Resolution(
+                ipa: IPA.resumesDocuments,
+                ruleID: "homograph.resumes.noun.accented-spelling",
+                rationale: "Document pronunciation selected from the accented spelling “résumés”.")
         case "arithmetic":
-            return arithmeticIPA(at: index, tokens: tokens)
+            return arithmeticResolution(at: index, tokens: tokens)
         default:
             return nil
         }
     }
 
-    private static func readIPA(at index: Int, tokens: [Token]) -> String? {
-        if previousLowercased(tokens, index).map(pastReadPreceders.contains) == true {
-            return IPA.readPast
+    private static func readResolution(at index: Int, tokens: [Token]) -> Resolution? {
+        if let cue = previousLowercased(tokens, index), pastReadPreceders.contains(cue) {
+            return Resolution(
+                ipa: IPA.readPast,
+                ruleID: "homograph.read.past.preceder",
+                rationale: "Past-tense pronunciation selected after “\(cue)”.")
         }
 
-        if nextLowercased(tokens, index, limit: 4).contains(where: pastReadFollowers.contains) {
-            return IPA.readPast
+        if let cue = nextLowercased(tokens, index, limit: 4).first(
+            where: pastReadFollowers.contains)
+        {
+            return Resolution(
+                ipa: IPA.readPast,
+                ruleID: "homograph.read.past.temporal-cue",
+                rationale: "Past-tense pronunciation selected from temporal cue “\(cue)”.")
         }
 
         return nil
     }
 
-    private static func contentIPA(at index: Int, tokens: [Token]) -> String? {
+    private static func contentResolution(at index: Int, tokens: [Token]) -> Resolution? {
         let previous = previousLowercased(tokens, index)
         let next = nextLowercased(tokens, index, limit: 1)
 
         // A noun preceder ("the content", "audio content") wins outright, even
         // when a "to"/"with" follows: "Add content to the page." is the noun.
-        if previous.map(contentNounPreceders.contains) == true {
-            return IPA.contentNoun
+        if let cue = previous, contentNounPreceders.contains(cue) {
+            return Resolution(
+                ipa: IPA.contentNoun,
+                ruleID: "homograph.content.noun.preceder",
+                rationale: "Noun pronunciation selected after “\(cue)”.")
         }
 
         // The "satisfied" adjective ("I am content with this narration") only
         // applies when a copula/linking verb precedes *and* a "to"/"with"
         // follows. A following "to"/"with" alone no longer flips the noun.
-        if previous.map(contentAdjectivePreceders.contains) == true,
-            next.contains(where: contentSatisfiedFollowers.contains)
+        if let previous,
+            contentAdjectivePreceders.contains(previous),
+            let follower = next.first(where: contentSatisfiedFollowers.contains)
         {
-            return IPA.contentSatisfied
+            return Resolution(
+                ipa: IPA.contentSatisfied,
+                ruleID: "homograph.content.adjective.copula",
+                rationale:
+                    "Satisfied-adjective pronunciation selected after “\(previous)” before “\(follower)”."
+            )
         }
 
-        if next.contains(where: contentNounFollowers.contains) {
-            return IPA.contentNoun
+        if let cue = next.first(where: contentNounFollowers.contains) {
+            return Resolution(
+                ipa: IPA.contentNoun,
+                ruleID: "homograph.content.noun.follower",
+                rationale: "Noun pronunciation selected before “\(cue)”.")
         }
 
         if index == tokens.startIndex,
-            next.contains(where: contentNounSentenceStartFollowers.contains)
+            let cue = next.first(where: contentNounSentenceStartFollowers.contains)
         {
-            return IPA.contentNoun
+            return Resolution(
+                ipa: IPA.contentNoun,
+                ruleID: "homograph.content.noun.sentence-start",
+                rationale: "Noun pronunciation selected at sentence start before “\(cue)”.")
         }
 
         return nil
     }
 
-    private static func resumeIPA(at index: Int, tokens: [Token]) -> String? {
+    private static func resumeResolution(at index: Int, tokens: [Token]) -> Resolution? {
         if previousLowercased(tokens, index).map(resumeVerbPreceders.contains) == true {
             return nil
         }
 
         let next = nextLowercased(tokens, index, limit: 1)
-        if previousLowercased(tokens, index).map(resumeDocumentPreceders.contains) == true {
-            return IPA.resumeDocument
+        if let cue = previousLowercased(tokens, index), resumeDocumentPreceders.contains(cue) {
+            return Resolution(
+                ipa: IPA.resumeDocument,
+                ruleID: "homograph.resume.noun.preceder",
+                rationale: "Document pronunciation selected after “\(cue)”.")
         }
 
-        if next.contains(where: resumeDocumentFollowers.contains) {
-            return IPA.resumeDocument
+        if let cue = next.first(where: resumeDocumentFollowers.contains) {
+            return Resolution(
+                ipa: IPA.resumeDocument,
+                ruleID: "homograph.resume.noun.follower",
+                rationale: "Document pronunciation selected before “\(cue)”.")
         }
 
         return nil
     }
 
-    private static func resumesIPA(at index: Int, tokens: [Token]) -> String? {
+    private static func resumesResolution(at index: Int, tokens: [Token]) -> Resolution? {
         let next = nextLowercased(tokens, index, limit: 1)
-        if previousLowercased(tokens, index).map(resumeDocumentPreceders.contains) == true {
-            return IPA.resumesDocuments
+        if let cue = previousLowercased(tokens, index), resumeDocumentPreceders.contains(cue) {
+            return Resolution(
+                ipa: IPA.resumesDocuments,
+                ruleID: "homograph.resumes.noun.preceder",
+                rationale: "Document pronunciation selected after “\(cue)”.")
         }
 
-        if next.contains(where: resumesDocumentFollowers.contains) {
-            return IPA.resumesDocuments
+        if let cue = next.first(where: resumesDocumentFollowers.contains) {
+            return Resolution(
+                ipa: IPA.resumesDocuments,
+                ruleID: "homograph.resumes.noun.follower",
+                rationale: "Document pronunciation selected before “\(cue)”.")
         }
 
         if index == tokens.startIndex, next.isEmpty {
-            return IPA.resumesDocuments
+            return Resolution(
+                ipa: IPA.resumesDocuments,
+                ruleID: "homograph.resumes.noun.standalone",
+                rationale: "Document pronunciation selected for standalone “resumes”.")
         }
 
         return nil
     }
 
-    private static func arithmeticIPA(at index: Int, tokens: [Token]) -> String? {
+    private static func arithmeticResolution(at index: Int, tokens: [Token]) -> Resolution? {
         let next = nextLowercased(tokens, index, limit: 1)
         if next.contains(where: arithmeticAdjectiveFollowers.contains) {
             return nil
         }
 
-        return IPA.arithmeticNoun
+        return Resolution(
+            ipa: IPA.arithmeticNoun,
+            ruleID: "homograph.arithmetic.noun.default",
+            rationale:
+                "Noun pronunciation selected because no technical adjective follower matched.")
     }
 
-    private static func liveIPA(at index: Int, tokens: [Token]) -> String? {
-        if previousLowercased(tokens, index).map(liveVerbPreceders.contains) == true {
-            return IPA.liveVerb
+    private static func liveResolution(at index: Int, tokens: [Token]) -> Resolution? {
+        if let cue = previousLowercased(tokens, index), liveVerbPreceders.contains(cue) {
+            return Resolution(
+                ipa: IPA.liveVerb,
+                ruleID: "homograph.live.verb.preceder",
+                rationale: "Verb pronunciation selected after “\(cue)”.")
         }
 
-        if nextLowercased(tokens, index, limit: 1).contains(where: liveVerbFollowers.contains) {
-            return IPA.liveVerb
-        }
-
-        if nextLowercased(tokens, index, limit: 1).contains(where: liveAdjectiveFollowers.contains)
+        if let cue = nextLowercased(tokens, index, limit: 1).first(
+            where: liveVerbFollowers.contains)
         {
-            return IPA.liveAdjective
+            return Resolution(
+                ipa: IPA.liveVerb,
+                ruleID: "homograph.live.verb.location-follower",
+                rationale: "Verb pronunciation selected before “\(cue)”.")
+        }
+
+        if let cue = nextLowercased(tokens, index, limit: 1).first(
+            where: liveAdjectiveFollowers.contains)
+        {
+            return Resolution(
+                ipa: IPA.liveAdjective,
+                ruleID: "homograph.live.adjective.follower",
+                rationale: "Adjective pronunciation selected before “\(cue)”.")
         }
 
         return nil
     }
 
-    private static func livesIPA(at index: Int, tokens: [Token]) -> String? {
-        if previousLowercased(tokens, index).map(livesNounPreceders.contains) == true {
-            return IPA.livesNoun
+    private static func livesResolution(at index: Int, tokens: [Token]) -> Resolution? {
+        if let cue = previousLowercased(tokens, index), livesNounPreceders.contains(cue) {
+            return Resolution(
+                ipa: IPA.livesNoun,
+                ruleID: "homograph.lives.noun.preceder",
+                rationale: "Plural-noun pronunciation selected after “\(cue)”.")
         }
 
-        if previousLowercased(tokens, index).map(livesVerbPreceders.contains) == true {
-            return IPA.livesVerb
+        if let cue = previousLowercased(tokens, index), livesVerbPreceders.contains(cue) {
+            return Resolution(
+                ipa: IPA.livesVerb,
+                ruleID: "homograph.lives.verb.subject",
+                rationale: "Verb pronunciation selected after subject cue “\(cue)”.")
         }
 
-        if nextLowercased(tokens, index, limit: 1).contains(where: liveVerbFollowers.contains) {
-            return IPA.livesVerb
+        if let cue = nextLowercased(tokens, index, limit: 1).first(
+            where: liveVerbFollowers.contains)
+        {
+            return Resolution(
+                ipa: IPA.livesVerb,
+                ruleID: "homograph.lives.verb.location-follower",
+                rationale: "Verb pronunciation selected before “\(cue)”.")
         }
 
         if nextSameSentenceLowercased(tokens, index) == "as" {
-            return IPA.livesVerb
+            return Resolution(
+                ipa: IPA.livesVerb,
+                ruleID: "homograph.lives.verb.as-clause",
+                rationale: "Verb pronunciation selected before same-clause cue “as”.")
         }
 
         if nextSameSentenceLowercased(tokens, index) == nil,
             precedingSameSentenceLowercased(tokens, index).contains("where")
         {
-            return IPA.livesVerb
+            return Resolution(
+                ipa: IPA.livesVerb,
+                ruleID: "homograph.lives.verb.where-clause",
+                rationale: "Verb pronunciation selected because “where” occurs in the same clause.")
         }
 
         return nil
     }
 
-    private static func recordIPA(at index: Int, tokens: [Token]) -> String? {
+    private static func recordResolution(at index: Int, tokens: [Token]) -> Resolution? {
         let previous = previousLowercased(tokens, index)
 
         // The attributive compound-noun guard ("record sales", "record labels")
@@ -337,21 +472,34 @@ nonisolated enum HomographPronunciationResolver {
         }()
 
         if followerIsSameSentenceCompoundNoun, !precederIsVerbSignal {
-            return IPA.recordNoun
+            let follower = tokens[tokens.index(after: index)].lowercased
+            return Resolution(
+                ipa: IPA.recordNoun,
+                ruleID: "homograph.record.noun.compound",
+                rationale: "Noun pronunciation selected before compound follower “\(follower)”.")
         }
 
-        if previous.map(recordNounPreceders.contains) == true {
-            return IPA.recordNoun
+        if let previous, recordNounPreceders.contains(previous) {
+            return Resolution(
+                ipa: IPA.recordNoun,
+                ruleID: "homograph.record.noun.preceder",
+                rationale: "Noun pronunciation selected after “\(previous)”.")
         }
 
-        if previous.map(recordVerbPreceders.contains) == true {
-            return IPA.recordVerb
+        if let previous, recordVerbPreceders.contains(previous) {
+            return Resolution(
+                ipa: IPA.recordVerb,
+                ruleID: "homograph.record.verb.preceder",
+                rationale: "Verb pronunciation selected after “\(previous)”.")
         }
 
-        if nextSameSentenceLowercased(tokens, index).map(recordVerbWhObjectFollowers.contains)
-            == true
+        if let follower = nextSameSentenceLowercased(tokens, index),
+            recordVerbWhObjectFollowers.contains(follower)
         {
-            return IPA.recordVerb
+            return Resolution(
+                ipa: IPA.recordVerb,
+                ruleID: "homograph.record.verb.wh-object",
+                rationale: "Verb pronunciation selected before wh-object “\(follower)”.")
         }
 
         return nil
