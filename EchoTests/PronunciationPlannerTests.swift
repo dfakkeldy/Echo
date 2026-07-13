@@ -27,6 +27,37 @@ import Testing
         #expect(plan.pronunciationFallbackHits.allSatisfy { $0.word.lowercased() != "verified" })
     }
 
+    @Test func planCarriesTokenEvidenceFromTheFinalG2PPass() throws {
+        let plan = try PronunciationPlanner().plan(
+            displayText: "The result was verified.",
+            g2pInputText: "The result was verified."
+        )
+        let token = try #require(
+            plan.pronunciationTokenEvidence.first {
+                $0.text.lowercased() == "verified"
+            })
+
+        #expect(token.selectedPhonemes == "vˈɛɹəfˌId")
+        #expect(plan.phonemes.contains(token.selectedPhonemes))
+        #expect(token.displayCharacterRange == 15..<23)
+        #expect(!token.usedFallback)
+    }
+
+    @Test func planKeepsSynthesisButDropsUnvalidatedTokenRanges() throws {
+        let plan = try PronunciationPlanner().plan(
+            displayText: "different",
+            g2pInputText: "verified"
+        )
+
+        #expect(!plan.phonemes.isEmpty)
+        #expect(plan.pronunciationTokenEvidence.isEmpty)
+        #expect(
+            plan.pronunciationEvidenceValidation
+                == .mismatch(
+                    expectedDisplayText: "different",
+                    reconstructedSpokenSurface: "verified"))
+    }
+
     @Test func planResolvedPreservesSuppliedLinkAndDerivesDisplayText() throws {
         let resolved = "[record](/ɹəkˈɔɹd/)"
         let plan = try PronunciationPlanner().planResolved(resolved)

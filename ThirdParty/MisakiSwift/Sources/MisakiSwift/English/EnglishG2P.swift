@@ -668,6 +668,7 @@ final public class EnglishG2P {
       let usesFallback = needsVoicedFallback(text: token.text, current: current)
       let phonemes = voicedPhonemes(text: token.text, current: current)
       if usesFallback {
+        token.`_`.rating = 1
         fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: phonemes))
       }
       token.phonemes = phonemes

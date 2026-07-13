@@ -10,7 +10,7 @@ nonisolated final class PronunciationPlanner {
     }
 
     func plan(displayText: String, g2pInputText: String) throws -> PlannedSynthesisChunk {
-        let result = g2p.result(for: g2pInputText)
+        let result = g2p.result(for: g2pInputText, displayText: displayText)
         // Defense-in-depth: drop MisakiSwift's out-of-vocabulary marker before
         // validation so a stray unencodable glyph can never abort the whole chapter
         // render via `validatedIDs`. In today's MisakiSwift the fallback network
@@ -29,7 +29,9 @@ nonisolated final class PronunciationPlanner {
             phonemes: phonemes,
             phonemeIDs: phonemeIDs,
             wordCount: WordTokenizer.words(in: displayText).count,
-            pronunciationFallbackHits: result.fallbackHits)
+            pronunciationFallbackHits: result.fallbackHits,
+            pronunciationTokenEvidence: result.tokenEvidence,
+            pronunciationEvidenceValidation: result.pronunciationEvidenceValidation)
     }
 
     /// Plans text whose pronunciation choices have already been resolved.

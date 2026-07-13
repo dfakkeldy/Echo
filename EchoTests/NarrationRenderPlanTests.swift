@@ -150,6 +150,148 @@ import Testing
         #expect(decision.selectedIPA == "ɹˈɛkəɹd")
     }
 
+    @Test func auditsSixWordWatchMatrixAndFallbackFromPlannedChunks() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [
+                block(
+                    id: "watch",
+                    text:
+                        "The process is startable. The filesystem was verified. "
+                        + "They live there. Their lives changed. Please record it.",
+                    index: 0),
+                block(id: "fallback", text: "A Xyzqwf appears.", index: 1),
+            ],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]),
+            maxPhonemes: 35)
+
+        let watchBlock = try #require(plan.blocks.first { $0.blockID == "watch" })
+        #expect(watchBlock.synthesisChunks.count > 1)
+        let decisions = Dictionary(
+            uniqueKeysWithValues: watchBlock.pronunciationDecisions.map {
+                ($0.normalizedWord, $0)
+            })
+
+        let startable = try #require(decisions["startable"])
+        #expect(startable.wordStart == 3)
+        #expect(startable.wordEnd == 3)
+        #expect(startable.source == .builtInOverride)
+        #expect(startable.ruleID == "override.built-in.startable")
+
+        let filesystem = try #require(decisions["filesystem"])
+        #expect(filesystem.wordStart == 5)
+        #expect(filesystem.wordEnd == 5)
+        #expect(filesystem.source == .builtInOverride)
+        #expect(filesystem.ruleID == "override.built-in.filesystem")
+
+        let verified = try #require(decisions["verified"])
+        #expect(verified.wordStart == 7)
+        #expect(verified.wordEnd == 7)
+        #expect(verified.source == .monitoredLexicon)
+        #expect(verified.selectedIPA == "vˈɛɹəfˌId")
+        #expect(
+            verified.kokoroTokenIDs
+                == (try PronunciationPlanner().phonemeIDs(forIPA: verified.selectedIPA)))
+        #expect(verified.ruleID == "g2p.lexicon.verified")
+
+        let live = try #require(decisions["live"])
+        #expect(live.wordStart == 9)
+        #expect(live.wordEnd == 9)
+        #expect(live.source == .contextualHomograph)
+        #expect(live.ruleID == "homograph.live.verb.preceder")
+
+        let lives = try #require(decisions["lives"])
+        #expect(lives.wordStart == 12)
+        #expect(lives.wordEnd == 12)
+        #expect(lives.source == .contextualHomograph)
+        #expect(lives.ruleID == "homograph.lives.noun.preceder")
+
+        let record = try #require(decisions["record"])
+        #expect(record.wordStart == 15)
+        #expect(record.wordEnd == 15)
+        #expect(record.source == .contextualHomograph)
+        #expect(record.ruleID == "homograph.record.verb.preceder")
+
+        let fallbackBlock = try #require(plan.blocks.first { $0.blockID == "fallback" })
+        let fallback = try #require(
+            fallbackBlock.pronunciationDecisions.first {
+                $0.normalizedWord == "xyzqwf"
+            })
+        #expect(fallback.wordStart == 1)
+        #expect(fallback.wordEnd == 1)
+        #expect(fallback.source == .fallback)
+        #expect(fallback.selectedIPA == "zˈizkwf")
+        #expect(fallback.ruleID == "g2p.fallback.xyzqwf")
+        #expect(!fallback.kokoroTokenIDs.isEmpty)
+
+        let keys = plan.blocks.flatMap(\.pronunciationDecisions).map {
+            "\($0.blockID):\($0.wordStart):\($0.wordEnd)"
+        }
+        #expect(Set(keys).count == keys.count)
+        #expect(plan.pronunciationAuditDiagnostics.isEmpty)
+    }
+
+    @Test func watchVocabularyRemainsGlobalWhenABlockOmitsWatchedTerms() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "verified-only", text: "It was verified.", index: 0)],
+            overrides: PronunciationOverrides(entries: [:]))
+
+        #expect(
+            plan.blocks.first?.pronunciationDecisions.map(\.normalizedWord)
+                == ["verified"])
+        #expect(
+            PronunciationWatchVocabulary.words.isSuperset(
+                of: Set(["startable", "filesystem", "verified", "live", "lives", "record"])))
+    }
+
+    @Test func mismatchedEvidenceRemainsAuditIncompleteAcrossPlanningBoundaries() throws {
+        let planner = try PronunciationPlanner()
+        let fallbackChunk = try planner.plan(
+            displayText: "different",
+            g2pInputText: "Xyzqwf")
+        let lexiconChunk = try planner.plan(
+            displayText: "another",
+            g2pInputText: "verified")
+
+        #expect(!fallbackChunk.phonemes.isEmpty)
+        #expect(fallbackChunk.pronunciationTokenEvidence.isEmpty)
+        #expect(
+            fallbackChunk.pronunciationEvidenceValidation
+                == .mismatch(
+                    expectedDisplayText: "different",
+                    reconstructedSpokenSurface: "Xyzqwf"))
+        #expect(!fallbackChunk.pronunciationFallbackHits.isEmpty)
+
+        let plannedBlock = NarrationPlannedBlock(
+            blockID: "mismatch",
+            originalBlock: block(id: "mismatch", text: "different", index: 0),
+            synthesisChunks: [fallbackChunk, lexiconChunk],
+            pronunciationDecisions: [],
+            trailingSilence: nil)
+        let renderPlan = NarrationRenderPlan(blocks: [plannedBlock])
+
+        #expect(plannedBlock.pronunciationDecisions.isEmpty)
+        #expect(plannedBlock.pronunciationAuditDiagnostics.count == 2)
+        let fallbackDiagnostic = try #require(
+            plannedBlock.pronunciationAuditDiagnostics.first)
+        #expect(fallbackDiagnostic.reason == .spokenSurfaceMismatch)
+        #expect(fallbackDiagnostic.blockID == "mismatch")
+        #expect(fallbackDiagnostic.chunkIndex == 0)
+        #expect(fallbackDiagnostic.expectedDisplayText == "different")
+        #expect(fallbackDiagnostic.reconstructedSpokenSurface == "Xyzqwf")
+        #expect(fallbackDiagnostic.fallbackHits == fallbackChunk.pronunciationFallbackHits)
+
+        let noFallbackDiagnostic = plannedBlock.pronunciationAuditDiagnostics[1]
+        #expect(noFallbackDiagnostic.chunkIndex == 1)
+        #expect(noFallbackDiagnostic.fallbackHits.isEmpty)
+        #expect(renderPlan.pronunciationAuditDiagnostics == plannedBlock.pronunciationAuditDiagnostics)
+
+        let encoded = try JSONEncoder().encode(renderPlan.pronunciationAuditDiagnostics)
+        #expect(
+            try JSONDecoder().decode(
+                [PronunciationAuditDiagnostic].self,
+                from: encoded) == renderPlan.pronunciationAuditDiagnostics)
+    }
+
     @Test func plansSpeechBlocksWithNormalizedOverrideText() throws {
         let blocks = [
             block(id: "b0", text: "Deploy Kubernetes — now.", index: 0)

@@ -3,6 +3,10 @@ import Foundation
 
 struct NarrationRenderPlan: Equatable, Sendable {
     let blocks: [NarrationPlannedBlock]
+
+    var pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] {
+        blocks.flatMap(\.pronunciationAuditDiagnostics)
+    }
 }
 
 struct NarrationPreparedBlock: Equatable, Sendable {
@@ -18,6 +22,23 @@ struct NarrationPlannedBlock: Equatable, Sendable {
     let trailingSilence: NarrationPlannedSilence?
 
     var isSpeakable: Bool { !synthesisChunks.isEmpty }
+
+    var pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] {
+        synthesisChunks.enumerated().compactMap { chunkIndex, chunk in
+            guard
+                case let .mismatch(expectedDisplayText, reconstructedSpokenSurface) =
+                    chunk.pronunciationEvidenceValidation
+            else { return nil }
+
+            return PronunciationAuditDiagnostic(
+                reason: .spokenSurfaceMismatch,
+                blockID: blockID,
+                chunkIndex: chunkIndex,
+                expectedDisplayText: expectedDisplayText,
+                reconstructedSpokenSurface: reconstructedSpokenSurface,
+                fallbackHits: chunk.pronunciationFallbackHits)
+        }
+    }
 }
 
 enum NarrationPlannedSilence: Equatable, Sendable {
@@ -88,22 +109,38 @@ enum NarrationRenderPlanner {
             let homographResult = HomographPronunciationResolver.rewrite(
                 to: overrideResult.text,
                 blockID: block.id)
-            let decisionSeeds = uniqueDecisionSeeds(
+            var decisionSeeds = uniqueDecisionSeeds(
                 preparedBlock.pronunciationDecisionSeeds
                     + overrideResult.decisionSeeds
                     + homographResult.decisionSeeds)
-            let pronunciationDecisions = try decisionSeeds.map { seed in
-                seed.materialized(
-                    kokoroTokenIDs: try pronunciationPlanner.phonemeIDs(
-                        forIPA: seed.selectedIPA))
-            }
             let resolved = homographResult.text
+            let blockDisplayText = MisakiPronunciationMarkup.displayText(from: resolved)
             let fragments = NarrationTextChunker.splitResolved(
                 resolved,
                 maxPhonemes: maxPhonemes,
                 phonemeCount: resolvedPhonemeCount)
-            let synthesisChunks = try fragments.map { fragment in
-                try pronunciationPlanner.planResolved(fragment)
+            var synthesisChunks: [PlannedSynthesisChunk] = []
+            var wordBase = 0
+            for fragment in fragments {
+                let chunk = try pronunciationPlanner.planResolved(fragment)
+                let tokenDecisionSeeds = chunk.pronunciationTokenEvidence.compactMap { evidence in
+                    PronunciationAuditContext.decisionSeed(
+                        for: evidence,
+                        blockID: block.id,
+                        chunkDisplayText: chunk.displayText,
+                        blockDisplayText: blockDisplayText,
+                        wordBase: wordBase)
+                }
+                // Explicit rewrite-stage decisions remain first so they win any
+                // collision with evidence emitted by the final G2P pass.
+                decisionSeeds = uniqueDecisionSeeds(decisionSeeds + tokenDecisionSeeds)
+                synthesisChunks.append(chunk)
+                wordBase += chunk.wordCount
+            }
+            let pronunciationDecisions = try decisionSeeds.map { seed in
+                seed.materialized(
+                    kokoroTokenIDs: try pronunciationPlanner.phonemeIDs(
+                        forIPA: seed.selectedIPA))
             }
             planned.append(
                 NarrationPlannedBlock(

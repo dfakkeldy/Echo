@@ -1,6 +1,43 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+/// Immutable token-level evidence copied from Misaki's final mutable token list.
+/// Character offsets are half-open and address the chunk's markup-free display text.
+nonisolated struct PronunciationTokenEvidence: Codable, Equatable, Sendable {
+    let text: String
+    let selectedPhonemes: String
+    let lexicalTag: String?
+    let rating: Int?
+    let displayCharacterRange: Range<Int>
+    let usedFallback: Bool
+}
+
+/// Whether Misaki's final token surface safely addresses the chunk display text.
+/// A mismatch preserves synthesis and aggregate fallback context, but invalidates
+/// every token range because those ranges no longer address authored text.
+nonisolated enum PronunciationEvidenceValidation: Codable, Equatable, Sendable {
+    case matched
+    case mismatch(
+        expectedDisplayText: String,
+        reconstructedSpokenSurface: String)
+}
+
+/// Range-free evidence that a planned chunk could not produce safe token ranges.
+/// This is intentionally portable so a later manifest layer can report an
+/// incomplete pronunciation audit without fabricating a source-word span.
+nonisolated struct PronunciationAuditDiagnostic: Codable, Equatable, Sendable {
+    enum Reason: String, Codable, Equatable, Sendable {
+        case spokenSurfaceMismatch
+    }
+
+    let reason: Reason
+    let blockID: String
+    let chunkIndex: Int
+    let expectedDisplayText: String
+    let reconstructedSpokenSurface: String
+    let fallbackHits: [PronunciationFallbackHit]
+}
+
 /// Portable evidence for one pronunciation choice made before synthesis.
 nonisolated struct PronunciationAuditDecision: Codable, Equatable, Sendable {
     enum Source: String, Codable, Equatable, Sendable {
@@ -110,6 +147,35 @@ nonisolated struct PronunciationRewriteResult: Equatable, Sendable {
     let decisionSeeds: [PronunciationDecisionSeed]
 }
 
+/// One deterministic declaration for every pronunciation Echo actively watches.
+/// Built-in keys remain owned by `PronunciationOverrides`; the contextual list
+/// mirrors every target handled by `HomographPronunciationResolver`; ordinary
+/// lexicon regressions are added explicitly here.
+nonisolated enum PronunciationWatchVocabulary {
+    private static let contextualHomographWords: Set<String> = [
+        "arithmetic",
+        "content",
+        "live",
+        "lives",
+        "read",
+        "record",
+        "resume",
+        "resumes",
+        "résumé",
+        "résumés",
+    ]
+    private static let monitoredOrdinaryLexiconWords: Set<String> = ["verified"]
+
+    @MainActor static let words: Set<String> = {
+        let builtIns = PronunciationOverrides.builtInDefaults.keys.map {
+            PronunciationAuditContext.normalizedWord($0)
+        }
+        return Set(builtIns)
+            .union(contextualHomographWords)
+            .union(monitoredOrdinaryLexiconWords)
+    }()
+}
+
 /// Shared source-mapping rules for occurrence, dictionary, and regex rewriters.
 nonisolated enum PronunciationAuditContext {
     private static let contextRadius = 5
@@ -188,5 +254,81 @@ nonisolated enum PronunciationAuditContext {
             return nil
         }
         return first...last
+    }
+
+    /// Maps a validated token range in chunk display characters onto that chunk's
+    /// canonical whitespace-token span. Misaki's own token indices are deliberately
+    /// excluded because they address its preprocessed string, not authored markup.
+    static func wordSpan(
+        overlappingDisplayCharacterRange characterRange: Range<Int>,
+        in displayText: String
+    ) -> ClosedRange<Int>? {
+        guard
+            characterRange.lowerBound >= 0,
+            characterRange.lowerBound < characterRange.upperBound,
+            characterRange.upperBound <= displayText.count
+        else {
+            return nil
+        }
+
+        let lowerBound = displayText.index(
+            displayText.startIndex,
+            offsetBy: characterRange.lowerBound)
+        let upperBound = displayText.index(
+            displayText.startIndex,
+            offsetBy: characterRange.upperBound)
+        let tokenRange = lowerBound..<upperBound
+        let matchingIndexes = WordTokenizer.wordRanges(in: displayText).enumerated().compactMap {
+            index, wordRange in
+            wordRange.overlaps(tokenRange) ? index : nil
+        }
+        guard let first = matchingIndexes.first, let last = matchingIndexes.last else {
+            return nil
+        }
+        return first...last
+    }
+
+    @MainActor static func decisionSeed(
+        for evidence: PronunciationTokenEvidence,
+        blockID: String,
+        chunkDisplayText: String,
+        blockDisplayText: String,
+        wordBase: Int
+    ) -> PronunciationDecisionSeed? {
+        guard !evidence.selectedPhonemes.isEmpty else { return nil }
+        let normalizedWord = normalizedWord(evidence.text)
+        guard
+            !normalizedWord.isEmpty,
+            evidence.usedFallback || PronunciationWatchVocabulary.words.contains(normalizedWord),
+            let localWordSpan = wordSpan(
+                overlappingDisplayCharacterRange: evidence.displayCharacterRange,
+                in: chunkDisplayText)
+        else {
+            return nil
+        }
+
+        let wordStart = wordBase + localWordSpan.lowerBound
+        let wordEnd = wordBase + localWordSpan.upperBound
+        let source: PronunciationAuditDecision.Source =
+            evidence.usedFallback ? .fallback : .monitoredLexicon
+        let ruleKind = evidence.usedFallback ? "fallback" : "lexicon"
+        let rationale =
+            evidence.usedFallback
+            ? "Deterministic G2P fallback selected for “\(evidence.text)”."
+            : "Watched ordinary-lexicon pronunciation selected for “\(evidence.text)”."
+        return PronunciationDecisionSeed(
+            blockID: blockID,
+            wordStart: wordStart,
+            wordEnd: wordEnd,
+            normalizedWord: normalizedWord,
+            sourceWord: evidence.text,
+            sourceContext: sourceContext(
+                in: blockDisplayText,
+                wordStart: wordStart,
+                wordEnd: wordEnd),
+            selectedIPA: evidence.selectedPhonemes,
+            source: source,
+            ruleID: "g2p.\(ruleKind).\(ruleComponent(evidence.text))",
+            rationale: rationale)
     }
 }
