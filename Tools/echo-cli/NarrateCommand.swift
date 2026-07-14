@@ -50,7 +50,7 @@ struct NarrateCommand: AsyncParsableCommand {
         EchoCLI.configureResources()
         let outURL = URL(fileURLWithPath: out)
         let work =
-            workDir.map { URL(fileURLWithPath: $0) }
+            workDir.map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? outURL.deletingLastPathComponent()
             .appendingPathComponent("work-\(outURL.deletingPathExtension().lastPathComponent)")
 

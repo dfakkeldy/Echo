@@ -874,6 +874,84 @@ import ZIPFoundation
         }
     }
 
+    @Test func sealingCaptureAcceptsFreshWorkDirectoryURLWithoutDirectoryHint() throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        let workPath = parent.appendingPathComponent("work").path
+        let workDir = URL(fileURLWithPath: workPath)
+        #expect(!FileManager.default.fileExists(atPath: workPath))
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let audioName = "runner-book-ch0-hsig-am_michael-v12.m4a"
+        let audio = workDir.appendingPathComponent(audioName)
+        try Data([1, 2, 3, 4]).write(to: audio)
+        let expected = HeadlessNarrationRunner.ExpectedChapterCaptureIdentity(
+            schemaVersion: 1,
+            captureSetID: "set-a",
+            sourceFingerprint: "source-a",
+            voice: VoiceID("am_michael"),
+            renderVersion: 12,
+            rendererIdentity: "echo.kokoro-82m.onnx.misaki-us.v1",
+            normalizationMode: "deterministic",
+            chapterIndex: 0,
+            chapterContentSignature: "sig",
+            audioFileName: audioName)
+
+        let capture = try HeadlessNarrationRunner.sealedCapture(
+            .init(
+                duration: 1,
+                anchors: [],
+                pronunciationEvidence: .init(decisions: [], diagnostics: [])),
+            audioURL: audio,
+            expected: expected,
+            workDir: workDir)
+
+        #expect(capture.identity?.audioFileName == audioName)
+        #expect(
+            try HeadlessNarrationRunner.validateCapture(
+                capture,
+                chapterIndex: 0,
+                expected: expected,
+                workDir: workDir) == audio)
+    }
+
+    @Test func sealingCaptureRejectsAudioFromSiblingDirectory() throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString, isDirectory: true)
+        let workDir = parent.appendingPathComponent("work", isDirectory: true)
+        let siblingDir = parent.appendingPathComponent("sibling", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: siblingDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let audioName = "runner-book-ch0-hsig-am_michael-v12.m4a"
+        let audio = siblingDir.appendingPathComponent(audioName)
+        try Data([1, 2, 3, 4]).write(to: audio)
+        let expected = HeadlessNarrationRunner.ExpectedChapterCaptureIdentity(
+            schemaVersion: 1,
+            captureSetID: "set-a",
+            sourceFingerprint: "source-a",
+            voice: VoiceID("am_michael"),
+            renderVersion: 12,
+            rendererIdentity: "echo.kokoro-82m.onnx.misaki-us.v1",
+            normalizationMode: "deterministic",
+            chapterIndex: 0,
+            chapterContentSignature: "sig",
+            audioFileName: audioName)
+
+        #expect(throws: Error.self) {
+            _ = try HeadlessNarrationRunner.sealedCapture(
+                .init(
+                    duration: 1,
+                    anchors: [],
+                    pronunciationEvidence: .init(decisions: [], diagnostics: [])),
+                audioURL: audio,
+                expected: expected,
+                workDir: workDir)
+        }
+    }
+
     @Test func captureValidationRejectsSameByteCountAudioMutation() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString, isDirectory: true)
