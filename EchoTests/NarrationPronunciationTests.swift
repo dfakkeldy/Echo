@@ -91,6 +91,20 @@ import Testing
         #expect(phonemes.contains("ˈɛks sˈi ˈæsˌɛts"))
     }
 
+    @Test func lifecycleAndValidatorUseApprovedPronunciations() throws {
+        let text = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "The lifecycle needs a validator.")
+
+        #expect(text.contains("[lifecycle](/lˈIfsˌIkəl/)"))
+        #expect(text.contains("[validator](/vˈælɪdˌAɾəɹ/)"))
+
+        let result = KokoroG2P().result(for: text)
+        #expect(result.fallbackHits.isEmpty)
+        #expect(result.phonemes.contains("lˈIfsˌIkəl"))
+        #expect(result.phonemes.contains("vˈælɪdˌATəɹ"))
+        #expect(try !KokoroPhonemeVocab().validatedIDs(forPhonemes: result.phonemes).isEmpty)
+    }
+
     @Test func reportedPastTensePronunciationUsesKnownStemInsteadOfFallback() {
         let prepared = PronunciationOverrides.withBuiltInDefaults([:]).apply(to: "verified")
         let result = KokoroG2P().result(for: "verified")

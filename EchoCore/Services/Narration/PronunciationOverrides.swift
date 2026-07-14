@@ -182,6 +182,8 @@ struct PronunciationOverrides: Equatable, Sendable {
         "timeframe": "tˈImfɹˌAm",
         "startable": "stˈɑɹɾəbəl",
         "filesystem": "fˈIl sˌɪstəm",
+        "lifecycle": "lˈIfsˌIkəl",
+        "validator": "vˈælɪdˌAɾəɹ",
         "super": "sˈuːpɚ",
         "supercomputer": "sˌuːpɚkəmpjˈuɾəɹ",
         "supercomputers": "sˌuːpɚkəmpjˈuɾəɹz",
