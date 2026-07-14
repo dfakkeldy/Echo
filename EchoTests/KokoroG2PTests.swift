@@ -74,6 +74,40 @@ import Testing
                 == token)
     }
 
+    @Test func bleEndingUsesOpenSchwaInFinalPhonemesAndTokenEvidence() throws {
+        let text = "possible comfortable reliable."
+        let result = KokoroG2P().result(for: text, displayText: text)
+
+        #expect(result.pronunciationEvidenceValidation == .matched)
+        #expect(!result.phonemes.contains("bᵊl"))
+        let expected: [String: String] = [
+            "possible": "pˈɑsəbəl",
+            "comfortable": "kˈʌmfəɹTəbəl",
+            "reliable": "ɹəlˈIəbəl",
+        ]
+        for (word, ipa) in expected {
+            let evidence = try #require(
+                result.tokenEvidence.first { $0.text.lowercased() == word })
+            #expect(evidence.selectedPhonemes == ipa)
+            #expect(result.phonemes.contains(ipa))
+        }
+    }
+
+    @Test func bleNormalizerIsScopedToWordEndings() {
+        #expect(
+            KokoroAcousticPronunciationNormalizer.normalize(
+                "pˈɑsəbᵊl",
+                forWord: "possible") == "pˈɑsəbəl")
+        #expect(
+            KokoroAcousticPronunciationNormalizer.normalize(
+                "tˈAbᵊlz",
+                forWord: "tables") == "tˈAbəlz")
+        #expect(
+            KokoroAcousticPronunciationNormalizer.normalize(
+                "əsˈɛmbᵊld",
+                forWord: "assembled") == "əsˈɛmbᵊld")
+    }
+
     @Test func validatedEvidenceUsesExactDisplayRangesAndCanonicalWordSpans() throws {
         struct EvidenceCase {
             let name: String

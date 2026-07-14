@@ -406,6 +406,14 @@ nonisolated enum HomographPronunciationResolver {
                 rationale: "Plural-noun pronunciation selected after “\(cue)”.")
         }
 
+        if let phrase = oneOfSuperlativeLivesPhrase(at: index, tokens: tokens) {
+            return Resolution(
+                ipa: IPA.livesNoun,
+                ruleID: "homograph.lives.noun.one-of-superlative",
+                rationale:
+                    "Plural-noun pronunciation selected in the descriptive superlative phrase “\(phrase)”.")
+        }
+
         if let cue = previousLowercased(tokens, index), livesVerbPreceders.contains(cue) {
             return Resolution(
                 ipa: IPA.livesVerb,
@@ -430,6 +438,31 @@ nonisolated enum HomographPronunciationResolver {
         }
 
         return nil
+    }
+
+    /// Recognizes the narrow plural-noun construction “one of the <…est> lives”.
+    /// The ordered, adjacent tokens avoid turning the singular-subject phrase
+    /// “one of the authors lives…” into a noun.
+    private static func oneOfSuperlativeLivesPhrase(
+        at index: Int,
+        tokens: [Token]
+    ) -> String? {
+        guard index >= 4, !tokens[index].startsSentence else { return nil }
+        let modifier = tokens[index - 1]
+        let determiner = tokens[index - 2]
+        let of = tokens[index - 3]
+        let one = tokens[index - 4]
+        guard !modifier.startsSentence,
+            !determiner.startsSentence,
+            !of.startsSentence,
+            modifier.lowercased.hasSuffix("est"),
+            determiner.lowercased == "the",
+            of.lowercased == "of",
+            one.lowercased == "one"
+        else {
+            return nil
+        }
+        return "one of the \(modifier.lowercased) lives"
     }
 
     private static func recordResolution(at index: Int, tokens: [Token]) -> Resolution? {

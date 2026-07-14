@@ -209,7 +209,9 @@ enum NarrationRenderPlanner {
                 continue
             }
 
-            let normalizedSeedIPA = dispatchNormalizedIPA(seed.selectedIPA)
+            let normalizedSeedIPA = dispatchNormalizedIPA(
+                seed.selectedIPA,
+                forWord: seed.normalizedWord)
             guard selection.selectedIPA == normalizedSeedIPA else {
                 diagnostics.append(
                     decisionEvidenceMismatchDiagnostic(
@@ -337,11 +339,13 @@ enum NarrationRenderPlanner {
             reconstructedSpokenSurface: "",
             fallbackHits: fallbackHits,
             finalPhonemes: finalIPA,
-            reconstructedTokenPhonemes: dispatchNormalizedIPA(seed.selectedIPA))
+            reconstructedTokenPhonemes: dispatchNormalizedIPA(
+                seed.selectedIPA,
+                forWord: seed.normalizedWord))
     }
 
-    private static func dispatchNormalizedIPA(_ ipa: String) -> String {
-        String(
+    private static func dispatchNormalizedIPA(_ ipa: String, forWord word: String) -> String {
+        let vocabularyNormalized = String(
             ipa.compactMap { character -> Character? in
                 switch character {
                 case KokoroPhonemeVocab.oovMarker:
@@ -354,6 +358,9 @@ enum NarrationRenderPlanner {
                     return character
                 }
             })
+        return KokoroAcousticPronunciationNormalizer.normalize(
+            vocabularyNormalized,
+            forWord: word)
     }
 
     private static func validatedPhonemeRange(

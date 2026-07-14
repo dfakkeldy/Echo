@@ -478,7 +478,16 @@ nonisolated enum PronunciationWatchVocabulary {
         "résumé",
         "résumés",
     ]
-    private static let monitoredOrdinaryLexiconWords: Set<String> = ["verified"]
+    private static let monitoredOrdinaryLexiconWords: Set<String> = [
+        "able",
+        "available",
+        "comfortable",
+        "possible",
+        "reliable",
+        "stable",
+        "table",
+        "verified",
+    ]
 
     @MainActor static let words: Set<String> = {
         let builtIns = PronunciationOverrides.builtInDefaults.keys.map {

@@ -49,7 +49,7 @@ import Testing
         #expect(decision.normalizedWord == "startable")
         #expect(decision.sourceWord == "startable")
         #expect(decision.sourceContext == "The process is startable.")
-        #expect(exactFinalIPA == "stˈɑɹTəbᵊl")
+        #expect(exactFinalIPA == "stˈɑɹTəbəl")
         #expect(decision.selectedIPA == exactFinalIPA)
         #expect(decision.kokoroTokenIDs == exactFinalIDs)
         #expect(!decision.kokoroTokenIDs.isEmpty)
@@ -133,6 +133,26 @@ import Testing
         #expect(diagnostic.finalPhonemes == "stˈɑɹTəbᵊl")
         #expect(diagnostic.reconstructedTokenPhonemes == "stˈɑɹɾəbᵊl")
         #expect(manifest.coverage == .incompleteEvidence)
+    }
+
+    @Test func rawBleUserOverrideMatchesFinalPreTTSPhonemesAndReceipt() throws {
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "possible", text: "This is possible.", index: 0)],
+            overrides: PronunciationOverrides(entries: ["possible": "pˈɑsəbᵊl"]),
+            maxPhonemes: 420)
+
+        let plannedBlock = try #require(plan.blocks.first)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+        let decision = try #require(plannedBlock.pronunciationDecisions.first)
+        let expectedIPA = "pˈɑsəbəl"
+        let expectedIDs = try PronunciationPlanner().phonemeIDs(forIPA: expectedIPA)
+
+        #expect(chunk.g2pInputText == "This is [possible](/pˈɑsəbᵊl/).")
+        #expect(chunk.phonemes.contains(expectedIPA))
+        #expect(!chunk.phonemes.contains("bᵊl"))
+        #expect(decision.selectedIPA == expectedIPA)
+        #expect(decision.kokoroTokenIDs == expectedIDs)
+        #expect(plannedBlock.pronunciationDecisionDiagnostics.isEmpty)
     }
 
     @Test func sameSpanWrongFinalIPASuppressesRuleAndMakesAuditIncomplete() throws {
@@ -552,6 +572,57 @@ import Testing
         #expect(decision.kokoroTokenIDs == expectedIDs)
         #expect(decision.source == .contextualHomograph)
         #expect(decision.ruleID == "homograph.lives.verb.subject")
+    }
+
+    @Test func descriptiveLivesNounRuleReachesExactPreTTSPlanAndReceipt() throws {
+        let source = "This is one of the strangest lives in the story."
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "lives-superlative", text: source, index: 0)],
+            overrides: PronunciationOverrides(entries: [:]),
+            maxPhonemes: 420)
+
+        let plannedBlock = try #require(plan.blocks.first)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+        let decision = try #require(
+            plannedBlock.pronunciationDecisions.first { $0.normalizedWord == "lives" })
+        let expectedIDs = try PronunciationPlanner().phonemeIDs(forIPA: "lˈIvz")
+
+        #expect(chunk.displayText == source)
+        #expect(
+            chunk.g2pInputText
+                == "This is one of the strangest [lives](/lˈIvz/) in the story.")
+        #expect(chunk.phonemes.contains("lˈIvz"))
+        #expect(decision.selectedIPA == "lˈIvz")
+        #expect(decision.kokoroTokenIDs == expectedIDs)
+        #expect(decision.source == .contextualHomograph)
+        #expect(decision.ruleID == "homograph.lives.noun.one-of-superlative")
+    }
+
+    @Test func superpositionLongUReachesExactPreTTSPlanAndReceipt() throws {
+        let source = "Researchers call this superposition."
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "superposition", text: source, index: 0)],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]),
+            maxPhonemes: 420)
+
+        let plannedBlock = try #require(plan.blocks.first)
+        let chunk = try #require(plannedBlock.synthesisChunks.first)
+        let decision = try #require(
+            plannedBlock.pronunciationDecisions.first {
+                $0.normalizedWord == "superposition"
+            })
+        let expectedIPA = "sˌuːpɚpəzˈɪʃən"
+        let expectedIDs = try PronunciationPlanner().phonemeIDs(forIPA: expectedIPA)
+
+        #expect(chunk.displayText == source)
+        #expect(
+            chunk.g2pInputText
+                == "Researchers call this [superposition](/sˌuːpɚpəzˈɪʃən/).")
+        #expect(chunk.phonemes.contains(expectedIPA))
+        #expect(decision.selectedIPA == expectedIPA)
+        #expect(decision.kokoroTokenIDs == expectedIDs)
+        #expect(decision.source == .builtInOverride)
+        #expect(decision.ruleID == "override.built-in.superposition")
     }
 
     @Test func naturalContextFalsePositivesStayOutOfPlannedTTS() throws {
