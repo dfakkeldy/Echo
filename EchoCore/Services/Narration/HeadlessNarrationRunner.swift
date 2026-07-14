@@ -428,8 +428,9 @@ struct NarrationRunResult {
         }
 
         let audioURL = workDir.appendingPathComponent(expected.audioFileName)
-        guard audioURL.deletingLastPathComponent().standardizedFileURL
-            == workDir.standardizedFileURL
+        guard
+            audioURL.deletingLastPathComponent().standardizedFileURL.path
+                == workDir.standardizedFileURL.path
         else {
             throw NarrationRunError.captureIdentity(
                 "chapter \(chapterIndex) audio escaped the work directory")
@@ -474,8 +475,9 @@ struct NarrationRunResult {
                 "chapter \(expected.chapterIndex) payload was already sealed")
         }
         try validateCapturePayload(payload, chapterIndex: expected.chapterIndex)
-        guard audioURL.deletingLastPathComponent().standardizedFileURL
-            == workDir.standardizedFileURL,
+        guard
+            audioURL.deletingLastPathComponent().standardizedFileURL.path
+                == workDir.standardizedFileURL.path,
             audioURL.lastPathComponent == expected.audioFileName,
             let byteCount = try regularFileByteCount(at: audioURL)
         else {
