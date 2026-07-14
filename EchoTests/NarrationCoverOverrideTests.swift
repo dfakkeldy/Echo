@@ -31,6 +31,29 @@ import UniformTypeIdentifiers
         return data as Data
     }
 
+    private func jpeg(width: Int, height: Int) throws -> Data {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = try #require(
+            CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let image = try #require(context.makeImage())
+        let data = NSMutableData()
+        let destination = try #require(
+            CGImageDestinationCreateWithData(
+                data, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
+
     @Test func loadsAndSnapshotsSquareArtwork() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).png")
@@ -68,6 +91,20 @@ import UniformTypeIdentifiers
         defer { try? FileManager.default.removeItem(at: url) }
 
         #expect(throws: Error.self) { try NarrationCoverOverride.load(from: url) }
+    }
+
+    @Test func rejectsTruncatedPNGAndJPEGThatImageIOCanDecode() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let truncatedPNG = directory.appendingPathComponent("truncated.png")
+        let truncatedJPEG = directory.appendingPathComponent("truncated.jpg")
+        try png(width: 32, height: 32).dropLast().write(to: truncatedPNG)
+        try jpeg(width: 32, height: 32).dropLast().write(to: truncatedJPEG)
+
+        #expect(throws: Error.self) { try NarrationCoverOverride.load(from: truncatedPNG) }
+        #expect(throws: Error.self) { try NarrationCoverOverride.load(from: truncatedJPEG) }
     }
 
     @Test func rejectsDirectoryAndSymbolicLink() throws {

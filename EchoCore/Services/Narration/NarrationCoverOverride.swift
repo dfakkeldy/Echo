@@ -29,8 +29,10 @@ nonisolated enum NarrationCoverOverride {
 
         let data = try handle.read(upToCount: maximumEncodedBytes + 1) ?? Data()
         guard !data.isEmpty, data.count <= maximumEncodedBytes,
-            isPNG(data) || isJPEG(data),
+            hasCompletePNGEncoding(data) || hasCompleteJPEGEncoding(data),
             let source = CGImageSourceCreateWithData(data as CFData, nil),
+            CGImageSourceGetStatus(source) == .statusComplete,
+            CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
                 as? [CFString: Any],
             let width = properties[kCGImagePropertyPixelWidth] as? Int,
@@ -48,12 +50,17 @@ nonisolated enum NarrationCoverOverride {
         return data
     }
 
-    private static func isJPEG(_ data: Data) -> Bool {
+    private static func hasCompleteJPEGEncoding(_ data: Data) -> Bool {
         data.starts(with: [0xFF, 0xD8, 0xFF])
+            && data.suffix(2).elementsEqual([0xFF, 0xD9])
     }
 
-    private static func isPNG(_ data: Data) -> Bool {
+    private static func hasCompletePNGEncoding(_ data: Data) -> Bool {
         data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            && data.suffix(12).elementsEqual([
+                0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+                0xAE, 0x42, 0x60, 0x82,
+            ])
     }
 
     struct ValidationError: LocalizedError {
