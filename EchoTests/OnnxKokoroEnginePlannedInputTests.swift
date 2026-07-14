@@ -17,7 +17,8 @@
                 phonemes: generated.phonemes,
                 phonemeIDs: suppliedIDs,
                 wordCount: generated.wordCount,
-                pronunciationFallbackHits: generated.pronunciationFallbackHits)
+                pronunciationFallbackHits: generated.pronunciationFallbackHits,
+                pronunciationEvidenceValidation: generated.pronunciationEvidenceValidation)
 
             let inputs = try OnnxKokoroEngine.plannedInputs(
                 for: planned, voice: voice, frontEnd: KokoroFrontEnd())

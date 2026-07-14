@@ -134,6 +134,12 @@ final class NarrationService {
         let synthesisWordTimingsByBlock: [String: [ChunkWordTiming]]
         /// OOV fallback words encountered while synthesizing this render unit.
         let pronunciationFallbackHits: [RenderedPronunciationFallbackHit]
+        /// Immutable plan decisions enriched only with timing observed while
+        /// rendering this exact file. Decisions for skipped source remain range-free.
+        let pronunciationDecisions: [PronunciationAuditDecision]
+        /// Plan validation and incomplete-render evidence, associated with the
+        /// chapter without fabricating a pronunciation decision or audio range.
+        let pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic]
 
         init(
             chapterIndex: Int,
@@ -145,7 +151,9 @@ final class NarrationService {
             spokenBlockIDs: [String],
             speechRangesByBlock: [String: [NarrationSpeechRange]] = [:],
             synthesisWordTimingsByBlock: [String: [ChunkWordTiming]],
-            pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = []
+            pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = [],
+            pronunciationDecisions: [PronunciationAuditDecision] = [],
+            pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] = []
         ) {
             self.chapterIndex = chapterIndex
             self.chapterDisplayNumber = chapterDisplayNumber
@@ -157,6 +165,8 @@ final class NarrationService {
             self.speechRangesByBlock = speechRangesByBlock
             self.synthesisWordTimingsByBlock = synthesisWordTimingsByBlock
             self.pronunciationFallbackHits = pronunciationFallbackHits
+            self.pronunciationDecisions = pronunciationDecisions
+            self.pronunciationAuditDiagnostics = pronunciationAuditDiagnostics
         }
     }
 
@@ -171,7 +181,7 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
     }
 
     func segmentCacheURL(
@@ -187,7 +197,7 @@ final class NarrationService {
             voice: voice,
             overrides: pronunciationOverrides(),
             occurrenceOverrides: pronunciationOccurrenceOverrides(),
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
     }
 
     private func chapterCacheURL(
@@ -198,7 +208,7 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String
     ) -> URL {
-        let signature = contentSignature(
+        let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: true,
             overrides: overrides,
@@ -221,7 +231,7 @@ final class NarrationService {
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         normalizationMode: String
     ) -> URL {
-        let signature = contentSignature(
+        let signature = Self.contentSignature(
             for: blocks,
             includeLeadOutPad: false,
             overrides: overrides,
@@ -236,7 +246,7 @@ final class NarrationService {
                 contentSignature: signature))
     }
 
-    private func contentSignature(
+    static func contentSignature(
         for blocks: [EPubBlockRecord],
         includeLeadOutPad: Bool,
         overrides: PronunciationOverrides,
@@ -272,7 +282,7 @@ final class NarrationService {
         return HomographPronunciationResolver.apply(to: overrides.apply(to: occurrenceSpecific))
     }
 
-    private func normalizationMode(fmEnabled: Bool) -> String {
+    static func normalizationMode(fmEnabled: Bool) -> String {
         fmEnabled ? "fm-auto-v\(FMNormalizer.signatureVersion)" : "deterministic"
     }
 
@@ -294,13 +304,14 @@ final class NarrationService {
     /// only for the title and status text so the first real chapter reads
     /// "Chapter 1". Defaults to `chapterIndex + 1` when omitted (tests that don't
     /// exercise numbering).
+    @discardableResult
     func renderChapter(
         chapterIndex: Int, chapterNumber: Int? = nil,
         blocks: [EPubBlockRecord], voice: VoiceID,
         chapterTitle: String? = nil,
         onBlockProgress: (@MainActor (_ chapterDisplayNumber: Int, _ fraction: Double) -> Void)? =
             nil
-    ) async throws {
+    ) async throws -> RenderedNarrationFile {
         let displayNumber = chapterNumber ?? (chapterIndex + 1)
         let savedTitle = Self.savedTitle(
             displayNumber: displayNumber, blocks: blocks, chapterTitle: chapterTitle)
@@ -314,7 +325,7 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
         let rendered = try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: displayNumber,
@@ -339,6 +350,7 @@ final class NarrationService {
         logger.notice(
             "Chapter \(displayNumber) rendered: \(rendered.anchors.count) anchors, ~\(Int(rendered.duration))s audio, in \(Int(Date().timeIntervalSince(chapterStart)))s."
         )
+        return rendered
     }
 
     /// Render and persist one segment as a playable synthesized track. Anchors
@@ -422,7 +434,7 @@ final class NarrationService {
             voice: voice,
             overrides: overrides,
             occurrenceOverrides: occurrenceOverrides,
-            normalizationMode: normalizationMode(fmEnabled: fmEnabled))
+            normalizationMode: Self.normalizationMode(fmEnabled: fmEnabled))
         return try await renderNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: chapterDisplayNumber,
@@ -602,6 +614,10 @@ final class NarrationService {
         var speechRangesByBlock: [String: [NarrationSpeechRange]] = [:]
         var synthesisWordTimingsByBlock: [String: [ChunkWordTiming]] = [:]
         var pronunciationFallbackHits: [RenderedPronunciationFallbackHit] = []
+        var renderedOriginalChunks: [RenderedOriginalSynthesisChunk] = []
+        var pronunciationAuditDiagnostics = plan.pronunciationAuditDiagnostics.map {
+            $0.attachingChapter(chapterIndex)
+        }
         var cursor: TimeInterval = 0
         let now = Self.iso8601.string(from: Date())
 
@@ -631,13 +647,26 @@ final class NarrationService {
             var blockDuration: TimeInterval = 0
             var timing = NarrationSynthesisTiming(blockID: plannedBlock.blockID, blockStart: cursor)
             var blockChunkTimings: [(timings: [ChunkWordTiming]?, startInFile: TimeInterval)] = []
-            for synthesisChunk in plannedBlock.synthesisChunks {
+            var originalWordBase = 0
+            for (originalChunkIndex, synthesisChunk) in
+                plannedBlock.synthesisChunks.enumerated()
+            {
                 try Task.checkCancellation()
+                let identity = OriginalSynthesisChunkIdentity(
+                    blockID: plannedBlock.blockID,
+                    chunkIndex: originalChunkIndex,
+                    wordBase: originalWordBase,
+                    wordCount: synthesisChunk.wordCount)
                 do {
-                    for synthesized in try await synthesizeWithQualityRetry(
+                    let synthesisResult = try await synthesizeWithQualityRetry(
                         synthesisChunk,
                         voice: voice
-                    ) {
+                    )
+                    let synthesizedChunks = synthesisResult.chunks
+                    let originalChunkStartInFile = cursor + blockDuration
+                    var renderedChildren: [RenderedSynthesisChild] = []
+                    renderedChildren.reserveCapacity(synthesizedChunks.count)
+                    for synthesized in synthesizedChunks {
                         let chunk = synthesized.audio
                         let chunkStartInFile = cursor + blockDuration
                         try await stream.append(chunk)
@@ -654,6 +683,30 @@ final class NarrationService {
                                     fallback: $0)
                             })
                         blockDuration += chunk.duration
+                        renderedChildren.append(
+                            RenderedSynthesisChild(
+                                plan: synthesized.plan,
+                                audio: chunk,
+                                startInFile: chunkStartInFile))
+                    }
+                    let renderedDuration = cursor + blockDuration - originalChunkStartInFile
+                    if synthesisResult.allAccepted,
+                        renderedDuration.isFinite, renderedDuration > 0, identity.wordCount > 0
+                    {
+                        renderedOriginalChunks.append(
+                            RenderedOriginalSynthesisChunk(
+                                identity: identity,
+                                exactWordRanges: Self.exactWordRanges(
+                                    parent: synthesisChunk,
+                                    children: renderedChildren) ?? [:]))
+                    } else if !synthesisResult.allAccepted {
+                        pronunciationAuditDiagnostics.append(
+                            .qualityRejected(
+                                blockID: plannedBlock.blockID,
+                                chunkIndex: originalChunkIndex,
+                                chapterIndex: chapterIndex,
+                                expectedDisplayText: synthesisChunk.displayText,
+                                fallbackHits: synthesisChunk.pronunciationFallbackHits))
                     }
                 } catch is CancellationError {
                     throw CancellationError()
@@ -663,8 +716,17 @@ final class NarrationService {
                     logger.error(
                         "Skipping over-long sub-chunk in block \(block.id): \(error.localizedDescription)"
                     )
-                    continue
+                    pronunciationAuditDiagnostics.append(
+                        .incompleteRender(
+                            blockID: plannedBlock.blockID,
+                            chunkIndex: originalChunkIndex,
+                            chapterIndex: chapterIndex,
+                            expectedDisplayText: synthesisChunk.displayText,
+                            fallbackHits: synthesisChunk.pronunciationFallbackHits))
                 }
+                // Stable source identity advances by the immutable planned word
+                // count even when a child timing is missing or the chunk was skipped.
+                originalWordBase += synthesisChunk.wordCount
             }
             if let assembled = NarrationWordTimingAssembler.assemble(blockChunkTimings) {
                 synthesisWordTimingsByBlock[block.id] = assembled
@@ -726,6 +788,13 @@ final class NarrationService {
         }
         didPublishFinalFile = true
 
+        let pronunciationDecisions = Self.renderedPronunciationDecisions(
+            plan: plan,
+            chapterIndex: chapterIndex,
+            renderedFileDuration: duration,
+            anchors: anchors,
+            renderedOriginalChunks: renderedOriginalChunks)
+
         return RenderedNarrationFile(
             chapterIndex: chapterIndex,
             chapterDisplayNumber: chapterDisplayNumber,
@@ -736,10 +805,12 @@ final class NarrationService {
             spokenBlockIDs: spokenBlockIDs,
             speechRangesByBlock: speechRangesByBlock,
             synthesisWordTimingsByBlock: synthesisWordTimingsByBlock,
-            pronunciationFallbackHits: pronunciationFallbackHits)
+            pronunciationFallbackHits: pronunciationFallbackHits,
+            pronunciationDecisions: pronunciationDecisions,
+            pronunciationAuditDiagnostics: pronunciationAuditDiagnostics)
     }
 
-    private func renderPlan(
+    func renderPlan(
         for blocks: [EPubBlockRecord],
         overrides: PronunciationOverrides,
         occurrenceOverrides: PronunciationOccurrenceOverrides,
@@ -750,7 +821,7 @@ final class NarrationService {
             occurrenceOverrides: occurrenceOverrides,
             fmEnabled: fmEnabled)
         return try NarrationRenderPlanner.make(
-            blocks: preparedBlocks,
+            preparedBlocks: preparedBlocks,
             overrides: overrides)
     }
 
@@ -758,13 +829,14 @@ final class NarrationService {
         _ blocks: [EPubBlockRecord],
         occurrenceOverrides: PronunciationOccurrenceOverrides,
         fmEnabled: Bool
-    ) async -> [EPubBlockRecord] {
-        var prepared: [EPubBlockRecord] = []
+    ) async -> [NarrationPreparedBlock] {
+        var prepared: [NarrationPreparedBlock] = []
         prepared.reserveCapacity(blocks.count)
 
         for block in blocks {
             guard block.text?.isEmpty == false, !block.isHidden else {
-                prepared.append(block)
+                prepared.append(
+                    NarrationPreparedBlock(block: block, pronunciationDecisionSeeds: []))
                 continue
             }
 
@@ -785,10 +857,16 @@ final class NarrationService {
                 }
             }
 
+            let occurrenceResult = occurrenceOverrides.rewrite(
+                to: refined,
+                blockID: block.id)
             var preparedBlock = block
-            preparedBlock.text = occurrenceOverrides.apply(to: refined, blockID: block.id)
+            preparedBlock.text = occurrenceResult.text
             preparedBlock.narrationText = refined == normalized ? block.narrationText : refined
-            prepared.append(preparedBlock)
+            prepared.append(
+                NarrationPreparedBlock(
+                    block: preparedBlock,
+                    pronunciationDecisionSeeds: occurrenceResult.decisionSeeds))
         }
 
         return prepared
@@ -799,40 +877,235 @@ final class NarrationService {
         let audio: TTSChunk
     }
 
+    /// Stable source identity for one chunk from the immutable render plan.
+    /// Retry children never replace this identity; they only provide audio for it.
+    private struct OriginalSynthesisChunkIdentity {
+        let blockID: String
+        let chunkIndex: Int
+        let wordBase: Int
+        let wordCount: Int
+
+        var wordRange: Range<Int> {
+            wordBase..<(wordBase + wordCount)
+        }
+    }
+
+    private struct RenderedSynthesisChild {
+        let plan: PlannedSynthesisChunk
+        let audio: TTSChunk
+        let startInFile: TimeInterval
+    }
+
+    private struct RenderedOriginalSynthesisChunk {
+        let identity: OriginalSynthesisChunkIdentity
+        /// Parent-local word index to chapter-relative range. Empty means the
+        /// original span rendered, but strict child timing identity was not proven.
+        let exactWordRanges: [Int: PronunciationAuditDecision.AudioRange]
+    }
+
+    private struct BlockWordIdentity: Hashable {
+        let blockID: String
+        let wordIndex: Int
+    }
+
+    /// Validates timing against planned words, not emitted timing count. Retry
+    /// children must reconstruct the parent's token sequence exactly before any
+    /// timing can be called source-word precise.
+    private static func exactWordRanges(
+        parent: PlannedSynthesisChunk,
+        children: [RenderedSynthesisChild]
+    ) -> [Int: PronunciationAuditDecision.AudioRange]? {
+        guard !children.isEmpty, parent.wordCount > 0 else { return nil }
+        let parentWords = WordTokenizer.words(in: parent.displayText).map(String.init)
+        guard parentWords.count == parent.wordCount else { return nil }
+
+        var reconstructedWords: [String] = []
+        reconstructedWords.reserveCapacity(parent.wordCount)
+        var ranges: [Int: PronunciationAuditDecision.AudioRange] = [:]
+        ranges.reserveCapacity(parent.wordCount)
+        var childWordBase = 0
+
+        for child in children {
+            let childWords = WordTokenizer.words(in: child.plan.displayText).map(String.init)
+            guard child.plan.wordCount > 0, childWords.count == child.plan.wordCount,
+                child.audio.duration.isFinite, child.audio.duration > 0,
+                child.startInFile.isFinite, child.startInFile >= 0,
+                let timings = child.audio.wordTimings,
+                timings.count == child.plan.wordCount
+            else {
+                return nil
+            }
+
+            reconstructedWords.append(contentsOf: childWords)
+            for expectedIndex in 0..<child.plan.wordCount {
+                let timing = timings[expectedIndex]
+                guard timing.wordIndex == expectedIndex,
+                    timing.start.isFinite, timing.end.isFinite,
+                    timing.start >= 0, timing.end > timing.start,
+                    timing.end <= child.audio.duration
+                else {
+                    return nil
+                }
+
+                let parentLocalWordIndex = childWordBase + expectedIndex
+                guard ranges[parentLocalWordIndex] == nil else { return nil }
+                let start = child.startInFile + timing.start
+                let end = child.startInFile + timing.end
+                guard start.isFinite, end.isFinite, start >= 0, end > start else {
+                    return nil
+                }
+                ranges[parentLocalWordIndex] = PronunciationAuditDecision.AudioRange(
+                    start: start,
+                    end: end)
+            }
+            // Never trust the emitted timing count as source identity.
+            childWordBase += child.plan.wordCount
+        }
+
+        guard reconstructedWords == parentWords,
+            childWordBase == parent.wordCount,
+            ranges.count == parent.wordCount
+        else {
+            return nil
+        }
+        return ranges
+    }
+
+    private static func renderedPronunciationDecisions(
+        plan: NarrationRenderPlan,
+        chapterIndex: Int,
+        renderedFileDuration: TimeInterval,
+        anchors: [AlignmentAnchorRecord],
+        renderedOriginalChunks: [RenderedOriginalSynthesisChunk]
+    ) -> [PronunciationAuditDecision] {
+        var renderedSpansByBlock: [String: [Range<Int>]] = [:]
+        var exactRangesByWord: [BlockWordIdentity: [PronunciationAuditDecision.AudioRange]] =
+            [:]
+        for rendered in renderedOriginalChunks {
+            let identity = rendered.identity
+            renderedSpansByBlock[identity.blockID, default: []].append(identity.wordRange)
+            for (parentLocalWordIndex, range) in rendered.exactWordRanges {
+                guard
+                    let validatedRange = validatedReceiptRange(
+                        range,
+                        renderedFileDuration: renderedFileDuration)
+                else {
+                    continue
+                }
+                let key = BlockWordIdentity(
+                    blockID: identity.blockID,
+                    wordIndex: identity.wordBase + parentLocalWordIndex)
+                exactRangesByWord[key, default: []].append(validatedRange)
+            }
+        }
+
+        var positiveAnchorsByBlock: [String: PronunciationAuditDecision.AudioRange] = [:]
+        for anchor in anchors {
+            guard let end = anchor.audioEndTime else {
+                continue
+            }
+            let range = PronunciationAuditDecision.AudioRange(
+                start: anchor.audioTime,
+                end: end)
+            guard
+                let validatedRange = validatedReceiptRange(
+                    range,
+                    renderedFileDuration: renderedFileDuration)
+            else {
+                continue
+            }
+            positiveAnchorsByBlock[anchor.epubBlockID] =
+                validatedRange
+        }
+
+        return plan.blocks.flatMap { plannedBlock in
+            plannedBlock.pronunciationDecisions.map { decision in
+                let spans = renderedSpansByBlock[decision.blockID] ?? []
+                guard decision.wordStart >= 0, decision.wordEnd >= decision.wordStart,
+                    (decision.wordStart...decision.wordEnd).allSatisfy({ wordIndex in
+                        spans.contains { $0.contains(wordIndex) }
+                    })
+                else {
+                    return decision.attachingRenderTiming(
+                        chapterIndex: chapterIndex,
+                        chapterRelativeAudioRange: nil,
+                        timingPrecision: nil)
+                }
+
+                if decision.wordStart == decision.wordEnd {
+                    let exactRanges = exactRangesByWord[
+                        BlockWordIdentity(
+                            blockID: decision.blockID,
+                            wordIndex: decision.wordStart)
+                    ] ?? []
+                    if exactRanges.count == 1, let exactRange = exactRanges.first {
+                        return decision.attachingRenderTiming(
+                            chapterIndex: chapterIndex,
+                            chapterRelativeAudioRange: exactRange,
+                            timingPrecision: .exactSynthesisWord)
+                    }
+                }
+
+                guard let blockRange = positiveAnchorsByBlock[decision.blockID] else {
+                    return decision.attachingRenderTiming(
+                        chapterIndex: chapterIndex,
+                        chapterRelativeAudioRange: nil,
+                        timingPrecision: nil)
+                }
+                return decision.attachingRenderTiming(
+                    chapterIndex: chapterIndex,
+                    chapterRelativeAudioRange: blockRange,
+                    timingPrecision: .blockAnchorFallback)
+            }
+        }
+    }
+
+    private static func validatedReceiptRange(
+        _ range: PronunciationAuditDecision.AudioRange,
+        renderedFileDuration: TimeInterval
+    ) -> PronunciationAuditDecision.AudioRange? {
+        guard renderedFileDuration.isFinite, renderedFileDuration >= 0,
+            range.start.isFinite, range.end.isFinite,
+            range.start >= 0, range.end > range.start
+        else {
+            return nil
+        }
+
+        // The writer and anchor cursor sum the same chunk durations in slightly
+        // different groupings. Clamp only sub-microsecond rounding drift; a
+        // material overshoot means the timing cannot describe the finalized file.
+        let finalizationTolerance = 1e-6
+        guard range.end <= renderedFileDuration + finalizationTolerance else {
+            return nil
+        }
+        let end = min(range.end, renderedFileDuration)
+        guard end > range.start else { return nil }
+        return PronunciationAuditDecision.AudioRange(start: range.start, end: end)
+    }
+
     private struct QualityRetryResult {
         let chunks: [PlannedSynthesisOutput]
         let allAccepted: Bool
     }
 
-    private struct QualityRetryContext {
-        let planner: PronunciationPlanner
-
-        init() throws {
-            planner = try PronunciationPlanner()
-        }
-    }
-
     private func synthesizeWithQualityRetry(
         _ plan: PlannedSynthesisChunk,
         voice: VoiceID
-    ) async throws -> [PlannedSynthesisOutput] {
+    ) async throws -> QualityRetryResult {
         let first = try await synthesize(plan, voice: voice)
         guard
             case .rejected(let reason) = NarrationChunkQuality.evaluate(
                 first.audio,
                 text: plan.displayText)
         else {
-            return [first]
+            return QualityRetryResult(chunks: [first], allAccepted: true)
         }
 
-        let context = try QualityRetryContext()
         return try await recoverRejectedSynthesis(
             first,
             reason: reason,
             voice: voice,
-            retryDepth: 0,
-            context: context
-        ).chunks
+            retryDepth: 0)
     }
 
     private func synthesize(
@@ -849,8 +1122,7 @@ final class NarrationService {
         _ rejected: PlannedSynthesisOutput,
         reason: NarrationChunkQuality.RejectionReason,
         voice: VoiceID,
-        retryDepth: Int,
-        context: QualityRetryContext
+        retryDepth: Int
     ) async throws -> QualityRetryResult {
         guard retryDepth < Self.maximumQualityRetryDepth else {
             #if DEBUG
@@ -863,11 +1135,8 @@ final class NarrationService {
         }
 
         let retryMaxPhonemes = max(20, min(80, rejected.plan.phonemes.count / 2))
-        let retryFragments = NarrationTextChunker.splitResolved(
-            rejected.plan.g2pInputText,
-            maxPhonemes: retryMaxPhonemes,
-            phonemeCount: context.planner.phonemeCount(for:))
-        guard retryFragments.count > 1 else {
+        let retryPlans = rejected.plan.frozenRetrySlices(maxPhonemes: retryMaxPhonemes)
+        guard retryPlans.count > 1 else {
             logger.error(
                 "Low-quality narration chunk could not be split for retry: \(String(describing: reason), privacy: .public)"
             )
@@ -875,13 +1144,12 @@ final class NarrationService {
         }
 
         logger.warning(
-            "Retrying low-quality narration chunk as \(retryFragments.count, privacy: .public) smaller piece(s): \(String(describing: reason), privacy: .public)"
+            "Retrying low-quality narration chunk as \(retryPlans.count, privacy: .public) frozen piece(s): \(String(describing: reason), privacy: .public)"
         )
         var retryChunks: [PlannedSynthesisOutput] = []
-        retryChunks.reserveCapacity(retryFragments.count)
-        for retryFragment in retryFragments {
+        retryChunks.reserveCapacity(retryPlans.count)
+        for retryPlan in retryPlans {
             try Task.checkCancellation()
-            let retryPlan = try context.planner.planResolved(retryFragment)
             let retry: PlannedSynthesisOutput
             do {
                 retry = try await synthesize(retryPlan, voice: voice)
@@ -899,8 +1167,7 @@ final class NarrationService {
                     retry,
                     reason: retryReason,
                     voice: voice,
-                    retryDepth: retryDepth + 1,
-                    context: context)
+                    retryDepth: retryDepth + 1)
                 guard recovered.allAccepted else {
                     logger.error(
                         "Low-quality narration retry piece rejected; keeping original chunk to avoid dropping source text: \(String(describing: retryReason), privacy: .public)"

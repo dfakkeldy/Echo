@@ -782,6 +782,187 @@ import Testing
         #expect(call.chunk.displayText == "The filesystem stores the verified result.")
     }
 
+    @Test func renderChapterReturnsFrozenDecisionWithBlockAnchorFallback() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The filesystem stores the result."])
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        var overrideReads = 0
+        let service = makeService(
+            db,
+            tts: engine,
+            writer: MockAudioWriter(),
+            overrides: {
+                overrideReads += 1
+                let ipa = overrideReads == 1 ? "fˈIl sˌɪstəm" : "fˈaɪl sˌɪstəm"
+                return PronunciationOverrides(entries: ["filesystem": ipa])
+            })
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 3,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        #expect(overrideReads == 1)
+        let decision = try #require(rendered.pronunciationDecisions.first)
+        let anchor = try #require(rendered.anchors.first)
+        let range = try #require(decision.chapterRelativeAudioRange)
+        #expect(rendered.pronunciationDecisions.count == 1)
+        #expect(decision.chapterIndex == 3)
+        #expect(decision.selectedIPA == "fˈIl sˌɪstəm")
+        #expect(decision.timingPrecision == .blockAnchorFallback)
+        #expect(abs(range.start - anchor.audioTime) < 0.0001)
+        #expect(abs(range.end - (anchor.audioEndTime ?? -1)) < 0.0001)
+        #expect(range.end > range.start)
+        #expect(decision.bookRelativeAudioRange == nil)
+        #expect(engine.plannedCalls.first?.chunk.g2pInputText.contains("fˈIl sˌɪstəm") == true)
+    }
+
+    @Test func renderChapterPreservesPlanEvidenceDiagnosticWithoutFabricatingDecision()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["verified [site](https://example.com)"])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(secondsPerChar: 0.01),
+            writer: MockAudioWriter())
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 4,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        #expect(rendered.pronunciationDecisions.isEmpty)
+        let diagnostic = try #require(rendered.pronunciationAuditDiagnostics.first)
+        #expect(rendered.pronunciationAuditDiagnostics.count == 1)
+        #expect(diagnostic.reason == .spokenSurfaceMismatch)
+        #expect(diagnostic.blockID == "blk0")
+        #expect(diagnostic.chunkIndex == 0)
+        #expect(diagnostic.chapterIndex == 4)
+        #expect(diagnostic.expectedDisplayText == "verified [site](https://example.com)")
+        #expect(diagnostic.reconstructedSpokenSurface == "verified site")
+    }
+
+    @Test func skippedPlannedChunkLeavesItsDecisionRangeFreeAndDiagnosesIncompleteRender()
+        async throws
+    {
+        let db = try DatabaseService(inMemory: ())
+        let text = "Verified. \(longDistinctBlockText())"
+        let blocks = try seed(db, [text])
+        let plan = try NarrationRenderPlanner.make(
+            blocks: blocks,
+            overrides: PronunciationOverrides(entries: [:]))
+        let plannedBlock = try #require(plan.blocks.first)
+        let skippedChunkIndex = try #require(
+            plannedBlock.synthesisChunks.firstIndex {
+                WordTokenizer.words(in: $0.displayText).contains {
+                    PronunciationAuditContext.normalizedWord(String($0)) == "verified"
+                }
+            })
+        try #require(plannedBlock.synthesisChunks.count > 1)
+        let skippedChunk = plannedBlock.synthesisChunks[skippedChunkIndex]
+        let engine = MockTTSEngine(secondsPerChar: 0.01)
+        engine.lengthCapOnText = skippedChunk.g2pInputText
+        let service = makeService(db, tts: engine, writer: MockAudioWriter())
+
+        let rendered = try await service.renderChapter(
+            chapterIndex: 2,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        let decision = try #require(
+            rendered.pronunciationDecisions.first { $0.normalizedWord == "verified" })
+        #expect(decision.chapterIndex == 2)
+        #expect(decision.chapterRelativeAudioRange == nil)
+        #expect(decision.bookRelativeAudioRange == nil)
+        #expect(decision.timingPrecision == nil)
+        let anchor = try #require(rendered.anchors.first)
+        #expect((anchor.audioEndTime ?? 0) > anchor.audioTime)
+
+        let diagnostic = try #require(
+            rendered.pronunciationAuditDiagnostics.first { $0.reason == .incompleteRender })
+        #expect(diagnostic.blockID == "blk0")
+        #expect(diagnostic.chunkIndex == skippedChunkIndex)
+        #expect(diagnostic.chapterIndex == 2)
+        #expect(diagnostic.expectedDisplayText == skippedChunk.displayText)
+        #expect(diagnostic.reconstructedSpokenSurface.isEmpty)
+    }
+
+    @Test func servicePreparedBlocksCarryOccurrenceDecisionIntoRenderPlan() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The content stays here."])
+        let service = makeService(db, tts: MockTTSEngine(), writer: MockAudioWriter())
+        let occurrenceOverrides = PronunciationOccurrenceOverrides(entries: [
+            PronunciationOccurrenceOverride(
+                blockID: "blk0",
+                wordStart: 1,
+                wordEnd: 1,
+                word: "content",
+                ipa: "kˈɑntɛnt")
+        ])
+
+        let plan = try await service.renderPlan(
+            for: blocks,
+            overrides: PronunciationOverrides(
+                entries: ["content": "kəntˈɛnt"],
+                source: .bookOverride),
+            occurrenceOverrides: occurrenceOverrides,
+            fmEnabled: false)
+        let plannedBlock = try #require(plan.blocks.first)
+        let decision = try #require(plannedBlock.pronunciationDecisions.first)
+
+        #expect(plannedBlock.pronunciationDecisions.count == 1)
+        #expect(decision.blockID == "blk0")
+        #expect(decision.wordStart == 1)
+        #expect(decision.source == .occurrenceOverride)
+        #expect(decision.selectedIPA == "kˈɑntɛnt")
+        #expect(
+            plannedBlock.synthesisChunks.map(\.g2pInputText)
+                == ["The [content](/kˈɑntɛnt/) stays here."])
+    }
+
+    @Test func structuredPlanningLeavesLegacyContentSignatureUnchanged() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let blocks = try seed(db, ["The content lives here."])
+        let overrides = PronunciationOverrides(entries: ["content": "kˈɑntɛnt"])
+        let occurrences = PronunciationOccurrenceOverrides(entries: [
+            PronunciationOccurrenceOverride(
+                blockID: "blk0",
+                wordStart: 2,
+                wordEnd: 2,
+                word: "lives",
+                ipa: "lˈIvz")
+        ])
+        let service = makeService(
+            db,
+            tts: MockTTSEngine(),
+            writer: MockAudioWriter(),
+            overrides: { overrides },
+            occurrenceOverrides: { occurrences })
+
+        let normalized = TextNormalizer.normalize(blocks[0].text ?? "")
+        let occurrenceText = occurrences.apply(to: normalized, blockID: "blk0")
+        let renderedText = HomographPronunciationResolver.apply(
+            to: overrides.apply(to: occurrenceText))
+        let signature = NarrationFileNaming.contentSignature(
+            spokenBlocks: blocks,
+            renderedTexts: [renderedText],
+            includeLeadOutPad: true,
+            normalizationMode: "deterministic")
+        let expectedName = NarrationFileNaming.chapterFileName(
+            audiobookID: "b1",
+            chapterIndex: 0,
+            voice: VoiceID("af_heart"),
+            contentSignature: signature)
+
+        let actual = await service.chapterCacheURL(
+            chapterIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("af_heart"))
+
+        #expect(actual.lastPathComponent == expectedName)
+    }
+
     @Test func plannedQualityEvaluationUsesDisplayTextInsteadOfPronunciationMarkup() async throws {
         let db = try DatabaseService(inMemory: ())
         let blocks = try seed(db, ["filesystem"])
@@ -882,6 +1063,54 @@ import Testing
         #expect(rendered.pronunciationFallbackHits.map(\.fallback) == [fallback])
     }
 
+    @Test func qualityRetryDispatchesFrozenWatchedAndFallbackPlanIntoReceipt() async throws {
+        let db = try DatabaseService(inMemory: ())
+        let text =
+            "Jacqui met the verified result while alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        let blocks = try seed(db, [text])
+        let parent = try #require(
+            NarrationRenderPlanner.make(
+                blocks: blocks,
+                overrides: PronunciationOverrides(entries: [:])
+            ).blocks.first?.synthesisChunks.first)
+        let expectedChildren = parent.frozenRetrySlices(
+            maxPhonemes: max(20, min(80, parent.phonemes.count / 2)))
+        try #require(expectedChildren.count > 1)
+        let engine = MockTTSEngine(secondsPerChar: 0.1)
+        engine.silentOnText = parent.g2pInputText
+        let service = makeService(db, tts: engine, writer: MockAudioWriter())
+
+        let receipt = try await service.renderSegmentFile(
+            chapterIndex: 0,
+            chapterDisplayNumber: 1,
+            segmentIndex: 0,
+            blocks: blocks,
+            voice: VoiceID("am_michael"))
+
+        let acceptedChildren = Array(engine.plannedCalls.dropFirst().map(\.chunk))
+        #expect(acceptedChildren == expectedChildren)
+        let verified = try #require(
+            receipt.pronunciationDecisions.first { $0.normalizedWord == "verified" })
+        let verifiedChild = try #require(
+            acceptedChildren.first {
+                $0.pronunciationTokenEvidence.contains {
+                    $0.text.lowercased() == "verified"
+                }
+            })
+        let verifiedToken = try #require(
+            verifiedChild.pronunciationTokenEvidence.first {
+                $0.text.lowercased() == "verified"
+            })
+        #expect(verified.selectedIPA == verifiedToken.selectedPhonemes)
+        #expect(verifiedChild.phonemes.contains(verified.selectedIPA))
+        #expect(
+            Array(verifiedChild.phonemeIDs.dropFirst().dropLast())
+                .containsContiguous(verified.kokoroTokenIDs))
+        #expect(
+            acceptedChildren.flatMap(\.pronunciationFallbackHits)
+                == parent.pronunciationFallbackHits)
+    }
+
     @Test func laterRejectedRetryChildRollsBackEarlierAcceptedSiblingsAtomically() async throws {
         let db = try DatabaseService(inMemory: ())
         let text =
@@ -892,23 +1121,11 @@ import Testing
                 blocks: blocks,
                 overrides: PronunciationOverrides(entries: [:])
             ).blocks.first?.synthesisChunks.first)
-        let g2p = KokoroG2P()
         let retryMaxPhonemes = max(20, min(80, parentPlan.phonemes.count / 2))
-        let retryFragments = NarrationTextChunker.splitResolved(
-            parentPlan.g2pInputText,
-            maxPhonemes: retryMaxPhonemes,
-            phonemeCount: g2p.phonemeCount(for:))
-        try #require(retryFragments.count > 1)
-        let laterFragment = try #require(retryFragments.last)
-        try #require(MisakiPronunciationMarkup.displayText(from: laterFragment) == "startable")
-
-        let laterPlan = try PronunciationPlanner().planResolved(laterFragment)
-        let nestedMaxPhonemes = max(20, min(80, laterPlan.phonemes.count / 2))
-        let nestedFragments = NarrationTextChunker.splitResolved(
-            laterPlan.g2pInputText,
-            maxPhonemes: nestedMaxPhonemes,
-            phonemeCount: g2p.phonemeCount(for:))
-        try #require(nestedFragments.count == 1)
+        let retryPlans = parentPlan.frozenRetrySlices(maxPhonemes: retryMaxPhonemes)
+        try #require(retryPlans.count > 1)
+        let laterPlan = try #require(retryPlans.last)
+        try #require(laterPlan.displayText.contains("startable"))
         try #require(
             parentPlan.pronunciationFallbackHits.contains {
                 $0.word.lowercased() == "jacqui"
@@ -920,7 +1137,18 @@ import Testing
 
         let secondsPerChar = 0.1
         let engine = MockTTSEngine(secondsPerChar: secondsPerChar)
-        engine.silentTexts = [parentPlan.g2pInputText, laterPlan.g2pInputText]
+        var rejectedTexts: Set<String> = [parentPlan.g2pInputText]
+        func addRejectedDescendants(_ plan: PlannedSynthesisChunk, depth: Int) {
+            rejectedTexts.insert(plan.g2pInputText)
+            guard depth < NarrationService.maximumQualityRetryDepth else { return }
+            let children = plan.frozenRetrySlices(
+                maxPhonemes: max(20, min(80, plan.phonemes.count / 2)))
+            for child in children {
+                addRejectedDescendants(child, depth: depth + 1)
+            }
+        }
+        addRejectedDescendants(laterPlan, depth: 1)
+        engine.silentTexts = rejectedTexts
         let writer = MockAudioWriter()
         let service = makeService(db, tts: engine, writer: writer)
 
@@ -959,14 +1187,10 @@ import Testing
                 blocks: blocks,
                 overrides: PronunciationOverrides(entries: [:])
             ).blocks.first?.synthesisChunks.first)
-        let g2p = KokoroG2P()
         let retryMaxPhonemes = max(20, min(80, parentPlan.phonemes.count / 2))
-        let retryFragments = NarrationTextChunker.splitResolved(
-            parentPlan.g2pInputText,
-            maxPhonemes: retryMaxPhonemes,
-            phonemeCount: g2p.phonemeCount(for:))
-        try #require(retryFragments.count > 1)
-        let laterPlan = try PronunciationPlanner().planResolved(try #require(retryFragments.last))
+        let retryPlans = parentPlan.frozenRetrySlices(maxPhonemes: retryMaxPhonemes)
+        try #require(retryPlans.count > 1)
+        let laterPlan = try #require(retryPlans.last)
         try #require(parentPlan.pronunciationFallbackHits.isEmpty == false)
 
         let secondsPerChar = 0.1
@@ -1069,8 +1293,6 @@ import Testing
         // Reconstruct the deterministic retry-split tree the service walks, so we
         // can prove the first path splits at depths 0…2 (guaranteeing it descends
         // to the depth cap) and predict the exact synthesized fragments.
-        let g2p = KokoroG2P()
-        let planner = try PronunciationPlanner()
         let topChunks = try NarrationRenderPlanner.make(
             blocks: blocks,
             overrides: PronunciationOverrides(entries: [:])
@@ -1079,14 +1301,12 @@ import Testing
         let level0 = topChunks[0]
 
         func firstSplitPlan(_ plan: PlannedSynthesisChunk) throws -> PlannedSynthesisChunk? {
-            let fragments = NarrationTextChunker.splitResolved(
-                plan.g2pInputText,
-                maxPhonemes: max(20, min(80, plan.phonemes.count / 2)),
-                phonemeCount: g2p.phonemeCount(for:))
+            let fragments = plan.frozenRetrySlices(
+                maxPhonemes: max(20, min(80, plan.phonemes.count / 2)))
             // >1 proves this level splits, so the split-count guard does NOT fire
             // here — the recursion must descend to the next depth.
             try #require(fragments.count > 1)
-            return try planner.planResolved(try #require(fragments.first))
+            return fragments.first
         }
         let level1 = try #require(try firstSplitPlan(level0))
         let level2 = try #require(try firstSplitPlan(level1))
@@ -1315,6 +1535,15 @@ import Testing
         #expect(
             try issueDAO.issues(for: "b1", status: NarrationQAIssueStatus.open.rawValue)
                 .isEmpty)
+    }
+}
+
+private extension Array where Element: Equatable {
+    func containsContiguous(_ candidate: [Element]) -> Bool {
+        guard !candidate.isEmpty, candidate.count <= count else { return false }
+        return indices.dropLast(candidate.count - 1).contains { start in
+            Array(self[start..<(start + candidate.count)]) == candidate
+        }
     }
 }
 

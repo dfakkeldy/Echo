@@ -74,6 +74,7 @@ vendor/bundle/
 
 # --- Development Assets (large media files) ---
 *.m4b
+*.pronunciation-audit.json
 *.mp3
 *.m4a
 *.aac

@@ -14,6 +14,27 @@ import Testing
         let capture = """
             {
               "duration": 2.5,
+              "pronunciationEvidence": {
+                "decisions": [
+                  {
+                    "blockID": "epub-file:///Fixture/-s0-b1",
+                    "wordStart": 0,
+                    "wordEnd": 0,
+                    "normalizedWord": "verified",
+                    "sourceWord": "verified",
+                    "sourceContext": "verified result",
+                    "selectedIPA": "vˈɛɹɪfˌaɪd",
+                    "kokoroTokenIDs": [60, 31, 57],
+                    "source": "monitoredLexicon",
+                    "ruleID": "g2p.lexicon.verified",
+                    "rationale": "Watched pronunciation",
+                    "chapterIndex": 3,
+                    "chapterRelativeAudioRange": { "start": 0.1, "end": 0.4 },
+                    "timingPrecision": "exactSynthesisWord"
+                  }
+                ],
+                "diagnostics": []
+              },
               "anchors": [
                 { "suffix": "s0-b1", "time": 0.1 },
                 { "suffix": "s0-b2", "time": 1.2 }

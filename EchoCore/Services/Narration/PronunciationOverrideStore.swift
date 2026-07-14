@@ -179,7 +179,7 @@
         /// with this book's entries, book-wins on conflict — the map `NarrationService`
         /// applies before G2P for a specific book.
         func overrides(forBookID bookID: String) -> PronunciationOverrides {
-            let global = PronunciationOverrides.withBuiltInDefaults(entries).entries
+            let global = PronunciationOverrides.withBuiltInDefaults(entries)
             return PronunciationOverrides.merging(global: global, book: loadedBookEntries(bookID))
         }
 

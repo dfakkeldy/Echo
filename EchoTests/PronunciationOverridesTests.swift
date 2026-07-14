@@ -5,6 +5,29 @@ import Testing
 
 @Suite struct PronunciationOverridesTests {
 
+    @Test func structuredRewriteCarriesScopedDictionaryEvidence() throws {
+        let overrides = PronunciationOverrides(entries: [
+            "Kubernetes": "kuːbərˈnɛtɪs"
+        ])
+
+        let result = overrides.rewrite(
+            to: "Deploy Kubernetes today.",
+            blockID: "block-7")
+        let decision = try #require(result.decisionSeeds.first)
+
+        #expect(result.text == overrides.apply(to: "Deploy Kubernetes today."))
+        #expect(decision.blockID == "block-7")
+        #expect(decision.wordStart == 1)
+        #expect(decision.wordEnd == 1)
+        #expect(decision.normalizedWord == "kubernetes")
+        #expect(decision.sourceWord == "Kubernetes")
+        #expect(decision.sourceContext == "Deploy Kubernetes today.")
+        #expect(decision.selectedIPA == "kuːbərˈnɛtɪs")
+        #expect(decision.source == .globalOverride)
+        #expect(decision.ruleID == "override.global.kubernetes")
+        #expect(decision.rationale == "Global override matched “Kubernetes”.")
+    }
+
     @Test func rewritesWholeWordOnly() throws {
         let ovr = PronunciationOverrides(entries: [
             "Kubernetes": "kuːbərˈnɛtɪs"
@@ -33,6 +56,19 @@ import Testing
             global: ["docker": "ˈdɒkə"],
             book: ["docker": "ˈdɑkər"])
         #expect(ovr.entries["docker"] == "ˈdɑkər")  // book overrides global
+    }
+
+    @Test func mergingPreservesWinningBookScopeMetadata() throws {
+        let global = PronunciationOverrides(entries: ["docker": "ˈdɒkə"])
+        let merged = PronunciationOverrides.merging(
+            global: global,
+            book: ["docker": "ˈdɑkər"])
+
+        let decision = try #require(
+            merged.rewrite(to: "Docker ships.", blockID: "b").decisionSeeds.first)
+        #expect(decision.source == .bookOverride)
+        #expect(decision.ruleID == "override.book.docker")
+        #expect(decision.selectedIPA == "ˈdɑkər")
     }
 
     @Test func emptyOverridesAreNoOp() throws {

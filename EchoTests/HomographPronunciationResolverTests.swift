@@ -4,6 +4,40 @@ import Testing
 @testable import Echo
 
 @Suite struct HomographPronunciationResolverTests {
+    @Test func structuredResolutionMapsRegexTokensToCanonicalWhitespaceSpan() throws {
+        let source = "That can't be where this subject lives."
+
+        let result = HomographPronunciationResolver.rewrite(to: source, blockID: "b-natural")
+        let decision = try #require(result.decisionSeeds.first)
+
+        #expect(result.text == HomographPronunciationResolver.apply(to: source))
+        #expect(decision.blockID == "b-natural")
+        #expect(decision.wordStart == 6)
+        #expect(decision.wordEnd == 6)
+        #expect(decision.normalizedWord == "lives")
+        #expect(decision.sourceWord == "lives")
+        #expect(decision.sourceContext == "can't be where this subject lives.")
+        #expect(decision.selectedIPA == "lˈɪvz")
+        #expect(decision.source == .contextualHomograph)
+        #expect(decision.ruleID == "homograph.lives.verb.subject")
+        #expect(
+            decision.rationale
+                == "Verb pronunciation selected after subject cue “subject”.")
+    }
+
+    @Test func structuredResolutionNamesCompoundNounCue() throws {
+        let result = HomographPronunciationResolver.rewrite(
+            to: "Should record labels pay artists?",
+            blockID: "b-record")
+        let decision = try #require(result.decisionSeeds.first)
+
+        #expect(decision.wordStart == 1)
+        #expect(decision.selectedIPA == "ɹˈɛkəɹd")
+        #expect(decision.ruleID == "homograph.record.noun.compound")
+        #expect(
+            decision.rationale == "Noun pronunciation selected before compound follower “labels”.")
+    }
+
     @Test func resolvesPastTenseReadFromTemporalContext() {
         let out = HomographPronunciationResolver.apply(to: "I read the book yesterday.")
 
@@ -60,6 +94,90 @@ import Testing
                 == "Their [lives](/lˈIvz/) in Halifax changed.")
     }
 
+    @Test func resolvesLivesVerbInNaturalWhereAndAsContexts() {
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "That gap is where this entire subject lives.")
+                == "That gap is where this entire subject [lives](/lˈɪvz/).")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "That gap is where this entire subject lives today.")
+                == "That gap is where this entire subject [lives](/lˈɪvz/) today.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "Every token lives as a point in semantic space.")
+                == "Every token [lives](/lˈɪvz/) as a point in semantic space.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "This is where hype lives.")
+                == "This is where hype [lives](/lˈɪvz/).")
+    }
+
+    @Test func naturalLivesCuesPreserveNounAndAdjectiveReadings() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Their lives changed.")
+                == "Their [lives](/lˈIvz/) changed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Their lives as immigrants changed.")
+                == "Their [lives](/lˈIvz/) as immigrants changed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "The live argument continued.")
+                == "The [live](/lˈIv/) argument continued.")
+    }
+
+    @Test func previousTokenCuesDoNotCrossSentenceBoundaries() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Many. Lives here.")
+                == "Many. [Lives](/lˈɪvz/) here.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "They. Live show.")
+                == "They. [Live](/lˈIv/) show.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Please. Record labels survived.")
+                == "Please. [Record](/ɹˈɛkəɹd/) labels survived.")
+    }
+
+    @Test func genericFollowerCuesDoNotCrossSentenceBoundaries() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "I read. Yesterday was quiet.")
+                == "I read. Yesterday was quiet.")
+    }
+
+    @Test func livesWhereCueDoesNotCrossSentenceBoundary() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Where should we meet? Lives changed.")
+                == "Where should we meet? Lives changed.")
+    }
+
+    @Test func livesWhereCuePreservesPluralNouns() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "They remember where lives were lost.")
+                == "They remember where lives were lost.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They remember where innocent lives were lost.")
+                == "They remember where innocent lives were lost.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "That gap is where this subject matters. Innocent lives were lost.")
+                == "That gap is where this subject matters. Innocent lives were lost.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They report where civilian lives remain in danger.")
+                == "They report where civilian lives remain in danger.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They ask where innocent lives still matter.")
+                == "They ask where innocent lives still matter.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "The study shows where lives can be saved.")
+                == "The study shows where lives can be saved.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They ask where innocent lives today matter.")
+                == "They ask where innocent lives today matter.")
+    }
+
     @Test func resolvesRecordVerbNounAndCompoundNounContexts() {
         #expect(
             HomographPronunciationResolver.apply(to: "Please record the result.")
@@ -97,6 +215,35 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: "This recording is clear.")
                 == "This recording is clear.")
+    }
+
+    @Test func resolvesRecordVerbBeforeImmediateWhObjects() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "Listen and record whatever it says.")
+                == "Listen and [record](/ɹəkˈɔɹd/) whatever it says.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Record what the caller says.")
+                == "[Record](/ɹəkˈɔɹd/) what the caller says.")
+    }
+
+    @Test func recordWhObjectCuePreservesNounsAndSentenceBoundaries() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "The record labels agreed.")
+                == "The [record](/ɹˈɛkəɹd/) labels agreed.")
+        #expect(
+            HomographPronunciationResolver.apply(to: "Vinyl and record stores survived.")
+                == "Vinyl and [record](/ɹˈɛkəɹd/) stores survived.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "Keep a record. Whatever happens matters.")
+                == "Keep a [record](/ɹˈɛkəɹd/). Whatever happens matters.")
+    }
+
+    @Test func recordWhObjectCueDoesNotConsumeRelativeClauses() {
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "They cited the world record, which still stands.")
+                == "They cited the world record, which still stands.")
     }
 
     @Test func recordVerbBeatsCompoundNounGuardAfterVerbSignals() {
@@ -233,6 +380,18 @@ import Testing
         #expect(
             HomographPronunciationResolver.apply(to: overridden)
                 == "I [read](/ɹˈid/) the book yesterday.")
+    }
+
+    @Test func existingPronunciationOverrideProducesNoContextualDecision() {
+        let overridden = PronunciationOverrides(entries: ["read": "ɹˈid"])
+            .apply(to: "I read the book yesterday.")
+
+        let result = HomographPronunciationResolver.rewrite(
+            to: overridden,
+            blockID: "b-read")
+
+        #expect(result.text == overridden)
+        #expect(result.decisionSeeds.isEmpty)
     }
 
     @Test func authoredRecordLinkWinsOverContextualRules() {

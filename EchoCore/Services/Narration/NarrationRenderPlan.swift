@@ -3,15 +3,54 @@ import Foundation
 
 struct NarrationRenderPlan: Equatable, Sendable {
     let blocks: [NarrationPlannedBlock]
+
+    var pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] {
+        blocks.flatMap(\.pronunciationAuditDiagnostics)
+    }
+}
+
+struct NarrationPreparedBlock: Equatable, Sendable {
+    let block: EPubBlockRecord
+    let pronunciationDecisionSeeds: [PronunciationDecisionSeed]
 }
 
 struct NarrationPlannedBlock: Equatable, Sendable {
     let blockID: String
     let originalBlock: EPubBlockRecord
     let synthesisChunks: [PlannedSynthesisChunk]
+    let pronunciationDecisions: [PronunciationAuditDecision]
+    let pronunciationDecisionDiagnostics: [PronunciationAuditDiagnostic]
     let trailingSilence: NarrationPlannedSilence?
 
     var isSpeakable: Bool { !synthesisChunks.isEmpty }
+
+    var pronunciationAuditDiagnostics: [PronunciationAuditDiagnostic] {
+        pronunciationDecisionDiagnostics + synthesisChunks.enumerated().compactMap {
+            chunkIndex, chunk in
+            switch chunk.pronunciationEvidenceValidation {
+            case .matched:
+                return nil
+            case let .mismatch(expectedDisplayText, reconstructedSpokenSurface):
+                return PronunciationAuditDiagnostic(
+                    reason: .spokenSurfaceMismatch,
+                    blockID: blockID,
+                    chunkIndex: chunkIndex,
+                    expectedDisplayText: expectedDisplayText,
+                    reconstructedSpokenSurface: reconstructedSpokenSurface,
+                    fallbackHits: chunk.pronunciationFallbackHits)
+            case let .phonemeSequenceMismatch(finalPhonemes, reconstructedTokenPhonemes):
+                return PronunciationAuditDiagnostic(
+                    reason: .phonemeSequenceMismatch,
+                    blockID: blockID,
+                    chunkIndex: chunkIndex,
+                    expectedDisplayText: chunk.displayText,
+                    reconstructedSpokenSurface: chunk.displayText,
+                    fallbackHits: chunk.pronunciationFallbackHits,
+                    finalPhonemes: finalPhonemes,
+                    reconstructedTokenPhonemes: reconstructedTokenPhonemes)
+            }
+        }
+    }
 }
 
 enum NarrationPlannedSilence: Equatable, Sendable {
@@ -38,17 +77,34 @@ enum NarrationRenderPlanner {
         maxChars: Int = 350,
         maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
+        try make(
+            preparedBlocks: blocks.map {
+                NarrationPreparedBlock(block: $0, pronunciationDecisionSeeds: [])
+            },
+            overrides: overrides,
+            maxChars: maxChars,
+            maxPhonemes: maxPhonemes)
+    }
+
+    static func make(
+        preparedBlocks: [NarrationPreparedBlock],
+        overrides: PronunciationOverrides,
+        maxChars: Int = 350,
+        maxPhonemes: Int = 420
+    ) throws -> NarrationRenderPlan {
         // One planner owns the single `KokoroG2P` (and its ~12 MB lexicon) for
         // this render unit; the chunker sizes splits via its phoneme count.
         let pronunciationPlanner = try PronunciationPlanner()
         let resolvedPhonemeCount = pronunciationPlanner.phonemeCount(for:)
-        let candidates = blocks.filter { block in
+        let candidates = preparedBlocks.filter { preparedBlock in
+            let block = preparedBlock.block
             guard block.text?.isEmpty == false else { return false }
             return !block.isHidden
         }
 
         var planned: [NarrationPlannedBlock] = []
-        for block in candidates {
+        for preparedBlock in candidates {
+            let block = preparedBlock.block
             let normalized = TextNormalizer.normalize(block.text ?? "")
             if isDecorativeSeparator(normalized) {
                 planned.append(
@@ -56,28 +112,291 @@ enum NarrationRenderPlanner {
                         blockID: block.id,
                         originalBlock: block,
                         synthesisChunks: [],
+                        pronunciationDecisions: [],
+                        pronunciationDecisionDiagnostics: [],
                         trailingSilence: .sectionBreak))
                 continue
             }
 
-            let resolved = HomographPronunciationResolver.apply(
-                to: overrides.apply(to: normalized))
+            let overrideResult = overrides.rewrite(to: normalized, blockID: block.id)
+            let homographResult = HomographPronunciationResolver.rewrite(
+                to: overrideResult.text,
+                blockID: block.id)
+            var decisionSeeds = uniqueDecisionSeeds(
+                preparedBlock.pronunciationDecisionSeeds
+                    + overrideResult.decisionSeeds
+                    + homographResult.decisionSeeds)
+            let resolved = homographResult.text
+            let blockDisplayText = MisakiPronunciationMarkup.displayText(from: resolved)
             let fragments = NarrationTextChunker.splitResolved(
                 resolved,
                 maxPhonemes: maxPhonemes,
                 phonemeCount: resolvedPhonemeCount)
-            let synthesisChunks = try fragments.map { fragment in
-                try pronunciationPlanner.planResolved(fragment)
+            var synthesisChunks: [PlannedSynthesisChunk] = []
+            var wordBase = 0
+            for fragment in fragments {
+                let chunk = try pronunciationPlanner.planResolved(fragment)
+                let tokenDecisionSeeds = chunk.pronunciationTokenEvidence.compactMap { evidence in
+                    PronunciationAuditContext.decisionSeed(
+                        for: evidence,
+                        blockID: block.id,
+                        chunkDisplayText: chunk.displayText,
+                        blockDisplayText: blockDisplayText,
+                        wordBase: wordBase)
+                }
+                // Explicit rewrite-stage decisions remain first so they win any
+                // collision with evidence emitted by the final G2P pass.
+                decisionSeeds = uniqueDecisionSeeds(decisionSeeds + tokenDecisionSeeds)
+                synthesisChunks.append(chunk)
+                wordBase += chunk.wordCount
             }
+            let pronunciationMaterialization = materializedPronunciationEvidence(
+                from: decisionSeeds,
+                synthesisChunks: synthesisChunks)
             planned.append(
                 NarrationPlannedBlock(
                     blockID: block.id,
                     originalBlock: block,
                     synthesisChunks: synthesisChunks,
+                    pronunciationDecisions: pronunciationMaterialization.decisions,
+                    pronunciationDecisionDiagnostics: pronunciationMaterialization.diagnostics,
                     trailingSilence: nil))
         }
 
         return NarrationRenderPlan(blocks: attachTrailingSilences(to: planned))
+    }
+
+    /// Binds portable rewrite metadata to the exact final phoneme and token-ID
+    /// slice dispatched to Kokoro. A seed without one uniquely proven, matching
+    /// slice is suppressed and diagnosed rather than attributed to unrelated audio.
+    struct PronunciationDecisionMaterialization: Equatable {
+        let decisions: [PronunciationAuditDecision]
+        let diagnostics: [PronunciationAuditDiagnostic]
+    }
+
+    static func materializedPronunciationEvidence(
+        from seeds: [PronunciationDecisionSeed],
+        synthesisChunks: [PlannedSynthesisChunk]
+    ) -> PronunciationDecisionMaterialization {
+        var decisions: [PronunciationAuditDecision] = []
+        var diagnostics: [PronunciationAuditDiagnostic] = []
+
+        for seed in seeds {
+            var wordBase = 0
+            var selections: [FinalPronunciationSelection] = []
+            for (chunkIndex, chunk) in synthesisChunks.enumerated() {
+                if let selection = finalPronunciationSelection(
+                    for: seed,
+                    in: chunk,
+                    wordBase: wordBase,
+                    chunkIndex: chunkIndex),
+                    !selections.contains(selection)
+                {
+                    selections.append(selection)
+                }
+                wordBase += chunk.wordCount
+            }
+
+            guard selections.count == 1, let selection = selections.first else {
+                if let owner = owningMatchedChunk(for: seed, in: synthesisChunks) {
+                    diagnostics.append(
+                        decisionEvidenceMismatchDiagnostic(
+                            for: seed,
+                            chunkIndex: owner.index,
+                            fallbackHits: owner.chunk.pronunciationFallbackHits,
+                            finalIPA: selections.first?.selectedIPA))
+                }
+                continue
+            }
+
+            let normalizedSeedIPA = dispatchNormalizedIPA(seed.selectedIPA)
+            guard selection.selectedIPA == normalizedSeedIPA else {
+                diagnostics.append(
+                    decisionEvidenceMismatchDiagnostic(
+                        for: seed,
+                        chunkIndex: selection.chunkIndex,
+                        fallbackHits: selection.fallbackHits,
+                        finalIPA: selection.selectedIPA))
+                continue
+            }
+            decisions.append(
+                seed.materialized(
+                    selectedIPA: selection.selectedIPA,
+                    kokoroTokenIDs: selection.kokoroTokenIDs))
+        }
+
+        return PronunciationDecisionMaterialization(
+            decisions: decisions,
+            diagnostics: diagnostics)
+    }
+
+    private struct FinalPronunciationSelection: Equatable {
+        let selectedIPA: String
+        let kokoroTokenIDs: [Int32]
+        let chunkIndex: Int
+        let fallbackHits: [PronunciationFallbackHit]
+    }
+
+    private static func finalPronunciationSelection(
+        for seed: PronunciationDecisionSeed,
+        in chunk: PlannedSynthesisChunk,
+        wordBase: Int,
+        chunkIndex: Int
+    ) -> FinalPronunciationSelection? {
+        guard case .matched = chunk.pronunciationEvidenceValidation,
+            chunk.phonemeIDs.count == chunk.phonemes.count + 2,
+            !chunk.pronunciationTokenEvidence.isEmpty
+        else {
+            return nil
+        }
+
+        let evidence = chunk.pronunciationTokenEvidence
+        let interiorIDs = Array(chunk.phonemeIDs.dropFirst().dropLast())
+        var selections: [FinalPronunciationSelection] = []
+
+        for lowerIndex in evidence.indices {
+            guard !PronunciationAuditContext.normalizedWord(evidence[lowerIndex].text).isEmpty
+            else {
+                continue
+            }
+
+            for upperIndex in lowerIndex..<evidence.endIndex {
+                guard !PronunciationAuditContext.normalizedWord(evidence[upperIndex].text).isEmpty
+                else {
+                    continue
+                }
+
+                let displayLowerBound =
+                    evidence[lowerIndex].displayCharacterRange.lowerBound
+                let displayUpperBound =
+                    evidence[upperIndex].displayCharacterRange.upperBound
+                let displayRange = displayLowerBound..<displayUpperBound
+                guard displayRange.lowerBound >= 0,
+                    displayRange.lowerBound < displayRange.upperBound,
+                    displayRange.upperBound <= chunk.displayText.count,
+                    PronunciationAuditContext.normalizedWord(
+                        substring(chunk.displayText, characterRange: displayRange))
+                        == seed.normalizedWord,
+                    let localWordSpan = PronunciationAuditContext.wordSpan(
+                        overlappingDisplayCharacterRange: displayRange,
+                        in: chunk.displayText),
+                    (wordBase + localWordSpan.lowerBound) == seed.wordStart,
+                    (wordBase + localWordSpan.upperBound) == seed.wordEnd,
+                    let phonemeRange = validatedPhonemeRange(
+                        for: evidence[lowerIndex...upperIndex],
+                        in: chunk.phonemes),
+                    phonemeRange.lowerBound < phonemeRange.upperBound,
+                    phonemeRange.upperBound <= interiorIDs.count
+                else {
+                    continue
+                }
+
+                let selection = FinalPronunciationSelection(
+                    selectedIPA: substring(chunk.phonemes, characterRange: phonemeRange),
+                    kokoroTokenIDs: Array(interiorIDs[phonemeRange]),
+                    chunkIndex: chunkIndex,
+                    fallbackHits: chunk.pronunciationFallbackHits)
+                if !selections.contains(selection) {
+                    selections.append(selection)
+                }
+            }
+        }
+
+        guard selections.count == 1 else { return nil }
+        return selections[0]
+    }
+
+    private static func owningMatchedChunk(
+        for seed: PronunciationDecisionSeed,
+        in synthesisChunks: [PlannedSynthesisChunk]
+    ) -> (index: Int, chunk: PlannedSynthesisChunk)? {
+        var wordBase = 0
+        for (chunkIndex, chunk) in synthesisChunks.enumerated() {
+            let upperWordBound = wordBase + chunk.wordCount
+            if seed.wordStart >= wordBase, seed.wordEnd < upperWordBound,
+                case .matched = chunk.pronunciationEvidenceValidation
+            {
+                return (chunkIndex, chunk)
+            }
+            wordBase = upperWordBound
+        }
+        return nil
+    }
+
+    private static func decisionEvidenceMismatchDiagnostic(
+        for seed: PronunciationDecisionSeed,
+        chunkIndex: Int,
+        fallbackHits: [PronunciationFallbackHit],
+        finalIPA: String?
+    ) -> PronunciationAuditDiagnostic {
+        PronunciationAuditDiagnostic(
+            reason: .decisionEvidenceMismatch,
+            blockID: seed.blockID,
+            chunkIndex: chunkIndex,
+            expectedDisplayText: seed.sourceWord,
+            reconstructedSpokenSurface: "",
+            fallbackHits: fallbackHits,
+            finalPhonemes: finalIPA,
+            reconstructedTokenPhonemes: dispatchNormalizedIPA(seed.selectedIPA))
+    }
+
+    private static func dispatchNormalizedIPA(_ ipa: String) -> String {
+        String(
+            ipa.compactMap { character -> Character? in
+                switch character {
+                case KokoroPhonemeVocab.oovMarker:
+                    return nil
+                case "ɾ":
+                    return "T"
+                case "ʔ":
+                    return "t"
+                default:
+                    return character
+                }
+            })
+    }
+
+    private static func validatedPhonemeRange(
+        for evidence: ArraySlice<PronunciationTokenEvidence>,
+        in finalPhonemes: String
+    ) -> Range<Int>? {
+        var previousDisplayUpperBound = -1
+        var previousPhonemeUpperBound = -1
+        var firstPhonemeLowerBound: Int?
+        var lastPhonemeUpperBound: Int?
+
+        for token in evidence {
+            guard token.displayCharacterRange.lowerBound >= previousDisplayUpperBound,
+                let phonemeRange = token.phonemeCharacterRange,
+                phonemeRange.lowerBound >= previousPhonemeUpperBound,
+                phonemeRange.lowerBound >= 0,
+                phonemeRange.upperBound <= finalPhonemes.count,
+                substring(finalPhonemes, characterRange: phonemeRange)
+                    == token.selectedPhonemes.filter({
+                        $0 != KokoroPhonemeVocab.oovMarker
+                    })
+            else {
+                return nil
+            }
+
+            firstPhonemeLowerBound = firstPhonemeLowerBound ?? phonemeRange.lowerBound
+            lastPhonemeUpperBound = phonemeRange.upperBound
+            previousDisplayUpperBound = token.displayCharacterRange.upperBound
+            previousPhonemeUpperBound = phonemeRange.upperBound
+        }
+
+        guard let firstPhonemeLowerBound, let lastPhonemeUpperBound else { return nil }
+        return firstPhonemeLowerBound..<lastPhonemeUpperBound
+    }
+
+    private static func substring(_ source: String, characterRange: Range<Int>) -> String {
+        let lowerBound = source.index(
+            source.startIndex,
+            offsetBy: characterRange.lowerBound)
+        let upperBound = source.index(
+            source.startIndex,
+            offsetBy: characterRange.upperBound)
+        return String(source[lowerBound..<upperBound])
     }
 
     private static func attachTrailingSilences(
@@ -98,7 +417,32 @@ enum NarrationRenderPlanner {
                 blockID: block.blockID,
                 originalBlock: block.originalBlock,
                 synthesisChunks: block.synthesisChunks,
+                pronunciationDecisions: block.pronunciationDecisions,
+                pronunciationDecisionDiagnostics: block.pronunciationDecisionDiagnostics,
                 trailingSilence: silence)
+        }
+    }
+
+    private static func uniqueDecisionSeeds(
+        _ seeds: [PronunciationDecisionSeed]
+    ) -> [PronunciationDecisionSeed] {
+        struct Span: Hashable {
+            let blockID: String
+            let wordStart: Int
+            let wordEnd: Int
+        }
+
+        var seen: Set<Span> = []
+        return seeds.filter { seed in
+            seen.insert(
+                Span(
+                    blockID: seed.blockID,
+                    wordStart: seed.wordStart,
+                    wordEnd: seed.wordEnd)
+            ).inserted
+        }.sorted { lhs, rhs in
+            if lhs.wordStart != rhs.wordStart { return lhs.wordStart < rhs.wordStart }
+            return lhs.wordEnd < rhs.wordEnd
         }
     }
 

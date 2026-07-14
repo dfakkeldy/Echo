@@ -31,6 +31,24 @@ import Testing
         #expect(!p.contains("❓"))
     }
 
+    @Test func inventedWordCarriesPositionBearingRatingOneFallbackEvidence() throws {
+        let result = KokoroG2P().result(
+            for: "Xyzqwf",
+            displayText: "Xyzqwf")
+        let token = try #require(result.tokenEvidence.first)
+
+        #expect(result.pronunciationEvidenceValidation == .matched)
+        #expect(token.text == "Xyzqwf")
+        #expect(token.selectedPhonemes == "zˈizkwf")
+        #expect(token.rating == 1)
+        #expect(token.displayCharacterRange == 0..<6)
+        #expect(token.usedFallback)
+        #expect(
+            result.fallbackHits.contains {
+                $0.word == token.text && $0.ipa == token.selectedPhonemes
+            })
+    }
+
     @Test func mixedLexiconAndOovDoesNotCrash() {
         // Real prose mixes known + unknown words; the whole string must return.
         let p = KokoroG2P().phonemes(for: "The Xyzqwf server restarted.")

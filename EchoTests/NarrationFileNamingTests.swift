@@ -6,8 +6,28 @@ import Testing
 
 @Suite struct NarrationFileNamingTests {
     @Test func renderVersionRegeneratesCachesForPronunciationFrontEndRefresh() {
-        // v11 moves pronunciation planning before TTS, so v10 audio must not be reused.
-        #expect(NarrationFileNaming.renderVersion == 11)
+        // v12 freezes approved retry phonemes, so v11 audio must not be reused.
+        #expect(NarrationFileNaming.renderVersion == 12)
+        let current = NarrationFileNaming.chapterFileName(
+            audiobookID: "book",
+            chapterIndex: 0,
+            voice: VoiceID("af_heart"),
+            contentSignature: "0123456789abcdef")
+        let previous = current.replacing("-v12.m4a", with: "-v11.m4a")
+
+        #expect(current.hasSuffix("-v12.m4a"))
+        #expect(
+            NarrationFileNaming.isCurrentChapterCacheFileName(
+                current,
+                audiobookID: "book",
+                chapterIndex: 0,
+                voice: VoiceID("af_heart")))
+        #expect(
+            !NarrationFileNaming.isCurrentChapterCacheFileName(
+                previous,
+                audiobookID: "book",
+                chapterIndex: 0,
+                voice: VoiceID("af_heart")))
     }
 
     @Test func parsesChapterIndexFromFileName() {

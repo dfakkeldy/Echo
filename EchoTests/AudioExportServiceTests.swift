@@ -158,6 +158,49 @@ import Testing
             #expect(abs(groups[1].timeRange.start.seconds - 1) < 0.2)
         }
 
+        @Test func concatenatesTwoRangesFromOneSyntheticSourceWithVisibleMarkers() async throws {
+            let source = try await SilentAudioFixture.makeSilentM4A(seconds: 4)
+            defer { try? FileManager.default.removeItem(at: source) }
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("m4b")
+            defer { try? FileManager.default.removeItem(at: out) }
+
+            try await AudioExportService().exportM4B(
+                items: [
+                    ExportItem(
+                        title: "1. verified — g2p.lexicon.verified — /vɛrɪfaɪd/",
+                        url: source,
+                        timeRange: CMTimeRange(
+                            start: CMTime(seconds: 0.5, preferredTimescale: 24_000),
+                            duration: CMTime(seconds: 0.5, preferredTimescale: 24_000))),
+                    ExportItem(
+                        title: "2. filesystem — override.builtin.filesystem — /faɪl sɪstəm/",
+                        url: source,
+                        timeRange: CMTimeRange(
+                            start: CMTime(seconds: 2, preferredTimescale: 24_000),
+                            duration: CMTime(seconds: 1, preferredTimescale: 24_000))),
+                ],
+                outputURL: out)
+
+            let asset = AVURLAsset(url: out)
+            let duration = try await asset.load(.duration)
+            let locales = try await asset.load(.availableChapterLocales)
+            let groups = try await asset.loadChapterMetadataGroups(
+                bestMatchingPreferredLanguages: locales.map(\.identifier))
+            var titles: [String] = []
+            for group in groups {
+                let title = group.items.first { $0.commonKey == .commonKeyTitle }
+                if let value = try? await title?.load(.stringValue) { titles.append(value) }
+            }
+
+            #expect(abs(duration.seconds - 1.5) < 0.2)
+            #expect(groups.count == 2)
+            #expect(titles[0].contains("verified"))
+            #expect(titles[1].contains("filesystem"))
+            #expect(abs(groups[0].timeRange.start.seconds) < 0.05)
+            #expect(abs(groups[1].timeRange.start.seconds - 0.5) < 0.2)
+        }
+
         /// Segment-layout narration exports concatenate every segment file, but only
         /// the first segment of a chapter should stamp a chapter atom. Otherwise a
         /// two-segment Chapter 1 appears as two chapters in Books/AVFoundation.

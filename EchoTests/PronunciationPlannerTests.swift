@@ -27,6 +27,146 @@ import Testing
         #expect(plan.pronunciationFallbackHits.allSatisfy { $0.word.lowercased() != "verified" })
     }
 
+    @Test func planCarriesTokenEvidenceFromTheFinalG2PPass() throws {
+        let plan = try PronunciationPlanner().plan(
+            displayText: "The result was verified.",
+            g2pInputText: "The result was verified."
+        )
+        let token = try #require(
+            plan.pronunciationTokenEvidence.first {
+                $0.text.lowercased() == "verified"
+            })
+
+        #expect(token.selectedPhonemes == "vˈɛɹəfˌId")
+        #expect(plan.phonemes.contains(token.selectedPhonemes))
+        #expect(token.displayCharacterRange == 15..<23)
+        let phonemeRange = try #require(token.phonemeCharacterRange)
+        let lowerBound = plan.phonemes.index(
+            plan.phonemes.startIndex,
+            offsetBy: phonemeRange.lowerBound)
+        let upperBound = plan.phonemes.index(
+            plan.phonemes.startIndex,
+            offsetBy: phonemeRange.upperBound)
+        #expect(plan.phonemes[lowerBound..<upperBound] == token.selectedPhonemes)
+        let interiorIDs = Array(plan.phonemeIDs.dropFirst().dropLast())
+        let exactTokenIDs = Array(interiorIDs[phonemeRange])
+        #expect(
+            exactTokenIDs
+                == (try PronunciationPlanner().phonemeIDs(forIPA: token.selectedPhonemes)))
+        #expect(!token.usedFallback)
+    }
+
+    @Test func frozenRetrySlicesPreserveParentPhonemesIDsAndTokenEvidence() throws {
+        let parent = try PronunciationPlanner().planResolved(
+            "Jacqui met the verified filesystem while alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+        )
+
+        let slices = parent.frozenRetrySlices(
+            maxPhonemes: max(20, min(80, parent.phonemes.count / 2)))
+
+        try #require(slices.count > 1)
+        #expect(slices.allSatisfy { !$0.phonemes.isEmpty })
+        #expect(slices.allSatisfy {
+            $0.phonemeIDs.first == KokoroPhonemeVocab.boundaryTokenId
+                && $0.phonemeIDs.last == KokoroPhonemeVocab.boundaryTokenId
+        })
+        #expect(slices.map(\.phonemes).joined() == parent.phonemes)
+        #expect(
+            slices.flatMap { $0.phonemeIDs.dropFirst().dropLast() }
+                == Array(parent.phonemeIDs.dropFirst().dropLast()))
+        #expect(
+            slices.flatMap { WordTokenizer.words(in: $0.displayText).map(String.init) }
+                == WordTokenizer.words(in: parent.displayText).map(String.init))
+        #expect(slices.reduce(0) { $0 + $1.wordCount } == parent.wordCount)
+
+        var parentEvidenceIndex = 0
+        var displayOffset = 0
+        var phonemeOffset = 0
+        for slice in slices {
+            for evidence in slice.pronunciationTokenEvidence {
+                let displayRange = evidence.displayCharacterRange
+                #expect(displayRange.lowerBound >= 0)
+                #expect(displayRange.upperBound <= slice.displayText.count)
+                let displayLower = slice.displayText.index(
+                    slice.displayText.startIndex,
+                    offsetBy: displayRange.lowerBound)
+                let displayUpper = slice.displayText.index(
+                    slice.displayText.startIndex,
+                    offsetBy: displayRange.upperBound)
+                #expect(slice.displayText[displayLower..<displayUpper] == evidence.text)
+
+                let range = try #require(evidence.phonemeCharacterRange)
+                #expect(range.lowerBound >= 0)
+                #expect(range.upperBound <= slice.phonemes.count)
+                let lower = slice.phonemes.index(
+                    slice.phonemes.startIndex,
+                    offsetBy: range.lowerBound)
+                let upper = slice.phonemes.index(
+                    slice.phonemes.startIndex,
+                    offsetBy: range.upperBound)
+                #expect(
+                    slice.phonemes[lower..<upper]
+                        == evidence.selectedPhonemes.filter {
+                            $0 != KokoroPhonemeVocab.oovMarker
+                        })
+
+                let parentEvidence = parent.pronunciationTokenEvidence[parentEvidenceIndex]
+                #expect(evidence.text == parentEvidence.text)
+                #expect(evidence.selectedPhonemes == parentEvidence.selectedPhonemes)
+                #expect(evidence.lexicalTag == parentEvidence.lexicalTag)
+                #expect(evidence.rating == parentEvidence.rating)
+                #expect(evidence.usedFallback == parentEvidence.usedFallback)
+                #expect(
+                    (displayRange.lowerBound + displayOffset)..<(displayRange.upperBound + displayOffset)
+                        == parentEvidence.displayCharacterRange)
+                let parentPhonemeRange = try #require(parentEvidence.phonemeCharacterRange)
+                #expect(
+                    (range.lowerBound + phonemeOffset)..<(range.upperBound + phonemeOffset)
+                        == parentPhonemeRange)
+                parentEvidenceIndex += 1
+            }
+            displayOffset += slice.displayText.count + 1
+            phonemeOffset += slice.phonemes.count
+        }
+        #expect(parentEvidenceIndex == parent.pronunciationTokenEvidence.count)
+        #expect(
+            slices.flatMap(\.pronunciationFallbackHits)
+                == parent.pronunciationFallbackHits)
+
+        for fallbackWord in ["jacqui", "filesystem"] {
+            let matchingSlices = slices.filter { slice in
+                slice.pronunciationFallbackHits.contains {
+                    $0.word.lowercased() == fallbackWord
+                }
+            }
+            #expect(matchingSlices.count == 1)
+            let matchingSlice = try #require(matchingSlices.first)
+            #expect(matchingSlice.pronunciationTokenEvidence.contains { evidence in
+                evidence.usedFallback
+                    && evidence.text.lowercased() == fallbackWord
+                    && matchingSlice.pronunciationFallbackHits.contains { hit in
+                        hit.word.lowercased() == fallbackWord
+                            && hit.ipa == evidence.selectedPhonemes
+                    }
+            })
+        }
+    }
+
+    @Test func planKeepsSynthesisButDropsUnvalidatedTokenRanges() throws {
+        let plan = try PronunciationPlanner().plan(
+            displayText: "different",
+            g2pInputText: "verified"
+        )
+
+        #expect(!plan.phonemes.isEmpty)
+        #expect(plan.pronunciationTokenEvidence.isEmpty)
+        #expect(
+            plan.pronunciationEvidenceValidation
+                == .mismatch(
+                    expectedDisplayText: "different",
+                    reconstructedSpokenSurface: "verified"))
+    }
+
     @Test func planResolvedPreservesSuppliedLinkAndDerivesDisplayText() throws {
         let resolved = "[record](/ɹəkˈɔɹd/)"
         let plan = try PronunciationPlanner().planResolved(resolved)
