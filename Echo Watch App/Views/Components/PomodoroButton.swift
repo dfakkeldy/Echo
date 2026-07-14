@@ -57,7 +57,6 @@ struct PomodoroButton: View {
                     .animation(.linear(duration: 0.2), value: ringProgress)
 
                 ViewThatFits {
-                    PomodoroDigits(presentation.digits, textStyle: .title2)
                     PomodoroDigits(presentation.digits, textStyle: .headline)
                     PomodoroDigits(presentation.digits, textStyle: .subheadline)
                     PomodoroDigits(presentation.digits, textStyle: .caption)
