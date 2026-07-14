@@ -60,6 +60,16 @@ import UniformTypeIdentifiers
         #expect(throws: Error.self) { try NarrationCoverOverride.load(from: nonsquare) }
     }
 
+    @Test func rejectsPNGTruncatedAfterValidHeader() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).png")
+        let truncated = try png(width: 32, height: 32).prefix(33)
+        try Data(truncated).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(throws: Error.self) { try NarrationCoverOverride.load(from: url) }
+    }
+
     @Test func rejectsDirectoryAndSymbolicLink() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

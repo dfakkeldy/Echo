@@ -39,7 +39,8 @@ nonisolated enum NarrationCoverOverride {
             height > 0,
             width == height,
             width <= maximumDimension,
-            height <= maximumDimension
+            height <= maximumDimension,
+            CGImageSourceCreateImageAtIndex(source, 0, nil) != nil
         else {
             throw ValidationError(
                 "cover must be a decodable square PNG or JPEG no larger than 8192 × 8192 pixels")
