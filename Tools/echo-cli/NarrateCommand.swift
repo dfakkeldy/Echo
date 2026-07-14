@@ -26,6 +26,8 @@ struct NarrateCommand: AsyncParsableCommand {
     @Option(help: "Kokoro voice id.") var voice: String = "af_heart"
     @Option(help: "Book title (m4b metadata).") var title: String
     @Option(help: "Book author (m4b metadata).") var author: String
+    @Option(help: "Square artwork image to embed instead of the EPUB/PDF cover.")
+    var cover: String?
     @Option(name: .customLong("work-dir"), help: "Intermediates dir (default: next to --out).")
     var workDir: String?
     @Option(name: .customLong("max-chapters"), help: "Chapters per process (default: whole book).")
@@ -49,6 +51,9 @@ struct NarrateCommand: AsyncParsableCommand {
     @MainActor func run() async throws {
         EchoCLI.configureResources()
         let outURL = URL(fileURLWithPath: out)
+        let coverArtData = try cover.map {
+            try NarrationCoverOverride.load(from: URL(fileURLWithPath: $0))
+        }
         let work =
             workDir.map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? outURL.deletingLastPathComponent()
@@ -90,6 +95,7 @@ struct NarrateCommand: AsyncParsableCommand {
             voice: VoiceID(voice),
             title: title,
             author: author,
+            coverArtData: coverArtData,
             maxNewChaptersPerRun: maxChapters,
             databaseURL: db.map { URL(fileURLWithPath: $0) },
             includeWordTimings: !noWordTimings,

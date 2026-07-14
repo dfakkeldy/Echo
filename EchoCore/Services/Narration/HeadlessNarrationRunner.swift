@@ -24,6 +24,9 @@ struct NarrationRunConfig {
     var title: String
     /// Author embedded in the .m4b metadata.
     var author: String
+    /// Optional caller-validated artwork bytes for the final M4B. When nil, the
+    /// runner resolves the EPUB/PDF cover using its existing fallback cascade.
+    var coverArtData: Data? = nil
     /// Cap on how many uncaptured chapters to render in this invocation.
     /// `nil` means render all uncaptured chapters.
     var maxNewChaptersPerRun: Int?
@@ -988,6 +991,20 @@ struct NarrationRunResult {
         return nil
     }
 
+    static func coverData(
+        override: Data?,
+        epubArchiveURL: URL?,
+        expandedEPUBDir: URL?,
+        blocks: [EPubBlockRecord],
+        fileManager: FileManager = .default
+    ) -> Data? {
+        override ?? coverData(
+            epubArchiveURL: epubArchiveURL,
+            expandedEPUBDir: expandedEPUBDir,
+            blocks: blocks,
+            fileManager: fileManager)
+    }
+
     // MARK: run
 
     /// Execute a narration run per `config`.
@@ -1360,6 +1377,7 @@ struct NarrationRunResult {
         // inline content image. PDFs and cover-less EPUBs fall back to the first
         // front-matter (else any) inline image block.
         let coverData = Self.coverData(
+            override: config.coverArtData,
             epubArchiveURL: source.epubArchiveURL,
             expandedEPUBDir: source.expandedEPUBDir,
             blocks: blocks)

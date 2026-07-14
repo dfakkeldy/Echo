@@ -78,6 +78,21 @@ import ZIPFoundation
         #expect(resolved == coverJPEG)
     }
 
+    @Test func headlessRunnerPrefersExplicitCoverOverOPFCover() throws {
+        let archive = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).epub")
+        try writeEPUBArchive(to: archive, coverRelPath: "Cover.jpg")
+        defer { try? FileManager.default.removeItem(at: archive) }
+
+        let explicit = Data("explicit square cover".utf8)
+        let resolved = HeadlessNarrationRunner.coverData(
+            override: explicit,
+            epubArchiveURL: archive,
+            expandedEPUBDir: nil,
+            blocks: [])
+        #expect(resolved == explicit)
+    }
+
     @Test func headlessRunnerFallsBackToInlineImageWhenNoOPFCover() throws {
         let (contentURL, block) = try contentImageBlock()
         defer { try? FileManager.default.removeItem(at: contentURL) }
