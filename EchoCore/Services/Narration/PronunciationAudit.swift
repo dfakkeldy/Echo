@@ -311,9 +311,10 @@ nonisolated struct PronunciationAuditManifest: Codable, Equatable, Sendable {
     ) -> PronunciationAuditManifest {
         let normalizedWatchWords = Set(
             watchWords.map(PronunciationAuditContext.normalizedWord).filter { !$0.isEmpty })
+        let countedWords = normalizedWatchWords.union(decisions.map(\.normalizedWord))
         var watchCounts = Dictionary(
-            uniqueKeysWithValues: normalizedWatchWords.map { ($0, 0) })
-        for decision in decisions where normalizedWatchWords.contains(decision.normalizedWord) {
+            uniqueKeysWithValues: countedWords.map { ($0, 0) })
+        for decision in decisions {
             watchCounts[decision.normalizedWord, default: 0] += 1
         }
 
