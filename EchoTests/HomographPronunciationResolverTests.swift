@@ -94,6 +94,31 @@ import Testing
                 == "Their [lives](/lˈIvz/) in Halifax changed.")
     }
 
+    @Test func resolvesLivesNounInDescriptiveSuperlativePhrase() throws {
+        let source = "This is one of the strangest lives in the story."
+        let result = HomographPronunciationResolver.rewrite(
+            to: source,
+            blockID: "b-lives-superlative")
+        let decision = try #require(result.decisionSeeds.first)
+
+        #expect(result.text == "This is one of the strangest [lives](/lˈIvz/) in the story.")
+        #expect(decision.selectedIPA == "lˈIvz")
+        #expect(decision.ruleID == "homograph.lives.noun.one-of-superlative")
+        #expect(
+            decision.rationale
+                == "Plural-noun pronunciation selected in the descriptive superlative phrase “one of the strangest lives”.")
+        #expect(
+            HomographPronunciationResolver.apply(
+                to: "His was one of the greatest lives in the story.")
+                == "His was one of the greatest [lives](/lˈIvz/) in the story.")
+    }
+
+    @Test func oneOfSubjectStillUsesLivesVerb() {
+        #expect(
+            HomographPronunciationResolver.apply(to: "One of the machines lives in Halifax.")
+                == "One of the machines [lives](/lˈɪvz/) in Halifax.")
+    }
+
     @Test func resolvesLivesVerbInNaturalWhereAndAsContexts() {
         #expect(
             HomographPronunciationResolver.apply(

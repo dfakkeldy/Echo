@@ -102,7 +102,7 @@ import Testing
 
     @Test func approvedSixWordMatrixProducesExpectedCompatibilityLinks() {
         let cases: [(source: String, expectedLink: String)] = [
-            ("The process is startable today.", "[startable](/stˈɑɹɾəbᵊl/)"),
+            ("The process is startable today.", "[startable](/stˈɑɹɾəbəl/)"),
             ("The filesystem stores the verified result.", "[filesystem](/fˈIl sˌɪstəm/)"),
             ("They live nearby.", "[live](/lˈɪv/)"),
             ("It was a live show.", "[live](/lˈIv/)"),

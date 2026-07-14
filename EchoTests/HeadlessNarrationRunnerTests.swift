@@ -10,12 +10,15 @@ import ZIPFoundation
 @Suite struct HeadlessNarrationRunnerTests {
     private func auditDecision(
         chapterIndex: Int,
-        chapterRange: PronunciationAuditDecision.AudioRange?
+        chapterRange: PronunciationAuditDecision.AudioRange?,
+        blockID: String? = nil,
+        wordStart: Int = 2,
+        timingPrecision: PronunciationAuditDecision.TimingPrecision? = nil
     ) -> PronunciationAuditDecision {
         PronunciationAuditDecision(
-            blockID: "blk-\(chapterIndex)",
-            wordStart: 2,
-            wordEnd: 2,
+            blockID: blockID ?? "blk-\(chapterIndex)",
+            wordStart: wordStart,
+            wordEnd: wordStart,
             normalizedWord: "verified",
             sourceWord: "verified",
             sourceContext: "The result was verified here",
@@ -26,7 +29,7 @@ import ZIPFoundation
             rationale: "Watched ordinary-lexicon pronunciation selected for “verified”.",
             chapterIndex: chapterIndex,
             chapterRelativeAudioRange: chapterRange,
-            timingPrecision: chapterRange == nil ? nil : .exactSynthesisWord)
+            timingPrecision: chapterRange == nil ? nil : (timingPrecision ?? .exactSynthesisWord))
     }
 
     private func auditDiagnostic(
@@ -743,6 +746,73 @@ import ZIPFoundation
         #expect(decoded.identity == capture.identity)
         #expect(evidence.decisions == [decision])
         #expect(evidence.diagnostics == diagnostics)
+    }
+
+    @Test func capturePayloadAcceptsExactThenOverlappingBlockFallback() throws {
+        let exact = auditDecision(
+            chapterIndex: 0,
+            chapterRange: .init(start: 2, end: 3),
+            blockID: "blk-0",
+            wordStart: 2)
+        let fallback = auditDecision(
+            chapterIndex: 0,
+            chapterRange: .init(start: 0, end: 8),
+            blockID: "blk-0",
+            wordStart: 20,
+            timingPrecision: .blockAnchorFallback)
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 10,
+            anchors: [.init(suffix: "blk-0", time: 0)],
+            pronunciationEvidence: .init(decisions: [exact, fallback], diagnostics: []))
+
+        #expect(try HeadlessNarrationRunner.capturePayloadSHA256(capture).count == 64)
+    }
+
+    @Test func capturePayloadRejectsOutOfOrderTimingWithinSamePrecision() {
+        let first = auditDecision(
+            chapterIndex: 0,
+            chapterRange: .init(start: 3, end: 4),
+            blockID: "blk-0",
+            wordStart: 2)
+        let second = auditDecision(
+            chapterIndex: 0,
+            chapterRange: .init(start: 2, end: 3),
+            blockID: "blk-0",
+            wordStart: 20)
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 10,
+            anchors: [.init(suffix: "blk-0", time: 0)],
+            pronunciationEvidence: .init(decisions: [first, second], diagnostics: []))
+
+        #expect(throws: Error.self) {
+            _ = try HeadlessNarrationRunner.capturePayloadSHA256(capture)
+        }
+    }
+
+    @Test func capturePayloadRejectsOutOfOrderBlockFallbackTiming() {
+        let first = auditDecision(
+            chapterIndex: 0,
+            chapterRange: .init(start: 3, end: 8),
+            blockID: "blk-0",
+            wordStart: 2,
+            timingPrecision: .blockAnchorFallback)
+        let second = auditDecision(
+            chapterIndex: 0,
+            chapterRange: .init(start: 1, end: 2),
+            blockID: "blk-1",
+            wordStart: 20,
+            timingPrecision: .blockAnchorFallback)
+        let capture = HeadlessNarrationRunner.ChapterCapture(
+            duration: 10,
+            anchors: [
+                .init(suffix: "blk-0", time: 0),
+                .init(suffix: "blk-1", time: 1),
+            ],
+            pronunciationEvidence: .init(decisions: [first, second], diagnostics: []))
+
+        #expect(throws: Error.self) {
+            _ = try HeadlessNarrationRunner.capturePayloadSHA256(capture)
+        }
     }
 
     @Test func captureValidationFailsClosedAcrossRendererAndSourceIdentityMismatches() throws {

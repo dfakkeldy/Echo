@@ -311,7 +311,11 @@ enum NarrationTextChunker {
     }
 
     /// Tier 1: full-stop terminators. Seams here read as natural sentence ends.
-    private static func isSentenceBoundary(_ ch: Character, at index: Int, in chars: [Character])
+    nonisolated static func isSentenceBoundary(
+        _ ch: Character,
+        at index: Int,
+        in chars: [Character]
+    )
         -> Bool
     {
         if ch == "." {
@@ -323,7 +327,11 @@ enum NarrationTextChunker {
     /// Tier 2: in-sentence clause marks, used only to break a single over-long
     /// sentence. `,`/`:` are ignored when they sit between digits (e.g. `3,000`,
     /// `12:30`) so numbers and times aren't split mid-token.
-    private static func isClauseBoundary(_ ch: Character, at index: Int, in chars: [Character])
+    nonisolated static func isClauseBoundary(
+        _ ch: Character,
+        at index: Int,
+        in chars: [Character]
+    )
         -> Bool
     {
         if ch == ";" { return true }
@@ -333,7 +341,10 @@ enum NarrationTextChunker {
         return false
     }
 
-    private static func hasDigitNeighbor(at index: Int, in chars: [Character]) -> Bool {
+    private nonisolated static func hasDigitNeighbor(
+        at index: Int,
+        in chars: [Character]
+    ) -> Bool {
         let hasPreviousDigit = index > chars.startIndex && chars[index - 1].isNumber
         let nextIndex = index + 1
         let hasNextDigit = nextIndex < chars.endIndex && chars[nextIndex].isNumber

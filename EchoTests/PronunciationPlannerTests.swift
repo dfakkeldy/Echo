@@ -152,6 +152,39 @@ import Testing
         }
     }
 
+    @Test func frozenRetrySlicesPreferAuthoredSentenceAndClauseBoundaries() throws {
+        struct BoundaryCase {
+            let text: String
+            let expectedFirstSlice: String
+        }
+        let cases = [
+            BoundaryCase(
+                text: "One brief sentence ends here. Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu.",
+                expectedFirstSlice: "One brief sentence ends here."),
+            BoundaryCase(
+                text: "Alpha beta gamma, delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron.",
+                expectedFirstSlice: "Alpha beta gamma,"),
+        ]
+
+        for boundaryCase in cases {
+            let parent = try PronunciationPlanner().planResolved(boundaryCase.text)
+            let boundary = try #require(
+                parent.pronunciationTokenEvidence.first {
+                    $0.displayCharacterRange.upperBound
+                        == boundaryCase.expectedFirstSlice.count
+                }?.phonemeCharacterRange)
+            let maxPhonemes = min(boundary.upperBound + 20, parent.phonemes.count - 1)
+            let slices = parent.frozenRetrySlices(maxPhonemes: maxPhonemes)
+
+            try #require(slices.count > 1)
+            #expect(slices.first?.displayText == boundaryCase.expectedFirstSlice)
+            #expect(slices.map(\.phonemes).joined() == parent.phonemes)
+            #expect(
+                slices.flatMap { $0.phonemeIDs.dropFirst().dropLast() }
+                    == Array(parent.phonemeIDs.dropFirst().dropLast()))
+        }
+    }
+
     @Test func planKeepsSynthesisButDropsUnvalidatedTokenRanges() throws {
         let plan = try PronunciationPlanner().plan(
             displayText: "different",

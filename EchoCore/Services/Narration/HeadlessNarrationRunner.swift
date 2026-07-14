@@ -617,7 +617,8 @@ struct NarrationRunResult {
             }
         }
 
-        var previousDecisionStart: TimeInterval = 0
+        var previousExactDecisionStart: TimeInterval = 0
+        var previousBlockFallbackDecisionStart: TimeInterval = 0
         for decision in capture.pronunciationEvidence?.decisions ?? [] {
             guard decision.wordStart >= 0,
                 decision.wordEnd >= decision.wordStart,
@@ -634,18 +635,32 @@ struct NarrationRunResult {
                 throw NarrationRunError.captureIdentity(
                     "capture pronunciation decision belongs to another chapter")
             }
-            if let range = decision.chapterRelativeAudioRange {
+            if let range = decision.chapterRelativeAudioRange,
+                let timingPrecision = decision.timingPrecision
+            {
+                let previousDecisionStart: TimeInterval
+                switch timingPrecision {
+                case .exactSynthesisWord:
+                    previousDecisionStart = previousExactDecisionStart
+                case .blockAnchorFallback:
+                    previousDecisionStart = previousBlockFallbackDecisionStart
+                }
                 guard range.start.isFinite,
                     range.end.isFinite,
                     range.start >= 0,
-                    range.start <= range.end,
+                    range.start < range.end,
                     range.end <= capture.duration,
                     range.start >= previousDecisionStart
                 else {
                     throw NarrationRunError.captureIdentity(
                         "capture pronunciation timing is invalid or out of order")
                 }
-                previousDecisionStart = range.start
+                switch timingPrecision {
+                case .exactSynthesisWord:
+                    previousExactDecisionStart = range.start
+                case .blockAnchorFallback:
+                    previousBlockFallbackDecisionStart = range.start
+                }
             }
         }
         if let chapterIndex {

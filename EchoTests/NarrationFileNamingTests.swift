@@ -6,16 +6,16 @@ import Testing
 
 @Suite struct NarrationFileNamingTests {
     @Test func renderVersionRegeneratesCachesForPronunciationFrontEndRefresh() {
-        // v12 freezes approved retry phonemes, so v11 audio must not be reused.
-        #expect(NarrationFileNaming.renderVersion == 12)
+        // v13 changes final -ble phonemes, so v12 audio must not be reused.
+        #expect(NarrationFileNaming.renderVersion == 13)
         let current = NarrationFileNaming.chapterFileName(
             audiobookID: "book",
             chapterIndex: 0,
             voice: VoiceID("af_heart"),
             contentSignature: "0123456789abcdef")
-        let previous = current.replacing("-v12.m4a", with: "-v11.m4a")
+        let previous = current.replacing("-v13.m4a", with: "-v12.m4a")
 
-        #expect(current.hasSuffix("-v12.m4a"))
+        #expect(current.hasSuffix("-v13.m4a"))
         #expect(
             NarrationFileNaming.isCurrentChapterCacheFileName(
                 current,

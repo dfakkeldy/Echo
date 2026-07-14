@@ -50,14 +50,24 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
 
         var unitGroups: [Range<Int>] = []
         var groupStart = 0
-        for unitIndex in units.indices {
+        var unitIndex = groupStart
+        let displayCharacters = Array(displayText)
+        while unitIndex < units.count {
             let candidateCount =
                 unitPhonemeBoundaries[unitIndex + 1]
                 - unitPhonemeBoundaries[groupStart]
             if unitIndex > groupStart, candidateCount > maxPhonemes {
-                unitGroups.append(groupStart..<unitIndex)
-                groupStart = unitIndex
+                let chosenCut = preferredFrozenRetryCut(
+                    in: units,
+                    from: groupStart,
+                    through: unitIndex,
+                    displayCharacters: displayCharacters)
+                unitGroups.append(groupStart..<chosenCut)
+                groupStart = chosenCut
+                unitIndex = chosenCut
+                continue
             }
+            unitIndex += 1
         }
         unitGroups.append(groupStart..<units.count)
         guard unitGroups.count > 1 else { return [] }
@@ -167,6 +177,36 @@ nonisolated struct PlannedSynthesisChunk: Equatable, Sendable {
     private struct FrozenResolvedUnit {
         let resolvedRange: Range<String.Index>
         let displayRange: Range<Int>
+    }
+
+    private func preferredFrozenRetryCut(
+        in units: [FrozenResolvedUnit],
+        from groupStart: Int,
+        through latestFittingCut: Int,
+        displayCharacters: [Character]
+    ) -> Int {
+        var latestClauseCut: Int?
+        for cut in stride(from: latestFittingCut, through: groupStart + 1, by: -1) {
+            let punctuationIndex = units[cut - 1].displayRange.upperBound - 1
+            guard displayCharacters.indices.contains(punctuationIndex) else { continue }
+            let character = displayCharacters[punctuationIndex]
+            if NarrationTextChunker.isSentenceBoundary(
+                character,
+                at: punctuationIndex,
+                in: displayCharacters)
+            {
+                return cut
+            }
+            if latestClauseCut == nil,
+                NarrationTextChunker.isClauseBoundary(
+                    character,
+                    at: punctuationIndex,
+                    in: displayCharacters)
+            {
+                latestClauseCut = cut
+            }
+        }
+        return latestClauseCut ?? latestFittingCut
     }
 
     private func frozenResolvedUnits() -> [FrozenResolvedUnit]? {

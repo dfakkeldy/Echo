@@ -34,7 +34,10 @@ nonisolated enum NarrationFileNaming {
     /// quality retry, and silence recovery consume the same exact phoneme IDs.
     /// v12 = quality retries reuse frozen approved phoneme/ID slices instead of
     /// rerunning G2P, changing byte behavior for previously cached chapters.
-    static let renderVersion = 12
+    /// v13 = token-scoped acoustic normalization opens the schwa in final
+    /// `-ble` / `-bles` pronunciations, and frozen quality retries prefer
+    /// authored sentence/clause boundaries before Kokoro synthesis.
+    static let renderVersion = 13
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.

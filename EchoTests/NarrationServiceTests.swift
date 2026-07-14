@@ -1066,7 +1066,7 @@ import Testing
     @Test func qualityRetryDispatchesFrozenWatchedAndFallbackPlanIntoReceipt() async throws {
         let db = try DatabaseService(inMemory: ())
         let text =
-            "Jacqui met the verified result while alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
+            "Jacqui met the verified result. Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu."
         let blocks = try seed(db, [text])
         let parent = try #require(
             NarrationRenderPlanner.make(
@@ -1076,6 +1076,7 @@ import Testing
         let expectedChildren = parent.frozenRetrySlices(
             maxPhonemes: max(20, min(80, parent.phonemes.count / 2)))
         try #require(expectedChildren.count > 1)
+        #expect(expectedChildren.first?.displayText == "Jacqui met the verified result.")
         let engine = MockTTSEngine(secondsPerChar: 0.1)
         engine.silentOnText = parent.g2pInputText
         let service = makeService(db, tts: engine, writer: MockAudioWriter())

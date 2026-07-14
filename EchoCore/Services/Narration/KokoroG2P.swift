@@ -4,6 +4,19 @@
     import MisakiSwift
     import NaturalLanguage
 
+    /// Final acoustic spelling adjustments applied after Misaki selects IPA and
+    /// before Kokoro token IDs are created. Keep these token-scoped so a phoneme
+    /// cluster inside an unrelated spelling cannot be rewritten accidentally.
+    nonisolated enum KokoroAcousticPronunciationNormalizer {
+        static func normalize(_ ipa: String, forWord word: String) -> String {
+            let normalizedWord = PronunciationAuditContext.normalizedWord(word)
+            guard normalizedWord.hasSuffix("ble") || normalizedWord.hasSuffix("bles") else {
+                return ipa
+            }
+            return ipa.replacing("bᵊl", with: "bəl")
+        }
+    }
+
     /// Pure validation boundary between Misaki's mutable token objects and the
     /// exact aggregate phoneme sequence dispatched to Kokoro.
     nonisolated enum PronunciationEvidenceValidator {
@@ -129,7 +142,7 @@
             let misakiResult = engine.phonemizeWithMetadata(text: text)
             // Copy reference-typed `MToken`s immediately; no mutable Misaki object
             // crosses this wrapper or an isolation boundary.
-            let snapshots = misakiResult.tokens.map { token in
+            let rawSnapshots = misakiResult.tokens.map { token in
                 PronunciationEvidenceValidator.Snapshot(
                     text: token.text,
                     whitespace: token.whitespace,
@@ -137,15 +150,50 @@
                     lexicalTag: token.tag?.rawValue,
                     rating: token.`_`.rating)
             }
+            let rawTokenResult = PronunciationEvidenceValidator.validate(
+                snapshots: rawSnapshots,
+                displayText: displayText,
+                finalPhonemes: misakiResult.phonemes)
+            guard case .matched = rawTokenResult.validation else {
+                let rawFallbackHits = misakiResult.fallbackHits.map {
+                    PronunciationFallbackHit(word: $0.word, ipa: $0.phonemes)
+                }
+                return Result(
+                    phonemes: misakiResult.phonemes,
+                    fallbackHits: Self.orderedFallbackHits(
+                        rawFallbackHits,
+                        matching: rawTokenResult),
+                    tokenEvidence: rawTokenResult.evidence,
+                    pronunciationEvidenceValidation: rawTokenResult.validation)
+            }
+
+            let snapshots = rawSnapshots.map { snapshot in
+                PronunciationEvidenceValidator.Snapshot(
+                    text: snapshot.text,
+                    whitespace: snapshot.whitespace,
+                    selectedPhonemes: KokoroAcousticPronunciationNormalizer.normalize(
+                        snapshot.selectedPhonemes,
+                        forWord: snapshot.text),
+                    lexicalTag: snapshot.lexicalTag,
+                    rating: snapshot.rating)
+            }
+            let finalPhonemes = snapshots.reduce(into: "") { result, snapshot in
+                result.append(contentsOf: snapshot.selectedPhonemes)
+                result.append(contentsOf: snapshot.whitespace)
+            }
             let tokenResult = PronunciationEvidenceValidator.validate(
                 snapshots: snapshots,
                 displayText: displayText,
-                finalPhonemes: misakiResult.phonemes)
+                finalPhonemes: finalPhonemes)
             let rawFallbackHits = misakiResult.fallbackHits.map {
-                PronunciationFallbackHit(word: $0.word, ipa: $0.phonemes)
+                PronunciationFallbackHit(
+                    word: $0.word,
+                    ipa: KokoroAcousticPronunciationNormalizer.normalize(
+                        $0.phonemes,
+                        forWord: $0.word))
             }
             return Result(
-                phonemes: misakiResult.phonemes,
+                phonemes: finalPhonemes,
                 fallbackHits: Self.orderedFallbackHits(
                     rawFallbackHits,
                     matching: tokenResult),

@@ -111,10 +111,31 @@ import Testing
         let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
             to: "The process is startable. The filesystem stores the verified result.")
 
-        #expect(out.contains("[startable](/stˈɑɹɾəbᵊl/)"))
+        #expect(out.contains("[startable](/stˈɑɹɾəbəl/)"))
         #expect(out.contains("[filesystem](/fˈIl sˌɪstəm/)"))
         #expect(out.contains("verified"))
         #expect(!out.contains("[verified]"))
+    }
+
+    @Test func superFamilyUsesApprovedLongUPronunciations() {
+        let out = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "super superhuman superposition supercomputer supercomputers "
+                + "superforecasters superimposed superintelligence supernatural "
+                + "supervised supervising unsupervised superiority")
+
+        #expect(out.contains("[super](/sˈuːpɚ/)"))
+        #expect(out.contains("[superhuman](/sˌuːpɚhjˈumən/)"))
+        #expect(out.contains("[superposition](/sˌuːpɚpəzˈɪʃən/)"))
+        #expect(out.contains("[supercomputer](/sˌuːpɚkəmpjˈuɾəɹ/)"))
+        #expect(out.contains("[supercomputers](/sˌuːpɚkəmpjˈuɾəɹz/)"))
+        #expect(out.contains("[superforecasters](/sˌuːpɚfˈɔɹkˌæstəɹz/)"))
+        #expect(out.contains("[superimposed](/sˌuːpɚɪmpˈOzd/)"))
+        #expect(out.contains("[superintelligence](/sˌuːpɚɪntˈɛləʤᵊns/)"))
+        #expect(out.contains("[supernatural](/sˌuːpɚnˈæʧəɹəl/)"))
+        #expect(out.contains("[supervised](/sˈuːpɚvˌIzd/)"))
+        #expect(out.contains("[supervising](/sˈuːpɚvˌIzɪŋ/)"))
+        #expect(out.contains("[unsupervised](/ˌʌnsˈuːpɚvˌIzd/)"))
+        #expect(out.hasSuffix(" superiority"))
     }
 
     @Test func userEntriesOverrideCompatibilityWordsCaseInsensitively() {
