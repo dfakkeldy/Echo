@@ -77,6 +77,24 @@ import Testing
         #expect(manifest.diagnostics.isEmpty)
     }
 
+    @Test func manifestCountsDecisionsOutsideConfiguredWatchVocabulary() {
+        let mara = decision(word: "mara", ruleID: "g2p.lexicon.mara", chapterIndex: 0)
+        let manifest = PronunciationAuditManifest.make(
+            renderVersion: 13,
+            voice: VoiceID("am_michael"),
+            captureCoverage: .complete,
+            legacyChapterIndexes: [],
+            audiobookURL: URL(fileURLWithPath: "/tmp/book.m4b"),
+            reelURL: nil,
+            audiobookSHA256: String(repeating: "a", count: 64),
+            listeningReelSHA256: nil,
+            watchWords: ["verified"],
+            decisions: [mara],
+            diagnostics: [])
+
+        #expect(manifest.watchCounts == ["mara": 1, "verified": 0])
+    }
+
     @Test func manifestDistinguishesLegacyCaptureFromEvidenceDiagnostics() {
         let evidenceDiagnostic = diagnostic()
         let incompleteEvidence = PronunciationAuditManifest.make(
