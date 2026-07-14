@@ -9,8 +9,10 @@ struct WatchPomodoroAccessibilitySourceTests {
 
         #expect(source.contains("PomodoroTimePresentation.make"))
         #expect(source.contains("ViewThatFits"))
-        #expect(source.contains("textStyle: .title2"))
+        #expect(source.contains("textStyle: .headline"))
+        #expect(source.contains("textStyle: .subheadline"))
         #expect(source.contains("textStyle: .caption"))
+        #expect(!source.contains("textStyle: .title2"))
         #expect(source.contains(".system(textStyle"))
         #expect(!source.contains(".system(size:"))
         #expect(
