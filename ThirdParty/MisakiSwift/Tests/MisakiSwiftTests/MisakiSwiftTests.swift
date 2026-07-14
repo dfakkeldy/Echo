@@ -86,6 +86,18 @@ let texts: [(originalText: String, requiredPhonemes: [String])] = [
   #expect(!result.phonemes.contains(" "))
 }
 
+@Test func testMultiwordExplicitPronunciationIsAppliedOnce() async throws {
+  let englishG2P = EnglishG2P(british: false)
+  let phrasePhonemes = "nˈu jˈɔɹk"
+  let result = englishG2P.phonemizeWithMetadata(
+    text: "Visit [New York](/nˈu jˈɔɹk/) today."
+  )
+
+  #expect(result.phonemes.components(separatedBy: phrasePhonemes).count == 2)
+  let phraseToken = try #require(result.tokens.first { $0.text == "New York" })
+  #expect(phraseToken.phonemes == phrasePhonemes)
+}
+
 @Test func testArithmeticKeepsNounAndTechnicalAdjectiveStress() async throws {
   let englishG2P = EnglishG2P(british: false)
   let noun = englishG2P.phonemizeWithMetadata(text: "Arithmetic is hard.")

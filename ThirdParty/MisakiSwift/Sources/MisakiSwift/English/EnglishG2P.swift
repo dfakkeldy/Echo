@@ -247,6 +247,7 @@ final public class EnglishG2P {
     // Simplistic alignment by index to add stress and pre-phonemization features to tokens
     // TO_DO: Doesn't match the capability of spacy.training.Alignment.from_strings()
     for feature in preprocessedText.features {
+      var assignedFixedPhonemes = false
       for token in mutableTokens {
         if token.tokenRange.contains(feature.tokenRange) || feature.tokenRange.contains(token.tokenRange) {
           switch feature.value {
@@ -256,9 +257,12 @@ final public class EnglishG2P {
               token.`_`.stress = double
             case .string(let string):
               if string.hasPrefix("/") {
-                token.`_`.is_head = true
-                token.phonemes = String(string.dropFirst())
+                // One fixed IPA belongs to the whole Markdown link. Fold every
+                // overlapping NL token into one phrase token and emit it once.
+                token.`_`.is_head = !assignedFixedPhonemes
+                token.phonemes = assignedFixedPhonemes ? "" : String(string.dropFirst())
                 token.`_`.rating = 5
+                assignedFixedPhonemes = true
               } else if string.hasPrefix("#") {
                 token.`_`.num_flags = String(string.dropFirst())
               }

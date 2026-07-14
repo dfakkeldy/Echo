@@ -19,7 +19,7 @@ import Testing
         func prepare() async throws {}
         func synthesize(_ text: String, voice: VoiceID) async throws -> TTSChunk {
             let words = text.split(whereSeparator: { $0.isWhitespace }).count
-            let dur = Double(max(words, 1)) * 0.2
+            let dur = max(Double(max(words, 1)) * 0.2, 0.25)
             let samples = [Float](repeating: 0.05, count: Int(dur * 24_000))
             let timings: [ChunkWordTiming]? =
                 emit
