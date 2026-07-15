@@ -184,6 +184,7 @@ struct PronunciationOverrides: Equatable, Sendable {
         "filesystem": "fˈIl sˌɪstəm",
         "lifecycle": "lˈIfsˌIkəl",
         "validator": "vˈælɪdˌAɾəɹ",
+        "validators": "vˈælɪdˌAɾəɹz",
         "super": "sˈuːpɚ",
         "supercomputer": "sˌuːpɚkəmpjˈuɾəɹ",
         "supercomputers": "sˌuːpɚkəmpjˈuɾəɹz",
