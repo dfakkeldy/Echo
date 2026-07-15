@@ -78,6 +78,31 @@ struct EPUBStructureChapteringTests {
         #expect(result["chapter2body"] == 1)
     }
 
+    @Test func trailingNonlinearSpineStaysOutsideLastTOCChapter() {
+        let blocks = [
+            blk("chapter1", seq: 0, spine: 0),
+            blk("chapter1body", seq: 1, spine: 0),
+            blk("chapter2", seq: 2, spine: 1),
+            blk("chapter2body", seq: 3, spine: 1),
+            blk("sources", seq: 4, spine: 2, frontMatter: true),
+            blk("sourcesBody", seq: 5, spine: 2, frontMatter: true),
+        ]
+        let toc = [
+            toc("Chapter One", block: "chapter1", depth: 0, order: 0),
+            toc("Chapter Two", block: "chapter2", depth: 0, order: 1),
+            toc("Sources", block: "sources", depth: 0, order: 2),
+        ]
+
+        let result = EPUBStructureChaptering.chapterIndices(blocks: blocks, tocEntries: toc)
+
+        #expect(result["chapter1"] == 0)
+        #expect(result["chapter1body"] == 0)
+        #expect(result["chapter2"] == 1)
+        #expect(result["chapter2body"] == 1)
+        #expect(result["sources"] == nil)
+        #expect(result["sourcesBody"] == nil)
+    }
+
     @Test func chaptersByShallowestRepeatingDepth() {
         // A single "Part I" at depth 0 must not become the only chapter; the
         // three depth-1 chapters that actually repeat are the chapter level.
