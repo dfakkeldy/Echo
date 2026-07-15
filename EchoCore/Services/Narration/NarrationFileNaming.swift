@@ -37,7 +37,9 @@ nonisolated enum NarrationFileNaming {
     /// v13 = token-scoped acoustic normalization opens the schwa in final
     /// `-ble` / `-bles` pronunciations, and frozen quality retries prefer
     /// authored sentence/clause boundaries before Kokoro synthesis.
-    static let renderVersion = 13
+    /// v14 = unseen closed compounds can reuse one unambiguous pair of known
+    /// lexical component pronunciations instead of the whole-token OOV guess.
+    static let renderVersion = 14
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.

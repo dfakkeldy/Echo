@@ -28,6 +28,26 @@ final class Lexicon {
   private let silvers: [String: Any]
   private let vocab: Set<Character>
 
+  private static let productiveCompoundPrefixes: Set<String> = [
+    "anti", "auto", "counter", "extra", "hyper", "inter", "intra", "micro",
+    "multi", "non", "over", "post", "pre", "pseudo", "semi", "sub", "super",
+    "trans", "ultra", "under", "un",
+  ]
+
+  /// Common words that productively introduce closed compounds. Keeping this
+  /// reviewed avoids treating any coincidental pair of dictionary fragments
+  /// (for example, `cancel` + `late`) as semantic compound evidence.
+  private static let compoundRoots: Set<String> = [
+    "air", "audio", "back", "bed", "black", "blood", "book", "brain", "break",
+    "business", "car", "case", "check", "child", "class", "cloud", "code", "cross",
+    "day", "door", "down", "eye", "face", "field", "file", "fire", "foot", "frame",
+    "front", "game", "gold", "ground", "hand", "head", "home", "house", "key",
+    "knowledge", "life", "light", "machine", "mail", "market", "moon", "news", "night",
+    "note", "paper", "play", "question", "rain", "read", "road", "school", "sea", "side",
+    "snow", "sound", "space", "star", "sun", "table", "test", "time", "tool", "voice",
+    "water", "web", "wheel", "wind", "word", "work", "world",
+  ]
+
   init(british: Bool) {
     self.british = british
     // Load and grow dictionaries
@@ -141,6 +161,68 @@ final class Lexicon {
     }
     
     return (nil, nil)
+  }
+
+  /// Resolves an unlisted closed compound from one unambiguous pair of known
+  /// lexical components. Whole-word and inflection lookup must run first; this
+  /// is a guarded fallback for spellings such as `hyperparameter` and
+  /// `headphone`, not a replacement for authoritative lexicon entries.
+  func transcribeClosedCompound(_ token: MToken, ctx: TokenContext) -> (String, Int)? {
+    guard token.tag?.isProperNoun != true else { return nil }
+
+    let word = token.text.lowercased().precomposedStringWithCompatibilityMapping
+    let characters = Array(word)
+    guard characters.count >= 6, characters.allSatisfy(\.isLetter) else { return nil }
+    guard !word.hasSuffix("able"), !word.hasSuffix("ible") else { return nil }
+
+    var candidates: [(left: String, leftIPA: String, rightIPA: String)] = []
+    for split in 3...(characters.count - 3) {
+      let left = String(characters[..<split])
+      let right = String(characters[split...])
+      guard
+        Self.productiveCompoundPrefixes.contains(left)
+          || Self.compoundRoots.contains(left)
+      else {
+        continue
+      }
+      guard right.count >= 4 || Self.productiveCompoundPrefixes.contains(left) else {
+        continue
+      }
+      let leftResult = getWord(left, tag: nil, stress: nil, ctx: ctx)
+      let rightResult = getWord(right, tag: nil, stress: nil, ctx: ctx)
+      guard let leftIPA = leftResult.phoneme, let rightIPA = rightResult.phoneme else {
+        continue
+      }
+      candidates.append((left: left, leftIPA: leftIPA, rightIPA: rightIPA))
+    }
+
+    guard candidates.count == 1, let candidate = candidates.first else { return nil }
+    let phonemes = compoundPhonemes(for: candidate)
+      .replacingOccurrences(of: "ɾ", with: "T")
+      .replacingOccurrences(of: "ʔ", with: "t")
+    return (phonemes, 1)
+  }
+
+  private func compoundPhonemes(
+    for candidate: (left: String, leftIPA: String, rightIPA: String)
+  ) -> String {
+    let rightCarriesPrimaryStress =
+      Self.productiveCompoundPrefixes.contains(candidate.left)
+      || candidate.rightIPA.filter { Lexicon.vowelSet.contains($0) }.count >= 3
+
+    if rightCarriesPrimaryStress {
+      return demotingPrimaryStress(in: candidate.leftIPA) + candidate.rightIPA
+    }
+    guard candidate.leftIPA.contains(Lexicon.primaryStress) else {
+      return candidate.leftIPA + candidate.rightIPA
+    }
+    return candidate.leftIPA + demotingPrimaryStress(in: candidate.rightIPA)
+  }
+
+  private func demotingPrimaryStress(in phonemes: String) -> String {
+    phonemes.replacingOccurrences(
+      of: String(Lexicon.primaryStress),
+      with: String(Lexicon.secondaryStress))
   }
   
   /// Converts Unicode digits to ASCII digits if needed

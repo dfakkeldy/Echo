@@ -33,6 +33,42 @@ import Testing
         #expect(!result.fallbackHits.contains { $0.word.lowercased().contains("hello") })
     }
 
+    @Test func oovClosedCompoundsReuseKnownComponentPronunciations() throws {
+        let text = "Backpropagation tunes a hyperparameter without overfitting a headphone."
+        let result = KokoroG2P().result(for: text, displayText: text)
+        let expected: [String: String] = [
+            "backpropagation": "bˌækpɹˌɑpəɡˈAʃən",
+            "hyperparameter": "hˌIpəɹpəɹˈæməTəɹ",
+            "overfitting": "ˌOvəɹfˈɪTɪŋ",
+            "headphone": "hˈɛdfˌOn",
+        ]
+
+        #expect(result.pronunciationEvidenceValidation == .matched)
+        for (word, ipa) in expected {
+            let evidence = try #require(
+                result.tokenEvidence.first { $0.text.lowercased() == word })
+            #expect(evidence.selectedPhonemes == ipa)
+            #expect(evidence.usedFallback)
+            #expect(result.fallbackHits.contains { $0.word.lowercased() == word && $0.ipa == ipa })
+        }
+    }
+
+    @Test func compoundResolutionDoesNotRewriteKnownWordsOrProperNames() throws {
+        let text = "Annabel put the notebook on the carpet beside the therapist."
+        let result = KokoroG2P().result(for: text, displayText: text)
+
+        #expect(result.pronunciationEvidenceValidation == .matched)
+        let annabel = try #require(
+            result.tokenEvidence.first { $0.text.lowercased() == "annabel" })
+        #expect(annabel.selectedPhonemes == "ˈænæbɛl")
+        #expect(annabel.usedFallback)
+        for word in ["notebook", "carpet", "therapist"] {
+            let evidence = try #require(
+                result.tokenEvidence.first { $0.text.lowercased() == word })
+            #expect(!evidence.usedFallback)
+        }
+    }
+
     @Test func resultCanonicalizesReversedAggregateFallbacksIntoEvidenceOrder() {
         // Misaki currently reports this pair in reverse aggregate order even
         // though its exact token evidence is in authored reading order.
