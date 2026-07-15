@@ -59,7 +59,9 @@ enum EPUBStructureChaptering {
         guard let firstBoundary = boundaries.first else { return nil }
 
         var result: [String: Int] = [:]
-        for block in blocks where block.sequenceIndex >= firstBoundary {
+        for block in blocks
+        where block.sequenceIndex >= firstBoundary && !block.isFrontMatter
+        {
             // Index of the last boundary at or before this block.
             var chapter = 0
             for (i, boundarySeq) in boundaries.enumerated() where boundarySeq <= block.sequenceIndex
