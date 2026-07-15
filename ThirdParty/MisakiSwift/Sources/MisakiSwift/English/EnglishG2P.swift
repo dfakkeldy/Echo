@@ -510,6 +510,13 @@ final public class EnglishG2P {
 
     return nil
   }
+
+  private func fallbackTranscription(
+    for token: MToken,
+    ctx: TokenContext
+  ) -> (phoneme: String, rating: Int) {
+    lexicon.transcribeClosedCompound(token, ctx: ctx) ?? fallback(token)
+  }
    
   /// Never-voiceless guarantee for a single token's phonemes.
   ///
@@ -565,7 +572,7 @@ final public class EnglishG2P {
         }
         
         if w.phonemes == nil {
-          let out = fallback(w)
+          let out = fallbackTranscription(for: w, ctx: ctx)
           w.phonemes = out.0
           w.`_`.rating = out.1
           fallbackHits.append(EnglishG2PFallbackHit(word: w.text, phonemes: out.0))
@@ -583,7 +590,7 @@ final public class EnglishG2P {
             }
 
             if token.phonemes == nil {
-              let out = fallback(token)
+              let out = fallbackTranscription(for: token, ctx: ctx)
               token.phonemes = out.0
               token.`_`.rating = out.1
               fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))
@@ -634,7 +641,7 @@ final public class EnglishG2P {
           if shouldFallback {
             let token = mergeTokens(arr)
             let first = arr[0]
-            let out = fallback(token)
+            let out = fallbackTranscription(for: token, ctx: ctx)
             first.phonemes = out.0
             first.`_`.rating = out.1
             fallbackHits.append(EnglishG2PFallbackHit(word: token.text, phonemes: out.0))

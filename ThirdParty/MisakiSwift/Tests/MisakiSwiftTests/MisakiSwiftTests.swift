@@ -86,6 +86,30 @@ let texts: [(originalText: String, requiredPhonemes: [String])] = [
   #expect(!result.phonemes.contains(" "))
 }
 
+@Test func testClosedCompoundResolutionRejectsDerivedAndAccidentalSplits() async throws {
+  let englishG2P = EnglishG2P(british: false)
+
+  for word in [
+    "admittable", "abandonable", "acerate", "cancellate", "camerate", "adherescent",
+  ] {
+    let result = englishG2P.phonemizeWithMetadata(text: word)
+    let hit = try #require(result.fallbackHits.first)
+    #expect(hit.word.lowercased() == word)
+    #expect(hit.phonemes == EnglishFallbackNetwork.phonemes(for: word))
+  }
+}
+
+@Test func testClosedCompoundsReuseKnownLexicalComponents() async throws {
+  let englishG2P = EnglishG2P(british: false)
+
+  for word in ["filesystem", "webpage", "knowledgebase", "questionmachine", "worktree"] {
+    let result = englishG2P.phonemizeWithMetadata(text: word)
+    let hit = try #require(result.fallbackHits.first)
+    #expect(hit.word.lowercased() == word)
+    #expect(hit.phonemes != EnglishFallbackNetwork.phonemes(for: word))
+  }
+}
+
 @Test func testMultiwordExplicitPronunciationIsAppliedOnce() async throws {
   let englishG2P = EnglishG2P(british: false)
   let phrasePhonemes = "nˈu jˈɔɹk"
