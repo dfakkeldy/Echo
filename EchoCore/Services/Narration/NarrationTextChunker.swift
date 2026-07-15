@@ -319,7 +319,7 @@ enum NarrationTextChunker {
         -> Bool
     {
         if ch == "." {
-            return !hasDigitNeighbor(at: index, in: chars)
+            return !hasAlphanumericNeighbors(at: index, in: chars)
         }
         return ch == "!" || ch == "?"
     }
@@ -349,6 +349,20 @@ enum NarrationTextChunker {
         let nextIndex = index + 1
         let hasNextDigit = nextIndex < chars.endIndex && chars[nextIndex].isNumber
         return hasPreviousDigit && hasNextDigit
+    }
+
+    private nonisolated static func hasAlphanumericNeighbors(
+        at index: Int,
+        in chars: [Character]
+    ) -> Bool {
+        let hasPreviousAlphanumeric =
+            index > chars.startIndex
+            && (chars[index - 1].isLetter || chars[index - 1].isNumber)
+        let nextIndex = index + 1
+        let hasNextAlphanumeric =
+            nextIndex < chars.endIndex
+            && (chars[nextIndex].isLetter || chars[nextIndex].isNumber)
+        return hasPreviousAlphanumeric && hasNextAlphanumeric
     }
 
     /// Wraps an over-long unit at word boundaries; a single word longer than
