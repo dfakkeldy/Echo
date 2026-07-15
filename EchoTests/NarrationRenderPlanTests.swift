@@ -68,6 +68,42 @@ import Testing
         #expect(String(decoding: encoded, as: UTF8.self).contains("\"source\":\"builtInOverride\""))
     }
 
+    @Test func lifecycleOverrideKeepsCompleteEvidenceBesideClaudeMarkdownToken() throws {
+        let text =
+            "Different backgrounds create different gaps. An experienced backend architect may "
+            + "already understand queues, retries, access control, and observability while "
+            + "remaining unfamiliar with model-driven tool selection or context limits. A daily "
+            + "Claude Code user may know how to steer a coding session yet never have implemented "
+            + "the API loop that passes a tool result back to Claude. An engineer who has built an "
+            + "extraction service may understand schemas and evaluation while having little "
+            + "experience with shared CLAUDE.md files, lifecycle hooks, or isolated subagents. "
+            + "Each person has transferable strengths. Each still needs direct practice in the "
+            + "missing domains."
+        let overrides = PronunciationOverrides.withBuiltInDefaults([:])
+        let rewrite = overrides.rewrite(
+            to: TextNormalizer.normalize(text),
+            blockID: "reported-lifecycle")
+        let rewriteLifecycle = try #require(
+            rewrite.decisionSeeds.first {
+                $0.normalizedWord == "lifecycle"
+            })
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "reported-lifecycle", text: text, index: 0)],
+            overrides: overrides)
+        let plannedBlock = try #require(plan.blocks.first)
+        let lifecycle = try #require(
+            plannedBlock.pronunciationDecisions.first {
+                $0.normalizedWord == "lifecycle"
+            })
+
+        #expect(lifecycle.wordStart == rewriteLifecycle.wordStart)
+        #expect(lifecycle.wordEnd == rewriteLifecycle.wordEnd)
+        #expect(lifecycle.source == .builtInOverride)
+        #expect(lifecycle.ruleID == "override.built-in.lifecycle")
+        #expect(lifecycle.selectedIPA == "lˈIfsˌIkəl")
+        #expect(plannedBlock.pronunciationAuditDiagnostics.isEmpty)
+    }
+
     @Test func aggregatePhonemeMismatchSuppressesDecisionAndMakesAuditIncomplete() throws {
         let validation = PronunciationEvidenceValidator.validate(
             snapshots: [

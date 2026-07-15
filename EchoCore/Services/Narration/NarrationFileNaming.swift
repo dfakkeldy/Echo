@@ -39,7 +39,9 @@ nonisolated enum NarrationFileNaming {
     /// authored sentence/clause boundaries before Kokoro synthesis.
     /// v14 = unseen closed compounds can reuse one unambiguous pair of known
     /// lexical component pronunciations instead of the whole-token OOV guess.
-    static let renderVersion = 14
+    /// v15 = periods inside dotted identifiers stay within one authored word,
+    /// keeping synthesis chunks and pronunciation evidence on the same indices.
+    static let renderVersion = 15
     /// Stable renderer-family identity persisted beside headless captures. The
     /// cache render version tracks byte-affecting revisions within this family;
     /// this value prevents a different engine/G2P stack from inheriting them.

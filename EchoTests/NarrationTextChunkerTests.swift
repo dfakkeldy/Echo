@@ -242,4 +242,14 @@ import Testing
                 "The grant was $5.5 million.",
             ])
     }
+
+    @Test func dottedIdentifiersRemainSingleAuthoredWords() {
+        let text = "Shared CLAUDE.md files coordinate work. Visit docs.anthropic.com next."
+        let pieces = NarrationTextChunker.splitResolved(text, maxPhonemes: 420) {
+            $0.count
+        }
+
+        #expect(pieces == [text])
+        #expect(WordTokenizer.words(in: pieces[0]).count == 8)
+    }
 }
