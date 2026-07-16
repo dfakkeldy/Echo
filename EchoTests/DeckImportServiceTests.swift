@@ -83,6 +83,91 @@ struct DeckImportServiceTests {
         #expect(title == "Real Title")
     }
 
+    /// Task 3: `importDeckVNext(from:db:)` (no selected book) has nowhere to
+    /// preflight a portable deck's anchors against, so it must fail closed
+    /// rather than silently importing under legacy semantics. Portable decks
+    /// go through `importDeckVNext(from:targetAudiobookID:db:)` instead.
+    @Test
+    func importDeckVNextRejectsPortableDeckWithoutSelectedBook() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let signature = EchoSourceSignature(
+            algorithm: EchoSourceSignature.currentAlgorithm,
+            value: "sha256:" + String(repeating: "a", count: 64)
+        )
+        let url = try writeDeckJSON(
+            """
+            {
+              "formatVersion": 2,
+              "deckID": "com.echo.test.deck",
+              "deckName": "Portable Deck",
+              "targetBinding": "selectedBook",
+              "targetMediaID": "echo-portable:test-slug:core",
+              "sourceSignature": {
+                "algorithm": "\(signature.algorithm)",
+                "value": "\(signature.value)"
+              },
+              "cards": [
+                {
+                  "frontText": "Question",
+                  "backText": "Answer",
+                  "triggerTiming": "manualOnly",
+                  "sourceAnchor": "s1-b2"
+                }
+              ]
+            }
+            """)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect {
+            try DeckImportService().importDeckVNext(from: url, db: writer)
+        } throws: { error in
+            guard case DeckImportError.selectedBookRequired = error else { return false }
+            return true
+        }
+    }
+
+    /// Task 3: the selected-target overload must reject a legacy document
+    /// rather than reinterpreting it under legacy semantics — which would
+    /// silently ignore the caller's `targetAudiobookID` in favour of the
+    /// document's own `targetMediaID`, and create a placeholder audiobook
+    /// for it. Nothing may be written.
+    @Test
+    func importDeckVNextWithSelectedBookRejectsLegacyDeck() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        try seedBookWithBlocks(writer, targetID: "local-book", blockIDs: ["epub-local-book-s0-b0"])
+        let url = try writeDeckJSON(
+            """
+            {
+              "deckName": "Legacy Deck",
+              "targetMediaID": "some-other-book.m4b",
+              "cards": [
+                {"frontText": "Q", "backText": "A", "startTime": 0, "endTime": 5, "triggerTiming": "manualOnly"}
+              ]
+            }
+            """)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect {
+            try DeckImportService().importDeckVNext(
+                from: url, targetAudiobookID: "local-book", db: writer)
+        } throws: { error in
+            guard case DeckImportError.portableDeckRequired = error else { return false }
+            return true
+        }
+
+        try writer.read { db in
+            // The legacy path would have created a placeholder audiobook for
+            // the document's own targetMediaID and inserted its cards.
+            let strayBook =
+                try Int.fetchOne(
+                    db, sql: "SELECT COUNT(*) FROM audiobook WHERE id = ?",
+                    arguments: ["some-other-book.m4b"]) ?? 0
+            #expect(strayBook == 0)
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM flashcard") == 0)
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM deck") == 0)
+        }
+    }
+
     // MARK: - vNext anchor resolution tests
 
     @Test

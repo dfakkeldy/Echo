@@ -75,7 +75,11 @@ nonisolated struct EPUBSourceAnchorResolver: Sendable {
             .sourceAnchorUnresolved(cardReference: cardReference, sourceAnchor: rawAnchor))
     }
 
-    private static func isValidPortableSuffix(_ suffix: String) -> Bool {
+    /// Whether `suffix` is a well-formed bare portable block anchor
+    /// (`s<sequence>-b<block>`), with no `epub-<audiobookID>-` prefix.
+    /// Internal (not `private`) so `PortableDeckPreflight` can reuse the same
+    /// pattern check rather than duplicating the regex.
+    static func isValidPortableSuffix(_ suffix: String) -> Bool {
         suffix.range(of: #"^s[0-9]+-b[0-9]+$"#, options: .regularExpression) != nil
     }
 

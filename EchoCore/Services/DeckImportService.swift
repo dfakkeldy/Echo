@@ -9,25 +9,113 @@ struct DeckImportService {
 
     /// Imports a deck from a JSON file URL, resolves EPUB source anchors, and
     /// inserts cards with their `sourceBlockID` populated where possible.
+    ///
+    /// Classifies the document first: legacy (v1) documents continue through
+    /// this overload's original warn-and-continue import; portable
+    /// (formatVersion 2) documents have no selected book to preflight
+    /// against here and fail closed with `selectedBookRequired` rather than
+    /// guessing a target audiobook. Use
+    /// `importDeckVNext(from:targetAudiobookID:db:)` for portable decks.
     /// - Parameters:
     ///   - url: The JSON file URL to import.
     ///   - db: A GRDB DatabaseWriter for FlashcardDAO.
     /// - Returns: An `ImportDeckResult` with counts and any anchor warnings.
     func importDeckVNext(from url: URL, db writer: DatabaseWriter) throws -> ImportDeckResult {
-        let data: Data
+        let data = try readFile(at: url)
+        switch try ValidatedDeckImport.decode(data) {
+        case .legacy(let deck):
+            return try importLegacyDeckVNext(deck, from: url, db: writer)
+        case .portable:
+            throw DeckImportError.selectedBookRequired
+        }
+    }
+
+    /// Imports a portable (formatVersion 2) study deck against an explicitly
+    /// selected local audiobook.
+    ///
+    /// Preflights every card's anchors and the deck's `sourceSignature`
+    /// against `targetAudiobookID`'s persisted canonical blocks before any
+    /// database write (`PortableDeckPreflight.prepare`), then revalidates
+    /// that same snapshot again immediately before mutating
+    /// (`verifySourceSnapshot`), closing the race between preflight and the
+    /// write transaction. Legacy documents have no portable contract to
+    /// preflight and fail closed with `portableDeckRequired` rather than
+    /// silently reinterpreting `targetAudiobookID` under legacy semantics.
+    /// Never persists `deck.targetMediaID` (the portable sentinel) as an
+    /// audiobook id — only the caller-supplied `targetAudiobookID`.
+    /// - Parameters:
+    ///   - url: The portable deck JSON file URL to import.
+    ///   - targetAudiobookID: The local audiobook id the caller selected to
+    ///     receive this deck.
+    ///   - db: A GRDB DatabaseWriter.
+    /// - Returns: An `ImportDeckResult` with counts.
+    func importDeckVNext(
+        from url: URL,
+        targetAudiobookID: String,
+        db writer: DatabaseWriter
+    ) throws -> ImportDeckResult {
+        let data = try readFile(at: url)
+        guard case .portable(let deck) = try ValidatedDeckImport.decode(data) else {
+            throw DeckImportError.portableDeckRequired
+        }
+
+        let plan = try PortableDeckPreflight.prepare(
+            deck: deck,
+            targetAudiobookID: targetAudiobookID,
+            deckURL: url,
+            dbReader: writer
+        )
+
+        // Revalidate the selected book's canonical blocks immediately before
+        // any write, closing the window between preflight (above) and this
+        // transaction where another import, re-alignment, or edit could have
+        // changed the book underneath this one. Atomic replacement of the
+        // deck/card/timeline rows is added on top of this same transaction
+        // boundary in a follow-up change; this change's scope stops at
+        // preflight plus the write-time revalidation guarantee.
+        try writer.write { database in
+            try verifySourceSnapshot(plan, in: database)
+        }
+
+        return ImportDeckResult(
+            importedCount: plan.cards.count,
+            anchoredCount: plan.cards.count,
+            warnings: []
+        )
+    }
+
+    /// Revalidates that the selected book's persisted canonical blocks still
+    /// match `plan.sourceSignature` immediately before mutating. Must run
+    /// before any delete/update/insert in the final write transaction.
+    private func verifySourceSnapshot(
+        _ plan: PortableDeckWritePlan,
+        in database: Database
+    ) throws {
+        let records = try EPubBlockRecord
+            .filter(Column("audiobook_id") == plan.targetAudiobookID)
+            .order(Column("sequence_index"))
+            .fetchAll(database)
+        guard EchoSourceSignature.make(records: records) == plan.sourceSignature else {
+            throw DeckImportError.sourceChangedDuringImport
+        }
+    }
+
+    private func readFile(at url: URL) throws -> Data {
         do {
-            data = try Data(contentsOf: url)
+            return try Data(contentsOf: url)
         } catch {
             throw DeckImportError.fileReadFailed(error)
         }
+    }
 
-        let deck: FlashcardDeckImport
-        do {
-            deck = try JSONDecoder().decode(FlashcardDeckImport.self, from: data)
-        } catch {
-            throw DeckImportError.invalidJSON(error)
-        }
-
+    /// The pre-existing legacy (v1) import implementation: resolves EPUB
+    /// source anchors with warn-and-continue semantics, and creates a
+    /// placeholder audiobook row for an unknown `targetMediaID`. Unchanged
+    /// in behavior from before portable-deck classification was added —
+    /// `deck` here is already-decoded, not re-parsed.
+    private func importLegacyDeckVNext(
+        _ deck: FlashcardDeckImport, from url: URL, db writer: DatabaseWriter
+    ) throws -> ImportDeckResult {
         guard !deck.cards.isEmpty else {
             throw DeckImportError.emptyDeck
         }

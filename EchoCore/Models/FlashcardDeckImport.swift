@@ -102,6 +102,31 @@ enum DeckImportError: LocalizedError {
     case invalidPortableImageAnchor(cardIndex: Int)
     case invalidPortableImageFile(cardIndex: Int)
 
+    // MARK: - Selected-book preflight (PortableDeckPreflight, DeckImportService)
+
+    /// A portable deck was passed to the plain `importDeckVNext(from:db:)`
+    /// overload, which has no selected book to preflight against.
+    case selectedBookRequired
+    /// A legacy deck was passed to the selected-target overload, which would
+    /// otherwise silently ignore the caller's `targetAudiobookID` and fall
+    /// back to legacy `targetMediaID` semantics.
+    case portableDeckRequired
+    case selectedAudiobookIDMissing
+    case selectedAudiobookNotFound(String)
+    case selectedAudiobookHasNoCanonicalBlocks(String)
+    /// The deck's `sourceSignature` does not match the selected book's
+    /// currently persisted canonical blocks (preflight time).
+    case sourceSignatureMismatch
+    /// The selected book's canonical blocks changed between preflight and
+    /// the write transaction.
+    case sourceChangedDuringImport
+    case selectedSourceAnchorMalformed(cardIndex: Int)
+    case selectedSourceAnchorUnresolved(cardIndex: Int)
+    case selectedSourceAnchorResolvesToImage(cardIndex: Int)
+    case selectedSourceAnchorResolvesToFrontMatter(cardIndex: Int)
+    case selectedImageAnchorUnresolved(cardIndex: Int)
+    case selectedImageAnchorResolvesToNonImage(cardIndex: Int)
+
     var errorDescription: String? {
         switch self {
         case .fileReadFailed(let error):
@@ -144,6 +169,32 @@ enum DeckImportError: LocalizedError {
             "Card \(index + 1): imageAnchor must match the pattern s<section>-b<block>."
         case .invalidPortableImageFile(let index):
             "Card \(index + 1): imageFile must be a safe relative path under deck-images/."
+        case .selectedBookRequired:
+            "This is a portable study deck. Select a local book and import it there."
+        case .portableDeckRequired:
+            "Selected-book import requires a portable study deck (formatVersion 2); this file is a legacy deck."
+        case .selectedAudiobookIDMissing:
+            "Select a local book before importing this study deck."
+        case .selectedAudiobookNotFound(let id):
+            "The selected book \"\(id)\" was not found on this device."
+        case .selectedAudiobookHasNoCanonicalBlocks(let id):
+            "The selected book \"\(id)\" has no imported book content to anchor cards to."
+        case .sourceSignatureMismatch:
+            "This study deck was built from a different edition or version of the selected book's text."
+        case .sourceChangedDuringImport:
+            "The selected book's text changed while this deck was importing. Try importing again."
+        case .selectedSourceAnchorMalformed(let index):
+            "Card \(index + 1): sourceAnchor is malformed."
+        case .selectedSourceAnchorUnresolved(let index):
+            "Card \(index + 1): sourceAnchor does not match any block in the selected book."
+        case .selectedSourceAnchorResolvesToImage(let index):
+            "Card \(index + 1): sourceAnchor resolves to an image block; it must resolve to a heading, paragraph, or sentence."
+        case .selectedSourceAnchorResolvesToFrontMatter(let index):
+            "Card \(index + 1): sourceAnchor resolves to front matter; it must resolve to book content."
+        case .selectedImageAnchorUnresolved(let index):
+            "Card \(index + 1): imageAnchor does not resolve to a stored image in the selected book."
+        case .selectedImageAnchorResolvesToNonImage(let index):
+            "Card \(index + 1): imageAnchor resolves to a non-image block."
         }
     }
 }
