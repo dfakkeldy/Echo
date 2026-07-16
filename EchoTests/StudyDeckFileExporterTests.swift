@@ -68,4 +68,50 @@ import Testing
         #expect(decoded.deckName == "Fixture")
         #expect(decoded.cards.count == 1)
     }
+
+    /// The portable-v2 fields are additive optionals, so `JSONEncoder` must omit
+    /// them entirely from exporter output. An emitted `"formatVersion": null`
+    /// (or any other v2 key) would change the on-disk legacy contract, and any
+    /// non-null v2 key would trip `ValidatedDeckImport`'s marker check.
+    @Test func exportedJSONOmitsPortableV2Keys() throws {
+        let deck = StudyDeckFileExporter.importDeck(
+            from: Self.fixtureDraft,
+            audiobookID: "file:///Books/Fixture/",
+            deckName: "Fixture"
+        )
+        let data = try JSONEncoder().encode(deck)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        #expect(Set(object.keys) == ["deckName", "targetMediaID", "cards"])
+    }
+
+    /// The executable form of "legacy JSON behavior does not change": the
+    /// exporter's own output must still classify as legacy, not portable.
+    @Test func exportedJSONClassifiesAsLegacy() throws {
+        let deck = StudyDeckFileExporter.importDeck(
+            from: Self.fixtureDraft,
+            audiobookID: "file:///Books/Fixture/",
+            deckName: "Fixture"
+        )
+        let data = try JSONEncoder().encode(deck)
+
+        guard case .legacy = try ValidatedDeckImport.decode(data) else {
+            Issue.record("Expected exporter output to classify as legacy")
+            return
+        }
+    }
+
+    private static let fixtureDraft = GeneratedStudyDeckDraft(
+        cards: [
+            GeneratedStudyDeckCardDraft(
+                id: "card-1",
+                sourceBlockID: "epub-file:///Books/Fixture/-s1-b2",
+                frontText: "Front",
+                backText: "Back"
+            )
+        ],
+        validSourceBlockIDs: ["epub-file:///Books/Fixture/-s1-b2"]
+    )
 }
