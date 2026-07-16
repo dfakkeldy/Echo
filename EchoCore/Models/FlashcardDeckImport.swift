@@ -138,6 +138,40 @@ enum DeckImportError: LocalizedError {
     /// internal contract between preflight/media-staging and persistence.
     case internalCardPreparationMismatch
 
+    // MARK: - Image staging and rollback (PortableDeckImageStager, DeckImportService)
+
+    /// A bundled image's resolved source path escapes the deck bundle's
+    /// directory after resolving symlinks — defense in depth beyond Task
+    /// 2's string-level relative-path validation, which cannot see through
+    /// a symlink planted inside the bundle.
+    case unsafeImagePath(String)
+    /// A bundled image's resolved source is not a nonempty regular file
+    /// (e.g. a directory, or zero bytes).
+    case invalidImageFile(String)
+    /// A bundled image's extension is not one of the supported image types
+    /// (png, jpg, jpeg, webp, heic).
+    case unsupportedImageType(String)
+    /// Staging a file into the transaction's temporary directory failed,
+    /// and cleaning up that temporary directory afterward also failed —
+    /// both errors are surfaced so the cleanup failure is never hidden
+    /// behind the original one.
+    case imageStagingCleanupFailed(primary: Error, cleanup: Error)
+    /// Publishing staged images into their final directory failed, and
+    /// restoring the previous directory from its backup during recovery
+    /// also failed.
+    case imagePublicationRecoveryFailed(primary: Error, recovery: Error)
+    /// The database transaction failed after images were already
+    /// published, and rolling the published images back to their prior
+    /// on-disk state also failed — surfaced explicitly rather than hidden
+    /// behind the original database error.
+    case imageRollbackFailed(primary: Error, recovery: Error)
+    /// Internal contract violation: a card's staged-image relative path was
+    /// not present in the stager's published path map. Should be
+    /// unreachable in production, since every `stagedFile` relative path
+    /// used to build a write plan is also passed to `stage(relativePaths:)`
+    /// before this lookup runs.
+    case stagedImageMissing(String)
+
     var errorDescription: String? {
         switch self {
         case .fileReadFailed(let error):
@@ -210,6 +244,20 @@ enum DeckImportError: LocalizedError {
             "A different deck already uses id \"\(id)\"."
         case .internalCardPreparationMismatch:
             "Internal error: card media preparation did not match the write plan."
+        case .unsafeImagePath(let path):
+            "The bundled image \"\(path)\" resolves outside the deck bundle's directory."
+        case .invalidImageFile(let path):
+            "The bundled image \"\(path)\" is missing, not a file, or empty."
+        case .unsupportedImageType(let path):
+            "The bundled image \"\(path)\" is not a supported image type."
+        case .imageStagingCleanupFailed(let primary, let cleanup):
+            "Failed to stage a bundled image (\(primary.localizedDescription)), and cleaning up afterward also failed (\(cleanup.localizedDescription))."
+        case .imagePublicationRecoveryFailed(let primary, let recovery):
+            "Failed to publish staged images (\(primary.localizedDescription)), and restoring the previous images also failed (\(recovery.localizedDescription))."
+        case .imageRollbackFailed(let primary, let recovery):
+            "Import failed (\(primary.localizedDescription)), and rolling back staged images also failed (\(recovery.localizedDescription))."
+        case .stagedImageMissing(let path):
+            "Internal error: staged image \"\(path)\" was not found after staging."
         }
     }
 }

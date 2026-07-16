@@ -54,7 +54,7 @@ struct DeckImportImageTests {
             """
         try writeDeckBundle(dir, json: json, images: [:])
         let service = DeckImportService()
-        _ = try service.importDeckVNext(
+        let result = try service.importDeckVNext(
             from: dir.appendingPathComponent("deck.echo-deck.json"), db: db.writer)
         let media = try db.writer.read { d in
             try String.fetchOne(d, sql: "SELECT media_json FROM flashcard LIMIT 1")
@@ -64,6 +64,11 @@ struct DeckImportImageTests {
         // would false-negative even though the JSON decodes correctly.
         #expect(
             StudyCardMedia.imagePath(fromMediaJSON: media) == "/tmp/EPUBAssets/book-1/fig-0.png")
+        // Task 5's `imageCount` tracking is scoped to the portable
+        // (selected-target) import path; the legacy warn-and-continue path
+        // is unchanged and always reports the default 0, even though this
+        // card really did resolve an image.
+        #expect(result.imageCount == 0)
     }
 
     @Test func imageFileCopiesIntoStorageAndSetsMediaJSON() throws {
@@ -80,7 +85,7 @@ struct DeckImportImageTests {
         try writeDeckBundle(
             dir, json: json, images: ["card-0.png": Data([0x89, 0x50, 0x4E, 0x47])])
         let service = DeckImportService()
-        _ = try service.importDeckVNext(
+        let result = try service.importDeckVNext(
             from: dir.appendingPathComponent("deck.echo-deck.json"), db: db.writer)
         let media = try db.writer.read { d in
             try String.fetchOne(d, sql: "SELECT media_json FROM flashcard LIMIT 1")
@@ -92,6 +97,11 @@ struct DeckImportImageTests {
                 at: URL(fileURLWithPath: path).deletingLastPathComponent())
         }
         #expect(FileManager.default.fileExists(atPath: path))
+        // Same legacy-path boundary as above: `imageCount` stays the
+        // default 0 for the v1 warn-and-continue import, which uses the
+        // older `DeckMedia` (not `DeckMediaV2`) copy path entirely — Task
+        // 5's stager/rollback machinery never runs here.
+        #expect(result.imageCount == 0)
     }
 
     @Test func bothImageFieldsSetThrows() throws {

@@ -7,12 +7,20 @@ import Foundation
 nonisolated struct ImportDeckResult: Equatable, Sendable {
     let importedCount: Int
     let anchoredCount: Int
+    /// The number of imported cards with an attached image, derived from
+    /// committed database rows (`media_json IS NOT NULL`) rather than the
+    /// write plan's card count — see `DeckImportService.importDeckVNext(
+    /// from:targetAudiobookID:db:)`. Defaults to 0 so APKG/legacy callers
+    /// that never populate images can omit it.
+    let imageCount: Int
     let warningCount: Int
     let warnings: [ImportDeckWarning]
 
-    init(importedCount: Int, anchoredCount: Int, warnings: [ImportDeckWarning]) {
+    init(importedCount: Int, anchoredCount: Int, imageCount: Int = 0, warnings: [ImportDeckWarning])
+    {
         self.importedCount = importedCount
         self.anchoredCount = anchoredCount
+        self.imageCount = imageCount
         self.warningCount = warnings.count
         self.warnings = warnings
     }
@@ -27,4 +35,11 @@ nonisolated enum ImportDeckWarning: Equatable, Sendable {
     case targetAudiobookHasNoEPUBBlocks(targetMediaID: String)
     case apkgSidecarMissingTargetMediaID
     case apkgSidecarDecodeFailed(reason: String)
+    /// `PortableDeckImageStager.commit` failed to remove a superseded
+    /// image directory's backup after a successful reimport replaced it.
+    /// The newly committed database rows and the newly published image
+    /// directory are both valid; only the now-unused backup failed to
+    /// clean up, and is left on disk for the next launch's orphan cleanup
+    /// pass (`DeckImportService.cleanupOrphanedImageStaging`).
+    case imageBackupCleanupFailed(deckID: String)
 }

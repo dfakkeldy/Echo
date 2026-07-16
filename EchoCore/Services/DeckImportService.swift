@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 import GRDB
+import os
 
 /// Parses, validates, and inserts flashcard decks from JSON import files.
 struct DeckImportService {
+
+    private static let logger = Logger(subsystem: "Echo", category: "DeckImportService")
 
     let validTriggerTimings = Set(FlashcardTriggerTiming.allCases.map(\.rawValue))
 
@@ -67,21 +70,88 @@ struct DeckImportService {
             dbReader: writer
         )
 
-        // Image staging (Task 5) is not implemented yet, so every card's
-        // media JSON is nil for now; `persistPortable` still requires one
-        // entry per card so a future mismatch between the two is caught
-        // rather than silently truncated/padded.
-        let mediaJSONByCardIndex = [String?](repeating: nil, count: plan.cards.count)
-        try persistPortable(
-            plan, mediaJSONByCardIndex: mediaJSONByCardIndex, in: writer, now: Date())
+        // Stage and publish every bundled `imageFile` this deck references
+        // before touching the database at all. A deck with no `imageFile`
+        // cards (only `imageAnchor`/no-image cards) skips the stager
+        // entirely — no staging/backup directories are ever created for it.
+        // Deduplicated: two cards may legitimately reference the same
+        // bundled image, and the stager's collision-safe (content-hashed)
+        // filenames mean a duplicate copy would just collide with itself.
+        let stager = PortableDeckImageStager()
+        let stagedRelativePaths = Set(
+            plan.cards.compactMap { card -> String? in
+                guard case .stagedFile(_, let relativePath) = card.media else { return nil }
+                return relativePath
+            })
 
-        // Read the counts back from the rows `persistPortable` actually
-        // committed, rather than reusing `plan.cards.count`: every card in a
-        // write plan is already proven to resolve to a concrete source block
-        // by preflight, so a genuinely inserted row is always anchored, but
-        // deriving both counts from the table keeps this correct even if a
-        // future change ever makes inserted rows diverge from the plan.
-        let (importedCount, anchoredCount) = try writer.read { database -> (Int, Int) in
+        var published: PortableDeckImageStager.PublishedSet?
+        if !stagedRelativePaths.isEmpty {
+            let staged = try stager.stage(
+                relativePaths: Array(stagedRelativePaths), beside: url, deckID: plan.deckID)
+            published = try stager.publish(staged)
+        }
+
+        // Every media path in the database must point at the atomically
+        // published final directory, so `imageFile` is never resolved
+        // inside the per-card insertion loop: every prepared card's media
+        // is converted to its persisted JSON string up front, from the
+        // publication that already succeeded above. Both this conversion
+        // and the write transaction are covered by the same rollback: an
+        // internal mismatch here (should be unreachable — every staged
+        // relative path above came from `plan.cards` in the first place)
+        // must roll back already-published images exactly like a database
+        // failure would, so a declared image is never left half-imported.
+        do {
+            let mediaJSONByCardIndex = try plan.cards.map { card in
+                try mediaJSON(for: card.media, staged: published?.staged)
+            }
+            try persistPortable(
+                plan, mediaJSONByCardIndex: mediaJSONByCardIndex, in: writer, now: Date())
+        } catch {
+            if let published {
+                do {
+                    try stager.rollback(published)
+                } catch let recoveryError {
+                    throw DeckImportError.imageRollbackFailed(
+                        primary: error, recovery: recoveryError)
+                }
+            }
+            throw error
+        }
+
+        // The database transaction committed: the new rows and the newly
+        // published image directory are both valid regardless of what
+        // happens next. Only cleaning up a now-superseded backup (from a
+        // reimport that replaced an existing image directory) can still
+        // fail here; that failure never invalidates the import, so it
+        // downgrades to exactly one warning and leaves the uniquely named
+        // backup directory for `cleanupOrphanedImageStaging` to sweep up
+        // on a future launch.
+        var warnings: [ImportDeckWarning] = []
+        if let published {
+            do {
+                try stager.commit(published)
+            } catch {
+                Self.logger.warning(
+                    "Failed to clean up superseded image backup for deck \(plan.deckID, privacy: .private): \(String(describing: error), privacy: .private)"
+                )
+                warnings.append(.imageBackupCleanupFailed(deckID: plan.deckID))
+            }
+        }
+
+        // Read every count back from the rows `persistPortable` actually
+        // committed, rather than reusing `plan.cards.count`: every card in
+        // a write plan is already proven to resolve to a concrete source
+        // block by preflight, so a genuinely inserted row is always
+        // anchored, but deriving all three counts from the table keeps
+        // this correct even if a future change ever makes inserted rows
+        // diverge from the plan. `imageCount` follows the identical
+        // discipline: it's the number of committed rows whose media_json
+        // is non-null, so it reflects exactly what's persisted in the
+        // database rather than how many cards this import merely attempted
+        // to attach an image to.
+        let (importedCount, anchoredCount, imageCount) = try writer.read {
+            database -> (Int, Int, Int) in
             let imported =
                 try Int.fetchOne(
                     database,
@@ -97,14 +167,138 @@ struct DeckImportService {
                         """,
                     arguments: [plan.deckID]
                 ) ?? 0
-            return (imported, anchored)
+            let images =
+                try Int.fetchOne(
+                    database,
+                    sql: """
+                        SELECT COUNT(*) FROM flashcard
+                        WHERE deck_id = ? AND media_json IS NOT NULL
+                        """,
+                    arguments: [plan.deckID]
+                ) ?? 0
+            return (imported, anchored, images)
         }
 
         return ImportDeckResult(
             importedCount: importedCount,
             anchoredCount: anchoredCount,
-            warnings: []
+            imageCount: imageCount,
+            warnings: warnings
         )
+    }
+
+    /// Converts a card's resolved image input into its persisted
+    /// `media_json` string. `imageAnchor` (`.sourceImage`) needs no
+    /// filesystem work — it's already an in-book figure's stored path.
+    /// `imageFile` (`.stagedFile`) must have already been staged and
+    /// published by `stager` before this runs; `staged` is that
+    /// publication's `StagedSet`, keyed by the same relative paths used to
+    /// build it.
+    private func mediaJSON(
+        for media: PreparedCardMedia?,
+        staged: PortableDeckImageStager.StagedSet?
+    ) throws -> String? {
+        let imagePath: String
+        switch media {
+        case .none:
+            return nil
+        case .sourceImage(let path):
+            imagePath = path
+        case .stagedFile(_, let relativePath):
+            guard let staged,
+                let resolved = staged.mediaPathByRelativePath[relativePath]
+            else {
+                throw DeckImportError.stagedImageMissing(relativePath)
+            }
+            imagePath = resolved
+        }
+        let data = try JSONEncoder().encode(StudyCardMedia(imagePath: imagePath))
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Launch-safe, best-effort sweep of `DeckMediaV2` staging/backup
+    /// directories abandoned by an interrupted or partially-completed
+    /// image import:
+    /// - `.staging-<safeDeckID>-<transactionID>` directories older than 24
+    ///   hours (an in-progress `stage()` call that never reached `publish`
+    ///   or `discard`, e.g. because the app was terminated mid-import).
+    /// - `.backup-<safeDeckID>-<transactionID>` directories whose
+    ///   corresponding final `<safeDeckID>` directory exists (a `commit()`
+    ///   cleanup that failed after a successful reimport — see
+    ///   `ImportDeckWarning.imageBackupCleanupFailed`).
+    ///
+    /// A backup directory is **never** removed when its final directory is
+    /// absent: that backup is the only surviving copy of that deck's
+    /// images (e.g. `commit()` never ran because the app quit between
+    /// `publish()` and `commit()`), so deleting it would be a genuine data
+    /// loss rather than cleanup. One directory's deletion failure is
+    /// logged and does not stop the sweep of the rest, so a single stuck
+    /// directory never blocks unrelated imports.
+    func cleanupOrphanedImageStaging(now: Date = Date()) {
+        let manager = FileManager.default
+        let mediaRoot = URL.applicationSupportDirectory
+            .appending(path: "DeckMediaV2", directoryHint: .isDirectory)
+        // Dot-prefixed staging/backup directories are exactly what this
+        // sweep targets, so hidden files must stay included in the listing.
+        guard
+            let entries = try? manager.contentsOfDirectory(
+                at: mediaRoot,
+                includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+                options: []
+            )
+        else { return }
+
+        let stagingMaxAge: TimeInterval = 24 * 60 * 60
+        for entry in entries {
+            let name = entry.lastPathComponent
+            if name.hasPrefix(".staging-") {
+                let modified =
+                    (try? entry.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                guard now.timeIntervalSince(modified) > stagingMaxAge else { continue }
+                removeOrphan(entry, using: manager)
+            } else if name.hasPrefix(".backup-") {
+                guard
+                    let safeDeckID = Self.safeDeckID(
+                        fromOrphanDirectoryName: name, prefix: ".backup-")
+                else { continue }
+                let finalDirectory = mediaRoot.appending(
+                    path: safeDeckID, directoryHint: .isDirectory)
+                guard manager.fileExists(atPath: finalDirectory.path) else { continue }
+                removeOrphan(entry, using: manager)
+            }
+        }
+    }
+
+    private func removeOrphan(_ url: URL, using manager: FileManager) {
+        do {
+            try manager.removeItem(at: url)
+        } catch {
+            Self.logger.warning(
+                "Failed to remove orphaned deck media directory \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .private)"
+            )
+        }
+    }
+
+    /// Extracts the fixed-length (64 lowercase hex character SHA-256)
+    /// `safeDeckID` component from a `.staging-<safeDeckID>-<uuid>` or
+    /// `.backup-<safeDeckID>-<uuid>` directory name. `safeDeckID` is
+    /// always exactly 64 hex characters (see `PortableDeckImageStager`),
+    /// so it can be sliced out positionally rather than split on `-`,
+    /// which would otherwise be ambiguous with the hyphens inside the
+    /// trailing UUID transaction id.
+    private static func safeDeckID(fromOrphanDirectoryName name: String, prefix: String)
+        -> String?
+    {
+        guard name.hasPrefix(prefix) else { return nil }
+        let remainder = name.dropFirst(prefix.count)
+        guard remainder.count > 64 else { return nil }
+        let candidate = remainder.prefix(64)
+        let separatorIndex = remainder.index(remainder.startIndex, offsetBy: 64)
+        guard remainder[separatorIndex] == "-",
+            candidate.allSatisfy(\.isHexDigit)
+        else { return nil }
+        return String(candidate)
     }
 
     /// Replaces the persisted state of a portable deck in one write
