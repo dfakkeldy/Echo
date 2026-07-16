@@ -5,13 +5,15 @@ import Testing
 
 @testable import Echo
 
-/// Every scenario here is a zero-mutation test: `PortableDeckPreflight` and
-/// the selected-target `importDeckVNext` overload only read the database
-/// (preflight + write-time revalidation), so `audiobook`, `deck`,
-/// `flashcard`, and `timeline_item` row counts must be identical before and
-/// after every call — both the failure paths and the one success path below,
-/// since this change's scope stops short of actually persisting a portable
-/// deck's cards (a follow-up change owns atomic replacement).
+/// Every *failure*-path scenario here is a zero-mutation test:
+/// `PortableDeckPreflight` and the write-time revalidation only read the
+/// database before any row is written, so `audiobook`, `deck`, `flashcard`,
+/// and `timeline_item` row counts must be identical before and after every
+/// failing call. `importDeckVNextNeverPersistsSentinelAsAudiobookID` below is
+/// the one success path, and is the exception: since atomic replacement
+/// landed, a successful selected-target import really does persist the
+/// deck's cards, so that test asserts the specific rows written instead of
+/// an unchanged snapshot.
 @MainActor
 @Suite struct PortableDeckPreflightTests {
 
@@ -516,13 +518,21 @@ import Testing
             targetAudiobookID: "local-book",
             db: writer
         )
-        #expect(try databaseCounts(writer) == before)
+        let after = try databaseCounts(writer)
 
-        // Preflight inserts nothing, so the reported counts must be zero. These
-        // fail once persistence lands, forcing the counts to be derived from
-        // rows actually written rather than from the plan's card count.
-        #expect(result.importedCount == 0)
-        #expect(result.anchoredCount == 0)
+        // The import persists the deck and its one card/timeline row against
+        // the caller-supplied `targetAudiobookID`; the audiobook table (which
+        // this import never writes to) is the only one left untouched.
+        #expect(after.audiobooks == before.audiobooks)
+        #expect(after.decks == before.decks + 1)
+        #expect(after.flashcards == before.flashcards + 1)
+        #expect(after.timelineItems == before.timelineItems + 1)
+
+        // The counts are derived from rows actually written, not copied from
+        // the plan's card count: this deck has exactly one card, and it
+        // resolves to a real source block, so both counts are 1.
+        #expect(result.importedCount == 1)
+        #expect(result.anchoredCount == 1)
 
         try writer.read { db in
             let sentinelCount =

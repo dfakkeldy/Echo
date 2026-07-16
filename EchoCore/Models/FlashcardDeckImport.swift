@@ -127,6 +127,17 @@ enum DeckImportError: LocalizedError {
     case selectedImageAnchorUnresolved(cardIndex: Int)
     case selectedImageAnchorResolvesToNonImage(cardIndex: Int)
 
+    // MARK: - Atomic replacement (DeckImportService.persistPortable)
+
+    /// `plan.deckID` already names a deck this service didn't create
+    /// (`deck.source != "json_import_v2"`) — a manual or legacy deck must
+    /// never be silently overwritten by a same-id portable import.
+    case deckIDCollision(String)
+    /// `mediaJSONByCardIndex` did not have exactly one entry per
+    /// `plan.cards`. Should be unreachable in production; guards the
+    /// internal contract between preflight/media-staging and persistence.
+    case internalCardPreparationMismatch
+
     var errorDescription: String? {
         switch self {
         case .fileReadFailed(let error):
@@ -195,6 +206,10 @@ enum DeckImportError: LocalizedError {
             "Card \(index + 1): imageAnchor does not resolve to a stored image in the selected book."
         case .selectedImageAnchorResolvesToNonImage(let index):
             "Card \(index + 1): imageAnchor resolves to a non-image block."
+        case .deckIDCollision(let id):
+            "A different deck already uses id \"\(id)\"."
+        case .internalCardPreparationMismatch:
+            "Internal error: card media preparation did not match the write plan."
         }
     }
 }

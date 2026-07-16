@@ -35,8 +35,9 @@ struct DeckImportService {
     ///
     /// Preflights every card's anchors and the deck's `sourceSignature`
     /// against `targetAudiobookID`'s persisted canonical blocks before any
-    /// database write (`PortableDeckPreflight.prepare`), then revalidates
-    /// that same snapshot again immediately before mutating
+    /// database write (`PortableDeckPreflight.prepare`), then persists the
+    /// resulting write plan atomically (`persistPortable`), which itself
+    /// revalidates that same snapshot again immediately before mutating
     /// (`verifySourceSnapshot`), closing the race between preflight and the
     /// write transaction. Legacy documents have no portable contract to
     /// preflight and fail closed with `portableDeckRequired` rather than
@@ -66,25 +67,126 @@ struct DeckImportService {
             dbReader: writer
         )
 
-        // Revalidate the selected book's canonical blocks immediately before
-        // any write, closing the window between preflight (above) and this
-        // transaction where another import, re-alignment, or edit could have
-        // changed the book underneath this one. Atomic replacement of the
-        // deck/card/timeline rows is added on top of this same transaction
-        // boundary in a follow-up change; this change's scope stops at
-        // preflight plus the write-time revalidation guarantee.
-        try writer.write { database in
-            try verifySourceSnapshot(plan, in: database)
+        // Image staging (Task 5) is not implemented yet, so every card's
+        // media JSON is nil for now; `persistPortable` still requires one
+        // entry per card so a future mismatch between the two is caught
+        // rather than silently truncated/padded.
+        let mediaJSONByCardIndex = [String?](repeating: nil, count: plan.cards.count)
+        try persistPortable(
+            plan, mediaJSONByCardIndex: mediaJSONByCardIndex, in: writer, now: Date())
+
+        // Read the counts back from the rows `persistPortable` actually
+        // committed, rather than reusing `plan.cards.count`: every card in a
+        // write plan is already proven to resolve to a concrete source block
+        // by preflight, so a genuinely inserted row is always anchored, but
+        // deriving both counts from the table keeps this correct even if a
+        // future change ever makes inserted rows diverge from the plan.
+        let (importedCount, anchoredCount) = try writer.read { database -> (Int, Int) in
+            let imported =
+                try Int.fetchOne(
+                    database,
+                    sql: "SELECT COUNT(*) FROM flashcard WHERE deck_id = ?",
+                    arguments: [plan.deckID]
+                ) ?? 0
+            let anchored =
+                try Int.fetchOne(
+                    database,
+                    sql: """
+                        SELECT COUNT(*) FROM flashcard
+                        WHERE deck_id = ? AND source_block_id IS NOT NULL
+                        """,
+                    arguments: [plan.deckID]
+                ) ?? 0
+            return (imported, anchored)
         }
 
-        // Preflight only: no rows are written yet, so no cards are imported or
-        // anchored. Persisting the write plan must set these to the rows it
-        // actually inserted rather than to `plan.cards.count`.
         return ImportDeckResult(
-            importedCount: 0,
-            anchoredCount: 0,
+            importedCount: importedCount,
+            anchoredCount: anchoredCount,
             warnings: []
         )
+    }
+
+    /// Replaces the persisted state of a portable deck in one write
+    /// transaction: revalidates the source snapshot, upserts the `deck` row
+    /// keyed by its stable `deckID` (never `deck.name`), deletes that deck's
+    /// prior cards and their timeline rows, and inserts the replacement set.
+    /// A collision with a same-id deck this service didn't create, a stale
+    /// source snapshot, or any mid-transaction failure throws and rolls the
+    /// whole transaction back, leaving the prior deck/cards/timeline
+    /// byte-identical — GRDB commits only if this closure returns normally.
+    private func persistPortable(
+        _ plan: PortableDeckWritePlan,
+        mediaJSONByCardIndex: [String?],
+        in writer: DatabaseWriter,
+        now: Date
+    ) throws {
+        guard mediaJSONByCardIndex.count == plan.cards.count else {
+            throw DeckImportError.internalCardPreparationMismatch
+        }
+        try writer.write { database in
+            try verifySourceSnapshot(plan, in: database)
+            let existingSource = try String.fetchOne(
+                database,
+                sql: "SELECT source FROM deck WHERE id = ?",
+                arguments: [plan.deckID]
+            )
+            if let existingSource, existingSource != "json_import_v2" {
+                throw DeckImportError.deckIDCollision(plan.deckID)
+            }
+            let timestamp = now.ISO8601Format()
+            try database.execute(
+                sql: """
+                    INSERT INTO deck (id, name, source, created_at, modified_at)
+                    VALUES (?, ?, 'json_import_v2', ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        source = excluded.source,
+                        modified_at = excluded.modified_at
+                    """,
+                arguments: [plan.deckID, plan.deckName, timestamp, timestamp]
+            )
+            try database.execute(
+                sql: """
+                    DELETE FROM timeline_item
+                    WHERE source_table = 'flashcard'
+                      AND source_rowid IN (
+                        SELECT id FROM flashcard WHERE deck_id = ?
+                      )
+                    """,
+                arguments: [plan.deckID]
+            )
+            try database.execute(
+                sql: "DELETE FROM flashcard WHERE deck_id = ?",
+                arguments: [plan.deckID]
+            )
+            for (index, prepared) in plan.cards.enumerated() {
+                let card = Flashcard(
+                    id: UUID().uuidString,
+                    audiobookID: plan.targetAudiobookID,
+                    frontText: prepared.imported.frontText,
+                    backText: prepared.imported.backText,
+                    mediaTimestamp: 0,
+                    endTimestamp: nil,
+                    triggerTiming: .manualOnly,
+                    nextReviewDate: timestamp,
+                    intervalDays: 0,
+                    easeFactor: 2.5,
+                    repetitions: 0,
+                    lastReviewedAt: nil,
+                    lastGrade: nil,
+                    isEnabled: true,
+                    deckID: plan.deckID,
+                    tags: nil,
+                    mediaJSON: mediaJSONByCardIndex[index],
+                    sourceBlockID: prepared.sourceBlockID,
+                    playlistPosition: nil,
+                    createdAt: timestamp,
+                    modifiedAt: timestamp
+                )
+                try FlashcardDAO.insert(card, in: database)
+            }
+        }
     }
 
     /// Revalidates that the selected book's persisted canonical blocks still
