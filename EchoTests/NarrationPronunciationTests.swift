@@ -105,6 +105,18 @@ import Testing
         #expect(try !KokoroPhonemeVocab().validatedIDs(forPhonemes: result.phonemes).isEmpty)
     }
 
+    @Test func validatorsUsesApprovedPluralPronunciation() throws {
+        let text = PronunciationOverrides.withBuiltInDefaults([:]).apply(
+            to: "Validators provide evidence.")
+
+        #expect(text.contains("[Validators](/vˈælɪdˌAɾəɹz/)"))
+
+        let result = KokoroG2P().result(for: text)
+        #expect(result.fallbackHits.isEmpty)
+        #expect(result.phonemes.contains("vˈælɪdˌATəɹz"))
+        #expect(try !KokoroPhonemeVocab().validatedIDs(forPhonemes: result.phonemes).isEmpty)
+    }
+
     @Test func reportedPastTensePronunciationUsesKnownStemInsteadOfFallback() {
         let prepared = PronunciationOverrides.withBuiltInDefaults([:]).apply(to: "verified")
         let result = KokoroG2P().result(for: "verified")
