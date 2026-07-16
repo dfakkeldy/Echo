@@ -88,7 +88,20 @@ struct DeckImportService {
         if !stagedRelativePaths.isEmpty {
             let staged = try stager.stage(
                 relativePaths: Array(stagedRelativePaths), beside: url, deckID: plan.deckID)
-            published = try stager.publish(staged)
+            do {
+                published = try stager.publish(staged)
+            } catch {
+                // `stage()` already cleaned up after itself if it failed, but
+                // a `publish` failure (either move can throw) leaves
+                // `staged.stagingRoot` behind on disk — `publish` never
+                // touches it on its own failure path. `discard` only removes
+                // this transaction's staging/backup directories, so it can't
+                // disturb `finalRoot` or a prior import's images. `try?`
+                // keeps a cleanup failure from masking the real publish
+                // error, which is what the caller needs.
+                try? stager.discard(staged)
+                throw error
+            }
         }
 
         // Every media path in the database must point at the atomically

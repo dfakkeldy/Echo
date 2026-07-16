@@ -719,6 +719,68 @@ import Testing
     }
 
     @Test
+    func importPublishFailureDiscardsStagingDirectory() throws {
+        let writer = try DatabaseService(inMemory: ()).writer
+        let block = makeBlock(suffix: "s0-b0", audiobookID: "local-book", sequenceIndex: 0)
+        try seedSelectedAudiobook(writer, id: "local-book", blocks: [block])
+        let signature = EchoSourceSignature.make(records: [block])
+        let deckID = "com.echo.image.publishfail.\(UUID().uuidString)"
+        defer { cleanupDeckMedia(deckID: deckID) }
+
+        // First import publishes `v1.png`, giving this deck a real
+        // `finalRoot` directory so the second import's `publish()` takes the
+        // `hadPrevious` branch (`moveItem(finalRoot -> backupRoot)`).
+        let firstDeck = makePortableDeckDocument(
+            deckID: deckID, deckName: "Publish Fail Deck", sourceSignature: signature,
+            cards: [makePortableCard(sourceAnchor: "s0-b0", imageFile: "deck-images/v1.png")]
+        )
+        let firstDir = try makeBundleDir()
+        defer { try? FileManager.default.removeItem(at: firstDir) }
+        let firstURL = try writeDeckBundle(firstDir, deck: firstDeck, images: ["v1.png": pngBytes])
+        _ = try DeckImportService().importDeckVNext(
+            from: firstURL, targetAudiobookID: "local-book", db: writer)
+
+        // Make the published `finalRoot` directory itself immutable: `mv`
+        // (what `moveItem` performs on the same volume) refuses to rename or
+        // delete an immutable item, so the second import's `publish()` call
+        // fails at `moveItem(finalRoot -> backupRoot)` — after `stage()` has
+        // already created and populated the second staging directory.
+        var protectedFinalRoot = mediaRoot().appending(path: safeDeckID(deckID))
+        var values = URLResourceValues()
+        values.isUserImmutable = true
+        try protectedFinalRoot.setResourceValues(values)
+        defer {
+            var clearValues = URLResourceValues()
+            clearValues.isUserImmutable = false
+            try? protectedFinalRoot.setResourceValues(clearValues)
+        }
+
+        let secondDeck = makePortableDeckDocument(
+            deckID: deckID, deckName: "Publish Fail Deck v2", sourceSignature: signature,
+            cards: [makePortableCard(sourceAnchor: "s0-b0", imageFile: "deck-images/v2.png")]
+        )
+        let secondDir = try makeBundleDir()
+        defer { try? FileManager.default.removeItem(at: secondDir) }
+        let secondURL = try writeDeckBundle(
+            secondDir, deck: secondDeck, images: ["v2.png": pngBytes])
+
+        #expect(throws: (any Error).self) {
+            try DeckImportService().importDeckVNext(
+                from: secondURL, targetAudiobookID: "local-book", db: writer)
+        }
+
+        // The regression: without discarding on a `publish` failure, the
+        // second `stage()` call's staging directory would still be sitting
+        // on disk here, full of copied image bytes nobody will ever clean
+        // up (`cleanupOrphanedImageStaging` only sweeps directories older
+        // than 24 hours).
+        try assertNoStagingDirectoriesRemain(deckID: deckID)
+        // The untouched first publication is exactly as it was: `publish`
+        // failed before moving anything, so `finalRoot` still holds v1.
+        #expect(FileManager.default.fileExists(atPath: protectedFinalRoot.path))
+    }
+
+    @Test
     func reimportWithNewImageRemovesStaleBackupOnSuccess() throws {
         let writer = try DatabaseService(inMemory: ()).writer
         let block = makeBlock(suffix: "s0-b0", audiobookID: "local-book", sequenceIndex: 0)
