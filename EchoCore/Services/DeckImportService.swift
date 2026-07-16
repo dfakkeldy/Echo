@@ -77,9 +77,12 @@ struct DeckImportService {
             try verifySourceSnapshot(plan, in: database)
         }
 
+        // Preflight only: no rows are written yet, so no cards are imported or
+        // anchored. Persisting the write plan must set these to the rows it
+        // actually inserted rather than to `plan.cards.count`.
         return ImportDeckResult(
-            importedCount: plan.cards.count,
-            anchoredCount: plan.cards.count,
+            importedCount: 0,
+            anchoredCount: 0,
             warnings: []
         )
     }

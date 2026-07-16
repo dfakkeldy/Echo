@@ -511,12 +511,18 @@ import Testing
         defer { try? FileManager.default.removeItem(at: deckURL) }
 
         let before = try databaseCounts(writer)
-        _ = try DeckImportService().importDeckVNext(
+        let result = try DeckImportService().importDeckVNext(
             from: deckURL,
             targetAudiobookID: "local-book",
             db: writer
         )
         #expect(try databaseCounts(writer) == before)
+
+        // Preflight inserts nothing, so the reported counts must be zero. These
+        // fail once persistence lands, forcing the counts to be derived from
+        // rows actually written rather than from the plan's card count.
+        #expect(result.importedCount == 0)
+        #expect(result.anchoredCount == 0)
 
         try writer.read { db in
             let sentinelCount =
