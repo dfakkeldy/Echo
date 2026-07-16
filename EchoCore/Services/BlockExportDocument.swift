@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
-/// Portable JSON document describing an EPUB's visible source blocks using the
-/// same content-stable `s<i>-b<j>` block ids as alignment sidecars
+/// Portable JSON document describing an EPUB's complete source blocks — visible
+/// and hidden, body and front-matter — using the same content-stable
+/// `s<i>-b<j>` block ids as alignment sidecars
 /// (`AlignmentSidecar.portableSuffix(of:)`), so external tooling can join
-/// exported blocks against sidecar anchors. Consumed by `echo-cli export-blocks`.
+/// exported blocks against sidecar anchors. Also carries an
+/// `EchoSourceSignature` computed from the same record set, so a deck built
+/// from this export can be matched back to the same book re-imported on
+/// another device. Consumed by `echo-cli export-blocks`.
 nonisolated struct BlockExportDocument: Encodable {
     /// Bump when the JSON contract changes shape.
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     struct Source: Encodable {
         let epub: String
@@ -20,6 +24,7 @@ nonisolated struct BlockExportDocument: Encodable {
         let chapterIndex: Int?
         let sequenceIndex: Int
         let wordCount: Int?
+        let isFrontMatter: Bool
         /// Only meaningful for image blocks; encoded only when `kind == "image"`.
         let imagePath: String?
 
@@ -30,12 +35,13 @@ nonisolated struct BlockExportDocument: Encodable {
             self.chapterIndex = record.chapterIndex
             self.sequenceIndex = record.sequenceIndex
             self.wordCount = record.wordCount
+            self.isFrontMatter = record.isFrontMatter
             self.imagePath =
                 record.blockKind == EPubBlockRecord.Kind.image.rawValue ? record.imagePath : nil
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, kind, text, chapterIndex, sequenceIndex, wordCount, imagePath
+            case id, kind, text, chapterIndex, sequenceIndex, wordCount, isFrontMatter, imagePath
         }
 
         func encode(to encoder: any Encoder) throws {
@@ -48,6 +54,7 @@ nonisolated struct BlockExportDocument: Encodable {
             try container.encode(chapterIndex, forKey: .chapterIndex)
             try container.encode(sequenceIndex, forKey: .sequenceIndex)
             try container.encode(wordCount, forKey: .wordCount)
+            try container.encode(isFrontMatter, forKey: .isFrontMatter)
             if kind == EPubBlockRecord.Kind.image.rawValue {
                 try container.encode(imagePath, forKey: .imagePath)
             }
@@ -56,11 +63,13 @@ nonisolated struct BlockExportDocument: Encodable {
 
     let version: Int
     let source: Source
+    let sourceSignature: EchoSourceSignature
     let blocks: [Block]
 
     init(epubName: String, records: [EPubBlockRecord]) {
         self.version = Self.currentVersion
         self.source = Source(epub: epubName)
+        self.sourceSignature = EchoSourceSignature.make(records: records)
         self.blocks =
             records
             .sorted { $0.sequenceIndex < $1.sequenceIndex }

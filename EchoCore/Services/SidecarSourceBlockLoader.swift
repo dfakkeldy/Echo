@@ -58,16 +58,24 @@ enum SidecarSourceBlockLoader {
             )
         }
 
+        // All three branches persist to `database` during import and then read
+        // back via `EPubBlockDAO.allBlocks(for:)`, rather than returning an
+        // importer's in-memory array or filtering on the mutable `isHidden`
+        // flag. This keeps the DB row as the single source of truth for what
+        // "this book's blocks" means, and keeps sidecar building / export-blocks
+        // seeing the complete block set (hidden + front-matter included), which
+        // `EchoSourceSignature` needs to be a stable, content-only hash.
         let blocks: [EPubBlockRecord]
         switch source {
         case .expandedEPUB(let epubURL):
             let importer = EPUBImportService(assetStorage: EPUBAssetStorage(databaseService: database))
-            blocks = try await importer.import(
+            _ = try await importer.import(
                 audiobookID: resolvedAudiobookID,
                 epubURL: epubURL,
                 chapters: [],
                 bookDuration: nil
             )
+            blocks = try EPubBlockDAO(db: database.writer).allBlocks(for: resolvedAudiobookID)
         case .epubFile(let epubURL):
             let didImport = await EPUBAutoImportScanner.importEPUBFile(
                 epubURL: epubURL,
@@ -80,7 +88,7 @@ enum SidecarSourceBlockLoader {
             guard didImport else {
                 throw SourceError.noBlocksImported(epubURL.lastPathComponent)
             }
-            blocks = try EPubBlockDAO(db: database.writer).visibleBlocks(for: resolvedAudiobookID)
+            blocks = try EPubBlockDAO(db: database.writer).allBlocks(for: resolvedAudiobookID)
         case .pdf(let pdfURL):
             let didImport = await PDFAutoImportScanner.importPDFFile(
                 pdfURL: pdfURL,
@@ -93,7 +101,7 @@ enum SidecarSourceBlockLoader {
             guard didImport else {
                 throw SourceError.noBlocksImported(pdfURL.lastPathComponent)
             }
-            blocks = try EPubBlockDAO(db: database.writer).visibleBlocks(for: resolvedAudiobookID)
+            blocks = try EPubBlockDAO(db: database.writer).allBlocks(for: resolvedAudiobookID)
         }
 
         guard !blocks.isEmpty else {
