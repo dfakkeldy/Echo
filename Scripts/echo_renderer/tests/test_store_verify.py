@@ -7,12 +7,14 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from echo_renderer.identity import (
     FileIdentity,
     ModelPolicy,
     RendererManifest,
     canonical_json_bytes,
+    identify_regular_file,
     identify_resource_tree,
     manifest_payload,
 )
@@ -195,6 +197,25 @@ class BuildIdentityTests(RendererPackageFixture):
         with self.assertRaises(ValueError):
             self.verify_identity()
 
+    def test_manifest_hash_and_parse_use_the_same_byte_snapshot(self):
+        replacement_payload = manifest_payload(self.manifest)
+        replacement_payload["installerSourceSHA"] = "78" * 20
+        replacement_data = canonical_json_bytes(replacement_payload)
+
+        def replace_manifest_after_identity(path: Path) -> FileIdentity:
+            identity = identify_regular_file(path)
+            if path == self.manifest_path:
+                self.manifest_path.write_bytes(replacement_data)
+            return identity
+
+        with patch(
+            "echo_renderer.store.identify_regular_file",
+            side_effect=replace_manifest_after_identity,
+        ):
+            verified = self.verify_identity()
+
+        self.assertEqual(verified.manifest, self.manifest)
+
     def test_rejects_duplicate_and_unknown_manifest_fields(self):
         original = self.manifest_path.read_bytes()
         duplicate = original[:-2] + b',"schemaVersion":1}\n'
@@ -229,6 +250,13 @@ class BuildIdentityTests(RendererPackageFixture):
         self.setUp()
         resources = self.build_root / "EchoNarrationResources"
         (resources / "voice-link").symlink_to(resources / "phonemes.txt")
+        with self.assertRaises(ValueError):
+            self.verify_identity()
+
+        self.setUp()
+        manifest_target = self.source_root / "real-renderer-manifest.json"
+        self.manifest_path.rename(manifest_target)
+        self.manifest_path.symlink_to(manifest_target)
         with self.assertRaises(ValueError):
             self.verify_identity()
 

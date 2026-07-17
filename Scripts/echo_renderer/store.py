@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import re
@@ -96,13 +97,9 @@ def verify_build_identity(
     executable = build_root / _EXECUTABLE_NAME
     resources = build_root / _RESOURCES_NAME
     manifest_path = build_root / _MANIFEST_NAME
-    manifest_file_identity = identify_regular_file(manifest_path)
-    if manifest_file_identity.sha256 != expected_manifest_sha:
+    manifest_data = _read_regular_file_once(manifest_path, "renderer manifest")
+    if hashlib.sha256(manifest_data).hexdigest() != expected_manifest_sha:
         raise ValueError("renderer manifest bytes do not match the expected SHA")
-    try:
-        manifest_data = manifest_path.read_bytes()
-    except OSError as error:
-        raise ValueError(f"cannot read renderer manifest: {manifest_path}") from error
     manifest = parse_manifest(manifest_data)
     if manifest_data != canonical_json_bytes(manifest_payload(manifest)):
         raise ValueError("renderer manifest is not canonically encoded")
@@ -253,6 +250,36 @@ def _require_canonical_directory(path: Path, field: str) -> Path:
     if path != resolved:
         raise ValueError(f"{field} must be a canonical path without symlink components")
     return path
+
+
+def _read_regular_file_once(path: Path, field: str) -> bytes:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        file_descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError(f"cannot open {field}: {path}") from error
+    try:
+        descriptor_metadata = os.fstat(file_descriptor)
+        path_metadata = os.stat(path, follow_symlinks=False)
+        if not stat.S_ISREG(descriptor_metadata.st_mode) or not stat.S_ISREG(
+            path_metadata.st_mode
+        ):
+            raise ValueError(f"{field} must be a regular non-link file")
+        if (
+            descriptor_metadata.st_dev != path_metadata.st_dev
+            or descriptor_metadata.st_ino != path_metadata.st_ino
+        ):
+            raise ValueError(f"{field} changed while opening: {path}")
+        with os.fdopen(file_descriptor, "rb") as handle:
+            file_descriptor = -1
+            return handle.read()
+    except OSError as error:
+        raise ValueError(f"cannot read {field}: {path}") from error
+    finally:
+        if file_descriptor >= 0:
+            os.close(file_descriptor)
 
 
 def _run_probe(
