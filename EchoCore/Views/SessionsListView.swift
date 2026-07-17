@@ -6,7 +6,10 @@ import SwiftUI
 /// Tapping a row scopes the reader feed to that session.
 struct SessionsListView: View {
     let audiobookID: String
-    @Environment(DatabaseService.self) private var dbService
+    // Constructor-injected: the iOS root never puts DatabaseService in the
+    // SwiftUI environment (it lives on PlayerModel.databaseService and can be
+    // nil/replaced after a failed launch), so an `@Environment` read traps.
+    let dbService: DatabaseService
 
     @State private var sessions: [SessionSummary] = []
     @State private var isLoading = true
@@ -31,7 +34,10 @@ struct SessionsListView: View {
             } else {
                 List(sessions) { session in
                     NavigationLink {
-                        SessionDetailFeedView(audiobookID: audiobookID, session: session)
+                        SessionDetailFeedView(
+                            audiobookID: audiobookID,
+                            session: session,
+                            dbService: dbService)
                     } label: {
                         sessionRow(session)
                     }

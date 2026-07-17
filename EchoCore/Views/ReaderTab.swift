@@ -506,12 +506,22 @@ struct ReaderTab: View {
 
     private func readerSessionsSheet() -> some View {
         NavigationStack {
-            SessionsListView(audiobookID: folderURL.absoluteString)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { showSessions = false }
-                    }
+            Group {
+                if let db = model.databaseService {
+                    SessionsListView(audiobookID: folderURL.absoluteString, dbService: db)
+                } else {
+                    // Database init failed and the user chose "Continue Offline".
+                    ContentUnavailableView(
+                        "Sessions Unavailable",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text("Sessions need the database, which couldn't be opened."))
                 }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { showSessions = false }
+                }
+            }
         }
     }
 

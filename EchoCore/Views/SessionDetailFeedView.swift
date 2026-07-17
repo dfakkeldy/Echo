@@ -8,7 +8,9 @@ import SwiftUI
 struct SessionDetailFeedView: View {
     let audiobookID: String
     let session: SessionSummary
-    @Environment(DatabaseService.self) private var dbService
+    // Constructor-injected for the same reason as SessionsListView: iOS never
+    // injects DatabaseService into the environment, so an `@Environment` read traps.
+    let dbService: DatabaseService
 
     @State private var viewModel: ReaderFeedViewModel?
 
