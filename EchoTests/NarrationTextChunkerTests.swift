@@ -113,6 +113,12 @@ import Testing
         #expect(pieceWords == originalWords)
     }
 
+    @Test func closingQuoteStaysAttachedToSentenceBoundary() {
+        let text = "You reply, “Stop.” It was available."
+
+        #expect(NarrationTextChunker.split(text, maxChars: 200) == [text])
+    }
+
     @Test func decorativeSeparatorsYieldNoChunks() {
         // EPUB section breaks like "* * *" or "---" have no speakable
         // content — they should produce zero chunks instead of being
