@@ -717,7 +717,7 @@ Alignment is now performed entirely in-app, without any external tools or API ca
 
    **Fallback narration sidecar tooling.** When audio is produced outside Echo's native narration path, `echo-cli sidecar-from-chaptered-audio --epub <source.epub|source.pdf|folder> --audio <book.m4b|chapter-audio-folder> --out <book.alignment.json>` builds a lower-confidence estimated sidecar without re-synthesizing or transcribing the book. `SidecarSourceBlockLoader` imports the EPUB/PDF through the same block parser/import stack as `echo-cli narrate`; `ChapteredAudioTimingReader` reads chapter spans from an M4B/M4A or estimates them from a sorted directory of per-chapter audio files; `EstimatedAlignmentSidecar` then places one portable `s<i>-b<j>` anchor per readable text block by word-count interpolation inside the matching chapter. The default confidence is `0.5`, deliberately below native synthesized anchors. `echo-cli verify-sidecar --epub <source> --audio <audio> --sidecar <book.alignment.json>` is the packaging gate: it decodes the sidecar, verifies each portable suffix resolves to a local readable block, checks timestamp monotonicity and audio-duration bounds, requires every audio chapter to have at least one resolved anchor, and — when an anchor carries `words` — verifies the array is non-empty with monotonic starts, valid `[start, end)` ranges, a first word at/after its anchor timestamp, and a word count equal to the source block's tokenized text, before a fallback render is called Echo-ready.
    `echo-cli export-blocks --epub <source.epub|folder> --out <blocks.json>` uses the same loader to export visible blocks as sidecar-parity JSON, so external packaging tools can join portable anchor IDs to source text without booting the app.
-5. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", "Align to Chapter Start", or "Align to Chapter End" to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
+5. **Manual refinement:** The user long-presses any card in the Reader and chooses "Align to Now", "Align to 5s Ago", or "Align to Chapter Start" (which opens a chapter picker and anchors the block to the chosen chapter's start time, persisted with source `chapterBoundary`) to lock that block to a specific timestamp. Each locked anchor improves the accuracy of neighboring blocks through proportional interpolation.
 6. **Timeline recalculation:** `AlignmentService.recalculateTimeline()` runs in a single DB transaction, updating all affected `timeline_item` rows with new interpolated timestamps, including `audioEndTime` computed from the next visible block's start time.
 7. **Block/chapter hiding:** Users can mark individual blocks ("Not in Audio (This Paragraph)") or entire chapters ("Not in Audio (Whole Chapter)") as hidden when the EPUB contains content not present in the audiobook narration. Hidden blocks get `alignment_status = omitted`, `is_enabled = false`. The `hideChapter(chapterIndex:reason:)` method on `AlignmentService` batch-hides all blocks in a chapter.
 8. **Continuous Alignment:** `ContinuousAlignmentService` (opt-in via `continuousAutoAlignmentEnabled` setting) periodically transcribes the 15 s of audio behind the playback position and inserts a correction anchor when the transcript confidently matches a nearby block. It reads the audio *file* at media time via `AudioSegmentReader` — the earlier output-mixer tap sat after the time-pitch node, so at non-1× speeds every captured window was time-compressed and anchors landed early by the speed factor. Anchors require ≥8 transcribed words and a sane projection range; they are cleared by the next full auto-alignment run.
@@ -743,7 +743,7 @@ Earlier alignment used sequence-index-based linear interpolation, which assumed 
 
 **Key types:**
 
-- `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, `hideChapter(chapterIndex:reason:)`, and `anchorChapterEnd(blockID:chapterIndex:time:)` for anchor and content management.
+- `AlignmentService` — Creates anchors and recalculates timeline via word-count-weighted proportional interpolation between locked and synthetic boundary anchors. Uses dynamic CPS projection for synthetic boundary placement. Supports `eraseAnchor(blockID:)`, `resetAlignment()`, `hideBlock(blockID:reason:)`, and `hideChapter(chapterIndex:reason:)` for anchor and content management.
 - `ChapterTitleMatcher` — Tier 0 metadata-based matcher that compares audiobook chapter titles (from M4B metadata) to EPUB headings using composite Levenshtein + Jaccard fuzzy scoring. Runs before any ML model loading; matches become bootstrap anchors that content alignment later refines or supersedes. Skips generic numeric track labels (`isGenericNumericTitle`), vetoes matches with contradicting numbers, and returns at most one chapter per heading block.
 - `AutoAlignmentService` — WhisperKit-based auto-alignment orchestrator: Tier 0 bootstrap, then per-chapter content alignment (chunk planning → word-timestamp transcription → gated DTW → per-chapter anchor insertion) and manual fine-tuning. Reports progress via `AutoAlignmentState` for UI binding.
 - `AlignmentTranscript` / `TranscribedWord` — Bridge from WhisperKit output to the alignment pipeline: flattens *all* `TranscriptionResult`s (VAD chunking yields one per window) into words with absolute per-word timestamps, falling back to per-segment spreading only when a segment lacks word data. Also hosts `projectBlockStart(words:matchedBlockWindowStart:)`, the word-rate back-projection used by fine-tune and continuous alignment, and `transcribeWords(with:samples:captureStart:)`, the single home of the pipeline's `DecodingOptions`.
@@ -1053,7 +1053,7 @@ Auto-alignment (4-tier pipeline, on-device)
 
 User anchors (manual)
   └─ AlignmentService
-       ├── moveBlockToCurrentTime / anchorSearchResult / anchorChapterStart/End
+       ├── moveBlockToCurrentTime(blockID:time:source:) / anchorSearchResult
        ├── eraseAnchor(blockID:) / resetAlignment()
        ├── hideBlock(blockID:reason:) / unhideBlock(blockID:)
        ├── hideChapter(chapterIndex:reason:)   ← batch chapter hide
@@ -1100,7 +1100,7 @@ ReaderTab (SwiftUI)
        ├── Force-scroll trigger  ← counter-based invalidation for repeated scroll-to-same-block
        ├── Context menu — long-press any card for:
        │    ├── Align to Now / Align to 5s Ago
-       │    ├── Align to Chapter Start / Align to Chapter End (all blocks)
+       │    ├── Align to Chapter Start (opens chapter picker)
        │    ├── Not in Audio (This Paragraph) / Not in Audio (Whole Chapter) ← hide non-narrated content
        │    ├── Erase Anchor (if lockedAnchor) / Reset Alignment (all anchors)
        │    ├── Change Color / Save Bookmark / Copy Text / Save Image
@@ -1339,7 +1339,7 @@ The Reader uses a tap/long-press interaction model on card cells:
 |---|---|---|
 | **Tap** | Paragraph / heading card | Seek playback to the block's audio timestamp |
 | **Tap** | Image card | Open image in system viewer |
-| **Long press** | Any card | Context menu: Align to Now, Align to 5s Ago, Align to Chapter Start, Align to Chapter End, Not in Audio (This Paragraph), Not in Audio (Whole Chapter, if in a chapter), Erase Anchor (locked anchors), Reset Alignment (all anchors), Change Color, Save Bookmark, Copy Text, Save Image (images only) |
+| **Long press** | Any card | Context menu: word actions (Look Up / Save, when pressed on a word), Auto-Align Chapters, Change Color, Set Chapter Theme (headings only), Align to Now, Align to 5s Ago, Align to Chapter Start (opens chapter picker), Not in Audio (Whole Chapter, if in a chapter), Not in Audio (This Paragraph) / Include in Audio, Erase Anchor (locked anchors), Reset Alignment (all anchors), Save Bookmark, Copy Text, Save Image (images only) |
 
 **Active block tracking:** The paragraph currently matching the audio playback position is highlighted with a blue leading bar (`activeBar`) on its card. The ReaderFeedViewModel performs a binary search on a cached `[(start, end, blockID)]` array for O(log N) lookup each time the playback position changes.
 
