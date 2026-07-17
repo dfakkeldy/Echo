@@ -63,6 +63,20 @@ class RendererManifest:
     capabilities: Sequence[str]
 
 
+def validate_commit_sha(value: str, field: str = "commit SHA") -> str:
+    """Return one strict lowercase full commit SHA or raise ``ValueError``."""
+    if not isinstance(value, str) or _COMMIT_SHA_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"{field} must be 40 lowercase hexadecimal characters")
+    return value
+
+
+def validate_sha256(value: str, field: str = "SHA-256") -> str:
+    """Return one strict lowercase SHA-256 identity or raise ``ValueError``."""
+    if not isinstance(value, str) or _SHA256_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"{field} must be 64 lowercase hexadecimal characters")
+    return value
+
+
 def canonical_json_bytes(payload: Mapping[str, object]) -> bytes:
     """Encode one JSON mapping using the renderer's canonical byte format."""
     return (
@@ -237,10 +251,8 @@ def _manifest_from_payload(payload: Mapping[str, object]) -> RendererManifest:
     installer_source_sha = _require_string(
         payload["installerSourceSHA"], "installerSourceSHA"
     )
-    if _COMMIT_SHA_PATTERN.fullmatch(echo_source_sha) is None:
-        raise ValueError("echoSourceSHA must be 40 lowercase hexadecimal characters")
-    if _COMMIT_SHA_PATTERN.fullmatch(installer_source_sha) is None:
-        raise ValueError("installerSourceSHA must be 40 lowercase hexadecimal characters")
+    validate_commit_sha(echo_source_sha, "echoSourceSHA")
+    validate_commit_sha(installer_source_sha, "installerSourceSHA")
 
     executable_path = _require_string(payload["executablePath"], "executablePath")
     resources_path = _require_string(payload["resourcesPath"], "resourcesPath")
@@ -377,9 +389,7 @@ def _require_nonnegative_integer(value: object, field: str) -> int:
 
 def _require_sha256(value: object, field: str) -> str:
     result = _require_string(value, field)
-    if _SHA256_PATTERN.fullmatch(result) is None:
-        raise ValueError(f"{field} must be 64 lowercase hexadecimal characters")
-    return result
+    return validate_sha256(result, field)
 
 
 def _require_nonempty_string_list(value: object, field: str) -> tuple[str, ...]:
