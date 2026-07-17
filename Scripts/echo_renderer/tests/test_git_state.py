@@ -56,6 +56,13 @@ class ApprovedWorktreeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     ApprovedWorktree.attest(root, self.approved_sha)
 
+    def test_rejects_a_canonical_directory_below_the_worktree_root(self):
+        nested = self.root / "nested"
+        nested.mkdir()
+
+        with self.assertRaises(ValueError):
+            ApprovedWorktree.attest(nested, self.approved_sha)
+
     def test_rejects_invalid_approved_shas(self):
         invalid_shas = (
             "a" * 39,

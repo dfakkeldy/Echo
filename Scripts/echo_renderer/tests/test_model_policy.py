@@ -9,6 +9,7 @@ from echo_renderer.model_policy import read_model_policy
 
 
 SOURCE_PATH = Path("EchoCore/Services/Narration/OnnxKokoroEngine.swift")
+VALID_REVISION = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
 
 
 class ModelPolicyTests(unittest.TestCase):
@@ -57,7 +58,7 @@ class ModelPolicyTests(unittest.TestCase):
 
     def test_rejects_zero_or_multiple_revision_literals(self):
         revision = (
-            'private nonisolated static let modelRevision = "revision-one"\n'
+            f'private nonisolated static let modelRevision = "{VALID_REVISION}"\n'
         )
         expected_bytes = "nonisolated static let expectedModelBytes = 1\n"
         cases = (expected_bytes, revision + revision + expected_bytes)
@@ -70,7 +71,7 @@ class ModelPolicyTests(unittest.TestCase):
 
     def test_rejects_zero_or_multiple_expected_byte_literals(self):
         revision = (
-            'private nonisolated static let modelRevision = "revision-one"\n'
+            f'private nonisolated static let modelRevision = "{VALID_REVISION}"\n'
         )
         expected_bytes = "nonisolated static let expectedModelBytes = 1\n"
         cases = (revision, revision + expected_bytes + expected_bytes)
@@ -83,7 +84,7 @@ class ModelPolicyTests(unittest.TestCase):
 
     def test_rejects_nonpositive_and_malformed_expected_byte_literals(self):
         revision = (
-            'private nonisolated static let modelRevision = "revision-one"\n'
+            f'private nonisolated static let modelRevision = "{VALID_REVISION}"\n'
         )
         invalid_literals = ("0", "-1", "1__000", "1_", "+1")
 
@@ -92,6 +93,25 @@ class ModelPolicyTests(unittest.TestCase):
                 self._write_source(
                     revision
                     + f"nonisolated static let expectedModelBytes = {literal}\n"
+                )
+                with self.assertRaises(ValueError):
+                    read_model_policy(self.source_root)
+
+    def test_rejects_revision_literals_that_are_not_lowercase_commit_shas(self):
+        malformed_revisions = (
+            VALID_REVISION[:-1],
+            VALID_REVISION.upper(),
+            "g" * 40,
+            r"\(modelRevisionFromEnvironment)",
+            r"\u0031" * 40,
+        )
+
+        for revision in malformed_revisions:
+            with self.subTest(revision=revision):
+                self._write_source(
+                    "private nonisolated static let modelRevision = "
+                    f'"{revision}"\n'
+                    "nonisolated static let expectedModelBytes = 1\n"
                 )
                 with self.assertRaises(ValueError):
                     read_model_policy(self.source_root)

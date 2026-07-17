@@ -42,6 +42,17 @@ def _attest(root: Path, approved_sha: str) -> None:
     if root != resolved_root:
         raise ValueError(f"worktree root is not canonical: {root}")
 
+    top_level_output = _run_git(root, "rev-parse", "--show-toplevel")
+    try:
+        top_level_text = top_level_output.decode("utf-8")
+        if not top_level_text.endswith("\n") or "\n" in top_level_text[:-1]:
+            raise ValueError("git returned a malformed worktree root")
+        git_root = Path(top_level_text[:-1]).resolve(strict=True)
+    except (OSError, UnicodeError) as error:
+        raise ValueError("cannot canonicalize the Git worktree root") from error
+    if git_root != root:
+        raise ValueError("directory is not the Git worktree root")
+
     expected_head = approved_sha.encode("ascii") + b"\n"
     if _run_git(root, "rev-parse", "HEAD") != expected_head:
         raise ValueError("worktree HEAD does not match the approved SHA")
@@ -57,8 +68,7 @@ def _attest(root: Path, approved_sha: str) -> None:
 def _run_git(root: Path, *arguments: str) -> bytes:
     try:
         completed = subprocess.run(
-            [_GIT, *arguments],
-            cwd=root,
+            [_GIT, "-C", str(root), *arguments],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

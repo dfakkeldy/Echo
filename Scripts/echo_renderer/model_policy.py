@@ -10,7 +10,7 @@ from echo_renderer.identity import ModelPolicy
 
 _MODEL_SOURCE = Path("EchoCore/Services/Narration/OnnxKokoroEngine.swift")
 _REVISION_PATTERN = re.compile(
-    r'^[ \t]*private nonisolated static let modelRevision = "([^"\r\n]+)"[ \t]*$',
+    r'^[ \t]*private nonisolated static let modelRevision = "([0-9a-f]{40})"[ \t]*$',
     re.MULTILINE,
 )
 _EXPECTED_BYTES_PATTERN = re.compile(
