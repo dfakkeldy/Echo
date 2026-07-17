@@ -28,8 +28,15 @@ struct AlignmentService {
 
     // MARK: - Anchor Operations
 
-    /// Moves a block to the current playback time, creating or updating a locked anchor.
-    func moveBlockToCurrentTime(blockID: String, time: TimeInterval) throws {
+    /// Moves a block to the given playback time, creating or updating a locked anchor.
+    ///
+    /// `source` is persisted provenance, not decoration: `CloudKitSyncService.sourceRank`
+    /// and `DocumentImportFinalizer.humanAnchorSources` enumerate the manual cases, so
+    /// callers whose time came from the chapter picker must pass `.chapterBoundary`.
+    func moveBlockToCurrentTime(
+        blockID: String, time: TimeInterval,
+        source: AlignmentAnchorRecord.Source = .moveToNow
+    ) throws {
         let anchor = AlignmentAnchorRecord(
             id: "anchor-\(UUID().uuidString)",
             audiobookID: audiobookID,
@@ -37,7 +44,7 @@ struct AlignmentService {
             audioTime: time,
             audioEndTime: nil,
             anchorKind: AlignmentAnchorRecord.AnchorKind.point.rawValue,
-            source: AlignmentAnchorRecord.Source.moveToNow.rawValue,
+            source: source.rawValue,
             note: nil,
             createdAt: Self.isoFormatter.string(from: Date()),
             modifiedAt: nil
@@ -86,48 +93,6 @@ struct AlignmentService {
                 sql: "DELETE FROM alignment_anchor WHERE audiobook_id = ?", arguments: [audiobookID]
             )
         }
-        try recalculateTimeline()
-    }
-
-    /// Sets a chapter start anchor.
-    func anchorChapterStart(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
-        let anchor = AlignmentAnchorRecord(
-            id: "anchor-\(UUID().uuidString)",
-            audiobookID: audiobookID,
-            epubBlockID: blockID,
-            audioTime: time,
-            audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.AnchorKind.chapterStart.rawValue,
-            source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
-            note: "Chapter \(chapterIndex) start",
-            createdAt: Self.isoFormatter.string(from: Date()),
-            modifiedAt: nil
-        )
-        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
-            try anchorDAO.delete(id: existing.id)
-        }
-        try anchorDAO.upsert(anchor)
-        try recalculateTimeline()
-    }
-
-    /// Sets a chapter end anchor.
-    func anchorChapterEnd(blockID: String, chapterIndex: Int, time: TimeInterval) throws {
-        let anchor = AlignmentAnchorRecord(
-            id: "anchor-\(UUID().uuidString)",
-            audiobookID: audiobookID,
-            epubBlockID: blockID,
-            audioTime: time,
-            audioEndTime: nil,
-            anchorKind: AlignmentAnchorRecord.AnchorKind.chapterEnd.rawValue,
-            source: AlignmentAnchorRecord.Source.chapterBoundary.rawValue,
-            note: "Chapter \(chapterIndex) end",
-            createdAt: Self.isoFormatter.string(from: Date()),
-            modifiedAt: nil
-        )
-        if let existing = try anchorDAO.anchor(for: audiobookID, epubBlockID: blockID) {
-            try anchorDAO.delete(id: existing.id)
-        }
-        try anchorDAO.upsert(anchor)
         try recalculateTimeline()
     }
 

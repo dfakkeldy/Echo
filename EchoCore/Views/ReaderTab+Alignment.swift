@@ -18,7 +18,8 @@
             let audiobookID = folderURL.absoluteString
             let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
             do {
-                try alignmentService.moveBlockToCurrentTime(blockID: blockID, time: time)
+                try alignmentService.moveBlockToCurrentTime(
+                    blockID: blockID, time: time, source: source)
                 viewModel?.reload()
 
                 // Haptic confirmation
@@ -55,7 +56,7 @@
                         blockID: blockID, around: time)
                     {
                         try? alignmentService.moveBlockToCurrentTime(
-                            blockID: blockID, time: exactTime)
+                            blockID: blockID, time: exactTime, source: source)
                         await MainActor.run {
                             viewModel?.reload()
                             Haptic.play(.medium)
