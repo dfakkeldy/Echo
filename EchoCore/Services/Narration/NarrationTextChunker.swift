@@ -152,9 +152,15 @@ enum NarrationTextChunker {
         // syllable separator "." is a legitimate terminator-looking character, and
         // splitting there would insert spaces inside the link and corrupt it.
         var inLink = false
+        var boundaryPending = false
         let chars = Array(text)
         for i in chars.indices {
             let ch = chars[i]
+            if boundaryPending, !inLink, ch.isWhitespace {
+                flush()
+                boundaryPending = false
+                continue
+            }
             current.append(ch)
             if ch == "[" {
                 inLink = true
@@ -168,7 +174,7 @@ enum NarrationTextChunker {
                 inLink = false
             }
             if !inLink, isBoundary(ch, i, chars) {
-                flush()
+                boundaryPending = true
             }
         }
         flush()
@@ -219,6 +225,7 @@ enum NarrationTextChunker {
         var current = ""
         var textIndex = text.startIndex
         var characterIndex = 0
+        var boundaryPending = false
         let characters = Array(text)
 
         func flush() {
@@ -242,9 +249,16 @@ enum NarrationTextChunker {
             }
 
             let character = text[textIndex]
+            if boundaryPending, character.isWhitespace {
+                flush()
+                boundaryPending = false
+                characterIndex += 1
+                textIndex = text.index(after: textIndex)
+                continue
+            }
             current.append(character)
             if isBoundary(character, characterIndex, characters) {
-                flush()
+                boundaryPending = true
             }
             characterIndex += 1
             textIndex = text.index(after: textIndex)

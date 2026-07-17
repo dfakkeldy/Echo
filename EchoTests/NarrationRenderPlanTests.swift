@@ -68,6 +68,29 @@ import Testing
         #expect(String(decoding: encoded, as: UTF8.self).contains("\"source\":\"builtInOverride\""))
     }
 
+    @Test func quotedSentenceBoundaryPreservesAuditWordIndexes() throws {
+        let text =
+            "You open an assistant and ask it to rewrite a paragraph. It does a decent job. "
+            + "You reply, “Make it less formal.” The second answer usually makes sense even "
+            + "though you did not paste the paragraph again. Something from the earlier "
+            + "exchange remained available."
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [block(id: "quoted-boundary", text: text, index: 0)],
+            overrides: PronunciationOverrides.withBuiltInDefaults([:]))
+        let plannedBlock = try #require(plan.blocks.first)
+        let decision = try #require(
+            plannedBlock.pronunciationDecisions.first {
+                $0.normalizedWord == "available"
+            })
+
+        #expect(
+            plannedBlock.synthesisChunks.reduce(0) { $0 + $1.wordCount }
+                == WordTokenizer.words(in: text).count)
+        #expect(decision.wordStart == 43)
+        #expect(decision.wordEnd == 43)
+        #expect(decision.sourceContext == "from the earlier exchange remained available.")
+    }
+
     @Test func lifecycleOverrideKeepsCompleteEvidenceBesideClaudeMarkdownToken() throws {
         let text =
             "Different backgrounds create different gaps. An experienced backend architect may "
