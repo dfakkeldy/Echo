@@ -79,6 +79,13 @@ The CLI's Python package (`Scripts/echo_renderer/`) lives *inside* the installer
 
 All four subcommands are invoked as `python3 -m echo_renderer.cli <subcommand>` with `PYTHONPATH=Scripts` set (so Python can find the `echo_renderer` package under the installer worktree), or via the equivalent `make *-renderer` targets, which set `PYTHONPATH=Scripts` for you and default `--installer-worktree` to the current checkout (`$(CURDIR)`) — so `make install-renderer` / `make repair-renderer` must be run **from inside the installer worktree**.
 
+Two optional Make variables override the CLI's own defaults; each is only appended to the command when set:
+
+| Variable | CLI flag it sets | Default when unset | When you'd set it |
+|---|---|---|---|
+| `ECHO_RENDERER_ROOT` | `--renderer-root` (all four targets) | `~/Library/Application Support/Echo/Renderers` | Point at a non-default store root — e.g. a throwaway directory for acceptance-testing the installer itself without touching the real store. |
+| `ECHO_BUILD_GATE` | `--build-gate` (`install-renderer` / `repair-renderer` only — the build-running commands) | `~/.claude/bin/xcode-build-gate.sh` | Use an alternate memory-pressure build-gate script path (e.g. a stub in tests, or a machine where the gate lives elsewhere). |
+
 ### 5.1 `install` — build, stage, probe, and publish one package
 
 ```bash
@@ -181,7 +188,7 @@ The **selector**, `<source SHA>/approved-renderer.json`, is the one file narrati
 {"echoSourceSHA": "<40-hex>", "manifestSHA256": "<64-hex>", "schemaVersion": 1}
 ```
 
-Only `promote` (directly, or via `install --promote`) ever writes it — a plain `install` never touches the selector. Writes go through a sibling temporary file, `fsync`, and `os.replace`, so a reader never observes a half-written selector. Because `promote` re-verifies the target package first, the selector can never end up pointing at a package that fails its own identity check.
+Only `promote` (directly, or via `install --promote`) ever writes it — a plain `install` never touches the selector, and `repair` never writes it either (§8). Writes go through a sibling temporary file, `fsync`, and `os.replace`, so a reader never observes a half-written selector. Because `promote` re-verifies the target package first, the selector can never end up pointing at a package that fails its own identity check.
 
 As noted in §5.3: use `install --promote` only for a source SHA's first install (no selector exists yet); use a separate, explicit `promote` for every later build you actually want narration-time tooling to switch to.
 
@@ -210,9 +217,9 @@ This is **informational only**. `deliveryMode: "sharedEchoCache"` means the mode
 
 1. **Refuses immediately (exit code `75`) if the target package or its source's selector has a live lease held by another process** — it names which resource is contended rather than blocking or forcing its way past a concurrent install/promote.
 2. **Quarantines** any existing directory at `<source SHA>/<manifest SHA>/` by renaming it to `<source SHA>/<manifest SHA>.quarantine-<random hex token>/`. This is a plain rename, not a delete — the old bytes are fully preserved for inspection. Quarantine directories are **never removed automatically** by any part of this tooling; cleaning them up is a manual decision.
-3. **Rebuilds** by running the exact same transaction as `install` (§5.1), with promotion deferred until repair's own logic decides what to do with it.
+3. **Rebuilds** by running the exact same transaction as `install` (§5.1), always without `--promote` — the rebuild publishes a package only; the selector is out of repair's reach entirely.
 4. **Compares the rebuilt manifest hash to the one you asked to restore:**
-   - **Exact match** — the original identity is considered restored. If you passed a promote-equivalent request, the selector is (re-)pointed at it now.
+   - **Exact match** — the original identity is considered restored. `repair` **never writes the selector** (the CLI's `repair` subcommand has no `--promote` flag, and `make repair-renderer` passes none): after an exact-match restore, the source's existing selector — if it pointed at this manifest SHA — simply points at a healthy package again, with nothing rewritten. If you want the selector to point somewhere different, or to exist for the first time, run an explicit `promote` (§5.3) afterward.
    - **Any other hash** — the rebuild is published as its own new package, sitting *beside* the quarantined original at its own `<manifest SHA>`. The selector is left **completely untouched**, and the command fails with an error reporting both the requested and the rebuilt manifest hashes, stating that the requested identity is **non-resumable** — source has drifted (or the build is no longer reproducible) since that package was originally published, and the old identity cannot be recreated byte-for-byte.
 
 ---

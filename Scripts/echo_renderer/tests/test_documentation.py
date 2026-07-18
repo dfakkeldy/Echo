@@ -135,6 +135,32 @@ class VersionedRendererGuideTests(unittest.TestCase):
             )
         )
 
+    def test_documents_repair_never_writing_the_selector(self) -> None:
+        # The CLI's repair subcommand has no --promote flag and hardcodes
+        # promote=False (see test_cli.test_repair_has_no_promote_flag_in_its
+        # _contract), so the guide must state repair never writes the selector.
+        self.assertIn(
+            "never writes the selector",
+            self.guide_text.lower(),
+            "guide should state plainly that repair never writes the selector",
+        )
+        self.assertNotIn(
+            "promote-equivalent",
+            self.guide_text,
+            "guide must not describe a repair promote path that is "
+            "unreachable through the documented CLI/Make interfaces",
+        )
+
+    def test_documents_make_override_variables(self) -> None:
+        self._assert_all_present(
+            (
+                "ECHO_RENDERER_ROOT",
+                "ECHO_BUILD_GATE",
+                "--renderer-root",
+                "--build-gate",
+            )
+        )
+
     def test_documents_no_automatic_cleanup(self) -> None:
         lowered = self.guide_text.lower()
         self.assertIn("no automatic", lowered)
