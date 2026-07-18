@@ -331,17 +331,19 @@ final class PlayerLoadingCoordinator {
             state.m4bBooks = parsed.books
             state.aggregatedChapters = parsed.aggregatedChapters
             state.totalBookDuration = parsed.totalDuration
-            state.bookTimeIndex = PlaybackBookTimeIndex(tracks: parsed.books.compactMap { book in
-                guard let trackIndex = state.tracks.firstIndex(where: { $0.url == book.url }) else {
-                    return nil
-                }
-                return PlaybackBookTimeIndex.TrackTime(
-                    trackID: state.tracks[trackIndex].id,
-                    trackURL: book.url,
-                    trackIndex: trackIndex,
-                    startTime: book.cumulativeStartOffset,
-                    duration: book.duration)
-            })
+            state.bookTimeIndex = PlaybackBookTimeIndex(
+                tracks: parsed.books.compactMap { book in
+                    guard let trackIndex = state.tracks.firstIndex(where: { $0.url == book.url })
+                    else {
+                        return nil
+                    }
+                    return PlaybackBookTimeIndex.TrackTime(
+                        trackID: state.tracks[trackIndex].id,
+                        trackURL: book.url,
+                        trackIndex: trackIndex,
+                        startTime: book.cumulativeStartOffset,
+                        duration: book.duration)
+                })
             applyPendingBookTimeSeekIfPossible(state: state)
 
             let chapters = parsed.aggregatedChapters.map { agg in
@@ -505,7 +507,8 @@ final class PlayerLoadingCoordinator {
             state: state, index: index, persistence: persistence,
             playbackController: playbackController, audioEngine: audioEngine)
         resetPerTrackState(
-            state: state, artworkCoordinator: artworkCoordinator, transcriptService: transcriptService)
+            state: state, artworkCoordinator: artworkCoordinator,
+            transcriptService: transcriptService)
         setupAudioForTrack(
             state: state, index: index, audioEngine: audioEngine,
             playbackController: playbackController)
@@ -685,6 +688,23 @@ final class PlayerLoadingCoordinator {
                         folderURL: folderURL
                     )
                 }
+
+                // Also discover an m4b-keyed sidecar (`<m4b-base>.alignment.json`)
+                // sitting next to the audio. The EPUB scan above keys sidecar
+                // discovery off the .epub, so a book whose alignment file is named
+                // after the m4b — or an iCloud placeholder that only just finished
+                // downloading — would otherwise never light up word-level
+                // read-along. Keyed off `trackURL` so `<m4b-base>.alignment.json`
+                // resolves exactly. No-op when no sidecar/placeholder or no text
+                // blocks exist; idempotent when the EPUB scan already applied it.
+                _ =
+                    await DocumentImportFinalizer
+                    .finalizeExistingImportIfAlignmentSidecarPresent(
+                        audiobookID: folderURL.absoluteString,
+                        fileURL: trackURL,
+                        duration: currentDuration,
+                        databaseService: db
+                    )
             }
         }
     }

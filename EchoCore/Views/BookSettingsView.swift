@@ -161,6 +161,7 @@ struct BookSettingsView: View {
     @State private var studyPlanPresentation: StudyPlanSheetPresentation?
     @State private var studyDeckGenerationPresentation: StudyDeckGenerationSheetPresentation?
     @State private var echoDeckBuilderExportURL: URL?
+    @State private var readAlongStatus: String?
 
     var body: some View {
         NavigationStack {
@@ -203,6 +204,20 @@ struct BookSettingsView: View {
 
                 BookOverridesSections(model: model)
 
+                // Read-along status: whether word-level (sidecar) highlighting is
+                // active, or why it fell back to paragraph-level. Cross-platform
+                // (no iOS-only dependency) so macOS gets parity. Lives here rather
+                // than in the reader chrome to keep the reader UX untouched.
+                if model.databaseService?.writer != nil, model.state.folderURL != nil {
+                    Section("Read-Along") {
+                        LabeledContent("Highlighting") {
+                            Text(readAlongStatus ?? "Checking…")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                }
+
                 #if os(iOS)
                     // Narration QA review — only for a loaded book. The pass itself
                     // reports "no rendered audio" if the book isn't narrated yet.
@@ -239,6 +254,9 @@ struct BookSettingsView: View {
         .task(id: echoDeckBuilderRefreshKey) {
             refreshEchoDeckBuilderExportURL()
         }
+        .task(id: readAlongRefreshKey) {
+            computeReadAlongStatus()
+        }
         .environment(
             \.font,
             model.resolvedAppFont == SettingsManager.systemFontName
@@ -262,6 +280,23 @@ struct BookSettingsView: View {
         model.tracks.indices.contains(model.currentIndex)
             ? model.tracks[model.currentIndex].url
             : nil
+    }
+
+    /// Recomputes when the book changes or a document (re)ingests, so a
+    /// just-imported sidecar's status is reflected without reopening the sheet.
+    private var readAlongRefreshKey: String {
+        "\(model.state.folderURL?.absoluteString ?? "")#\(model.state.documentIngestionTrigger)"
+    }
+
+    private func computeReadAlongStatus() {
+        guard let db = model.databaseService?.writer,
+            let audiobookID = model.state.folderURL?.absoluteString
+        else {
+            readAlongStatus = nil
+            return
+        }
+        readAlongStatus = ReadAlongStatusResolver.statusLine(
+            audiobookID: audiobookID, writer: db)
     }
 
     private func refreshEchoDeckBuilderExportURL() {
@@ -376,26 +411,27 @@ private struct StudyDeckGenerationSheetHost: View {
         }
 
         let providerClients = clients
-        let makeGenerator: (@escaping @Sendable (Int, Int) -> Void) ->
-            (any StudyDeckGenerating)? = { progress in
-                let cloud: (@Sendable () -> any StudyDeckGenerating)?
-                if let pair = providerClients {
-                    cloud = {
-                        AnthropicStudyDeckGenerator(
-                            client: pair.primary,
-                            briefClient: pair.brief,
-                            progress: progress
-                        )
+        let makeGenerator:
+            (@escaping @Sendable (Int, Int) -> Void) ->
+                (any StudyDeckGenerating)? = { progress in
+                    let cloud: (@Sendable () -> any StudyDeckGenerating)?
+                    if let pair = providerClients {
+                        cloud = {
+                            AnthropicStudyDeckGenerator(
+                                client: pair.primary,
+                                briefClient: pair.brief,
+                                progress: progress
+                            )
+                        }
+                    } else {
+                        cloud = nil
                     }
-                } else {
-                    cloud = nil
+                    return StudyDeckGeneratorFactory.makeForUI(
+                        preference: preference,
+                        fmAvailable: fmAvailable,
+                        cloud: cloud
+                    )
                 }
-                return StudyDeckGeneratorFactory.makeForUI(
-                    preference: preference,
-                    fmAvailable: fmAvailable,
-                    cloud: cloud
-                )
-            }
         let model = StudyDeckGenerationViewModel(
             audiobookID: presentation.audiobookID,
             bookTitle: presentation.bookTitle,

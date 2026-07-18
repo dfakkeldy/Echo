@@ -37,6 +37,18 @@ struct WordTimingDAO {
         }
     }
 
+    /// Whether the book has *any* word-timing rows — the same condition the
+    /// reader keys on to decide word-level vs block-level highlighting. Used by
+    /// Book Settings to describe read-along for books imported before a sidecar
+    /// summary was recorded. Counts rather than fetching all rows.
+    func hasWordTimings(forAudiobook audiobookID: String) throws -> Bool {
+        try db.read { db in
+            try WordTimingRecord
+                .filter(Column("audiobook_id") == audiobookID)
+                .fetchCount(db) > 0
+        }
+    }
+
     /// Words for one block, ordered by word index.
     func words(forAudiobook audiobookID: String, blockID: String) throws -> [WordTimingRecord] {
         try db.read { db in
