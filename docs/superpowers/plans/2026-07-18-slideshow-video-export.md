@@ -1050,7 +1050,7 @@ nonisolated final class SlideshowFrameRenderer {
 
 **Import rules:** `import CoreGraphics`, `import CoreText`, `import Foundation`, `import ImageIO` only. NO UIKit/AppKit/SwiftUI — this file compiles into iOS, macOS, and echo-cli targets.
 
-- [ ] **Step 1: Write failing smoke tests**
+- [x] **Step 1: Write failing smoke tests**
 
 Create `EchoTests/SlideshowFrameRendererTests.swift`:
 
@@ -1122,7 +1122,7 @@ struct SlideshowFrameRendererTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -1130,7 +1130,7 @@ struct SlideshowFrameRendererTests {
 
 Expected: compile FAILURE — `SlideshowFrameRenderer` not defined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `EchoCore/Services/Export/SlideshowFrameRenderer.swift`:
 
@@ -1309,7 +1309,7 @@ nonisolated final class SlideshowFrameRenderer {
 
 Note on `NSAttributedString` + `.font`/`.foregroundColor` keys with CoreText: use `kCTFontAttributeName`/`kCTForegroundColorAttributeName` casts if the Foundation keys don't carry through `CTFramesetter` on a non-UIKit target — this is the one spot where the implementer may need to swap `NSAttributedString.Key.font` → `NSAttributedString.Key(kCTFontAttributeName as String)` (same structure, different key constant). The tests catch it: text that doesn't render leaves the frame blank and `renderedFrameIsNotBlank` fails.
 
-- [ ] **Step 4: Run focused tests until green**
+- [x] **Step 4: Run focused tests until green**
 
 ```bash
 make test-only FILTER=EchoTests/SlideshowFrameRendererTests
@@ -1317,7 +1317,7 @@ make test-only FILTER=EchoTests/SlideshowFrameRendererTests
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Services/Export/SlideshowFrameRenderer.swift EchoTests/SlideshowFrameRendererTests.swift
