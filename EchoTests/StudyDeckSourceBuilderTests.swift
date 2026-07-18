@@ -56,6 +56,18 @@ import Testing
         #expect(hidden.isEmpty)
     }
 
+    @Test func codeBlocksAreExcludedFromStudySources() throws {
+        let service = try seededService()
+        let builder = StudyDeckSourceBuilder(db: service.writer)
+
+        let sources = try builder.sources(
+            audiobookID: "book",
+            selection: .explicitSourceBlockIDs(["code"])
+        )
+
+        #expect(sources.isEmpty)
+    }
+
     @Test func chapterSelectionReturnsOnlyThatChapter() throws {
         let service = try seededService()
         let builder = StudyDeckSourceBuilder(db: service.writer)
@@ -110,6 +122,7 @@ import Testing
                     ('blank', 'book', 'ch2.xhtml', 2, 2, 5, 'paragraph', '   ', NULL, 1, 0, 0, '2026-06-01T00:00:00Z'),
                     ('hidden', 'book', 'ch2.xhtml', 2, 3, 6, 'paragraph', 'Hidden sample', NULL, 1, 1, 0, '2026-06-01T00:00:00Z'),
                     ('unknown-kind', 'book', 'ch2.xhtml', 2, 4, 7, 'aside', 'Aside sample', NULL, 1, 0, 0, '2026-06-01T00:00:00Z'),
+                    ('code', 'book', 'ch2.xhtml', 2, 5, 9, 'code', 'print("Hi")', NULL, 1, 0, 0, '2026-06-01T00:00:00Z'),
                     ('other-book', 'other', 'ch1.xhtml', 1, 0, 1, 'paragraph', 'Other book sample', NULL, 0, 0, 0, '2026-06-01T00:00:00Z')
                     """
             )

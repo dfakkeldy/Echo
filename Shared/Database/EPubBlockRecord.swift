@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 import os.log
 
-/// A parsed EPUB block — heading, paragraph, sentence, or image — extracted
+/// A parsed EPUB block — heading, paragraph, sentence, image, or code — extracted
 /// from XHTML spine items and stored in structural reading order.
 struct EPubBlockRecord: Identifiable, Equatable, Hashable, Sendable, Codable, FetchableRecord,
     MutablePersistableRecord

@@ -12,16 +12,17 @@ import Testing
                 block(spine: 1, index: 0, sequence: 2, kind: .paragraph, text: "Second"),
                 block(spine: 0, index: 0, sequence: 0, kind: .heading, text: "Title"),
                 block(spine: 0, index: 1, sequence: 1, kind: .sentence, text: "First"),
+                block(spine: 1, index: 1, sequence: 3, kind: .code, text: "print(\"Hi\")"),
             ]
         )
 
         #expect(document.version == 1)
         #expect(document.source.epub == "book.epub")
-        #expect(document.blocks.map(\.id) == ["s0-b0", "s0-b1", "s1-b0"])
-        #expect(document.blocks.map(\.kind) == ["heading", "sentence", "paragraph"])
-        #expect(document.blocks.map(\.sequenceIndex) == [0, 1, 2])
+        #expect(document.blocks.map(\.id) == ["s0-b0", "s0-b1", "s1-b0", "s1-b1"])
+        #expect(document.blocks.map(\.kind) == ["heading", "sentence", "paragraph", "code"])
+        #expect(document.blocks.map(\.sequenceIndex) == [0, 1, 2, 3])
         let counts = document.kindCounts
-        #expect(counts == (paragraphs: 1, headings: 1, sentences: 1, images: 0, code: 0))
+        #expect(counts == (paragraphs: 1, headings: 1, sentences: 1, images: 0, code: 1))
     }
 
     @Test func encodesNilChapterIndexAndWordCountAsNull() throws {
