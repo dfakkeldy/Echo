@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -862,6 +863,47 @@ class RendererRootCreationTests(CLITestCase):
                 "renderer root path -- it must fail closed instead",
             )
             self.assertEqual(renderer_root.read_text(), "not a directory")
+
+
+class RelativeRendererRootTests(unittest.TestCase):
+    """A relative --renderer-root is always rejected by the store's
+    canonical-path check, so the CLI must not first mkdir it into the
+    current working directory and leave a stray directory behind."""
+
+    def test_a_relative_renderer_root_is_rejected_without_creating_a_directory(
+        self,
+    ) -> None:
+        original_cwd = os.getcwd()
+        self.addCleanup(os.chdir, original_cwd)
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                # Deliberately the REAL RendererStore: the contract under
+                # test is "reject without side effects", end to end.
+                code = main(
+                    [
+                        "install",
+                        "--installer-worktree",
+                        "/work/installer",
+                        "--installer-sha",
+                        INSTALLER_SHA,
+                        "--source-worktree",
+                        "/work/source",
+                        "--source-sha",
+                        SOURCE_SHA,
+                        "--renderer-root",
+                        "relative/renderers",
+                        "--build-gate",
+                        "/work/gate.sh",
+                    ]
+                )
+            os.chdir(original_cwd)
+
+            self.assertEqual(code, 65)
+            self.assertIn("renderer store root", stderr.getvalue())
+            self.assertFalse((Path(tmp) / "relative").exists())
 
 
 class TestCIWorkflowRunsInstallerTestsFirst(unittest.TestCase):

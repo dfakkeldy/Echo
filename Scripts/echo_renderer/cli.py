@@ -156,7 +156,16 @@ def _ensure_renderer_root(renderer_root: Path) -> None:
     own canonicality check (``_require_canonical_directory``), which
     remains the sole authority for accepting or rejecting the resulting
     path. Nothing already at an occupied path is ever deleted or replaced.
+
+    Paths the store is certain to reject -- relative, or not lexically
+    normalized (``.``/``..`` components) -- are never created at all:
+    mkdir-ing them first would strand a stray directory (in the CWD, for
+    a relative path) that the subsequent rejection then never cleans up.
     """
+    if not renderer_root.is_absolute():
+        return
+    if renderer_root != Path(os.path.normpath(renderer_root)):
+        return
     try:
         renderer_root.mkdir(parents=True, exist_ok=True)
     except OSError:
