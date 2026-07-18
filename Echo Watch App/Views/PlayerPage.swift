@@ -56,7 +56,7 @@ struct PlayerPage: View {
                         onSleepTimer: onSleepTimer,
                         onPomodoroLongPress: onPomodoroLongPress
                     )
-                        .padding(.leading, topControlInset)
+                    .padding(.leading, topControlInset)
                     Spacer()
                     TopSlotButton(
                         action: slots[1],
@@ -67,7 +67,7 @@ struct PlayerPage: View {
                         onSleepTimer: onSleepTimer,
                         onPomodoroLongPress: onPomodoroLongPress
                     )
-                        .padding(.trailing, topControlInset)
+                    .padding(.trailing, topControlInset)
                 }
                 .padding(.top, 8)
                 Spacer()
@@ -123,15 +123,26 @@ struct PlayerPage: View {
     @ViewBuilder
     private var progressBar: some View {
         if !viewModel.linearBarHidden {
-            let linearProgress = viewModel.linearBarMode == "chapter"
-                ? viewModel.progressFraction
-                : viewModel.totalProgressFraction
-            ProgressView(value: linearProgress, total: 1.0)
-                .progressViewStyle(.linear)
-                .tint(viewModel.artworkAccentColor ?? .green)
+            if viewModel.linearBarMode == "chapter" {
+                ProgressView(value: viewModel.progressFraction, total: 1.0)
+                    .progressViewStyle(.linear)
+                    .tint(viewModel.artworkAccentColor ?? .green)
+                    .padding(.horizontal, 16)
+                    .scaleEffect(y: 0.5)
+                    .animation(
+                        viewModel.progressAnimationSuppressed ? nil : .linear(duration: 0.5),
+                        value: viewModel.progressFraction)
+            } else {
+                // Whole-book mode: segment the bar at chapter/track boundaries
+                // (falls back to a single capsule when there are none).
+                SegmentedLinearProgressBar(
+                    progress: viewModel.totalProgressFraction,
+                    rawBoundaries: viewModel.bookBoundaryFractions,
+                    tint: viewModel.artworkAccentColor ?? .green,
+                    animationSuppressed: viewModel.progressAnimationSuppressed
+                )
                 .padding(.horizontal, 16)
-                .scaleEffect(y: 0.5)
-                .animation(viewModel.progressAnimationSuppressed ? nil : .linear(duration: 0.5), value: linearProgress)
+            }
         }
     }
 
@@ -149,7 +160,11 @@ struct PlayerPage: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, layout == .classic ? 4 : 6)
                 .frame(maxWidth: .infinity)
-                .background(layout == .classic ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+                .background(
+                    layout == .classic
+                        ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.ultraThinMaterial),
+                    in: Capsule()
+                )
                 .padding(.horizontal, 18)
             } else {
                 Text(viewModel.title)
@@ -162,7 +177,11 @@ struct PlayerPage: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, layout == .classic ? 4 : 6)
                     .frame(maxWidth: .infinity)
-                    .background(layout == .classic ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+                    .background(
+                        layout == .classic
+                            ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.ultraThinMaterial),
+                        in: Capsule()
+                    )
                     .padding(.horizontal, 18)
             }
         }
@@ -249,10 +268,16 @@ struct TopSlotButton: View {
                             .monospacedDigit()
                     } else if action == .sleepTimer {
                         ZStack {
-                            Image(systemName: viewModel.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
-                                .font(.system(size: iconSize, weight: .semibold))
-                                .foregroundStyle(viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
-                            if viewModel.sleepTimerMode == "minutes" && viewModel.sleepTimerRemainingSeconds > 0 {
+                            Image(
+                                systemName: viewModel.isSleepTimerActive
+                                    ? "moon.zzz.fill" : "moon.zzz"
+                            )
+                            .font(.system(size: iconSize, weight: .semibold))
+                            .foregroundStyle(
+                                viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
+                            if viewModel.sleepTimerMode == "minutes"
+                                && viewModel.sleepTimerRemainingSeconds > 0
+                            {
                                 Text(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))
                                     .font(.system(size: 9, weight: .bold, design: .rounded))
                                     .foregroundStyle(Color.accentColor)
@@ -276,7 +301,10 @@ struct TopSlotButton: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(accessibilityLabelText)
-            .modifier(ToggleTraitModifier(isToggle: action == .loopMode, value: action == .loopMode ? loopModeAccessibilityValue : nil))
+            .modifier(
+                ToggleTraitModifier(
+                    isToggle: action == .loopMode,
+                    value: action == .loopMode ? loopModeAccessibilityValue : nil))
         }
     }
 
@@ -347,34 +375,59 @@ struct SleepTimerView: View {
         NavigationStack {
             List {
                 Section {
-                    timerButton(label: String(localized: "15 Minutes"), systemImage: "15.circle", isOn: isMinutes(15)) {
-                        viewModel.setSleepTimerMinutes(15); dismiss()
+                    timerButton(
+                        label: String(localized: "15 Minutes"), systemImage: "15.circle",
+                        isOn: isMinutes(15)
+                    ) {
+                        viewModel.setSleepTimerMinutes(15)
+                        dismiss()
                     }
-                    timerButton(label: String(localized: "30 Minutes"), systemImage: "30.circle", isOn: isMinutes(30)) {
-                        viewModel.setSleepTimerMinutes(30); dismiss()
+                    timerButton(
+                        label: String(localized: "30 Minutes"), systemImage: "30.circle",
+                        isOn: isMinutes(30)
+                    ) {
+                        viewModel.setSleepTimerMinutes(30)
+                        dismiss()
                     }
-                    timerButton(label: String(localized: "45 Minutes"), systemImage: "45.circle", isOn: isMinutes(45)) {
-                        viewModel.setSleepTimerMinutes(45); dismiss()
+                    timerButton(
+                        label: String(localized: "45 Minutes"), systemImage: "45.circle",
+                        isOn: isMinutes(45)
+                    ) {
+                        viewModel.setSleepTimerMinutes(45)
+                        dismiss()
                     }
-                    timerButton(label: String(localized: "1 Hour"), systemImage: "1.circle", isOn: isMinutes(60)) {
-                        viewModel.setSleepTimerMinutes(60); dismiss()
+                    timerButton(
+                        label: String(localized: "1 Hour"), systemImage: "1.circle",
+                        isOn: isMinutes(60)
+                    ) {
+                        viewModel.setSleepTimerMinutes(60)
+                        dismiss()
                     }
                 }
                 Section {
-                    timerButton(label: String(localized: "End of Chapter"), systemImage: "book.closed", isOn: viewModel.sleepTimerMode == "endOfChapter") {
-                        viewModel.setSleepTimerEndOfChapter(); dismiss()
+                    timerButton(
+                        label: String(localized: "End of Chapter"), systemImage: "book.closed",
+                        isOn: viewModel.sleepTimerMode == "endOfChapter"
+                    ) {
+                        viewModel.setSleepTimerEndOfChapter()
+                        dismiss()
                     }
                 }
                 if viewModel.isSleepTimerActive {
                     Section {
                         Button(role: .destructive) {
-                            viewModel.cancelSleepTimer(); dismiss()
+                            viewModel.cancelSleepTimer()
+                            dismiss()
                         } label: {
                             Label("Off", systemImage: "xmark.circle")
                         }
                     } footer: {
                         if viewModel.sleepTimerMode == "minutes" {
-                            Text(String(localized: "Remaining: \(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))"))
+                            Text(
+                                String(
+                                    localized:
+                                        "Remaining: \(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))"
+                                ))
                         }
                     }
                 }
@@ -388,7 +441,9 @@ struct SleepTimerView: View {
     }
 
     @ViewBuilder
-    private func timerButton(label: String, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func timerButton(
+        label: String, systemImage: String, isOn: Bool, action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack {
                 Label(label, systemImage: systemImage)
@@ -435,7 +490,10 @@ struct TransportRow: View {
 
     var body: some View {
         HStack(spacing: usesImmersiveChrome ? rowSpacing : 20) {
-            SideTransportButton(action: leftSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
+            SideTransportButton(
+                action: leftSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome,
+                controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer,
+                onPomodoroLongPress: onPomodoroLongPress)
 
             CenterTransportButton(
                 action: centerSlot,
@@ -448,7 +506,10 @@ struct TransportRow: View {
                 onPomodoroLongPress: onPomodoroLongPress
             )
 
-            SideTransportButton(action: rightSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome, controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer, onPomodoroLongPress: onPomodoroLongPress)
+            SideTransportButton(
+                action: rightSlot, viewModel: viewModel, usesImmersiveChrome: usesImmersiveChrome,
+                controlSize: sideButtonSize, onBookmark: onBookmark, onSleepTimer: onSleepTimer,
+                onPomodoroLongPress: onPomodoroLongPress)
         }
         .padding(.horizontal, usesImmersiveChrome ? innerHorizontalPadding : 0)
         .padding(.vertical, usesImmersiveChrome ? 6 : 0)
@@ -505,10 +566,16 @@ struct SideTransportButton: View {
                             .monospacedDigit()
                     } else if action == .sleepTimer {
                         ZStack {
-                            Image(systemName: viewModel.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
-                                .font(.system(size: iconSize, weight: .semibold))
-                                .foregroundStyle(viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
-                            if viewModel.sleepTimerMode == "minutes" && viewModel.sleepTimerRemainingSeconds > 0 {
+                            Image(
+                                systemName: viewModel.isSleepTimerActive
+                                    ? "moon.zzz.fill" : "moon.zzz"
+                            )
+                            .font(.system(size: iconSize, weight: .semibold))
+                            .foregroundStyle(
+                                viewModel.isSleepTimerActive ? Color.accentColor : Color.white)
+                            if viewModel.sleepTimerMode == "minutes"
+                                && viewModel.sleepTimerRemainingSeconds > 0
+                            {
                                 Text(sleepCountdownText(viewModel.sleepTimerRemainingSeconds))
                                     .font(.system(size: 9, weight: .bold, design: .rounded))
                                     .foregroundStyle(Color.accentColor)
@@ -521,7 +588,10 @@ struct SideTransportButton: View {
                             .font(.system(size: iconSize))
                     }
                 }
-                .frame(width: usesImmersiveChrome ? controlSize : 38, height: usesImmersiveChrome ? controlSize : 38)
+                .frame(
+                    width: usesImmersiveChrome ? controlSize : 38,
+                    height: usesImmersiveChrome ? controlSize : 38
+                )
                 .padding(usesImmersiveChrome ? 0 : 15)
                 .contentShape(Rectangle())
                 .opacity(action == .empty ? 0.35 : 1.0)
@@ -534,7 +604,10 @@ struct SideTransportButton: View {
             }
             .disabled(action == .empty)
             .accessibilityLabel(accessibilityLabelText)
-            .modifier(ToggleTraitModifier(isToggle: action == .loopMode, value: action == .loopMode ? loopModeAccessibilityValue : nil))
+            .modifier(
+                ToggleTraitModifier(
+                    isToggle: action == .loopMode,
+                    value: action == .loopMode ? loopModeAccessibilityValue : nil))
         }
     }
 
@@ -617,23 +690,25 @@ struct CenterTransportButton: View {
                 )
             } else {
                 if !viewModel.circularRingHidden {
-                    let ringProgress = viewModel.circularRingMode == "total"
+                    let ringProgress =
+                        viewModel.circularRingMode == "total"
                         ? viewModel.totalProgressFraction
                         : viewModel.progressFraction
                     // Use the suppression flag matching whichever progress source the ring tracks.
-                    let ringSuppressed = viewModel.circularRingMode == "chapter"
+                    let ringSuppressed =
+                        viewModel.circularRingMode == "chapter"
                         ? viewModel.ringAnimationSuppressed
                         : viewModel.progressAnimationSuppressed
-                    Circle()
-                        .stroke(Color.white.opacity(0.2), lineWidth: 4)
-                        .frame(width: ringSize, height: ringSize)
-
-                    Circle()
-                        .trim(from: 0, to: ringProgress)
-                        .stroke(viewModel.artworkAccentColor ?? Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                        .frame(width: ringSize, height: ringSize)
-                        .rotationEffect(.degrees(-90))
-                        .animation(ringSuppressed ? nil : .linear(duration: 0.5), value: ringProgress)
+                    // Whole-book mode segments the ring at chapter/track
+                    // boundaries; chapter mode keeps the classic solid ring.
+                    SegmentedProgressRing(
+                        progress: ringProgress,
+                        rawBoundaries: viewModel.circularRingMode == "total"
+                            ? viewModel.bookBoundaryFractions : [],
+                        tint: viewModel.artworkAccentColor ?? Color.accentColor,
+                        size: ringSize,
+                        animationSuppressed: ringSuppressed
+                    )
                 }
 
                 Button(action: performResolvedAction) {
@@ -735,8 +810,14 @@ struct NewBookmarkView: View {
                     Circle()
                         .stroke(.secondary.opacity(0.25), lineWidth: 6)
                     Circle()
-                        .trim(from: 0, to: recorder.isRecording ? recordingProgress : quickBookmarkProgress)
-                        .stroke(recorder.isRecording ? .red : Color.accentColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .trim(
+                            from: 0,
+                            to: recorder.isRecording ? recordingProgress : quickBookmarkProgress
+                        )
+                        .stroke(
+                            recorder.isRecording ? .red : Color.accentColor,
+                            style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                        )
                         .rotationEffect(.degrees(-90))
                     Image(systemName: recorder.isRecording ? "stop.fill" : "bookmark.fill")
                         .font(.title3)
@@ -763,14 +844,19 @@ struct NewBookmarkView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .accessibilityHint("Adds Bookmark #\(viewModel.bookmarks.count + 1) without recording audio")
+                    .accessibilityHint(
+                        "Adds Bookmark #\(viewModel.bookmarks.count + 1) without recording audio")
                 }
 
                 Button {
                     recorder.isRecording ? saveVoiceMemo() : startVoiceBookmark()
                 } label: {
-                    Label(recorder.isRecording ? String(localized: "Stop") : String(localized: "Record Note"), systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                        .frame(maxWidth: .infinity)
+                    Label(
+                        recorder.isRecording
+                            ? String(localized: "Stop") : String(localized: "Record Note"),
+                        systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill"
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(recorder.isRecording ? .red : .accentColor)
@@ -790,7 +876,7 @@ struct NewBookmarkView: View {
                 }
             }
             .alert("Bookmark Not Saved", isPresented: $isShowingAlert) {
-                Button("OK", role: .cancel) { }
+                Button("OK", role: .cancel) {}
             } message: {
                 Text(alertMessage)
             }
@@ -864,7 +950,9 @@ struct NewBookmarkView: View {
         case .undetermined:
             Task {
                 let isGranted = await AVAudioApplication.requestRecordPermission()
-                isGranted ? beginRecording() : showAlert("Microphone access is required to record a voice bookmark.")
+                isGranted
+                    ? beginRecording()
+                    : showAlert("Microphone access is required to record a voice bookmark.")
             }
         @unknown default:
             showAlert("Microphone access is unavailable.")
@@ -932,10 +1020,14 @@ struct MarqueeText: View {
                     let containerWidth = proxy.size.width
 
                     if textWidth > containerWidth {
-                        TimelineView(.animation(minimumInterval: 0.5, paused: !isPlaying || isLuminanceReduced)) { timeline in
+                        TimelineView(
+                            .animation(
+                                minimumInterval: 0.5, paused: !isPlaying || isLuminanceReduced)
+                        ) { timeline in
                             let time = timeline.date.timeIntervalSinceReferenceDate
                             let distance = textWidth + 40
-                            let offset = CGFloat(time * scrollSpeed).truncatingRemainder(dividingBy: distance)
+                            let offset = CGFloat(time * scrollSpeed).truncatingRemainder(
+                                dividingBy: distance)
 
                             HStack(spacing: 40) {
                                 textView
@@ -954,10 +1046,12 @@ struct MarqueeText: View {
             .background(
                 textView
                     .fixedSize()
-                    .background(GeometryReader { geo in
-                        Color.clear.onAppear { textWidth = geo.size.width }
-                            .onChange(of: text) { _, _ in textWidth = geo.size.width }
-                    })
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.onAppear { textWidth = geo.size.width }
+                                .onChange(of: text) { _, _ in textWidth = geo.size.width }
+                        }
+                    )
                     .hidden()
             )
     }

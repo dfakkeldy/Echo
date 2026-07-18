@@ -128,7 +128,7 @@ struct ContentView: View {
                         viewModel: viewModel,
                         isPrimaryActionEnabled: selectedPage == 5
                     )
-                        .tag(5)
+                    .tag(5)
                 }
             }
             .tabViewStyle(.page)
@@ -172,6 +172,19 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(10)
             }
+
+            // Transient crown-volume HUD; sits above the fullscreen artwork so
+            // volume feedback stays visible there too. Gate matches
+            // handleCrownRotation: anything that isn't scrub drives volume.
+            if isVolumeIndicatorVisible && viewModel.crownAction != "scrub" {
+                VolumeIndicatorView(
+                    fraction: viewModel.volumeFraction,
+                    tint: viewModel.artworkAccentColor ?? .accentColor
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .zIndex(20)
+                .allowsHitTesting(false)
+            }
         }
         .focusable(true, interactions: .edit)
         .focused($isFocused)
@@ -183,7 +196,11 @@ struct ContentView: View {
             by: 0.01,
             sensitivity: .medium,
             isContinuous: true,
-            isHapticFeedbackEnabled: true
+            // System detents would click on every hair-tick regardless of
+            // whether anything changed; haptics are played manually instead,
+            // only when a real control threshold is crossed (volume step /
+            // scrub engage), and they respect the app's haptics setting.
+            isHapticFeedbackEnabled: false
         )
         .onChange(of: crownAccumulator) { _, newValue in
             handleCrownRotation(offset: newValue)
@@ -213,10 +230,21 @@ struct ContentView: View {
     @State private var accumulatedScrubDelta: Double = 0.0
     @State private var isScrubbingActive: Bool = false
     @State private var scrubIdleTask: Task<Void, Never>?
+    @State private var isVolumeIndicatorVisible = false
+    @State private var volumeIndicatorHideTask: Task<Void, Never>?
+    @State private var pendingVolumeDelta: Double = 0.0
+    @State private var volumeSendTask: Task<Void, Never>?
 
     private func handleCrownRotation(offset: Double) {
-        let delta = offset - previousCrownOffset
+        var delta = offset - previousCrownOffset
         previousCrownOffset = offset
+        // `isContinuous` wraps the accumulator between -1000 and +1000; correct
+        // the delta so a wrap doesn't register as one giant rotation.
+        if delta > 1_000 {
+            delta -= 2_000
+        } else if delta < -1_000 {
+            delta += 2_000
+        }
         guard delta != 0 else { return }
 
         if viewModel.crownAction == "scrub" {
@@ -229,6 +257,9 @@ struct ContentView: View {
                 // Require ~10% of a full rotation to break the deadzone and begin scrubbing
                 if abs(accumulatedScrubDelta) > 0.10 {
                     isScrubbingActive = true
+                    // The one haptic that matters in scrub mode: the moment the
+                    // deadzone breaks and the crown actually takes control.
+                    viewModel.playScrubEngageHaptic()
                     viewModel.sendCommand("scrubDelta", params: ["delta": accumulatedScrubDelta])
                     accumulatedScrubDelta = 0.0
                 }
@@ -244,7 +275,43 @@ struct ContentView: View {
                 accumulatedScrubDelta = 0.0
             }
         } else {
-            viewModel.sendCommand("volumeDelta", params: ["delta": delta])
+            // Optimistic local gain mirror drives the indicator; a haptic fires
+            // only when the change crosses a discrete volume step.
+            if viewModel.applyLocalVolumeDelta(delta) {
+                viewModel.playCrownStepHaptic()
+            }
+            showVolumeIndicator()
+            queueVolumeDelta(delta)
+        }
+    }
+
+    /// Shows the transient volume HUD and (re)arms its auto-hide.
+    private func showVolumeIndicator() {
+        withAnimation(.easeOut(duration: 0.15)) {
+            isVolumeIndicatorVisible = true
+        }
+        volumeIndicatorHideTask?.cancel()
+        volumeIndicatorHideTask = Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.3)) {
+                isVolumeIndicatorVisible = false
+            }
+        }
+    }
+
+    /// Coalesces per-tick crown deltas into one WCSession message every ~80 ms
+    /// instead of flooding the channel with a sendMessage per hair-tick.
+    private func queueVolumeDelta(_ delta: Double) {
+        pendingVolumeDelta += delta
+        guard volumeSendTask == nil else { return }
+        volumeSendTask = Task {
+            try? await Task.sleep(for: .milliseconds(80))
+            volumeSendTask = nil
+            let accumulated = pendingVolumeDelta
+            pendingVolumeDelta = 0.0
+            guard !Task.isCancelled, accumulated != 0 else { return }
+            viewModel.sendCommand("volumeDelta", params: ["delta": accumulated])
         }
     }
 

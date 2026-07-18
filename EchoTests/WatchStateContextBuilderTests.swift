@@ -72,6 +72,40 @@ struct WatchStateContextBuilderTests {
         #expect(ctx["trackId"] == nil)
     }
 
+    // MARK: - Whole-book boundaries + crown volume
+
+    @Test("whole-book boundaries and crown volume state reach the context")
+    func boundariesAndCrownVolume() {
+        var snap = WatchStateSnapshot()
+        snap.bookBoundaryFractions = [0.25, 0.5, 0.75]
+        snap.outputGainDB = -3.5
+        snap.crownVolumeSensitivity = 0.2
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(ctx["bookBoundaryFractions"] as? [Double] == [0.25, 0.5, 0.75])
+        #expect(ctx["outputGainDB"] as? Double == -3.5)
+        #expect(ctx["crownVolumeSensitivity"] as? Double == 0.2)
+    }
+
+    @Test("empty boundaries stay present so the watch clears stale segments")
+    func emptyBoundariesExplicit() {
+        let ctx = WatchStateContextBuilder.build(from: WatchStateSnapshot())
+        #expect((ctx["bookBoundaryFractions"] as? [Double])?.isEmpty == true)
+    }
+
+    @Test("boundary payload is capped at the transport limit")
+    func boundariesCapped() {
+        var snap = WatchStateSnapshot()
+        snap.bookBoundaryFractions = (1...100).map { Double($0) / 101.0 }
+
+        let ctx = WatchStateContextBuilder.build(from: snap)
+
+        #expect(
+            (ctx["bookBoundaryFractions"] as? [Double])?.count
+                == BookProgressSegmentMetrics.maxTransportBoundaries)
+    }
+
     // MARK: - Title
 
     @Test("title uses chapter name when 2+ chapters and subtitle is set")

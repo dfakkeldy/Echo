@@ -247,8 +247,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
         session.activate()
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any])
-    {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         let payload = WatchConnectivityDictionary(value: message)
         Task { @MainActor [weak self, payload] in
             self?.onMessage?(payload.value, nil)
@@ -303,6 +302,7 @@ final class WatchSyncManager: NSObject, WCSessionDelegate {
             "linearBarMode", "linearBarHidden", "circularRingMode",
             "circularRingHidden", "watchArtworkLayout", "watchBackgroundStyle",
             "watchTitleScrollEnabled", "artworkAccentColorHex",
+            "bookBoundaryFractions", "outputGainDB", "crownVolumeSensitivity",
         ]
 
         private func assertExpectedKeys(in context: [String: Any]) {
