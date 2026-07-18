@@ -807,7 +807,7 @@ nonisolated enum VisualListeningImageLocator {
 }
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `EchoTests/VisualListeningImageLocatorTests.swift`:
 
@@ -853,7 +853,7 @@ struct VisualListeningImageLocatorTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -861,7 +861,7 @@ struct VisualListeningImageLocatorTests {
 
 Expected: compile FAILURE — `VisualListeningImageLocator` not defined.
 
-- [ ] **Step 3: Implement, moving the stage view's logic**
+- [x] **Step 3: Implement, moving the stage view's logic**
 
 Create `Shared/VisualListeningImageLocator.swift` (this is the exact fallback logic currently inlined in `VisualListeningStageView.visualListeningImage(at:)`, made shared so export and playback resolve images identically):
 
@@ -901,7 +901,7 @@ In `EchoCore/Views/VisualListeningStageView.swift`, replace the body of `visualL
 
 Behavioral note: the old code passed the (possibly nonexistent) fallback path to `UIImage(contentsOfFile:)` and got `nil`; the locator returns `nil` explicitly — same observable behavior, now testable.
 
-- [ ] **Step 4: Run focused tests until green**
+- [x] **Step 4: Run focused tests until green**
 
 ```bash
 make test-only FILTER=EchoTests/VisualListeningImageLocatorTests
@@ -910,7 +910,7 @@ make test-only FILTER=EchoTests/NowPlayingLayoutTests
 
 Expected: both PASS (`NowPlayingLayoutTests` guards the stage view wiring).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Shared/VisualListeningImageLocator.swift EchoCore/Views/VisualListeningStageView.swift EchoTests/VisualListeningImageLocatorTests.swift
