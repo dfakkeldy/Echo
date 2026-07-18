@@ -840,6 +840,16 @@ final class NarrationService {
                 continue
             }
 
+            // Code blocks speak their short cue, never the code — skip
+            // TextNormalizer/FM/occurrence overrides entirely.
+            if let cueText = NarrationCodeBlockCue.spokenText(for: block) {
+                var preparedBlock = block
+                preparedBlock.text = cueText
+                prepared.append(
+                    NarrationPreparedBlock(block: preparedBlock, pronunciationDecisionSeeds: []))
+                continue
+            }
+
             let normalized = TextNormalizer.normalize(block.text ?? "")
             let refined =
                 fmEnabled ? await FMNormalizer.refine(normalized, cache: fmCache) : normalized

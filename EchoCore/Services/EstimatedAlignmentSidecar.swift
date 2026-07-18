@@ -74,8 +74,10 @@ nonisolated enum EstimatedAlignmentSidecar {
     static func readableBlocks(from blocks: [EPubBlockRecord]) -> [EPubBlockRecord] {
         blocks
             .filter { block in
+                let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
                 guard !block.isHidden,
-                    EPubBlockRecord.Kind(rawValue: block.blockKind) != .image,
+                    kind != .image,
+                    kind != .code,
                     let text = block.text?.trimmingCharacters(in: .whitespacesAndNewlines),
                     !text.isEmpty
                 else { return false }

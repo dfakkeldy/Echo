@@ -194,8 +194,9 @@ struct AlignmentService {
         var wordPositionByBlockID: [String: Double] = [:]
         var cumulativeWordCount: Double = 0
         for block in sortedAllBlocks {
+            let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
             let weight: Double
-            if block.isHidden || EPubBlockRecord.Kind(rawValue: block.blockKind) == .image {
+            if block.isHidden || kind == .image || kind == .code {
                 weight = 0.0
             } else {
                 weight = Double(max(1, block.text?.count ?? 1))
