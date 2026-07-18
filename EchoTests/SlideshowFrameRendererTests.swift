@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 
 @testable import Echo
@@ -8,10 +9,11 @@ import Testing
 struct SlideshowFrameRendererTests {
     private func frame(
         subtitle: String? = "Hello world of tests",
-        activeWord: Int? = nil, heard: Int = 0, imagePath: String? = nil
+        activeWord: Int? = nil, heard: Int = 0, imagePath: String? = nil,
+        caption: String? = "A caption"
     ) -> SlideshowFramePlan {
         SlideshowFramePlan(
-            startTime: 0, duration: 1, imagePath: imagePath, caption: "A caption",
+            startTime: 0, duration: 1, imagePath: imagePath, caption: caption,
             subtitleText: subtitle, activeWordIndex: activeWord,
             alreadyHeardWordCount: heard)
     }
@@ -42,15 +44,53 @@ struct SlideshowFrameRendererTests {
     @Test func activeWordChangesThePixels() throws {
         let renderer = SlideshowFrameRenderer(width: 320, height: 180, coverArt: nil)
         let a = try #require(renderer.render(frame(activeWord: 0, heard: 0)))
-        let b = try #require(renderer.render(frame(activeWord: 2, heard: 2)))
+        let b = try #require(renderer.render(frame(activeWord: 2, heard: 0)))
+        #expect(pixels(a) != pixels(b))
+    }
+
+    @Test func heardWordWashChangesThePixels() throws {
+        let renderer = SlideshowFrameRenderer(width: 320, height: 180, coverArt: nil)
+        let a = try #require(renderer.render(frame(activeWord: nil, heard: 0)))
+        let b = try #require(renderer.render(frame(activeWord: nil, heard: 2)))
         #expect(pixels(a) != pixels(b))
     }
 
     @Test func missingImagePathFallsBackToCoverArtWithoutFailing() throws {
         let cover = try #require(Self.solidImage(width: 4, height: 4))
-        let renderer = SlideshowFrameRenderer(width: 320, height: 180, coverArt: cover)
-        let withMissing = renderer.render(frame(imagePath: "/nowhere/gone-book/x.jpg"))
-        #expect(withMissing != nil)
+        let withCover = SlideshowFrameRenderer(width: 320, height: 180, coverArt: cover)
+        let withoutCover = SlideshowFrameRenderer(width: 320, height: 180, coverArt: nil)
+        let missingFrame = frame(
+            subtitle: nil, imagePath: "/nowhere/gone-book/x.jpg", caption: nil)
+        let fallback = try #require(withCover.render(missingFrame))
+        let blank = try #require(withoutCover.render(missingFrame))
+        #expect(pixels(fallback) != pixels(blank))
+    }
+
+    @Test func appliesRotatedAndMirroredImageOrientationMetadata() throws {
+        let source = try #require(Self.splitImage(width: 40, height: 100))
+        let uprightURL = try Self.orientedTIFF(source, orientation: 1)
+        let rotatedURL = try Self.orientedTIFF(source, orientation: 6)
+        let mirroredURL = try Self.orientedTIFF(source, orientation: 7)
+        defer {
+            try? FileManager.default.removeItem(at: uprightURL)
+            try? FileManager.default.removeItem(at: rotatedURL)
+            try? FileManager.default.removeItem(at: mirroredURL)
+        }
+
+        let renderer = SlideshowFrameRenderer(width: 200, height: 200, coverArt: nil)
+        let upright = try #require(renderer.render(
+            frame(subtitle: nil, imagePath: uprightURL.path, caption: nil)))
+        let rotated = try #require(renderer.render(
+            frame(subtitle: nil, imagePath: rotatedURL.path, caption: nil)))
+        let mirrored = try #require(renderer.render(
+            frame(subtitle: nil, imagePath: mirroredURL.path, caption: nil)))
+
+        // Orientations 1 and 6 differ by a quarter turn; identical output means
+        // the rotation metadata was ignored.
+        #expect(pixels(upright) != pixels(rotated))
+        // Orientations 6 and 7 differ only by mirroring; identical output means
+        // the metadata was ignored.
+        #expect(pixels(rotated) != pixels(mirrored))
     }
 
     private static func solidImage(width: Int, height: Int) -> CGImage? {
@@ -61,5 +101,31 @@ struct SlideshowFrameRendererTests {
         context?.setFillColor(CGColor(red: 0.5, green: 0.2, blue: 0.2, alpha: 1))
         context?.fill(CGRect(x: 0, y: 0, width: width, height: height))
         return context?.makeImage()
+    }
+
+    private static func splitImage(width: Int, height: Int) -> CGImage? {
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
+        context.setFillColor(CGColor(red: 0.1, green: 0.2, blue: 0.9, alpha: 1))
+        context.fill(CGRect(x: width / 2, y: 0, width: width / 2, height: height))
+        return context.makeImage()
+    }
+
+    private static func orientedTIFF(
+        _ image: CGImage, orientation: UInt32
+    ) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).tiff")
+        let destination = try #require(CGImageDestinationCreateWithURL(
+            url as CFURL, "public.tiff" as CFString, 1, nil))
+        let properties: [CFString: Any] = [kCGImagePropertyOrientation: orientation]
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        try #require(CGImageDestinationFinalize(destination))
+        return url
     }
 }

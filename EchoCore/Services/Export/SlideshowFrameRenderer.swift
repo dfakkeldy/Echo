@@ -89,9 +89,23 @@ nonisolated final class SlideshowFrameRenderer {
 
     private static func loadImage(storedPath: String) -> CGImage? {
         guard let url = VisualListeningImageLocator.resolvedURL(forStoredPath: storedPath),
-            let source = CGImageSourceCreateWithURL(url as CFURL, nil)
+            let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any]
+        guard let orientation = properties?[kCGImagePropertyOrientation] as? NSNumber,
+            (2...8).contains(orientation.intValue)
+        else { return image }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(image.width, image.height),
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) ?? image
     }
 
     private static func aspectFit(size image: CGImage, into rect: CGRect) -> CGRect {
