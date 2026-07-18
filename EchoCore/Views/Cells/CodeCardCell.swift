@@ -15,6 +15,7 @@ final class CodeCardCell: UICollectionViewCell {
         textView.isEditable = false
         textView.isSelectable = true
         textView.isScrollEnabled = true
+        textView.scrollsToTop = false
         textView.alwaysBounceVertical = false
         textView.backgroundColor = .clear
         textView.font = UIFont.monospacedSystemFont(
@@ -110,21 +111,29 @@ final class CodeCardCell: UICollectionViewCell {
         hint accessibilityHint: String,
         actions: [UIAccessibilityCustomAction]
     ) {
-        isAccessibilityElement = true
-        self.accessibilityLabel = accessibilityLabel
-        accessibilityValue = textView.text
-        self.accessibilityHint = accessibilityHint
-        accessibilityTraits = [.button]
-        accessibilityCustomActions = actions
-        textView.isAccessibilityElement = false
+        isAccessibilityElement = false
+        self.accessibilityLabel = nil
+        accessibilityValue = nil
+        self.accessibilityHint = nil
+        accessibilityCustomActions = nil
+        textView.isAccessibilityElement = true
+        textView.accessibilityLabel = accessibilityLabel
+        textView.accessibilityValue = textView.text
+        textView.accessibilityHint = accessibilityHint
+        textView.accessibilityCustomActions = actions
         languageLabel.isAccessibilityElement = false
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        textView.resignFirstResponder()
         textView.text = nil
         textView.selectedRange = NSRange(location: 0, length: 0)
         textView.setContentOffset(.zero, animated: false)
+        textView.accessibilityLabel = nil
+        textView.accessibilityValue = nil
+        textView.accessibilityHint = nil
+        textView.accessibilityCustomActions = nil
         languageLabel.text = nil
         languageLabel.isHidden = true
         textViewHeight?.constant = 60

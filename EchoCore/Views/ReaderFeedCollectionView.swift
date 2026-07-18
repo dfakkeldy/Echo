@@ -523,8 +523,8 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     codeCell.isActiveBlock = (block.id == activeBlockID)
                     codeCell.configureAccessibility(
                         label: accessibilityLabel(for: block, kind: .code),
-                        hint: accessibilityHint(for: block),
-                        actions: onAccessibilityActions?(block) ?? []
+                        hint: accessibilityHint(for: block, kind: .code),
+                        actions: accessibilityActions(forCodeBlock: block)
                     )
                     return codeCell
 
@@ -580,15 +580,21 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                     ? String(localized: "Image")
                     : String(localized: "Image. \(clippedText)")
             case .code:
-                return clippedText.isEmpty
-                    ? String(localized: "Code listing")
-                    : String(localized: "Code listing. \(clippedText)")
+                return String(localized: "Code listing")
             case .paragraph, .sentence:
                 return clippedText.isEmpty ? String(localized: "Text passage") : clippedText
             }
         }
 
-        private func accessibilityHint(for block: EPubBlockRecord) -> String {
+        private func accessibilityHint(
+            for block: EPubBlockRecord, kind: EPubBlockRecord.Kind? = nil
+        ) -> String {
+            if kind == .code {
+                return String(
+                    localized:
+                        "Selectable code. Use Actions to seek, align, bookmark, copy, and more."
+                )
+            }
             if audioStartTimeByBlockID[block.id] != nil {
                 return String(
                     localized:
@@ -599,6 +605,27 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 localized:
                     "Double-tap to select this passage. Use Actions for alignment, bookmarks, and more options."
             )
+        }
+
+        private func accessibilityActions(
+            forCodeBlock block: EPubBlockRecord
+        ) -> [UIAccessibilityCustomAction] {
+            var actions = onAccessibilityActions?(block) ?? []
+            let seekAction = UIAccessibilityCustomAction(
+                name: String(localized: "Seek to Code Listing")
+            ) { [weak self] _ in
+                guard let self else { return false }
+                if let onTapWord {
+                    onTapWord(block.id, nil)
+                } else if let onTapBlock {
+                    onTapBlock(block.id)
+                } else {
+                    return false
+                }
+                return true
+            }
+            actions.insert(seekAction, at: 0)
+            return actions
         }
 
         func applySnapshot(
