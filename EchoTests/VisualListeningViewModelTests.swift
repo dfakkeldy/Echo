@@ -58,7 +58,8 @@ struct VisualListeningViewModelTests {
             textOnlyDB,
             block("text", audiobookID: "book", sequence: 0, kind: .paragraph, text: "Only text")
         )
-        try insertTimeline(textOnlyDB, audiobookID: "book", id: "text-row", blockID: "text", start: 0, end: 5)
+        try insertTimeline(
+            textOnlyDB, audiobookID: "book", id: "text-row", blockID: "text", start: 0, end: 5)
 
         let completeDB = try makeDatabase()
         try insertFixture(
@@ -84,6 +85,103 @@ struct VisualListeningViewModelTests {
         #expect(!imageOnly.hasVisualListeningContent)
         #expect(!textOnly.hasVisualListeningContent)
         #expect(complete.hasVisualListeningContent)
+    }
+
+    @Test func codeTimelineAloneProvidesVisualListeningContent() async throws {
+        let db = try makeDatabase()
+        try insertBlock(
+            db,
+            block(
+                "code",
+                audiobookID: "book",
+                sequence: 0,
+                kind: .code,
+                text: "let answer = 42",
+                narrationText: "The answer listing.",
+                codeLanguage: "swift"
+            )
+        )
+        try insertTimeline(
+            db,
+            audiobookID: "book",
+            id: "code-row",
+            blockID: "code",
+            start: 0,
+            end: 5
+        )
+
+        let viewModel = VisualListeningViewModel(audiobookID: "book", db: db.writer)
+        await viewModel.reload()
+        viewModel.update(time: 1)
+
+        #expect(viewModel.hasVisualListeningContent)
+        guard case .code(let text, let language) = viewModel.snapshot.visualCue?.content else {
+            Issue.record("Expected the database-backed code block to reach the visual stage.")
+            return
+        }
+        #expect(text == "let answer = 42")
+        #expect(language == "swift")
+        #expect(viewModel.snapshot.subtitleCue?.text == "The answer listing.")
+    }
+
+    @Test func codeTimelineWithoutNarrationUsesFallbackSubtitle() async throws {
+        let db = try makeDatabase()
+        try insertBlock(
+            db,
+            block(
+                "code",
+                audiobookID: "book",
+                sequence: 0,
+                kind: .code,
+                text: "print(42)"
+            )
+        )
+        try insertTimeline(
+            db,
+            audiobookID: "book",
+            id: "code-row",
+            blockID: "code",
+            start: 0,
+            end: 5
+        )
+
+        let viewModel = VisualListeningViewModel(audiobookID: "book", db: db.writer)
+        await viewModel.reload()
+        viewModel.update(time: 1)
+
+        #expect(viewModel.hasVisualListeningContent)
+        #expect(viewModel.snapshot.visualCue?.blockID == "code")
+        #expect(viewModel.snapshot.subtitleCue?.text == "Code listing.")
+    }
+
+    @Test func emptyCodeTimelineDoesNotProvideVisualListeningContent() async throws {
+        let db = try makeDatabase()
+        try insertBlock(
+            db,
+            block(
+                "code",
+                audiobookID: "book",
+                sequence: 0,
+                kind: .code,
+                text: "",
+                narrationText: "Empty listing."
+            )
+        )
+        try insertTimeline(
+            db,
+            audiobookID: "book",
+            id: "code-row",
+            blockID: "code",
+            start: 0,
+            end: 5
+        )
+
+        let viewModel = VisualListeningViewModel(audiobookID: "book", db: db.writer)
+        await viewModel.reload()
+        viewModel.update(time: 1)
+
+        #expect(!viewModel.hasVisualListeningContent)
+        #expect(viewModel.snapshot == .empty)
     }
 
     @Test func updateRefreshesImageAndSubtitleAsPlaybackMoves() async throws {
@@ -192,9 +290,12 @@ struct VisualListeningViewModelTests {
     private func makeDatabase() throws -> DatabaseService {
         let db = try DatabaseService(inMemory: ())
         try db.write { db in
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book', 'Book', 60)")
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'One', 60)")
-            try db.execute(sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-2', 'Two', 60)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book', 'Book', 60)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-1', 'One', 60)")
+            try db.execute(
+                sql: "INSERT INTO audiobook (id, title, duration) VALUES ('book-2', 'Two', 60)")
         }
         return db
     }
@@ -288,6 +389,8 @@ struct VisualListeningViewModelTests {
         kind: EPubBlockRecord.Kind,
         text: String? = nil,
         imagePath: String? = nil,
+        narrationText: String? = nil,
+        codeLanguage: String? = nil,
         chapter: Int? = 0,
         hidden: Bool = false
     ) -> EPubBlockRecord {
@@ -311,7 +414,8 @@ struct VisualListeningViewModelTests {
             wordCount: nil,
             markers: nil,
             textFormats: nil,
-            narrationText: nil,
+            narrationText: narrationText,
+            codeLanguage: codeLanguage,
             createdAt: nil,
             modifiedAt: nil
         )

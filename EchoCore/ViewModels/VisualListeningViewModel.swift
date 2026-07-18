@@ -103,8 +103,17 @@ final class VisualListeningViewModel {
         let hasSubtitle = timeline.contains { row in
             guard let block = blockByID[row.blockID] else { return false }
             let kind = EPubBlockRecord.Kind(rawValue: block.blockKind)
-            guard kind != .image, kind != .code else { return false }
-            return block.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            switch kind {
+            case .code:
+                // A valid code row always has subtitle prose: its narration cue,
+                // or the resolver's defensive "Code listing." fallback.
+                return block.text?.isEmpty == false
+            case .image:
+                return false
+            default:
+                return block.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    == false
+            }
         }
 
         return hasVisual && hasSubtitle

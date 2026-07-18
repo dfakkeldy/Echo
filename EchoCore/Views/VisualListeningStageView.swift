@@ -15,7 +15,7 @@ struct VisualListeningStageView: View {
         VStack(spacing: 12) {
             visualStage
                 .overlay(alignment: .bottom) {
-                    if let subtitleCue = snapshot.subtitleCue {
+                    if !isCodeVisual, let subtitleCue = snapshot.subtitleCue {
                         VisualListeningSubtitleView(cue: subtitleCue, appFont: appFont)
                             .padding(12)
                     }
@@ -42,7 +42,11 @@ struct VisualListeningStageView: View {
                 .fill(Color.primary.opacity(0.08))
 
             if case .code(let text, _) = snapshot.visualCue?.content {
-                VisualListeningCodeView(text: text)
+                VisualListeningCodeView(
+                    text: text,
+                    subtitleCue: snapshot.subtitleCue,
+                    appFont: appFont
+                )
             } else if let image {
                 Image(uiImage: image)
                     .resizable()
@@ -61,6 +65,11 @@ struct VisualListeningStageView: View {
         .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
         .animation(.easeInOut(duration: 0.25), value: snapshot.visualCue?.id)
         .accessibilityLabel(Text(accessibilityLabel))
+    }
+
+    private var isCodeVisual: Bool {
+        if case .code = snapshot.visualCue?.content { return true }
+        return false
     }
 
     private var accessibilityLabel: String {
@@ -98,6 +107,8 @@ struct VisualListeningStageView: View {
 
 private struct VisualListeningCodeView: View {
     let text: String
+    let subtitleCue: VisualListeningSubtitleCue?
+    let appFont: String
 
     var body: some View {
         ScrollView([.vertical, .horizontal]) {
@@ -109,6 +120,12 @@ private struct VisualListeningCodeView: View {
         }
         .scrollIndicators(.hidden)
         .accessibilityHidden(true)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let subtitleCue {
+                VisualListeningSubtitleView(cue: subtitleCue, appFont: appFont)
+                    .padding(12)
+            }
+        }
     }
 }
 
