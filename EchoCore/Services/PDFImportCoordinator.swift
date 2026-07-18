@@ -61,7 +61,8 @@ enum PDFImportCoordinator {
         to folderURL: URL,
         databaseService: DatabaseService,
         chapters: [Chapter],
-        duration: TimeInterval?
+        duration: TimeInterval?,
+        audiobookID explicitAudiobookID: String? = nil
     ) async throws -> ImportResult {
         let didStartSource = sourceURL.startAccessingSecurityScopedResource()
         defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
@@ -96,7 +97,7 @@ enum PDFImportCoordinator {
             importURL = sourceURL
         }
 
-        let audiobookID = folderURL.absoluteString
+        let audiobookID = explicitAudiobookID ?? folderURL.absoluteString
 
         let importOutcome = await PDFAutoImportScanner.importPDFFileOutcome(
             pdfURL: importURL,

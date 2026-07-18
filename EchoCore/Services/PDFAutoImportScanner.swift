@@ -45,6 +45,7 @@ enum PDFAutoImportScanner {
 
         // 1. Scan for .pdf files in the folder.
         let pdfFiles: [URL]
+        let contents: [URL]
         var isDir: ObjCBool = false
         let folderIsDirectory =
             FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir)
@@ -64,7 +65,7 @@ enum PDFAutoImportScanner {
         }
 
         do {
-            let contents = try FileManager.default.contentsOfDirectory(
+            contents = try FileManager.default.contentsOfDirectory(
                 at: targetURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: .skipsHiddenFiles
@@ -77,8 +78,13 @@ enum PDFAutoImportScanner {
             return false
         }
 
-        guard let pdfURL = pdfFiles.first else {
-            logger.debug("No .pdf file found in folder: \(sanitizedPath(folderURL.path))")
+        guard let pdfURL = CompanionDocumentSelector.select(
+            documents: pdfFiles,
+            for: folderURL,
+            folderIsDirectory: folderIsDirectory,
+            siblingFiles: contents)
+        else {
+            logger.debug("No unambiguous .pdf companion found for: \(sanitizedPath(folderURL.path))")
             return false
         }
 

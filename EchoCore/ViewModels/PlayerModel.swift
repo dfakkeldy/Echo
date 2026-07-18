@@ -218,21 +218,21 @@ final class PlayerModel {
 
     func updateBookFontOverride(_ value: String?) {
         bookFontOverride = value
-        if let key = folderURL?.absoluteString {
+        if let key = bookIdentityURL?.absoluteString {
             bookSettingsOverrideStore.persistFontOverride(value, for: key)
         }
     }
 
     func updateBookPlayBookmarksInlineOverride(_ value: String?) {
         bookPlayBookmarksInlineOverride = value
-        if let key = folderURL?.absoluteString {
+        if let key = bookIdentityURL?.absoluteString {
             bookSettingsOverrideStore.persistBookmarksInlineOverride(value, for: key)
         }
     }
 
     func updateBookVolumeBoostOverride(_ value: String?) {
         bookVolumeBoostOverride = value
-        if let key = folderURL?.absoluteString {
+        if let key = bookIdentityURL?.absoluteString {
             bookSettingsOverrideStore.persistVolumeBoostOverride(value, for: key)
         }
         playbackController.setVolumeBoost(
@@ -249,8 +249,13 @@ final class PlayerModel {
 
     var folderURL: URL? {
         get { state.folderURL }
-        set { state.folderURL = newValue }
+        set {
+            state.folderURL = newValue
+            state.bookIdentityURL = newValue
+        }
     }
+    var bookIdentityURL: URL? { state.activeBookURL }
+    var persistenceFolderURL: URL? { state.persistenceFolderURL }
     var tracks: [Track] {
         get { state.tracks }
         set { state.tracks = newValue }
@@ -307,26 +312,26 @@ final class PlayerModel {
     /// One DB lookup per loaded book (same retry-free cache pattern as
     /// `cachedSignature`); metadata enriched after this session shows up on
     /// the next book load.
-    @ObservationIgnored private var cachedBookChrome: (folder: URL, title: String, author: String?)?
+    @ObservationIgnored private var cachedBookChrome: (identity: URL, title: String, author: String?)?
 
     private var bookChrome: (title: String, author: String?) {
-        guard let folder = folderURL else {
+        guard let identity = bookIdentityURL else {
             return (BookTitleFormatter.humanized(currentTitle), nil)
         }
-        if let cached = cachedBookChrome, cached.folder == folder {
+        if let cached = cachedBookChrome, cached.identity == identity {
             return (cached.title, cached.author)
         }
         var record: AudiobookRecord?
         if let db = databaseService {
-            record = try? AudiobookDAO(db: db.writer).get(folder.absoluteString)
+            record = try? AudiobookDAO(db: db.writer).get(identity.absoluteString)
         }
         let title = BookTitleFormatter.displayTitle(
             storedTitle: record?.title,
-            fallbackName: folder.deletingPathExtension().lastPathComponent
+            fallbackName: identity.deletingPathExtension().lastPathComponent
         )
         let trimmedAuthor = record?.author?.trimmingCharacters(in: .whitespacesAndNewlines)
         let author = (trimmedAuthor?.isEmpty ?? true) ? nil : trimmedAuthor
-        cachedBookChrome = (folder, title, author)
+        cachedBookChrome = (identity, title, author)
         return (title, author)
     }
 
@@ -507,28 +512,55 @@ final class PlayerModel {
     /// Whether EPUB blocks have been imported for the current audiobook.
     var hasEPUB: Bool {
         _ = state.documentIngestionTrigger  // register dependency
-        return timelinePersistence.hasEPUB(for: folderURL?.absoluteString)
+        return timelinePersistence.hasEPUB(for: bookIdentityURL?.absoluteString)
     }
 
-    @ObservationIgnored private var cachedHasPDF: (trigger: Int, value: Bool)?
+    @ObservationIgnored private var cachedHasPDF: (trigger: Int, bookURL: URL?, value: Bool)?
 
     /// Whether a PDF file is present in the current audiobook folder. The
     /// directory scan is cached against `documentIngestionTrigger`, so it runs
     /// once per import rather than on every view-body read (§7.2).
     var hasPDF: Bool {
         let trigger = state.documentIngestionTrigger  // register observation dependency
-        if let cached = cachedHasPDF, cached.trigger == trigger { return cached.value }
-        let value =
-            (folderURL.flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) })?
-            .contains { $0.lowercased().hasSuffix(".pdf") } ?? false
-        cachedHasPDF = (trigger, value)
+        let bookURL = bookIdentityURL
+        if let cached = cachedHasPDF,
+            cached.trigger == trigger,
+            cached.bookURL == bookURL
+        {
+            return cached.value
+        }
+        let value: Bool
+        if let folderURL,
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: .skipsHiddenFiles)
+        {
+            let pdfs = contents.filter {
+                $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame
+            }
+            if let bookURL, bookURL != folderURL {
+                value = CompanionDocumentSelector.select(
+                    documents: pdfs,
+                    for: bookURL,
+                    folderIsDirectory: false,
+                    siblingFiles: contents) != nil
+            } else {
+                value = !pdfs.isEmpty
+            }
+        } else {
+            value = false
+        }
+        cachedHasPDF = (trigger, bookURL, value)
         return value
     }
 
     /// Whether a standalone transcript exists for the current audiobook (no EPUB/PDF).
     var hasStandaloneTranscript: Bool {
         _ = state.documentIngestionTrigger  // register dependency
-        guard let db = databaseService, let folder = folderURL?.absoluteString else { return false }
+        guard let db = databaseService, let folder = bookIdentityURL?.absoluteString else {
+            return false
+        }
         return
             ((try? db.read { db in
                 try StandaloneTranscriptRecord
@@ -740,7 +772,7 @@ final class PlayerModel {
 
         bookmarkStore.onPersist = { [weak self] bookmarks in
             guard let self, let key = bookmarksStorageKey else { return }
-            persistence.saveBookmarks(bookmarks, for: key, folderURL: folderURL)
+            persistence.saveBookmarks(bookmarks, for: key, folderURL: persistenceFolderURL)
         }
         bookmarkStore.onDeleteFile = { url in
             do {
@@ -877,9 +909,9 @@ final class PlayerModel {
                 self.state.pendingBookTimeSeek = nil
                 self.state.pendingBookTimeSeekSuppressesProgressPush = false
                 Task { @MainActor in self.seek(toSeconds: offset) }
-            } else if let folderURL = self.folderURL,
+            } else if let bookURL = self.bookIdentityURL,
                 let progress = self.persistence.getBookProgress(
-                    for: folderURL.absoluteString, folderURL: folderURL),
+                    for: bookURL.absoluteString, folderURL: self.persistenceFolderURL),
                 self.state.tracks.indices.contains(self.currentIndex),
                 progress.trackId == self.state.tracks[self.currentIndex].id,
                 progress.time > 0
@@ -987,7 +1019,7 @@ final class PlayerModel {
         playbackController.coordinator_persistAndSync = { [weak self] isPaused in
             self?.updateNowPlayingInfo(isPaused: isPaused)
             self?.syncToWatch()
-            if let folder = self?.folderURL?.absoluteString {
+            if let folder = self?.bookIdentityURL?.absoluteString {
                 self?.persistence.savePauseTimestamp(self?.state.pauseTimestamp, for: folder)
             }
         }
@@ -1004,11 +1036,13 @@ final class PlayerModel {
                 .seeked(toPosition: self.audioEngine.currentTime, at: Date()))
         }
         playbackController.coordinator_persistSpeed = { [weak self] key, speed in
-            self?.persistence.saveSpeed(for: key, speed: speed, folderURL: self?.folderURL)
+            self?.persistence.saveSpeed(
+                for: key, speed: speed, folderURL: self?.persistenceFolderURL)
             self?.sessionRecorder?.yield(.speedChanged(newSpeed: Double(speed), at: Date()))
         }
         playbackController.coordinator_persistLoopMode = { [weak self] key, mode in
-            self?.persistence.saveLoopMode(for: key, loopMode: mode, folderURL: self?.folderURL)
+            self?.persistence.saveLoopMode(
+                for: key, loopMode: mode, folderURL: self?.persistenceFolderURL)
         }
         playbackController.coordinator_canBookmarkLoop = { [weak self] in
             self?.canBookmarkLoop ?? false
@@ -1036,7 +1070,8 @@ final class PlayerModel {
             guard let self else { return }
             let bookTime = self.state.bookTime(forCurrentTrackOffset: time)
             self.persistence.saveBookProgress(
-                for: folder, trackId: trackId, time: bookTime, folderURL: self.folderURL)
+                for: folder, trackId: trackId, time: bookTime,
+                folderURL: self.persistenceFolderURL)
             self.maybePushABSProgress()
         }
         playbackController.coordinator_stopSecurityScope = { [weak self] in
@@ -1069,7 +1104,7 @@ final class PlayerModel {
                 self.startPlaybackSessionLogging()
                 self.sessionRecorder?.yield(
                     .opened(
-                        audiobookID: self.folderURL?.absoluteString ?? "unknown",
+                        audiobookID: self.bookIdentityURL?.absoluteString ?? "unknown",
                         trackID: self.state.tracks.indices.contains(self.state.currentIndex)
                             ? self.state.tracks[self.state.currentIndex].id : nil,
                         position: self.audioEngine.currentTime,
@@ -1155,7 +1190,7 @@ final class PlayerModel {
     private func currentWidgetPlaybackState() -> WidgetPlaybackState? {
         guard audioEngine.isItemLoaded,
             currentPlaybackTime.isFinite,
-            let folderKey = folderURL?.absoluteString,
+            let folderKey = bookIdentityURL?.absoluteString,
             tracks.indices.contains(currentIndex)
         else { return nil }
         return WidgetPlaybackState(
@@ -1168,13 +1203,13 @@ final class PlayerModel {
     /// Called when the app enters the background to prevent data loss.
     func persistCurrentState() {
         if audioEngine.isItemLoaded,
-            let folder = state.folderURL?.absoluteString,
+            let bookURL = state.activeBookURL,
             state.tracks.indices.contains(state.currentIndex)
         {
             persistence.saveBookProgress(
-                for: folder, trackId: state.tracks[state.currentIndex].id,
-                time: cumulativePlaybackTime, folderURL: state.folderURL)
-            persistence.savePauseTimestamp(state.pauseTimestamp, for: folder)
+                for: bookURL.absoluteString, trackId: state.tracks[state.currentIndex].id,
+                time: cumulativePlaybackTime, folderURL: state.persistenceFolderURL)
+            persistence.savePauseTimestamp(state.pauseTimestamp, for: bookURL.absoluteString)
             maybePushABSProgress(force: true)
         }
     }
@@ -1297,7 +1332,7 @@ final class PlayerModel {
     /// Re-ingests timeline items for the current audiobook, reloading EPUB blocks
     /// and anchors from the database. Call after EPUB import or anchor changes.
     func reingestTimelineFromEPUB() async {
-        guard let audiobookID = folderURL?.absoluteString else { return }
+        guard let audiobookID = bookIdentityURL?.absoluteString else { return }
         let audioURL: URL = {
             if state.tracks.indices.contains(currentIndex) {
                 return state.tracks[currentIndex].url
@@ -1353,7 +1388,9 @@ final class PlayerModel {
 
     /// Sets up or tears down the continuous alignment service.
     func configureContinuousAlignment() {
-        guard let db = databaseService?.writer, let audiobookID = folderURL?.absoluteString else {
+        guard let db = databaseService?.writer,
+            let audiobookID = bookIdentityURL?.absoluteString
+        else {
             continuousAlignmentService?.stop()
             continuousAlignmentService = nil
             return

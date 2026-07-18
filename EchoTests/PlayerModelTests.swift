@@ -50,6 +50,154 @@ struct PlayerModelTests {
         #expect(result.preferredTrackURL == selected)
     }
 
+    @Test("Selecting one M4B does not enlist unrelated sibling audiobooks")
+    func selectedM4BRemainsSingleTrack() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let selected = folder.appendingPathComponent("book.m4b")
+        try Data().write(to: selected)
+
+        var didEnumerateSiblings = false
+        let result = PlaylistSelectionResolver.resolve(url: selected) { folderURL in
+            didEnumerateSiblings = true
+            return [
+                Track(url: folderURL.appendingPathComponent("book.m4b"), title: "Book"),
+                Track(
+                    url: folderURL.appendingPathComponent("book.pronunciation-reel.m4b"),
+                    title: "Pronunciation Review"),
+                Track(
+                    url: folderURL.appendingPathComponent("unrelated-audiobook.m4b"),
+                    title: "Unrelated Audiobook"),
+            ]
+        }
+
+        #expect(didEnumerateSiblings == false)
+        #expect(result.isDirectory == false)
+        #expect(result.tracks.map(\.url) == [selected])
+        #expect(result.preferredTrackURL == nil)
+    }
+
+    @Test("Selecting a folder preserves an intentional multi-volume M4B playlist")
+    func selectedFolderPreservesM4BPlaylist() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let volumeOne = Track(
+            url: folder.appendingPathComponent("volume-1.m4b"),
+            title: "Volume 1")
+        let volumeTwo = Track(
+            url: folder.appendingPathComponent("volume-2.m4b"),
+            title: "Volume 2")
+
+        var enumeratedFolder: URL?
+        let result = PlaylistSelectionResolver.resolve(url: folder) { folderURL in
+            enumeratedFolder = folderURL
+            return [volumeOne, volumeTwo]
+        }
+
+        #expect(enumeratedFolder == folder)
+        #expect(result.isDirectory)
+        #expect(result.tracks.map(\.url) == [volumeOne.url, volumeTwo.url])
+        #expect(result.preferredTrackURL == nil)
+    }
+
+    @Test("Direct books attach only unambiguous companion documents")
+    func directBookCompanionSelectionIsUnambiguous() {
+        let folder = URL(fileURLWithPath: "/tmp/Messy Audiobooks", isDirectory: true)
+        let book = folder.appendingPathComponent("book.m4b")
+        let reviewReel = folder.appendingPathComponent("book-review.m4b")
+        let matchingEPUB = folder.appendingPathComponent("book.epub")
+        let unrelatedEPUB = folder.appendingPathComponent("other.epub")
+
+        #expect(
+            CompanionDocumentSelector.select(
+                documents: [unrelatedEPUB, matchingEPUB],
+                for: book,
+                folderIsDirectory: false,
+                siblingFiles: [book, reviewReel, unrelatedEPUB, matchingEPUB]
+            ) == matchingEPUB)
+        #expect(
+            CompanionDocumentSelector.select(
+                documents: [unrelatedEPUB],
+                for: book,
+                folderIsDirectory: false,
+                siblingFiles: [book, reviewReel, unrelatedEPUB]
+            ) == nil)
+        #expect(
+            CompanionDocumentSelector.select(
+                documents: [unrelatedEPUB],
+                for: book,
+                folderIsDirectory: false,
+                siblingFiles: [book, unrelatedEPUB]
+            ) == unrelatedEPUB)
+    }
+
+    @Test("Direct M4B PDF availability ignores unrelated sibling documents")
+    func directM4BPDFRequiresUnambiguousCompanion() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let selected = folder.appendingPathComponent("book-a.m4b")
+        let sibling = folder.appendingPathComponent("book-b.m4b")
+        try Data().write(to: selected)
+        try Data().write(to: sibling)
+        try Data().write(to: folder.appendingPathComponent("book-b.pdf"))
+
+        let model = PlayerModel()
+        model.folderURL = folder
+        model.state.bookIdentityURL = selected
+        #expect(model.hasPDF == false)
+
+        try Data().write(to: folder.appendingPathComponent("book-a.pdf"))
+        model.state.documentIngestionTrigger += 1
+        #expect(model.hasPDF)
+    }
+
+    @Test("Opening one M4B replaces stale folder aggregation and uses file book identity")
+    func openingM4BResetsFolderAggregationAndIdentity() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let selected = folder.appendingPathComponent("book.m4b")
+        try Data().write(to: selected)
+
+        let model = PlayerModel()
+        let staleFirst = M4BBook(
+            url: folder.appendingPathComponent("old-1.m4b"), title: "Old 1",
+            duration: 100, chapters: [])
+        let staleSecond = M4BBook(
+            url: folder.appendingPathComponent("old-2.m4b"), title: "Old 2",
+            duration: 200, chapters: [], cumulativeStartOffset: 100, trackIndex: 1)
+        model.state.m4bBooks = [staleFirst, staleSecond]
+        model.state.aggregatedChapters = [
+            AggregatedChapter(
+                bookTitle: "Old 1", bookIndex: 0, chapterTitle: "Old chapter",
+                chapterIndex: 0, startSeconds: 0, endSeconds: 100,
+                sourceBookURL: staleFirst.url)
+        ]
+        model.state.totalBookDuration = 300
+
+        model.loadFolder(selected, autoplay: false, persistBookmark: false)
+
+        #expect(model.tracks.map(\.url) == [selected])
+        #expect(model.folderURL == folder)
+        #expect(model.state.bookIdentityURL == selected)
+        #expect(model.persistenceFolderURL == nil)
+        #expect(model.state.m4bBooks.isEmpty)
+        #expect(model.state.aggregatedChapters.isEmpty)
+        #expect(model.state.totalBookDuration == 0)
+        #expect(model.state.isMultiM4B == false)
+    }
+
     @Test(
         "PlayerModel importEPUB preserves the source EPUB file when imported from the same folder")
     func importEPUBPreservesSourceWhenSameFolder() async throws {

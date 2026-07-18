@@ -59,7 +59,8 @@ enum EPUBImportCoordinator {
         to folderURL: URL,
         databaseService: DatabaseService,
         chapters: [Chapter],
-        duration: TimeInterval?
+        duration: TimeInterval?,
+        audiobookID explicitAudiobookID: String? = nil
     ) async throws -> ImportResult {
         let didStartSource = sourceURL.startAccessingSecurityScopedResource()
         defer { if didStartSource { sourceURL.stopAccessingSecurityScopedResource() } }
@@ -93,7 +94,7 @@ enum EPUBImportCoordinator {
             importURL = sourceURL
         }
 
-        let audiobookID = folderURL.absoluteString
+        let audiobookID = explicitAudiobookID ?? folderURL.absoluteString
 
         let importOutcome = await EPUBAutoImportScanner.importEPUBFileOutcome(
             epubURL: importURL,

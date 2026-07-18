@@ -37,7 +37,7 @@
             // capability check stays as the one gate every entry point (Listen, the Play
             // button, CarPlay) shares.
             guard NarrationCapability.supportsOnDeviceNarration else { return }
-            guard let audiobookID = folderURL?.absoluteString,
+            guard let audiobookID = bookIdentityURL?.absoluteString,
                 let db = databaseService?.writer
             else { return }
 
@@ -256,7 +256,7 @@
                                 isAwaitingChapter: self.state.awaitingNarrationChapter
                             ),
                                 NarrationRenderPolicy.bookWasSwitched(
-                                    currentFolderURL: self.folderURL?.absoluteString,
+                                    currentFolderURL: self.bookIdentityURL?.absoluteString,
                                     audiobookID: audiobookID
                                 ) == false
                             {
@@ -265,7 +265,7 @@
                             }
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
-                                    currentFolderURL: self.folderURL?.absoluteString,
+                                    currentFolderURL: self.bookIdentityURL?.absoluteString,
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
@@ -298,7 +298,7 @@
                             // Bail if the user switched books while this chapter rendered.
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
-                                    currentFolderURL: self.folderURL?.absoluteString,
+                                    currentFolderURL: self.bookIdentityURL?.absoluteString,
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
@@ -362,7 +362,7 @@
                             else { return }
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
-                                    currentFolderURL: self.folderURL?.absoluteString,
+                                    currentFolderURL: self.bookIdentityURL?.absoluteString,
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
@@ -376,7 +376,7 @@
                             try Task.checkCancellation()
                             guard
                                 NarrationRenderPolicy.bookWasSwitched(
-                                    currentFolderURL: self.folderURL?.absoluteString,
+                                    currentFolderURL: self.bookIdentityURL?.absoluteString,
                                     audiobookID: audiobookID
                                 ) == false
                             else { return }
@@ -400,7 +400,7 @@
                     // All chapters rendered and queued.
                     guard
                         NarrationRenderPolicy.bookWasSwitched(
-                            currentFolderURL: self.folderURL?.absoluteString,
+                            currentFolderURL: self.bookIdentityURL?.absoluteString,
                             audiobookID: audiobookID
                         ) == false
                     else { return }
@@ -412,7 +412,7 @@
                     // Don't stamp a stale failure onto a book the user switched to.
                     guard
                         NarrationRenderPolicy.bookWasSwitched(
-                            currentFolderURL: self.folderURL?.absoluteString,
+                            currentFolderURL: self.bookIdentityURL?.absoluteString,
                             audiobookID: audiobookID
                         ) == false
                     else { return }
@@ -472,7 +472,7 @@
         /// chapter files exist. User-driven (sheet open / narration start / toggle) —
         /// never per rendered chapter, so it doesn't reintroduce O(chapters²) work.
         func refreshNarrationOutline() {
-            guard let audiobookID = folderURL?.absoluteString,
+            guard let audiobookID = bookIdentityURL?.absoluteString,
                 let db = databaseService?.writer
             else {
                 state.narrationOutline = []
@@ -496,7 +496,7 @@
         /// instant. A newly-excluded chapter is pulled from the live queue unless it
         /// is the one currently playing (that finishes; future renders exclude it).
         func toggleNarrationChapterExcluded(chapterIndex: Int) {
-            guard let audiobookID = folderURL?.absoluteString,
+            guard let audiobookID = bookIdentityURL?.absoluteString,
                 let db = databaseService?.writer
             else { return }
             let currentlyExcluded =

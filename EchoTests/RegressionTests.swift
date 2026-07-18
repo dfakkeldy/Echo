@@ -46,6 +46,8 @@ struct RegressionTests {
 
         let state = PlaybackState()
         state.isTranscriptProcessingEnabled = true
+        state.tracks = [Track(url: audioFile, title: "test-audio")]
+        state.currentIndex = 0
         let service = TranscriptService(state: state)
 
         await service.loadTranscript(for: audioFile)

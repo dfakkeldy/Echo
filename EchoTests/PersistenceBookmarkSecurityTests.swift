@@ -102,6 +102,40 @@ import Testing
         #expect(persistence.restoreBookmarkResult() == .missing)
     }
 
+    @Test func directM4BMigrationCopiesOnlySelectedTrackState() throws {
+        let (defaults, suiteName) = try Self.makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let persistence = Persistence(defaults: defaults)
+        let folder = URL(fileURLWithPath: "/tmp/Messy Audiobooks", isDirectory: true)
+        let book = folder.appendingPathComponent("book.m4b")
+        let selectedTrackID = book.absoluteString
+        let otherTrackID = folder.appendingPathComponent("review-reel.m4b").absoluteString
+
+        persistence.saveBookProgress(
+            for: folder.absoluteString, trackId: selectedTrackID, time: 321, folderURL: nil)
+        persistence.saveSpeed(for: folder.absoluteString, speed: 1.5, folderURL: nil)
+        persistence.saveBookmarks(
+            [
+                Bookmark(title: "Book", trackId: selectedTrackID, timestamp: 30),
+                Bookmark(title: "Other", trackId: otherTrackID, timestamp: 40),
+            ],
+            for: folder.absoluteString,
+            folderURL: nil)
+
+        persistence.migrateLegacyM4BStateIfNeeded(
+            from: folder, to: book, selectedTrackID: selectedTrackID)
+
+        let progress = try #require(
+            persistence.getBookProgress(for: book.absoluteString, folderURL: nil))
+        #expect(progress.trackId == selectedTrackID)
+        #expect(progress.time == 321)
+        #expect(persistence.getSpeed(for: book.absoluteString, folderURL: nil) == 1.5)
+        #expect(
+            persistence.loadBookmarks(for: book.absoluteString, folderURL: nil).map(\.title)
+                == ["Book"])
+    }
+
     private static func makeDefaults() throws -> (UserDefaults, String) {
         let suiteName = "com.echo.tests.persistence.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

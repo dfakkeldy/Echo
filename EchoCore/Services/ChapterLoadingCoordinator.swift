@@ -62,6 +62,11 @@ final class ChapterLoadingCoordinator {
             built = await ChapterService.parseChapters(from: asset)
         }
 
+        guard !Task.isCancelled,
+            state.tracks.indices.contains(state.currentIndex),
+            state.tracks[state.currentIndex].url == trackURL
+        else { return }
+
         if let savedStates = persistence.loadEnabledState(for: trackKey) {
             for i in 0..<built.count {
                 if let isEnabled = savedStates[built[i].id] {
@@ -120,7 +125,7 @@ final class ChapterLoadingCoordinator {
         }
 
         if let db = databaseServiceProvider?(),
-           let audiobookID = state.folderURL?.absoluteString {
+           let audiobookID = state.activeBookURL?.absoluteString {
             // Multi-file folders get a full ingestion pass in loadFolder;
             // avoid wiping whole-book chapter rows on every track switch.
             if trackCount <= 1 {
@@ -149,10 +154,16 @@ final class ChapterLoadingCoordinator {
 
     func loadDurationForNowPlaying() async {
         guard let audioEngine, let state else { return }
+        guard state.tracks.indices.contains(state.currentIndex) else { return }
+        let trackURL = state.tracks[state.currentIndex].url
         guard let seconds = audioEngine.duration, seconds > 0 else { return }
+        guard !Task.isCancelled,
+            state.tracks.indices.contains(state.currentIndex),
+            state.tracks[state.currentIndex].url == trackURL
+        else { return }
         state.durationSeconds = seconds
         if let db = databaseServiceProvider?(),
-           let audiobookID = state.folderURL?.absoluteString {
+           let audiobookID = state.activeBookURL?.absoluteString {
             let audiobookDuration =
                 state.isMultiM4B && state.totalBookDuration > 0 ? state.totalBookDuration : seconds
             TimelineIngestionService.updateAudiobookDuration(

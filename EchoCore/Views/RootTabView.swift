@@ -193,19 +193,26 @@ struct RootTabView: View {
                             // `hasEPUB` here means "has parsed reflowable blocks".
                             if ReaderSurfaceResolver.offersToggle(
                                 hasPDF: model.hasPDF, hasReflowableBlocks: model.hasEPUB),
-                                let folder = model.folderURL
-                            {
-                                PDFReadingSurface(folderURL: folder)
-                            } else if model.hasEPUB {
-                                ReaderTab(folderURL: model.folderURL!)
-                            } else if model.hasPDF {
-                                PDFDocumentView(folderURL: model.folderURL!)
-                            } else if model.hasStandaloneTranscript,
                                 let folder = model.folderURL,
+                                let bookURL = model.bookIdentityURL
+                            {
+                                PDFReadingSurface(folderURL: folder, bookURL: bookURL)
+                            } else if model.hasEPUB,
+                                let folder = model.folderURL,
+                                let bookURL = model.bookIdentityURL
+                            {
+                                ReaderTab(folderURL: folder, bookURL: bookURL)
+                            } else if model.hasPDF,
+                                let folder = model.folderURL,
+                                let bookURL = model.bookIdentityURL
+                            {
+                                PDFDocumentView(folderURL: folder, bookURL: bookURL)
+                            } else if model.hasStandaloneTranscript,
+                                let audiobookID = model.bookIdentityURL?.absoluteString,
                                 let db = model.databaseService
                             {
                                 StandaloneTranscriptView(
-                                    audiobookID: folder.absoluteString,
+                                    audiobookID: audiobookID,
                                     db: db.writer
                                 )
                             } else {
@@ -400,7 +407,8 @@ struct RootTabView: View {
             }
         }
         .sheet(isPresented: $showingExport) {
-            if let id = model.folderURL?.absoluteString, let writer = model.databaseService?.writer
+            if let id = model.bookIdentityURL?.absoluteString,
+                let writer = model.databaseService?.writer
             {
                 ExportProgressView(
                     audiobookID: id,
@@ -411,10 +419,11 @@ struct RootTabView: View {
         }
         .sheet(isPresented: $showingStudyNotesExport) {
             if let folderURL = model.folderURL,
+                let audiobookID = model.bookIdentityURL?.absoluteString,
                 let writer = model.databaseService?.writer
             {
                 StudyNotesExportView(
-                    audiobookID: folderURL.absoluteString,
+                    audiobookID: audiobookID,
                     bookTitle: model.currentTitle,
                     sourceFolderURL: folderURL,
                     databaseWriter: writer,
@@ -690,7 +699,7 @@ struct RootTabView: View {
         /// Starts on-device transcription for the current audio-only book.
         private func startTranscription(model: PlayerModel) {
             guard let db = model.databaseService,
-                let folder = model.folderURL,
+                let audiobookID = model.bookIdentityURL?.absoluteString,
                 model.tracks.indices.contains(model.currentIndex)
             else { return }
             let coordinator = TranscribeBookCoordinator(db: db.writer)
@@ -698,7 +707,7 @@ struct RootTabView: View {
             showingTranscribeProgress = true
             Task { @MainActor in
                 await coordinator.transcribe(
-                    audiobookID: folder.absoluteString,
+                    audiobookID: audiobookID,
                     audioFileURL: model.tracks[model.currentIndex].url,
                     chapters: model.alignmentPickerChapters,
                     resume: true)

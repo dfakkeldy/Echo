@@ -7,6 +7,13 @@ import os.log
 
 struct ReaderTab: View {
     let folderURL: URL
+    let bookURL: URL
+    var audiobookID: String { bookURL.absoluteString }
+
+    init(folderURL: URL, bookURL: URL? = nil) {
+        self.folderURL = folderURL
+        self.bookURL = bookURL ?? folderURL
+    }
     @Environment(PlayerModel.self) var model
     @Environment(SettingsManager.self) private var settingsManager
     @Environment(FreeTierGate.self) var freeTierGate
@@ -508,7 +515,7 @@ struct ReaderTab: View {
         NavigationStack {
             Group {
                 if let db = model.databaseService {
-                    SessionsListView(audiobookID: folderURL.absoluteString, dbService: db)
+                    SessionsListView(audiobookID: audiobookID, dbService: db)
                 } else {
                     // Database init failed and the user chose "Continue Offline".
                     ContentUnavailableView(
@@ -585,7 +592,7 @@ struct ReaderTab: View {
     }
 
     private func prepareReader() {
-        let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
+        let overrides = BookPreferencesService.loadOverrides(for: audiobookID)
         readerSettings = ReaderSettings.resolved(
             fontSizeOverride: nil,
             lineSpacingOverride: nil,
@@ -600,7 +607,7 @@ struct ReaderTab: View {
     }
 
     private func updateReaderAppFont(_ newFont: String) {
-        let overrides = BookPreferencesService.loadOverrides(for: folderURL.absoluteString)
+        let overrides = BookPreferencesService.loadOverrides(for: audiobookID)
         readerSettings.appFont = BookPreferencesService.resolveAppFont(
             override: overrides.font,
             globalFont: newFont
@@ -634,7 +641,7 @@ struct ReaderTab: View {
 
     private func handleTimelineItemsIngested(_ notification: Notification) {
         guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
-            ingestedID == folderURL.absoluteString
+            ingestedID == audiobookID
         else { return }
         // Coalesce instead of reloading synchronously per post: narration posts
         // this once per rendered chapter, and reload() re-reads the whole book
@@ -853,11 +860,12 @@ struct ReaderTab: View {
 
     private func loadViewModel() {
         guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-        // Pass the book folder so the long-press off menu's audio toggle can write
-        // `isEnabled` on the mapped tracks (without it, audio-off silently no-ops).
+        // Only folder playlists expose a shared manifest for audio on/off state.
+        // A direct M4B keeps that nil so reader controls cannot mutate siblings.
         let vm = ReaderFeedViewModel(
-            audiobookID: audiobookID, db: db.writer, playlistFolderURL: folderURL)
+            audiobookID: audiobookID,
+            db: db.writer,
+            playlistFolderURL: model.persistenceFolderURL)
         vm.reload()
         self.viewModel = vm
 
@@ -880,7 +888,7 @@ struct ReaderTab: View {
     /// and gives feedback instead of a silent no-op when the block has no audio yet.
     private func tapBlock(_ blockID: String) {
         guard let vm = viewModel else { return }
-        let time = vm.audioStartTime(for: blockID, audiobookID: folderURL.absoluteString)
+        let time = vm.audioStartTime(for: blockID, audiobookID: audiobookID)
         switch CardTapDecision.make(time: time) {
         case .seekAndPlay(let seconds):
             model.seek(toSeconds: seconds)
@@ -899,7 +907,6 @@ struct ReaderTab: View {
     /// `tapBlock`, never both.
     private func tapWord(_ blockID: String, _ wordIndex: Int?) {
         guard let vm = viewModel else { return }
-        let audiobookID = folderURL.absoluteString
         let wordTime = wordIndex.flatMap { vm.wordTiming(blockID: blockID, wordIndex: $0)?.start }
         let time = wordTime ?? vm.audioStartTime(for: blockID, audiobookID: audiobookID)
         switch CardTapDecision.make(time: time) {
@@ -918,7 +925,6 @@ struct ReaderTab: View {
     /// user-seek so progress/artwork refresh and a playing session resumes there.
     private func seekToBlock(_ blockID: String) {
         guard let vm = viewModel else { return }
-        let audiobookID = folderURL.absoluteString
         if let time = vm.audioStartTime(for: blockID, audiobookID: audiobookID), time >= 0 {
             model.seek(toSeconds: time)
         }

@@ -244,7 +244,7 @@ struct SettingsView: View {
             Task {
                 do {
                     guard let writer = model.databaseService?.writer,
-                        let audiobookID = model.folderURL?.absoluteString
+                        let audiobookID = model.bookIdentityURL?.absoluteString
                     else { return }
                     let player =
                         try await NarrationService.testRenderAndPlayChapterOne(
