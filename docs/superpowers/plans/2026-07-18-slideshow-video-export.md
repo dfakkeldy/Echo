@@ -1364,7 +1364,7 @@ actor VideoExportService {
 }
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `EchoTests/VideoExportServiceTests.swift`. Two layers: pure `trackContexts` tests, and one end-to-end integration test with a synthesized fixture.
 
@@ -1517,7 +1517,7 @@ struct VideoExportServiceTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -1525,7 +1525,7 @@ struct VideoExportServiceTests {
 
 Expected: compile FAILURE — `VideoExportService` not defined.
 
-- [ ] **Step 3: Implement the service**
+- [x] **Step 3: Implement the service**
 
 Create `EchoCore/Services/Export/VideoExportService.swift`. Full structure (the pump section is the only genuinely tricky part — it is written out completely):
 
@@ -1871,7 +1871,7 @@ Implementation notes:
 - On cancellation (`Task.checkCancellation` throws), `writer` is abandoned and the `defer` removes `tempMP4`; the caller sees `CancellationError`. Partial named outputs are never created because naming happens after the writer succeeds.
 - If `renderer` capture in the task group trips strict-concurrency (it's a non-Sendable class), render frames on the actor by hoisting `renderer.render(frame)` into a preceding `for` loop that yields `(CMTime, CVPixelBuffer)` through an `AsyncStream` consumed by the video task — but try the direct form first; `SlideshowFrameRenderer` is only touched from the single video task, so `nonisolated(unsafe) let rendererBox = renderer` with a comment is acceptable and simpler.
 
-- [ ] **Step 4: Run focused tests until green**
+- [x] **Step 4: Run focused tests until green**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -1880,7 +1880,7 @@ make test-only FILTER=EchoTests/VideoExportServiceTests
 
 Expected: PASS (integration test included). If the integration test is flaky in the iOS simulator for AVFoundation-environment reasons (see `sim-keychain` precedent), it must still pass on the macOS test run in Task 8 — do not delete it, gate it with the same environment-guard pattern other AV-touching tests in the suite use, if any exists.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add EchoCore/Services/Export/VideoExportService.swift EchoTests/VideoExportServiceTests.swift
