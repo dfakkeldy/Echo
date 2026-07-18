@@ -20,6 +20,7 @@ struct EchoCLI: AsyncParsableCommand {
             SidecarFromChapteredAudioCommand.self,
             VerifySidecarCommand.self,
             ExportBlocksCommand.self,
+            ExportVideoCommand.self,
         ])
 
     /// Render version + build configuration, so an overnight log (or
