@@ -151,6 +151,15 @@ class VersionedRendererGuideTests(unittest.TestCase):
             "unreachable through the documented CLI/Make interfaces",
         )
 
+    def test_documents_renderer_root_auto_creation_on_install_and_repair(self) -> None:
+        self._assert_all_present(("create it automatically",))
+        self.assertIn(
+            "`verify` and `promote` require the store root to already exist",
+            self.guide_text,
+            "guide should state that verify/promote require an existing "
+            "store root and do not create it themselves",
+        )
+
     def test_documents_make_override_variables(self) -> None:
         self._assert_all_present(
             (

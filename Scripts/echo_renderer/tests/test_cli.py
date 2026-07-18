@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
@@ -615,6 +616,154 @@ class RepairDispatchTests(CLITestCase):
                 ]
             )
         self.assertEqual(raised.exception.code, TEMPORARY_FAILURE)
+
+
+class RendererRootCreationTests(CLITestCase):
+    """A fresh machine has no ``~/Library/Application Support/Echo/Renderers``
+    yet, so the very first ``install`` must not die on that alone.
+    ``install``/``repair`` create a missing renderer root before
+    constructing the store; ``verify``/``promote`` deliberately do not --
+    a missing root there honestly means "nothing installed" (exit 65).
+    """
+
+    def test_install_creates_a_missing_renderer_root_before_constructing_the_store(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            renderer_root = Path(tmp) / "nested" / "renderers"
+            self.assertFalse(renderer_root.exists())
+            build_root = renderer_root / SOURCE_SHA / MANIFEST_SHA
+            FakeStore.install_result = InstallResult(
+                verified=_verified(build_root), selector_updated=False
+            )
+
+            code, stdout, stderr = self.run_main(
+                [
+                    "install",
+                    "--installer-worktree",
+                    "/work/installer",
+                    "--installer-sha",
+                    INSTALLER_SHA,
+                    "--source-worktree",
+                    "/work/source",
+                    "--source-sha",
+                    SOURCE_SHA,
+                    "--renderer-root",
+                    str(renderer_root),
+                    "--build-gate",
+                    "/work/gate.sh",
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(stderr, "")
+            self.assertTrue(renderer_root.is_dir())
+            self.assertFalse(renderer_root.is_symlink())
+            self.assertEqual(FakeStore.last_instance.renderer_root, renderer_root)
+
+    def test_repair_creates_a_missing_renderer_root_before_constructing_the_store(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            renderer_root = Path(tmp) / "nested" / "renderers"
+            self.assertFalse(renderer_root.exists())
+            build_root = renderer_root / SOURCE_SHA / MANIFEST_SHA
+            FakeStore.repair_result = InstallResult(
+                verified=_verified(build_root), selector_updated=False
+            )
+
+            code, stdout, stderr = self.run_main(
+                [
+                    "repair",
+                    "--installer-worktree",
+                    "/work/installer",
+                    "--installer-sha",
+                    INSTALLER_SHA,
+                    "--source-worktree",
+                    "/work/source",
+                    "--source-sha",
+                    SOURCE_SHA,
+                    "--manifest-sha",
+                    MANIFEST_SHA,
+                    "--renderer-root",
+                    str(renderer_root),
+                    "--build-gate",
+                    "/work/gate.sh",
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(stderr, "")
+            self.assertTrue(renderer_root.is_dir())
+            self.assertFalse(renderer_root.is_symlink())
+            self.assertEqual(FakeStore.last_instance.renderer_root, renderer_root)
+
+    def test_verify_against_a_real_store_with_a_missing_root_does_not_create_it(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            renderer_root = Path(tmp) / "nested" / "renderers"
+            self.assertFalse(renderer_root.exists())
+
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                code = main(
+                    [
+                        "verify",
+                        "--source-sha",
+                        SOURCE_SHA,
+                        "--manifest-sha",
+                        MANIFEST_SHA,
+                        "--renderer-root",
+                        str(renderer_root),
+                    ]
+                )
+
+            self.assertEqual(code, 65)
+            self.assertEqual(stdout_buffer.getvalue(), "")
+            self.assertFalse(
+                renderer_root.exists(),
+                "verify must never create the renderer root it was asked "
+                "to check -- a missing root there is a real answer (exit "
+                "65: nothing installed), not something to paper over",
+            )
+
+    def test_install_against_a_real_store_with_root_occupied_by_a_file_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            renderer_root = Path(tmp) / "renderers"
+            renderer_root.write_text("not a directory")
+            self.assertTrue(renderer_root.is_file())
+
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                code = main(
+                    [
+                        "install",
+                        "--installer-worktree",
+                        "/work/installer",
+                        "--installer-sha",
+                        INSTALLER_SHA,
+                        "--source-worktree",
+                        "/work/source",
+                        "--source-sha",
+                        SOURCE_SHA,
+                        "--renderer-root",
+                        str(renderer_root),
+                    ]
+                )
+
+            self.assertEqual(code, 65)
+            self.assertEqual(stdout_buffer.getvalue(), "")
+            self.assertTrue(
+                renderer_root.is_file(),
+                "install must never delete or replace a file occupying the "
+                "renderer root path -- it must fail closed instead",
+            )
+            self.assertEqual(renderer_root.read_text(), "not a directory")
 
 
 class TestCIWorkflowRunsInstallerTestsFirst(unittest.TestCase):

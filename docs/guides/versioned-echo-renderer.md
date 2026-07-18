@@ -25,7 +25,7 @@ There is no narration-time build step anywhere in this design. If `echo-cli narr
 ```
 ~/Library/Application Support/Echo/Renderers/
 └── <40-hex source SHA>/
-    ├── approved-renderer.json            # the selector (see §5)
+    ├── approved-renderer.json            # the selector (see §6)
     └── <64-hex manifest SHA>/            # one renderer package
         ├── echo-cli
         ├── EchoNarrationResources/
@@ -72,6 +72,8 @@ git worktree add ~/Developer/echo-renderer-source <APPROVED_ECHO_PRONUNCIATION_S
 Both `git worktree add` invocations above check out a *specific commit*, so each worktree starts clean and detached at exactly its approved SHA — no branch, no `HEAD` drift possible before you've even run the installer.
 
 The CLI's Python package (`Scripts/echo_renderer/`) lives *inside* the installer worktree, so every command below is run with that worktree as the current directory.
+
+There is no separate setup step for the renderer store root itself: `install` and `repair` create it automatically (`mkdir -p`-equivalent) the first time they run against a missing default root, so a fresh machine's very first `install` just works. `verify` and `promote` require the store root to already exist and exit `65` if it does not — a missing root there means nothing has been installed yet.
 
 ---
 

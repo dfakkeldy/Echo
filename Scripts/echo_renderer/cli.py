@@ -133,7 +133,32 @@ def _print_success(
         print(f"{key}={fields[key]}")
 
 
+def _ensure_renderer_root(renderer_root: Path) -> None:
+    """Create the renderer store root if nothing exists there yet.
+
+    ``install`` and ``repair`` are how a package first lands on a fresh
+    machine, so the default root (``~/Library/Application
+    Support/Echo/Renderers``) not existing yet would otherwise make the
+    very first ``install`` ever run fail before doing any work. ``verify``
+    and ``promote`` deliberately do NOT call this: a missing root there
+    honestly means "nothing has ever been installed", which stays a real
+    exit-65 answer rather than something to paper over.
+
+    Guarded to fail closed: any ``OSError`` -- the path already occupied by
+    a regular file, an existing symlink, or anything else ``mkdir`` refuses
+    -- is swallowed here and left entirely to ``RendererStore.__init__``'s
+    own canonicality check (``_require_canonical_directory``), which
+    remains the sole authority for accepting or rejecting the resulting
+    path. Nothing already at an occupied path is ever deleted or replaced.
+    """
+    try:
+        renderer_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+
 def _handle_install(args: argparse.Namespace, store_factory: StoreFactory) -> int:
+    _ensure_renderer_root(args.renderer_root)
     store = store_factory(args.renderer_root)
     request = InstallRequest(
         installer_worktree=args.installer_worktree,
@@ -169,6 +194,7 @@ def _handle_promote(args: argparse.Namespace, store_factory: StoreFactory) -> in
 
 
 def _handle_repair(args: argparse.Namespace, store_factory: StoreFactory) -> int:
+    _ensure_renderer_root(args.renderer_root)
     store = store_factory(args.renderer_root)
     request = InstallRequest(
         installer_worktree=args.installer_worktree,
