@@ -11,7 +11,7 @@ from unittest import mock
 
 import echo_renderer.store as store_module
 from echo_renderer.git_state import ApprovedWorktree
-from echo_renderer.lease import TEMPORARY_FAILURE, LeaseSet, canonical_lease_root
+from echo_renderer.lease import TEMPORARY_FAILURE, LeaseSet
 from echo_renderer.store import (
     InstallRequest,
     InstallResult,
@@ -166,6 +166,18 @@ class InstallFixture(unittest.TestCase):
 
         self.renderer_root = (self.root / "renderers").resolve()
         self.renderer_root.mkdir()
+
+        # Patch the lease root the store looks up (same convention as
+        # PromoteRepairFixture) so every lease acquired by the code under
+        # test lands under this test's temp directory. Lock files are never
+        # deleted by design, so without this each run strands .lock debris
+        # in the real shared ~/.cache/explainer-audiobooks lease root.
+        self.lease_root = (self.root / "leases").resolve()
+        lease_root_patch = mock.patch.object(
+            store_module, "canonical_lease_root", lambda: self.lease_root
+        )
+        lease_root_patch.start()
+        self.addCleanup(lease_root_patch.stop)
 
         self.installer_worktree = (self.root / "installer-worktree").resolve()
         self.installer_worktree.mkdir()
@@ -474,7 +486,7 @@ class InstallationFailureCleanupTests(InstallFixture):
 class InstallationLeaseTests(InstallFixture):
     def test_contended_lease_exits_75_without_publishing(self):
         held = LeaseSet.acquire(
-            lock_root=canonical_lease_root(), resources=(self.source_worktree,)
+            lock_root=self.lease_root, resources=(self.source_worktree,)
         )
         self.addCleanup(held.close)
 

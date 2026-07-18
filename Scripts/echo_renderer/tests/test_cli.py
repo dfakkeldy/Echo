@@ -794,6 +794,15 @@ class TestCIWorkflowRunsInstallerTestsFirst(unittest.TestCase):
         )
 
         renderer_step_index = text.index("make renderer-install-test")
+        # WARNING: this anchors on the FIRST "xcodebuild" occurrence anywhere
+        # in ci.yml -- a comment mentioning xcodebuild before the renderer
+        # step trips the ordering assertion below just like a real step.
+        self.assertIn(
+            "xcodebuild",
+            text,
+            "ci.yml no longer mentions xcodebuild at all; this contract "
+            "test's ordering anchor vanished -- update it deliberately.",
+        )
         first_xcodebuild_index = text.index("xcodebuild")
 
         self.assertLess(
