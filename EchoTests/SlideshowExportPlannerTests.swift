@@ -180,6 +180,35 @@ struct SlideshowExportPlannerTests {
         }
     }
 
+    @Test func singleLongTokenSplitsWithinTheTokenToHonorCueLimit() {
+        let longURL = "https://example.com/" + String(repeating: "a", count: 100)
+        let blocks = [block("url", sequence: 0, kind: .paragraph, text: longURL)]
+        let rows = [timeline(0, 12, blockID: "url")]
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: [],
+            tracks: [SlideshowTrackContext(
+                title: "Ch 1", duration: 12, segmentKey: nil, chapterIndices: nil)],
+            mode: .simple, syncPoint: .begin)
+
+        #expect(plan.srtCues.count > 1)
+        #expect(plan.srtCues.allSatisfy { $0.text.count <= SlideshowExportPlanner.maxCueLength })
+        #expect(plan.srtCues.map(\.text).joined() == longURL)
+        #expect(plan.srtCues.first?.startTime == 0)
+        #expect(plan.srtCues.last?.endTime == 12)
+    }
+
+    @Test func whitespaceOnlyTextDoesNotProduceAnEmptySubtitleCue() {
+        let blocks = [block("whitespace", sequence: 0, kind: .paragraph, text: " \n\t ")]
+        let rows = [timeline(0, 4, blockID: "whitespace")]
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: [],
+            tracks: [SlideshowTrackContext(
+                title: "Ch 1", duration: 4, segmentKey: nil, chapterIndices: nil)],
+            mode: .simple, syncPoint: .begin)
+
+        #expect(plan.srtCues.isEmpty)
+    }
+
     // MARK: - Range
 
     @Test func rangeClampsAndRebasesFramesAndCues() {
@@ -197,5 +226,29 @@ struct SlideshowExportPlannerTests {
         #expect(plan.frames.first?.startTime == 0)
         #expect(plan.srtCues.allSatisfy { $0.startTime >= 0 && $0.endTime <= 4 })
         #expect(plan.srtCues.contains { $0.text == "Second sentence follows." })
+    }
+
+    @Test func outOfBoundsRangesClampWithoutConstructingInvalidRanges() {
+        let fx = chapterOneFixture
+
+        let negativeLowerBound = SlideshowExportPlanner.plan(
+            blocks: fx.blocks, timeline: fx.timeline, words: [],
+            tracks: [SlideshowTrackContext(
+                title: "Ch 1", duration: 8, segmentKey: nil, chapterIndices: nil)],
+            mode: .simple, syncPoint: .begin,
+            range: -2.0..<6.0)
+        #expect(negativeLowerBound.totalDuration == 6)
+        #expect(negativeLowerBound.frames.first?.startTime == 0)
+        #expect(negativeLowerBound.srtCues.allSatisfy { $0.startTime >= 0 && $0.endTime <= 6 })
+
+        let whollyAfterTotal = SlideshowExportPlanner.plan(
+            blocks: fx.blocks, timeline: fx.timeline, words: [],
+            tracks: [SlideshowTrackContext(
+                title: "Ch 1", duration: 8, segmentKey: nil, chapterIndices: nil)],
+            mode: .simple, syncPoint: .begin,
+            range: 9.0..<12.0)
+        #expect(whollyAfterTotal.totalDuration == 0)
+        #expect(whollyAfterTotal.frames.isEmpty)
+        #expect(whollyAfterTotal.srtCues.isEmpty)
     }
 }

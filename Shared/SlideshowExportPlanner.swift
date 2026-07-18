@@ -123,7 +123,7 @@ nonisolated enum SlideshowExportPlanner {
         }
         return clamp(
             SlideshowExportPlan(frames: frames, srtCues: srtCues, totalDuration: total),
-            to: range.lowerBound..<min(range.upperBound, total))
+            to: normalizedRange(range, totalDuration: total))
     }
 
     // MARK: - Boundaries
@@ -200,14 +200,11 @@ nonisolated enum SlideshowExportPlanner {
         words: [ReaderActiveBlockResolver.WordRow],
         offset: TimeInterval
     ) -> [SlideshowSRTCue] {
-        guard let text = blocksByID[row.blockID]?.text, !text.isEmpty else { return [] }
+        guard let text = blocksByID[row.blockID]?.text,
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return [] }
         let tokenRanges = WordTokenizer.wordRanges(in: text)
-        guard !tokenRanges.isEmpty else {
-            return [
-                SlideshowSRTCue(
-                    startTime: offset + row.start, endTime: offset + row.end, text: text)
-            ]
-        }
+        guard !tokenRanges.isEmpty else { return [] }
 
         // Greedily pack whole words into ≤ maxCueLength chunks.
         var chunks: [(tokens: Range<Int>, text: String)] = []
@@ -226,6 +223,9 @@ nonisolated enum SlideshowExportPlanner {
             text[tokenRanges[chunkStart].lowerBound..<tokenRanges[tokenRanges.count - 1].upperBound]
         )
         chunks.append((tokens: chunkStart..<tokenRanges.count, text: tailText))
+        chunks = chunks.flatMap { chunk in
+            splitOversizedChunk(chunk)
+        }
 
         let blockWords =
             words
@@ -243,7 +243,7 @@ nonisolated enum SlideshowExportPlanner {
             let end: TimeInterval
             if index == chunks.count - 1 {
                 end = row.end
-            } else if wordsMatchTokens {
+            } else if wordsMatchTokens, !chunk.tokens.isEmpty {
                 end = min(row.end, blockWords[chunk.tokens.upperBound - 1].end)
             } else {
                 let fraction = Double(chunk.text.count) / Double(max(1, totalCharacters))
@@ -259,6 +259,41 @@ nonisolated enum SlideshowExportPlanner {
     }
 
     // MARK: - Range clamping
+
+    /// Intersects an arbitrary valid request with the export's non-negative
+    /// timeline. Clamping both endpoints before making the range keeps requests
+    /// that sit completely before or after the plan from inverting it.
+    private static func normalizedRange(
+        _ requested: Range<TimeInterval>, totalDuration: TimeInterval
+    ) -> Range<TimeInterval> {
+        let lower = min(max(requested.lowerBound, 0), totalDuration)
+        let upper = min(max(requested.upperBound, lower), totalDuration)
+        return lower..<upper
+    }
+
+    /// A whitespace-delimited token can itself exceed the SRT ceiling (for
+    /// example, a URL). Break those chunks at character boundaries, retaining
+    /// the timing token only on the final fragment that completes it.
+    private static func splitOversizedChunk(
+        _ chunk: (tokens: Range<Int>, text: String)
+    ) -> [(tokens: Range<Int>, text: String)] {
+        guard chunk.text.count > maxCueLength else { return [chunk] }
+
+        var fragments: [(tokens: Range<Int>, text: String)] = []
+        var start = chunk.text.startIndex
+        while start < chunk.text.endIndex {
+            let end = chunk.text.index(
+                start, offsetBy: maxCueLength, limitedBy: chunk.text.endIndex)
+                ?? chunk.text.endIndex
+            let isFinalFragment = end == chunk.text.endIndex
+            let tokens = isFinalFragment
+                ? chunk.tokens
+                : chunk.tokens.lowerBound..<chunk.tokens.lowerBound
+            fragments.append((tokens: tokens, text: String(chunk.text[start..<end])))
+            start = end
+        }
+        return fragments
+    }
 
     private static func clamp(
         _ plan: SlideshowExportPlan, to range: Range<TimeInterval>
