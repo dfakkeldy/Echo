@@ -33,6 +33,15 @@ nonisolated enum BookProgressSegmentMetrics {
     /// anything beyond the render limits above is dead payload.
     static let maxTransportBoundaries = 40
 
+    /// Reduces a chronologically ordered boundary list to the transport cap by
+    /// even down-sampling, so the retained boundaries still span the whole
+    /// book instead of biasing to its first chapters.
+    static func transportBoundaries(_ raw: [Double]) -> [Double] {
+        guard raw.count > maxTransportBoundaries else { return raw }
+        let step = Double(raw.count) / Double(maxTransportBoundaries)
+        return (0..<maxTransportBoundaries).map { raw[Int(Double($0) * step)] }
+    }
+
     /// Filters raw boundary fractions to a strictly increasing sequence inside
     /// (0, 1), merging boundaries closer together than `minSeparation` so no
     /// rendered segment collapses below its minimum visual width.

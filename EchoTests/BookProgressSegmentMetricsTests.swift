@@ -69,6 +69,25 @@ struct BookProgressSegmentMetricsTests {
         #expect(segments.count == 1)
     }
 
+    // MARK: - Transport cap
+
+    @Test("transport down-sampling keeps boundaries spanning the whole book")
+    func transportDownsampleSpans() {
+        let raw = (1..<100).map { Double($0) / 100.0 }
+        let capped = BookProgressSegmentMetrics.transportBoundaries(raw)
+        #expect(capped.count == BookProgressSegmentMetrics.maxTransportBoundaries)
+        #expect(capped.first == raw.first)
+        // A blind prefix would stop at 0.40; even sampling reaches the tail.
+        #expect((capped.last ?? 0) > 0.9)
+        #expect(capped == capped.sorted())
+    }
+
+    @Test("transport down-sampling is identity at or under the cap")
+    func transportUnderCapIdentity() {
+        let raw = [0.2, 0.5, 0.8]
+        #expect(BookProgressSegmentMetrics.transportBoundaries(raw) == raw)
+    }
+
     // MARK: - Ring convenience
 
     @Test("ring falls back to a single segment beyond the readable chapter count")

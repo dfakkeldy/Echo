@@ -22,7 +22,8 @@ final class SettingsManager {
         static let rewindHoursToChapterStart = false
         static let playBookmarksInline = true
         static let crownAction = "volume"
-        static let crownVolumeSensitivity = 0.05
+        // Single source of truth shared with the watch's optimistic mirror.
+        static let crownVolumeSensitivity = WatchCrownVolume.defaultSensitivity
         static let crownScrubSensitivity = 0.5
         static let defaultPlaybackSpeed = 1.25
         static let speedPresets: [Float] = [1.0, 1.25, 1.5, 2.0, 3.0]

@@ -16,8 +16,9 @@ nonisolated enum WatchCrownVolume {
     /// dB change per 1.0 of crown rotation delta at sensitivity 1.0.
     static let gainPerRotationUnit: Double = 6
 
-    /// Mirrors `SettingsManager.Defaults.crownVolumeSensitivity` for use on the
-    /// watch before the phone has synced a value.
+    /// Source of truth for the crown volume sensitivity default —
+    /// `SettingsManager.Defaults.crownVolumeSensitivity` references this, and
+    /// the watch uses it before the phone has synced a value.
     static let defaultSensitivity: Double = 0.05
 
     /// Number of discrete haptic steps across the full gain range. Matches the

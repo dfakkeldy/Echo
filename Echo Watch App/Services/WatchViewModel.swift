@@ -88,6 +88,12 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     /// carry a gain that lags the optimistic local value; skip applying them
     /// until this deadline passes so the indicator doesn't stutter backwards.
     @ObservationIgnored private var volumeAdjustmentActiveUntil: Date = .distantPast
+    /// Freshest authoritative gain skipped during the gesture window. Applied
+    /// once the window expires, so a rare local/phone divergence (batched
+    /// clamping near the rails, or a dropped send) heals in ~1 s instead of
+    /// waiting for the next full state sync.
+    @ObservationIgnored private var pendingRemoteGainDB: Double?
+    @ObservationIgnored private var gainReconcileTask: Task<Void, Never>?
 
     var volumeFraction: Double { WatchCrownVolume.fraction(forGainDB: outputGainDB) }
 
@@ -105,6 +111,28 @@ class WatchViewModel: NSObject, WCSessionDelegate {
 
     func playCrownStepHaptic() { playHaptic(.click) }
     func playScrubEngageHaptic() { playHaptic(.start) }
+
+    /// Applies the stashed authoritative gain once the gesture window expires.
+    /// The window deadline keeps moving while the crown turns, so the task
+    /// re-sleeps until it truly lapses (a MainActor Task, not a Timer, per the
+    /// Swift 6 strict-concurrency convention used elsewhere in this type).
+    private func scheduleGainReconciliation() {
+        gainReconcileTask?.cancel()
+        gainReconcileTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let remaining = self.volumeAdjustmentActiveUntil.timeIntervalSinceNow
+                if remaining <= 0 { break }
+                try? await Task.sleep(for: .seconds(remaining + 0.05))
+            }
+            guard !Task.isCancelled, let self else { return }
+            if let pending = self.pendingRemoteGainDB {
+                self.outputGainDB = pending
+                self.pendingRemoteGainDB = nil
+            }
+            self.gainReconcileTask = nil
+        }
+    }
 
     // Sleep timer mirror state (driven by iPhone via WCSession context).
     /// "off" | "minutes" | "endOfChapter"
@@ -618,9 +646,17 @@ class WatchViewModel: NSObject, WCSessionDelegate {
             if let gainDB = state["outputGainDB"] as? Double {
                 // Persist always, but only move the visible mirror when the
                 // user isn't mid-gesture — replies lag the optimistic value.
+                // Mid-gesture values are stashed and applied when the window
+                // expires so the phone's authoritative gain always wins.
                 self.defaults.set(gainDB, forKey: "outputGainDB")
                 if Date() >= self.volumeAdjustmentActiveUntil {
                     self.outputGainDB = gainDB
+                    self.pendingRemoteGainDB = nil
+                    self.gainReconcileTask?.cancel()
+                    self.gainReconcileTask = nil
+                } else {
+                    self.pendingRemoteGainDB = gainDB
+                    self.scheduleGainReconciliation()
                 }
             }
             if let stm = state["sleepTimerMode"] as? String {

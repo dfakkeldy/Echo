@@ -188,8 +188,8 @@ enum WatchStateContextBuilder {
         // present so a book change clears stale segments on the watch; capped
         // because boundaries beyond the render limit are dead payload in every
         // message.
-        context["bookBoundaryFractions"] = Array(
-            s.bookBoundaryFractions.prefix(BookProgressSegmentMetrics.maxTransportBoundaries))
+        context["bookBoundaryFractions"] = BookProgressSegmentMetrics.transportBoundaries(
+            s.bookBoundaryFractions)
 
         // Crown volume: current gain plus the sensitivity the watch needs to
         // mirror the iPhone's delta math for its optimistic indicator.
