@@ -69,21 +69,49 @@ nonisolated enum SlideshowExportPlanner {
         var offset: TimeInterval = 0
 
         for track in tracks {
-            let scopedRows = timeline.filter {
-                VisualListeningCueResolver.rowIsInScope(
-                    $0,
-                    currentTrackSegmentKey: track.segmentKey,
-                    currentTrackChapterIndices: track.chapterIndices)
+            let scopedRows: [ReaderActiveBlockResolver.TimelineRow] = timeline.compactMap {
+                row -> ReaderActiveBlockResolver.TimelineRow? in
+                guard
+                    VisualListeningCueResolver.rowIsInScope(
+                        row,
+                        currentTrackSegmentKey: track.segmentKey,
+                        currentTrackChapterIndices: track.chapterIndices)
+                else { return nil }
+
+                let start = max(0, row.start)
+                let end = min(track.duration, row.end)
+                guard end > start else { return nil }
+                return (
+                    start: start,
+                    end: end,
+                    blockID: row.blockID,
+                    chapterIndex: row.chapterIndex,
+                    segmentKey: row.segmentKey
+                )
+            }
+            let scopedBlockIDs = Set(scopedRows.map(\.blockID))
+            let scopedWords: [ReaderActiveBlockResolver.WordRow] = words.compactMap {
+                word -> ReaderActiveBlockResolver.WordRow? in
+                guard scopedBlockIDs.contains(word.blockID) else { return nil }
+                let start = max(0, word.start)
+                let end = min(track.duration, word.end)
+                guard end > start else { return nil }
+                return (
+                    start: start,
+                    end: end,
+                    blockID: word.blockID,
+                    wordIndex: word.wordIndex
+                )
             }
             let boundaries = trackBoundaries(
                 orderedBlocks: orderedBlocks, blocksByID: blocksByID,
-                timeline: timeline, scopedRows: scopedRows, words: words,
+                timeline: scopedRows, scopedRows: scopedRows, words: scopedWords,
                 track: track, mode: mode, syncPoint: syncPoint)
 
             for (start, end) in zip(boundaries, boundaries.dropFirst()) where end > start {
                 let snapshot = VisualListeningCueResolver.snapshot(
-                    blocks: orderedBlocks, timeline: timeline,
-                    words: mode == .karaoke ? words : [],
+                    blocks: orderedBlocks, timeline: scopedRows,
+                    words: mode == .karaoke ? scopedWords : [],
                     time: start,
                     currentTrackSegmentKey: track.segmentKey,
                     currentTrackChapterIndices: track.chapterIndices,
@@ -111,7 +139,7 @@ nonisolated enum SlideshowExportPlanner {
             for row in textRows {
                 srtCues.append(
                     contentsOf: splitCues(
-                        forRow: row, blocksByID: blocksByID, words: words, offset: offset))
+                        forRow: row, blocksByID: blocksByID, words: scopedWords, offset: offset))
             }
 
             offset += track.duration
@@ -282,11 +310,13 @@ nonisolated enum SlideshowExportPlanner {
         var fragments: [(tokens: Range<Int>, text: String)] = []
         var start = chunk.text.startIndex
         while start < chunk.text.endIndex {
-            let end = chunk.text.index(
-                start, offsetBy: maxCueLength, limitedBy: chunk.text.endIndex)
+            let end =
+                chunk.text.index(
+                    start, offsetBy: maxCueLength, limitedBy: chunk.text.endIndex)
                 ?? chunk.text.endIndex
             let isFinalFragment = end == chunk.text.endIndex
-            let tokens = isFinalFragment
+            let tokens =
+                isFinalFragment
                 ? chunk.tokens
                 : chunk.tokens.lowerBound..<chunk.tokens.lowerBound
             fragments.append((tokens: tokens, text: String(chunk.text[start..<end])))

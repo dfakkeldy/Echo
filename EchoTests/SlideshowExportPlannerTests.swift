@@ -180,14 +180,84 @@ struct SlideshowExportPlannerTests {
         }
     }
 
+    @Test func openEndedFinalRowAndWordTimingsStopAtTrackDuration() {
+        let tokens = (0..<20).map { "timedword\($0)" }
+        let text = tokens.joined(separator: " ")
+        let blocks = [block("final", sequence: 0, kind: .paragraph, text: text)]
+        let rows = [timeline(0, 3_600, blockID: "final")]
+        let words: [ReaderActiveBlockResolver.WordRow] = tokens.indices.map { index in
+            (
+                start: Double(index) * 0.25,
+                end: index == tokens.indices.last ? 3_600 : Double(index + 1) * 0.25,
+                blockID: "final",
+                wordIndex: index
+            )
+        }
+
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: words,
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Short track", duration: 6, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .karaoke, syncPoint: .begin)
+
+        #expect(plan.totalDuration == 6)
+        #expect(plan.frames.allSatisfy { $0.startTime + $0.duration <= 6 })
+        #expect(plan.srtCues.count > 1)
+        #expect(plan.srtCues.map(\.endTime) == [1.75, 3.5, 6])
+        #expect(plan.srtCues.last?.endTime == 6)
+        #expect(
+            plan.srtCues.allSatisfy { cue in
+                cue.startTime >= 0 && cue.endTime <= 6 && cue.endTime >= cue.startTime
+            })
+    }
+
+    @Test func longBlockWithMatchingWordTimingsUsesOrderedBoundedCueWindows() {
+        let tokens = (0..<20).map { index in
+            "word" + (index < 10 ? "0\(index)" : "\(index)")
+        }
+        let text = tokens.joined(separator: " ")
+        let blocks = [block("timed", sequence: 0, kind: .paragraph, text: text)]
+        let rows = [timeline(1, 11, blockID: "timed")]
+        let words: [ReaderActiveBlockResolver.WordRow] = tokens.indices.map { index in
+            (
+                start: 1 + Double(index) * 0.5,
+                end: 1 + Double(index + 1) * 0.5,
+                blockID: "timed",
+                wordIndex: index
+            )
+        }
+
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: words,
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Timed", duration: 12, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .karaoke, syncPoint: .begin)
+
+        #expect(text.count > SlideshowExportPlanner.maxCueLength)
+        #expect(plan.srtCues.count == 2)
+        #expect(plan.srtCues.allSatisfy { $0.text.count <= SlideshowExportPlanner.maxCueLength })
+        #expect(plan.srtCues.map(\.startTime) == [1, 7])
+        #expect(plan.srtCues.map(\.endTime) == [7, 11])
+        #expect(
+            plan.srtCues.allSatisfy { cue in
+                cue.startTime >= 1 && cue.endTime <= 11 && cue.endTime <= plan.totalDuration
+            })
+    }
+
     @Test func singleLongTokenSplitsWithinTheTokenToHonorCueLimit() {
         let longURL = "https://example.com/" + String(repeating: "a", count: 100)
         let blocks = [block("url", sequence: 0, kind: .paragraph, text: longURL)]
         let rows = [timeline(0, 12, blockID: "url")]
         let plan = SlideshowExportPlanner.plan(
             blocks: blocks, timeline: rows, words: [],
-            tracks: [SlideshowTrackContext(
-                title: "Ch 1", duration: 12, segmentKey: nil, chapterIndices: nil)],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 12, segmentKey: nil, chapterIndices: nil)
+            ],
             mode: .simple, syncPoint: .begin)
 
         #expect(plan.srtCues.count > 1)
@@ -202,8 +272,10 @@ struct SlideshowExportPlannerTests {
         let rows = [timeline(0, 4, blockID: "whitespace")]
         let plan = SlideshowExportPlanner.plan(
             blocks: blocks, timeline: rows, words: [],
-            tracks: [SlideshowTrackContext(
-                title: "Ch 1", duration: 4, segmentKey: nil, chapterIndices: nil)],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 4, segmentKey: nil, chapterIndices: nil)
+            ],
             mode: .simple, syncPoint: .begin)
 
         #expect(plan.srtCues.isEmpty)
@@ -233,8 +305,10 @@ struct SlideshowExportPlannerTests {
 
         let negativeLowerBound = SlideshowExportPlanner.plan(
             blocks: fx.blocks, timeline: fx.timeline, words: [],
-            tracks: [SlideshowTrackContext(
-                title: "Ch 1", duration: 8, segmentKey: nil, chapterIndices: nil)],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 8, segmentKey: nil, chapterIndices: nil)
+            ],
             mode: .simple, syncPoint: .begin,
             range: -2.0..<6.0)
         #expect(negativeLowerBound.totalDuration == 6)
@@ -243,8 +317,10 @@ struct SlideshowExportPlannerTests {
 
         let whollyAfterTotal = SlideshowExportPlanner.plan(
             blocks: fx.blocks, timeline: fx.timeline, words: [],
-            tracks: [SlideshowTrackContext(
-                title: "Ch 1", duration: 8, segmentKey: nil, chapterIndices: nil)],
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Ch 1", duration: 8, segmentKey: nil, chapterIndices: nil)
+            ],
             mode: .simple, syncPoint: .begin,
             range: 9.0..<12.0)
         #expect(whollyAfterTotal.totalDuration == 0)
