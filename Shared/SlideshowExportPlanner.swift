@@ -93,9 +93,8 @@ nonisolated enum SlideshowExportPlanner {
             let scopedWords: [ReaderActiveBlockResolver.WordRow] = words.compactMap {
                 word -> ReaderActiveBlockResolver.WordRow? in
                 guard scopedBlockIDs.contains(word.blockID) else { return nil }
-                let start = max(0, word.start)
-                let end = min(track.duration, word.end)
-                guard end > start else { return nil }
+                let start = min(max(0, word.start), track.duration)
+                let end = min(max(0, word.end), track.duration)
                 return (
                     start: start,
                     end: end,

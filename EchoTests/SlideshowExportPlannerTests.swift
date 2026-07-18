@@ -121,6 +121,33 @@ struct SlideshowExportPlannerTests {
         #expect(p1Frames.map(\.alreadyHeardWordCount) == [0, 1, 2])
     }
 
+    @Test func boundedWordSentinelsPreserveKaraokeOrdinalsForPartialSlice() {
+        let text = "zero one two three four"
+        let blocks = [block("partial", sequence: 0, kind: .paragraph, text: text)]
+        let rows = [timeline(0, 2, blockID: "partial")]
+        let words: [ReaderActiveBlockResolver.WordRow] = [
+            (start: 0, end: 0, blockID: "partial", wordIndex: 0),
+            (start: 0, end: 0, blockID: "partial", wordIndex: 1),
+            (start: 0, end: 1, blockID: "partial", wordIndex: 2),
+            (start: 1, end: 2, blockID: "partial", wordIndex: 3),
+            (start: 2, end: 2, blockID: "partial", wordIndex: 4),
+        ]
+
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: words,
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Partial", duration: 2, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .karaoke, syncPoint: .begin)
+
+        let partialFrames = plan.frames.filter { $0.subtitleText == text }
+        #expect(partialFrames.map(\.startTime) == [0, 1])
+        #expect(partialFrames.map(\.duration) == [1, 1])
+        #expect(partialFrames.map(\.activeWordIndex) == [2, 3])
+        #expect(partialFrames.map(\.alreadyHeardWordCount) == [2, 3])
+    }
+
     @Test func simpleModeIgnoresWordTimings() {
         let fx = chapterOneFixture
         let words: [ReaderActiveBlockResolver.WordRow] = [
@@ -246,6 +273,43 @@ struct SlideshowExportPlannerTests {
             plan.srtCues.allSatisfy { cue in
                 cue.startTime >= 1 && cue.endTime <= 11 && cue.endTime <= plan.totalDuration
             })
+    }
+
+    @Test func boundedWordSentinelsKeepLongPartialSliceSRTCuesWordTimed() {
+        let tokens = (0..<20).map { index in
+            "word" + (index < 10 ? "0\(index)" : "\(index)")
+        }
+        let text = tokens.joined(separator: " ")
+        let blocks = [block("partial", sequence: 0, kind: .paragraph, text: text)]
+        let rows = [timeline(0, 8, blockID: "partial")]
+        let words: [ReaderActiveBlockResolver.WordRow] = tokens.indices.map { index in
+            if index < 2 {
+                return (start: 0, end: 0, blockID: "partial", wordIndex: index)
+            }
+            if index >= 18 {
+                return (start: 8, end: 8, blockID: "partial", wordIndex: index)
+            }
+            return (
+                start: Double(index - 2) * 0.5,
+                end: Double(index - 1) * 0.5,
+                blockID: "partial",
+                wordIndex: index
+            )
+        }
+
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks, timeline: rows, words: words,
+            tracks: [
+                SlideshowTrackContext(
+                    title: "Partial", duration: 8, segmentKey: nil, chapterIndices: nil)
+            ],
+            mode: .karaoke, syncPoint: .begin)
+
+        #expect(text.count > SlideshowExportPlanner.maxCueLength)
+        #expect(plan.srtCues.count == 2)
+        #expect(plan.srtCues.allSatisfy { $0.text.count <= SlideshowExportPlanner.maxCueLength })
+        #expect(plan.srtCues.map(\.startTime) == [0, 5])
+        #expect(plan.srtCues.map(\.endTime) == [5, 8])
     }
 
     @Test func singleLongTokenSplitsWithinTheTokenToHonorCueLimit() {
