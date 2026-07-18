@@ -54,7 +54,7 @@
 
             // Storage keys
             s.bookmarkStorageKey = bookmarksStorageKey
-            s.folderKey = folderURL?.absoluteString
+            s.folderKey = bookIdentityURL?.absoluteString
 
             // Whole-book boundaries for the watch's segmented progress indicators:
             // multi-track playlists use track starts; single-file books fall back

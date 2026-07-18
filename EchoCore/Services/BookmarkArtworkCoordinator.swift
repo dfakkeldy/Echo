@@ -52,10 +52,10 @@ final class BookmarkArtworkCoordinator {
             sourceImage = loadAppIconImage()
         }
 
+        guard !Task.isCancelled, trackIDProvider?() == url.absoluteString else { return }
+
         guard let sourceImage else {
-            await MainActor.run {
-                clearUnavailableArtwork()
-            }
+            clearUnavailableArtwork()
             return
         }
 

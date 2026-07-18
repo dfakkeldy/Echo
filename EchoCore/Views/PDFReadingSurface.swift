@@ -7,12 +7,18 @@ import SwiftUI
 /// (see `ReaderSurfaceResolver.offersToggle`).
 struct PDFReadingSurface: View {
     let folderURL: URL
+    let bookURL: URL
     @State private var mode: ReaderSurfaceMode = .page
 
     @Environment(PlayerModel.self) private var model
     @Environment(SettingsManager.self) private var settings
 
-    private var audiobookID: String { folderURL.absoluteString }
+    private var audiobookID: String { bookURL.absoluteString }
+
+    init(folderURL: URL, bookURL: URL? = nil) {
+        self.folderURL = folderURL
+        self.bookURL = bookURL ?? folderURL
+    }
 
     /// The saved voice preference, or the catalog default — mirrors NowPlayingTab.
     private var preferredVoice: NarrationVoice {
@@ -35,9 +41,9 @@ struct PDFReadingSurface: View {
         Group {
             switch mode {
             case .page:
-                PDFDocumentView(folderURL: folderURL)
+                PDFDocumentView(folderURL: folderURL, bookURL: bookURL)
             case .reflow:
-                ReaderTab(folderURL: folderURL)
+                ReaderTab(folderURL: folderURL, bookURL: bookURL)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {

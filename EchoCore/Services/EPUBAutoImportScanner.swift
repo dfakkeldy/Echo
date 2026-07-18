@@ -43,6 +43,7 @@ enum EPUBAutoImportScanner {
 
         // 1. Scan for .epub files in the folder.
         let epubFiles: [URL]
+        let contents: [URL]
         var isDir: ObjCBool = false
         let folderIsDirectory =
             FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir)
@@ -62,7 +63,7 @@ enum EPUBAutoImportScanner {
         }
 
         do {
-            let contents = try FileManager.default.contentsOfDirectory(
+            contents = try FileManager.default.contentsOfDirectory(
                 at: targetURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: .skipsHiddenFiles
@@ -75,8 +76,13 @@ enum EPUBAutoImportScanner {
             return false
         }
 
-        guard let epubURL = epubFiles.first else {
-            logger.debug("No .epub file found in folder: \(sanitizedPath(folderURL.path))")
+        guard let epubURL = CompanionDocumentSelector.select(
+            documents: epubFiles,
+            for: folderURL,
+            folderIsDirectory: folderIsDirectory,
+            siblingFiles: contents)
+        else {
+            logger.debug("No unambiguous .epub companion found for: \(sanitizedPath(folderURL.path))")
             return false
         }
 
@@ -383,6 +389,33 @@ enum EPUBAutoImportScanner {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+}
+
+nonisolated enum CompanionDocumentSelector {
+    static func select(
+        documents: [URL],
+        for bookURL: URL,
+        folderIsDirectory: Bool,
+        siblingFiles: [URL]
+    ) -> URL? {
+        let orderedDocuments = documents.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+        if folderIsDirectory { return orderedDocuments.first }
+
+        let bookStem = bookURL.deletingPathExtension().lastPathComponent
+        if let exactMatch = orderedDocuments.first(where: {
+            $0.deletingPathExtension().lastPathComponent.compare(
+                bookStem, options: [.caseInsensitive, .diacriticInsensitive]
+            ) == .orderedSame
+        }) {
+            return exactMatch
+        }
+
+        let audioSiblings = siblingFiles.filter(PlaylistManager.isAudioFile)
+        guard audioSiblings.count == 1, orderedDocuments.count == 1 else { return nil }
+        return orderedDocuments[0]
     }
 }
 

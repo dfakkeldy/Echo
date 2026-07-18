@@ -298,7 +298,7 @@ final class PlaybackController {
         coordinator_playStateChanged?(false)
 
         if audioEngine.isItemLoaded,
-            let folder = state.folderURL?.absoluteString,
+            let folder = state.activeBookURL?.absoluteString,
             state.tracks.indices.contains(state.currentIndex)
         {
             coordinator_saveProgress?(
@@ -321,7 +321,7 @@ final class PlaybackController {
     func setSpeed(_ newSpeed: Float) {
         speed = newSpeed
         applySpeedToCurrentItem()
-        if let key = state.folderURL?.absoluteString {
+        if let key = state.activeBookURL?.absoluteString {
             coordinator_persistSpeed?(key, speed)
         }
         coordinator_persistAndSync?(!audioEngine.isPlaying)
@@ -334,7 +334,7 @@ final class PlaybackController {
 
     func setLoopMode(_ mode: LoopMode) {
         loopMode = mode
-        if let key = state.folderURL?.absoluteString {
+        if let key = state.activeBookURL?.absoluteString {
             coordinator_persistLoopMode?(key, mode.rawValue)
         }
         coordinator_persistAndSync?(!audioEngine.isPlaying)

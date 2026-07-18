@@ -34,6 +34,9 @@ final class PlayerLoadingCoordinator {
     @ObservationIgnored var deepLinkHandler: DeepLinkHandler?
 
     private var pendingArtworkTask: Task<Void, Never>?
+    private var chapterIngestionTask: Task<Void, Never>?
+    private var postLoadTask: Task<Void, Never>?
+    private var transcriptLoadingTask: Task<Void, Never>?
 
     /// Value providers for properties owned by PlayerModel.
     @ObservationIgnored var databaseServiceProvider: (() -> DatabaseService?)?
@@ -66,19 +69,27 @@ final class PlayerLoadingCoordinator {
         // stop() zeroes audioEngine.currentTime, and state.folderURL is about to
         // change to the new book's key.  Capture both now so the old book's
         // last-known-good position is persisted under the correct folder key.
-        if let oldFolderKey = state.folderURL?.absoluteString,
+        if let oldBookURL = state.activeBookURL,
             state.tracks.indices.contains(state.currentIndex),
             let audioEngine
         {
             let oldTrackId = state.tracks[state.currentIndex].id
             let oldTime = state.bookTime(forCurrentTrackOffset: audioEngine.currentTime)
             persistence.saveBookProgress(
-                for: oldFolderKey, trackId: oldTrackId, time: oldTime, folderURL: state.folderURL)
+                for: oldBookURL.absoluteString, trackId: oldTrackId, time: oldTime,
+                folderURL: state.persistenceFolderURL)
             onSavedPlaybackProgress?()
         }
 
         playbackController.stop()
         state.durationSeconds = nil
+        chapterIngestionTask?.cancel()
+        chapterIngestionTask = nil
+        postLoadTask?.cancel()
+        postLoadTask = nil
+        transcriptLoadingTask?.cancel()
+        transcriptLoadingTask = nil
+        clearBookAggregationState(state)
 
         // Start security-scoped access for the entire folder loading flow.
         // Must stay alive through async EPUB import, which runs after this method returns.
@@ -95,18 +106,13 @@ final class PlayerLoadingCoordinator {
         let trackSelection = loadTracksAndDetectDirectory(
             url: url, state: state, playlistManager: playlistManager)
         let isDir = trackSelection.isDirectory
-        state.bookTimeIndex = .empty
-        state.pendingBookTimeSeek = nil
-        state.pendingBookTimeSeekSuppressesProgressPush = false
 
-        // Normalize folderURL to always be a directory. When the user opens a
-        // single file (e.g. an M4B), use its parent directory as the canonical
-        // key for persistence, timeline items, EPUB blocks, and CloudKit sync.
-        // This ensures opening the folder and opening any file within it
-        // produce the same audiobookID — so EPUBs load consistently and
-        // playback position is shared across both entry points.
+        // Keep the filesystem container separate from persistent book identity.
+        // A directly selected M4B is one book, while companion discovery still
+        // needs its parent directory.
         if isDir {
             state.folderURL = url
+            state.bookIdentityURL = url
             state.sourceDocumentURL = nil
             // Opening a folder grants recursive access via the selection scope,
             // so no separate parent scope is needed; release any held from a
@@ -115,9 +121,24 @@ final class PlayerLoadingCoordinator {
         } else {
             let parentDir = url.deletingLastPathComponent()
             state.folderURL = parentDir
+            state.bookIdentityURL = url.pathExtension.lowercased() == "m4b" ? url : parentDir
             state.sourceDocumentURL = PlaylistManager.isDocumentFile(url) ? url : nil
         }
-        let canonicalFolderURL = state.folderURL ?? url
+        let canonicalBookURL = state.activeBookURL ?? url
+
+        if !isDir,
+            url.pathExtension.lowercased() == "m4b",
+            let selectedTrack = state.tracks.first
+        {
+            // Only track-attributable UserDefaults state is migrated. Historical
+            // SQL rows keyed to the parent may combine multiple sibling books,
+            // so they remain attached to the explicit folder playlist instead
+            // of being guessed onto whichever M4B was opened first.
+            persistence.migrateLegacyM4BStateIfNeeded(
+                from: state.folderURL ?? url.deletingLastPathComponent(),
+                to: canonicalBookURL,
+                selectedTrackID: selectedTrack.id)
+        }
 
         // A no-audio book (e.g. a study EPUB) must not inherit the previously
         // open book's chapters / artwork / transcript / duration: prepareToPlay —
@@ -133,29 +154,26 @@ final class PlayerLoadingCoordinator {
         playbackController.setVolumeBoost(enabled: resolvedVolumeBoostEnabledProvider?() ?? false)
 
         // Persist to SQL after tracks are loaded so the DB has accurate track data.
-        // Use the NORMALIZED folderURL (always a directory — see above), not the raw
-        // picked `url`. For a single picked file (EPUB or m4b) `url` is the FILE while
-        // EPUB blocks, anchors, bookmarks, progress, and timeline items are all keyed
-        // off `state.folderURL` (the parent). Keying the audiobook row off `url` left
-        // it as the lone outlier, so a block INSERT (epub_block.audiobook_id has a
-        // NOT NULL cascade FK to audiobook(id)) found no parent row and the FK
-        // rejected the whole import — narration then fell back to a 3-sentence sample.
+        // Folder playlists and directly opened documents keep their established
+        // folder identity; a directly opened M4B uses its file URL so unrelated
+        // sibling books cannot overwrite its progress or chapter rows.
         timelinePersistence.persistAudiobookToSQL(
-            folderURL: state.folderURL ?? url, tracks: state.tracks, duration: state.durationSeconds
+            folderURL: canonicalBookURL, tracks: state.tracks, duration: state.durationSeconds
         )
 
         // Ingest chapter metadata (M4B aggregation or multi-track chapter parsing).
         ingestChapterMetadata(
-            folderURL: canonicalFolderURL, state: state, timelinePersistence: timelinePersistence)
+            folderURL: canonicalBookURL, state: state, timelinePersistence: timelinePersistence)
 
         // Restore last track position or start from the beginning.
         restoreTrackPosition(
-            folderURL: canonicalFolderURL, state: state, persistence: persistence,
+            bookURL: canonicalBookURL, state: state, persistence: persistence,
             autoplay: autoplay, preferredTrackURL: trackSelection.preferredTrackURL)
 
         // Migrate per-folder UserDefaults state into .echoplaylist.json if needed.
         migrateManifestIfNeeded(
-            isDir: isDir || trackSelection.preferredTrackURL != nil, folderURL: canonicalFolderURL,
+            isDir: isDir || trackSelection.preferredTrackURL != nil,
+            folderURL: state.folderURL ?? url,
             state: state, persistence: persistence,
             bookmarkStore: bookmarkStore)
 
@@ -163,9 +181,9 @@ final class PlayerLoadingCoordinator {
             onPersistSelection?(url)
         }
 
-        // Post-load hooks: SQL bookmarks, EPUB auto-import.
-        // Use the normalized folderURL (always a directory — see above) so
-        // EPUB blocks are keyed consistently regardless of entry point.
+        // Post-load hooks: SQL bookmarks and companion-document auto-import.
+        // File-backed books keep their file identity while the scanners inspect
+        // the parent directory for companion EPUB/PDF material.
         guard let db = databaseServiceProvider?() else { return }
         bookmarkStore.configureSQLPersistence(database: db)
         onConfigureContinuousAlignment?()
@@ -188,16 +206,24 @@ final class PlayerLoadingCoordinator {
     private func clearPerBookState(_ state: PlaybackState) {
         state.chapters = []
         state.currentChapterIndex = nil
+        clearBookAggregationState(state)
+        state.durationSeconds = nil
+        state.thumbnailImage = nil
+        state.transcription = []
+        state.enhancedTranscription = []
+    }
+
+    /// Clears playlist-wide timing derived from a previous load before the new
+    /// selection reaches track preparation. Without this, a single M4B can
+    /// temporarily inherit the prior folder's multi-volume duration and ticks.
+    private func clearBookAggregationState(_ state: PlaybackState) {
         state.m4bBooks = []
         state.aggregatedChapters = []
         state.totalBookDuration = 0
         state.bookTimeIndex = .empty
         state.pendingBookTimeSeek = nil
         state.pendingBookTimeSeekSuppressesProgressPush = false
-        state.durationSeconds = nil
-        state.thumbnailImage = nil
-        state.transcription = []
-        state.enhancedTranscription = []
+        state.pendingAggregatedChapter = nil
     }
 
     /// Imports an EPUB for a book that has no audio tracks. The normal auto-import
@@ -326,8 +352,14 @@ final class PlayerLoadingCoordinator {
     private func ingestMultiM4BChapters(
         folderURL: URL, state: PlaybackState, timelinePersistence: PlayerTimelinePersistenceService
     ) {
-        Task {
+        let expectedTrackURLs = state.tracks.map(\.url)
+        chapterIngestionTask = Task { [weak self] in
+            guard let self else { return }
             guard let parsed = await M4BParser.parseFolder(folderURL) else { return }
+            guard !Task.isCancelled,
+                state.activeBookURL == folderURL,
+                state.tracks.map(\.url) == expectedTrackURLs
+            else { return }
             state.m4bBooks = parsed.books
             state.aggregatedChapters = parsed.aggregatedChapters
             state.totalBookDuration = parsed.totalDuration
@@ -370,10 +402,13 @@ final class PlayerLoadingCoordinator {
         folderURL: URL, tracks: [Track], state: PlaybackState,
         timelinePersistence: PlayerTimelinePersistenceService
     ) {
-        Task {
+        let expectedTrackURLs = tracks.map(\.url)
+        chapterIngestionTask = Task { [weak self] in
+            guard let self else { return }
             var allChapters: [Chapter] = []
             var durations: [TimeInterval] = []
             for track in tracks {
+                guard !Task.isCancelled else { return }
                 let asset = AVURLAsset(url: track.url)
                 let parsed = await ChapterService.parseChapters(from: asset)
                 let loadedDuration = (try? await asset.load(.duration))?.seconds ?? 0
@@ -394,7 +429,12 @@ final class PlayerLoadingCoordinator {
                             endSeconds: duration.isFinite ? duration : 0, isEnabled: true))
                 }
             }
-            guard !allChapters.isEmpty, !tracks.isEmpty else { return }
+            guard !Task.isCancelled,
+                state.activeBookURL == folderURL,
+                state.tracks.map(\.url) == expectedTrackURLs,
+                !allChapters.isEmpty,
+                !tracks.isEmpty
+            else { return }
             state.bookTimeIndex = PlaybackBookTimeIndex(
                 orderedTracks: zip(tracks, durations).map { ($0.0, $0.1) })
             applyPendingBookTimeSeekIfPossible(state: state)
@@ -442,25 +482,22 @@ final class PlayerLoadingCoordinator {
 
     /// Restores the last-played track index, or defaults to 0.
     private func restoreTrackPosition(
-        folderURL: URL, state: PlaybackState, persistence: Persistence, autoplay: Bool,
+        bookURL: URL, state: PlaybackState, persistence: Persistence, autoplay: Bool,
         preferredTrackURL: URL? = nil
     ) {
-        if let folderKey = state.folderURL?.absoluteString {
-            state.pauseTimestamp = persistence.getPauseTimestamp(for: folderKey)
-            if let savedTrackId = persistence.getLastTrack(
-                for: folderKey, folderURL: state.folderURL),
-                let idx = state.tracks.firstIndex(where: { $0.id == savedTrackId })
-            {
-                state.currentIndex = idx
-            } else if let preferredTrackURL,
-                let idx = state.tracks.firstIndex(where: {
-                    PlaylistSelectionResolver.urlsMatch($0.url, preferredTrackURL)
-                })
-            {
-                state.currentIndex = idx
-            } else {
-                state.currentIndex = 0
-            }
+        let folderKey = bookURL.absoluteString
+        state.pauseTimestamp = persistence.getPauseTimestamp(for: folderKey)
+        if let savedTrackId = persistence.getLastTrack(
+            for: folderKey, folderURL: state.persistenceFolderURL),
+            let idx = state.tracks.firstIndex(where: { $0.id == savedTrackId })
+        {
+            state.currentIndex = idx
+        } else if let preferredTrackURL,
+            let idx = state.tracks.firstIndex(where: {
+                PlaylistSelectionResolver.urlsMatch($0.url, preferredTrackURL)
+            })
+        {
+            state.currentIndex = idx
         } else {
             state.currentIndex = 0
         }
@@ -536,15 +573,15 @@ final class PlayerLoadingCoordinator {
         // corrupt the per-book progress that was just written by the old-book save
         // in loadFolder, causing the position-restore seek in onDurationLoaded to
         // be skipped (its guard requires progress.time > 0).
-        guard let folder = state.folderURL?.absoluteString,
+        guard let bookURL = state.activeBookURL,
             state.tracks.indices.contains(state.currentIndex),
             audioEngine.isItemLoaded
         else { return }
         let time = state.bookTime(forCurrentTrackOffset: audioEngine.currentTime)
         guard time > 0 else { return }
         persistence.saveBookProgress(
-            for: folder, trackId: state.tracks[state.currentIndex].id, time: time,
-            folderURL: state.folderURL)
+            for: bookURL.absoluteString, trackId: state.tracks[state.currentIndex].id, time: time,
+            folderURL: state.persistenceFolderURL)
         onSavedPlaybackProgress?()
     }
 
@@ -556,18 +593,21 @@ final class PlayerLoadingCoordinator {
         state.currentTitle = state.tracks[index].title
         state.currentSubtitle = ""
 
-        if let folderURL = state.folderURL {
+        if let bookURL = state.activeBookURL {
             persistence.saveLastTrack(
-                for: folderURL.absoluteString, trackId: state.tracks[index].id, folderURL: folderURL
+                for: bookURL.absoluteString, trackId: state.tracks[index].id,
+                folderURL: state.persistenceFolderURL
             )
         }
 
         // Load per-book speed and loop mode.
-        if let key = state.folderURL?.absoluteString {
+        if let bookURL = state.activeBookURL {
+            let key = bookURL.absoluteString
             playbackController.speed =
-                persistence.getSpeed(for: key, folderURL: state.folderURL)
+                persistence.getSpeed(for: key, folderURL: state.persistenceFolderURL)
                 ?? defaultPlaybackSpeedProvider?() ?? 1.25
-            if let raw = persistence.getLoopMode(for: key, folderURL: state.folderURL),
+            if let raw = persistence.getLoopMode(
+                for: key, folderURL: state.persistenceFolderURL),
                 let mode = LoopMode(rawValue: raw)
             {
                 playbackController.loopMode = mode
@@ -597,6 +637,8 @@ final class PlayerLoadingCoordinator {
         state.thumbnailImage = nil
         state.chapters = []
         state.currentChapterIndex = nil
+        state.transcription = []
+        state.enhancedTranscription = []
         state.isSeekingForChapterBoundary = false
         state.isManualSeeking = false
         artworkCoordinator.invalidateCache()
@@ -604,8 +646,12 @@ final class PlayerLoadingCoordinator {
 
         // Load transcript for the new track (async but fire-and-forget — data arrives
         // asynchronously in PlaybackState; the caller is not async).
-        Task { await transcriptService.loadTranscript(for: state.tracks[state.currentIndex].url) }
-        if let audiobookID = state.folderURL?.absoluteString {
+        let transcriptURL = state.tracks[state.currentIndex].url
+        transcriptLoadingTask?.cancel()
+        transcriptLoadingTask = Task {
+            await transcriptService.loadTranscript(for: transcriptURL)
+        }
+        if let audiobookID = state.activeBookURL?.absoluteString {
             timelinePersistence?.persistTranscriptToSQL(
                 audiobookID: audiobookID, transcription: state.transcription)
         }
@@ -637,11 +683,25 @@ final class PlayerLoadingCoordinator {
         artworkCoordinator: BookmarkArtworkCoordinator, autoplay: Bool
     ) {
         let trackURL = state.tracks[state.currentIndex].url
-        Task { @MainActor [weak self] in
+        guard let bookURL = state.activeBookURL else { return }
+        let contentFolderURL = state.folderURL
+        postLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
+                return
+            }
             await chapterLoadingCoordinator.loadDurationForNowPlaying()
+            guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
+                return
+            }
             await chapterLoadingCoordinator.loadChaptersForCurrentItem()
+            guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
+                return
+            }
             await artworkCoordinator.generateThumbnail(for: trackURL)
+            guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
+                return
+            }
 
             if let pending = state.pendingAggregatedChapter {
                 state.pendingAggregatedChapter = nil
@@ -656,7 +716,7 @@ final class PlayerLoadingCoordinator {
                 playbackController.play()
             }
 
-            if let folderURL = state.folderURL, let db = self.databaseServiceProvider?() {
+            if let db = self.databaseServiceProvider?() {
                 let currentChapters: [Chapter]
                 if state.isMultiM4B, !state.aggregatedChapters.isEmpty {
                     currentChapters = state.aggregatedChapters.map { agg in
@@ -671,21 +731,24 @@ final class PlayerLoadingCoordinator {
                 let currentDuration =
                     state.isMultiM4B ? state.totalBookDuration : state.durationSeconds
                 let didImport = await EPUBAutoImportScanner.scanAndImportIfNeeded(
-                    folderURL: folderURL, databaseService: db, chapters: currentChapters,
+                    folderURL: bookURL, databaseService: db, chapters: currentChapters,
                     duration: currentDuration
                 )
+                guard self.isActiveLoad(state: state, bookURL: bookURL, trackURL: trackURL) else {
+                    return
+                }
                 if didImport, let timelinePersistence = self.timelinePersistence {
                     // A first-time import lands after the load-time ingestion pass,
                     // so timeline_item has no EPUB-block rows yet. Rebuild it now
                     // that blocks exist, or the reader/feed shows no timestamps
                     // until the next load.
                     await timelinePersistence.ingestTimelineItems(
-                        audiobookID: folderURL.absoluteString,
+                        audiobookID: bookURL.absoluteString,
                         audioURL: trackURL,
                         chapters: currentChapters,
                         transcription: state.transcription,
                         enhancedTranscription: state.enhancedTranscription,
-                        folderURL: folderURL
+                        folderURL: contentFolderURL
                     )
                 }
 
@@ -700,13 +763,20 @@ final class PlayerLoadingCoordinator {
                 _ =
                     await DocumentImportFinalizer
                     .finalizeExistingImportIfAlignmentSidecarPresent(
-                        audiobookID: folderURL.absoluteString,
+                        audiobookID: bookURL.absoluteString,
                         fileURL: trackURL,
                         duration: currentDuration,
                         databaseService: db
                     )
             }
         }
+    }
+
+    private func isActiveLoad(state: PlaybackState, bookURL: URL, trackURL: URL) -> Bool {
+        !Task.isCancelled
+            && state.activeBookURL == bookURL
+            && state.tracks.indices.contains(state.currentIndex)
+            && state.tracks[state.currentIndex].url == trackURL
     }
 
     // MARK: - Private helpers
@@ -752,6 +822,20 @@ enum PlaylistSelectionResolver {
         }
 
         if PlaylistManager.isAudioFile(url) {
+            // A directly selected M4B is already a self-contained audiobook.
+            // Its parent folder may contain covers, QA reels, samples, or other
+            // books, so sibling discovery must not silently redefine its book
+            // boundary. Users can still select the folder when they intend to
+            // open a genuine multi-volume M4B set.
+            if url.pathExtension.lowercased() == "m4b" {
+                return Result(
+                    isDirectory: false,
+                    tracks: [Track(
+                        url: url,
+                        title: url.deletingPathExtension().lastPathComponent)],
+                    preferredTrackURL: nil)
+            }
+
             let parent = url.deletingLastPathComponent()
             let siblingTracks = loadTracksFromFolder(parent)
             if siblingTracks.count > 1,

@@ -22,10 +22,9 @@ enum PlayerDocumentImportError: LocalizedError {
 
 extension PlayerModel {
 
-    /// The persistence key for the currently loaded book, derived from the folder
-    /// URL or the current track ID. Used to scope bookmark and progress storage.
+    /// The persistence key for the currently loaded logical book.
     var bookmarksStorageKey: String? {
-        if let f = folderURL?.absoluteString { return f }
+        if let f = bookIdentityURL?.absoluteString { return f }
         if state.tracks.indices.contains(currentIndex) { return state.tracks[currentIndex].id }
         return nil
     }
@@ -38,9 +37,9 @@ extension PlayerModel {
             artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
             return
         }
-        bookmarkStore.bookmarks = persistence.loadBookmarks(for: key, folderURL: folderURL).sorted {
-            $0.timestamp < $1.timestamp
-        }
+        bookmarkStore.bookmarks = persistence.loadBookmarks(
+            for: key, folderURL: persistenceFolderURL
+        ).sorted { $0.timestamp < $1.timestamp }
         // Surface any widget/Siri bookmarks the app group staged for this book.
         drainPendingWidgetBookmarks()
         artworkCoordinator.updateCurrentDisplayArtwork(at: currentPlaybackTime, force: true)
@@ -69,7 +68,7 @@ extension PlayerModel {
         let trackId =
             state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         let bookmark = bookmarkStore.addBookmark(
-            at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+            at: t, trackId: trackId, folderKey: bookIdentityURL?.absoluteString)
         logRealTimeEvent(
             type: .bookmarkCreated, title: bookmark.title, timestamp: t,
             sourceItemID: bookmark.id.uuidString, sourceItemType: "bookmark")
@@ -88,7 +87,7 @@ extension PlayerModel {
         let trackId =
             state.tracks.indices.contains(currentIndex) ? state.tracks[currentIndex].id : nil
         let draft = bookmarkStore.bookmarkDraft(
-            at: t, trackId: trackId, folderKey: folderURL?.absoluteString)
+            at: t, trackId: trackId, folderKey: bookIdentityURL?.absoluteString)
         if let pdfState = currentPDFViewState {
             return BookmarkDraft(
                 id: draft.id, title: draft.title, folderKey: draft.folderKey,
@@ -166,7 +165,8 @@ extension PlayerModel {
             to: folderURL,
             databaseService: db,
             chapters: state.chapters,
-            duration: state.durationSeconds
+            duration: state.durationSeconds,
+            audiobookID: bookIdentityURL?.absoluteString
         )
 
         // The import wiped and re-created epub_block rows (cascade-deleting
@@ -200,13 +200,14 @@ extension PlayerModel {
             to: folderURL,
             databaseService: db,
             chapters: state.chapters,
-            duration: state.durationSeconds
+            duration: state.durationSeconds,
+            audiobookID: bookIdentityURL?.absoluteString
         )
         playbackController.state.documentIngestionTrigger += 1
         NotificationCenter.default.post(
             name: .timelineItemsIngested,
             object: nil,
-            userInfo: ["audiobookID": folderURL.absoluteString]
+            userInfo: ["audiobookID": bookIdentityURL?.absoluteString ?? folderURL.absoluteString]
         )
 
         return result
@@ -236,7 +237,7 @@ extension PlayerModel {
         let isCurrentBook = storageKey == bookmarksStorageKey
         // Only the currently-loaded book has live security scope, so sidecar
         // I/O is restricted to that case; other books fall back to UserDefaults.
-        let targetFolderURL: URL? = isCurrentBook ? folderURL : nil
+        let targetFolderURL: URL? = isCurrentBook ? persistenceFolderURL : nil
         var targetBookmarks =
             isCurrentBook
             ? bookmarkStore.bookmarks
@@ -297,7 +298,7 @@ extension PlayerModel {
     /// other book falls back to its `UserDefaults`-backed storage.
     private func mergePendingBookmarks(_ incoming: [Bookmark], into storageKey: String) {
         let isCurrentBook = storageKey == bookmarksStorageKey
-        let targetFolderURL: URL? = isCurrentBook ? folderURL : nil
+        let targetFolderURL: URL? = isCurrentBook ? persistenceFolderURL : nil
         var targetBookmarks =
             isCurrentBook
             ? bookmarkStore.bookmarks

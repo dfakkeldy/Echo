@@ -26,10 +26,10 @@ final class PlaylistManager {
     /// folder scan and the single-file open path agree on what counts as audio —
     /// and, by exclusion, what is a document (EPUB/PDF) that opens as an
     /// audio-less study book instead of a playable track.
-    static let audioExtensions: Set<String> = ["mp3", "m4a", "m4b"]
+    nonisolated static let audioExtensions: Set<String> = ["mp3", "m4a", "m4b"]
 
     /// Whether `url` points at a file Echo can play as an audio track.
-    static func isAudioFile(_ url: URL) -> Bool {
+    nonisolated static func isAudioFile(_ url: URL) -> Bool {
         audioExtensions.contains(url.pathExtension.lowercased())
     }
 

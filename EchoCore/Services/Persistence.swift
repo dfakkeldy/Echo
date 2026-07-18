@@ -229,6 +229,52 @@ struct Persistence {
         return Date(timeIntervalSince1970: interval)
     }
 
+    /// Moves unambiguous playback state from the historical parent-folder key
+    /// to a directly opened M4B's file key. Folder bookmarks are copied only
+    /// when they belong to the selected track (or predate track scoping).
+    func migrateLegacyM4BStateIfNeeded(
+        from legacyFolderURL: URL, to bookURL: URL, selectedTrackID: String
+    ) {
+        let legacyKey = legacyFolderURL.absoluteString
+        let bookKey = bookURL.absoluteString
+        guard legacyKey != bookKey else { return }
+
+        if defaults.object(forKey: progressKey(for: bookKey)) == nil,
+            let progress = getBookProgress(for: legacyKey, folderURL: legacyFolderURL),
+            progress.trackId == selectedTrackID
+        {
+            saveBookProgress(
+                for: bookKey, trackId: selectedTrackID, time: progress.time, folderURL: nil)
+        }
+        if defaults.object(forKey: lastTrackKey(for: bookKey)) == nil,
+            getLastTrack(for: legacyKey, folderURL: legacyFolderURL) == selectedTrackID
+        {
+            saveLastTrack(for: bookKey, trackId: selectedTrackID, folderURL: nil)
+        }
+        if defaults.object(forKey: speedKey(for: bookKey)) == nil,
+            let speed = getSpeed(for: legacyKey, folderURL: legacyFolderURL)
+        {
+            saveSpeed(for: bookKey, speed: speed, folderURL: nil)
+        }
+        if defaults.object(forKey: loopModeKey(for: bookKey)) == nil,
+            let loopMode = getLoopMode(for: legacyKey, folderURL: legacyFolderURL)
+        {
+            saveLoopMode(for: bookKey, loopMode: loopMode, folderURL: nil)
+        }
+        if defaults.object(forKey: pauseTimestampKey(for: bookKey)) == nil,
+            let pauseTimestamp = getPauseTimestamp(for: legacyKey)
+        {
+            savePauseTimestamp(pauseTimestamp, for: bookKey)
+        }
+        if defaults.data(forKey: bookmarksKey(for: bookKey)) == nil {
+            let bookmarks = loadBookmarks(for: legacyKey, folderURL: legacyFolderURL)
+                .filter { $0.trackId == nil || $0.trackId == selectedTrackID }
+            if !bookmarks.isEmpty {
+                saveBookmarks(bookmarks, for: bookKey, folderURL: nil)
+            }
+        }
+    }
+
     // MARK: - Security-Scoped Bookmark
 
     /// Stores a security-scoped bookmark in the Keychain rather than

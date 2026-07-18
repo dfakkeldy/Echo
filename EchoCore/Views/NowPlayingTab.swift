@@ -97,7 +97,7 @@ struct NowPlayingTab: View {
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .task(id: model.folderURL) {
+        .task(id: model.bookIdentityURL) {
             await reloadVisualListeningViewModel()
 
             // Pre-warm the ANE model compile so the first Listen tap isn't a long
@@ -447,7 +447,7 @@ struct NowPlayingTab: View {
     }
 
     private func reloadVisualListeningViewModel() async {
-        guard let audiobookID = model.folderURL?.absoluteString,
+        guard let audiobookID = model.bookIdentityURL?.absoluteString,
             let db = model.databaseService?.writer
         else {
             visualListeningViewModel = nil
@@ -471,7 +471,7 @@ struct NowPlayingTab: View {
 
     private func handleTimelineItemsIngested(_ notification: Notification) {
         guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
-            ingestedID == model.folderURL?.absoluteString
+            ingestedID == model.bookIdentityURL?.absoluteString
         else { return }
         Task { await reloadVisualListeningViewModel() }
     }

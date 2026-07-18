@@ -187,7 +187,7 @@ extension PlayerModel {
     func refreshABSSyncIdentity() {
         absLastPushAt = nil
         guard let db = databaseService,
-            let id = folderURL?.absoluteString,
+            let id = bookIdentityURL?.absoluteString,
             let record = try? AudiobookDAO(db: db.writer).get(id)
         else {
             absSyncRemoteItemID = nil

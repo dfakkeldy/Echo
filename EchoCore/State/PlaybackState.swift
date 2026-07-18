@@ -98,6 +98,10 @@ final class PlaybackState {
     // MARK: - Playlist
 
     var folderURL: URL? = nil
+    /// Stable persistence/database identity for the active book. This differs
+    /// from `folderURL` when one self-contained M4B is opened from a folder
+    /// containing other audio files.
+    var bookIdentityURL: URL? = nil
     var sourceDocumentURL: URL? = nil
     var tracks: [Track] = []
     var currentIndex: Int = 0
@@ -113,6 +117,15 @@ final class PlaybackState {
 
     var isMultiM4B: Bool { m4bBooks.count >= 2 }
     var pendingAggregatedChapter: AggregatedChapter? = nil
+
+    var activeBookURL: URL? { bookIdentityURL ?? folderURL }
+
+    /// Folder-scoped sidecars and playlist manifests are valid only when the
+    /// folder itself is the book. A directly opened M4B must not read or write
+    /// shared folder state belonging to sibling audio files.
+    var persistenceFolderURL: URL? {
+        activeBookURL == folderURL ? folderURL : nil
+    }
 
     /// The M4B file currently playing, resolved by matching the playing track's
     /// URL against `m4bBooks`. `currentIndex` indexes `tracks`, which is

@@ -70,7 +70,7 @@ extension PlayerModel {
         checkpointCoordinator = coordinator
 
         playbackController.coordinator_handleChapterEndCheckpoint = { [weak self] chapterIndex in
-            guard let self, let bookID = self.folderURL?.absoluteString else { return false }
+            guard let self, let bookID = self.bookIdentityURL?.absoluteString else { return false }
             return self.checkpointCoordinator?.handleChapterEnd(
                 audiobookID: bookID,
                 chapterIndex: chapterIndex,
@@ -94,7 +94,7 @@ extension PlayerModel {
 
     func playCheckpointItem(_ item: StudyPlayableItem) {
         let bookURL = URL(string: item.audiobookID) ?? URL(fileURLWithPath: item.audiobookID)
-        if folderURL?.absoluteString != item.audiobookID {
+        if bookIdentityURL?.absoluteString != item.audiobookID {
             loadFolder(bookURL, autoplay: false)
         }
         Task { @MainActor in

@@ -12,7 +12,7 @@ extension PlayerModel {
     /// Default range: [now − 15s, now + 5s]. Fire-and-forget — never blocks playback.
     func markPassageAtCurrentTime() {
         guard let db = databaseService,
-              let bookID = folderURL?.absoluteString,
+              let bookID = bookIdentityURL?.absoluteString,
               audioEngine.isItemLoaded else { return }
 
         let t = audioEngine.currentTime

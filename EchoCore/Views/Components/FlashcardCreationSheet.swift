@@ -150,7 +150,7 @@ struct FlashcardCreationSheet: View {
             saveError = String(localized: "Could not save flashcard because the database is unavailable.")
             return false
         }
-        guard let targetAudiobookID = audiobookID ?? model.folderURL?.absoluteString else {
+        guard let targetAudiobookID = audiobookID ?? model.bookIdentityURL?.absoluteString else {
             saveError = String(localized: "Could not save flashcard because no book is loaded.")
             return false
         }

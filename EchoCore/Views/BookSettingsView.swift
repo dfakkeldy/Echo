@@ -112,7 +112,7 @@ struct BookOverridesSections: View {
 
     private func shareAlignment() async {
         guard let db = model.databaseService?.writer,
-            let audiobookID = model.state.folderURL?.absoluteString
+            let audiobookID = model.bookIdentityURL?.absoluteString
         else {
             uploadAlert = ("Error", "No book loaded.")
             return
@@ -222,7 +222,7 @@ struct BookSettingsView: View {
                     // Narration QA review — only for a loaded book. The pass itself
                     // reports "no rendered audio" if the book isn't narrated yet.
                     if let db = model.databaseService?.writer,
-                        let audiobookID = model.state.folderURL?.absoluteString
+                        let audiobookID = model.bookIdentityURL?.absoluteString
                     {
                         Section("Narration") {
                             NavigationLink {
@@ -331,12 +331,12 @@ private struct StudyPlanSheetPresentation: Identifiable {
 
     init?(model: PlayerModel) {
         guard let db = model.databaseService?.writer,
-            let folderURL = model.folderURL
+            let folderURL = model.folderURL,
+            let audiobookID = model.bookIdentityURL?.absoluteString
         else {
             return nil
         }
 
-        let audiobookID = folderURL.absoluteString
         self.audiobookID = audiobookID
         self.bookTitle = StudyPlanBookTitleResolver.resolve(
             audiobookID: audiobookID,
@@ -375,12 +375,12 @@ private struct StudyDeckGenerationSheetPresentation: Identifiable {
 
     init?(model: PlayerModel) {
         guard let db = model.databaseService?.writer,
-            let folderURL = model.folderURL
+            let folderURL = model.folderURL,
+            let audiobookID = model.bookIdentityURL?.absoluteString
         else {
             return nil
         }
 
-        let audiobookID = folderURL.absoluteString
         self.audiobookID = audiobookID
         self.bookTitle = StudyPlanBookTitleResolver.resolve(
             audiobookID: audiobookID,

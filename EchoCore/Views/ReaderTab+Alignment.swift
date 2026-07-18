@@ -15,7 +15,7 @@
             _ blockID: String, to time: TimeInterval, source: AlignmentAnchorRecord.Source
         ) {
             guard let db = model.databaseService else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
             do {
                 try alignmentService.moveBlockToCurrentTime(
@@ -70,7 +70,7 @@
 
         func hideBlock(_ blockID: String) {
             guard let db = model.databaseService else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
             do {
                 try alignmentService.hideBlock(blockID: blockID, reason: "Manual skip")
@@ -83,7 +83,7 @@
 
         func unhideBlock(_ blockID: String) {
             guard let db = model.databaseService else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
             do {
                 try alignmentService.unhideBlock(blockID: blockID)
@@ -96,7 +96,7 @@
 
         func hideChapter(_ chapterIndex: Int) {
             guard let db = model.databaseService else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
             do {
                 try alignmentService.hideChapter(chapterIndex: chapterIndex, reason: "Manual skip")
@@ -110,7 +110,7 @@
 
         func eraseAnchor(_ blockID: String) {
             guard let db = model.databaseService else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
             do {
                 try alignmentService.eraseAnchor(blockID: blockID)
@@ -124,7 +124,7 @@
         func startAutoAlignment(model: PlayerModel) {
             guard let db = model.databaseService else { return }
             guard let vm = viewModel else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
 
             let chapters = model.alignmentPickerChapters
             let blocks = (try? EPubBlockDAO(db: db.writer).blocks(for: audiobookID)) ?? []
@@ -168,7 +168,7 @@
 
         func resetAlignment() {
             guard let db = model.databaseService else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             let alignmentService = AlignmentService(db: db.writer, audiobookID: audiobookID)
             do {
                 try alignmentService.resetAlignment()
@@ -495,7 +495,7 @@
             guard let model, let db = model.databaseService else { return }
             let term = DictionaryLookupTerm.sanitized(hit.word)
             guard !term.isEmpty else { return }
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             // Pro cap (D6)
             guard freeTierGate.canCreateFlashcards(adding: 1) else {
                 model.paywallContext = .flashcardCap
@@ -552,7 +552,7 @@
             let nowString = AlignmentService.isoFormatter.string(from: Date())
 
             var mediaTime = model.currentPlaybackTime
-            let audiobookID = folderURL.absoluteString
+            let audiobookID = self.audiobookID
             do {
                 if let startTime: Double = try db.writer.read({ db in
                     try Row.fetchOne(

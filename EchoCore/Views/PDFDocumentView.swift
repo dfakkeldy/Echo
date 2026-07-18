@@ -161,6 +161,13 @@ nonisolated enum PDFWordHighlightSearch {
 
 struct PDFDocumentView: View {
     let folderURL: URL
+    let bookURL: URL
+    private var audiobookID: String { bookURL.absoluteString }
+
+    init(folderURL: URL, bookURL: URL? = nil) {
+        self.folderURL = folderURL
+        self.bookURL = bookURL ?? folderURL
+    }
     @Environment(PlayerModel.self) private var model
     @Environment(FreeTierGate.self) private var freeTierGate
 
@@ -235,13 +242,16 @@ struct PDFDocumentView: View {
                     .padding(.bottom, model.bottomInset + 16)
             }
         }
-        .task(id: PDFLoadRequest(folderURL: folderURL, reloadToken: pdfLoadToken)) {
+        .task(
+            id: PDFLoadRequest(
+                folderURL: folderURL, bookURL: bookURL, reloadToken: pdfLoadToken)
+        ) {
             await loadPDF(for: folderURL)
             // Load the read-along controller after the document is ready.
             // Uses the same databaseService the rest of the reader uses.
             if let db = model.databaseService?.writer {
                 let controller = PDFReadAlongController()
-                controller.load(audiobookID: folderURL.absoluteString, db: db)
+                controller.load(audiobookID: audiobookID, db: db)
                 readAlong = controller
             }
         }
@@ -325,12 +335,12 @@ struct PDFDocumentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .timelineItemsIngested)) {
             notification in
             guard let ingestedID = notification.userInfo?["audiobookID"] as? String,
-                ingestedID == folderURL.absoluteString
+                ingestedID == audiobookID
             else { return }
             pdfLoadToken &+= 1
             // Reload the read-along controller when new timeline data arrives.
             if let db = model.databaseService?.writer {
-                readAlong?.load(audiobookID: folderURL.absoluteString, db: db)
+                readAlong?.load(audiobookID: audiobookID, db: db)
             }
         }
     }
@@ -338,12 +348,15 @@ struct PDFDocumentView: View {
     private func loadPDF(for folderURL: URL) async {
         do {
             let currentTitle = model.currentTitle
-            let pdfURL = try await Self.preferredPDFURL(in: folderURL, bookTitle: currentTitle)
+            let pdfURL = try await Self.preferredPDFURL(
+                in: folderURL,
+                bookURL: bookURL,
+                bookTitle: currentTitle)
             try Task.checkCancellation()
             guard self.folderURL == folderURL else { return }
 
             let document = pdfURL.flatMap(PDFDocument.init(url:))
-            let savedState = model.pendingPDFViewStateRestore ?? model.pdfViewState(for: folderURL)
+            let savedState = model.pendingPDFViewStateRestore ?? model.pdfViewState(for: bookURL)
             restorePDFViewState = savedState
             currentPDFViewState = savedState
             model.currentPDFViewState = savedState
@@ -431,7 +444,7 @@ struct PDFDocumentView: View {
         if currentPDFViewState != state {
             currentPDFViewState = state
         }
-        model.updatePDFViewState(state, for: folderURL)
+        model.updatePDFViewState(state, for: bookURL)
     }
 
     @discardableResult
@@ -452,7 +465,11 @@ struct PDFDocumentView: View {
     }
 
     @concurrent
-    static func preferredPDFURL(in folderURL: URL, bookTitle: String?) async throws -> URL? {
+    static func preferredPDFURL(
+        in folderURL: URL,
+        bookURL: URL,
+        bookTitle: String?
+    ) async throws -> URL? {
         try Task.checkCancellation()
         let files = try FileManager.default.contentsOfDirectory(
             at: folderURL,
@@ -460,14 +477,17 @@ struct PDFDocumentView: View {
             options: [.skipsHiddenFiles]
         )
         try Task.checkCancellation()
-        return PDFCompanionSelector.preferredPDF(
-            from: files
-            .filter { $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame }
-            .sorted {
-                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
-                    == .orderedAscending
-            },
-            bookTitle: bookTitle)
+        let pdfs = files.filter {
+            $0.pathExtension.localizedCaseInsensitiveCompare("pdf") == .orderedSame
+        }
+        if bookURL != folderURL {
+            return CompanionDocumentSelector.select(
+                documents: pdfs,
+                for: bookURL,
+                folderIsDirectory: false,
+                siblingFiles: files)
+        }
+        return PDFCompanionSelector.preferredPDF(from: pdfs, bookTitle: bookTitle)
     }
 
     @discardableResult
@@ -516,8 +536,6 @@ struct PDFDocumentView: View {
         let word = DictionaryLookupTerm.sanitized(word)
         guard !word.isEmpty else { return }
         guard let db = model.databaseService else { return }
-        let audiobookID = folderURL.absoluteString
-
         guard freeTierGate.canCreateFlashcards(adding: 1) else {
             model.paywallContext = .flashcardCap
             model.showPaywall = true
@@ -569,6 +587,7 @@ struct PDFDocumentView: View {
 
     private struct PDFLoadRequest: Equatable {
         let folderURL: URL
+        let bookURL: URL
         let reloadToken: Int
     }
 
