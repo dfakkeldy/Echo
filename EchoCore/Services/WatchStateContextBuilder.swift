@@ -64,7 +64,8 @@ struct WatchStateSnapshot {
     // MARK: Settings values (pre-resolved from SettingsManager)
     var crownAction: String = SettingsManager.Defaults.crownAction
     var isHapticFeedbackEnabled: Bool = SettingsManager.Defaults.isHapticFeedbackEnabled
-    var watchQuickBookmarkTimeoutSeconds: Int = SettingsManager.Defaults.watchQuickBookmarkTimeoutSeconds
+    var watchQuickBookmarkTimeoutSeconds: Int = SettingsManager.Defaults
+        .watchQuickBookmarkTimeoutSeconds
     var seekBackwardDuration: Int = SettingsManager.Defaults.seekBackwardDuration
     var seekForwardDuration: Int = SettingsManager.Defaults.seekForwardDuration
     var loopModeRawValue: String = LoopMode.off.rawValue
@@ -84,6 +85,14 @@ struct WatchStateSnapshot {
     var watchTitleScrollSpeed: Double = SettingsManager.Defaults.watchTitleScrollSpeed
     var watchDateEnabled: Bool = SettingsManager.Defaults.watchDateEnabled
     var watchDateFormat: String = SettingsManager.Defaults.watchDateFormat
+
+    // MARK: Whole-book boundaries + crown volume
+    /// Interior chapter/track boundaries as fractions of the whole-book
+    /// duration, for the watch's segmented progress indicators.
+    var bookBoundaryFractions: [Double] = []
+    /// Current app-level output gain in dB (the value crown volume adjusts).
+    var outputGainDB: Double = 0
+    var crownVolumeSensitivity: Double = SettingsManager.Defaults.crownVolumeSensitivity
 
     // MARK: Thumbnail availability
     var hasThumbnail: Bool = false
@@ -124,13 +133,14 @@ enum WatchStateContextBuilder {
         }
 
         // Title
-        let title: String = if s.chapterCount >= 2 {
-            s.currentSubtitle.isEmpty
-                ? String(localized: "Ch \((s.currentChapterIndex ?? 0) + 1)")
-                : s.currentSubtitle
-        } else {
-            s.currentTitle
-        }
+        let title: String =
+            if s.chapterCount >= 2 {
+                s.currentSubtitle.isEmpty
+                    ? String(localized: "Ch \((s.currentChapterIndex ?? 0) + 1)")
+                    : s.currentSubtitle
+            } else {
+                s.currentTitle
+            }
         context["title"] = title
 
         // Total progress
@@ -141,7 +151,8 @@ enum WatchStateContextBuilder {
             context["totalBookDuration"] = duration
         } else {
             let totalCount = Double(s.trackCount)
-            context["totalProgressFraction"] = totalCount > 0
+            context["totalProgressFraction"] =
+                totalCount > 0
                 ? (Double(s.currentIndex) + s.progressFraction) / totalCount : 0.0
         }
 
@@ -173,6 +184,18 @@ enum WatchStateContextBuilder {
         // same-track bookmark's old color cached when the new artwork is neutral.
         context["artworkAccentColorHex"] = s.artworkAccentColorHex ?? ""
 
+        // Whole-book boundaries for segmented progress indicators. Always
+        // present so a book change clears stale segments on the watch; capped
+        // because boundaries beyond the render limit are dead payload in every
+        // message.
+        context["bookBoundaryFractions"] = BookProgressSegmentMetrics.transportBoundaries(
+            s.bookBoundaryFractions)
+
+        // Crown volume: current gain plus the sensitivity the watch needs to
+        // mirror the iPhone's delta math for its optimistic indicator.
+        context["outputGainDB"] = s.outputGainDB
+        context["crownVolumeSensitivity"] = s.crownVolumeSensitivity
+
         // Sleep timer
         switch s.sleepTimerMode {
         case .off:
@@ -190,7 +213,8 @@ enum WatchStateContextBuilder {
         // Word cloud (top 10)
         let cloud = s.wordCloud.prefix(10)
         if !cloud.isEmpty, let jsonData = try? JSONEncoder().encode(Array(cloud)),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
+            let jsonString = String(data: jsonData, encoding: .utf8)
+        {
             context["wordCloudJSON"] = jsonString
             context["wordCloudChapterIndex"] = s.currentChapterIndex ?? 0
         }

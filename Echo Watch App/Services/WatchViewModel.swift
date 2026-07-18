@@ -75,6 +75,65 @@ class WatchViewModel: NSObject, WCSessionDelegate {
     var currentTime: Double = 0
     var crownAction: String = AppGroupDefaults.shared.string(forKey: "crownAction") ?? "volume"
 
+    /// Interior chapter/track boundaries as fractions of the whole book,
+    /// synced from the iPhone for the segmented progress indicators.
+    var bookBoundaryFractions: [Double] = []
+
+    // MARK: Crown volume mirror
+    /// Local mirror of the iPhone's app-level output gain in dB. Updated
+    /// optimistically while the crown turns, reconciled from state replies.
+    var outputGainDB: Double = 0
+    var crownVolumeSensitivity: Double = WatchCrownVolume.defaultSensitivity
+    /// While the user is actively turning the crown, incoming state snapshots
+    /// carry a gain that lags the optimistic local value; skip applying them
+    /// until this deadline passes so the indicator doesn't stutter backwards.
+    @ObservationIgnored private var volumeAdjustmentActiveUntil: Date = .distantPast
+    /// Freshest authoritative gain skipped during the gesture window. Applied
+    /// once the window expires, so a rare local/phone divergence (batched
+    /// clamping near the rails, or a dropped send) heals in ~1 s instead of
+    /// waiting for the next full state sync.
+    @ObservationIgnored private var pendingRemoteGainDB: Double?
+    @ObservationIgnored private var gainReconcileTask: Task<Void, Never>?
+
+    var volumeFraction: Double { WatchCrownVolume.fraction(forGainDB: outputGainDB) }
+
+    /// Applies a crown rotation delta to the local gain mirror using the same
+    /// formula the iPhone applies authoritatively. Returns `true` when the
+    /// change crossed a haptic step threshold (the caller plays the haptic).
+    func applyLocalVolumeDelta(_ delta: Double) -> Bool {
+        let newGain = WatchCrownVolume.applying(
+            delta: delta, sensitivity: crownVolumeSensitivity, to: outputGainDB)
+        let crossedStep = WatchCrownVolume.crossesHapticStep(from: outputGainDB, to: newGain)
+        outputGainDB = newGain
+        volumeAdjustmentActiveUntil = Date().addingTimeInterval(1.0)
+        return crossedStep
+    }
+
+    func playCrownStepHaptic() { playHaptic(.click) }
+    func playScrubEngageHaptic() { playHaptic(.start) }
+
+    /// Applies the stashed authoritative gain once the gesture window expires.
+    /// The window deadline keeps moving while the crown turns, so the task
+    /// re-sleeps until it truly lapses (a MainActor Task, not a Timer, per the
+    /// Swift 6 strict-concurrency convention used elsewhere in this type).
+    private func scheduleGainReconciliation() {
+        gainReconcileTask?.cancel()
+        gainReconcileTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let remaining = self.volumeAdjustmentActiveUntil.timeIntervalSinceNow
+                if remaining <= 0 { break }
+                try? await Task.sleep(for: .seconds(remaining + 0.05))
+            }
+            guard !Task.isCancelled, let self else { return }
+            if let pending = self.pendingRemoteGainDB {
+                self.outputGainDB = pending
+                self.pendingRemoteGainDB = nil
+            }
+            self.gainReconcileTask = nil
+        }
+    }
+
     // Sleep timer mirror state (driven by iPhone via WCSession context).
     /// "off" | "minutes" | "endOfChapter"
     var sleepTimerMode: String = "off"
@@ -312,6 +371,12 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         trackId = defaults.string(forKey: "trackId")
         dueCards = WatchReviewQueueStore.load(from: defaults)
         crownAction = defaults.string(forKey: "crownAction") ?? "volume"
+        bookBoundaryFractions = (defaults.array(forKey: "bookBoundaryFractions") as? [Double]) ?? []
+        outputGainDB = (defaults.object(forKey: "outputGainDB") as? Double) ?? 0
+        let storedCrownVolumeSensitivity = defaults.double(forKey: "crownVolumeSensitivity")
+        if storedCrownVolumeSensitivity > 0 {
+            crownVolumeSensitivity = storedCrownVolumeSensitivity
+        }
         seekBackwardDuration = defaults.integer(forKey: "seekBackwardDuration")
         if seekBackwardDuration == 0 { seekBackwardDuration = 30 }
         seekForwardDuration = defaults.integer(forKey: "seekForwardDuration")
@@ -570,6 +635,30 @@ class WatchViewModel: NSObject, WCSessionDelegate {
                 self.loopMode = loopMode
                 self.defaults.set(loopMode, forKey: "loopMode")
             }
+            if let boundaries = state["bookBoundaryFractions"] as? [Double] {
+                self.bookBoundaryFractions = boundaries
+                self.defaults.set(boundaries, forKey: "bookBoundaryFractions")
+            }
+            if let sensitivity = state["crownVolumeSensitivity"] as? Double, sensitivity > 0 {
+                self.crownVolumeSensitivity = sensitivity
+                self.defaults.set(sensitivity, forKey: "crownVolumeSensitivity")
+            }
+            if let gainDB = state["outputGainDB"] as? Double {
+                // Persist always, but only move the visible mirror when the
+                // user isn't mid-gesture — replies lag the optimistic value.
+                // Mid-gesture values are stashed and applied when the window
+                // expires so the phone's authoritative gain always wins.
+                self.defaults.set(gainDB, forKey: "outputGainDB")
+                if Date() >= self.volumeAdjustmentActiveUntil {
+                    self.outputGainDB = gainDB
+                    self.pendingRemoteGainDB = nil
+                    self.gainReconcileTask?.cancel()
+                    self.gainReconcileTask = nil
+                } else {
+                    self.pendingRemoteGainDB = gainDB
+                    self.scheduleGainReconciliation()
+                }
+            }
             if let stm = state["sleepTimerMode"] as? String {
                 self.sleepTimerMode = stm
             }
@@ -794,6 +883,10 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         command == "next" || command == "skipForward"
     }
 
+    private static func isContinuousCommand(_ command: String) -> Bool {
+        command == "volumeDelta" || command == "scrubDelta"
+    }
+
     @discardableResult
     func sendCommand(_ command: String, params: [String: Any]? = nil) -> Bool {
         guard !command.isEmpty else { return false }
@@ -854,6 +947,12 @@ class WatchViewModel: NSObject, WCSessionDelegate {
         }
 
         if loopMode == "bookmark" && Self.isDirectionalCommand(command) {
+            return true
+        }
+
+        // Continuous crown streams get threshold-based haptics at the call
+        // site; a per-message haptic here would buzz on every batched tick.
+        if Self.isContinuousCommand(command) {
             return true
         }
 

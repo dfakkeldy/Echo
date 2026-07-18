@@ -84,13 +84,13 @@ final class WatchCommandRouter {
                 }
             case "volumeDelta":
                 if let delta = message["delta"] as? Double {
-                    let sensitivity = facade.crownVolumeSensitivity
-                    let multiplier =
-                        sensitivity > 0
-                        ? sensitivity : SettingsManager.Defaults.crownVolumeSensitivity
-                    let newGain = max(
-                        -40, min(9, facade.watchCommandOutputGain + Float(delta * 6 * multiplier)))
-                    facade.setWatchCommandOutputGain(newGain)
+                    // Shared formula: the watch mirrors this exact computation for
+                    // its optimistic volume indicator and step haptics.
+                    let newGain = WatchCrownVolume.applying(
+                        delta: delta,
+                        sensitivity: facade.crownVolumeSensitivity,
+                        to: Double(facade.watchCommandOutputGain))
+                    facade.setWatchCommandOutputGain(Float(newGain))
                 }
             case "toggle":
                 facade.togglePlayPause()
