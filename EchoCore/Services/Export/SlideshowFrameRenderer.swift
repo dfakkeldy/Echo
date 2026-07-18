@@ -22,12 +22,21 @@ nonisolated final class SlideshowFrameRenderer {
     private let width: Int
     private let height: Int
     private let coverArt: CGImage?
+    private let imageLoader: @Sendable (String) -> CGImage?
     private var cachedBase: (key: BaseKey, image: CGImage)?
 
-    init(width: Int, height: Int, coverArt: CGImage?) {
+    init(
+        width: Int,
+        height: Int,
+        coverArt: CGImage?,
+        imageLoader: @escaping @Sendable (String) -> CGImage? = {
+            SlideshowFrameRenderer.loadImage(storedPath: $0)
+        }
+    ) {
         self.width = width
         self.height = height
         self.coverArt = coverArt
+        self.imageLoader = imageLoader
     }
 
     func render(_ frame: SlideshowFramePlan) -> CGImage? {
@@ -64,7 +73,7 @@ nonisolated final class SlideshowFrameRenderer {
         context.setFillColor(CGColor(red: 0.063, green: 0.063, blue: 0.078, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
-        let figure = imagePath.flatMap(Self.loadImage(storedPath:)) ?? coverArt
+        let figure = imagePath.flatMap(imageLoader) ?? coverArt
         // Figure area: horizontally centered, between the caption band and the
         // top margin. Subtitle band ≈ bottom 18%, caption band ≈ next 8%.
         let margin = CGFloat(height) * 0.05
@@ -93,7 +102,8 @@ nonisolated final class SlideshowFrameRenderer {
             let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return nil }
 
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+        let properties =
+            CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
             as? [CFString: Any]
         guard let orientation = properties?[kCGImagePropertyOrientation] as? NSNumber,
             (2...8).contains(orientation.intValue)

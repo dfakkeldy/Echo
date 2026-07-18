@@ -2,6 +2,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import Synchronization
 import Testing
 
 @testable import Echo
@@ -66,6 +67,39 @@ struct SlideshowFrameRendererTests {
         #expect(pixels(fallback) != pixels(blank))
     }
 
+    @Test func reusesBaseFrameWhenOnlySubtitleStateChanges() throws {
+        let figure = try #require(Self.solidImage(width: 40, height: 40))
+        let loadCount = Mutex(0)
+        let renderer = SlideshowFrameRenderer(
+            width: 320,
+            height: 180,
+            coverArt: nil,
+            imageLoader: { _ in
+                loadCount.withLock { $0 += 1 }
+                return figure
+            })
+
+        let first = try #require(
+            renderer.render(
+                frame(
+                    subtitle: "First subtitle state",
+                    activeWord: 0,
+                    heard: 0,
+                    imagePath: "/fixture/same-image.png",
+                    caption: "Same caption")))
+        let second = try #require(
+            renderer.render(
+                frame(
+                    subtitle: "Second subtitle state",
+                    activeWord: 1,
+                    heard: 1,
+                    imagePath: "/fixture/same-image.png",
+                    caption: "Same caption")))
+
+        #expect(pixels(first) != pixels(second))
+        #expect(loadCount.withLock { $0 } == 1)
+    }
+
     @Test func appliesRotatedAndMirroredImageOrientationMetadata() throws {
         let source = try #require(Self.splitImage(width: 40, height: 100))
         let uprightURL = try Self.orientedTIFF(source, orientation: 1)
@@ -78,12 +112,15 @@ struct SlideshowFrameRendererTests {
         }
 
         let renderer = SlideshowFrameRenderer(width: 200, height: 200, coverArt: nil)
-        let upright = try #require(renderer.render(
-            frame(subtitle: nil, imagePath: uprightURL.path, caption: nil)))
-        let rotated = try #require(renderer.render(
-            frame(subtitle: nil, imagePath: rotatedURL.path, caption: nil)))
-        let mirrored = try #require(renderer.render(
-            frame(subtitle: nil, imagePath: mirroredURL.path, caption: nil)))
+        let upright = try #require(
+            renderer.render(
+                frame(subtitle: nil, imagePath: uprightURL.path, caption: nil)))
+        let rotated = try #require(
+            renderer.render(
+                frame(subtitle: nil, imagePath: rotatedURL.path, caption: nil)))
+        let mirrored = try #require(
+            renderer.render(
+                frame(subtitle: nil, imagePath: mirroredURL.path, caption: nil)))
 
         // Orientations 1 and 6 differ by a quarter turn; identical output means
         // the rotation metadata was ignored.
@@ -104,10 +141,11 @@ struct SlideshowFrameRendererTests {
     }
 
     private static func splitImage(width: Int, height: Int) -> CGImage? {
-        guard let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8,
-            bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard
+            let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
@@ -121,8 +159,9 @@ struct SlideshowFrameRendererTests {
     ) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).tiff")
-        let destination = try #require(CGImageDestinationCreateWithURL(
-            url as CFURL, "public.tiff" as CFString, 1, nil))
+        let destination = try #require(
+            CGImageDestinationCreateWithURL(
+                url as CFURL, "public.tiff" as CFString, 1, nil))
         let properties: [CFString: Any] = [kCGImagePropertyOrientation: orientation]
         CGImageDestinationAddImage(destination, image, properties as CFDictionary)
         try #require(CGImageDestinationFinalize(destination))

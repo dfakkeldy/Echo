@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AVFoundation
+import CoreGraphics
 import Foundation
 import GRDB
+import ImageIO
 import Synchronization
 import Testing
 
@@ -657,11 +659,52 @@ struct VideoExportServiceTests {
         @Test func exportsH264VideoAACAudioSRTAndChaptersFromSeededFixture() async throws {
             let workDirectory = try Self.makeWorkDirectory()
             defer { try? FileManager.default.removeItem(at: workDirectory) }
+            let firstImageURL = workDirectory.appendingPathComponent("first-image.png")
+            let secondImageURL = workDirectory.appendingPathComponent("second-image.png")
+            try Self.writeSolidImage(
+                to: firstImageURL,
+                color: CGColor(red: 0.95, green: 0.05, blue: 0.05, alpha: 1))
+            try Self.writeSolidImage(
+                to: secondImageURL,
+                color: CGColor(red: 0.05, green: 0.05, blue: 0.95, alpha: 1))
             let fixture = try await Self.makeAlignedFixture(
                 in: workDirectory,
                 bookID: "video-test-book",
                 title: "Video Test Book",
                 seconds: 4)
+            try fixture.database.write { db in
+                try db.execute(
+                    sql: "UPDATE epub_block SET sequence_index = 1, block_index = 1 WHERE id = 'b1'"
+                )
+                try db.execute(
+                    sql: "UPDATE epub_block SET sequence_index = 3, block_index = 3 WHERE id = 'b2'"
+                )
+                try db.execute(
+                    sql: """
+                        INSERT INTO epub_block
+                          (id, audiobook_id, spine_href, spine_index, block_index,
+                           sequence_index, block_kind, image_path, chapter_index, is_hidden)
+                        VALUES
+                          ('image1', ?, 's', 0, 0, 0, 'image', ?, 0, 0),
+                          ('image2', ?, 's', 0, 2, 2, 'image', ?, 0, 0)
+                        """,
+                    arguments: [
+                        fixture.bookID, firstImageURL.path,
+                        fixture.bookID, secondImageURL.path,
+                    ])
+                try db.execute(
+                    sql: """
+                        INSERT INTO timeline_item
+                          (id, audiobook_id, item_type, title, audio_start_time,
+                           audio_end_time, epub_block_id, alignment_status)
+                        VALUES
+                          ('ti-image1', ?, 'textSegment', 'First image',
+                           0.0, 2.0, 'image1', 'test'),
+                          ('ti-image2', ?, 'textSegment', 'Second image',
+                           2.0, 4.0, 'image2', 'test')
+                        """,
+                    arguments: [fixture.bookID, fixture.bookID])
+            }
 
             let output = try await VideoExportService().exportVideo(
                 audiobookID: fixture.bookID,
@@ -710,6 +753,20 @@ struct VideoExportServiceTests {
             #expect(timings.allSatisfy { $0.presentationTime >= 0 && $0.endTime <= 4.01 })
             #expect(abs((timings.map(\.endTime).max() ?? 0) - 4) < 0.01)
 
+            let plannedImageTransition = 2.0
+            let decodedFrames = try await Self.decodedVideoFrames(asset: asset)
+            let beforeTransition = try #require(
+                decodedFrames.last { $0.presentationTime < plannedImageTransition - 0.01 })
+            let atTransition = try #require(
+                decodedFrames.first { $0.presentationTime >= plannedImageTransition - 0.01 })
+            #expect(abs(beforeTransition.presentationTime) < 0.01)
+            #expect(abs(atTransition.presentationTime - plannedImageTransition) < 0.01)
+            #expect(Int(beforeTransition.red) > Int(beforeTransition.blue) + 80)
+            #expect(Int(atTransition.blue) > Int(atTransition.red) + 80)
+            #expect(
+                abs(Int(beforeTransition.red) - Int(atTransition.red))
+                    + abs(Int(beforeTransition.blue) - Int(atTransition.blue)) > 160)
+
             let srt = try String(contentsOf: output.srtURL, encoding: .utf8)
             #expect(srt.contains("Opening words spoken aloud."))
             #expect(srt.contains("00:00:02,000 --> 00:00:04,000"))
@@ -748,6 +805,13 @@ struct VideoExportServiceTests {
             let duration: Double
 
             var endTime: Double { presentationTime + duration }
+        }
+
+        private struct DecodedVideoFrame {
+            let presentationTime: Double
+            let red: UInt8
+            let green: UInt8
+            let blue: UInt8
         }
 
         private static func makeWorkDirectory() throws -> URL {
@@ -862,6 +926,84 @@ struct VideoExportServiceTests {
             return timings
         }
 
+        private static func decodedVideoFrames(asset: AVAsset) async throws
+            -> [DecodedVideoFrame]
+        {
+            let track = try #require(
+                try await asset.loadTracks(withMediaType: .video).first)
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(
+                track: track,
+                outputSettings: [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                ])
+            try #require(reader.canAdd(output))
+            reader.add(output)
+            try #require(reader.startReading())
+
+            var frames: [DecodedVideoFrame] = []
+            while let sample = output.copyNextSampleBuffer() {
+                let presentationTime = CMSampleBufferGetPresentationTimeStamp(sample)
+                guard presentationTime.isNumeric,
+                    let pixelBuffer = CMSampleBufferGetImageBuffer(sample)
+                else { continue }
+                frames.append(
+                    try decodedCenterPixel(
+                        from: pixelBuffer,
+                        presentationTime: presentationTime.seconds))
+            }
+            #expect(reader.status == .completed)
+            return frames
+        }
+
+        private static func decodedCenterPixel(
+            from pixelBuffer: CVPixelBuffer,
+            presentationTime: TimeInterval
+        ) throws -> DecodedVideoFrame {
+            guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else {
+                throw FixtureSourceError.videoFrameUnavailable
+            }
+            guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else {
+                throw FixtureSourceError.videoFrameUnavailable
+            }
+            defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+            guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+                throw FixtureSourceError.videoFrameUnavailable
+            }
+
+            let x = CVPixelBufferGetWidth(pixelBuffer) / 2
+            let y = CVPixelBufferGetHeight(pixelBuffer) / 2
+            let offset = y * CVPixelBufferGetBytesPerRow(pixelBuffer) + x * 4
+            let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
+            return DecodedVideoFrame(
+                presentationTime: presentationTime,
+                red: bytes[offset + 2],
+                green: bytes[offset + 1],
+                blue: bytes[offset])
+        }
+
+        private static func writeSolidImage(to url: URL, color: CGColor) throws {
+            let size = 96
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            let context = try #require(
+                CGContext(
+                    data: nil,
+                    width: size,
+                    height: size,
+                    bitsPerComponent: 8,
+                    bytesPerRow: size * 4,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(color)
+            context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            let image = try #require(context.makeImage())
+            let destination = try #require(
+                CGImageDestinationCreateWithURL(
+                    url as CFURL, "public.png" as CFString, 1, nil))
+            CGImageDestinationAddImage(destination, image, nil)
+            try #require(CGImageDestinationFinalize(destination))
+        }
+
         /// Writes a real AAC audio file so `AVAssetReader` exercises its decode path.
         private static func writeToneFile(to url: URL, seconds: Double) async throws {
             let sampleRate = 44_100.0
@@ -924,6 +1066,7 @@ struct VideoExportServiceTests {
 
     private enum FixtureSourceError: Error {
         case diskRead
+        case videoFrameUnavailable
     }
 
     private struct CancellingSource: ExportSource {
