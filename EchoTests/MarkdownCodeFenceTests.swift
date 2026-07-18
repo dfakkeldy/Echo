@@ -96,4 +96,20 @@ struct MarkdownCodeFenceTests {
         #expect(code?.text == "alpha\n~~~\nomega")
         #expect(code?.codeLanguage == "text")
     }
+
+    @Test func fourSpaceIndentedMatchingFenceRemainsCodeContent() {
+        let parsed = parse("""
+            ```text
+            before
+                ```
+            after
+            ```
+            """)
+        let code = parsed.blocks.first {
+            EPubBlockRecord.Kind(rawValue: $0.blockKind) == .code
+        }
+
+        #expect(code?.text == "before\n    ```\nafter")
+        #expect(code?.codeLanguage == "text")
+    }
 }

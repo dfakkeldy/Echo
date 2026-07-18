@@ -93,7 +93,7 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
         if let activeFence = fence {
-            if isMarkdownFenceClosing(trimmed, opener: activeFence) {
+            if isMarkdownFenceClosing(rawLine, opener: activeFence) {
                 fence = nil
                 flushFence()
                 continue
@@ -102,7 +102,7 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
             continue
         }
 
-        if let opening = markdownFenceOpening(trimmed) {
+        if let opening = markdownFenceOpening(rawLine) {
             flushParagraph()
             fence = opening.fence
             fenceLanguage = opening.language
@@ -164,12 +164,26 @@ private func isMarkdownFenceClosing(_ line: String, opener: MarkdownFence) -> Bo
 private func markdownFenceRun(in line: String) -> (
     delimiter: Character, length: Int, remainder: String
 )? {
-    let characters = Array(line)
+    guard let candidate = markdownFenceCandidate(in: line) else { return nil }
+    let characters = Array(candidate)
     guard let delimiter = characters.first, delimiter == "`" || delimiter == "~" else {
         return nil
     }
     let length = characters.prefix { $0 == delimiter }.count
     return (delimiter, length, String(characters.dropFirst(length)))
+}
+
+/// CommonMark permits up to three leading spaces before a fence. Four or more
+/// spaces make the line indented code content, even when it looks like a closer.
+private func markdownFenceCandidate(in line: String) -> Substring? {
+    var index = line.startIndex
+    var leadingSpaces = 0
+    while index < line.endIndex, line[index] == " " {
+        leadingSpaces += 1
+        guard leadingSpaces <= 3 else { return nil }
+        index = line.index(after: index)
+    }
+    return line[index...]
 }
 
 private func isMarkdownThematicBreak(_ line: String) -> Bool {

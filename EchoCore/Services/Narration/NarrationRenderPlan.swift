@@ -105,8 +105,11 @@ enum NarrationRenderPlanner {
         var planned: [NarrationPlannedBlock] = []
         for preparedBlock in candidates {
             let block = preparedBlock.block
-            let normalized = TextNormalizer.normalize(block.text ?? "")
-            if isDecorativeSeparator(normalized) {
+            let isCode = EPubBlockRecord.Kind(rawValue: block.blockKind) == .code
+            let normalized = isCode
+                ? (block.text ?? "")
+                : TextNormalizer.normalize(block.text ?? "")
+            if !isCode, isDecorativeSeparator(normalized) {
                 planned.append(
                     NarrationPlannedBlock(
                         blockID: block.id,
@@ -118,15 +121,25 @@ enum NarrationRenderPlanner {
                 continue
             }
 
-            let overrideResult = overrides.rewrite(to: normalized, blockID: block.id)
-            let homographResult = HomographPronunciationResolver.rewrite(
-                to: overrideResult.text,
-                blockID: block.id)
-            var decisionSeeds = uniqueDecisionSeeds(
-                preparedBlock.pronunciationDecisionSeeds
-                    + overrideResult.decisionSeeds
-                    + homographResult.decisionSeeds)
-            let resolved = homographResult.text
+            let resolved: String
+            var decisionSeeds: [PronunciationDecisionSeed]
+            if isCode {
+                // The prepared text is already the exact spoken caption/fallback.
+                // Keep code cues outside prose and pronunciation rewrites so the
+                // synthesis input matches NarrationService's cache signature.
+                resolved = normalized
+                decisionSeeds = []
+            } else {
+                let overrideResult = overrides.rewrite(to: normalized, blockID: block.id)
+                let homographResult = HomographPronunciationResolver.rewrite(
+                    to: overrideResult.text,
+                    blockID: block.id)
+                decisionSeeds = uniqueDecisionSeeds(
+                    preparedBlock.pronunciationDecisionSeeds
+                        + overrideResult.decisionSeeds
+                        + homographResult.decisionSeeds)
+                resolved = homographResult.text
+            }
             let blockDisplayText = MisakiPronunciationMarkup.displayText(from: resolved)
             let fragments = NarrationTextChunker.splitResolved(
                 resolved,

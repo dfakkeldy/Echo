@@ -71,7 +71,7 @@ struct NarrationCodeBlockCueTests {
 
         let plan = try await service.renderPlan(
             for: [block(kind: .code, text: rawCode, cue: "Listing 4-2. Retry decorator")],
-            overrides: PronunciationOverrides(entries: [:]),
+            overrides: PronunciationOverrides(entries: ["listing": "tˈɛst"]),
             occurrenceOverrides: .empty,
             fmEnabled: false)
         let chunks = try #require(plan.blocks.first?.synthesisChunks)
@@ -79,6 +79,8 @@ struct NarrationCodeBlockCueTests {
         #expect(chunks.map(\.displayText).joined(separator: " ") == "Listing 4-2. Retry decorator")
         #expect(chunks.allSatisfy { !$0.displayText.contains(rawCode) })
         #expect(chunks.allSatisfy { !$0.g2pInputText.contains("attempt") })
+        #expect(chunks.allSatisfy { !$0.g2pInputText.contains("tˈɛst") })
+        #expect(plan.blocks.first?.pronunciationDecisions.isEmpty == true)
     }
 
     @Test func cacheURLChangesWhenCodeCueChangesButRawCodeDoesNot() async throws {
