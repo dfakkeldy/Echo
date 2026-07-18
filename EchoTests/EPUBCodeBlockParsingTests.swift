@@ -76,6 +76,27 @@ struct EPUBCodeBlockParsingTests {
         #expect(parsed.first { $0.kind == .code }?.narrationCue == "Listing 1-1. Hello")
     }
 
+    @Test func nestedFigureCaptionsStayWithTheirOwnCodeBlocks() {
+        let parsed = blocks("""
+            <html><body>
+            <figure>
+            <pre>outer()</pre>
+            <figure>
+            <pre>inner()</pre>
+            <figcaption>Inner listing</figcaption>
+            </figure>
+            <figcaption>Outer listing</figcaption>
+            </figure>
+            </body></html>
+            """)
+        let codeBlocks = parsed.filter { $0.kind == .code }
+        #expect(codeBlocks.count == 2)
+        #expect(codeBlocks[0].text == "outer()")
+        #expect(codeBlocks[0].narrationCue == "Outer listing")
+        #expect(codeBlocks[1].text == "inner()")
+        #expect(codeBlocks[1].narrationCue == "Inner listing")
+    }
+
     @Test func emptyPreIsDropped() {
         let parsed = blocks("<html><body><pre>   \n  \n</pre><p>After.</p></body></html>")
         #expect(!parsed.contains { $0.kind == .code })

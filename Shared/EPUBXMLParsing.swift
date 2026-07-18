@@ -501,13 +501,13 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
     private var currentCodeText = ""
     private var currentCodeLanguage: String?
     // MARK: - Figure / figcaption (code-listing captions)
-    private var figureDepth = 0
+    private struct FigureContext {
+        var captionText = ""
+        var codeBlockIndices: [Int] = []
+    }
+
+    private var figureStack: [FigureContext] = []
     private var isInFigcaption = false
-    private var figcaptionText = ""
-    /// Indices into `textBlocks` of code blocks emitted inside the open <figure>,
-    /// so a <figcaption> in either position (before or after the <pre>) can
-    /// retroactively supply their cue at </figure>.
-    private var pendingFigureCodeBlockIndices: [Int] = []
     private let skipTags: Set<String> = ["script", "style", "figcaption"]
     private let blockTags: Set<String> = [
         "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li", "section",
@@ -545,7 +545,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         qualifiedName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        if elementName == "figcaption", figureDepth > 0, skipDepth == 0 {
+        if elementName == "figcaption", !figureStack.isEmpty, skipDepth == 0 {
             isInFigcaption = true
             return
         }
@@ -575,7 +575,7 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             }
             return
         }
-        if elementName == "figure" { figureDepth += 1 }
+        if elementName == "figure" { figureStack.append(FigureContext()) }
         if elementName == "pre" {
             flushBlock()
             captureAnchorID(attributeDict["id"])
@@ -675,7 +675,8 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
         if isInsideHead { return }  // ignore all other text in head
 
         if isInFigcaption {
-            appendCollapsed(string, to: &figcaptionText)
+            let figureIndex = figureStack.count - 1
+            appendCollapsed(string, to: &figureStack[figureIndex].captionText)
             return
         }
         if isInPre {
@@ -762,7 +763,6 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
             return  // ignore inner closes (span/code) while in pre
         }
         if elementName == "figure" {
-            figureDepth = max(0, figureDepth - 1)
             attachFigcaptionToPendingCodeBlocks()
             // fall through: figure was always transparent; keep the soft word
             // break below by NOT returning here.
@@ -918,22 +918,21 @@ final class XHTMLBlockDelegate: NSObject, XMLParserDelegate {
                 codeLanguage: language
             ))
         pendingAnchorIDs = []
-        if figureDepth > 0 {
-            pendingFigureCodeBlockIndices.append(textBlocks.count - 1)
+        if !figureStack.isEmpty {
+            figureStack[figureStack.count - 1].codeBlockIndices.append(textBlocks.count - 1)
         }
     }
 
     /// At </figure>, a captured <figcaption> becomes the spoken cue for the
     /// figure's code blocks (handles caption-before-pre and caption-after-pre).
     private func attachFigcaptionToPendingCodeBlocks() {
-        let caption = figcaptionText.trimmingCharacters(in: .whitespaces)
+        guard let figure = figureStack.popLast() else { return }
+        let caption = figure.captionText.trimmingCharacters(in: .whitespaces)
         if !caption.isEmpty {
-            for index in pendingFigureCodeBlockIndices {
+            for index in figure.codeBlockIndices {
                 textBlocks[index].narrationCue = caption
             }
         }
-        figcaptionText = ""
-        pendingFigureCodeBlockIndices = []
     }
 
     /// "language-python" / "lang-rb" / "brush:swift" → "python"/"rb"/"swift".
