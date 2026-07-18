@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import errno
 import os
 import platform
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -481,6 +483,56 @@ class InstallationFailureCleanupTests(InstallFixture):
             store.install(self.request())
 
         self.assertEqual(self.published_source_roots(), [])
+        self.assertEqual(self.staging_leftovers(), [])
+
+
+class ConcurrentPublishRaceTests(InstallFixture):
+    """Losing the publish rename race must confirm-or-refuse, never crash.
+
+    Simulates a concurrent installer that wins between
+    ``_publish_staged_package``'s existence check and its ``os.rename`` by
+    making the rename itself materialize the winner's package and then fail
+    with ``ENOTEMPTY`` -- deterministically exercising the exact
+    interleaving without threads.
+    """
+
+    def _install_with_racing_rename(self, *, corrupt_winner: bool) -> InstallResult:
+        real_rename = os.rename
+
+        def racing_rename(source: object, destination: object) -> None:
+            source_path = Path(os.fsdecode(source))
+            destination_path = Path(os.fsdecode(destination))
+            if (
+                source_path.name.startswith("echo-renderer-staging-")
+                and not destination_path.exists()
+            ):
+                shutil.copytree(source_path, destination_path)
+                if corrupt_winner:
+                    executable = destination_path / "echo-cli"
+                    executable.write_bytes(b"differing concurrent winner\n")
+                raise OSError(
+                    errno.ENOTEMPTY, "Directory not empty", str(destination_path)
+                )
+            real_rename(source, destination)
+
+        with mock.patch.object(store_module.os, "rename", side_effect=racing_rename):
+            return self.store.install(self.request())
+
+    def test_losing_the_rename_race_to_an_identical_package_is_idempotent(self):
+        result = self._install_with_racing_rename(corrupt_winner=False)
+
+        self.assertEqual(self.staging_leftovers(), [])
+        store_module.verify_build_identity(
+            result.verified.build_root,
+            expected_source_sha=self.source_sha,
+            expected_manifest_sha=result.verified.manifest_sha,
+        )
+
+    def test_losing_the_rename_race_to_a_differing_package_is_refused(self):
+        with self.assertRaises(ValueError) as raised:
+            self._install_with_racing_rename(corrupt_winner=True)
+
+        self.assertIn("refusing to overwrite", str(raised.exception))
         self.assertEqual(self.staging_leftovers(), [])
 
 

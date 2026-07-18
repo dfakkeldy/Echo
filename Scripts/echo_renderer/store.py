@@ -3,6 +3,7 @@ Echo renderers."""
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import platform
@@ -428,21 +429,18 @@ class RendererStore:
         source_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         destination = source_dir / manifest_sha
         if destination.exists():
-            try:
-                verified = verify_build_identity(
-                    destination,
-                    expected_source_sha=source_sha,
-                    expected_manifest_sha=manifest_sha,
-                )
-            except ValueError as error:
-                raise ValueError(
-                    "refusing to overwrite an existing renderer package that "
-                    f"differs from the newly staged package: {destination}"
-                ) from error
-            _remove_tree(staging)
-            return verified
+            return self._confirm_existing_package(staging, destination, source_sha, manifest_sha)
 
-        os.rename(staging, destination)
+        try:
+            os.rename(staging, destination)
+        except OSError as error:
+            if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            # A concurrent installer published this identity between the
+            # existence check above and the rename; content addressing means
+            # an identical winner is a success, so confirm-or-refuse exactly
+            # as if the package had already existed.
+            return self._confirm_existing_package(staging, destination, source_sha, manifest_sha)
         _fsync_directory(source_dir)
         _fsync_directory(self.renderer_root)
         return verify_build_identity(
@@ -450,6 +448,24 @@ class RendererStore:
             expected_source_sha=source_sha,
             expected_manifest_sha=manifest_sha,
         )
+
+    def _confirm_existing_package(
+        self, staging: Path, destination: Path, source_sha: str, manifest_sha: str
+    ) -> VerifiedRenderer:
+        """Verify an already-published package matches the staged identity, or refuse."""
+        try:
+            verified = verify_build_identity(
+                destination,
+                expected_source_sha=source_sha,
+                expected_manifest_sha=manifest_sha,
+            )
+        except ValueError as error:
+            raise ValueError(
+                "refusing to overwrite an existing renderer package that "
+                f"differs from the newly staged package: {destination}"
+            ) from error
+        _remove_tree(staging)
+        return verified
 
     def verify(self, source_sha: str, manifest_sha: str) -> VerifiedRenderer:
         """Strictly verify one source and manifest identity without mutation."""
