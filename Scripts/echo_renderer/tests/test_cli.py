@@ -617,5 +617,52 @@ class RepairDispatchTests(CLITestCase):
         self.assertEqual(raised.exception.code, TEMPORARY_FAILURE)
 
 
+class TestCIWorkflowRunsInstallerTestsFirst(unittest.TestCase):
+    """Contract test: CI must run the fast, no-Xcode renderer installer suite
+    before any Xcode-heavy step, and must keep proving echo-cli still compiles.
+
+    This locks in Task 8 (CI integration): a step running
+    `make renderer-install-test` gives fast signal (seconds, no simulator) on
+    every push/PR, ahead of the expensive xcodebuild steps. Parsed as plain
+    text so this test has no YAML-library dependency (stdlib only).
+    """
+
+    def _read_ci_workflow(self) -> str:
+        # Resolve relative to this test file's location, not the CWD, so the
+        # test is stable regardless of where the suite is invoked from:
+        # tests/ -> echo_renderer/ -> Scripts/ -> repo root.
+        repo_root = Path(__file__).resolve().parents[3]
+        ci_path = repo_root / ".github" / "workflows" / "ci.yml"
+        return ci_path.read_text()
+
+    def test_renderer_install_test_runs_before_xcodebuild_steps(self) -> None:
+        text = self._read_ci_workflow()
+
+        self.assertIn(
+            "make renderer-install-test",
+            text,
+            "ci.yml must invoke `make renderer-install-test` as a CI step.",
+        )
+
+        renderer_step_index = text.index("make renderer-install-test")
+        first_xcodebuild_index = text.index("xcodebuild")
+
+        self.assertLess(
+            renderer_step_index,
+            first_xcodebuild_index,
+            "The renderer installer tests must run before the first "
+            "xcodebuild-based step, so CI gets fast (no-Xcode) signal first.",
+        )
+
+    def test_echo_cli_compilation_proof_is_retained(self) -> None:
+        text = self._read_ci_workflow()
+
+        self.assertIn(
+            "-scheme echo-cli",
+            text,
+            "ci.yml must retain the existing echo-cli xcodebuild compilation step.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
