@@ -557,6 +557,10 @@ struct ReaderFeedCollectionView: UIViewRepresentable {
                 return clippedText.isEmpty
                     ? String(localized: "Image")
                     : String(localized: "Image. \(clippedText)")
+            case .code:
+                return clippedText.isEmpty
+                    ? String(localized: "Code listing")
+                    : String(localized: "Code listing. \(clippedText)")
             case .paragraph, .sentence:
                 return clippedText.isEmpty ? String(localized: "Text passage") : clippedText
             }

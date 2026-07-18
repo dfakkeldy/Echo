@@ -21,7 +21,7 @@ import Testing
         #expect(document.blocks.map(\.kind) == ["heading", "sentence", "paragraph"])
         #expect(document.blocks.map(\.sequenceIndex) == [0, 1, 2])
         let counts = document.kindCounts
-        #expect(counts == (paragraphs: 1, headings: 1, sentences: 1, images: 0))
+        #expect(counts == (paragraphs: 1, headings: 1, sentences: 1, images: 0, code: 0))
     }
 
     @Test func encodesNilChapterIndexAndWordCountAsNull() throws {
