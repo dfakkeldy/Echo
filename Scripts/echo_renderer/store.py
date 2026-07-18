@@ -603,6 +603,11 @@ class RendererStore:
             )
 
         if request.promote:
+            # API-only path, deliberately unreachable through the CLI: the
+            # repair subcommand hardcodes promote=False because repair never
+            # writes the selector (guide §8). Only a caller constructing
+            # InstallRequest(promote=True) directly gets promote-on-restore,
+            # and only after the rebuild reproduced the exact requested hash.
             self.promote(request.source_sha, result.verified.manifest_sha)
             return InstallResult(verified=result.verified, selector_updated=True)
         return result

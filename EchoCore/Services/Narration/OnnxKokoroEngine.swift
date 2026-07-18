@@ -84,6 +84,13 @@
         /// revision (not the moving `main` ref) means a future upstream re-upload can't
         /// silently change the pinned ONNX narration model. Validated at pin time:
         /// 163_234_740 B · sha256 ba4527a8…35c334a (onnx/model_fp16.onnx).
+        ///
+        /// GOVERNED TRIPWIRE — two-file blast radius: the versioned renderer installer
+        /// parses this exact `modelRevision` declaration line and the
+        /// `expectedModelBytes` line below (Scripts/echo_renderer/model_policy.py), and
+        /// Scripts/echo_renderer/tests/test_model_policy.py pins both current values
+        /// against this file. Bumping either value (or reformatting either declaration)
+        /// must update that test suite in the same change.
         private nonisolated static let modelRevision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
         private nonisolated static let hfModelURL = URL(
             string:

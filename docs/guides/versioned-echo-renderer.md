@@ -232,7 +232,8 @@ The CLI is deliberately narrow: exactly four subcommands exist — `install`, `v
 
 - old renderer packages that are no longer selected by any `approved-renderer.json` are never garbage-collected;
 - quarantine directories from `repair` (§8) are never removed automatically;
-- nothing periodically re-checks or re-verifies an installed package on its own.
+- nothing periodically re-checks or re-verifies an installed package on its own;
+- a hard crash mid-install (power loss, `kill -9`) can strand a temporary `echo-renderer-staging-<random>` directory *beside* the store root (normal failures clean it up automatically); a stranded one is safe to delete whenever no install is currently running.
 
 Auditing what's on disk, deciding what's safe to delete, and actually deleting it are all manual operator tasks (`ls`/`find`/`rm` against the store layout in §2) — intentionally, so a bug in this tooling can never silently delete a package another process is relying on.
 
