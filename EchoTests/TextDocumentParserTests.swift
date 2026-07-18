@@ -62,10 +62,9 @@ import Testing
         #expect(!paras.contains("* * *"))
     }
 
-    @Test func fencedCodeAndTablesAreDropped() {
-        let p = parse("## C\n\nReal text.\n\n```\nlet x = 1\n```\n\n| a | b |\n| - | - |\n")
+    @Test func tablesAreDropped() {
+        let p = parse("## C\n\nReal text.\n\n| a | b |\n| - | - |\n")
         #expect(p.blocks.contains { $0.text == "Real text." })
-        #expect(!p.blocks.contains { ($0.text ?? "").contains("let x") })
         #expect(!p.blocks.contains { ($0.text ?? "").contains("|") })
     }
 

@@ -7,6 +7,7 @@ enum TextParseError: Error { case unreadable(URL) }
 private enum TextUnit {
     case heading(level: Int, text: String)
     case paragraph(String)
+    case code(text: String, language: String?)
 }
 
 /// Decides the chapter break level for a document's heading depths.
@@ -59,6 +60,8 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
     var units: [TextUnit] = []
     var paragraphLines: [String] = []
     var inFence = false
+    var fenceLines: [String] = []
+    var fenceLanguage: String?
 
     func flushParagraph() {
         let joined = paragraphLines.joined(separator: " ")
@@ -67,19 +70,42 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         paragraphLines.removeAll()
     }
 
+    func flushFence() {
+        let isBlank: (String) -> Bool = {
+            $0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        let trimmed = Array(
+            fenceLines.drop(while: isBlank).reversed().drop(while: isBlank).reversed())
+        let code = trimmed.joined(separator: "\n")
+        if !code.isEmpty {
+            units.append(.code(text: code, language: fenceLanguage))
+        }
+        fenceLines.removeAll()
+        fenceLanguage = nil
+    }
+
     for rawLine in content.components(separatedBy: .newlines) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
         if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
             if inFence {
                 inFence = false
+                flushFence()
             } else {
                 flushParagraph()
                 inFence = true
+                let info = trimmed.drop(while: { $0 == "`" || $0 == "~" })
+                    .trimmingCharacters(in: .whitespaces)
+                    .lowercased()
+                fenceLanguage = info.split(separator: " ").first.map(String.init)
+                if fenceLanguage?.isEmpty == true { fenceLanguage = nil }
             }
             continue
         }
-        if inFence { continue }
+        if inFence {
+            fenceLines.append(rawLine)
+            continue
+        }
         if trimmed.isEmpty {
             flushParagraph()
             continue
@@ -112,6 +138,7 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         paragraphLines.append(trimmed)
     }
     flushParagraph()
+    if inFence { flushFence() }
     return units
 }
 
@@ -179,7 +206,8 @@ private func buildParse(
     @discardableResult
     func emit(
         kind: EPubBlockRecord.Kind, plain: String, formats: [TextFormat],
-        isFrontMatter: Bool, headingLevel: Int?
+        isFrontMatter: Bool, headingLevel: Int?,
+        narrationText: String? = nil, codeLanguage: String? = nil
     ) -> String? {
         if spineIndexesUsed.last != spineIndex { spineIndexesUsed.append(spineIndex) }
         let anchorID = (kind == .heading) ? "b\(spineIndex)-\(blockIndex)" : nil
@@ -210,6 +238,8 @@ private func buildParse(
                 wordCount: wordCount,
                 markers: EPubBlockRecord.encodeMarkers(markers),
                 textFormats: EPubBlockRecord.encodeFormats(formats),
+                narrationText: narrationText,
+                codeLanguage: codeLanguage,
                 createdAt: createdAt,
                 modifiedAt: nil))
 
@@ -217,7 +247,9 @@ private func buildParse(
             TextBlockDescriptor(
                 kind: kind, text: plain, imagePath: nil, htmlContent: nil,
                 markers: markers, textFormats: formats,
-                anchorIDs: anchorID.map { [$0] } ?? []))
+                anchorIDs: anchorID.map { [$0] } ?? [],
+                narrationCue: narrationText,
+                codeLanguage: codeLanguage))
 
         blockIndex += 1
         sequenceIndex += 1
@@ -272,6 +304,13 @@ private func buildParse(
             emit(
                 kind: .paragraph, plain: plain, formats: formats,
                 isFrontMatter: front, headingLevel: nil)
+        case .code(let text, let language):
+            let front = (chapterLevel != nil) && !seenChapterHeading
+            if front { emittedFrontMatter = true }
+            emit(
+                kind: .code, plain: text, formats: [],
+                isFrontMatter: front, headingLevel: nil,
+                narrationText: "Code listing.", codeLanguage: language)
         }
     }
 
