@@ -107,6 +107,78 @@ private final class EstimatedSidecarFixtureBundleLocator {}
         #expect(report.anchorsWithWords == 0)
     }
 
+    @Test func verifyAcceptsCodeWordsMatchingCueTokenCountInsteadOfRawCode() throws {
+        var code = block(
+            spine: 0,
+            index: 0,
+            sequence: 0,
+            kind: .code,
+            words: 6,
+            text: "let value = answer + 42"
+        )
+        code.narrationText = "Example value assignment."
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 1,
+                confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "Example", start: 1, end: 1.2),
+                    AlignmentSidecar.Anchor.Word(word: "value", start: 1.2, end: 1.4),
+                    AlignmentSidecar.Anchor.Word(word: "assignment", start: 1.4, end: 1.8),
+                ])
+        ]
+
+        let report = try AlignmentSidecarVerifier.verify(
+            anchors: anchors,
+            blocks: [code],
+            chapterTimings: [.init(index: 0, start: 0, end: 10)],
+            audioDuration: 10)
+
+        #expect(report.anchorsWithWords == 1)
+    }
+
+    @Test func verifyRejectsCodeWordsMatchingRawCodeInsteadOfCueTokenCount() {
+        var code = block(
+            spine: 0,
+            index: 0,
+            sequence: 0,
+            kind: .code,
+            words: 6,
+            text: "let value = answer + 42"
+        )
+        code.narrationText = "Example value assignment."
+        let anchors = [
+            AlignmentSidecar.Anchor(
+                blockId: "s0-b0",
+                timestamp: 1,
+                confidence: 1,
+                words: [
+                    AlignmentSidecar.Anchor.Word(word: "let", start: 1, end: 1.1),
+                    AlignmentSidecar.Anchor.Word(word: "value", start: 1.1, end: 1.2),
+                    AlignmentSidecar.Anchor.Word(word: "=", start: 1.2, end: 1.3),
+                    AlignmentSidecar.Anchor.Word(word: "answer", start: 1.3, end: 1.4),
+                    AlignmentSidecar.Anchor.Word(word: "+", start: 1.4, end: 1.5),
+                    AlignmentSidecar.Anchor.Word(word: "42", start: 1.5, end: 1.6),
+                ])
+        ]
+
+        do {
+            _ = try AlignmentSidecarVerifier.verify(
+                anchors: anchors,
+                blocks: [code],
+                chapterTimings: [.init(index: 0, start: 0, end: 10)],
+                audioDuration: 10)
+            Issue.record("Expected raw-code word count verification to fail.")
+        } catch let error as AlignmentSidecarVerifier.VerificationError {
+            #expect(
+                error.issues.contains(
+                    .wordCountMismatch(blockID: "s0-b0", words: 6, expected: 3)))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test func verifyReportsUnresolvedNonMonotonicOutOfRangeAndEmptyChapterIssues() {
         let blocks = [
             block(spine: 0, index: 0, sequence: 0, words: 1, text: "A"),

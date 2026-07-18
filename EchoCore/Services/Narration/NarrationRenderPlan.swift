@@ -78,8 +78,14 @@ enum NarrationRenderPlanner {
         maxPhonemes: Int = 420
     ) throws -> NarrationRenderPlan {
         try make(
-            preparedBlocks: blocks.map {
-                NarrationPreparedBlock(block: $0, pronunciationDecisionSeeds: [])
+            preparedBlocks: blocks.map { block in
+                var preparedBlock = block
+                if let cueText = NarrationCodeBlockCue.spokenText(for: block) {
+                    preparedBlock.text = cueText
+                }
+                return NarrationPreparedBlock(
+                    block: preparedBlock,
+                    pronunciationDecisionSeeds: [])
             },
             overrides: overrides,
             maxChars: maxChars,

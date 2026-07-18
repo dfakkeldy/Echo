@@ -443,7 +443,7 @@ private struct MacBlockCardView: View, Equatable {
     // highlighted word index, so a moving karaoke highlight updates only the
     // active card.
     nonisolated static func == (lhs: MacBlockCardView, rhs: MacBlockCardView) -> Bool {
-        lhs.block.id == rhs.block.id && lhs.appFont == rhs.appFont && lhs.isActive == rhs.isActive
+        lhs.block == rhs.block && lhs.appFont == rhs.appFont && lhs.isActive == rhs.isActive
             && lhs.activeWordIndex == rhs.activeWordIndex
     }
 

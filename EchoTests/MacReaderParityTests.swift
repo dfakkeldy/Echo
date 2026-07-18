@@ -51,4 +51,53 @@ struct MacReaderParityTests {
             src.contains("Button(\"Seek to code listing\", systemImage: \"play.fill\""),
             "Selectable code should keep seeking available as a separate accessible control.")
     }
+
+    @Test func readerEqualityInvalidatesStableIDKindTextAndLanguageChanges() throws {
+        let src = try MacSource.read("Views/MacReaderFeedView.swift")
+        #expect(
+            src.contains("lhs.block == rhs.block"),
+            "MacBlockCardView equality must compare the full block, not only its stable ID.")
+
+        let original = readerBlock()
+        var changedKind = original
+        changedKind.blockKind = EPubBlockRecord.Kind.code.rawValue
+        var changedText = original
+        changedText.text = "let value = 42"
+        var changedLanguage = original
+        changedLanguage.codeLanguage = "swift"
+
+        #expect(changedKind.id == original.id)
+        #expect(changedText.id == original.id)
+        #expect(changedLanguage.id == original.id)
+        #expect(changedKind != original)
+        #expect(changedText != original)
+        #expect(changedLanguage != original)
+    }
+
+    private func readerBlock() -> EPubBlockRecord {
+        EPubBlockRecord(
+            id: "stable-block-id",
+            audiobookID: "book",
+            spineHref: "chapter.xhtml",
+            spineIndex: 0,
+            blockIndex: 0,
+            sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "Flattened prose.",
+            htmlContent: nil,
+            cardColor: nil,
+            chapterThemeColor: nil,
+            imagePath: nil,
+            chapterIndex: 0,
+            isHidden: false,
+            hiddenReason: nil,
+            isFrontMatter: false,
+            wordCount: 2,
+            markers: nil,
+            textFormats: nil,
+            narrationText: nil,
+            codeLanguage: nil,
+            createdAt: nil,
+            modifiedAt: nil)
+    }
 }

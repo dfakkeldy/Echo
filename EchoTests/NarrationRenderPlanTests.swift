@@ -518,6 +518,31 @@ import Testing
         #expect(plan.blocks[0].trailingSilence == nil)
     }
 
+    @Test func rawBlockOverloadResolvesCodeCueAndFallbackBeforePlanning() throws {
+        var captioned = block(
+            id: "captioned-code",
+            text: "let value = answer + 42",
+            kind: EPubBlockRecord.Kind.code.rawValue,
+            index: 0)
+        captioned.narrationText = "Example value assignment."
+        var fallback = block(
+            id: "fallback-code",
+            text: "print(rawSyntaxMustNotBeSpoken)",
+            kind: EPubBlockRecord.Kind.code.rawValue,
+            index: 1)
+        fallback.narrationText = "   "
+
+        let plan = try NarrationRenderPlanner.make(
+            blocks: [captioned, fallback],
+            overrides: PronunciationOverrides(entries: ["example": "tˈɛst"]))
+        let displayText = plan.blocks.flatMap(\.synthesisChunks).map(\.displayText)
+
+        #expect(displayText == ["Example value assignment.", NarrationCodeBlockCue.fallback])
+        #expect(!displayText.contains { $0.contains("answer") })
+        #expect(!displayText.contains { $0.contains("rawSyntaxMustNotBeSpoken") })
+        #expect(plan.blocks.allSatisfy { $0.pronunciationDecisions.isEmpty })
+    }
+
     @Test func decorativeBlockBecomesSectionBreakSilenceOnly() throws {
         let blocks = [
             block(id: "b0", text: "Before.", index: 0),
