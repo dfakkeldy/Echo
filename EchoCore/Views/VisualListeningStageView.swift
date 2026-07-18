@@ -83,15 +83,8 @@ struct VisualListeningStageView: View {
     }
 
     private func visualListeningImage(at imagePath: String) -> UIImage? {
-        var url = URL(fileURLWithPath: imagePath)
-        if !FileManager.default.fileExists(atPath: url.path) {
-            let filename = url.lastPathComponent
-            let dirName = url.deletingLastPathComponent().lastPathComponent
-            url = FileLocations.applicationSupportDirectory
-                .appendingPathComponent("EPUBAssets")
-                .appendingPathComponent(dirName)
-                .appendingPathComponent(filename)
-        }
+        guard let url = VisualListeningImageLocator.resolvedURL(forStoredPath: imagePath)
+        else { return nil }
         return UIImage(contentsOfFile: url.path)
     }
 }
