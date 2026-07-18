@@ -937,7 +937,7 @@ nonisolated enum TimelineRowLoader {
 }
 ```
 
-- [ ] **Step 1: Write the direct test**
+- [x] **Step 1: Write the direct test**
 
 Create/extend `EchoTests/TimelineRowLoaderTests.swift`:
 
@@ -981,7 +981,7 @@ struct TimelineRowLoaderTests {
 
 If the `timeline_item` insert fails on missing NOT NULL columns, copy the exact insert helper used by `EchoTests/VisualListeningViewModelTests` (same table, proven columns) instead of the SQL above — the assertion block stays identical.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 ```bash
 "$HOME/.claude/bin/xcode-build-gate.sh" --wait && make build-tests
@@ -989,7 +989,7 @@ If the `timeline_item` insert fails on missing NOT NULL columns, copy the exact 
 
 Expected: compile FAILURE — `TimelineRowLoader` not defined.
 
-- [ ] **Step 3: Implement by moving code**
+- [x] **Step 3: Implement by moving code**
 
 Create `Shared/Database/TimelineRowLoader.swift` containing the exact query + row-mapping currently in `VisualListeningViewModel.loadTimelineRows` (`EchoCore/ViewModels/VisualListeningViewModel.swift:91`-ish), wrapped as:
 
@@ -1013,7 +1013,7 @@ nonisolated enum TimelineRowLoader {
 
 Then in `VisualListeningViewModel.reload()` replace `try Self.loadTimelineRows(audiobookID: audiobookID, db: db)` with `try TimelineRowLoader.rows(audiobookID: audiobookID, db: db)` and delete the private method.
 
-- [ ] **Step 4: Run focused tests until green**
+- [x] **Step 4: Run focused tests until green**
 
 ```bash
 make test-only FILTER=EchoTests/TimelineRowLoaderTests
@@ -1022,7 +1022,7 @@ make test-only FILTER=EchoTests/VisualListeningViewModelTests
 
 Expected: both PASS (the VM suite proves the move changed nothing).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Shared/Database/TimelineRowLoader.swift EchoCore/ViewModels/VisualListeningViewModel.swift EchoTests/TimelineRowLoaderTests.swift
