@@ -28,7 +28,7 @@ _EXECUTABLE_NAME = "echo-cli"
 _RESOURCES_NAME = "EchoNarrationResources"
 _MANIFEST_NAME = "renderer-manifest.json"
 _TOP_LEVEL_NAMES = {_EXECUTABLE_NAME, _RESOURCES_NAME, _MANIFEST_NAME}
-_VERSION_PATTERN = re.compile(r"ONNX (rv[0-9]+) \(Release\)\n?\Z")
+_VERSION_PATTERN = re.compile(r"ONNX rv([0-9]+) \(Release\)\n?\Z")
 _ARCHITECTURE_PATTERN = re.compile(r"[A-Za-z0-9_]+\Z")
 _VERSION_NUMBER_PATTERN = re.compile(r"[0-9]+(?:\.[0-9]+){1,2}\Z")
 _MINOS_PATTERN = re.compile(
@@ -40,18 +40,30 @@ _LEGACY_MINOS_PATTERN = re.compile(
     r"^[ \t]*version[ \t]+([0-9]+(?:\.[0-9]+){1,2})[ \t]*$",
     re.MULTILINE | re.DOTALL,
 )
-_REQUIRED_CAPABILITIES = (
+# The surfaces the governed wrappers actually invoke. There are no
+# `--pronunciation-*` narrate flags: the pronunciation audit and listening
+# reel are default `narrate` outputs, and `--no-pronunciation-review` is the
+# opt-out. `verify-sidecar` is a required subcommand, not a narrate flag, so
+# it is probed and reported separately from the narrate capability set.
+_REQUIRED_NARRATE_CAPABILITIES = (
     "--cover",
-    "--pronunciation-audit",
-    "--pronunciation-mode",
-    "--pronunciation-plan",
-    "--pronunciation-reel",
+    "--sidecar",
+    "--voice",
+    "--db",
+    "--work-dir",
+    "--jobs",
+    "--threads",
+    "--resume",
+    "--max-chapters",
+    "--no-pronunciation-review",
 )
+_VERIFY_SIDECAR_SUBCOMMAND = "verify-sidecar"
+_REQUIRED_CAPABILITIES = _REQUIRED_NARRATE_CAPABILITIES + (_VERIFY_SIDECAR_SUBCOMMAND,)
 
 
 @dataclass(frozen=True)
 class RendererProbe:
-    render_version: str
+    render_version: int
     build_configuration: str
     architectures: Sequence[str]
     minimum_macos_version: str
@@ -140,25 +152,38 @@ def probe_release_cli(
     version_match = _VERSION_PATTERN.fullmatch(version_output)
     if version_match is None:
         raise ValueError("echo-cli version must identify one Release render version")
+    render_version = int(version_match.group(1))
 
     help_output = _run_probe(
         runner,
         [str(executable), "narrate", "--help"],
         environment=environment,
     )
+    observed_capabilities = tuple(
+        capability
+        for capability in _REQUIRED_NARRATE_CAPABILITIES
+        if _capability_present(capability, help_output)
+    )
     missing_capabilities = [
         capability
-        for capability in _REQUIRED_CAPABILITIES
-        if re.search(
-            rf"(?<![A-Za-z0-9_-]){re.escape(capability)}(?![A-Za-z0-9_-])",
-            help_output,
-        )
-        is None
+        for capability in _REQUIRED_NARRATE_CAPABILITIES
+        if capability not in observed_capabilities
     ]
     if missing_capabilities:
         raise ValueError(
             f"echo-cli narrate help is missing capabilities: {missing_capabilities}"
         )
+
+    verify_sidecar_help_output = _run_probe(
+        runner,
+        [str(executable), _VERIFY_SIDECAR_SUBCOMMAND, "--help"],
+        environment=environment,
+    )
+    if not _capability_present(_VERIFY_SIDECAR_SUBCOMMAND, verify_sidecar_help_output):
+        raise ValueError(
+            f"echo-cli is missing the {_VERIFY_SIDECAR_SUBCOMMAND} subcommand"
+        )
+    observed_capabilities = observed_capabilities + (_VERIFY_SIDECAR_SUBCOMMAND,)
 
     architecture_output = _run_probe(
         runner, ["/usr/bin/lipo", "-archs", str(executable)]
@@ -192,11 +217,11 @@ def probe_release_cli(
         raise ValueError("renderer requires a newer macOS version than this host")
 
     return RendererProbe(
-        render_version=version_match.group(1),
+        render_version=render_version,
         build_configuration="Release",
         architectures=architectures,
         minimum_macos_version=minimum_macos_version,
-        capabilities=_REQUIRED_CAPABILITIES,
+        capabilities=observed_capabilities,
     )
 
 
@@ -302,6 +327,16 @@ def _run_probe(
     if completed.returncode != 0 or not isinstance(completed.stdout, str):
         raise ValueError(f"renderer probe failed: {arguments[0]}")
     return completed.stdout
+
+
+def _capability_present(capability: str, help_output: str) -> bool:
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9_-]){re.escape(capability)}(?![A-Za-z0-9_-])",
+            help_output,
+        )
+        is not None
+    )
 
 
 def _version_tuple(value: str) -> tuple[int, int, int]:

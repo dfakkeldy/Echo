@@ -55,7 +55,7 @@ class RendererManifest:
     executable: FileIdentity
     resources_path: str
     resources: ResourceTreeIdentity
-    render_version: str
+    render_version: int
     build_configuration: str
     architectures: Sequence[str]
     minimum_macos_version: str
@@ -279,7 +279,7 @@ def _manifest_from_payload(payload: Mapping[str, object]) -> RendererManifest:
         ),
     )
 
-    render_version = _require_nonempty_string(payload["renderVersion"], "renderVersion")
+    render_version = _require_positive_integer(payload["renderVersion"], "renderVersion")
     build_configuration = _require_nonempty_string(
         payload["buildConfiguration"], "buildConfiguration"
     )
@@ -384,6 +384,13 @@ def _require_nonnegative_integer(value: object, field: str) -> int:
     result = _require_integer(value, field)
     if result < 0:
         raise ValueError(f"{field} must not be negative")
+    return result
+
+
+def _require_positive_integer(value: object, field: str) -> int:
+    result = _require_integer(value, field)
+    if result <= 0:
+        raise ValueError(f"{field} must be a positive integer")
     return result
 
 

@@ -27,13 +27,19 @@ from echo_renderer.store import (
 )
 
 
-REQUIRED_CAPABILITIES = (
+REQUIRED_NARRATE_CAPABILITIES = (
     "--cover",
-    "--pronunciation-audit",
-    "--pronunciation-mode",
-    "--pronunciation-plan",
-    "--pronunciation-reel",
+    "--sidecar",
+    "--voice",
+    "--db",
+    "--work-dir",
+    "--jobs",
+    "--threads",
+    "--resume",
+    "--max-chapters",
+    "--no-pronunciation-review",
 )
+REQUIRED_CAPABILITIES = REQUIRED_NARRATE_CAPABILITIES + ("verify-sidecar",)
 
 
 class ProbeRunner:
@@ -41,12 +47,21 @@ class ProbeRunner:
         self,
         *,
         version: str = "ONNX rv15 (Release)\n",
-        capabilities: tuple[str, ...] = REQUIRED_CAPABILITIES,
+        capabilities: tuple[str, ...] = REQUIRED_NARRATE_CAPABILITIES,
+        verify_sidecar_help: str | None = (
+            "USAGE: echo-cli verify-sidecar --epub <epub> --audio <audio> "
+            "--sidecar <sidecar>\n"
+        ),
         architectures: tuple[str, ...] = (platform.machine(),),
         minimum_macos_version: str = "15.0",
     ) -> None:
         self.version = version
         self.capabilities = capabilities
+        self.verify_sidecar_help = (
+            verify_sidecar_help
+            if verify_sidecar_help is not None
+            else "USAGE: echo-cli narrate ...\n"
+        )
         self.architectures = architectures
         self.minimum_macos_version = minimum_macos_version
         self.calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
@@ -70,6 +85,8 @@ class ProbeRunner:
             stdout = self.version
         elif arguments[1:] == ["narrate", "--help"]:
             stdout = "USAGE: echo-cli narrate " + " ".join(self.capabilities) + "\n"
+        elif arguments[1:] == ["verify-sidecar", "--help"]:
+            stdout = self.verify_sidecar_help
         else:
             raise AssertionError(f"unexpected probe arguments: {arguments!r}")
         return subprocess.CompletedProcess(arguments, 0, stdout=stdout, stderr="")
@@ -112,7 +129,7 @@ class RendererPackageFixture(unittest.TestCase):
             executable=executable_identity,
             resources_path="EchoNarrationResources",
             resources=resource_identity,
-            render_version="rv15",
+            render_version=15,
             build_configuration="Release",
             architectures=(platform.machine(),),
             minimum_macos_version="15.0",
@@ -302,7 +319,7 @@ class ReleaseCLIProbeTests(RendererPackageFixture):
         self.assertEqual(
             probe,
             RendererProbe(
-                render_version="rv15",
+                render_version=15,
                 build_configuration="Release",
                 architectures=(platform.machine(),),
                 minimum_macos_version="15.0",
@@ -314,11 +331,12 @@ class ReleaseCLIProbeTests(RendererPackageFixture):
             [
                 (str(self.executable), "--version"),
                 (str(self.executable), "narrate", "--help"),
+                (str(self.executable), "verify-sidecar", "--help"),
                 ("/usr/bin/lipo", "-archs", str(self.executable)),
                 ("/usr/bin/otool", "-l", str(self.executable)),
             ],
         )
-        for arguments, keywords in self.runner.calls[:2]:
+        for arguments, keywords in self.runner.calls[:3]:
             self.assertEqual(
                 keywords["env"]["ECHO_RESOURCE_DIR"],
                 str(self.build_root / "EchoNarrationResources"),
@@ -340,11 +358,11 @@ class ReleaseCLIProbeTests(RendererPackageFixture):
                     )
 
     def test_rejects_each_missing_narrate_capability(self):
-        for missing in REQUIRED_CAPABILITIES:
+        for missing in REQUIRED_NARRATE_CAPABILITIES:
             with self.subTest(missing=missing):
                 capabilities = tuple(
                     capability
-                    for capability in REQUIRED_CAPABILITIES
+                    for capability in REQUIRED_NARRATE_CAPABILITIES
                     if capability != missing
                 )
                 with self.assertRaises(ValueError):
@@ -353,6 +371,28 @@ class ReleaseCLIProbeTests(RendererPackageFixture):
                         self.build_root / "EchoNarrationResources",
                         runner=ProbeRunner(capabilities=capabilities),
                     )
+
+    def test_rejects_a_missing_verify_sidecar_subcommand(self):
+        with self.assertRaises(ValueError):
+            probe_release_cli(
+                self.executable,
+                self.build_root / "EchoNarrationResources",
+                runner=ProbeRunner(verify_sidecar_help=None),
+            )
+
+    def test_returns_only_the_capabilities_actually_observed(self):
+        probe = probe_release_cli(
+            self.executable,
+            self.build_root / "EchoNarrationResources",
+            runner=ProbeRunner(
+                capabilities=REQUIRED_NARRATE_CAPABILITIES + ("--some-future-flag",)
+            ),
+        )
+
+        self.assertNotIn("--some-future-flag", probe.capabilities)
+        self.assertEqual(
+            tuple(sorted(probe.capabilities)), tuple(sorted(REQUIRED_CAPABILITIES))
+        )
 
     def test_rejects_an_executable_without_the_current_host_architecture(self):
         incompatible = "x86_64" if platform.machine() == "arm64" else "arm64"
@@ -393,7 +433,7 @@ class RendererStoreTests(RendererPackageFixture):
 
     def test_store_rejects_manifest_probe_mismatches(self):
         cases = (
-            ("renderVersion", "rv14"),
+            ("renderVersion", 14),
             ("buildConfiguration", "Debug"),
             ("architectures", ["x86_64" if platform.machine() == "arm64" else "arm64"]),
             ("minimumMacOSVersion", "14.0"),

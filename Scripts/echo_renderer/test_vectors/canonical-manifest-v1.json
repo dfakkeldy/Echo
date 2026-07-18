@@ -14,7 +14,7 @@
       "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
       "regularFileCount": 4
     },
-    "renderVersion": "rv15",
+    "renderVersion": 15,
     "buildConfiguration": "Release",
     "architectures": [
       "arm64",
@@ -29,12 +29,18 @@
     },
     "capabilities": [
       "--cover",
-      "--pronunciation-audit",
-      "--pronunciation-mode",
-      "--pronunciation-plan",
-      "--pronunciation-reel"
+      "--sidecar",
+      "--voice",
+      "--db",
+      "--work-dir",
+      "--jobs",
+      "--threads",
+      "--resume",
+      "--max-chapters",
+      "--no-pronunciation-review",
+      "verify-sidecar"
     ]
   },
-  "canonicalUTF8": "{\"architectures\":[\"arm64\",\"x86_64\"],\"buildConfiguration\":\"Release\",\"capabilities\":[\"--cover\",\"--pronunciation-audit\",\"--pronunciation-mode\",\"--pronunciation-plan\",\"--pronunciation-reel\"],\"echoSourceSHA\":\"0123456789abcdef0123456789abcdef01234567\",\"executable\":{\"byteCount\":12345,\"sha256\":\"abababababababababababababababababababababababababababababababab\"},\"executablePath\":\"echo-cli\",\"installerSourceSHA\":\"89abcdef0123456789abcdef0123456789abcdef\",\"minimumMacOSVersion\":\"15.0\",\"modelPolicy\":{\"deliveryMode\":\"sharedEchoCache\",\"expectedByteCount\":325566778,\"modelBytesAttested\":false,\"revision\":\"kokoro-v1.0\"},\"renderVersion\":\"rv15\",\"resources\":{\"regularFileCount\":4,\"sha256\":\"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"},\"resourcesPath\":\"EchoNarrationResources\",\"schemaVersion\":1}\n",
-  "sha256": "45c42c846d80fc42fe6779b7990f91dfc3cdb515d3552de962ff8f52745ce1b2"
+  "canonicalUTF8": "{\"architectures\":[\"arm64\",\"x86_64\"],\"buildConfiguration\":\"Release\",\"capabilities\":[\"--cover\",\"--sidecar\",\"--voice\",\"--db\",\"--work-dir\",\"--jobs\",\"--threads\",\"--resume\",\"--max-chapters\",\"--no-pronunciation-review\",\"verify-sidecar\"],\"echoSourceSHA\":\"0123456789abcdef0123456789abcdef01234567\",\"executable\":{\"byteCount\":12345,\"sha256\":\"abababababababababababababababababababababababababababababababab\"},\"executablePath\":\"echo-cli\",\"installerSourceSHA\":\"89abcdef0123456789abcdef0123456789abcdef\",\"minimumMacOSVersion\":\"15.0\",\"modelPolicy\":{\"deliveryMode\":\"sharedEchoCache\",\"expectedByteCount\":325566778,\"modelBytesAttested\":false,\"revision\":\"kokoro-v1.0\"},\"renderVersion\":15,\"resources\":{\"regularFileCount\":4,\"sha256\":\"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"},\"resourcesPath\":\"EchoNarrationResources\",\"schemaVersion\":1}\n",
+  "sha256": "9871739f3e4841144a246f4bbe0866c9ff04e93f9a76690008fc4e3d4d84f3b0"
 }

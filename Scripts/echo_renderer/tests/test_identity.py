@@ -41,7 +41,7 @@ def sample_manifest() -> RendererManifest:
         executable=FileIdentity(sha256="ab" * 32, byte_count=12345),
         resources_path="EchoNarrationResources",
         resources=ResourceTreeIdentity(sha256="cd" * 32, regular_file_count=4),
-        render_version="rv15",
+        render_version=15,
         build_configuration="Release",
         architectures=("arm64", "x86_64"),
         minimum_macos_version="15.0",
@@ -265,6 +265,21 @@ class ManifestTests(unittest.TestCase):
             with self.subTest(key=key):
                 with self.assertRaises(ValueError):
                     parse_manifest(canonical_json_bytes(payload))
+
+    def test_rejects_non_positive_or_non_integer_render_versions(self):
+        for value in (0, -1, True, False, "rv15", 15.0, None):
+            with self.subTest(value=value):
+                payload = manifest_payload(sample_manifest())
+                payload["renderVersion"] = value
+                with self.assertRaises(ValueError):
+                    parse_manifest(canonical_json_bytes(payload))
+
+    def test_accepts_a_positive_integer_render_version(self):
+        payload = manifest_payload(sample_manifest())
+        payload["renderVersion"] = 42
+        parsed = parse_manifest(canonical_json_bytes(payload))
+        self.assertEqual(parsed.render_version, 42)
+        self.assertIsInstance(parsed.render_version, int)
 
     def test_rejects_attested_or_non_boolean_model_bytes(self):
         for value in (True, 0, None, "false"):
