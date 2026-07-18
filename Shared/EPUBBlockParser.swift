@@ -150,7 +150,9 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
                 textFormats: textBlocks[j].textFormats,
                 rawClasses: textBlocks[j].rawClasses,
                 rawTags: textBlocks[j].rawTags,
-                anchorIDs: textBlocks[j].anchorIDs
+                anchorIDs: textBlocks[j].anchorIDs,
+                narrationCue: textBlocks[j].narrationCue,
+                codeLanguage: textBlocks[j].codeLanguage
             )
         }
 
@@ -228,6 +230,8 @@ func parseEPUBBlocks(audiobookID: String, epubURL: URL) throws -> EPUBBlockParse
                 wordCount: max(1, wordCount),
                 markers: EPubBlockRecord.encodeMarkers(textBlock.markers),
                 textFormats: EPubBlockRecord.encodeFormats(textBlock.textFormats),
+                narrationText: textBlock.narrationCue,
+                codeLanguage: textBlock.codeLanguage,
                 createdAt: createdAt,
                 modifiedAt: nil
             )
