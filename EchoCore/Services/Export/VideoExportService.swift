@@ -203,10 +203,18 @@ actor VideoExportService {
 
         let contexts = Self.trackContexts(
             items: insertedItems, measuredDurations: measuredDurations)
-        let plan = SlideshowExportPlanner.plan(
-            blocks: blocks,
+        let compactedAlignment = Self.compactedAlignment(
             timeline: timeline,
             words: words,
+            items: insertedItems,
+            measuredDurations: measuredDurations)
+        guard !compactedAlignment.timeline.isEmpty else {
+            throw ExportError.noAlignment
+        }
+        let plan = SlideshowExportPlanner.plan(
+            blocks: blocks,
+            timeline: compactedAlignment.timeline,
+            words: compactedAlignment.words,
             tracks: contexts,
             mode: mode,
             syncPoint: syncPoint,
@@ -315,6 +323,149 @@ actor VideoExportService {
     }
 
     // MARK: - Track contexts
+
+    struct AlignmentRows {
+        let timeline: [ReaderActiveBlockResolver.TimelineRow]
+        let words: [ReaderActiveBlockResolver.WordRow]
+    }
+
+    /// A single imported M4B keeps alignment on its original source clock even
+    /// when disabled chapters make its enabled `ExportItem` slices sparse. Audio
+    /// assembly concatenates those slices, so project the matching alignment onto
+    /// that same compacted axis before planning frames and SRT cues.
+    static func compactedAlignment(
+        timeline: [ReaderActiveBlockResolver.TimelineRow],
+        words: [ReaderActiveBlockResolver.WordRow],
+        items: [ExportItem],
+        measuredDurations: [TimeInterval]
+    ) -> AlignmentRows {
+        guard !items.isEmpty,
+            items.count == measuredDurations.count,
+            Set(items.map(\.url)).count == 1,
+            items.allSatisfy({ $0.timeRange != nil })
+        else {
+            return AlignmentRows(timeline: timeline, words: words)
+        }
+
+        struct Slice {
+            let sourceStart: TimeInterval
+            var sourceEnd: TimeInterval
+            let destinationStart: TimeInterval
+
+            var destinationEnd: TimeInterval {
+                destinationStart + sourceEnd - sourceStart
+            }
+        }
+
+        var slices: [Slice] = []
+        var destinationStart: TimeInterval = 0
+        for (item, duration) in zip(items, measuredDurations) {
+            guard let range = item.timeRange,
+                range.start.isNumeric,
+                duration.isFinite,
+                duration > 0
+            else {
+                return AlignmentRows(timeline: timeline, words: words)
+            }
+            let sourceStart = range.start.seconds
+            let sourceEnd = sourceStart + duration
+            guard sourceStart.isFinite, sourceEnd.isFinite else {
+                return AlignmentRows(timeline: timeline, words: words)
+            }
+
+            if var previous = slices.last,
+                abs(previous.sourceEnd - sourceStart) < 0.000_001
+            {
+                previous.sourceEnd = sourceEnd
+                slices[slices.count - 1] = previous
+            } else {
+                slices.append(
+                    Slice(
+                        sourceStart: sourceStart,
+                        sourceEnd: sourceEnd,
+                        destinationStart: destinationStart))
+            }
+            destinationStart += duration
+        }
+
+        var projectedTimeline: [ReaderActiveBlockResolver.TimelineRow] = []
+        var sliceIndicesByBlockID: [String: [Int]] = [:]
+        for (sliceIndex, slice) in slices.enumerated() {
+            for row in timeline {
+                let start = max(row.start, slice.sourceStart)
+                let end = min(row.end, slice.sourceEnd)
+                guard end > start else { continue }
+                projectedTimeline.append(
+                    (
+                        start: slice.destinationStart + start - slice.sourceStart,
+                        end: slice.destinationStart + end - slice.sourceStart,
+                        blockID: row.blockID,
+                        chapterIndex: row.chapterIndex,
+                        segmentKey: row.segmentKey
+                    ))
+                if sliceIndicesByBlockID[row.blockID]?.last != sliceIndex {
+                    sliceIndicesByBlockID[row.blockID, default: []].append(sliceIndex)
+                }
+            }
+        }
+
+        // Keep one projected row for every timed word in a retained block. Words
+        // outside a partial slice collapse to its nearest boundary (zero duration)
+        // so resolver array positions remain display-token ordinals while only
+        // selected audio can become active.
+        var projectedWords: [ReaderActiveBlockResolver.WordRow] = []
+        for word in words {
+            guard let sliceIndices = sliceIndicesByBlockID[word.blockID],
+                !sliceIndices.isEmpty
+            else { continue }
+
+            if let sliceIndex = sliceIndices.first(where: { index in
+                word.end > slices[index].sourceStart && word.start < slices[index].sourceEnd
+            }) {
+                let slice = slices[sliceIndex]
+                let start = max(word.start, slice.sourceStart)
+                let end = min(word.end, slice.sourceEnd)
+                projectedWords.append(
+                    (
+                        start: slice.destinationStart + start - slice.sourceStart,
+                        end: slice.destinationStart + end - slice.sourceStart,
+                        blockID: word.blockID,
+                        wordIndex: word.wordIndex
+                    ))
+                continue
+            }
+
+            var nearestSlice = slices[sliceIndices[0]]
+            var nearestDistance = TimeInterval.greatestFiniteMagnitude
+            for sliceIndex in sliceIndices {
+                let slice = slices[sliceIndex]
+                let distance =
+                    word.end <= slice.sourceStart
+                    ? slice.sourceStart - word.end : word.start - slice.sourceEnd
+                if distance < nearestDistance {
+                    nearestSlice = slice
+                    nearestDistance = distance
+                }
+            }
+            let boundary =
+                word.end <= nearestSlice.sourceStart
+                ? nearestSlice.destinationStart : nearestSlice.destinationEnd
+            projectedWords.append(
+                (
+                    start: boundary,
+                    end: boundary,
+                    blockID: word.blockID,
+                    wordIndex: word.wordIndex
+                ))
+        }
+        projectedWords.sort {
+            if $0.start != $1.start { return $0.start < $1.start }
+            if $0.end != $1.end { return $0.end < $1.end }
+            if $0.blockID != $1.blockID { return $0.blockID < $1.blockID }
+            return $0.wordIndex < $1.wordIndex
+        }
+        return AlignmentRows(timeline: projectedTimeline, words: projectedWords)
+    }
 
     @MainActor
     private static func resolveSourceItems(

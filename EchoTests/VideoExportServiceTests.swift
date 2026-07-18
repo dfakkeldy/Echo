@@ -77,6 +77,112 @@ struct VideoExportServiceTests {
         #expect(contexts[0].chapterIndices == nil)
     }
 
+    @Test func sameFileM4BAlignmentCompactsSourceStartsInItemOrder() {
+        let url = URL(fileURLWithPath: "/books/whole.m4b")
+        let items = [
+            ExportItem(
+                title: "Later first",
+                url: url,
+                timeRange: CMTimeRange(
+                    start: CMTime(seconds: 6, preferredTimescale: 600),
+                    duration: CMTime(seconds: 2, preferredTimescale: 600))),
+            ExportItem(
+                title: "Earlier second",
+                url: url,
+                timeRange: CMTimeRange(
+                    start: CMTime(seconds: 2, preferredTimescale: 600),
+                    duration: CMTime(seconds: 2, preferredTimescale: 600))),
+        ]
+        let timeline: [ReaderActiveBlockResolver.TimelineRow] = [
+            (2, 4, "early", 0, nil),
+            (6, 8, "late", 1, nil),
+        ]
+        let words: [ReaderActiveBlockResolver.WordRow] = [
+            (2.5, 3, "early", 0),
+            (6.5, 7, "late", 0),
+        ]
+
+        let compacted = VideoExportService.compactedAlignment(
+            timeline: timeline,
+            words: words,
+            items: items,
+            measuredDurations: [2, 2])
+
+        #expect(compacted.timeline.map(\.blockID) == ["late", "early"])
+        #expect(compacted.timeline.map(\.start) == [0, 2])
+        #expect(compacted.timeline.map(\.end) == [2, 4])
+        #expect(compacted.words.map(\.blockID) == ["late", "early"])
+        #expect(compacted.words.map(\.start) == [0.5, 2.5])
+        #expect(compacted.words.map(\.end) == [1, 3])
+    }
+
+    @Test func partialM4BSlicePreservesKaraokeWordOrdinals() {
+        let url = URL(fileURLWithPath: "/books/whole.m4b")
+        let compacted = VideoExportService.compactedAlignment(
+            timeline: [(10, 15, "partial", 0, nil)],
+            words: [
+                (10, 11, "partial", 0),
+                (11, 12, "partial", 1),
+                (12, 13, "partial", 2),
+                (13, 14, "partial", 3),
+                (14, 15, "partial", 4),
+            ],
+            items: [
+                ExportItem(
+                    title: "Partial",
+                    url: url,
+                    timeRange: CMTimeRange(
+                        start: CMTime(seconds: 12, preferredTimescale: 600),
+                        duration: CMTime(seconds: 2, preferredTimescale: 600)))
+            ],
+            measuredDurations: [2])
+        let block = EPubBlockRecord(
+            id: "partial",
+            audiobookID: "book",
+            spineHref: "spine",
+            spineIndex: 0,
+            blockIndex: 0,
+            sequenceIndex: 0,
+            blockKind: EPubBlockRecord.Kind.paragraph.rawValue,
+            text: "zero one two three four",
+            htmlContent: nil,
+            cardColor: nil,
+            chapterThemeColor: nil,
+            imagePath: nil,
+            chapterIndex: 0,
+            isHidden: false,
+            hiddenReason: nil,
+            isFrontMatter: false,
+            wordCount: nil,
+            markers: nil,
+            textFormats: nil,
+            narrationText: nil,
+            createdAt: nil,
+            modifiedAt: nil)
+
+        let first = VisualListeningCueResolver.snapshot(
+            blocks: [block],
+            timeline: compacted.timeline,
+            words: compacted.words,
+            time: 0.5,
+            currentTrackSegmentKey: nil,
+            currentTrackChapterIndices: nil,
+            syncPoint: .begin)
+        #expect(first.subtitleCue?.activeWordIndex == 2)
+        #expect(first.subtitleCue?.alreadyHeardWordCount == 2)
+
+        let second = VisualListeningCueResolver.snapshot(
+            blocks: [block],
+            timeline: compacted.timeline,
+            words: compacted.words,
+            time: 1.5,
+            currentTrackSegmentKey: nil,
+            currentTrackChapterIndices: nil,
+            syncPoint: .begin)
+        #expect(second.subtitleCue?.activeWordIndex == 3)
+        #expect(second.subtitleCue?.alreadyHeardWordCount == 3)
+    }
+
     @Test func looseMultiFileTracksUsePlayerPositionScope() {
         let contexts = VideoExportService.trackContexts(
             items: [
@@ -183,6 +289,91 @@ struct VideoExportServiceTests {
             }
         }
 
+        @Test func reportsNoAlignmentWhenEnabledM4BSliceHasNoRows() async throws {
+            let workDirectory = try Self.makeWorkDirectory()
+            defer { try? FileManager.default.removeItem(at: workDirectory) }
+            let encodedAudioURL = workDirectory.appendingPathComponent("unaligned.m4a")
+            try await Self.writeToneFile(to: encodedAudioURL, seconds: 2)
+            let audioURL = workDirectory.appendingPathComponent("unaligned.m4b")
+            try FileManager.default.moveItem(at: encodedAudioURL, to: audioURL)
+
+            let database = try DatabaseService(inMemory: ())
+            let bookID = "video-enabled-slice-no-alignment"
+            try database.write { db in
+                try db.execute(
+                    sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                    arguments: [bookID, "Enabled Slice No Alignment", 2])
+                var track = TrackRecord(
+                    id: "t0",
+                    audiobookID: bookID,
+                    title: "Whole book",
+                    duration: 2,
+                    filePath: audioURL.absoluteString,
+                    isEnabled: true,
+                    sortOrder: 0,
+                    playlistPosition: nil)
+                try track.insert(db)
+                for (index, seed) in [
+                    ("Disabled", 0.0, 1.0, false),
+                    ("Enabled", 1.0, 2.0, true),
+                ].enumerated() {
+                    var chapter = ChapterRecord(
+                        id: nil,
+                        audiobookID: bookID,
+                        title: seed.0,
+                        startSeconds: seed.1,
+                        endSeconds: seed.2,
+                        isEnabled: seed.3,
+                        sortOrder: index,
+                        playlistPosition: nil)
+                    try chapter.insert(db)
+                }
+                try db.execute(
+                    sql: """
+                        INSERT INTO epub_block
+                          (id, audiobook_id, spine_href, spine_index, block_index,
+                           sequence_index, block_kind, text, chapter_index, is_hidden)
+                        VALUES
+                          ('disabled-only', ?, 's', 0, 0, 0, 'paragraph',
+                           'Only the disabled slice is aligned.', 0, 0)
+                        """,
+                    arguments: [bookID])
+                try db.execute(
+                    sql: """
+                        INSERT INTO timeline_item
+                          (id, audiobook_id, item_type, title, audio_start_time,
+                           audio_end_time, epub_block_id, alignment_status)
+                        VALUES
+                          ('ti-disabled', ?, 'textSegment', 'Disabled',
+                           0.0, 1.0, 'disabled-only', 'test')
+                        """,
+                    arguments: [bookID])
+            }
+
+            do {
+                _ = try await VideoExportService().exportVideo(
+                    audiobookID: bookID,
+                    bookTitle: "Enabled Slice No Alignment",
+                    databaseWriter: database.writer,
+                    cacheDirectory: workDirectory,
+                    outputDirectory: workDirectory,
+                    mode: .simple,
+                    syncPoint: .begin,
+                    width: 320,
+                    height: 180)
+                Issue.record("Expected noAlignment")
+            } catch VideoExportService.ExportError.noAlignment {
+                // Expected after disabled source-time rows are projected away.
+            } catch {
+                Issue.record("Expected noAlignment, got \(error)")
+            }
+            for url in Self.namedOutputURLs(
+                title: "Enabled Slice No Alignment", in: workDirectory)
+            {
+                #expect(!FileManager.default.fileExists(atPath: url.path))
+            }
+        }
+
         @Test func effectiveRangeTrimsAudioAndRebasesVideoAndSRT() async throws {
             let workDirectory = try Self.makeWorkDirectory()
             defer { try? FileManager.default.removeItem(at: workDirectory) }
@@ -220,6 +411,140 @@ struct VideoExportServiceTests {
             #expect(srt.contains("00:00:01,000 --> 00:00:02,000"))
             let chapters = try String(contentsOf: output.chaptersURL, encoding: .utf8)
             #expect(chapters.isEmpty)
+        }
+
+        @Test func disabledSameFileM4BChaptersKeepExportTimelinesAligned() async throws {
+            let workDirectory = try Self.makeWorkDirectory()
+            defer { try? FileManager.default.removeItem(at: workDirectory) }
+            let encodedAudioURL = workDirectory.appendingPathComponent("source.m4a")
+            try await Self.writeToneFile(to: encodedAudioURL, seconds: 8)
+            let audioURL = workDirectory.appendingPathComponent("source.m4b")
+            try FileManager.default.moveItem(at: encodedAudioURL, to: audioURL)
+
+            let database = try DatabaseService(inMemory: ())
+            let bookID = "video-disabled-m4b-slices"
+            try database.write { db in
+                try db.execute(
+                    sql: "INSERT INTO audiobook (id, title, duration) VALUES (?, ?, ?)",
+                    arguments: [bookID, "Disabled M4B Slices", 8])
+                var track = TrackRecord(
+                    id: "t0",
+                    audiobookID: bookID,
+                    title: "Whole book",
+                    duration: 8,
+                    filePath: audioURL.absoluteString,
+                    isEnabled: true,
+                    sortOrder: 0,
+                    playlistPosition: nil)
+                try track.insert(db)
+                for (index, seed) in [
+                    ("Disabled introduction", 0.0, 2.0, false),
+                    ("First enabled", 2.0, 4.0, true),
+                    ("Disabled middle", 4.0, 6.0, false),
+                    ("Second enabled", 6.0, 8.0, true),
+                ].enumerated() {
+                    var chapter = ChapterRecord(
+                        id: nil,
+                        audiobookID: bookID,
+                        title: seed.0,
+                        startSeconds: seed.1,
+                        endSeconds: seed.2,
+                        isEnabled: seed.3,
+                        sortOrder: index,
+                        playlistPosition: nil)
+                    try chapter.insert(db)
+                }
+                try db.execute(
+                    sql: """
+                        INSERT INTO epub_block
+                          (id, audiobook_id, spine_href, spine_index, block_index,
+                           sequence_index, block_kind, text, chapter_index, is_hidden)
+                        VALUES
+                          ('disabled-intro', ?, 's', 0, 0, 0, 'paragraph',
+                           'Disabled introduction text.', 0, 0),
+                          ('first-enabled', ?, 's', 0, 1, 1, 'paragraph',
+                           'First enabled slice text.', 1, 0),
+                          ('disabled-middle', ?, 's', 0, 2, 2, 'paragraph',
+                           'Disabled middle text.', 2, 0),
+                          ('second-enabled', ?, 's', 0, 3, 3, 'paragraph',
+                           'Second enabled slice text.', 3, 0)
+                        """,
+                    arguments: [bookID, bookID, bookID, bookID])
+                try db.execute(
+                    sql: """
+                        INSERT INTO timeline_item
+                          (id, audiobook_id, item_type, title, audio_start_time,
+                           audio_end_time, epub_block_id, alignment_status)
+                        VALUES
+                          ('ti0', ?, 'textSegment', 'Disabled introduction',
+                           0.0, 2.0, 'disabled-intro', 'test'),
+                          ('ti1', ?, 'textSegment', 'First enabled',
+                           2.0, 4.0, 'first-enabled', 'test'),
+                          ('ti2', ?, 'textSegment', 'Disabled middle',
+                           4.0, 6.0, 'disabled-middle', 'test'),
+                          ('ti3', ?, 'textSegment', 'Second enabled',
+                           6.0, 8.0, 'second-enabled', 'test')
+                        """,
+                    arguments: [bookID, bookID, bookID, bookID])
+            }
+
+            let output = try await VideoExportService().exportVideo(
+                audiobookID: bookID,
+                bookTitle: "Disabled M4B Slices",
+                databaseWriter: database.writer,
+                cacheDirectory: workDirectory,
+                outputDirectory: workDirectory,
+                mode: .simple,
+                syncPoint: .begin,
+                width: 320,
+                height: 180)
+
+            let asset = AVURLAsset(url: output.videoURL)
+            #expect(abs(try await asset.load(.duration).seconds - 4) < 0.1)
+            let audioTrack = try #require(
+                try await asset.loadTracks(withMediaType: .audio).first)
+            let audioRange = try await audioTrack.load(.timeRange)
+            #expect(abs(audioRange.start.seconds) < 0.01)
+            #expect(abs(audioRange.duration.seconds - 4) < 0.1)
+
+            let timings = try await Self.videoSampleTimings(asset: asset)
+            #expect(timings.contains { abs($0.presentationTime) < 0.01 })
+            #expect(timings.contains { abs($0.presentationTime - 2) < 0.01 })
+            #expect(abs((timings.map(\.endTime).max() ?? 0) - 4) < 0.01)
+
+            let srt = try String(contentsOf: output.srtURL, encoding: .utf8)
+            #expect(srt.contains("00:00:00,000 --> 00:00:02,000"))
+            #expect(srt.contains("First enabled slice text."))
+            #expect(srt.contains("00:00:02,000 --> 00:00:04,000"))
+            #expect(srt.contains("Second enabled slice text."))
+            #expect(!srt.contains("Disabled introduction text."))
+            #expect(!srt.contains("Disabled middle text."))
+
+            let chapters = try String(contentsOf: output.chaptersURL, encoding: .utf8)
+            #expect(chapters == "00:00:00 First enabled\n00:00:02 Second enabled\n")
+
+            let rangedOutput = try await VideoExportService().exportVideo(
+                audiobookID: bookID,
+                bookTitle: "Disabled M4B Slices",
+                databaseWriter: database.writer,
+                cacheDirectory: workDirectory,
+                outputDirectory: workDirectory,
+                mode: .simple,
+                syncPoint: .begin,
+                width: 320,
+                height: 180,
+                range: 1..<3)
+            let rangedAsset = AVURLAsset(url: rangedOutput.videoURL)
+            #expect(abs(try await rangedAsset.load(.duration).seconds - 2) < 0.1)
+            let rangedSRT = try String(contentsOf: rangedOutput.srtURL, encoding: .utf8)
+            #expect(rangedSRT.contains("00:00:00,000 --> 00:00:01,000"))
+            #expect(rangedSRT.contains("First enabled slice text."))
+            #expect(rangedSRT.contains("00:00:01,000 --> 00:00:02,000"))
+            #expect(rangedSRT.contains("Second enabled slice text."))
+            #expect(!rangedSRT.contains("Disabled"))
+            let rangedChapters = try String(
+                contentsOf: rangedOutput.chaptersURL, encoding: .utf8)
+            #expect(rangedChapters == "00:00:01 Second enabled\n")
         }
 
         @Test func progressIsMonotonicAndCompletesAtOne() async throws {
