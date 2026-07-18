@@ -61,4 +61,39 @@ struct MarkdownCodeFenceTests {
             EPubBlockRecord.Kind(rawValue: $0.blockKind) == .code
         })
     }
+
+    @Test func longerBacktickFencePreservesShorterBackticksInsideCode() {
+        let parsed = parse("""
+            ````markdown
+            before
+            ```
+            after
+            ````
+
+            Tail prose.
+            """)
+        let code = parsed.blocks.first {
+            EPubBlockRecord.Kind(rawValue: $0.blockKind) == .code
+        }
+
+        #expect(code?.text == "before\n```\nafter")
+        #expect(code?.codeLanguage == "markdown")
+        #expect(parsed.blocks.contains { $0.text == "Tail prose." })
+    }
+
+    @Test func fenceOnlyClosesWithMatchingDelimiterCharacter() {
+        let parsed = parse("""
+            ```text
+            alpha
+            ~~~
+            omega
+            ```
+            """)
+        let code = parsed.blocks.first {
+            EPubBlockRecord.Kind(rawValue: $0.blockKind) == .code
+        }
+
+        #expect(code?.text == "alpha\n~~~\nomega")
+        #expect(code?.codeLanguage == "text")
+    }
 }

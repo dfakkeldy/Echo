@@ -56,10 +56,15 @@ func parseMarkdown(audiobookID: String, content: String, sourceURL: URL) -> EPUB
 
 // MARK: - Markdown tokenizer
 
+private struct MarkdownFence {
+    let delimiter: Character
+    let length: Int
+}
+
 private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
     var units: [TextUnit] = []
     var paragraphLines: [String] = []
-    var inFence = false
+    var fence: MarkdownFence?
     var fenceLines: [String] = []
     var fenceLanguage: String?
 
@@ -87,23 +92,20 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
     for rawLine in content.components(separatedBy: .newlines) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
-        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-            if inFence {
-                inFence = false
+        if let activeFence = fence {
+            if isMarkdownFenceClosing(trimmed, opener: activeFence) {
+                fence = nil
                 flushFence()
-            } else {
-                flushParagraph()
-                inFence = true
-                let info = trimmed.drop(while: { $0 == "`" || $0 == "~" })
-                    .trimmingCharacters(in: .whitespaces)
-                    .lowercased()
-                fenceLanguage = info.split(separator: " ").first.map(String.init)
-                if fenceLanguage?.isEmpty == true { fenceLanguage = nil }
+                continue
             }
+            fenceLines.append(rawLine)
             continue
         }
-        if inFence {
-            fenceLines.append(rawLine)
+
+        if let opening = markdownFenceOpening(trimmed) {
+            flushParagraph()
+            fence = opening.fence
+            fenceLanguage = opening.language
             continue
         }
         if trimmed.isEmpty {
@@ -138,8 +140,36 @@ private func tokenizeMarkdown(_ content: String) -> [TextUnit] {
         paragraphLines.append(trimmed)
     }
     flushParagraph()
-    if inFence { flushFence() }
+    if fence != nil { flushFence() }
     return units
+}
+
+private func markdownFenceOpening(_ line: String) -> (
+    fence: MarkdownFence, language: String?
+)? {
+    guard let run = markdownFenceRun(in: line), run.length >= 3 else { return nil }
+    let info = run.remainder.trimmingCharacters(in: .whitespaces).lowercased()
+    let language = info.split(separator: " ").first.map(String.init)
+    return (MarkdownFence(delimiter: run.delimiter, length: run.length), language)
+}
+
+private func isMarkdownFenceClosing(_ line: String, opener: MarkdownFence) -> Bool {
+    guard let run = markdownFenceRun(in: line),
+        run.delimiter == opener.delimiter,
+        run.length >= opener.length
+    else { return false }
+    return run.remainder.trimmingCharacters(in: .whitespaces).isEmpty
+}
+
+private func markdownFenceRun(in line: String) -> (
+    delimiter: Character, length: Int, remainder: String
+)? {
+    let characters = Array(line)
+    guard let delimiter = characters.first, delimiter == "`" || delimiter == "~" else {
+        return nil
+    }
+    let length = characters.prefix { $0 == delimiter }.count
+    return (delimiter, length, String(characters.dropFirst(length)))
 }
 
 private func isMarkdownThematicBreak(_ line: String) -> Bool {

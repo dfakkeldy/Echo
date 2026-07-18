@@ -81,6 +81,27 @@ struct NarrationCodeBlockCueTests {
         #expect(chunks.allSatisfy { !$0.g2pInputText.contains("attempt") })
     }
 
+    @Test func cacheURLChangesWhenCodeCueChangesButRawCodeDoesNot() async throws {
+        let database = try DatabaseService(inMemory: ())
+        let service = NarrationService(
+            db: database.writer,
+            audiobookID: "a1",
+            tts: MockTTSEngine(),
+            audioWriter: MockAudioWriter(),
+            cacheDirectory: .temporaryDirectory,
+            state: NarrationState(),
+            fmEnabled: { false })
+        let first = block(kind: .code, text: "let value = 42", cue: "First listing.")
+        let second = block(kind: .code, text: "let value = 42", cue: "Revised listing.")
+
+        let firstURL = await service.chapterCacheURL(
+            chapterIndex: 0, blocks: [first], voice: VoiceID("af_heart"))
+        let secondURL = await service.chapterCacheURL(
+            chapterIndex: 0, blocks: [second], voice: VoiceID("af_heart"))
+
+        #expect(firstURL != secondURL)
+    }
+
     @Test func estimatedSidecarExcludesCodeFromProseAnchors() {
         let code = alignmentBlock(id: "code", sequence: 0, kind: .code, text: "let x = 5")
         let prose = alignmentBlock(id: "prose", sequence: 1, kind: .paragraph, text: "Prose.")

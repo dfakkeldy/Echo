@@ -257,6 +257,12 @@ final class NarrationService {
         var renderedTexts: [String] = []
         renderedTexts.reserveCapacity(spoken.count)
         for block in spoken {
+            if let cueText = NarrationCodeBlockCue.spokenText(for: block) {
+                // Code bypasses normalization and pronunciation overrides at
+                // render time, so its cache identity must use that exact cue.
+                renderedTexts.append(cueText)
+                continue
+            }
             let normalized = TextNormalizer.normalize(block.text ?? "")
             renderedTexts.append(
                 Self.renderedText(
