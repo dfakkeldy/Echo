@@ -624,6 +624,66 @@ class RepairDispatchTests(CLITestCase):
         self.assertEqual(raised.exception.code, TEMPORARY_FAILURE)
 
 
+class OSErrorClassificationTests(CLITestCase):
+    """OS-level failures (e.g. the lease layer failing to create or lock
+    files under its lock root) must exit with a classified code and a
+    message on stderr, never escape as a traceback with exit 1."""
+
+    def test_install_oserror_maps_to_exit_74(self) -> None:
+        FakeStore.install_error = OSError("flock failed on the lease root")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code, stdout, stderr = self.run_main(
+                [
+                    "install",
+                    "--installer-worktree",
+                    "/work/installer",
+                    "--installer-sha",
+                    INSTALLER_SHA,
+                    "--source-worktree",
+                    "/work/source",
+                    "--source-sha",
+                    SOURCE_SHA,
+                    "--renderer-root",
+                    tmp,
+                    "--build-gate",
+                    "/work/gate.sh",
+                ]
+            )
+
+        self.assertEqual(code, 74)
+        self.assertEqual(stdout, "")
+        self.assertIn("flock failed on the lease root", stderr)
+
+    def test_repair_oserror_maps_to_exit_74(self) -> None:
+        FakeStore.repair_error = OSError("cannot create lease lock file")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code, stdout, stderr = self.run_main(
+                [
+                    "repair",
+                    "--installer-worktree",
+                    "/work/installer",
+                    "--installer-sha",
+                    INSTALLER_SHA,
+                    "--source-worktree",
+                    "/work/source",
+                    "--source-sha",
+                    SOURCE_SHA,
+                    "--manifest-sha",
+                    MANIFEST_SHA,
+                    "--renderer-root",
+                    tmp,
+                    "--build-gate",
+                    "/work/gate.sh",
+                ]
+            )
+
+        self.assertEqual(code, 74)
+        self.assertEqual(stdout, "")
+        self.assertIn("cannot create lease lock file", stderr)
+
+
 class RepairMismatchReportingTests(CLITestCase):
     def test_repair_mismatch_emits_structured_hash_lines_on_stderr(self) -> None:
         rebuilt_sha = "fe" * 32

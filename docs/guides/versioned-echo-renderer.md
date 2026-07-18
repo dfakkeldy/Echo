@@ -246,6 +246,7 @@ Auditing what's on disk, deciding what's safe to delete, and actually deleting i
 | `64` | Usage error: bad flags, a malformed SHA, an unknown subcommand. |
 | `65` | Verification / corruption / attestation failure. |
 | `69` | The renderer is incompatible with this host (non-Release build, a missing required capability, an unsupported architecture, or a deployment floor above the host's macOS version). |
+| `74` | Operating-system-level failure (`OSError`) outside the verified-content checks — e.g. the lease layer failing to create or lock files under its lock root. Matches BSD `sysexits` `EX_IOERR`; distinct from `65` so environment failures and corruption stay distinguishable. |
 | `75` | Temporary failure: another process holds a live lease on the same resources (including `repair`'s refuse-if-contended check in §8). Retry once the contention clears. |
 
 ---

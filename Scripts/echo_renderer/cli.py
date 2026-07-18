@@ -13,6 +13,10 @@ can react without parsing stderr text:
   build, a missing capability, an unsupported architecture, or a
   deployment floor above the host's macOS version --
   ``RendererIncompatibleError``, a narrow subclass of ``ValueError``).
+* ``74`` -- an operating-system-level failure (``OSError``) outside the
+  verified-content checks -- e.g. the lease layer failing to create or
+  lock files under its lock root. Matches BSD ``sysexits`` ``EX_IOERR``
+  and keeps environment failures distinguishable from corruption (65).
 * ``75`` -- temporary failure: another process holds a live lease on the
   same resources. This is the existing ``SystemExit(75)`` from
   ``echo_renderer.lease`` passed straight through, uncaught.
@@ -39,6 +43,7 @@ from echo_renderer.store import (
 _USAGE_EXIT_CODE = 64
 _VERIFICATION_EXIT_CODE = 65
 _INCOMPATIBLE_EXIT_CODE = 69
+_OS_FAILURE_EXIT_CODE = 74
 
 # The store methods this CLI drives (real ``RendererStore`` or an injected
 # test double) all share this narrow shape.
@@ -278,7 +283,8 @@ def main(
     (a narrow ``ValueError`` subclass) maps to 69, ``RepairMismatchError``
     maps to 65 with machine-readable ``requestedManifestSHA256=`` /
     ``rebuiltManifestSHA256=`` stderr lines ahead of the message, and any
-    other ``ValueError`` maps to 65.
+    other ``ValueError`` maps to 65. An ``OSError`` (e.g. from the lease
+    layer) maps to 74 rather than escaping as a traceback.
     """
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -301,6 +307,9 @@ def main(
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return _VERIFICATION_EXIT_CODE
+    except OSError as error:
+        print(str(error), file=sys.stderr)
+        return _OS_FAILURE_EXIT_CODE
 
 
 if __name__ == "__main__":
